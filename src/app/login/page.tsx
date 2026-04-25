@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getUserProfile } from '@/lib/firestore';
 
 export default function LoginPage() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, enterGuestMode } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<'welcome' | 'email'>('welcome');
   const [isSignUp, setIsSignUp] = useState(false);
@@ -105,6 +105,14 @@ export default function LoginPage() {
                 📱 Phone & WhatsApp login coming in a future update
               </p>
             </div>
+
+            <button
+              type="button"
+              onClick={() => { enterGuestMode(); router.push('/dashboard'); }}
+              className="w-full text-center text-sm font-semibold text-kaya-chocolate underline-offset-4 hover:underline pt-2"
+            >
+              Or try as a guest →
+            </button>
           </div>
         ) : (
           <form onSubmit={handleEmail} className="space-y-3">

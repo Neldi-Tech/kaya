@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import GuestBanner from './GuestBanner';
 
 const NAV_ITEMS = [
   { path: '/dashboard', icon: '🏠', label: 'Home' },
@@ -33,6 +34,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-kaya-cream">
+      <GuestBanner />
       {/* Header */}
       <div className="sticky top-0 z-20 bg-kaya-cream/95 backdrop-blur-md border-b border-kaya-warm-dark/50 safe-top">
         <div className="flex items-center justify-between px-4 h-14">

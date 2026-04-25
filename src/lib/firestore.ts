@@ -4,6 +4,11 @@ import {
   onSnapshot, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
+import {
+  isGuestActive,
+  MOCK_FAMILY, MOCK_CHILDREN, MOCK_REWARDS, MOCK_RATINGS, MOCK_AWARDS,
+  GUEST_FAMILY_ID,
+} from './mockFamily';
 
 // ── Types ──────────────────────────────────────────
 export type Role = 'parent' | 'helper' | 'kid';
@@ -158,20 +163,24 @@ export function todayString(): string {
 
 // ── User Operations ───────────────────────────────
 export async function createUserProfile(profile: UserProfile) {
+  if (isGuestActive()) return;
   await setDoc(doc(db, 'users', profile.uid), profile);
 }
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+  if (isGuestActive()) return { uid, email: 'guest@ourkaya.com', displayName: 'Guest Visitor', role: 'parent' as Role, familyId: GUEST_FAMILY_ID } as UserProfile;
   const snap = await getDoc(doc(db, 'users', uid));
   return snap.exists() ? (snap.data() as UserProfile) : null;
 }
 
 export async function updateUserProfile(uid: string, data: Partial<UserProfile>) {
+  if (isGuestActive()) return;
   await updateDoc(doc(db, 'users', uid), data);
 }
 
 // ── Family Operations ─────────────────────────────
 export async function createFamily(name: string, createdBy: string): Promise<string> {
+  if (isGuestActive()) return GUEST_FAMILY_ID;
   const familyRef = await addDoc(collection(db, 'families'), {
     name,
     createdBy,
@@ -193,15 +202,18 @@ export async function createFamily(name: string, createdBy: string): Promise<str
 }
 
 export async function getFamily(familyId: string): Promise<Family | null> {
+  if (isGuestActive()) return MOCK_FAMILY;
   const snap = await getDoc(doc(db, 'families', familyId));
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Family) : null;
 }
 
 export async function updateFamily(familyId: string, data: Partial<Family>) {
+  if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId), data);
 }
 
 export async function findFamilyByInviteCode(code: string): Promise<Family | null> {
+  if (isGuestActive()) return null;
   const q = query(collection(db, 'families'), where('inviteCode', '==', code.toUpperCase()));
   const snap = await getDocs(q);
   if (snap.empty) return null;
@@ -211,20 +223,27 @@ export async function findFamilyByInviteCode(code: string): Promise<Family | nul
 
 // ── Children Operations ───────────────────────────
 export async function addChild(familyId: string, child: Omit<Child, 'id'>): Promise<string> {
+  if (isGuestActive()) return 'guest-child';
   const ref = await addDoc(collection(db, 'families', familyId, 'children'), child);
   return ref.id;
 }
 
 export async function getChildren(familyId: string): Promise<Child[]> {
+  if (isGuestActive()) return MOCK_CHILDREN;
   const snap = await getDocs(collection(db, 'families', familyId, 'children'));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
 }
 
 export async function updateChild(familyId: string, childId: string, data: Partial<Child>) {
+  if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId, 'children', childId), data);
 }
 
 export function subscribeToChildren(familyId: string, callback: (children: Child[]) => void) {
+  if (isGuestActive()) {
+    callback(MOCK_CHILDREN);
+    return () => {};
+  }
   return onSnapshot(collection(db, 'families', familyId, 'children'), (snap) => {
     callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Child)));
   });
@@ -232,6 +251,7 @@ export function subscribeToChildren(familyId: string, callback: (children: Child
 
 // ── Rating Operations ─────────────────────────────
 export async function submitRating(familyId: string, rating: Omit<DailyRating, 'id'>) {
+  if (isGuestActive()) return 'guest-rating';
   const ref = await addDoc(collection(db, 'families', familyId, 'ratings'), {
     ...rating,
     createdAt: serverTimestamp(),
@@ -252,6 +272,7 @@ export async function submitRating(familyId: string, rating: Omit<DailyRating, '
 }
 
 export async function getTodayRatings(familyId: string, childId: string, period: string): Promise<DailyRating | null> {
+  if (isGuestActive()) return MOCK_RATINGS.find(r => r.childId === childId && r.period === period && r.date === todayString()) || null;
   const today = todayString();
   const q = query(
     collection(db, 'families', familyId, 'ratings'),
@@ -266,6 +287,7 @@ export async function getTodayRatings(familyId: string, childId: string, period:
 }
 
 export async function getRecentRatings(familyId: string, days: number = 7): Promise<DailyRating[]> {
+  if (isGuestActive()) return MOCK_RATINGS;
   const since = new Date();
   since.setDate(since.getDate() - days);
   const sinceStr = since.toISOString().split('T')[0];
@@ -281,6 +303,7 @@ export async function getRecentRatings(familyId: string, days: number = 7): Prom
 
 // ── Award Operations ──────────────────────────────
 export async function giveAward(familyId: string, award: Omit<Award, 'id'>) {
+  if (isGuestActive()) return 'guest-award';
   const ref = await addDoc(collection(db, 'families', familyId, 'awards'), {
     ...award,
     createdAt: serverTimestamp(),
@@ -301,6 +324,7 @@ export async function giveAward(familyId: string, award: Omit<Award, 'id'>) {
 }
 
 export async function getRecentAwards(familyId: string, days: number = 7): Promise<Award[]> {
+  if (isGuestActive()) return MOCK_AWARDS;
   const q = query(
     collection(db, 'families', familyId, 'awards'),
     orderBy('createdAt', 'desc'),
@@ -312,6 +336,7 @@ export async function getRecentAwards(familyId: string, days: number = 7): Promi
 
 // ── Meeting Operations ────────────────────────────
 export async function createMeeting(familyId: string, meeting: Omit<Meeting, 'id'>) {
+  if (isGuestActive()) return { id: 'guest-meeting' } as any;
   return addDoc(collection(db, 'families', familyId, 'meetings'), {
     ...meeting,
     createdAt: serverTimestamp(),
@@ -319,6 +344,7 @@ export async function createMeeting(familyId: string, meeting: Omit<Meeting, 'id
 }
 
 export async function getMeetings(familyId: string): Promise<Meeting[]> {
+  if (isGuestActive()) return [];
   const q = query(
     collection(db, 'families', familyId, 'meetings'),
     orderBy('createdAt', 'desc'),
@@ -330,15 +356,18 @@ export async function getMeetings(familyId: string): Promise<Meeting[]> {
 
 // ── Rewards Operations ────────────────────────────
 export async function getRewards(familyId: string): Promise<Reward[]> {
+  if (isGuestActive()) return MOCK_REWARDS;
   const snap = await getDocs(collection(db, 'families', familyId, 'rewards'));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Reward));
 }
 
 export async function addReward(familyId: string, reward: Omit<Reward, 'id'>) {
+  if (isGuestActive()) return { id: 'guest-reward' } as any;
   return addDoc(collection(db, 'families', familyId, 'rewards'), reward);
 }
 
 export async function redeemReward(familyId: string, childId: string, reward: Reward) {
+  if (isGuestActive()) return;
   const childRef = doc(db, 'families', familyId, 'children', childId);
   const childSnap = await getDoc(childRef);
   if (!childSnap.exists()) throw new Error('Child not found');
@@ -362,6 +391,7 @@ export async function redeemReward(familyId: string, childId: string, reward: Re
 
 // ── Notification Operations ───────────────────────
 export async function createNotification(familyId: string, notification: Omit<Notification, 'id'>) {
+  if (isGuestActive()) return { id: 'guest-notif' } as any;
   return addDoc(collection(db, 'families', familyId, 'notifications'), {
     ...notification,
     createdAt: serverTimestamp(),
@@ -369,6 +399,7 @@ export async function createNotification(familyId: string, notification: Omit<No
 }
 
 export async function getNotifications(familyId: string, userId: string): Promise<Notification[]> {
+  if (isGuestActive()) return [];
   const q = query(
     collection(db, 'families', familyId, 'notifications'),
     where('forUserId', '==', userId),
@@ -380,5 +411,6 @@ export async function getNotifications(familyId: string, userId: string): Promis
 }
 
 export async function markNotificationRead(familyId: string, notificationId: string) {
+  if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId, 'notifications', notificationId), { read: true });
 }
