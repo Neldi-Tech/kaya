@@ -1,0 +1,384 @@
+import {
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
+  query, where, orderBy, limit, Timestamp, serverTimestamp,
+  onSnapshot, writeBatch,
+} from 'firebase/firestore';
+import { db } from './firebase';
+
+// ── Types ──────────────────────────────────────────
+export type Role = 'parent' | 'helper' | 'kid';
+export type PointsMode = 'full' | 'badges-only' | 'encouragement';
+export type RatingValue = 'excellent' | 'good' | 'bad' | 'skip';
+
+export interface UserProfile {
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+  role: Role;
+  familyId: string;
+  childId?: string; // if role === 'kid', which child they are
+  createdAt: Timestamp;
+}
+
+export interface Family {
+  id: string;
+  name: string;
+  createdBy: string;
+  inviteCode: string;
+  pointsMode: PointsMode;
+  routines: Routine[];
+  createdAt: Timestamp;
+}
+
+export interface Routine {
+  id: string;
+  label: string;
+  labelSw: string;
+  icon: string;
+  period: 'morning' | 'evening';
+  pointsExcellent: number;
+  pointsGood: number;
+  pointsBad: number;
+  active: boolean;
+}
+
+export interface Child {
+  id: string;
+  name: string;
+  houseName: string;
+  houseColor: string;
+  avatarEmoji: string;
+  totalPoints: number;
+  weeklyPoints: number;
+  streak: number;
+  badges: string[];
+}
+
+export interface DailyRating {
+  id: string;
+  childId: string;
+  date: string; // YYYY-MM-DD
+  period: 'morning' | 'evening';
+  ratings: Record<string, RatingValue>;
+  totalPoints: number;
+  ratedBy: string;
+  ratedByName: string;
+  createdAt: Timestamp;
+}
+
+export interface Award {
+  id: string;
+  childId: string;
+  points: number;
+  reason: string;
+  category: string;
+  awardedBy: string;
+  awardedByName: string;
+  createdAt: Timestamp;
+}
+
+export interface Meeting {
+  id: string;
+  date: string;
+  type: 'weekly' | 'special' | 'kid-led';
+  attendees: string[];
+  gratitude: Record<string, string>;
+  goals: Record<string, string>;
+  notes: string;
+  createdBy: string;
+  createdAt: Timestamp;
+}
+
+export interface Reward {
+  id: string;
+  title: string;
+  description: string;
+  pointsCost: number;
+  icon: string;
+  active: boolean;
+}
+
+export interface Notification {
+  id: string;
+  type: 'points' | 'badge' | 'meeting' | 'reward' | 'streak';
+  title: string;
+  message: string;
+  read: boolean;
+  forUserId: string;
+  createdAt: Timestamp;
+}
+
+// ── Default Routines ──────────────────────────────
+export const DEFAULT_ROUTINES: Routine[] = [
+  { id: 'bed', label: 'Making bed', labelSw: 'Kutandika Kitanda', icon: '🛏️', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'teeth', label: 'Brushing teeth', labelSw: 'Kuswaki', icon: '🪥', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'bath', label: 'Taking bath', labelSw: 'Kuoga', icon: '🚿', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'timely', label: 'Timely preparation', labelSw: 'Kujiandaa kwa wakati', icon: '⏰', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'breakfast', label: 'Breakfast', labelSw: 'Chai Asubuhi', icon: '🥣', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'room', label: 'Clean room', labelSw: 'Chumba Safi', icon: '✨', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'prayer', label: 'Morning prayer', labelSw: 'Sala Asubuhi', icon: '🤲', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'behavior', label: 'Good behavior', labelSw: 'Adabu Njema', icon: '⭐', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'homework', label: 'Homework', labelSw: 'Kazi ya Nyumbani', icon: '📚', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'dinner', label: 'Dinner manners', labelSw: 'Adabu za Chakula', icon: '🍽️', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'bedtime', label: 'Bedtime routine', labelSw: 'Maandalizi ya Kulala', icon: '🌙', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'evening-prayer', label: 'Evening prayer', labelSw: 'Sala Jioni', icon: '🕌', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+];
+
+// ── Default Rewards ──────────────────────────────
+export const DEFAULT_REWARDS: Omit<Reward, 'id'>[] = [
+  { title: 'Extra screen time (30 min)', description: 'Earn 30 minutes of extra tablet/TV time', pointsCost: 20, icon: '📱', active: true },
+  { title: 'Choose dinner menu', description: 'Pick what the family eats for dinner', pointsCost: 30, icon: '🍕', active: true },
+  { title: 'Stay up 30 min late', description: 'Bedtime pushed back by 30 minutes', pointsCost: 25, icon: '🌙', active: true },
+  { title: 'Ice cream trip', description: 'Family trip to get ice cream', pointsCost: 50, icon: '🍦', active: true },
+  { title: 'New book or toy', description: 'Choose a new book or small toy', pointsCost: 100, icon: '🎁', active: true },
+  { title: 'Friend sleepover', description: 'Have a friend sleep over for one night', pointsCost: 150, icon: '🏠', active: true },
+];
+
+// ── Badge Definitions ─────────────────────────────
+export const BADGES = [
+  { id: 'first-star', name: 'First Star', description: 'Earn your first points', icon: '⭐', threshold: 1 },
+  { id: 'rising-star', name: 'Rising Star', description: 'Earn 50 total points', icon: '🌟', threshold: 50 },
+  { id: 'superstar', name: 'Superstar', description: 'Earn 200 total points', icon: '💫', threshold: 200 },
+  { id: 'streak-3', name: 'On Fire', description: '3-day perfect streak', icon: '🔥', threshold: 3 },
+  { id: 'streak-7', name: 'Unstoppable', description: '7-day perfect streak', icon: '🚀', threshold: 7 },
+  { id: 'streak-30', name: 'Legend', description: '30-day streak', icon: '👑', threshold: 30 },
+  { id: 'helper-hero', name: 'Helper Hero', description: 'Help with 10 extra chores', icon: '🦸', threshold: 10 },
+  { id: 'meeting-champ', name: 'Meeting Champion', description: 'Attend 5 family meetings', icon: '🏆', threshold: 5 },
+];
+
+// ── Utility ───────────────────────────────────────
+function generateInviteCode(): string {
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
+}
+
+export function todayString(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+// ── User Operations ───────────────────────────────
+export async function createUserProfile(profile: UserProfile) {
+  await setDoc(doc(db, 'users', profile.uid), profile);
+}
+
+export async function getUserProfile(uid: string): Promise<UserProfile | null> {
+  const snap = await getDoc(doc(db, 'users', uid));
+  return snap.exists() ? (snap.data() as UserProfile) : null;
+}
+
+export async function updateUserProfile(uid: string, data: Partial<UserProfile>) {
+  await updateDoc(doc(db, 'users', uid), data);
+}
+
+// ── Family Operations ─────────────────────────────
+export async function createFamily(name: string, createdBy: string): Promise<string> {
+  const familyRef = await addDoc(collection(db, 'families'), {
+    name,
+    createdBy,
+    inviteCode: generateInviteCode(),
+    pointsMode: 'full' as PointsMode,
+    routines: DEFAULT_ROUTINES,
+    createdAt: serverTimestamp(),
+  });
+
+  // Seed default rewards
+  const batch = writeBatch(db);
+  DEFAULT_REWARDS.forEach((reward) => {
+    const rewardRef = doc(collection(db, 'families', familyRef.id, 'rewards'));
+    batch.set(rewardRef, reward);
+  });
+  await batch.commit();
+
+  return familyRef.id;
+}
+
+export async function getFamily(familyId: string): Promise<Family | null> {
+  const snap = await getDoc(doc(db, 'families', familyId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Family) : null;
+}
+
+export async function updateFamily(familyId: string, data: Partial<Family>) {
+  await updateDoc(doc(db, 'families', familyId), data);
+}
+
+export async function findFamilyByInviteCode(code: string): Promise<Family | null> {
+  const q = query(collection(db, 'families'), where('inviteCode', '==', code.toUpperCase()));
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() } as Family;
+}
+
+// ── Children Operations ───────────────────────────
+export async function addChild(familyId: string, child: Omit<Child, 'id'>): Promise<string> {
+  const ref = await addDoc(collection(db, 'families', familyId, 'children'), child);
+  return ref.id;
+}
+
+export async function getChildren(familyId: string): Promise<Child[]> {
+  const snap = await getDocs(collection(db, 'families', familyId, 'children'));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Child));
+}
+
+export async function updateChild(familyId: string, childId: string, data: Partial<Child>) {
+  await updateDoc(doc(db, 'families', familyId, 'children', childId), data);
+}
+
+export function subscribeToChildren(familyId: string, callback: (children: Child[]) => void) {
+  return onSnapshot(collection(db, 'families', familyId, 'children'), (snap) => {
+    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Child)));
+  });
+}
+
+// ── Rating Operations ─────────────────────────────
+export async function submitRating(familyId: string, rating: Omit<DailyRating, 'id'>) {
+  const ref = await addDoc(collection(db, 'families', familyId, 'ratings'), {
+    ...rating,
+    createdAt: serverTimestamp(),
+  });
+
+  // Update child's total points
+  const childRef = doc(db, 'families', familyId, 'children', rating.childId);
+  const childSnap = await getDoc(childRef);
+  if (childSnap.exists()) {
+    const child = childSnap.data() as Child;
+    await updateDoc(childRef, {
+      totalPoints: (child.totalPoints || 0) + rating.totalPoints,
+      weeklyPoints: (child.weeklyPoints || 0) + rating.totalPoints,
+    });
+  }
+
+  return ref.id;
+}
+
+export async function getTodayRatings(familyId: string, childId: string, period: string): Promise<DailyRating | null> {
+  const today = todayString();
+  const q = query(
+    collection(db, 'families', familyId, 'ratings'),
+    where('childId', '==', childId),
+    where('date', '==', today),
+    where('period', '==', period)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() } as DailyRating;
+}
+
+export async function getRecentRatings(familyId: string, days: number = 7): Promise<DailyRating[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().split('T')[0];
+
+  const q = query(
+    collection(db, 'families', familyId, 'ratings'),
+    where('date', '>=', sinceStr),
+    orderBy('date', 'desc')
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DailyRating));
+}
+
+// ── Award Operations ──────────────────────────────
+export async function giveAward(familyId: string, award: Omit<Award, 'id'>) {
+  const ref = await addDoc(collection(db, 'families', familyId, 'awards'), {
+    ...award,
+    createdAt: serverTimestamp(),
+  });
+
+  // Update child points
+  const childRef = doc(db, 'families', familyId, 'children', award.childId);
+  const childSnap = await getDoc(childRef);
+  if (childSnap.exists()) {
+    const child = childSnap.data() as Child;
+    await updateDoc(childRef, {
+      totalPoints: (child.totalPoints || 0) + award.points,
+      weeklyPoints: (child.weeklyPoints || 0) + award.points,
+    });
+  }
+
+  return ref.id;
+}
+
+export async function getRecentAwards(familyId: string, days: number = 7): Promise<Award[]> {
+  const q = query(
+    collection(db, 'families', familyId, 'awards'),
+    orderBy('createdAt', 'desc'),
+    limit(20)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Award));
+}
+
+// ── Meeting Operations ────────────────────────────
+export async function createMeeting(familyId: string, meeting: Omit<Meeting, 'id'>) {
+  return addDoc(collection(db, 'families', familyId, 'meetings'), {
+    ...meeting,
+    createdAt: serverTimestamp(),
+  });
+}
+
+export async function getMeetings(familyId: string): Promise<Meeting[]> {
+  const q = query(
+    collection(db, 'families', familyId, 'meetings'),
+    orderBy('createdAt', 'desc'),
+    limit(20)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Meeting));
+}
+
+// ── Rewards Operations ────────────────────────────
+export async function getRewards(familyId: string): Promise<Reward[]> {
+  const snap = await getDocs(collection(db, 'families', familyId, 'rewards'));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Reward));
+}
+
+export async function addReward(familyId: string, reward: Omit<Reward, 'id'>) {
+  return addDoc(collection(db, 'families', familyId, 'rewards'), reward);
+}
+
+export async function redeemReward(familyId: string, childId: string, reward: Reward) {
+  const childRef = doc(db, 'families', familyId, 'children', childId);
+  const childSnap = await getDoc(childRef);
+  if (!childSnap.exists()) throw new Error('Child not found');
+
+  const child = childSnap.data() as Child;
+  if (child.totalPoints < reward.pointsCost) throw new Error('Not enough points');
+
+  await updateDoc(childRef, {
+    totalPoints: child.totalPoints - reward.pointsCost,
+  });
+
+  // Log the redemption
+  await addDoc(collection(db, 'families', familyId, 'redemptions'), {
+    childId,
+    rewardId: reward.id,
+    rewardTitle: reward.title,
+    pointsSpent: reward.pointsCost,
+    createdAt: serverTimestamp(),
+  });
+}
+
+// ── Notification Operations ───────────────────────
+export async function createNotification(familyId: string, notification: Omit<Notification, 'id'>) {
+  return addDoc(collection(db, 'families', familyId, 'notifications'), {
+    ...notification,
+    createdAt: serverTimestamp(),
+  });
+}
+
+export async function getNotifications(familyId: string, userId: string): Promise<Notification[]> {
+  const q = query(
+    collection(db, 'families', familyId, 'notifications'),
+    where('forUserId', '==', userId),
+    orderBy('createdAt', 'desc'),
+    limit(30)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Notification));
+}
+
+export async function markNotificationRead(familyId: string, notificationId: string) {
+  await updateDoc(doc(db, 'families', familyId, 'notifications', notificationId), { read: true });
+}

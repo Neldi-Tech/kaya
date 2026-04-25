@@ -1,0 +1,97 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function belongsToFamily(familyId) {
+      return isSignedIn() && getUserProfile().familyId == familyId;
+    }
+
+    function isParentInFamily(familyId) {
+      return belongsToFamily(familyId) && getUserProfile().role == 'parent';
+    }
+
+    function isParentOrHelper(familyId) {
+      let profile = getUserProfile();
+      return belongsToFamily(familyId) && (profile.role == 'parent' || profile.role == 'helper');
+    }
+
+    // ── Users ──────────────────────────────────────
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      // Users can create their own profile (during onboarding)
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Users can update their own profile
+      allow update: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ── Families ───────────────────────────────────
+    match /families/{familyId} {
+      // Family members can read
+      allow read: if belongsToFamily(familyId);
+      // Any signed-in user can create a family (during onboarding)
+      allow create: if isSignedIn();
+      // Only parents can update family settings
+      allow update: if isParentInFamily(familyId);
+
+      // Allow reading family by invite code (for joining)
+      allow list: if isSignedIn();
+
+      // ── Children ─────────────────────────────────
+      match /children/{childId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if isParentInFamily(familyId);
+        allow update: if isParentOrHelper(familyId);
+      }
+
+      // ── Ratings ──────────────────────────────────
+      match /ratings/{ratingId} {
+        allow read: if belongsToFamily(familyId);
+        // Parents and helpers can rate
+        allow create: if isParentOrHelper(familyId);
+      }
+
+      // ── Awards ───────────────────────────────────
+      match /awards/{awardId} {
+        allow read: if belongsToFamily(familyId);
+        // Only parents can award points
+        allow create: if isParentInFamily(familyId);
+      }
+
+      // ── Meetings ─────────────────────────────────
+      match /meetings/{meetingId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if belongsToFamily(familyId);
+      }
+
+      // ── Rewards ──────────────────────────────────
+      match /rewards/{rewardId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId);
+      }
+
+      // ── Redemptions ──────────────────────────────
+      match /redemptions/{redemptionId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if isParentInFamily(familyId);
+      }
+
+      // ── Notifications ────────────────────────────
+      match /notifications/{notificationId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if belongsToFamily(familyId);
+        allow update: if belongsToFamily(familyId);
+      }
+    }
+  }
+}
