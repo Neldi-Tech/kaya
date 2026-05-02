@@ -4,16 +4,18 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { getRecentRatings, getRecentAwards, BADGES, DailyRating, Award } from '@/lib/firestore';
+import { getRecentRatings, getRecentAwards, updateChild, BADGES, DailyRating, Award } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
 export default function ProfilesPage() {
-  const { profile } = useAuth();
+  const { profile, isGuest } = useAuth();
   const { children } = useFamily();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState(0);
   const [ratings, setRatings] = useState<DailyRating[]>([]);
   const [awards, setAwards] = useState<Award[]>([]);
+  const [managingBadges, setManagingBadges] = useState(false);
+  const [savingBadge, setSavingBadge] = useState<string | null>(null);
 
   // Honor ?child=<id> for deep links from the dashboard kid cards.
   useEffect(() => {
@@ -40,6 +42,23 @@ export default function ProfilesPage() {
   if (!child) return null;
 
   const earnedBadges = BADGES.filter((b) => (child.badges || []).includes(b.id));
+  const isParent = profile?.role === 'parent';
+
+  const toggleBadge = async (badgeId: string) => {
+    if (!profile?.familyId || !child || isGuest || savingBadge) return;
+    const has = (child.badges || []).includes(badgeId);
+    const next = has
+      ? (child.badges || []).filter((b) => b !== badgeId)
+      : [...(child.badges || []), badgeId];
+    setSavingBadge(badgeId);
+    try {
+      await updateChild(profile.familyId, child.id, { badges: next });
+      // Real-time subscription in FamilyContext will reflect the change.
+    } catch (e) {
+      // Ignore — UI will stay in sync via the subscription.
+    }
+    setSavingBadge(null);
+  };
   const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   // Build a simple 7-day activity heatmap
@@ -124,9 +143,22 @@ export default function ProfilesPage() {
       </div>
 
       {/* Badges */}
-      {earnedBadges.length > 0 && (
-        <div className="mb-5">
-          <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider mb-3">Badges Earned</h3>
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">
+            {earnedBadges.length > 0 ? 'Badges earned' : 'Badges'}
+          </h3>
+          {isParent && !isGuest && (
+            <button
+              onClick={() => setManagingBadges((m) => !m)}
+              className="text-[11px] text-kaya-gold font-semibold hover:underline"
+            >
+              {managingBadges ? 'Done' : earnedBadges.length > 0 ? 'Manage' : '+ Award badge'}
+            </button>
+          )}
+        </div>
+
+        {!managingBadges && earnedBadges.length > 0 && (
           <div className="flex gap-3 overflow-x-auto pb-1">
             {earnedBadges.map((b) => (
               <div key={b.id} className="flex-shrink-0 bg-white border border-kaya-warm-dark rounded-kaya p-3 text-center w-20">
@@ -135,8 +167,43 @@ export default function ProfilesPage() {
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+
+        {!managingBadges && earnedBadges.length === 0 && (
+          <p className="text-xs text-kaya-sand">No badges yet. {isParent && !isGuest && 'Tap "+ Award badge" to recognize a milestone.'}</p>
+        )}
+
+        {managingBadges && (
+          <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3">
+            <p className="text-[11px] text-kaya-sand mb-3">Tap a badge to award or remove it.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {BADGES.map((b) => {
+                const has = (child.badges || []).includes(b.id);
+                const saving = savingBadge === b.id;
+                return (
+                  <button
+                    key={b.id}
+                    onClick={() => toggleBadge(b.id)}
+                    disabled={!!savingBadge}
+                    className={`flex items-center gap-2 p-2.5 rounded-kaya-sm border transition-all text-left ${
+                      has
+                        ? 'border-kaya-gold bg-kaya-gold/5'
+                        : 'border-kaya-warm-dark bg-white hover:border-kaya-sand-light'
+                    } ${saving ? 'opacity-60' : ''}`}
+                  >
+                    <div className="text-xl shrink-0">{b.icon}</div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] font-bold leading-tight truncate">{b.name}</p>
+                      <p className="text-[10px] text-kaya-sand truncate">{b.description}</p>
+                    </div>
+                    {has && <span className="text-kaya-gold text-xs font-bold shrink-0">✓</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Recent awards */}
       {awards.length > 0 && (
