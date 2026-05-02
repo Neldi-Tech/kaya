@@ -70,7 +70,17 @@ export default function OnboardingPage() {
       let familyId: string;
 
       if (familyMode === 'create') {
-        familyId = await createFamily(familyName || `${user.displayName}'s Family`, user.uid);
+        const pendingRef = typeof window !== 'undefined'
+          ? window.localStorage.getItem('kaya.ref') || undefined
+          : undefined;
+        familyId = await createFamily(
+          familyName || `${user.displayName}'s Family`,
+          user.uid,
+          pendingRef,
+        );
+        if (pendingRef && typeof window !== 'undefined') {
+          window.localStorage.removeItem('kaya.ref');
+        }
 
         // Add children
         for (const child of children) {

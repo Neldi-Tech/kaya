@@ -1,12 +1,35 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { getFamilyByReferralCode } from '@/lib/firestore';
+
+const REF_STORAGE_KEY = 'kaya.ref';
+
+function ReferralCapture({ onReferrer }: { onReferrer: (name: string | null) => void }) {
+  const searchParams = useSearchParams();
+  const refCode = searchParams.get('ref');
+
+  useEffect(() => {
+    if (!refCode) return;
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(REF_STORAGE_KEY, refCode.toUpperCase());
+    }
+    (async () => {
+      const family = await getFamilyByReferralCode(refCode);
+      if (family) onReferrer(family.name);
+    })();
+  }, [refCode, onReferrer]);
+
+  return null;
+}
 
 export default function LandingPage() {
   const { user, profile, loading, isGuest, enterGuestMode } = useAuth();
   const router = useRouter();
+  const [referrerName, setReferrerName] = useState<string | null>(null);
+  const [showReferralBanner, setShowReferralBanner] = useState(true);
 
   // Logged-in users (not guest) skip the landing page.
   useEffect(() => {
@@ -22,6 +45,31 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-kaya-cream text-kaya-chocolate">
+      <Suspense fallback={null}>
+        <ReferralCapture onReferrer={setReferrerName} />
+      </Suspense>
+
+      {referrerName && showReferralBanner && (
+        <div className="bg-gradient-to-r from-kaya-gold-light to-kaya-warm border-b border-kaya-warm-dark">
+          <div className="max-w-7xl mx-auto px-5 py-4 flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-kaya-gold flex items-center justify-center text-2xl shrink-0">🎁</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-bold text-kaya-chocolate">
+                You were invited by <span className="text-[#7A5C0A]">{referrerName}</span>
+              </p>
+              <p className="text-[12px] text-kaya-chocolate/70 mt-0.5">
+                When you finish setup, both your families unlock a bonus house color.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowReferralBanner(false)}
+              className="text-[11px] text-kaya-chocolate/60 hover:text-kaya-chocolate font-semibold whitespace-nowrap"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {/* ── Top nav ─────────────────────────────────── */}
       <header className="flex items-center justify-between px-5 py-4 border-b border-kaya-warm-dark/60">
         <div className="flex items-center gap-2.5">

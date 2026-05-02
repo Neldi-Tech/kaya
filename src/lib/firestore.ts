@@ -1,7 +1,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch,
+  onSnapshot, writeBatch, runTransaction,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
@@ -9,6 +9,7 @@ import {
   MOCK_FAMILY, MOCK_CHILDREN, MOCK_REWARDS, MOCK_RATINGS, MOCK_AWARDS,
   GUEST_FAMILY_ID,
 } from './mockFamily';
+import { FOUNDING_FAMILY_LIMIT, generateReferralCode } from './referral';
 
 // ── Types ──────────────────────────────────────────
 export type Role = 'parent' | 'helper' | 'kid';
@@ -31,6 +32,14 @@ export interface Family {
   name: string;
   createdBy: string;
   inviteCode: string;
+  // ── Referral campaign ──
+  referralCode?: string;          // unique code for inviting OTHER families to start their own
+  referredBy?: string | null;     // familyId of the family that referred us (if any)
+  referralCount?: number;         // direct successful referrals
+  compoundCredit?: number;        // credit from referral-of-referral (1 level deep)
+  isFoundingFamily?: boolean;     // true if among the first FOUNDING_FAMILY_LIMIT families
+  spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
+  // ── Settings ──
   pointsMode: PointsMode;
   routines: Routine[];
   createdAt: Timestamp;
@@ -180,26 +189,135 @@ export async function updateUserProfile(uid: string, data: Partial<UserProfile>)
 }
 
 // ── Family Operations ─────────────────────────────
-export async function createFamily(name: string, createdBy: string): Promise<string> {
+export async function createFamily(
+  name: string,
+  createdBy: string,
+  referralCode?: string,
+): Promise<string> {
   if (isGuestActive()) return GUEST_FAMILY_ID;
-  const familyRef = await addDoc(collection(db, 'families'), {
-    name,
-    createdBy,
-    inviteCode: generateInviteCode(),
-    pointsMode: 'full' as PointsMode,
-    routines: DEFAULT_ROUTINES,
-    createdAt: serverTimestamp(),
+
+  // Resolve the referrer family up-front (queries inside transactions are not
+  // supported in the client SDK).
+  let referrerFamilyId: string | null = null;
+  if (referralCode) {
+    const q = query(
+      collection(db, 'families'),
+      where('referralCode', '==', referralCode.toUpperCase()),
+    );
+    const snap = await getDocs(q);
+    if (!snap.empty) referrerFamilyId = snap.docs[0].id;
+  }
+
+  // Atomic: increment global family counter, set founding-family flag, link
+  // referrer (+ compound credit one level up).
+  let createdFamilyId = '';
+  await runTransaction(db, async (tx) => {
+    // ── reads first ──
+    const metaRef = doc(db, 'meta', 'global');
+    const metaSnap = await tx.get(metaRef);
+
+    let referrerData: any = null;
+    let grandRefId: string | null = null;
+    let grandData: any = null;
+    if (referrerFamilyId) {
+      const referrerSnap = await tx.get(doc(db, 'families', referrerFamilyId));
+      if (referrerSnap.exists()) {
+        referrerData = referrerSnap.data();
+        if (referrerData.referredBy) {
+          grandRefId = referrerData.referredBy as string;
+          const grandSnap = await tx.get(doc(db, 'families', grandRefId));
+          if (grandSnap.exists()) grandData = grandSnap.data();
+        }
+      } else {
+        referrerFamilyId = null; // stale code; ignore
+      }
+    }
+
+    // ── compute ──
+    const familyCount = (metaSnap.exists() ? metaSnap.data().familyCount : 0) || 0;
+    const newCount = familyCount + 1;
+    const isFounding = newCount <= FOUNDING_FAMILY_LIMIT;
+
+    // ── writes ──
+    const familyRef = doc(collection(db, 'families'));
+    createdFamilyId = familyRef.id;
+
+    tx.set(familyRef, {
+      name,
+      createdBy,
+      inviteCode: generateInviteCode(),
+      referralCode: generateReferralCode(name),
+      referredBy: referrerFamilyId,
+      referralCount: 0,
+      compoundCredit: 0,
+      isFoundingFamily: isFounding,
+      spotlightOptIn: false,
+      pointsMode: 'full' as PointsMode,
+      routines: DEFAULT_ROUTINES,
+      createdAt: serverTimestamp(),
+    });
+
+    tx.set(metaRef, { familyCount: newCount }, { merge: true });
+
+    if (referrerFamilyId && referrerData) {
+      tx.update(doc(db, 'families', referrerFamilyId), {
+        referralCount: (referrerData.referralCount || 0) + 1,
+      });
+    }
+    if (grandRefId && grandData) {
+      tx.update(doc(db, 'families', grandRefId), {
+        compoundCredit: (grandData.compoundCredit || 0) + 1,
+      });
+    }
   });
 
-  // Seed default rewards
+  // Seed default rewards (separate batch — too many writes for one transaction).
   const batch = writeBatch(db);
   DEFAULT_REWARDS.forEach((reward) => {
-    const rewardRef = doc(collection(db, 'families', familyRef.id, 'rewards'));
+    const rewardRef = doc(collection(db, 'families', createdFamilyId, 'rewards'));
     batch.set(rewardRef, reward);
   });
   await batch.commit();
 
-  return familyRef.id;
+  return createdFamilyId;
+}
+
+export async function getFamilyByReferralCode(code: string): Promise<Family | null> {
+  if (isGuestActive()) return null;
+  if (!code) return null;
+  const q = query(
+    collection(db, 'families'),
+    where('referralCode', '==', code.toUpperCase()),
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() } as Family;
+}
+
+export async function getReferredFamilies(familyId: string): Promise<Family[]> {
+  if (isGuestActive()) {
+    // Demo: show one referred family in guest mode so the panel feels populated.
+    return [{
+      ...MOCK_FAMILY,
+      id: 'demo-referred',
+      name: 'The Mwangi Family',
+      referredBy: familyId,
+    } as Family];
+  }
+  const q = query(collection(db, 'families'), where('referredBy', '==', familyId));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Family));
+}
+
+// Lazily backfill a referralCode for a family that pre-dates the campaign.
+// Safe to call repeatedly; no-op if a code already exists.
+export async function ensureReferralCode(family: Family): Promise<string> {
+  if (family.referralCode) return family.referralCode;
+  if (isGuestActive()) return generateReferralCode(family.name);
+  const code = generateReferralCode(family.name);
+  await updateDoc(doc(db, 'families', family.id), { referralCode: code });
+  return code;
 }
 
 export async function getFamily(familyId: string): Promise<Family | null> {
