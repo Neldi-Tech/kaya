@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards, updateChild, BADGES, DailyRating, Award } from '@/lib/firestore';
+import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -17,10 +18,8 @@ export default function ProfilesPage() {
   const [awards, setAwards] = useState<Award[]>([]);
   const [managingBadges, setManagingBadges] = useState(false);
   const [savingBadge, setSavingBadge] = useState<string | null>(null);
-  const [editingPhoto, setEditingPhoto] = useState(false);
-  const [photoInput, setPhotoInput] = useState('');
-  const [savingPhoto, setSavingPhoto] = useState(false);
-  const [photoError, setPhotoError] = useState('');
+  const [pickingPhoto, setPickingPhoto] = useState(false);
+  const [savingPhoto, setSavingPhoto] = useState<string | null>(null);
 
   // Honor ?child=<id> for deep links from the dashboard kid cards.
   useEffect(() => {
@@ -49,33 +48,17 @@ export default function ProfilesPage() {
   const earnedBadges = BADGES.filter((b) => (child.badges || []).includes(b.id));
   const isParent = profile?.role === 'parent';
 
-  const startEditingPhoto = () => {
-    setPhotoInput(child?.avatarPhoto || '');
-    setPhotoError('');
-    setEditingPhoto(true);
-  };
-
-  const cancelEditingPhoto = () => {
-    setEditingPhoto(false);
-    setPhotoError('');
-  };
-
-  const savePhoto = async (urlOverride?: string) => {
+  const choosePhoto = async (url: string) => {
     if (!profile?.familyId || !child || isGuest) return;
-    const url = (urlOverride !== undefined ? urlOverride : photoInput).trim();
-    if (url && !/^https?:\/\//i.test(url)) {
-      setPhotoError('Use a full URL starting with https://');
-      return;
-    }
-    setSavingPhoto(true);
-    setPhotoError('');
+    setSavingPhoto(url || 'remove');
     try {
       await updateChild(profile.familyId, child.id, { avatarPhoto: url });
-      setEditingPhoto(false);
-    } catch (e: any) {
-      setPhotoError(e.message || 'Failed to save');
+      // Real-time subscription updates the avatar everywhere; close the picker.
+      setPickingPhoto(false);
+    } catch {
+      // Real-time subscription will keep things in sync.
     }
-    setSavingPhoto(false);
+    setSavingPhoto(null);
   };
 
   const toggleBadge = async (badgeId: string) => {
@@ -135,58 +118,115 @@ export default function ProfilesPage() {
         </div>
         {isParent && !isGuest && (
           <div className="mb-3">
-            {!editingPhoto ? (
+            {!pickingPhoto ? (
               <button
-                onClick={startEditingPhoto}
+                onClick={() => setPickingPhoto(true)}
                 className="text-[11px] text-kaya-gold font-semibold hover:underline"
               >
                 {child.avatarPhoto ? 'Change photo' : '+ Add photo'}
               </button>
             ) : (
-              <div className="space-y-2 text-left">
-                <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider">
-                  Photo URL
-                </label>
-                <input
-                  value={photoInput}
-                  onChange={(e) => setPhotoInput(e.target.value)}
-                  className="w-full h-9 px-3 bg-kaya-cream rounded-kaya-sm text-xs focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                  placeholder="https://example.com/avatar.jpg"
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') savePhoto();
-                    if (e.key === 'Escape') cancelEditingPhoto();
-                  }}
-                />
-                <p className="text-[10px] text-kaya-sand">
-                  Paste any image URL (Google Drive “view” links won&apos;t embed — use a direct image link).
-                </p>
-                <div className="flex gap-2">
+              <div className="space-y-3 text-left">
+                {/* Three sources: library (live), gallery + search (Phase 2/3) */}
+                <div className="grid grid-cols-3 gap-2">
                   <button
-                    onClick={() => savePhoto()}
-                    disabled={savingPhoto}
-                    className="h-8 px-3 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                    type="button"
+                    className="h-9 px-2 rounded-kaya-sm bg-kaya-chocolate text-white text-[11px] font-bold"
+                    aria-pressed="true"
                   >
-                    {savingPhoto ? 'Saving…' : 'Save'}
+                    🎨 Library
                   </button>
                   <button
-                    onClick={cancelEditingPhoto}
-                    disabled={savingPhoto}
+                    type="button"
+                    disabled
+                    title="Coming soon — needs Firebase Storage enabled"
+                    className="h-9 px-2 rounded-kaya-sm bg-kaya-warm/60 text-kaya-sand text-[11px] font-semibold cursor-not-allowed"
+                  >
+                    📷 Upload
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    title="Coming soon — image search integration"
+                    className="h-9 px-2 rounded-kaya-sm bg-kaya-warm/60 text-kaya-sand text-[11px] font-semibold cursor-not-allowed"
+                  >
+                    🔍 Search
+                  </button>
+                </div>
+
+                {/* Suggestion based on the kid's name */}
+                <div className="flex items-center gap-3 bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm p-2.5">
+                  <img
+                    src={generateAvatarFromName(child.name)}
+                    alt=""
+                    className="w-10 h-10 rounded-full bg-white shrink-0"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold">Pick for {child.name}</p>
+                    <p className="text-[10px] text-kaya-sand">Generated from their name</p>
+                  </div>
+                  <button
+                    onClick={() => choosePhoto(generateAvatarFromName(child.name))}
+                    disabled={!!savingPhoto}
+                    className="h-7 px-2.5 bg-kaya-gold text-white rounded-kaya-sm text-[11px] font-bold disabled:opacity-40"
+                  >
+                    Use
+                  </button>
+                </div>
+
+                {/* Curated grid grouped by theme */}
+                {AVATAR_GROUPS.map((group) => (
+                  <div key={group.key}>
+                    <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1.5">{group.label}</p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {AVATAR_PRESETS.filter((a) => a.group === group.key).map((preset) => {
+                        const selected = child.avatarPhoto === preset.url;
+                        const saving = savingPhoto === preset.url;
+                        return (
+                          <button
+                            key={preset.url}
+                            onClick={() => choosePhoto(preset.url)}
+                            disabled={!!savingPhoto}
+                            title={preset.label}
+                            aria-label={preset.label}
+                            className={`relative aspect-square rounded-kaya-sm overflow-hidden border-2 transition-all ${
+                              selected ? 'border-kaya-gold' : 'border-transparent hover:border-kaya-warm-dark'
+                            } ${saving ? 'opacity-60' : ''}`}
+                          >
+                            <img
+                              src={preset.url}
+                              alt=""
+                              className="w-full h-full object-cover bg-white"
+                              referrerPolicy="no-referrer"
+                            />
+                            {selected && (
+                              <span className="absolute bottom-0.5 right-0.5 bg-kaya-gold text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">✓</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={() => setPickingPhoto(false)}
                     className="h-8 px-3 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
                   >
-                    Cancel
+                    Done
                   </button>
                   {child.avatarPhoto && (
                     <button
-                      onClick={() => savePhoto('')}
-                      disabled={savingPhoto}
-                      className="h-8 px-3 text-xs font-semibold text-kaya-sand hover:text-red-500 ml-auto"
+                      onClick={() => choosePhoto('')}
+                      disabled={!!savingPhoto}
+                      className="h-8 px-3 text-xs font-semibold text-kaya-sand hover:text-red-500"
                     >
-                      Remove
+                      Remove photo
                     </button>
                   )}
                 </div>
-                {photoError && <p className="text-red-500 text-[11px]">{photoError}</p>}
               </div>
             )}
           </div>
