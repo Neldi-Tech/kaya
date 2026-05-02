@@ -66,6 +66,7 @@ export default function DashboardPage() {
   const sortedKids = [...children].sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
   const topChild = sortedKids[0];
   const totalFamilyPoints = children.reduce((s, c) => s + (c.totalPoints || 0), 0);
+  const fmt = (n: number) => n.toLocaleString('en-US');
   const firstName = profile?.displayName?.split(' ')[0] || 'there';
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long',
@@ -89,7 +90,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-kaya-gold text-xs font-semibold uppercase tracking-wider">Family Score</p>
-              <p className="text-white text-3xl font-display font-black">{totalFamilyPoints}</p>
+              <p className="text-white text-3xl font-display font-black">{fmt(totalFamilyPoints)}</p>
             </div>
             {topChild && (
               <div className="text-right">
@@ -111,7 +112,7 @@ export default function DashboardPage() {
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-white text-xs font-semibold">{child.name}</span>
-                    <span className="text-kaya-gold text-xs font-bold">{child.totalPoints || 0} pts</span>
+                    <span className="text-kaya-gold text-xs font-bold">{fmt(child.totalPoints || 0)} pts</span>
                   </div>
                   <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                     <div
@@ -186,7 +187,7 @@ export default function DashboardPage() {
                       color: item.type === 'award' ? '#D4A017' : '#27AE60',
                     }}
                   >
-                    +{item.points}
+                    +{fmt(item.points)}
                   </span>
                 </div>
               ))}
@@ -212,13 +213,13 @@ export default function DashboardPage() {
             <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-kaya-gold/15 blur-2xl pointer-events-none" />
             <div className="relative">
               <p className="text-kaya-gold text-[11px] font-bold uppercase tracking-[0.14em]">Family Score</p>
-              <p className="font-display font-black text-5xl mt-2">{totalFamilyPoints}</p>
+              <p className="font-display font-black text-5xl mt-2">{fmt(totalFamilyPoints)}</p>
               {topChild && (
                 <div className="mt-4 pt-4 border-t border-white/10">
                   <p className="text-white/60 text-[11px]">Leader this week</p>
                   <p className="font-bold text-sm mt-1">
                     {topChild.avatarEmoji} {topChild.name}
-                    {topChild.weeklyPoints ? ` · +${topChild.weeklyPoints} pts` : ''}
+                    {topChild.weeklyPoints ? ` · +${fmt(topChild.weeklyPoints)} pts` : ''}
                   </p>
                 </div>
               )}
@@ -258,9 +259,9 @@ export default function DashboardPage() {
                   )}
                 </div>
                 <div className="mt-4 flex items-baseline gap-1.5">
-                  <span className="font-display font-extrabold text-3xl">{child.totalPoints || 0}</span>
+                  <span className="font-display font-extrabold text-3xl">{fmt(child.totalPoints || 0)}</span>
                   <span className="text-[11px] text-kaya-sand">
-                    total{child.weeklyPoints ? ` · +${child.weeklyPoints} wk` : ''}
+                    total{child.weeklyPoints ? ` · +${fmt(child.weeklyPoints)} wk` : ''}
                   </span>
                 </div>
                 <div className="mt-3 h-1.5 bg-kaya-warm rounded-full overflow-hidden">
@@ -348,7 +349,7 @@ export default function DashboardPage() {
                         color: item.type === 'award' ? '#D4A017' : '#27AE60',
                       }}
                     >
-                      +{item.points}
+                      +{fmt(item.points)}
                     </span>
                   </div>
                 ))}
@@ -381,7 +382,7 @@ export default function DashboardPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="text-[13px] font-bold truncate">{r.title}</div>
-                          <div className="text-[11px] text-kaya-sand">{r.pointsCost} pts</div>
+                          <div className="text-[11px] text-kaya-sand">{fmt(r.pointsCost)} pts</div>
                         </div>
                         <span className={`text-[10px] font-bold uppercase ${ready ? 'text-kaya-gold' : 'text-kaya-sand'}`}>
                           {ready ? 'Ready' : 'Soon'}

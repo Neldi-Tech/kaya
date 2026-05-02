@@ -62,14 +62,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-kaya-cream">
-      <GuestBanner />
-
       {/* ── Desktop sidebar (lg+) ─────────────────────────── */}
       <aside className="hidden lg:flex fixed top-0 left-0 bottom-0 w-[260px] flex-col border-r border-kaya-warm-dark/60 bg-kaya-cream z-30">
-        <div className="px-5 pt-6 pb-5 flex items-center gap-2.5">
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="px-5 pt-6 pb-5 flex items-center gap-2.5 hover:opacity-80 transition-opacity text-left"
+          aria-label="Go to home"
+        >
           <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light flex items-center justify-center font-display font-bold text-base">K</div>
           <span className="font-display font-bold text-lg tracking-tight">Kaya</span>
-        </div>
+        </button>
 
         {(family || role !== 'kid') && (
           <div className="px-4 mb-5">
@@ -137,13 +139,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* ── Right column (shifted right of sidebar at lg+) ── */}
       <div className="lg:pl-[260px]">
+        <GuestBanner />
         {/* Mobile top header */}
         <div className="lg:hidden sticky top-0 z-20 bg-kaya-cream/95 backdrop-blur-md border-b border-kaya-warm-dark/50 safe-top">
           <div className="mx-auto max-w-md flex items-center justify-between px-4 h-14">
-            <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => router.push('/dashboard')}
+              className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
+              aria-label="Go to home"
+            >
               <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light flex items-center justify-center text-base">🏠</div>
               <span className="font-display text-lg font-black tracking-tight">Kaya</span>
-            </div>
+            </button>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => router.push('/notifications')}
