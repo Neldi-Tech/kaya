@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards, BADGES, DailyRating, Award } from '@/lib/firestore';
@@ -9,9 +10,18 @@ import BackButton from '@/components/ui/BackButton';
 export default function ProfilesPage() {
   const { profile } = useAuth();
   const { children } = useFamily();
+  const searchParams = useSearchParams();
   const [selected, setSelected] = useState(0);
   const [ratings, setRatings] = useState<DailyRating[]>([]);
   const [awards, setAwards] = useState<Award[]>([]);
+
+  // Honor ?child=<id> for deep links from the dashboard kid cards.
+  useEffect(() => {
+    const childId = searchParams.get('child');
+    if (!childId || children.length === 0) return;
+    const idx = children.findIndex((c) => c.id === childId);
+    if (idx >= 0) setSelected(idx);
+  }, [searchParams, children]);
 
   const child = children[selected];
 

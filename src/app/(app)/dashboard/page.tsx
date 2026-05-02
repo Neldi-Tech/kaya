@@ -235,7 +235,7 @@ export default function DashboardPage() {
             return (
               <button
                 key={child.id}
-                onClick={() => router.push(`/profiles/${child.id}`)}
+                onClick={() => router.push(`/profiles?child=${child.id}`)}
                 className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 hover:border-kaya-chocolate transition-colors text-left"
               >
                 <div className="flex items-start justify-between">
