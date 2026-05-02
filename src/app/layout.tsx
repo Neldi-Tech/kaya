@@ -31,9 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="bg-kaya-cream min-h-screen">
         <AuthProvider>
           <FamilyProvider>
-            <div className="mx-auto max-w-md min-h-screen relative">
-              {children}
-            </div>
+            {children}
           </FamilyProvider>
         </AuthProvider>
       </body>
