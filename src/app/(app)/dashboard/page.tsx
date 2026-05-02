@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards } from '@/lib/firestore';
+import KidAvatar from '@/components/ui/KidAvatar';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -103,12 +104,7 @@ export default function DashboardPage() {
           <div className="space-y-2.5">
             {sortedKids.map((child) => (
               <div key={child.id} className="flex items-center gap-3">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm"
-                  style={{ backgroundColor: child.houseColor + '30' }}
-                >
-                  {child.avatarEmoji}
-                </div>
+                <KidAvatar child={child} size="sm" bgOpacity="30" />
                 <div className="flex-1">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-white text-xs font-semibold">{child.name}</span>
@@ -239,12 +235,7 @@ export default function DashboardPage() {
                 className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 hover:border-kaya-chocolate transition-colors text-left"
               >
                 <div className="flex items-start justify-between">
-                  <div
-                    className="w-12 h-12 rounded-[14px] flex items-center justify-center text-2xl"
-                    style={{ backgroundColor: tagBg }}
-                  >
-                    {child.avatarEmoji}
-                  </div>
+                  <KidAvatar child={child} size="lg" shape="square" />
                   <span
                     className="text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-full"
                     style={{ backgroundColor: tagBg, color: child.houseColor }}

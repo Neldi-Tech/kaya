@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards, updateChild, BADGES, DailyRating, Award } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
+import KidAvatar from '@/components/ui/KidAvatar';
 
 export default function ProfilesPage() {
   const { profile, isGuest } = useAuth();
@@ -16,6 +17,10 @@ export default function ProfilesPage() {
   const [awards, setAwards] = useState<Award[]>([]);
   const [managingBadges, setManagingBadges] = useState(false);
   const [savingBadge, setSavingBadge] = useState<string | null>(null);
+  const [editingPhoto, setEditingPhoto] = useState(false);
+  const [photoInput, setPhotoInput] = useState('');
+  const [savingPhoto, setSavingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState('');
 
   // Honor ?child=<id> for deep links from the dashboard kid cards.
   useEffect(() => {
@@ -43,6 +48,35 @@ export default function ProfilesPage() {
 
   const earnedBadges = BADGES.filter((b) => (child.badges || []).includes(b.id));
   const isParent = profile?.role === 'parent';
+
+  const startEditingPhoto = () => {
+    setPhotoInput(child?.avatarPhoto || '');
+    setPhotoError('');
+    setEditingPhoto(true);
+  };
+
+  const cancelEditingPhoto = () => {
+    setEditingPhoto(false);
+    setPhotoError('');
+  };
+
+  const savePhoto = async (urlOverride?: string) => {
+    if (!profile?.familyId || !child || isGuest) return;
+    const url = (urlOverride !== undefined ? urlOverride : photoInput).trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      setPhotoError('Use a full URL starting with https://');
+      return;
+    }
+    setSavingPhoto(true);
+    setPhotoError('');
+    try {
+      await updateChild(profile.familyId, child.id, { avatarPhoto: url });
+      setEditingPhoto(false);
+    } catch (e: any) {
+      setPhotoError(e.message || 'Failed to save');
+    }
+    setSavingPhoto(false);
+  };
 
   const toggleBadge = async (badgeId: string) => {
     if (!profile?.familyId || !child || isGuest || savingBadge) return;
@@ -96,12 +130,67 @@ export default function ProfilesPage() {
 
       {/* Profile card */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 mb-5 text-center">
-        <div
-          className="w-16 h-16 rounded-full mx-auto flex items-center justify-center text-3xl mb-3"
-          style={{ backgroundColor: child.houseColor + '20' }}
-        >
-          {child.avatarEmoji}
+        <div className="mx-auto mb-3 inline-block">
+          <KidAvatar child={child} size="xl" />
         </div>
+        {isParent && !isGuest && (
+          <div className="mb-3">
+            {!editingPhoto ? (
+              <button
+                onClick={startEditingPhoto}
+                className="text-[11px] text-kaya-gold font-semibold hover:underline"
+              >
+                {child.avatarPhoto ? 'Change photo' : '+ Add photo'}
+              </button>
+            ) : (
+              <div className="space-y-2 text-left">
+                <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider">
+                  Photo URL
+                </label>
+                <input
+                  value={photoInput}
+                  onChange={(e) => setPhotoInput(e.target.value)}
+                  className="w-full h-9 px-3 bg-kaya-cream rounded-kaya-sm text-xs focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  placeholder="https://example.com/avatar.jpg"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') savePhoto();
+                    if (e.key === 'Escape') cancelEditingPhoto();
+                  }}
+                />
+                <p className="text-[10px] text-kaya-sand">
+                  Paste any image URL (Google Drive “view” links won&apos;t embed — use a direct image link).
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => savePhoto()}
+                    disabled={savingPhoto}
+                    className="h-8 px-3 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                  >
+                    {savingPhoto ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={cancelEditingPhoto}
+                    disabled={savingPhoto}
+                    className="h-8 px-3 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                  >
+                    Cancel
+                  </button>
+                  {child.avatarPhoto && (
+                    <button
+                      onClick={() => savePhoto('')}
+                      disabled={savingPhoto}
+                      className="h-8 px-3 text-xs font-semibold text-kaya-sand hover:text-red-500 ml-auto"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                {photoError && <p className="text-red-500 text-[11px]">{photoError}</p>}
+              </div>
+            )}
+          </div>
+        )}
         <h2 className="font-display text-xl font-black">{child.name}</h2>
         <p className="text-sm font-semibold" style={{ color: child.houseColor }}>{child.houseName}</p>
 

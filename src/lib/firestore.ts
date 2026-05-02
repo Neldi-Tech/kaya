@@ -54,6 +54,7 @@ export interface Child {
   houseName: string;
   houseColor: string;
   avatarEmoji: string;
+  avatarPhoto?: string;
   totalPoints: number;
   weeklyPoints: number;
   streak: number;
