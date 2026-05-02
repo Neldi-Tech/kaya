@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { updateFamily, addChild, PointsMode } from '@/lib/firestore';
+import { updateFamily, updateUserProfile, addChild, PointsMode } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { profile, signOut } = useAuth();
+  const { user, profile, signOut, refreshProfile, isGuest } = useAuth();
   const { family, children, refresh } = useFamily();
 
   const [showInvite, setShowInvite] = useState(false);
@@ -18,9 +18,49 @@ export default function SettingsPage() {
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
 
+  // Display name editor
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState('');
+
   useEffect(() => {
     if (family?.pointsMode) setPointsMode(family.pointsMode);
   }, [family?.pointsMode]);
+
+  const startEditingName = () => {
+    setNameInput(profile?.displayName || '');
+    setNameError('');
+    setEditingName(true);
+  };
+
+  const cancelEditingName = () => {
+    setEditingName(false);
+    setNameError('');
+  };
+
+  const saveName = async () => {
+    if (!user || isGuest) return;
+    const trimmed = nameInput.trim();
+    if (!trimmed) {
+      setNameError('Name cannot be empty');
+      return;
+    }
+    if (trimmed === profile?.displayName) {
+      setEditingName(false);
+      return;
+    }
+    setSavingName(true);
+    setNameError('');
+    try {
+      await updateUserProfile(user.uid, { displayName: trimmed });
+      await refreshProfile();
+      setEditingName(false);
+    } catch (e: any) {
+      setNameError(e.message || 'Failed to save');
+    }
+    setSavingName(false);
+  };
 
   const copyInviteCode = () => {
     if (!family?.inviteCode) return;
@@ -72,14 +112,62 @@ export default function SettingsPage() {
       </div>
 
       {/* Profile card */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4 flex items-center gap-3">
-        <div className="w-12 h-12 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-lg text-white font-black">
-          {profile?.displayName?.[0]?.toUpperCase() || 'U'}
-        </div>
-        <div>
-          <p className="font-bold text-sm">{profile?.displayName}</p>
-          <p className="text-xs text-kaya-sand">{profile?.email}</p>
-          <p className="text-xs font-semibold capitalize" style={{ color: '#D4A017' }}>{profile?.role}</p>
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-lg text-white font-black shrink-0">
+            {profile?.displayName?.[0]?.toUpperCase() || 'U'}
+          </div>
+          <div className="flex-1 min-w-0">
+            {editingName ? (
+              <div className="space-y-2">
+                <input
+                  value={nameInput}
+                  onChange={(e) => setNameInput(e.target.value)}
+                  className="w-full h-9 px-3 bg-kaya-cream rounded-kaya-sm text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  placeholder="Your display name"
+                  autoFocus
+                  maxLength={40}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') saveName();
+                    if (e.key === 'Escape') cancelEditingName();
+                  }}
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveName}
+                    disabled={savingName}
+                    className="h-8 px-3 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                  >
+                    {savingName ? 'Saving…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={cancelEditingName}
+                    disabled={savingName}
+                    className="h-8 px-3 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {nameError && <p className="text-red-500 text-xs">{nameError}</p>}
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center gap-2">
+                  <p className="font-bold text-sm truncate">{profile?.displayName || 'You'}</p>
+                  {!isGuest && (
+                    <button
+                      onClick={startEditingName}
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-kaya-sand truncate">{profile?.email}</p>
+                <p className="text-xs font-semibold capitalize" style={{ color: '#D4A017' }}>{profile?.role}</p>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

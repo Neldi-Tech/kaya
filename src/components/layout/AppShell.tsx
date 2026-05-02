@@ -1,6 +1,7 @@
 'use client';
 
-import { usePathname, useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import GuestBanner from './GuestBanner';
@@ -35,7 +36,6 @@ const KID_NAV: NavItem[] = [
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
   const { profile } = useAuth();
   const { family, children: kids } = useFamily();
 
@@ -64,20 +64,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen bg-kaya-cream">
       {/* ── Desktop sidebar (lg+) ─────────────────────────── */}
       <aside className="hidden lg:flex fixed top-0 left-0 bottom-0 w-[260px] flex-col border-r border-kaya-warm-dark/60 bg-kaya-cream z-30">
-        <button
-          onClick={() => router.push('/')}
-          className="px-5 pt-6 pb-5 flex items-center gap-2.5 hover:opacity-80 transition-opacity text-left"
+        <Link
+          href="/"
           aria-label="Go to ourkaya.com"
+          className="px-5 pt-6 pb-5 flex items-center gap-2.5 hover:opacity-80 transition-opacity"
         >
           <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light flex items-center justify-center font-display font-bold text-base">K</div>
           <span className="font-display font-bold text-lg tracking-tight">Kaya</span>
-        </button>
+        </Link>
 
         {(family || role !== 'kid') && (
           <div className="px-4 mb-5">
-            <button
-              onClick={() => router.push('/settings')}
-              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-3 flex items-center gap-2.5 hover:border-kaya-chocolate transition-colors text-left"
+            <Link
+              href="/settings"
+              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-3 flex items-center gap-2.5 hover:border-kaya-chocolate transition-colors"
             >
               <div className="w-9 h-9 rounded-[10px] bg-kaya-gold-light flex items-center justify-center text-base shrink-0">🏡</div>
               <div className="flex-1 min-w-0">
@@ -87,7 +87,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </div>
               </div>
               <span className="text-kaya-sand text-xs">⌄</span>
-            </button>
+            </Link>
           </div>
         )}
 
@@ -102,9 +102,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {section.items.map((item) => {
                 const active = isActive(item.path);
                 return (
-                  <button
+                  <Link
                     key={item.path}
-                    onClick={() => router.push(item.path)}
+                    href={item.path}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-kaya-sm text-[13px] transition-colors ${
                       active
                         ? 'bg-kaya-chocolate text-white font-semibold'
@@ -113,7 +113,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   >
                     <span className="text-base leading-none">{item.icon}</span>
                     <span className="text-left flex-1 truncate">{item.label}</span>
-                  </button>
+                  </Link>
                 );
               })}
             </div>
@@ -121,9 +121,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="p-3 border-t border-kaya-warm-dark/60">
-          <button
-            onClick={() => router.push('/settings')}
-            className="w-full flex items-center gap-3 px-2 py-2 rounded-kaya-sm hover:bg-white text-kaya-chocolate text-left"
+          <Link
+            href="/settings"
+            className="w-full flex items-center gap-3 px-2 py-2 rounded-kaya-sm hover:bg-white text-kaya-chocolate"
           >
             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-xs text-white font-black shadow-sm shrink-0">
               {initial}
@@ -133,7 +133,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div className="text-[10px] text-kaya-sand">Settings</div>
             </div>
             <span className="text-kaya-sand text-xs">⚙</span>
-          </button>
+          </Link>
         </div>
       </aside>
 
@@ -143,29 +143,29 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Mobile top header */}
         <div className="lg:hidden sticky top-0 z-20 bg-kaya-cream/95 backdrop-blur-md border-b border-kaya-warm-dark/50 safe-top">
           <div className="mx-auto max-w-md flex items-center justify-between px-4 h-14">
-            <button
-              onClick={() => router.push('/')}
-              className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
+            <Link
+              href="/"
               aria-label="Go to ourkaya.com"
+              className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
             >
               <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light flex items-center justify-center text-base">🏠</div>
               <span className="font-display text-lg font-black tracking-tight">Kaya</span>
-            </button>
+            </Link>
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => router.push('/notifications')}
-                className="w-9 h-9 rounded-full bg-white border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-kaya-warm transition-colors"
+              <Link
+                href="/notifications"
                 aria-label="Notifications"
+                className="w-9 h-9 rounded-full bg-white border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-kaya-warm transition-colors"
               >
                 🔔
-              </button>
-              <button
-                onClick={() => router.push('/settings')}
-                className="w-9 h-9 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-xs text-white font-black shadow-sm"
+              </Link>
+              <Link
+                href="/settings"
                 aria-label="Settings"
+                className="w-9 h-9 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-xs text-white font-black shadow-sm"
               >
                 {initial}
-              </button>
+              </Link>
             </div>
           </div>
         </div>
@@ -176,19 +176,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-bold uppercase tracking-[0.14em]">{today}</span>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => router.push('/award')}
-              className="h-9 px-3.5 rounded-kaya-sm border border-kaya-warm-dark text-[12px] font-semibold hover:bg-white transition-colors"
+            <Link
+              href="/award"
+              className="h-9 px-3.5 rounded-kaya-sm border border-kaya-warm-dark text-[12px] font-semibold hover:bg-white transition-colors flex items-center"
             >
               ＋ Award points
-            </button>
-            <button
-              onClick={() => router.push('/notifications')}
-              className="w-9 h-9 rounded-full border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-white transition-colors"
+            </Link>
+            <Link
+              href="/notifications"
               aria-label="Notifications"
+              className="w-9 h-9 rounded-full border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-white transition-colors"
             >
               🔔
-            </button>
+            </Link>
           </div>
         </header>
 
@@ -202,9 +202,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           {mobileNav.map((item) => {
             const active = isActive(item.path);
             return (
-              <button
+              <Link
                 key={item.path}
-                onClick={() => router.push(item.path)}
+                href={item.path}
                 className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-opacity ${
                   active ? 'opacity-100' : 'opacity-40'
                 }`}
@@ -212,7 +212,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="text-xl leading-none">{item.icon}</span>
                 <span className="text-[10px] font-extrabold">{item.mobileLabel || item.label}</span>
                 {active && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
-              </button>
+              </Link>
             );
           })}
         </div>
