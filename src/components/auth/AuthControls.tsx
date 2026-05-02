@@ -230,6 +230,9 @@ export default function AuthControls() {
           <p className="text-xs text-green-700 mt-1 leading-relaxed">
             We sent a reset link to <strong>{email}</strong>. Open it on this device to choose a new password.
           </p>
+          <p className="text-[11px] text-green-700/80 mt-2 leading-relaxed">
+            Don&apos;t see it? Check <strong>Spam</strong> or <strong>Promotions</strong> — the first one from Kaya often lands there.
+          </p>
           <button
             type="button"
             onClick={() => { setMode('email'); setError(''); setResetSent(false); }}
