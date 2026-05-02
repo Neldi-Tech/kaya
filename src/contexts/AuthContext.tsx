@@ -7,6 +7,7 @@ import {
   signInWithPopup,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from 'firebase/auth';
@@ -27,6 +28,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
   signUpWithEmail: (email: string, password: string) => Promise<User>;
+  sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   enterGuestMode: () => void;
@@ -133,6 +135,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return result.user;
   };
 
+  const sendPasswordReset = async (email: string) => {
+    await sendPasswordResetEmail(auth, email);
+  };
+
   const signOut = async () => {
     if (isGuestActive()) {
       exitGuestMode();
@@ -153,8 +159,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading, isGuest,
-      signInWithGoogle, signInWithEmail, signUpWithEmail, signOut, refreshProfile,
-      enterGuestMode, exitGuestMode,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordReset,
+      signOut, refreshProfile, enterGuestMode, exitGuestMode,
     }}>
       {children}
     </AuthContext.Provider>

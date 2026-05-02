@@ -6,14 +6,29 @@ import { useAuth } from '@/contexts/AuthContext';
 import { getUserProfile } from '@/lib/firestore';
 
 export default function AuthControls() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail, enterGuestMode } = useAuth();
+  const { signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordReset, enterGuestMode } = useAuth();
   const router = useRouter();
-  const [mode, setMode] = useState<'welcome' | 'email'>('welcome');
+  const [mode, setMode] = useState<'welcome' | 'email' | 'reset'>('welcome');
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
+
+  const handleReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true); setError('');
+    try {
+      await sendPasswordReset(email);
+      setResetSent(true);
+    } catch (e: any) {
+      if (e.code === 'auth/user-not-found') setError('No account with that email. Try signing up instead.');
+      else if (e.code === 'auth/invalid-email') setError('That doesn’t look like a valid email.');
+      else setError(e.message || 'Could not send reset email');
+    }
+    setLoading(false);
+  };
 
   const handlePostLogin = async (uid: string) => {
     const profile = await getUserProfile(uid);
@@ -98,7 +113,7 @@ export default function AuthControls() {
     );
   }
 
-  return (
+  if (mode === 'email') return (
     <form onSubmit={handleEmail} className="space-y-3">
       <button
         type="button"
@@ -152,6 +167,78 @@ export default function AuthControls() {
       >
         {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
       </button>
+
+      {!isSignUp && (
+        <button
+          type="button"
+          onClick={() => { setMode('reset'); setError(''); setResetSent(false); }}
+          className="w-full text-center text-xs text-kaya-sand hover:text-kaya-chocolate"
+        >
+          Forgot password?
+        </button>
+      )}
+    </form>
+  );
+
+  // ── Reset mode ─────────────────────────────────────────────
+  return (
+    <form onSubmit={handleReset} className="space-y-3">
+      <button
+        type="button"
+        onClick={() => { setMode('email'); setError(''); setResetSent(false); }}
+        className="text-sm text-kaya-sand mb-2 flex items-center gap-1"
+      >
+        ← Back to sign in
+      </button>
+
+      {!resetSent ? (
+        <>
+          <div>
+            <h3 className="font-display font-extrabold text-lg tracking-tight mb-1">Reset your password</h3>
+            <p className="text-xs text-kaya-sand">Enter the email you signed up with — we'll send a reset link.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-kaya-sand mb-1.5 uppercase tracking-wider">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              placeholder="you@example.com"
+              required
+              autoFocus
+            />
+          </div>
+
+          {error && (
+            <p className="text-red-500 text-xs bg-red-50 rounded-kaya-sm px-3 py-2">{error}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading || !email}
+            className="w-full h-[52px] bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Sending…' : 'Send reset link'}
+          </button>
+        </>
+      ) : (
+        <div className="bg-green-50 border border-green-200 rounded-kaya p-4 text-center">
+          <p className="text-2xl mb-1">📬</p>
+          <p className="text-sm font-semibold text-green-800">Check your email</p>
+          <p className="text-xs text-green-700 mt-1 leading-relaxed">
+            We sent a reset link to <strong>{email}</strong>. Open it on this device to choose a new password.
+          </p>
+          <button
+            type="button"
+            onClick={() => { setMode('email'); setError(''); setResetSent(false); }}
+            className="mt-3 text-xs text-green-800 font-semibold underline-offset-4 hover:underline"
+          >
+            Back to sign in
+          </button>
+        </div>
+      )}
     </form>
   );
 }
