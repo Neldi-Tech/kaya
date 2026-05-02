@@ -11,7 +11,7 @@ export default function HelperPage() {
   const { children } = useFamily();
 
   return (
-    <div className="px-4 pt-4">
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
       <div className="mb-5">
         <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{todayString()}</p>
         <h1 className="font-display text-2xl font-black">

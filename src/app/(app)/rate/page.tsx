@@ -82,7 +82,7 @@ export default function RatePage() {
 
   if (children.length === 0) {
     return (
-      <div className="px-4 pt-8 text-center">
+      <div className="mx-auto max-w-md w-full px-4 pt-8 text-center">
         <p className="text-3xl mb-3">👶</p>
         <p className="text-kaya-sand text-sm">No children added yet. Go to Settings to add children.</p>
       </div>
@@ -90,7 +90,7 @@ export default function RatePage() {
   }
 
   return (
-    <div className="px-4 pt-4">
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
       <BackButton />
       {/* Header */}
       <div className="mb-4">

@@ -13,7 +13,7 @@ export default function BadgesPage() {
   const earnedBadges = child?.badges || [];
 
   return (
-    <div className="px-4 pt-4">
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
       <BackButton />
       <div className="mb-5">
         <h1 className="font-display text-2xl font-black">Badges</h1>

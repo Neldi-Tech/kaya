@@ -65,7 +65,7 @@ export default function AwardPage() {
   if (success) {
     const child = children.find((c) => c.id === selectedChild);
     return (
-      <div className="px-4 pt-16 text-center animate-slide-up">
+      <div className="mx-auto max-w-md w-full px-4 pt-16 text-center animate-slide-up">
         <div className="text-6xl mb-4">{isDiamond ? '💎' : '🎉'}</div>
         <h2 className="font-display text-2xl font-black mb-2">Points Awarded!</h2>
         <p className="text-kaya-sand text-sm">
@@ -78,7 +78,7 @@ export default function AwardPage() {
   }
 
   return (
-    <div className="px-4 pt-4">
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
       <BackButton />
       <div className="mb-5">
         <h1 className="font-display text-2xl font-black">Award Points</h1>

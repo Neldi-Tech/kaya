@@ -15,7 +15,7 @@ export default function KidPage() {
 
   if (!myChild) {
     return (
-      <div className="px-4 pt-10 text-center">
+      <div className="mx-auto max-w-md w-full px-4 pt-10 text-center">
         <p className="text-4xl mb-3">👋</p>
         <p className="text-kaya-sand text-sm">Ask your parent to link your account to your profile</p>
       </div>
@@ -26,7 +26,7 @@ export default function KidPage() {
   const nextBadge = BADGES.find((b) => !(myChild.badges || []).includes(b.id));
 
   return (
-    <div className="px-4 pt-4">
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
       {/* Hero card */}
       <div
         className="rounded-kaya-lg p-6 mb-5 text-center text-white shadow-lg"

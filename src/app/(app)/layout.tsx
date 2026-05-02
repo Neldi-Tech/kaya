@@ -27,9 +27,5 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return (
-    <div className="mx-auto max-w-md min-h-screen relative">
-      <AppShell>{children}</AppShell>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }
