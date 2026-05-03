@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { BADGES } from '@/lib/firestore';
+import { BADGES, getWishlist, WishlistItem } from '@/lib/firestore';
+import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -14,6 +16,13 @@ export default function KidPage() {
   const { children } = useFamily();
 
   const myChild = children.find((c) => c.id === profile?.childId) || children[0];
+
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId || !myChild) return;
+    getWishlist(profile.familyId, myChild.id).then(setWishlist).catch(() => setWishlist([]));
+  }, [profile?.familyId, myChild?.id]);
+  const activeWishes = wishlist.filter((w) => !w.achieved);
 
   if (!myChild) {
     return (
@@ -61,6 +70,34 @@ export default function KidPage() {
         </div>
       </div>
 
+      {/* Birthday countdown — only visible if birthday is set and within range */}
+      {(() => {
+        if (!myChild.birthday) return null;
+        const d = daysToNextBirthday(myChild.birthday);
+        if (d === null || d > 90) return null;
+        const nextAge = ageAtNextBirthday(myChild.birthday);
+        return (
+          <div className="bg-gradient-to-r from-kaya-gold-light to-kaya-warm border border-kaya-gold/40 rounded-kaya p-4 lg:p-5 mb-5 lg:mb-6 flex items-center gap-3 lg:gap-4">
+            <div className="text-3xl lg:text-4xl shrink-0">🎂</div>
+            <div className="flex-1 min-w-0">
+              {d === 0 ? (
+                <>
+                  <p className="font-display font-extrabold text-base lg:text-xl text-kaya-chocolate">Happy birthday, {myChild.name}!</p>
+                  <p className="text-[12px] lg:text-sm text-kaya-chocolate/70">It&apos;s your big day. 🎉</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-display font-extrabold text-base lg:text-xl text-kaya-chocolate">
+                    {d} day{d === 1 ? '' : 's'} to your {nextAge && `${nextAge}th`} birthday
+                  </p>
+                  <p className="text-[12px] lg:text-sm text-kaya-chocolate/70">Counting down…</p>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       <div className="lg:grid lg:grid-cols-12 lg:gap-6">
         {/* Left: next badge + quick links */}
         <div className="lg:col-span-4 space-y-3 lg:space-y-4 mb-5 lg:mb-0">
@@ -92,6 +129,27 @@ export default function KidPage() {
               <span className="text-xs lg:text-sm font-bold">Rewards store</span>
             </button>
           </div>
+
+          {/* My wishlist (read-only for kids — parents add items in Profiles) */}
+          {activeWishes.length > 0 && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand">My wishlist</p>
+                <span className="text-[11px] text-kaya-sand">{activeWishes.length}</span>
+              </div>
+              <div className="space-y-1.5">
+                {activeWishes.slice(0, 5).map((w) => (
+                  <div key={w.id} className="flex items-center gap-2 text-[12px]">
+                    <span className="text-kaya-gold">✨</span>
+                    <span className="font-semibold truncate flex-1">{w.title}</span>
+                  </div>
+                ))}
+                {activeWishes.length > 5 && (
+                  <p className="text-[10px] text-kaya-sand-light pt-1">+ {activeWishes.length - 5} more</p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right: badges earned */}

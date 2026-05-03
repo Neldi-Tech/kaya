@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards } from '@/lib/firestore';
+import { daysToNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 type ActivityItem = {
@@ -263,6 +264,13 @@ export default function DashboardPage() {
                 </div>
                 <div className="mt-3 flex items-center gap-1.5 text-[11px] text-kaya-sand">
                   <span>🏆 {child.badges?.length || 0} {child.badges?.length === 1 ? 'badge' : 'badges'}</span>
+                  {(() => {
+                    if (!child.birthday) return null;
+                    const d = daysToNextBirthday(child.birthday);
+                    if (d === null || d > 60) return null;
+                    if (d === 0) return <span className="ml-auto text-kaya-gold font-bold">🎂 Today!</span>;
+                    return <span className="ml-auto text-kaya-gold font-semibold">🎂 {d}d</span>;
+                  })()}
                 </div>
               </button>
             );

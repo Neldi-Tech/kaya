@@ -67,10 +67,28 @@ export interface Child {
   houseColor: string;
   avatarEmoji: string;
   avatarPhoto?: string;
+  // ── Identity ──
+  birthday?: string;          // canonical YYYY-MM-DD; UI displays DD-MMM-YYYY
+  email?: string;             // optional — when set, this kid can later sign in with it
+  interests?: string[];       // free-form chips, e.g. ['Football', 'Lego']
+  aspirations?: string[];     // up to 3, e.g. ['Pilot', 'Doctor', 'Footballer']
+  // ── Game state ──
   totalPoints: number;
   weeklyPoints: number;
   streak: number;
   badges: string[];
+}
+
+export interface WishlistItem {
+  id: string;
+  title: string;
+  description?: string;
+  url?: string;
+  imageUrl?: string;
+  estimatedCost?: number;
+  achieved: boolean;
+  achievedAt?: Timestamp;
+  createdAt: Timestamp;
 }
 
 export interface DailyRating {
@@ -384,6 +402,51 @@ export async function getChildren(familyId: string): Promise<Child[]> {
 export async function updateChild(familyId: string, childId: string, data: Partial<Child>) {
   if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId, 'children', childId), data);
+}
+
+// ── Wishlist (per-child subcollection) ───────────
+export async function getWishlist(familyId: string, childId: string): Promise<WishlistItem[]> {
+  if (isGuestActive()) return [];
+  const snap = await getDocs(
+    query(
+      collection(db, 'families', familyId, 'children', childId, 'wishlist'),
+      orderBy('createdAt', 'desc'),
+    ),
+  );
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as WishlistItem));
+}
+
+export async function addWishlistItem(
+  familyId: string,
+  childId: string,
+  item: Omit<WishlistItem, 'id' | 'createdAt' | 'achieved' | 'achievedAt'>,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-wish';
+  const ref = await addDoc(
+    collection(db, 'families', familyId, 'children', childId, 'wishlist'),
+    { ...item, achieved: false, createdAt: serverTimestamp() },
+  );
+  return ref.id;
+}
+
+export async function updateWishlistItem(
+  familyId: string,
+  childId: string,
+  itemId: string,
+  data: Partial<WishlistItem>,
+) {
+  if (isGuestActive()) return;
+  const patch: any = { ...data };
+  if (data.achieved && !data.achievedAt) patch.achievedAt = serverTimestamp();
+  await updateDoc(
+    doc(db, 'families', familyId, 'children', childId, 'wishlist', itemId),
+    patch,
+  );
+}
+
+export async function deleteWishlistItem(familyId: string, childId: string, itemId: string) {
+  if (isGuestActive()) return;
+  await deleteDoc(doc(db, 'families', familyId, 'children', childId, 'wishlist', itemId));
 }
 
 export function subscribeToChildren(familyId: string, callback: (children: Child[]) => void) {

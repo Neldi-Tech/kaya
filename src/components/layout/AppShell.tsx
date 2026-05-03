@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import GuestBanner from './GuestBanner';
 
-type NavItem = { path: string; icon: string; label: string; mobileLabel?: string };
+type NavItem = { path: string; icon: string; label: string; mobileLabel?: string; soon?: boolean };
 
 const PARENT_PRIMARY: NavItem[] = [
   { path: '/dashboard', icon: '🏠', label: 'Home',           mobileLabel: 'Home' },
@@ -22,6 +22,11 @@ const PARENT_INSIGHTS: NavItem[] = [
   { path: '/badges',   icon: '🏆', label: 'Badges' },
 ];
 
+const FUN_NAV: NavItem[] = [
+  { path: '/videos', icon: '📺', label: 'Videos', soon: true },
+  { path: '/games',  icon: '🎮', label: 'Games',  soon: true },
+];
+
 const HELPER_NAV: NavItem[] = [
   { path: '/dashboard', icon: '🏠', label: 'Home',  mobileLabel: 'Home' },
   { path: '/rate',      icon: '📋', label: 'Rate',  mobileLabel: 'Rate' },
@@ -32,6 +37,11 @@ const KID_NAV: NavItem[] = [
   { path: '/kid',     icon: '🏠', label: 'Home',    mobileLabel: 'Home' },
   { path: '/badges',  icon: '🏆', label: 'Badges',  mobileLabel: 'Badges' },
   { path: '/rewards', icon: '🎁', label: 'Rewards', mobileLabel: 'Rewards' },
+];
+
+const KID_FUN_NAV: NavItem[] = [
+  { path: '/videos', icon: '📺', label: 'Videos', mobileLabel: 'Videos', soon: true },
+  { path: '/games',  icon: '🎮', label: 'Games',  mobileLabel: 'Games',  soon: true },
 ];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -45,10 +55,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const sidebarSections =
     role === 'kid'
-      ? [{ items: KID_NAV }]
+      ? [{ items: KID_NAV }, { title: 'Fun', items: KID_FUN_NAV }]
       : role === 'helper'
       ? [{ items: HELPER_NAV }]
-      : [{ items: PARENT_PRIMARY }, { title: 'Insights', items: PARENT_INSIGHTS }];
+      : [
+          { items: PARENT_PRIMARY },
+          { title: 'Insights', items: PARENT_INSIGHTS },
+          { title: 'Fun', items: FUN_NAV },
+        ];
 
   const isActive = (path: string) =>
     pathname === path || (path !== '/dashboard' && pathname?.startsWith(path + '/'));
@@ -113,6 +127,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   >
                     <span className="text-base leading-none">{item.icon}</span>
                     <span className="text-left flex-1 truncate">{item.label}</span>
+                    {item.soon && (
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                        active ? 'bg-white/20 text-kaya-gold-light' : 'bg-kaya-warm-dark/60 text-kaya-sand'
+                      }`}>Soon</span>
+                    )}
                   </Link>
                 );
               })}

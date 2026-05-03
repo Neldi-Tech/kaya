@@ -4,9 +4,19 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { getRecentRatings, getRecentAwards, updateChild, BADGES, DailyRating, Award } from '@/lib/firestore';
+import {
+  getRecentRatings, getRecentAwards, updateChild, BADGES,
+  getWishlist, addWishlistItem, updateWishlistItem, deleteWishlistItem,
+  DailyRating, Award, WishlistItem,
+} from '@/lib/firestore';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
 import { HOUSE_LIBRARY, isHouseUnlocked, houseUnlockHint } from '@/lib/referral';
+import {
+  toDisplayDate, fromDisplayDate, dayOfWeek, ageNow,
+  daysToNextBirthday, ageAtNextBirthday, monthDayOf,
+} from '@/lib/dates';
+import { INTERESTS, ASPIRATIONS, ASPIRATION_LIMIT } from '@/lib/kidPresets';
+import { bornOnThisDay, BornOnThisDayPerson } from '@/lib/onThisDay';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -25,6 +35,24 @@ export default function ProfilesPage() {
   const [savingPhoto, setSavingPhoto] = useState<string | null>(null);
   const [pickingHouse, setPickingHouse] = useState(false);
   const [savingHouse, setSavingHouse] = useState<string | null>(null);
+
+  // Identity editor (birthday, email, interests, aspirations)
+  const [editingIdentity, setEditingIdentity] = useState(false);
+  const [bdayInput, setBdayInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [bdayError, setBdayError] = useState('');
+  const [savingIdentity, setSavingIdentity] = useState(false);
+
+  // Born on this day
+  const [bornToday, setBornToday] = useState<BornOnThisDayPerson[]>([]);
+
+  // Wishlist
+  const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
+  const [addingWish, setAddingWish] = useState(false);
+  const [wishTitle, setWishTitle] = useState('');
+  const [wishCost, setWishCost] = useState('');
+  const [wishUrl, setWishUrl] = useState('');
+  const [savingWish, setSavingWish] = useState(false);
 
   // Honor ?child=<id> for deep links from the dashboard kid cards.
   useEffect(() => {
@@ -47,6 +75,21 @@ export default function ProfilesPage() {
       setAwards(a.filter((x) => x.childId === child?.id));
     })();
   }, [profile?.familyId, child?.id]);
+
+  // Wishlist load
+  useEffect(() => {
+    if (!profile?.familyId || !child) return;
+    getWishlist(profile.familyId, child.id).then(setWishlist).catch(() => setWishlist([]));
+  }, [profile?.familyId, child?.id, savingWish]);
+
+  // Born on this day — fetched when birthday is set
+  useEffect(() => {
+    setBornToday([]);
+    if (!child?.birthday) return;
+    const md = monthDayOf(child.birthday);
+    if (!md) return;
+    bornOnThisDay(md.month, md.day, 5).then(setBornToday).catch(() => setBornToday([]));
+  }, [child?.birthday]);
 
   if (!child) return null;
 
@@ -80,6 +123,89 @@ export default function ProfilesPage() {
       // Ignore — UI will stay in sync via the subscription.
     }
     setSavingBadge(null);
+  };
+
+  const startEditingIdentity = () => {
+    setBdayInput(child?.birthday ? toDisplayDate(child.birthday) : '');
+    setEmailInput(child?.email || '');
+    setBdayError('');
+    setEditingIdentity(true);
+  };
+
+  const saveIdentity = async () => {
+    if (!profile?.familyId || !child || isGuest) return;
+    let birthdayIso: string | null = child.birthday || null;
+    if (bdayInput.trim()) {
+      birthdayIso = fromDisplayDate(bdayInput.trim());
+      if (!birthdayIso) { setBdayError('Use the format DD-MMM-YYYY (e.g. 02-May-2018)'); return; }
+    } else {
+      birthdayIso = null;
+    }
+    const trimmedEmail = emailInput.trim().toLowerCase();
+    if (trimmedEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmedEmail)) {
+      setBdayError('Email looks invalid');
+      return;
+    }
+    setSavingIdentity(true);
+    setBdayError('');
+    try {
+      await updateChild(profile.familyId, child.id, {
+        birthday: birthdayIso || undefined,
+        email: trimmedEmail || undefined,
+      } as any);
+      setEditingIdentity(false);
+    } catch (e: any) {
+      setBdayError(e?.message || 'Failed to save');
+    }
+    setSavingIdentity(false);
+  };
+
+  const toggleInterest = async (label: string) => {
+    if (!profile?.familyId || !child || isGuest) return;
+    const current = child.interests || [];
+    const has = current.includes(label);
+    const next = has ? current.filter((i) => i !== label) : [...current, label];
+    await updateChild(profile.familyId, child.id, { interests: next });
+  };
+
+  const toggleAspiration = async (label: string) => {
+    if (!profile?.familyId || !child || isGuest) return;
+    const current = child.aspirations || [];
+    const has = current.includes(label);
+    if (!has && current.length >= ASPIRATION_LIMIT) return; // hit cap
+    const next = has ? current.filter((a) => a !== label) : [...current, label];
+    await updateChild(profile.familyId, child.id, { aspirations: next });
+  };
+
+  const submitWish = async () => {
+    if (!profile?.familyId || !child || !wishTitle.trim() || isGuest) return;
+    setSavingWish(true);
+    try {
+      await addWishlistItem(profile.familyId, child.id, {
+        title: wishTitle.trim(),
+        url: wishUrl.trim() || undefined,
+        estimatedCost: wishCost ? Number(wishCost) || undefined : undefined,
+      });
+      setWishTitle(''); setWishCost(''); setWishUrl('');
+      setAddingWish(false);
+    } catch {}
+    setSavingWish(false);
+  };
+
+  const markWishAchieved = async (item: WishlistItem) => {
+    if (!profile?.familyId || !child || isGuest) return;
+    setSavingWish(true);
+    await updateWishlistItem(profile.familyId, child.id, item.id, {
+      achieved: !item.achieved,
+    });
+    setSavingWish(false);
+  };
+
+  const removeWish = async (item: WishlistItem) => {
+    if (!profile?.familyId || !child || isGuest) return;
+    setSavingWish(true);
+    await deleteWishlistItem(profile.familyId, child.id, item.id);
+    setSavingWish(false);
   };
 
   const chooseHouse = async (presetId: string) => {
@@ -343,6 +469,311 @@ export default function ProfilesPage() {
         </div>
 
         <div className="lg:col-span-7 space-y-5">
+
+      {/* About — identity, interests, aspirations */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">About {child.name}</h3>
+          {isParent && !isGuest && (
+            <button
+              onClick={editingIdentity ? () => setEditingIdentity(false) : startEditingIdentity}
+              className="text-[11px] text-kaya-gold font-semibold hover:underline"
+            >
+              {editingIdentity ? 'Done' : 'Edit'}
+            </button>
+          )}
+        </div>
+
+        {editingIdentity ? (
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Birthday (DD-MMM-YYYY)</label>
+              <input
+                value={bdayInput}
+                onChange={(e) => setBdayInput(e.target.value)}
+                placeholder="02-May-2018"
+                className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Email (optional — for future kid login)</label>
+              <input
+                type="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="kid@example.com"
+                className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+              />
+            </div>
+            {bdayError && <p className="text-red-500 text-[11px]">{bdayError}</p>}
+            <div className="flex gap-2">
+              <button onClick={saveIdentity} disabled={savingIdentity} className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40">
+                {savingIdentity ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => setEditingIdentity(false)} className="h-9 px-4 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Birthday + email read-only */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm p-3">
+                <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Birthday</p>
+                {child.birthday ? (
+                  <>
+                    <p className="text-sm font-bold">🎂 {toDisplayDate(child.birthday)}</p>
+                    <p className="text-[11px] text-kaya-sand mt-0.5">
+                      Born on a {dayOfWeek(child.birthday)} · age {ageNow(child.birthday)}
+                    </p>
+                    {(() => {
+                      const d = daysToNextBirthday(child.birthday);
+                      if (d === null) return null;
+                      const nextAge = ageAtNextBirthday(child.birthday);
+                      if (d === 0) return <p className="text-[11px] font-bold text-kaya-gold mt-0.5">🎉 It&apos;s today!</p>;
+                      return (
+                        <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">
+                          {d} day{d === 1 ? '' : 's'} to {nextAge && `${nextAge}th`} birthday
+                        </p>
+                      );
+                    })()}
+                  </>
+                ) : (
+                  <p className="text-xs text-kaya-sand">Not set{isParent && !isGuest && ' — tap Edit'}</p>
+                )}
+              </div>
+              <div className="bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm p-3">
+                <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Email</p>
+                {child.email ? (
+                  <>
+                    <p className="text-sm font-bold truncate">{child.email}</p>
+                    <p className="text-[11px] text-kaya-sand mt-0.5">For future kid login</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-kaya-sand">No email yet</p>
+                )}
+              </div>
+            </div>
+
+            {/* Interests */}
+            <div>
+              <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-2">Things {child.name} likes</p>
+              {(child.interests?.length || 0) > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {child.interests!.map((i) => {
+                    const preset = INTERESTS.find((p) => p.label === i);
+                    return (
+                      <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-kaya-gold/10 text-kaya-chocolate rounded-full text-[11px] font-semibold">
+                        {preset?.emoji || '⭐'} {i}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-kaya-sand mb-2">{isParent && !isGuest ? 'Tap to add interests below.' : 'No interests added yet.'}</p>
+              )}
+              {isParent && !isGuest && (
+                <details className="text-[11px] text-kaya-sand">
+                  <summary className="cursor-pointer text-kaya-gold font-semibold">+ Add or remove</summary>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {INTERESTS.map((p) => {
+                      const sel = (child.interests || []).includes(p.label);
+                      return (
+                        <button
+                          key={p.label}
+                          onClick={() => toggleInterest(p.label)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                            sel ? 'bg-kaya-gold text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-sand-light'
+                          }`}
+                        >
+                          {p.emoji} {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
+            </div>
+
+            {/* Aspirations */}
+            <div>
+              <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-2">When {child.name} grows up</p>
+              {(child.aspirations?.length || 0) > 0 ? (
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                  {child.aspirations!.map((a) => {
+                    const preset = ASPIRATIONS.find((p) => p.label === a);
+                    return (
+                      <span key={a} className="inline-flex items-center gap-1 px-2.5 py-1 bg-kaya-chocolate text-white rounded-full text-[11px] font-semibold">
+                        {preset?.emoji || '⭐'} {a}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-kaya-sand mb-2">{isParent && !isGuest ? `Pick up to ${ASPIRATION_LIMIT} below.` : 'Not picked yet.'}</p>
+              )}
+              {isParent && !isGuest && (
+                <details className="text-[11px] text-kaya-sand">
+                  <summary className="cursor-pointer text-kaya-gold font-semibold">+ Pick up to {ASPIRATION_LIMIT}</summary>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {ASPIRATIONS.map((p) => {
+                      const sel = (child.aspirations || []).includes(p.label);
+                      const atCap = (child.aspirations?.length || 0) >= ASPIRATION_LIMIT && !sel;
+                      return (
+                        <button
+                          key={p.label}
+                          onClick={() => toggleAspiration(p.label)}
+                          disabled={atCap}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                            sel
+                              ? 'bg-kaya-chocolate text-white border-transparent'
+                              : atCap
+                                ? 'border-kaya-warm-dark bg-kaya-warm/40 text-kaya-sand-light cursor-not-allowed'
+                                : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-sand-light'
+                          }`}
+                        >
+                          {p.emoji} {p.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Born on this day */}
+      {child.birthday && bornToday.length > 0 && (
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Born on the same day</h3>
+            <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {bornToday.map((p) => (
+              <a
+                key={p.pageUrl}
+                href={p.pageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-start gap-2 p-2 rounded-kaya-sm border border-kaya-warm-dark bg-kaya-cream/40 hover:border-kaya-chocolate transition-colors no-underline text-inherit"
+              >
+                {p.thumbnailUrl ? (
+                  <img src={p.thumbnailUrl} alt="" className="w-10 h-10 rounded-full object-cover bg-white shrink-0" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-kaya-gold-light flex items-center justify-center shrink-0">⭐</div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12px] font-bold leading-tight truncate">{p.name}</p>
+                  <p className="text-[10px] text-kaya-sand">b. {p.year}</p>
+                  {p.description && <p className="text-[10px] text-kaya-sand line-clamp-2 leading-snug mt-0.5">{p.description}</p>}
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Wishlist */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">
+            Wishlist {wishlist.length > 0 && <span className="text-kaya-sand-light">· {wishlist.length}</span>}
+          </h3>
+          {isParent && !isGuest && (
+            <button
+              onClick={() => setAddingWish((v) => !v)}
+              className="text-[11px] text-kaya-gold font-semibold hover:underline"
+            >
+              {addingWish ? 'Close' : '+ Add wish'}
+            </button>
+          )}
+        </div>
+
+        {addingWish && isParent && !isGuest && (
+          <div className="bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm p-3 mb-3 space-y-2">
+            <input
+              value={wishTitle}
+              onChange={(e) => setWishTitle(e.target.value)}
+              placeholder="What do they want?"
+              className="w-full h-9 px-3 bg-white rounded-kaya-sm text-xs border border-kaya-warm-dark focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+              autoFocus
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                value={wishCost}
+                onChange={(e) => setWishCost(e.target.value.replace(/[^0-9.]/g, ''))}
+                placeholder="Estimated cost (optional)"
+                className="h-9 px-3 bg-white rounded-kaya-sm text-xs border border-kaya-warm-dark focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+              />
+              <input
+                value={wishUrl}
+                onChange={(e) => setWishUrl(e.target.value)}
+                placeholder="Link (optional)"
+                className="h-9 px-3 bg-white rounded-kaya-sm text-xs border border-kaya-warm-dark focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+              />
+            </div>
+            <button
+              onClick={submitWish}
+              disabled={!wishTitle.trim() || savingWish}
+              className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+            >
+              {savingWish ? 'Saving…' : 'Add to wishlist'}
+            </button>
+          </div>
+        )}
+
+        {wishlist.length === 0 && !addingWish ? (
+          <p className="text-xs text-kaya-sand">{isParent && !isGuest ? 'No wishes yet — tap "+ Add wish" to record what they’re hoping for.' : 'No wishes yet.'}</p>
+        ) : (
+          <div className="space-y-2">
+            {wishlist.map((w) => (
+              <div
+                key={w.id}
+                className={`flex items-center gap-3 p-2.5 rounded-kaya-sm border ${
+                  w.achieved ? 'bg-green-50 border-green-200 opacity-80' : 'bg-white border-kaya-warm-dark'
+                }`}
+              >
+                <button
+                  onClick={() => isParent && !isGuest && markWishAchieved(w)}
+                  disabled={!isParent || isGuest}
+                  title={w.achieved ? 'Mark as not achieved' : 'Mark as achieved'}
+                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-[11px] shrink-0 ${
+                    w.achieved
+                      ? 'bg-green-500 border-green-500 text-white'
+                      : 'border-kaya-warm-dark bg-white hover:border-kaya-chocolate'
+                  } ${!isParent || isGuest ? 'cursor-default' : ''}`}
+                >
+                  {w.achieved ? '✓' : ''}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-[13px] font-semibold ${w.achieved ? 'line-through text-kaya-sand' : ''}`}>
+                    {w.title}
+                  </p>
+                  <p className="text-[11px] text-kaya-sand">
+                    {w.estimatedCost !== undefined && w.estimatedCost !== null && `~ ${w.estimatedCost.toLocaleString()} `}
+                    {w.url && (
+                      <a href={w.url} target="_blank" rel="noopener noreferrer" className="text-kaya-gold hover:underline">link ↗</a>
+                    )}
+                  </p>
+                </div>
+                {isParent && !isGuest && (
+                  <button
+                    onClick={() => removeWish(w)}
+                    className="text-[10px] text-kaya-sand hover:text-red-500 font-semibold shrink-0"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* 7-day activity */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
