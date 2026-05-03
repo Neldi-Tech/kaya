@@ -103,6 +103,7 @@ export default function RatePage() {
       const members = await getFamilyMembers(profile.familyId);
       const recipients = members
         .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
+        .filter((m) => m.notifyOnRating !== false) // default true
         .map((m) => m.email);
       notifyRating({
         to: recipients,

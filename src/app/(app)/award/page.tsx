@@ -60,6 +60,7 @@ export default function AwardPage() {
       const members = await getFamilyMembers(profile.familyId);
       const recipients = members
         .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
+        .filter((m) => m.notifyOnAward !== false) // default true
         .map((m) => m.email);
       notifyAward({
         to: recipients,

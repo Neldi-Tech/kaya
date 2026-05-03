@@ -24,6 +24,9 @@ export interface UserProfile {
   role: Role;
   familyId: string;
   childId?: string; // if role === 'kid', which child they are
+  // ── Notification preferences (default: opt-in) ──
+  notifyOnRating?: boolean; // email when a routine rating is submitted
+  notifyOnAward?: boolean;  // email when a bonus award is given
   createdAt: Timestamp;
 }
 

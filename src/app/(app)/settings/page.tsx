@@ -36,6 +36,25 @@ export default function SettingsPage() {
   const [referredFamilies, setReferredFamilies] = useState<Family[]>([]);
   const [refLinkCopied, setRefLinkCopied] = useState(false);
 
+  // Notification prefs (default: opt-in)
+  const notifyOnRating = profile?.notifyOnRating !== false;
+  const notifyOnAward = profile?.notifyOnAward !== false;
+  const [savingPref, setSavingPref] = useState<'rating' | 'award' | null>(null);
+
+  const togglePref = async (which: 'rating' | 'award') => {
+    if (!user || isGuest) return;
+    const field = which === 'rating' ? 'notifyOnRating' : 'notifyOnAward';
+    const current = which === 'rating' ? notifyOnRating : notifyOnAward;
+    setSavingPref(which);
+    try {
+      await updateUserProfile(user.uid, { [field]: !current } as any);
+      await refreshProfile();
+    } catch {
+      // ignore — UI will resync from profile on next refresh
+    }
+    setSavingPref(null);
+  };
+
   useEffect(() => {
     if (family?.pointsMode) setPointsMode(family.pointsMode);
   }, [family?.pointsMode]);
@@ -385,6 +404,40 @@ export default function SettingsPage() {
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Notifications */}
+          {!isGuest && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Email notifications</p>
+              <div className="space-y-2">
+                {[
+                  { key: 'rating' as const, on: notifyOnRating, label: 'When a routine is rated', desc: 'Email me when someone in the family rates a kid’s morning or evening routine.' },
+                  { key: 'award' as const,  on: notifyOnAward,  label: 'When bonus points are awarded', desc: 'Email me when someone awards a kid bonus points (kindness, helping, diamond points).' },
+                ].map((p) => (
+                  <button
+                    key={p.key}
+                    onClick={() => togglePref(p.key)}
+                    disabled={savingPref === p.key}
+                    className="w-full flex items-start gap-3 p-3 rounded-kaya-sm border border-kaya-warm-dark hover:border-kaya-sand-light text-left transition-colors disabled:opacity-60"
+                  >
+                    <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${p.on ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                      <div
+                        className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                        style={{ left: p.on ? '18px' : '2px' }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold">{p.label}</p>
+                      <p className="text-[11px] text-kaya-sand leading-relaxed">{p.desc}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-kaya-sand-light mt-3 leading-relaxed">
+                Emails are sent from <strong>noreply@ourkaya.com</strong>. Toggle these any time.
+              </p>
             </div>
           )}
 
