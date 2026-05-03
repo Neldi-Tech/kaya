@@ -55,3 +55,57 @@ export function generateReferralCode(name: string): string {
 export function referralLink(code: string, origin = 'https://www.ourkaya.com'): string {
   return `${origin}/?ref=${encodeURIComponent(code)}`;
 }
+
+// ── House colour library ────────────────────────────────────────
+// 3 default colours, 3 unlocked at Friend tier (1 referral),
+// 6 more unlocked at Tribe tier (3 referrals). Champion adds nothing
+// new on the colour front — its perk is the free Premium month.
+
+export type HouseTier = 'default' | 'friend' | 'tribe';
+
+export type HousePreset = {
+  id: string;
+  name: string;
+  color: string;
+  emoji: string;
+  tier: HouseTier;
+};
+
+export const HOUSE_LIBRARY: HousePreset[] = [
+  // Default — always available
+  { id: 'golden',   name: 'Golden House',   color: '#D4A017', emoji: '🏅', tier: 'default' },
+  { id: 'white',    name: 'White House',    color: '#7B9DB7', emoji: '🤍', tier: 'default' },
+  { id: 'silver',   name: 'Silver House',   color: '#9B8EC4', emoji: '🥈', tier: 'default' },
+
+  // Friend tier — unlocked at 1 referral
+  { id: 'ruby',     name: 'Ruby House',     color: '#C0392B', emoji: '❤️', tier: 'friend' },
+  { id: 'emerald',  name: 'Emerald House',  color: '#27AE60', emoji: '💚', tier: 'friend' },
+  { id: 'sapphire', name: 'Sapphire House', color: '#2980B9', emoji: '💙', tier: 'friend' },
+
+  // Tribe tier — unlocked at 3 referrals
+  { id: 'coral',    name: 'Coral House',    color: '#FF6B6B', emoji: '🌸', tier: 'tribe' },
+  { id: 'indigo',   name: 'Indigo House',   color: '#5E35B1', emoji: '🔮', tier: 'tribe' },
+  { id: 'teal',     name: 'Teal House',     color: '#0E9594', emoji: '🌊', tier: 'tribe' },
+  { id: 'rose',     name: 'Rose House',     color: '#EC407A', emoji: '🌹', tier: 'tribe' },
+  { id: 'amber',    name: 'Amber House',    color: '#FFA000', emoji: '🔥', tier: 'tribe' },
+  { id: 'mint',     name: 'Mint House',     color: '#26A69A', emoji: '🌿', tier: 'tribe' },
+];
+
+export function isHouseUnlocked(houseTier: HouseTier, direct: number, compound = 0): boolean {
+  if (houseTier === 'default') return true;
+  const total = effectiveCount(direct, compound);
+  if (houseTier === 'friend') return total >= 1;
+  if (houseTier === 'tribe')  return total >= 3;
+  return false;
+}
+
+export function unlockedHouses(direct: number, compound = 0): HousePreset[] {
+  return HOUSE_LIBRARY.filter((h) => isHouseUnlocked(h.tier, direct, compound));
+}
+
+export function houseUnlockHint(houseTier: HouseTier): string {
+  if (houseTier === 'default') return 'Available to all families';
+  if (houseTier === 'friend')  return 'Unlocks at 1 referral · Friend tier';
+  if (houseTier === 'tribe')   return 'Unlocks at 3 referrals · Tribe tier';
+  return '';
+}

@@ -6,12 +6,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards, updateChild, BADGES, DailyRating, Award } from '@/lib/firestore';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
+import { HOUSE_LIBRARY, isHouseUnlocked, houseUnlockHint } from '@/lib/referral';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 export default function ProfilesPage() {
   const { profile, isGuest } = useAuth();
-  const { children } = useFamily();
+  const { family, children } = useFamily();
+  const refDirect = family?.referralCount ?? 0;
+  const refCompound = family?.compoundCredit ?? 0;
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState(0);
   const [ratings, setRatings] = useState<DailyRating[]>([]);
@@ -20,6 +23,8 @@ export default function ProfilesPage() {
   const [savingBadge, setSavingBadge] = useState<string | null>(null);
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState<string | null>(null);
+  const [pickingHouse, setPickingHouse] = useState(false);
+  const [savingHouse, setSavingHouse] = useState<string | null>(null);
 
   // Honor ?child=<id> for deep links from the dashboard kid cards.
   useEffect(() => {
@@ -75,6 +80,25 @@ export default function ProfilesPage() {
       // Ignore — UI will stay in sync via the subscription.
     }
     setSavingBadge(null);
+  };
+
+  const chooseHouse = async (presetId: string) => {
+    if (!profile?.familyId || !child || isGuest || savingHouse) return;
+    const preset = HOUSE_LIBRARY.find((h) => h.id === presetId);
+    if (!preset) return;
+    if (!isHouseUnlocked(preset.tier, refDirect, refCompound)) return;
+    setSavingHouse(presetId);
+    try {
+      await updateChild(profile.familyId, child.id, {
+        houseColor: preset.color,
+        houseName: preset.name,
+        avatarEmoji: child.avatarPhoto ? child.avatarEmoji : preset.emoji,
+      });
+      setPickingHouse(false);
+    } catch {
+      // Real-time subscription keeps things in sync.
+    }
+    setSavingHouse(null);
   };
   const weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -237,6 +261,68 @@ export default function ProfilesPage() {
         )}
         <h2 className="font-display text-xl font-black">{child.name}</h2>
         <p className="text-sm font-semibold" style={{ color: child.houseColor }}>{child.houseName}</p>
+
+        {isParent && !isGuest && (
+          <div className="mt-3 text-left">
+            {!pickingHouse ? (
+              <button
+                onClick={() => setPickingHouse(true)}
+                className="text-[11px] text-kaya-gold font-semibold hover:underline w-full text-center"
+              >
+                Change house
+              </button>
+            ) : (
+              <div className="space-y-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm p-3">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-[11px] font-bold text-kaya-sand uppercase tracking-wider">Pick a house</p>
+                  <button
+                    onClick={() => setPickingHouse(false)}
+                    className="text-[10px] text-kaya-sand hover:text-kaya-chocolate font-semibold"
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {HOUSE_LIBRARY.map((h) => {
+                    const unlocked = isHouseUnlocked(h.tier, refDirect, refCompound);
+                    const sel = child.houseName === h.name;
+                    const saving = savingHouse === h.id;
+                    return (
+                      <button
+                        key={h.id}
+                        onClick={() => unlocked && chooseHouse(h.id)}
+                        disabled={!unlocked || !!savingHouse}
+                        title={unlocked ? h.name : `${h.name} — ${houseUnlockHint(h.tier)}`}
+                        className={`relative p-2 rounded-kaya-sm border-2 transition-all text-center ${
+                          sel
+                            ? 'border-kaya-chocolate bg-white'
+                            : unlocked
+                              ? 'border-kaya-warm-dark bg-white hover:border-kaya-sand-light'
+                              : 'border-kaya-warm-dark/60 bg-kaya-warm/30 opacity-60 cursor-not-allowed'
+                        } ${saving ? 'opacity-60' : ''}`}
+                      >
+                        <div
+                          className={`w-8 h-8 mx-auto mb-1 rounded-full ${unlocked ? '' : 'grayscale'}`}
+                          style={{ background: h.color }}
+                        />
+                        <p className="text-[10px] font-bold leading-tight truncate">{h.name.replace(' House', '')}</p>
+                        {!unlocked && (
+                          <span className="absolute top-1 right-1 text-[10px]" aria-label="locked">🔒</span>
+                        )}
+                        {sel && unlocked && (
+                          <span className="absolute top-1 right-1 text-kaya-gold text-[11px] font-bold">✓</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-kaya-sand-light leading-relaxed">
+                  Locked colors unlock as you refer other families. Settings → Invite friends.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="flex justify-around mt-4 pt-4 border-t border-kaya-warm-dark">
           <div>
