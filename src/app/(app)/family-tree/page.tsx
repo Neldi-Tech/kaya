@@ -70,6 +70,7 @@ export default function FamilyTreePage() {
           into the editor. */}
       {family && (() => {
         const anniversary = family.anniversary;
+        const familyShortName = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
         if (!anniversary) {
           return isParent ? (
             <Link
@@ -90,8 +91,16 @@ export default function FamilyTreePage() {
         const yearsTogether = ageNow(anniversary);
         const dow = dayOfWeek(anniversary);
         const isToday = days === 0;
+        const title = family.anniversaryName?.trim() || 'Anniversary';
+        // Heartfelt tagline that uses the family's short name when known,
+        // falls back to a generic phrasing otherwise.
+        const tagline = yearsTogether !== null
+          ? (familyShortName
+              ? `${yearsTogether} year${yearsTogether === 1 ? '' : 's'} of building the ${familyShortName} family with love together 💛`
+              : `${yearsTogether} year${yearsTogether === 1 ? '' : 's'} of building this family with love together 💛`)
+          : null;
         return (
-          <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-center gap-4 ${
+          <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-start gap-4 ${
             isToday
               ? 'bg-gradient-to-br from-kaya-gold to-kaya-gold-dark text-white shadow-md'
               : 'bg-white border border-kaya-warm-dark'
@@ -101,7 +110,7 @@ export default function FamilyTreePage() {
             }`}>💍</div>
             <div className="flex-1 min-w-0">
               <p className={`text-[10px] font-bold uppercase tracking-[0.14em] ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>
-                Anniversary
+                {title}
               </p>
               <p className="font-display font-bold text-base lg:text-lg truncate">
                 {toDisplayDate(anniversary)}{dow && <span className={`font-normal ml-2 ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>· {dow}</span>}
@@ -111,11 +120,16 @@ export default function FamilyTreePage() {
                   ? `🎉 Today — ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} together`
                   : `${days} day${days === 1 ? '' : 's'} to go${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`}
               </p>
+              {tagline && (
+                <p className={`text-[12px] leading-snug mt-1.5 italic ${isToday ? 'text-white/85' : 'text-kaya-chocolate'}`}>
+                  {tagline}
+                </p>
+              )}
             </div>
             {isParent && (
               <Link
                 href="/settings#family"
-                className="text-[11px] font-bold shrink-0 hover:underline"
+                className="text-[11px] font-bold shrink-0 hover:underline self-center"
                 style={{ color: isToday ? '#fff' : '#D4A017' }}
               >
                 Edit

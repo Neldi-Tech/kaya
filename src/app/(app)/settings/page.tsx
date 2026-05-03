@@ -15,7 +15,7 @@ import {
 } from '@/lib/handles';
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
-import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday } from '@/lib/dates';
+import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday, ageNow } from '@/lib/dates';
 import {
   bornOnThisDay, eventsOnThisDay,
   BornOnThisDayPerson, OnThisDayEvent,
@@ -141,11 +141,14 @@ export default function SettingsPage() {
   // Family anniversary (shared across both parents — lives on the Family doc)
   const [editingAnniversary, setEditingAnniversary] = useState(false);
   const [anniversaryInput, setAnniversaryInput] = useState('');
+  const [anniversaryNameInput, setAnniversaryNameInput] = useState('');
   const [anniversaryError, setAnniversaryError] = useState('');
   const [savingAnniversary, setSavingAnniversary] = useState(false);
+  const [anniversarySaved, setAnniversarySaved] = useState(false);
 
   const startEditingAnniversary = () => {
     setAnniversaryInput(family?.anniversary || '');
+    setAnniversaryNameInput(family?.anniversaryName || '');
     setAnniversaryError('');
     setEditingAnniversary(true);
   };
@@ -153,6 +156,7 @@ export default function SettingsPage() {
   const saveAnniversary = async () => {
     if (!profile?.familyId || !family || isGuest) return;
     const trimmed = anniversaryInput.trim();
+    const trimmedName = anniversaryNameInput.trim().slice(0, 60);
     if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       setAnniversaryError('Pick a valid date.');
       return;
@@ -160,8 +164,13 @@ export default function SettingsPage() {
     setSavingAnniversary(true);
     setAnniversaryError('');
     try {
-      await updateFamily(profile.familyId, { anniversary: trimmed || null } as any);
+      await updateFamily(profile.familyId, {
+        anniversary: trimmed || null,
+        anniversaryName: trimmedName || null,
+      } as any);
       setEditingAnniversary(false);
+      setAnniversarySaved(true);
+      setTimeout(() => setAnniversarySaved(false), 2200);
     } catch (e: any) {
       setAnniversaryError(e?.message || 'Failed to save anniversary.');
     }
@@ -1016,7 +1025,9 @@ export default function SettingsPage() {
               <div className="border-t border-kaya-warm-dark pt-3 mt-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">
+                      {family.anniversaryName?.trim() || 'Anniversary'}
+                    </p>
                     {family.anniversary ? (
                       <>
                         <p className="text-[12px] truncate">
@@ -1025,9 +1036,23 @@ export default function SettingsPage() {
                         </p>
                         {(() => {
                           const d = daysToNextBirthday(family.anniversary!);
-                          if (d === null) return null;
-                          if (d === 0) return <p className="text-[11px] font-bold text-kaya-gold mt-0.5">🎉 Today!</p>;
-                          return <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">{d} day{d === 1 ? '' : 's'} to go</p>;
+                          const yrs = ageNow(family.anniversary!);
+                          const familyShort = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
+                          return (
+                            <>
+                              {d !== null && (d === 0
+                                ? <p className="text-[11px] font-bold text-kaya-gold mt-0.5">🎉 Today!</p>
+                                : <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">{d} day{d === 1 ? '' : 's'} to go{yrs !== null ? ` · ${yrs} year${yrs === 1 ? '' : 's'} so far` : ''}</p>
+                              )}
+                              {yrs !== null && (
+                                <p className="text-[11px] italic text-kaya-chocolate mt-1 leading-snug">
+                                  {familyShort
+                                    ? `${yrs} year${yrs === 1 ? '' : 's'} of building the ${familyShort} family with love together 💛`
+                                    : `${yrs} year${yrs === 1 ? '' : 's'} of building this family with love together 💛`}
+                                </p>
+                              )}
+                            </>
+                          );
                         })()}
                       </>
                     ) : (
@@ -1281,18 +1306,37 @@ export default function SettingsPage() {
                   {!editingAnniversary ? (
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                        <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider flex items-center gap-2">
+                          {family.anniversaryName?.trim() || 'Anniversary'}
+                          {anniversarySaved && (
+                            <span className="text-[10px] font-bold text-kaya-gold normal-case">✓ Saved</span>
+                          )}
+                        </p>
                         {family.anniversary ? (
-                          <p className="text-[12px] truncate">
-                            💍 {toDisplayDate(family.anniversary)} ·{' '}
-                            <span className="text-kaya-sand">{dayOfWeek(family.anniversary)}</span>
+                          <>
+                            <p className="text-[12px] truncate">
+                              💍 {toDisplayDate(family.anniversary)} ·{' '}
+                              <span className="text-kaya-sand">{dayOfWeek(family.anniversary)}</span>
+                              {(() => {
+                                const d = daysToNextBirthday(family.anniversary!);
+                                if (d === null) return null;
+                                if (d === 0) return <span className="ml-2 font-bold text-kaya-gold">🎉 Today!</span>;
+                                return <span className="ml-2 text-kaya-gold font-semibold">{d} day{d === 1 ? '' : 's'} to go</span>;
+                              })()}
+                            </p>
                             {(() => {
-                              const d = daysToNextBirthday(family.anniversary!);
-                              if (d === null) return null;
-                              if (d === 0) return <span className="ml-2 font-bold text-kaya-gold">🎉 Today!</span>;
-                              return <span className="ml-2 text-kaya-gold font-semibold">{d} day{d === 1 ? '' : 's'} to go</span>;
+                              const yrs = ageNow(family.anniversary!);
+                              if (yrs === null) return null;
+                              const familyShort = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
+                              return (
+                                <p className="text-[11px] italic text-kaya-chocolate mt-1 leading-snug">
+                                  {familyShort
+                                    ? `${yrs} year${yrs === 1 ? '' : 's'} of building the ${familyShort} family with love together 💛`
+                                    : `${yrs} year${yrs === 1 ? '' : 's'} of building this family with love together 💛`}
+                                </p>
+                              );
                             })()}
-                          </p>
+                          </>
                         ) : (
                           <p className="text-[12px] text-kaya-sand">Add the wedding date so both parents see the countdown.</p>
                         )}
@@ -1308,14 +1352,25 @@ export default function SettingsPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary date</p>
                       <DateSelect
                         value={anniversaryInput}
                         onChange={setAnniversaryInput}
                         maxDate={new Date().toISOString().slice(0, 10)}
                       />
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mt-2">What to call it</p>
+                      <input
+                        value={anniversaryNameInput}
+                        onChange={(e) => setAnniversaryNameInput(e.target.value)}
+                        placeholder="Wedding Anniversary"
+                        maxLength={60}
+                        className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                      />
                       <p className="text-[10px] text-kaya-sand-light">
-                        Visible to everyone in the family. Both parents see the same countdown.
+                        Optional. Defaults to &quot;Anniversary&quot;. Try &quot;Wedding Anniversary&quot;,
+                        &quot;Engagement Day&quot;, &quot;The Day We Met&quot; — anything that means
+                        something to you. Visible to everyone in the family; both parents
+                        see the same countdown.
                       </p>
                       {anniversaryError && (
                         <p className="text-red-500 text-[11px]">{anniversaryError}</p>

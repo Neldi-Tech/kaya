@@ -64,6 +64,7 @@ export interface Family {
   spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
   // ── Family milestones ──
   anniversary?: string;           // canonical YYYY-MM-DD; UI shows DD-MMM-YYYY + day-of-week
+  anniversaryName?: string;       // optional custom title (e.g. "Wedding Anniversary", "First Met"). Defaults to "Anniversary" in the UI.
   // ── Family identity policy ──
   // Whether the "Other" gender option is shown when picking a gender for a
   // kid or a parent inside this family. Defaults to **false** — many cultures
