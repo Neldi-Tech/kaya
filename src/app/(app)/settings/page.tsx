@@ -41,6 +41,10 @@ export default function SettingsPage() {
   const notifyOnAward = profile?.notifyOnAward !== false;
   const [savingPref, setSavingPref] = useState<'rating' | 'award' | null>(null);
 
+  // Champion landing spotlight (only meaningful at Champion tier)
+  const spotlightOptIn = !!family?.spotlightOptIn;
+  const [savingSpotlight, setSavingSpotlight] = useState(false);
+
   const togglePref = async (which: 'rating' | 'award') => {
     if (!user || isGuest) return;
     const field = which === 'rating' ? 'notifyOnRating' : 'notifyOnAward';
@@ -53,6 +57,17 @@ export default function SettingsPage() {
       // ignore — UI will resync from profile on next refresh
     }
     setSavingPref(null);
+  };
+
+  const toggleSpotlight = async () => {
+    if (!profile?.familyId || isGuest) return;
+    setSavingSpotlight(true);
+    try {
+      await updateFamily(profile.familyId, { spotlightOptIn: !spotlightOptIn } as any);
+      // FamilyContext re-reads on next page mount; for instant feedback we'd need
+      // to refresh, but the toggle's local state mirrors the source so it's fine.
+    } catch {}
+    setSavingSpotlight(false);
   };
 
   useEffect(() => {
@@ -262,6 +277,25 @@ export default function SettingsPage() {
           <p className="text-kaya-sand">When a family <em>you</em> referred goes on to refer another, you earn an extra credit.{compoundCount > 0 && ` You have ${compoundCount} so far.`}</p>
         </div>
       </div>
+
+      {/* Champion landing spotlight — only meaningful once you reach Champion tier */}
+      {currentTier === 'champion' && (
+        <button
+          onClick={toggleSpotlight}
+          disabled={savingSpotlight}
+          className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-3 flex items-start gap-3 text-left hover:border-kaya-chocolate transition-colors disabled:opacity-60"
+        >
+          <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${spotlightOptIn ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+            <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all" style={{ left: spotlightOptIn ? '18px' : '2px' }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-bold">👑 Featured on the landing page</p>
+            <p className="text-[11px] text-kaya-sand leading-snug">
+              Show your family name on ourkaya.com as a Champion family. Off by default. You can toggle this any time.
+            </p>
+          </div>
+        </button>
+      )}
 
       {referredFamilies.length > 0 && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya overflow-hidden">

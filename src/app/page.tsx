@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFamilyByReferralCode } from '@/lib/firestore';
+import { getFamilyByReferralCode, getSpotlightFamilies, Family } from '@/lib/firestore';
 
 const REF_STORAGE_KEY = 'kaya.ref';
 
@@ -39,6 +39,11 @@ export default function LandingPage() {
   const router = useRouter();
   const [referrerName, setReferrerName] = useState<string | null>(null);
   const [showReferralBanner, setShowReferralBanner] = useState(true);
+  const [spotlight, setSpotlight] = useState<Family[]>([]);
+
+  useEffect(() => {
+    getSpotlightFamilies(6).then(setSpotlight).catch(() => setSpotlight([]));
+  }, []);
 
   useEffect(() => {
     if (loading || isGuest) return;
@@ -247,6 +252,35 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* ── Champion families spotlight ─────────────── */}
+      {spotlight.length > 0 && (
+        <section className="px-5 lg:px-8 py-10 lg:py-16 border-t border-kaya-warm-dark/60">
+          <div className="max-w-7xl mx-auto">
+            <div className="flex items-end justify-between gap-6 mb-6 lg:mb-8 flex-wrap">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-kaya-gold mb-2">Champion families · 10+ referrals</p>
+                <h2 className="font-display font-extrabold text-[24px] lg:text-[36px] leading-tight tracking-tight">Families building Kaya with us</h2>
+              </div>
+              <p className="text-[12px] text-kaya-sand-light max-w-xs">Opt-in spotlight from families who&apos;ve invited 10+ others. Become one yourself — start at the top.</p>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {spotlight.map((f) => (
+                <div key={f.id} className="bg-white border border-kaya-warm-dark/60 rounded-kaya p-4 text-center">
+                  <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-white text-base font-display font-black">
+                    {(f.name || 'K').replace(/^the\s+/i, '').charAt(0).toUpperCase()}
+                  </div>
+                  <p className="font-bold text-[12px] truncate">{f.name}</p>
+                  <p className="text-[10px] text-kaya-sand">{f.referralCount || 0} referrals</p>
+                  {f.isFoundingFamily && (
+                    <p className="text-[9px] font-bold text-kaya-gold uppercase tracking-wider mt-1">👑 Founding</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── Houses ──────────────────────────────────── */}
       <section className="px-5 lg:px-8 py-10 lg:py-20 border-t border-kaya-warm-dark/60 bg-white/40">

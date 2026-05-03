@@ -307,6 +307,22 @@ export async function getFamilyByReferralCode(code: string): Promise<Family | nu
   return { id: d.id, ...d.data() } as Family;
 }
 
+// Families opted in to the Champion landing-page spotlight. Only shows
+// families with 10+ direct referrals (Champion tier).
+export async function getSpotlightFamilies(max = 6): Promise<Family[]> {
+  if (isGuestActive()) return [];
+  const q = query(
+    collection(db, 'families'),
+    where('spotlightOptIn', '==', true),
+  );
+  const snap = await getDocs(q);
+  const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Family));
+  return all
+    .filter((f) => (f.referralCount || 0) >= 10)
+    .sort((a, b) => (b.referralCount || 0) - (a.referralCount || 0))
+    .slice(0, max);
+}
+
 export async function getReferredFamilies(familyId: string): Promise<Family[]> {
   if (isGuestActive()) {
     // Demo: show one referred family in guest mode so the panel feels populated.
