@@ -35,6 +35,10 @@ export interface Family {
   name: string;
   createdBy: string;
   inviteCode: string;
+  // ── Public identity ──
+  handle?: string;                // case-preserved, e.g. "Timotheo"
+  handleLower?: string;           // lowercase mirror — used for case-insensitive lookup
+  photoUrl?: string;              // family photo (data URL or external URL)
   // ── Referral campaign ──
   referralCode?: string;          // unique code for inviting OTHER families to start their own
   referredBy?: string | null;     // familyId of the family that referred us (if any)
@@ -310,6 +314,29 @@ export async function createFamily(
   await batch.commit();
 
   return createdFamilyId;
+}
+
+// ── Handle lookups ──────────────────────────────────────────────
+// handles are stored case-preserved with a `handleLower` mirror so we can
+// query case-insensitively and still display with the user's preferred case.
+export async function getFamilyByHandle(handle: string): Promise<Family | null> {
+  if (isGuestActive()) return null;
+  if (!handle) return null;
+  const q = query(
+    collection(db, 'families'),
+    where('handleLower', '==', handle.toLowerCase()),
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() } as Family;
+}
+
+export async function isHandleAvailable(handle: string, excludeFamilyId?: string): Promise<boolean> {
+  if (isGuestActive()) return true;
+  const existing = await getFamilyByHandle(handle);
+  if (!existing) return true;
+  return excludeFamilyId !== undefined && existing.id === excludeFamilyId;
 }
 
 export async function getFamilyByReferralCode(code: string): Promise<Family | null> {

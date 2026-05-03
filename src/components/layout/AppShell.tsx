@@ -17,9 +17,10 @@ const PARENT_PRIMARY: NavItem[] = [
 ];
 
 const PARENT_INSIGHTS: NavItem[] = [
-  { path: '/reports',  icon: '📊', label: 'Reports' },
-  { path: '/profiles', icon: '👧', label: 'Kid profiles' },
-  { path: '/badges',   icon: '🏆', label: 'Badges' },
+  { path: '/reports',     icon: '📊', label: 'Reports' },
+  { path: '/profiles',    icon: '👧', label: 'Kid profiles' },
+  { path: '/badges',      icon: '🏆', label: 'Badges' },
+  { path: '/family-tree', icon: '🌳', label: 'Family tree' },
 ];
 
 const FUN_NAV: NavItem[] = [

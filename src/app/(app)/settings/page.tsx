@@ -6,8 +6,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   updateFamily, updateUserProfile, addChild, ensureReferralCode,
-  getReferredFamilies, Family, PointsMode,
+  getReferredFamilies, isHandleAvailable, Family, PointsMode,
 } from '@/lib/firestore';
+import {
+  normalizeHandle, handleErrorMessage, suggestFamilyHandles,
+  formatFamilyHandle, handleToSlug,
+} from '@/lib/handles';
+import { fileToAvatarDataUrl } from '@/lib/imageUpload';
+import { useRef } from 'react';
 import {
   TIERS, tierFor, nextTier, progressToNext,
   effectiveCount, referralLink,
@@ -44,6 +50,76 @@ export default function SettingsPage() {
   // Champion landing spotlight (only meaningful at Champion tier)
   const spotlightOptIn = !!family?.spotlightOptIn;
   const [savingSpotlight, setSavingSpotlight] = useState(false);
+
+  // Family handle + photo
+  const [editingHandle, setEditingHandle] = useState(false);
+  const [handleInput, setHandleInput] = useState('');
+  const [handleError, setHandleError] = useState('');
+  const [savingHandle, setSavingHandle] = useState(false);
+  const [savingFamilyPhoto, setSavingFamilyPhoto] = useState(false);
+  const [familyPhotoError, setFamilyPhotoError] = useState('');
+  const familyPhotoRef = useRef<HTMLInputElement | null>(null);
+
+  const startEditingHandle = () => {
+    setHandleInput(family?.handle || (family?.name ? suggestFamilyHandles(family.name)[0] || '' : ''));
+    setHandleError('');
+    setEditingHandle(true);
+  };
+
+  const saveHandle = async () => {
+    if (!profile?.familyId || !family || isGuest) return;
+    const canonical = normalizeHandle(handleInput);
+    if (!canonical) {
+      setHandleError(handleErrorMessage(handleInput) || 'Invalid handle.');
+      return;
+    }
+    if (canonical.toLowerCase() === (family.handle || '').toLowerCase()) {
+      setEditingHandle(false);
+      return;
+    }
+    setSavingHandle(true);
+    setHandleError('');
+    try {
+      const ok = await isHandleAvailable(canonical, family.id);
+      if (!ok) {
+        setHandleError('That handle is taken — try another.');
+        setSavingHandle(false);
+        return;
+      }
+      await updateFamily(profile.familyId, {
+        handle: canonical,
+        handleLower: canonical.toLowerCase(),
+      } as any);
+      setEditingHandle(false);
+    } catch (e: any) {
+      setHandleError(e?.message || 'Failed to save handle.');
+    }
+    setSavingHandle(false);
+  };
+
+  const handleFamilyPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !profile?.familyId) return;
+    setFamilyPhotoError('');
+    setSavingFamilyPhoto(true);
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await updateFamily(profile.familyId, { photoUrl: dataUrl } as any);
+    } catch (err: any) {
+      setFamilyPhotoError(err?.message || 'Could not process that image.');
+    }
+    setSavingFamilyPhoto(false);
+  };
+
+  const removeFamilyPhoto = async () => {
+    if (!profile?.familyId) return;
+    setSavingFamilyPhoto(true);
+    try {
+      await updateFamily(profile.familyId, { photoUrl: '' } as any);
+    } catch {}
+    setSavingFamilyPhoto(false);
+  };
 
   const togglePref = async (which: 'rating' | 'award') => {
     if (!user || isGuest) return;
@@ -377,13 +453,156 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Family name */}
+          {/* Family identity — name, handle, photo */}
           {family && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Family</p>
-              <p className="font-bold">{family.name}</p>
-              {family.isFoundingFamily && (
-                <p className="text-[11px] font-bold text-kaya-gold mt-1.5">👑 Founding Family · lifetime badge</p>
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
+              <div className="flex items-start gap-4">
+                {/* Family photo */}
+                <div className="shrink-0">
+                  {family.photoUrl ? (
+                    <img
+                      src={family.photoUrl}
+                      alt={family.name}
+                      className="w-16 h-16 rounded-[18px] object-cover border border-kaya-warm-dark"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-[18px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light flex items-center justify-center font-display font-black text-2xl">
+                      {(family.name || 'K').replace(/^the\s+/i, '').charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Family</p>
+                  <p className="font-bold text-base truncate">{family.name}</p>
+                  {family.handle ? (
+                    <p className="text-[12px] font-semibold text-kaya-gold truncate">{formatFamilyHandle(family.handle)}</p>
+                  ) : (
+                    <p className="text-[12px] text-kaya-sand">No handle yet</p>
+                  )}
+                  {family.isFoundingFamily && (
+                    <p className="text-[11px] font-bold text-kaya-gold mt-1">👑 Founding Family · lifetime badge</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Photo controls (parent-only, not guest) */}
+              {isParent && !isGuest && (
+                <div className="flex flex-wrap gap-2 items-center">
+                  <button
+                    onClick={() => familyPhotoRef.current?.click()}
+                    disabled={savingFamilyPhoto}
+                    className="h-8 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-[11px] font-bold hover:border-kaya-chocolate transition-colors disabled:opacity-60"
+                  >
+                    {savingFamilyPhoto ? 'Saving…' : family.photoUrl ? '📷 Change photo' : '📷 Add photo'}
+                  </button>
+                  {family.photoUrl && (
+                    <button
+                      onClick={removeFamilyPhoto}
+                      disabled={savingFamilyPhoto}
+                      className="text-[11px] text-kaya-sand hover:text-red-500 font-semibold"
+                    >
+                      Remove
+                    </button>
+                  )}
+                  <input
+                    ref={familyPhotoRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFamilyPhoto}
+                  />
+                  {familyPhotoError && (
+                    <p className="text-red-500 text-[11px] basis-full">{familyPhotoError}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Handle editor (parent-only, not guest) */}
+              {isParent && !isGuest && (
+                <div className="border-t border-kaya-warm-dark pt-3">
+                  {!editingHandle ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Public handle</p>
+                        {family.handle ? (
+                          <p className="text-[12px] truncate">
+                            {formatFamilyHandle(family.handle)} ·{' '}
+                            <a
+                              href={`/u/${handleToSlug(family.handle)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-kaya-gold hover:underline"
+                            >
+                              ourkaya.com/u/{handleToSlug(family.handle)} ↗
+                            </a>
+                          </p>
+                        ) : (
+                          <p className="text-[12px] text-kaya-sand">Pick a public handle for your family.</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={startEditingHandle}
+                        className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                      >
+                        {family.handle ? 'Change' : 'Pick handle'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Public handle</p>
+                      <div className="flex items-center gap-1 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm pl-3">
+                        <span className="text-kaya-sand font-bold">@</span>
+                        <input
+                          value={handleInput}
+                          onChange={(e) => setHandleInput(e.target.value)}
+                          autoFocus
+                          maxLength={24}
+                          placeholder="Timotheo"
+                          className="flex-1 h-9 bg-transparent text-sm font-semibold focus:outline-none"
+                        />
+                      </div>
+                      <p className="text-[10px] text-kaya-sand-light leading-relaxed">
+                        Will display as <strong>{handleInput.trim() ? `@${normalizeHandle(handleInput) || handleInput}'s Family` : "@…'s Family"}</strong>.
+                        Uses 3–24 letters/numbers, starts with a capital. Lowercased in the URL.
+                      </p>
+                      {family.name && suggestFamilyHandles(family.name).length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          <span className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mr-1 self-center">Try</span>
+                          {suggestFamilyHandles(family.name).map((s) => (
+                            <button
+                              key={s}
+                              onClick={() => setHandleInput(s)}
+                              className="px-2 py-1 rounded-full text-[11px] font-semibold border border-kaya-warm-dark bg-white text-kaya-chocolate hover:border-kaya-chocolate"
+                            >
+                              @{s}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {handleError && (
+                        <p className="text-red-500 text-[11px]">{handleError}</p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={saveHandle}
+                          disabled={savingHandle}
+                          className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                        >
+                          {savingHandle ? 'Checking…' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingHandle(false); setHandleError(''); }}
+                          disabled={savingHandle}
+                          className="h-9 px-4 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
