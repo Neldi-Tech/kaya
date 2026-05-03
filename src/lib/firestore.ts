@@ -398,7 +398,7 @@ export async function findChildByEmail(email: string): Promise<{ familyId: strin
       // d.ref.parent.parent is the family doc.
       const familyRef = d.ref.parent.parent;
       if (!familyRef) continue;
-      return { familyId: familyRef.id, child: { id: d.id, ...data } as Child };
+      return { familyId: familyRef.id, child: { ...data, id: d.id } as Child };
     }
   } catch {
     // No index yet → treat as no match.
