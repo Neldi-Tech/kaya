@@ -6,7 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import { formatFamilyHandle, formatPersonHandle, handleToSlug } from '@/lib/handles';
-import { toDisplayDate, dayOfWeek, daysToNextBirthday, ageNow } from '@/lib/dates';
+import { toDisplayDate, dayOfWeek, daysToNextBirthday, ageNow, ageAtNextBirthday } from '@/lib/dates';
+import { milestoneForYear, ordinal } from '@/lib/anniversaryMilestones';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -89,6 +90,10 @@ export default function FamilyTreePage() {
         }
         const days = daysToNextBirthday(anniversary);
         const yearsTogether = ageNow(anniversary);
+        // Years they will have completed *on* the next anniversary — drives
+        // the milestone callout (e.g. 9 years today → "celebrating Tin (10th)
+        // Anniversary in X days").
+        const upcomingYear = ageAtNextBirthday(anniversary);
         const dow = dayOfWeek(anniversary);
         const isToday = days === 0;
         const title = family.anniversaryName?.trim() || 'Anniversary';
@@ -99,6 +104,10 @@ export default function FamilyTreePage() {
               ? `${yearsTogether} year${yearsTogether === 1 ? '' : 's'} of building the ${familyShortName} family with love together 💛`
               : `${yearsTogether} year${yearsTogether === 1 ? '' : 's'} of building this family with love together 💛`)
           : null;
+        // Milestone for the upcoming celebration. When today IS the
+        // anniversary, show the milestone for the year they JUST completed.
+        const milestoneYear = isToday ? yearsTogether : upcomingYear;
+        const milestone = milestoneYear !== null ? milestoneForYear(milestoneYear) : null;
         return (
           <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-start gap-4 ${
             isToday
@@ -117,8 +126,12 @@ export default function FamilyTreePage() {
               </p>
               <p className={`text-[12px] ${isToday ? 'text-white/90 font-bold' : 'text-kaya-gold font-semibold'}`}>
                 {isToday
-                  ? `🎉 Today — ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} together`
-                  : `${days} day${days === 1 ? '' : 's'} to go${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`}
+                  ? (milestone
+                      ? `🎉 Today — celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                      : `🎉 Today — ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} together`)
+                  : (milestone && upcomingYear !== null
+                      ? `${days} day${days === 1 ? '' : 's'} to celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year) Anniversary`
+                      : `${days} day${days === 1 ? '' : 's'} to your ${upcomingYear !== null ? ordinal(upcomingYear) + ' ' : ''}anniversary${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`)}
               </p>
               {tagline && (
                 <p className={`text-[12px] leading-snug mt-1.5 italic ${isToday ? 'text-white/85' : 'text-kaya-chocolate'}`}>

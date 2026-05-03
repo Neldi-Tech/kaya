@@ -15,7 +15,8 @@ import {
 } from '@/lib/handles';
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
-import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday, ageNow } from '@/lib/dates';
+import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday, ageNow, ageAtNextBirthday } from '@/lib/dates';
+import { milestoneForYear, ordinal } from '@/lib/anniversaryMilestones';
 import {
   bornOnThisDay, eventsOnThisDay,
   BornOnThisDayPerson, OnThisDayEvent,
@@ -1037,12 +1038,26 @@ export default function SettingsPage() {
                         {(() => {
                           const d = daysToNextBirthday(family.anniversary!);
                           const yrs = ageNow(family.anniversary!);
+                          const upcoming = ageAtNextBirthday(family.anniversary!);
+                          const milestoneYear = d === 0 ? yrs : upcoming;
+                          const milestone = milestoneYear !== null ? milestoneForYear(milestoneYear) : null;
                           const familyShort = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
                           return (
                             <>
                               {d !== null && (d === 0
-                                ? <p className="text-[11px] font-bold text-kaya-gold mt-0.5">🎉 Today!</p>
-                                : <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">{d} day{d === 1 ? '' : 's'} to go{yrs !== null ? ` · ${yrs} year${yrs === 1 ? '' : 's'} so far` : ''}</p>
+                                ? (
+                                  <p className="text-[11px] font-bold text-kaya-gold mt-0.5">
+                                    {milestone
+                                      ? `🎉 Today — ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                                      : '🎉 Today!'}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">
+                                    {milestone && upcoming !== null
+                                      ? `${d} day${d === 1 ? '' : 's'} to celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                                      : `${d} day${d === 1 ? '' : 's'} to your ${upcoming !== null ? ordinal(upcoming) + ' ' : ''}anniversary${yrs !== null ? ` · ${yrs} year${yrs === 1 ? '' : 's'} so far` : ''}`}
+                                  </p>
+                                )
                               )}
                               {yrs !== null && (
                                 <p className="text-[11px] italic text-kaya-chocolate mt-1 leading-snug">
@@ -1317,13 +1332,26 @@ export default function SettingsPage() {
                             <p className="text-[12px] truncate">
                               💍 {toDisplayDate(family.anniversary)} ·{' '}
                               <span className="text-kaya-sand">{dayOfWeek(family.anniversary)}</span>
-                              {(() => {
-                                const d = daysToNextBirthday(family.anniversary!);
-                                if (d === null) return null;
-                                if (d === 0) return <span className="ml-2 font-bold text-kaya-gold">🎉 Today!</span>;
-                                return <span className="ml-2 text-kaya-gold font-semibold">{d} day{d === 1 ? '' : 's'} to go</span>;
-                              })()}
                             </p>
+                            {(() => {
+                              const d = daysToNextBirthday(family.anniversary!);
+                              const yrs = ageNow(family.anniversary!);
+                              const upcoming = ageAtNextBirthday(family.anniversary!);
+                              const milestoneYear = d === 0 ? yrs : upcoming;
+                              const milestone = milestoneYear !== null ? milestoneForYear(milestoneYear) : null;
+                              if (d === null) return null;
+                              return (
+                                <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">
+                                  {d === 0
+                                    ? (milestone
+                                        ? `🎉 Today — ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                                        : '🎉 Today!')
+                                    : (milestone && upcoming !== null
+                                        ? `${d} day${d === 1 ? '' : 's'} to celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year) Anniversary`
+                                        : `${d} day${d === 1 ? '' : 's'} to your ${upcoming !== null ? ordinal(upcoming) + ' ' : ''}anniversary`)}
+                                </p>
+                              );
+                            })()}
                             {(() => {
                               const yrs = ageNow(family.anniversary!);
                               if (yrs === null) return null;
