@@ -1009,6 +1009,44 @@ export default function SettingsPage() {
                 )}
               </div>
             )}
+
+            {/* Anniversary — read-only here. The shared family-level field
+                lives on the Family doc and is edited under Family identity
+                ↓; we surface it on the personal profile so the parent sees
+                their key dates side-by-side (birthday + anniversary). */}
+            {!isGuest && family && (
+              <div className="border-t border-kaya-warm-dark pt-3 mt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                    {family.anniversary ? (
+                      <>
+                        <p className="text-[12px] truncate">
+                          💍 {toDisplayDate(family.anniversary)}{' '}
+                          <span className="text-kaya-sand">· {dayOfWeek(family.anniversary)}</span>
+                        </p>
+                        {(() => {
+                          const d = daysToNextBirthday(family.anniversary!);
+                          if (d === null) return null;
+                          if (d === 0) return <p className="text-[11px] font-bold text-kaya-gold mt-0.5">🎉 Today!</p>;
+                          return <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">{d} day{d === 1 ? '' : 's'} to go</p>;
+                        })()}
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-kaya-sand">Not set on the family yet.</p>
+                    )}
+                  </div>
+                  {isParent && (
+                    <a
+                      href="#family"
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                    >
+                      {family.anniversary ? 'Edit ↓' : 'Add ↓'}
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Born on this day (parent) */}
@@ -1084,9 +1122,11 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Family identity — name, handle, photo */}
+          {/* Family identity — name, handle, photo. Anchored at #family so
+              deep links from the Family Tree (anniversary card "Edit" /
+              empty-state "+ Add anniversary") land directly on this card. */}
           {family && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
+            <div id="family" className="scroll-mt-24 bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
               <div className="flex items-start gap-4">
                 {/* Family photo */}
                 <div className="shrink-0">

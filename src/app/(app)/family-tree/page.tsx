@@ -64,11 +64,31 @@ export default function FamilyTreePage() {
         </div>
       )}
 
-      {/* Anniversary card — countdown shared across both parents. */}
-      {family?.anniversary && (() => {
-        const days = daysToNextBirthday(family.anniversary);
-        const yearsTogether = ageNow(family.anniversary);
-        const dow = dayOfWeek(family.anniversary);
+      {/* Anniversary card — always rendered so parents always know where
+          to go to set/see it. When no anniversary is on the Family doc,
+          it becomes an "+ Add anniversary" prompt that links straight
+          into the editor. */}
+      {family && (() => {
+        const anniversary = family.anniversary;
+        if (!anniversary) {
+          return isParent ? (
+            <Link
+              href="/settings#family"
+              className="mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-center gap-4 bg-white border border-dashed border-kaya-warm-dark hover:border-kaya-chocolate transition-colors no-underline text-inherit"
+            >
+              <div className="w-12 h-12 lg:w-14 lg:h-14 rounded-[14px] flex items-center justify-center text-2xl lg:text-3xl shrink-0 bg-kaya-warm/60">💍</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Anniversary</p>
+                <p className="font-display font-bold text-base lg:text-lg">+ Add anniversary</p>
+                <p className="text-[12px] text-kaya-sand">Both parents will see the countdown.</p>
+              </div>
+              <span className="text-[12px] text-kaya-gold font-bold shrink-0">Add →</span>
+            </Link>
+          ) : null;
+        }
+        const days = daysToNextBirthday(anniversary);
+        const yearsTogether = ageNow(anniversary);
+        const dow = dayOfWeek(anniversary);
         const isToday = days === 0;
         return (
           <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-center gap-4 ${
@@ -84,7 +104,7 @@ export default function FamilyTreePage() {
                 Anniversary
               </p>
               <p className="font-display font-bold text-base lg:text-lg truncate">
-                {toDisplayDate(family.anniversary)}{dow && <span className={`font-normal ml-2 ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>· {dow}</span>}
+                {toDisplayDate(anniversary)}{dow && <span className={`font-normal ml-2 ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>· {dow}</span>}
               </p>
               <p className={`text-[12px] ${isToday ? 'text-white/90 font-bold' : 'text-kaya-gold font-semibold'}`}>
                 {isToday
@@ -92,6 +112,15 @@ export default function FamilyTreePage() {
                   : `${days} day${days === 1 ? '' : 's'} to go${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`}
               </p>
             </div>
+            {isParent && (
+              <Link
+                href="/settings#family"
+                className="text-[11px] font-bold shrink-0 hover:underline"
+                style={{ color: isToday ? '#fff' : '#D4A017' }}
+              >
+                Edit
+              </Link>
+            )}
           </div>
         );
       })()}
