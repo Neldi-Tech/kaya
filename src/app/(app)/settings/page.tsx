@@ -20,6 +20,10 @@ import {
   bornOnThisDay, eventsOnThisDay,
   BornOnThisDayPerson, OnThisDayEvent,
 } from '@/lib/onThisDay';
+import {
+  EARNING_METHODS, DEFAULT_EARNING_METHODS, FREE_EARNING_METHOD_LIMIT,
+  isMethodSelectable,
+} from '@/lib/earningMethods';
 import { useRef } from 'react';
 import {
   TIERS, tierFor, nextTier, progressToNext,
@@ -37,6 +41,7 @@ export default function SettingsPage() {
   const [newChildName, setNewChildName] = useState('');
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
+  const [savingMethod, setSavingMethod] = useState<string | null>(null);
 
   // Display name editor
   const [editingName, setEditingName] = useState(false);
@@ -419,6 +424,25 @@ export default function SettingsPage() {
     if (!profile?.familyId) return;
     setPointsMode(mode);
     await updateFamily(profile.familyId, { pointsMode: mode } as any);
+  };
+
+  // Earning-method picker. Fall back to the Phase-1 default for families that
+  // existed before this feature so their UX doesn't suddenly empty out.
+  const selectedMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
+  const toggleEarningMethod = async (id: string) => {
+    if (!profile?.familyId || !family || isGuest || savingMethod) return;
+    const method = EARNING_METHODS.find((m) => m.id === id);
+    if (!method || !isMethodSelectable(method)) return;
+    const isOn = selectedMethods.includes(id);
+    if (!isOn && selectedMethods.length >= FREE_EARNING_METHOD_LIMIT) return; // cap reached
+    const next = isOn
+      ? selectedMethods.filter((m) => m !== id)
+      : [...selectedMethods, id];
+    setSavingMethod(id);
+    try {
+      await updateFamily(profile.familyId, { earningMethods: next } as any);
+    } catch {}
+    setSavingMethod(null);
   };
 
   const handleSignOut = async () => {
@@ -1174,6 +1198,80 @@ export default function SettingsPage() {
                 </div>
               )}
               <p className="text-xs text-kaya-sand mt-2">Share with helpers or family members so they can join your family. (For inviting <em>other</em> families to start their own, use the referral link →)</p>
+            </div>
+          )}
+
+          {/* How kids earn points */}
+          {isParent && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <div className="flex items-baseline justify-between mb-1">
+                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">How kids earn points</p>
+                <span className="text-[10px] text-kaya-sand-light">
+                  {selectedMethods.length}/{FREE_EARNING_METHOD_LIMIT} active
+                </span>
+              </div>
+              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                Pick up to {FREE_EARNING_METHOD_LIMIT} ways your family runs. Extras are part of the Pro plan.
+              </p>
+              <div className="space-y-2">
+                {EARNING_METHODS.map((m) => {
+                  const sel = selectedMethods.includes(m.id);
+                  const selectable = isMethodSelectable(m);
+                  const atCap = !sel && selectedMethods.length >= FREE_EARNING_METHOD_LIMIT;
+                  const disabled = !selectable || atCap || isGuest;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => toggleEarningMethod(m.id)}
+                      disabled={disabled || savingMethod === m.id}
+                      className={`w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
+                        sel
+                          ? 'border-kaya-gold bg-kaya-gold/5'
+                          : disabled
+                            ? 'border-kaya-warm-dark bg-kaya-warm/30 opacity-70 cursor-not-allowed'
+                            : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
+                      } ${savingMethod === m.id ? 'opacity-60' : ''}`}
+                    >
+                      <span className="text-2xl shrink-0 leading-none">{m.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <p className="text-sm font-bold leading-tight">{m.title}</p>
+                          {m.tier === 'pro' && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-purple-100 text-purple-700">
+                              🔒 Pro
+                            </span>
+                          )}
+                          {m.tier === 'free' && m.status === 'soon' && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/40 text-kaya-sand">
+                              Coming soon
+                            </span>
+                          )}
+                          {atCap && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/30 text-kaya-sand">
+                              Limit reached
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-kaya-sand leading-snug mt-0.5">{m.description}</p>
+                      </div>
+                      <span
+                        className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                          sel
+                            ? 'bg-kaya-gold border-kaya-gold text-white'
+                            : disabled
+                              ? 'border-kaya-warm-dark/60 bg-white text-transparent'
+                              : 'border-kaya-warm-dark bg-white text-transparent'
+                        }`}
+                      >
+                        {sel ? '✓' : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
+                The roadmap items show up here so you know what&apos;s next. We&apos;ll switch them on as they ship.
+              </p>
             </div>
           )}
 

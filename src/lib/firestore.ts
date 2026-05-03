@@ -64,6 +64,7 @@ export interface Family {
   spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
   // ── Settings ──
   pointsMode: PointsMode;
+  earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent
   routines: Routine[];
   createdAt: Timestamp;
 }
