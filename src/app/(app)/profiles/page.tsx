@@ -17,6 +17,8 @@ import {
 } from '@/lib/dates';
 import { INTERESTS, ASPIRATIONS, ASPIRATION_LIMIT } from '@/lib/kidPresets';
 import { bornOnThisDay, BornOnThisDayPerson } from '@/lib/onThisDay';
+import { fileToAvatarDataUrl, MAX_UPLOAD_BYTES } from '@/lib/imageUpload';
+import { useRef } from 'react';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -33,6 +35,8 @@ export default function ProfilesPage() {
   const [savingBadge, setSavingBadge] = useState<string | null>(null);
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pickingHouse, setPickingHouse] = useState(false);
   const [savingHouse, setSavingHouse] = useState<string | null>(null);
 
@@ -99,6 +103,7 @@ export default function ProfilesPage() {
   const choosePhoto = async (url: string) => {
     if (!profile?.familyId || !child || isGuest) return;
     setSavingPhoto(url || 'remove');
+    setUploadError('');
     try {
       await updateChild(profile.familyId, child.id, { avatarPhoto: url });
       // Real-time subscription updates the avatar everywhere; close the picker.
@@ -107,6 +112,21 @@ export default function ProfilesPage() {
       // Real-time subscription will keep things in sync.
     }
     setSavingPhoto(null);
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    setUploadError('');
+    setSavingPhoto('upload');
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await choosePhoto(dataUrl);
+    } catch (err: any) {
+      setUploadError(err?.message || 'Could not process that image.');
+      setSavingPhoto(null);
+    }
   };
 
   const toggleBadge = async (badgeId: string) => {
@@ -281,32 +301,39 @@ export default function ProfilesPage() {
               </button>
             ) : (
               <div className="space-y-3 text-left">
-                {/* Three sources: library (live), gallery + search (Phase 2/3) */}
-                <div className="grid grid-cols-3 gap-2">
+                {/* Two sources: curated library + upload from device.
+                    (Search dropped — the "Pick for {name}" suggestion below
+                    covers the same need without needing an image-API key.) */}
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    className="h-9 px-2 rounded-kaya-sm bg-kaya-chocolate text-white text-[11px] font-bold"
+                    className="h-10 px-2 rounded-kaya-sm bg-kaya-chocolate text-white text-[12px] font-bold"
                     aria-pressed="true"
                   >
-                    🎨 Library
+                    🎨 From library
                   </button>
                   <button
                     type="button"
-                    disabled
-                    title="Coming soon — needs Firebase Storage enabled"
-                    className="h-9 px-2 rounded-kaya-sm bg-kaya-warm/60 text-kaya-sand text-[11px] font-semibold cursor-not-allowed"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!!savingPhoto}
+                    className="h-10 px-2 rounded-kaya-sm bg-white border border-kaya-warm-dark text-kaya-chocolate text-[12px] font-bold hover:border-kaya-chocolate transition-colors disabled:opacity-60"
                   >
-                    📷 Upload
+                    {savingPhoto === 'upload' ? 'Uploading…' : '📷 From your device'}
                   </button>
-                  <button
-                    type="button"
-                    disabled
-                    title="Coming soon — image search integration"
-                    className="h-9 px-2 rounded-kaya-sm bg-kaya-warm/60 text-kaya-sand text-[11px] font-semibold cursor-not-allowed"
-                  >
-                    🔍 Search
-                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                  />
                 </div>
+                {uploadError && (
+                  <p className="text-red-500 text-[11px] bg-red-50 border border-red-200 rounded-kaya-sm px-2 py-1.5">{uploadError}</p>
+                )}
+                <p className="text-[10px] text-kaya-sand-light leading-snug">
+                  Upload images up to 5 MB — they&apos;re auto-cropped to a square and resized to 256px so the dashboard stays snappy.
+                </p>
 
                 {/* Suggestion based on the kid's name */}
                 <div className="flex items-center gap-3 bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm p-2.5">
