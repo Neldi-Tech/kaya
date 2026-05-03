@@ -154,7 +154,9 @@ export default function FamilyTreePage() {
                     isParent ? 'hover:border-kaya-chocolate transition-colors no-underline text-inherit' : ''
                   }`;
                   return isParent ? (
-                    <Link key={c.id} href={`/profiles?child=${c.id}`} className={cls}>{inner}</Link>
+                    // ?edit=identity auto-opens the identity editor on arrival
+                    // so a parent can complete the edit without an extra tap.
+                    <Link key={c.id} href={`/profiles?child=${c.id}&edit=identity`} className={cls}>{inner}</Link>
                   ) : (
                     <div key={c.id} className={cls}>{inner}</div>
                   );
@@ -210,10 +212,10 @@ function PersonCard({ person, role, isMe }: { person: UserProfile; role: string;
   const photo = person.avatarPhoto || person.photoURL;
   const handle = (person as any).handle as string | undefined;
 
-  // Self → /settings (your own editable profile).
+  // Self → /settings#profile (anchor scrolls straight to the profile card).
   // Others with a public handle → /u/<slug> (their public Kaya page).
   // Anyone else → non-interactive card.
-  const href = isMe ? '/settings' : (handle ? `/u/${handleToSlug(handle)}` : null);
+  const href = isMe ? '/settings#profile' : (handle ? `/u/${handleToSlug(handle)}` : null);
 
   const cardClass = `bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3 ${
     href ? 'hover:border-kaya-chocolate transition-colors no-underline text-inherit' : ''

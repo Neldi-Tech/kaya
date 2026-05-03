@@ -72,7 +72,7 @@ export default function ProfilesPage() {
   const [wishUrl, setWishUrl] = useState('');
   const [savingWish, setSavingWish] = useState(false);
 
-  // Honor ?child=<id> for deep links from the dashboard kid cards.
+  // Honor ?child=<id> for deep links from the dashboard / Family Tree.
   useEffect(() => {
     const childId = searchParams.get('child');
     if (!childId || children.length === 0) return;
@@ -80,7 +80,18 @@ export default function ProfilesPage() {
     if (idx >= 0) setSelected(idx);
   }, [searchParams, children]);
 
+  // Honor ?edit=<section> deep link so a tap from the Family Tree lands
+  // straight in the editor for that kid without an extra "Edit" tap.
+  // Supported values today: 'identity' (the About editor — birthday, email,
+  // handle), 'photo' (avatar picker).
   const child = children[selected];
+  useEffect(() => {
+    if (!child || isGuest || profile?.role !== 'parent') return;
+    const editMode = searchParams.get('edit');
+    if (editMode === 'identity') startEditingIdentity();
+    if (editMode === 'photo') setPickingPhoto(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, child?.id]);
 
   useEffect(() => {
     if (!profile?.familyId) return;

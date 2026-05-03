@@ -625,8 +625,9 @@ export default function SettingsPage() {
         {/* ── Left column: account + family + preferences ──────── */}
         <div className="lg:col-span-7 space-y-4">
 
-          {/* Profile card */}
-          <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+          {/* Profile card · anchored at #profile so deep links from the
+              Family Tree land directly on it. */}
+          <div id="profile" className="scroll-mt-24 bg-white border border-kaya-warm-dark rounded-kaya p-4">
             <div className="flex items-center gap-3">
               {profile?.avatarPhoto ? (
                 <img
