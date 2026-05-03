@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { FamilyProvider } from '@/contexts/FamilyContext';
 import './globals.css';
@@ -29,11 +30,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body className="bg-kaya-cream min-h-screen">
-        <AuthProvider>
-          <FamilyProvider>
-            {children}
-          </FamilyProvider>
-        </AuthProvider>
+        <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''}>
+          <AuthProvider>
+            <FamilyProvider>
+              {children}
+            </FamilyProvider>
+          </AuthProvider>
+        </GoogleOAuthProvider>
       </body>
     </html>
   );

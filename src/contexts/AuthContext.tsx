@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 import {
   User,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithCredential,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
@@ -25,7 +25,7 @@ interface AuthContextType {
   profile: UserProfile | null;
   loading: boolean;
   isGuest: boolean;
-  signInWithGoogle: () => Promise<User>;
+  signInWithGoogle: (idToken: string) => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
   signUpWithEmail: (email: string, password: string) => Promise<User>;
   sendPasswordReset: (email: string) => Promise<void>;
@@ -114,10 +114,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (idToken: string) => {
     if (isGuestActive()) exitGuestMode();
-    const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(auth, provider);
+    const credential = GoogleAuthProvider.credential(idToken);
+    const result = await signInWithCredential(auth, credential);
     await loadProfile(result.user);
     return result.user;
   };
