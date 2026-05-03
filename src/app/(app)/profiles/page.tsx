@@ -146,7 +146,9 @@ export default function ProfilesPage() {
   };
 
   const startEditingIdentity = () => {
-    setBdayInput(child?.birthday ? toDisplayDate(child.birthday) : '');
+    // Native <input type="date"> uses YYYY-MM-DD natively — same as our
+    // canonical Firestore format — so no display ↔ canonical conversion needed.
+    setBdayInput(child?.birthday || '');
     setEmailInput(child?.email || '');
     setBdayError('');
     setEditingIdentity(true);
@@ -154,25 +156,35 @@ export default function ProfilesPage() {
 
   const saveIdentity = async () => {
     if (!profile?.familyId || !child || isGuest) return;
-    let birthdayIso: string | null = child.birthday || null;
-    if (bdayInput.trim()) {
-      birthdayIso = fromDisplayDate(bdayInput.trim());
-      if (!birthdayIso) { setBdayError('Use the format DD-MMM-YYYY (e.g. 02-May-2018)'); return; }
-    } else {
-      birthdayIso = null;
-    }
-    const trimmedEmail = emailInput.trim().toLowerCase();
-    if (trimmedEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmedEmail)) {
-      setBdayError('Email looks invalid');
+
+    const trimmedDate = bdayInput.trim();
+    if (trimmedDate && !/^\d{4}-\d{2}-\d{2}$/.test(trimmedDate)) {
+      setBdayError('Pick a valid date.');
       return;
     }
+
+    const trimmedEmail = emailInput.trim().toLowerCase();
+    if (trimmedEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(trimmedEmail)) {
+      setBdayError('Email looks invalid.');
+      return;
+    }
+
+    // Build a partial update — Firestore rejects `undefined`, so only include
+    // fields the user actually filled in. Clearing a value is intentionally a
+    // no-op for v1 (avoids accidental data loss); a "Remove" affordance can
+    // come later if needed.
+    const updates: Record<string, unknown> = {};
+    if (trimmedDate) updates.birthday = trimmedDate;
+    if (trimmedEmail) updates.email = trimmedEmail;
+    if (Object.keys(updates).length === 0) {
+      setEditingIdentity(false);
+      return;
+    }
+
     setSavingIdentity(true);
     setBdayError('');
     try {
-      await updateChild(profile.familyId, child.id, {
-        birthday: birthdayIso || undefined,
-        email: trimmedEmail || undefined,
-      } as any);
+      await updateChild(profile.familyId, child.id, updates as any);
       setEditingIdentity(false);
     } catch (e: any) {
       setBdayError(e?.message || 'Failed to save');
@@ -514,14 +526,16 @@ export default function ProfilesPage() {
         {editingIdentity ? (
           <div className="space-y-3">
             <div>
-              <label className="block text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Birthday (DD-MMM-YYYY)</label>
+              <label className="block text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Birthday</label>
               <input
+                type="date"
                 value={bdayInput}
                 onChange={(e) => setBdayInput(e.target.value)}
-                placeholder="02-May-2018"
+                max={new Date().toISOString().slice(0, 10)}
                 className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
                 autoFocus
               />
+              <p className="text-[10px] text-kaya-sand mt-1">Pick from the calendar — we&apos;ll display it as DD-MMM-YYYY everywhere else.</p>
             </div>
             <div>
               <label className="block text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Email (optional — for future kid login)</label>
