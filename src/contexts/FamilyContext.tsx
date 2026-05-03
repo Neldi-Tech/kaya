@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 import { useAuth } from './AuthContext';
 import {
   Family, Child, Reward,
-  getFamily, getChildren, getRewards, subscribeToChildren,
+  getFamily, getChildren, getRewards, subscribeToChildren, subscribeToFamily,
 } from '@/lib/firestore';
 
 interface FamilyContextType {
@@ -42,6 +42,15 @@ export function FamilyProvider({ children: kids }: { children: ReactNode }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Real-time family subscription — keeps `family.allowGenderOther`,
+  // `family.earningMethods`, `family.anniversary` etc. fresh so toggles
+  // reflect their new value the instant Firestore confirms the write.
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    const unsub = subscribeToFamily(profile.familyId, setFamily);
+    return unsub;
+  }, [profile?.familyId]);
 
   // Real-time children subscription
   useEffect(() => {

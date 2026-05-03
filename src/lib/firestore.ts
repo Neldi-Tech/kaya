@@ -576,6 +576,20 @@ export function subscribeToChildren(familyId: string, callback: (children: Child
   });
 }
 
+// Real-time subscription to the family doc itself. Used so toggles like
+// `allowGenderOther` / `earningMethods` / `anniversary` reflect their new
+// value the instant Firestore confirms the write — without it, callers
+// would read a stale value of `family.X` until the next page load.
+export function subscribeToFamily(familyId: string, callback: (family: Family | null) => void) {
+  if (isGuestActive()) {
+    callback(MOCK_FAMILY);
+    return () => {};
+  }
+  return onSnapshot(doc(db, 'families', familyId), (snap) => {
+    callback(snap.exists() ? ({ id: snap.id, ...snap.data() } as Family) : null);
+  });
+}
+
 // ── Rating Operations ─────────────────────────────
 export async function submitRating(familyId: string, rating: Omit<DailyRating, 'id'>) {
   if (isGuestActive()) return 'guest-rating';

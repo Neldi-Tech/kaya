@@ -30,6 +30,7 @@ import {
   effectiveCount, referralLink,
 } from '@/lib/referral';
 import BackButton from '@/components/ui/BackButton';
+import DateSelect from '@/components/ui/DateSelect';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -958,13 +959,10 @@ export default function SettingsPage() {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Birthday</p>
-                    <input
-                      type="date"
+                    <DateSelect
                       value={myBdayInput}
-                      onChange={(e) => setMyBdayInput(e.target.value)}
-                      max={new Date().toISOString().slice(0, 10)}
-                      className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                      autoFocus
+                      onChange={setMyBdayInput}
+                      maxDate={new Date().toISOString().slice(0, 10)}
                     />
                     <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mt-2">Who can see it</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
@@ -1311,13 +1309,10 @@ export default function SettingsPage() {
                   ) : (
                     <div className="space-y-2">
                       <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
-                      <input
-                        type="date"
+                      <DateSelect
                         value={anniversaryInput}
-                        onChange={(e) => setAnniversaryInput(e.target.value)}
-                        max={new Date().toISOString().slice(0, 10)}
-                        className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                        autoFocus
+                        onChange={setAnniversaryInput}
+                        maxDate={new Date().toISOString().slice(0, 10)}
                       />
                       <p className="text-[10px] text-kaya-sand-light">
                         Visible to everyone in the family. Both parents see the same countdown.
