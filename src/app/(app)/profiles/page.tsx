@@ -89,14 +89,15 @@ export default function ProfilesPage() {
   });
 
   return (
-    <div className="mx-auto max-w-md w-full px-4 pt-4">
-      <BackButton />
-      <div className="mb-5">
-        <h1 className="font-display text-2xl font-black">Kid Profiles</h1>
+    <div className="mx-auto max-w-md w-full lg:max-w-5xl px-4 lg:px-8 pt-4 lg:pt-8">
+      <div className="lg:hidden"><BackButton /></div>
+      <div className="mb-5 lg:mb-7">
+        <h1 className="font-display text-2xl lg:text-[34px] font-black lg:font-extrabold tracking-tight">Kid profiles</h1>
+        <p className="hidden lg:block text-sm text-kaya-sand mt-1">Per-child progress, badges, and recent awards.</p>
       </div>
 
       {/* Child selector */}
-      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+      <div className="flex gap-2 mb-5 lg:mb-6 overflow-x-auto pb-1">
         {children.map((c, i) => (
           <button
             key={c.id}
@@ -111,8 +112,11 @@ export default function ProfilesPage() {
         ))}
       </div>
 
+      <div className="lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
+        <div className="lg:col-span-5 mb-5 lg:mb-0 lg:sticky lg:top-20">
+
       {/* Profile card */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 mb-5 text-center">
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 text-center">
         <div className="mx-auto mb-3 inline-block">
           <KidAvatar child={child} size="xl" />
         </div>
@@ -250,8 +254,12 @@ export default function ProfilesPage() {
         </div>
       </div>
 
+        </div>
+
+        <div className="lg:col-span-7 space-y-5">
+
       {/* 7-day activity */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-5">
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
         <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider mb-3">Last 7 Days</h3>
         <div className="flex justify-between">
           {last7.map((d) => (
@@ -272,7 +280,7 @@ export default function ProfilesPage() {
       </div>
 
       {/* Badges */}
-      <div className="mb-5">
+      <div>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">
             {earnedBadges.length > 0 ? 'Badges earned' : 'Badges'}
@@ -352,6 +360,9 @@ export default function ProfilesPage() {
           </div>
         </div>
       )}
+
+        </div>
+      </div>
     </div>
   );
 }
