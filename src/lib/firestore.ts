@@ -15,18 +15,31 @@ import { FOUNDING_FAMILY_LIMIT, generateReferralCode } from './referral';
 export type Role = 'parent' | 'helper' | 'kid';
 export type PointsMode = 'full' | 'badges-only' | 'encouragement';
 export type RatingValue = 'excellent' | 'good' | 'bad' | 'skip';
+// Used for both parents and kids — same vocabulary so the avatar/Wikipedia
+// hints behave consistently. 'unspecified' means "don't filter".
+export type Gender = 'male' | 'female' | 'other' | 'unspecified';
+// How public a parent's birthday should be.
+//   public  → full DD-MMM-YYYY visible
+//   partial → only month + day (no year), so age stays private
+//   private → hidden everywhere
+export type BirthdayPrivacy = 'public' | 'partial' | 'private';
 
 export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
   photoURL?: string;
+  avatarPhoto?: string;     // user-uploaded or library avatar (data URL)
   role: Role;
   familyId: string;
   childId?: string; // if role === 'kid', which child they are
   // ── Public identity ──
   handle?: string;          // case-preserved, e.g. "Daniella"
   handleLower?: string;     // lowercase mirror for unique lookup
+  gender?: Gender;
+  // ── Birthday (parents) ──
+  birthday?: string;                 // YYYY-MM-DD
+  birthdayPrivacy?: BirthdayPrivacy; // default 'partial'
   // ── Notification preferences (default: opt-in) ──
   notifyOnRating?: boolean; // email when a routine rating is submitted
   notifyOnAward?: boolean;  // email when a bonus award is given
@@ -81,6 +94,7 @@ export interface Child {
   loginEnabled?: boolean;     // parent toggle — must be true for the kid to sign in via email match
   handle?: string;            // case-preserved, e.g. "Daniella"
   handleLower?: string;       // lowercase mirror for unique lookup
+  gender?: Gender;            // drives avatar hints + on-this-day filtering
   interests?: string[];       // free-form chips, e.g. ['Football', 'Lego']
   aspirations?: string[];     // up to 3, e.g. ['Pilot', 'Doctor', 'Footballer']
   // ── Game state ──

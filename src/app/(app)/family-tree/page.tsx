@@ -159,10 +159,12 @@ function Empty({ text }: { text: string }) {
 
 function PersonCard({ person, role }: { person: UserProfile; role: string }) {
   const initial = person.displayName?.[0]?.toUpperCase() || 'U';
+  // Prefer the user-uploaded avatar if present; fall back to Google photoURL.
+  const photo = person.avatarPhoto || person.photoURL;
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3">
-      {person.photoURL ? (
-        <img src={person.photoURL} alt={person.displayName} className="w-12 h-12 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+      {photo ? (
+        <img src={photo} alt={person.displayName} className="w-12 h-12 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
       ) : (
         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-white font-display font-black shrink-0">
           {initial}

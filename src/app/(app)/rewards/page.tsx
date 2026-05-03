@@ -85,25 +85,49 @@ export default function RewardsPage() {
         <div className="space-y-3">
           {activeRewards.map((reward) => {
             const canAfford = (child?.totalPoints || 0) >= reward.pointsCost;
+            const remaining = reward.pointsCost - (child?.totalPoints || 0);
+            const progress = Math.min(100, ((child?.totalPoints || 0) / reward.pointsCost) * 100);
             return (
-              <div key={reward.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4 flex items-center gap-4">
-                <div className="text-3xl flex-shrink-0">{reward.icon}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-bold text-sm">{reward.title}</p>
-                  <p className="text-xs text-kaya-sand truncate">{reward.description}</p>
-                  <p className="text-xs font-bold text-kaya-gold mt-1">{fmt(reward.pointsCost)} pts</p>
+              <div key={reward.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-12 h-12 rounded-[14px] bg-kaya-warm/60 flex items-center justify-center text-2xl shrink-0">
+                    {reward.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm leading-snug break-words">{reward.title}</p>
+                    <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{reward.description}</p>
+                  </div>
+                  <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
+                    {fmt(reward.pointsCost)} pts
+                  </span>
                 </div>
-                {isParent && (
-                  <button
-                    onClick={() => handleRedeem(reward)}
-                    disabled={!canAfford || redeeming === reward.id}
-                    className={`h-9 px-4 rounded-kaya-sm text-xs font-bold transition-colors flex-shrink-0 ${
-                      canAfford ? 'bg-kaya-gold text-white hover:bg-kaya-gold-dark' : 'bg-kaya-warm text-kaya-sand'
-                    } disabled:opacity-50`}
-                  >
-                    {redeeming === reward.id ? '…' : canAfford ? 'Redeem' : 'Need more'}
-                  </button>
-                )}
+
+                {/* Progress + action: separate row so the title can breathe and
+                    the button never collides with long descriptions. */}
+                <div className="mt-3">
+                  <div className="h-1.5 bg-kaya-warm rounded-full overflow-hidden mb-2">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{ width: `${progress}%`, backgroundColor: canAfford ? '#D4A017' : (child?.houseColor || '#C4B89A') }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-kaya-sand font-semibold">
+                      {canAfford ? 'Ready to redeem' : `${fmt(remaining)} pts to go`}
+                    </span>
+                    {isParent && (
+                      <button
+                        onClick={() => handleRedeem(reward)}
+                        disabled={!canAfford || redeeming === reward.id}
+                        className={`h-9 px-4 rounded-kaya-sm text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                          canAfford ? 'bg-kaya-gold text-white hover:bg-kaya-gold-dark' : 'bg-kaya-warm text-kaya-sand'
+                        } disabled:opacity-50`}
+                      >
+                        {redeeming === reward.id ? '…' : canAfford ? 'Redeem' : 'Not yet'}
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             );
           })}

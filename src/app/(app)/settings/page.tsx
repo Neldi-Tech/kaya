@@ -7,12 +7,19 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   updateFamily, updateUserProfile, addChild, ensureReferralCode,
   getReferredFamilies, isHandleAvailable, Family, PointsMode,
+  Gender, BirthdayPrivacy,
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
   formatFamilyHandle, formatPersonHandle, handleToSlug,
 } from '@/lib/handles';
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
+import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
+import { toDisplayDate, monthDayOf } from '@/lib/dates';
+import {
+  bornOnThisDay, eventsOnThisDay,
+  BornOnThisDayPerson, OnThisDayEvent,
+} from '@/lib/onThisDay';
 import { useRef } from 'react';
 import {
   TIERS, tierFor, nextTier, progressToNext,
@@ -42,6 +49,26 @@ export default function SettingsPage() {
   const [myHandleInput, setMyHandleInput] = useState('');
   const [myHandleError, setMyHandleError] = useState('');
   const [savingMyHandle, setSavingMyHandle] = useState(false);
+
+  // Personal birthday + privacy editor
+  const [editingMyBirthday, setEditingMyBirthday] = useState(false);
+  const [myBdayInput, setMyBdayInput] = useState('');
+  const [myBdayPrivacy, setMyBdayPrivacy] = useState<BirthdayPrivacy>('partial');
+  const [myBdayError, setMyBdayError] = useState('');
+  const [savingMyBirthday, setSavingMyBirthday] = useState(false);
+
+  // Personal avatar
+  const [pickingMyAvatar, setPickingMyAvatar] = useState(false);
+  const [savingMyAvatar, setSavingMyAvatar] = useState<string | null>(null);
+  const [myAvatarError, setMyAvatarError] = useState('');
+  const myAvatarRef = useRef<HTMLInputElement | null>(null);
+
+  // Saving gender (no editor screen — chips inline)
+  const [savingGender, setSavingGender] = useState(false);
+
+  // On-this-day for the signed-in user
+  const [myBornToday, setMyBornToday] = useState<BornOnThisDayPerson[]>([]);
+  const [myEventsToday, setMyEventsToday] = useState<OnThisDayEvent[]>([]);
 
   const startEditingMyHandle = () => {
     setMyHandleInput(profile?.handle || '');
@@ -193,6 +220,102 @@ export default function SettingsPage() {
   useEffect(() => {
     if (family?.pointsMode) setPointsMode(family.pointsMode);
   }, [family?.pointsMode]);
+
+  // Load Wikipedia panels for the signed-in user when their birthday is set.
+  // Mirrors the kid profile behaviour so parents see the same surfaces.
+  useEffect(() => {
+    setMyBornToday([]);
+    setMyEventsToday([]);
+    if (!profile?.birthday) return;
+    const md = monthDayOf(profile.birthday);
+    if (!md) return;
+    const g = (profile.gender || 'unspecified') as Gender;
+    bornOnThisDay(md.month, md.day, 5, g).then(setMyBornToday).catch(() => setMyBornToday([]));
+    eventsOnThisDay(md.month, md.day, 5).then(setMyEventsToday).catch(() => setMyEventsToday([]));
+  }, [profile?.birthday, profile?.gender]);
+
+  const startEditingMyBirthday = () => {
+    setMyBdayInput(profile?.birthday || '');
+    setMyBdayPrivacy((profile?.birthdayPrivacy || 'partial') as BirthdayPrivacy);
+    setMyBdayError('');
+    setEditingMyBirthday(true);
+  };
+
+  const saveMyBirthday = async () => {
+    if (!user || isGuest) return;
+    const trimmed = myBdayInput.trim();
+    if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      setMyBdayError('Pick a valid date.');
+      return;
+    }
+    setSavingMyBirthday(true);
+    setMyBdayError('');
+    try {
+      const updates: Record<string, unknown> = { birthdayPrivacy: myBdayPrivacy };
+      if (trimmed) updates.birthday = trimmed;
+      await updateUserProfile(user.uid, updates as any);
+      await refreshProfile();
+      setEditingMyBirthday(false);
+    } catch (e: any) {
+      setMyBdayError(e?.message || 'Failed to save');
+    }
+    setSavingMyBirthday(false);
+  };
+
+  const setMyGender = async (gender: Gender) => {
+    if (!user || isGuest || savingGender) return;
+    if ((profile?.gender || 'unspecified') === gender) return;
+    setSavingGender(true);
+    try {
+      await updateUserProfile(user.uid, { gender } as any);
+      await refreshProfile();
+    } catch {}
+    setSavingGender(false);
+  };
+
+  const chooseMyAvatar = async (url: string) => {
+    if (!user || isGuest) return;
+    setSavingMyAvatar(url || 'remove');
+    setMyAvatarError('');
+    try {
+      await updateUserProfile(user.uid, { avatarPhoto: url } as any);
+      await refreshProfile();
+      setPickingMyAvatar(false);
+    } catch (e: any) {
+      setMyAvatarError(e?.message || 'Failed to save avatar');
+    }
+    setSavingMyAvatar(null);
+  };
+
+  const handleMyAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setMyAvatarError('');
+    setSavingMyAvatar('upload');
+    try {
+      const dataUrl = await fileToAvatarDataUrl(file);
+      await chooseMyAvatar(dataUrl);
+    } catch (err: any) {
+      setMyAvatarError(err?.message || 'Could not process that image.');
+      setSavingMyAvatar(null);
+    }
+  };
+
+  // What the parent's birthday should display as, given their privacy choice.
+  // Used both inline (the read-only profile card) and to decide whether the
+  // Wikipedia panels show year-specific copy.
+  const myBirthdayDisplay = (() => {
+    if (!profile?.birthday) return null;
+    const privacy = (profile.birthdayPrivacy || 'partial') as BirthdayPrivacy;
+    if (privacy === 'private') return null;
+    const md = monthDayOf(profile.birthday);
+    if (privacy === 'partial' && md) {
+      const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return `${parseInt(md.day, 10)}-${monthNames[parseInt(md.month, 10) - 1]}`;
+    }
+    return toDisplayDate(profile.birthday);
+  })();
 
   useEffect(() => {
     if (!family) return;
@@ -451,9 +574,18 @@ export default function SettingsPage() {
           {/* Profile card */}
           <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-lg text-white font-black shrink-0">
-                {profile?.displayName?.[0]?.toUpperCase() || 'U'}
-              </div>
+              {profile?.avatarPhoto ? (
+                <img
+                  src={profile.avatarPhoto}
+                  alt={profile.displayName || 'You'}
+                  className="w-12 h-12 rounded-full object-cover bg-white shrink-0"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-lg text-white font-black shrink-0">
+                  {profile?.displayName?.[0]?.toUpperCase() || 'U'}
+                </div>
+              )}
               <div className="flex-1 min-w-0">
                 {editingName ? (
                   <div className="space-y-2">
@@ -560,7 +692,308 @@ export default function SettingsPage() {
                 )}
               </div>
             )}
+
+            {/* Avatar picker — uploaded photo or curated library, mirroring kids. */}
+            {!isGuest && (
+              <div className="border-t border-kaya-warm-dark pt-3 mt-3">
+                {!pickingMyAvatar ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Profile photo</p>
+                      <p className="text-[12px] text-kaya-sand">
+                        {profile?.avatarPhoto ? 'Looking sharp.' : 'Add a photo or pick an avatar.'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setPickingMyAvatar(true)}
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                    >
+                      {profile?.avatarPhoto ? 'Change' : '+ Add'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Profile photo</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        className="h-10 px-2 rounded-kaya-sm bg-kaya-chocolate text-white text-[12px] font-bold"
+                        aria-pressed="true"
+                      >
+                        🎨 From library
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => myAvatarRef.current?.click()}
+                        disabled={!!savingMyAvatar}
+                        className="h-10 px-2 rounded-kaya-sm bg-white border border-kaya-warm-dark text-kaya-chocolate text-[12px] font-bold hover:border-kaya-chocolate transition-colors disabled:opacity-60"
+                      >
+                        {savingMyAvatar === 'upload' ? 'Uploading…' : '📷 From your device'}
+                      </button>
+                      <input
+                        ref={myAvatarRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleMyAvatarUpload}
+                      />
+                    </div>
+                    {myAvatarError && (
+                      <p className="text-red-500 text-[11px] bg-red-50 border border-red-200 rounded-kaya-sm px-2 py-1.5">{myAvatarError}</p>
+                    )}
+                    <div className="flex items-center gap-3 bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm p-2.5">
+                      <img
+                        src={generateAvatarFromName(profile?.displayName || 'You')}
+                        alt=""
+                        className="w-10 h-10 rounded-full bg-white shrink-0"
+                        referrerPolicy="no-referrer"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] font-bold">Pick for {profile?.displayName?.split(' ')[0] || 'you'}</p>
+                        <p className="text-[10px] text-kaya-sand">Generated from your name</p>
+                      </div>
+                      <button
+                        onClick={() => chooseMyAvatar(generateAvatarFromName(profile?.displayName || 'You'))}
+                        disabled={!!savingMyAvatar}
+                        className="h-7 px-2.5 bg-kaya-gold text-white rounded-kaya-sm text-[11px] font-bold disabled:opacity-40"
+                      >
+                        Use
+                      </button>
+                    </div>
+                    {AVATAR_GROUPS.map((group) => (
+                      <div key={group.key}>
+                        <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1.5">{group.label}</p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {AVATAR_PRESETS.filter((a) => a.group === group.key).map((preset) => {
+                            const sel = profile?.avatarPhoto === preset.url;
+                            const saving = savingMyAvatar === preset.url;
+                            return (
+                              <button
+                                key={preset.url}
+                                onClick={() => chooseMyAvatar(preset.url)}
+                                disabled={!!savingMyAvatar}
+                                title={preset.label}
+                                aria-label={preset.label}
+                                className={`relative aspect-square rounded-kaya-sm overflow-hidden border-2 transition-all ${
+                                  sel ? 'border-kaya-gold' : 'border-transparent hover:border-kaya-warm-dark'
+                                } ${saving ? 'opacity-60' : ''}`}
+                              >
+                                <img src={preset.url} alt="" className="w-full h-full object-cover bg-white" referrerPolicy="no-referrer" />
+                                {sel && (
+                                  <span className="absolute bottom-0.5 right-0.5 bg-kaya-gold text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">✓</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        onClick={() => setPickingMyAvatar(false)}
+                        className="h-8 px-3 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                      >
+                        Done
+                      </button>
+                      {profile?.avatarPhoto && (
+                        <button
+                          onClick={() => chooseMyAvatar('')}
+                          disabled={!!savingMyAvatar}
+                          className="h-8 px-3 text-xs font-semibold text-kaya-sand hover:text-red-500"
+                        >
+                          Remove photo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Gender chips */}
+            {!isGuest && (
+              <div className="border-t border-kaya-warm-dark pt-3 mt-3">
+                <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mb-2">Gender</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    { value: 'female', label: 'Woman', emoji: '👩' },
+                    { value: 'male', label: 'Man', emoji: '👨' },
+                    { value: 'other', label: 'Other', emoji: '🌈' },
+                    { value: 'unspecified', label: 'Prefer not to say', emoji: '—' },
+                  ] as { value: Gender; label: string; emoji: string }[]).map((g) => {
+                    const sel = (profile?.gender || 'unspecified') === g.value;
+                    return (
+                      <button
+                        key={g.value}
+                        onClick={() => setMyGender(g.value)}
+                        disabled={savingGender}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                          sel ? 'bg-kaya-chocolate text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-sand-light'
+                        }`}
+                      >
+                        {g.emoji} {g.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Birthday + privacy */}
+            {!isGuest && (
+              <div className="border-t border-kaya-warm-dark pt-3 mt-3">
+                {!editingMyBirthday ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Birthday</p>
+                      {profile?.birthday ? (
+                        <p className="text-[12px] truncate">
+                          🎂 {myBirthdayDisplay || <span className="text-kaya-sand">Hidden</span>}
+                          <span className="text-kaya-sand-light ml-2">·{' '}
+                            {(profile.birthdayPrivacy || 'partial') === 'public' && 'Public'}
+                            {(profile.birthdayPrivacy || 'partial') === 'partial' && 'Day & month only'}
+                            {(profile.birthdayPrivacy || 'partial') === 'private' && 'Private'}
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="text-[12px] text-kaya-sand">Not set — add it for on-this-day surprises.</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={startEditingMyBirthday}
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                    >
+                      {profile?.birthday ? 'Edit' : 'Add'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Birthday</p>
+                    <input
+                      type="date"
+                      value={myBdayInput}
+                      onChange={(e) => setMyBdayInput(e.target.value)}
+                      max={new Date().toISOString().slice(0, 10)}
+                      className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                      autoFocus
+                    />
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mt-2">Who can see it</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                      {([
+                        { value: 'public', label: 'Public', desc: 'Full date — visible to family' },
+                        { value: 'partial', label: 'Day & month', desc: 'Hide the year' },
+                        { value: 'private', label: 'Private', desc: 'Hidden everywhere' },
+                      ] as { value: BirthdayPrivacy; label: string; desc: string }[]).map((p) => {
+                        const sel = myBdayPrivacy === p.value;
+                        return (
+                          <button
+                            key={p.value}
+                            onClick={() => setMyBdayPrivacy(p.value)}
+                            className={`text-left p-2 rounded-kaya-sm border transition-colors ${
+                              sel ? 'border-kaya-gold bg-kaya-gold/5' : 'border-kaya-warm-dark bg-white hover:border-kaya-sand-light'
+                            }`}
+                          >
+                            <p className="text-[12px] font-bold">{p.label}</p>
+                            <p className="text-[10px] text-kaya-sand leading-snug">{p.desc}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {myBdayError && <p className="text-red-500 text-[11px]">{myBdayError}</p>}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={saveMyBirthday}
+                        disabled={savingMyBirthday}
+                        className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                      >
+                        {savingMyBirthday ? 'Saving…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => { setEditingMyBirthday(false); setMyBdayError(''); }}
+                        disabled={savingMyBirthday}
+                        className="h-9 px-4 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+          {/* Born on this day (parent) */}
+          {!isGuest && profile?.birthday && (profile?.birthdayPrivacy || 'partial') !== 'private' && myBornToday.length > 0 && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">
+                  Born on the same day
+                  {profile.gender === 'female' && <span className="ml-1 text-kaya-sand-light normal-case">· women</span>}
+                  {profile.gender === 'male' && <span className="ml-1 text-kaya-sand-light normal-case">· men</span>}
+                </h3>
+                <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {myBornToday.map((p) => (
+                  <a
+                    key={p.pageUrl}
+                    href={p.pageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-2 p-2 rounded-kaya-sm border border-kaya-warm-dark bg-kaya-cream/40 hover:border-kaya-chocolate transition-colors no-underline text-inherit"
+                  >
+                    {p.thumbnailUrl ? (
+                      <img src={p.thumbnailUrl} alt="" className="w-10 h-10 rounded-full object-cover bg-white shrink-0" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-kaya-gold-light flex items-center justify-center shrink-0">⭐</div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] font-bold leading-tight truncate">{p.name}</p>
+                      <p className="text-[10px] text-kaya-sand">b. {p.year}</p>
+                      {p.description && <p className="text-[10px] text-kaya-sand line-clamp-2 leading-snug mt-0.5">{p.description}</p>}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Major events on this day (parent) */}
+          {!isGuest && profile?.birthday && (profile?.birthdayPrivacy || 'partial') !== 'private' && myEventsToday.length > 0 && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <div className="flex items-baseline justify-between mb-3">
+                <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Major events on this day</h3>
+                <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
+              </div>
+              <ul className="space-y-2">
+                {myEventsToday.map((e, idx) => {
+                  const inner = (
+                    <>
+                      {e.thumbnailUrl ? (
+                        <img src={e.thumbnailUrl} alt="" className="w-10 h-10 rounded-kaya-sm object-cover bg-white shrink-0" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-kaya-sm bg-kaya-gold-light flex items-center justify-center shrink-0">📜</div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-bold text-kaya-gold">{e.year}</p>
+                        <p className="text-[12px] leading-snug">{e.text}</p>
+                      </div>
+                    </>
+                  );
+                  const cls = 'flex items-start gap-2.5 p-2.5 rounded-kaya-sm border border-kaya-warm-dark bg-kaya-cream/40 hover:border-kaya-chocolate transition-colors no-underline text-inherit';
+                  return (
+                    <li key={`${e.year}-${idx}`}>
+                      {e.pageUrl ? (
+                        <a href={e.pageUrl} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
+                      ) : (
+                        <div className={cls}>{inner}</div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           {/* Family identity — name, handle, photo */}
           {family && (
