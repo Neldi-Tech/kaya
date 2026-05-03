@@ -19,6 +19,13 @@ interface AwardNotify {
   isDiamond?: boolean;
 }
 
+interface InviteNotify {
+  to: string[];
+  kidName: string;
+  familyName: string;
+  inviterName: string;
+}
+
 async function post(payload: unknown): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
@@ -58,6 +65,20 @@ export function notifyAward(args: AwardNotify): Promise<void> {
       points: args.points,
       reason: args.reason,
       isDiamond: !!args.isDiamond,
+    },
+  });
+}
+
+export function notifyInvite(args: InviteNotify): Promise<void> {
+  if (!args.to.length) return Promise.resolve();
+  return post({
+    type: 'invite',
+    to: args.to,
+    data: {
+      childName: args.kidName,
+      actorName: args.inviterName,
+      points: 0,
+      familyName: args.familyName,
     },
   });
 }

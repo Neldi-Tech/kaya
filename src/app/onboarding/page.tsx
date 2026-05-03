@@ -1,12 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Timestamp } from 'firebase/firestore';
 import {
   createUserProfile, createFamily, addChild, findFamilyByInviteCode,
-  updateUserProfile, Role,
+  findChildByEmail, getFamily, updateUserProfile, Role, Family, Child,
 } from '@/lib/firestore';
 
 const HOUSE_PRESETS = [
@@ -38,6 +38,49 @@ export default function OnboardingPage() {
   ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Email-match link flow: if this user's email is already on a child profile
+  // with loginEnabled=true, skip the whole "create family / join family" wizard
+  // and offer a one-click link.
+  const [matched, setMatched] = useState<{ family: Family; child: Child } | null>(null);
+  const [matchChecking, setMatchChecking] = useState(true);
+
+  useEffect(() => {
+    if (!user?.email) { setMatchChecking(false); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const m = await findChildByEmail(user.email!);
+        if (!m) { if (!cancelled) setMatchChecking(false); return; }
+        const fam = await getFamily(m.familyId);
+        if (!cancelled && fam) setMatched({ family: fam, child: m.child });
+      } catch {}
+      if (!cancelled) setMatchChecking(false);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.email]);
+
+  const handleLinkAsKid = async () => {
+    if (!user || !matched) return;
+    setLoading(true); setError('');
+    try {
+      await createUserProfile({
+        uid: user.uid,
+        email: user.email || '',
+        displayName: user.displayName || matched.child.name,
+        photoURL: user.photoURL || undefined,
+        role: 'kid',
+        familyId: matched.family.id,
+        childId: matched.child.id,
+        createdAt: Timestamp.now(),
+      });
+      await refreshProfile();
+      router.push('/kid');
+    } catch (e: any) {
+      setError(e?.message || 'Failed to link your account');
+    }
+    setLoading(false);
+  };
 
   const addChildRow = () => {
     const next = HOUSE_PRESETS[children.length % HOUSE_PRESETS.length];
@@ -131,6 +174,56 @@ export default function OnboardingPage() {
     if (step === 3 && familyMode === 'create' && !children.some((c) => c.name.trim())) return false;
     return true;
   };
+
+  // ── Email-match short-circuit ──────────────────────────────
+  // If the parent has already added this kid (with their email + login enabled),
+  // skip the wizard entirely and offer a single-click link.
+  if (matchChecking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-kaya-cream">
+        <p className="text-kaya-sand text-sm">Checking your invitation…</p>
+      </div>
+    );
+  }
+  if (matched) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-kaya-cream px-6">
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-7 max-w-md w-full text-center shadow-sm">
+          <div className="text-5xl mb-3">👋</div>
+          <h1 className="font-display text-2xl font-extrabold tracking-tight mb-1">Welcome back, {matched.child.name}!</h1>
+          <p className="text-sm text-kaya-sand mb-6 leading-relaxed">
+            <strong className="text-kaya-chocolate">{matched.family.name}</strong> already set up a profile for you. Tap below to link your account and see your points, badges, and rewards.
+          </p>
+          <div className="flex items-center justify-center gap-3 mb-6 bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm p-3">
+            <div
+              className="w-10 h-10 rounded-full flex items-center justify-center text-xl"
+              style={{ backgroundColor: matched.child.houseColor + '20' }}
+            >
+              {matched.child.avatarEmoji}
+            </div>
+            <div className="text-left">
+              <p className="font-bold text-sm">{matched.child.name}</p>
+              <p className="text-[11px] text-kaya-sand">{matched.child.houseName} House · {matched.family.name}</p>
+            </div>
+          </div>
+          {error && <p className="text-red-500 text-xs bg-red-50 rounded-kaya-sm px-3 py-2 mb-4">{error}</p>}
+          <button
+            onClick={handleLinkAsKid}
+            disabled={loading}
+            className="w-full h-[52px] bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Linking…' : `Link me to ${matched.family.name}`}
+          </button>
+          <button
+            onClick={() => setMatched(null)}
+            className="w-full mt-3 text-xs text-kaya-sand hover:text-kaya-chocolate font-semibold"
+          >
+            Not me — start a fresh family instead
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-kaya-cream">

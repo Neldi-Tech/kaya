@@ -23,7 +23,7 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
 
 const resend = apiKey ? new Resend(apiKey) : null;
 
-type NotifyType = 'rating' | 'award';
+type NotifyType = 'rating' | 'award' | 'invite';
 
 interface NotifyData {
   childName: string;
@@ -33,6 +33,7 @@ interface NotifyData {
   reason?: string;
   isDiamond?: boolean;
   houseColor?: string;
+  familyName?: string;
 }
 
 interface NotifyBody {
@@ -86,6 +87,13 @@ export async function POST(req: NextRequest) {
     html = renderEmail({
       preheader: `${data.actorName} awarded bonus points to ${data.childName}`,
       body: awardBody(data),
+    });
+  } else if (type === 'invite') {
+    const familyDisplay = data.familyName || 'Their family';
+    subject = `${data.actorName} invited ${data.childName} to Kaya`;
+    html = renderEmail({
+      preheader: `${data.actorName} from ${familyDisplay} is inviting ${data.childName} to join Kaya`,
+      body: inviteBody({ ...data, familyName: familyDisplay }),
     });
   } else {
     return NextResponse.json({ error: 'Unknown notification type' }, { status: 400 });
@@ -170,6 +178,24 @@ function ratingBody(d: NotifyData & { period: 'morning' | 'evening' }): string {
       <div style="margin-top:18px;padding-top:18px;border-top:1px solid rgba(255,255,255,0.1);font-size:14px;color:#F5E6B8;font-weight:600;">${esc(d.childName)} · ${periodLabel} routine</div>
     </div>
     <p style="margin:18px 0 0;font-size:12px;color:#C4B89A;text-align:center;">Open the app to see the breakdown per task.</p>
+  `;
+}
+
+function inviteBody(d: NotifyData & { familyName: string }): string {
+  return `
+    <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
+      Hi <strong style="color:#1A1412;">${esc(d.childName)}</strong> 👋
+    </p>
+    <p style="margin:0 0 18px;font-size:14px;color:#1A1412;line-height:1.55;">
+      <strong>${esc(d.actorName)}</strong> from <strong>${esc(d.familyName)}</strong> is inviting you to join your family on Kaya — where you can see your points, badges, streaks, and rewards.
+    </p>
+    <div style="background:linear-gradient(135deg,#1E120B,#3D241A);color:#fff;padding:24px;border-radius:16px;text-align:center;">
+      <p style="margin:0 0 4px;font-size:11px;color:#C4B89A;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;">Sign in with this email</p>
+      <p style="margin:0;font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:18px;font-weight:700;">Open ourkaya.com/login → use email sign-up</p>
+    </div>
+    <p style="margin:18px 0 0;font-size:12px;color:#9B8A72;line-height:1.55;">
+      Once you sign up, your kid profile will be linked automatically — your parent has already set everything up.
+    </p>
   `;
 }
 

@@ -1,5 +1,5 @@
 import {
-  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
+  collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
   onSnapshot, writeBatch, runTransaction,
 } from 'firebase/firestore';
@@ -24,6 +24,9 @@ export interface UserProfile {
   role: Role;
   familyId: string;
   childId?: string; // if role === 'kid', which child they are
+  // ── Public identity ──
+  handle?: string;          // case-preserved, e.g. "Daniella"
+  handleLower?: string;     // lowercase mirror for unique lookup
   // ── Notification preferences (default: opt-in) ──
   notifyOnRating?: boolean; // email when a routine rating is submitted
   notifyOnAward?: boolean;  // email when a bonus award is given
@@ -74,6 +77,10 @@ export interface Child {
   // ── Identity ──
   birthday?: string;          // canonical YYYY-MM-DD; UI displays DD-MMM-YYYY
   email?: string;             // optional — when set, this kid can later sign in with it
+  emailLower?: string;        // lowercase mirror so we can match-on-signup case-insensitively
+  loginEnabled?: boolean;     // parent toggle — must be true for the kid to sign in via email match
+  handle?: string;            // case-preserved, e.g. "Daniella"
+  handleLower?: string;       // lowercase mirror for unique lookup
   interests?: string[];       // free-form chips, e.g. ['Football', 'Lego']
   aspirations?: string[];     // up to 3, e.g. ['Pilot', 'Doctor', 'Footballer']
   // ── Game state ──
@@ -332,11 +339,71 @@ export async function getFamilyByHandle(handle: string): Promise<Family | null> 
   return { id: d.id, ...d.data() } as Family;
 }
 
-export async function isHandleAvailable(handle: string, excludeFamilyId?: string): Promise<boolean> {
+export async function isHandleAvailable(
+  handle: string,
+  exclude?: { familyId?: string; userUid?: string; childId?: string },
+): Promise<boolean> {
   if (isGuestActive()) return true;
-  const existing = await getFamilyByHandle(handle);
-  if (!existing) return true;
-  return excludeFamilyId !== undefined && existing.id === excludeFamilyId;
+  if (!handle) return false;
+  const lower = handle.toLowerCase();
+  const ex = exclude || {};
+
+  // Families
+  const famSnap = await getDocs(
+    query(collection(db, 'families'), where('handleLower', '==', lower)),
+  );
+  for (const d of famSnap.docs) {
+    if (d.id !== ex.familyId) return false;
+  }
+
+  // Users
+  const userSnap = await getDocs(
+    query(collection(db, 'users'), where('handleLower', '==', lower)),
+  );
+  for (const d of userSnap.docs) {
+    if (d.id !== ex.userUid) return false;
+  }
+
+  // Children — collection group query across all families.
+  // Note: requires a Firestore composite index. Firebase will print a console
+  // link the first time this runs; tap it to create the index.
+  try {
+    const kidSnap = await getDocs(
+      query(collectionGroup(db, 'children'), where('handleLower', '==', lower)),
+    );
+    for (const d of kidSnap.docs) {
+      if (d.id !== ex.childId) return false;
+    }
+  } catch {
+    // If the composite index isn't there yet, treat as available (uniqueness
+    // will be enforced once the index is created and the next save retries).
+  }
+
+  return true;
+}
+
+// Find a child whose stored email matches (case-insensitive). Used at signup
+// time to auto-link a brand-new user to an existing kid profile.
+export async function findChildByEmail(email: string): Promise<{ familyId: string; child: Child } | null> {
+  if (isGuestActive()) return null;
+  if (!email) return null;
+  const lower = email.toLowerCase();
+  try {
+    const snap = await getDocs(
+      query(collectionGroup(db, 'children'), where('emailLower', '==', lower)),
+    );
+    for (const d of snap.docs) {
+      const data = d.data() as Child;
+      if (data.loginEnabled !== true) continue;
+      // d.ref.parent.parent is the family doc.
+      const familyRef = d.ref.parent.parent;
+      if (!familyRef) continue;
+      return { familyId: familyRef.id, child: { id: d.id, ...data } as Child };
+    }
+  } catch {
+    // No index yet → treat as no match.
+  }
+  return null;
 }
 
 export async function getFamilyByReferralCode(code: string): Promise<Family | null> {

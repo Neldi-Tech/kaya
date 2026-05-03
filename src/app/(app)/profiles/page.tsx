@@ -7,6 +7,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   getRecentRatings, getRecentAwards, updateChild, BADGES,
   getWishlist, addWishlistItem, updateWishlistItem, deleteWishlistItem,
+  isHandleAvailable,
   DailyRating, Award, WishlistItem,
 } from '@/lib/firestore';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
@@ -18,6 +19,10 @@ import {
 import { INTERESTS, ASPIRATIONS, ASPIRATION_LIMIT } from '@/lib/kidPresets';
 import { bornOnThisDay, BornOnThisDayPerson } from '@/lib/onThisDay';
 import { fileToAvatarDataUrl, MAX_UPLOAD_BYTES } from '@/lib/imageUpload';
+import {
+  normalizeHandle, handleErrorMessage, suggestPersonHandle, formatPersonHandle,
+} from '@/lib/handles';
+import { notifyInvite } from '@/lib/notify';
 import { useRef } from 'react';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -40,12 +45,19 @@ export default function ProfilesPage() {
   const [pickingHouse, setPickingHouse] = useState(false);
   const [savingHouse, setSavingHouse] = useState<string | null>(null);
 
-  // Identity editor (birthday, email, interests, aspirations)
+  // Identity editor (birthday, email, handle, interests, aspirations)
   const [editingIdentity, setEditingIdentity] = useState(false);
   const [bdayInput, setBdayInput] = useState('');
   const [emailInput, setEmailInput] = useState('');
+  const [handleInput, setHandleInput] = useState('');
   const [bdayError, setBdayError] = useState('');
   const [savingIdentity, setSavingIdentity] = useState(false);
+
+  // Kid login toggle + invitation
+  const [savingLoginToggle, setSavingLoginToggle] = useState(false);
+  const [sendingInvite, setSendingInvite] = useState(false);
+  const [inviteSent, setInviteSent] = useState(false);
+  const [inviteError, setInviteError] = useState('');
 
   // Born on this day
   const [bornToday, setBornToday] = useState<BornOnThisDayPerson[]>([]);
@@ -150,6 +162,7 @@ export default function ProfilesPage() {
     // canonical Firestore format — so no display ↔ canonical conversion needed.
     setBdayInput(child?.birthday || '');
     setEmailInput(child?.email || '');
+    setHandleInput(child?.handle || (child ? suggestPersonHandle(child.name) || '' : ''));
     setBdayError('');
     setEditingIdentity(true);
   };
@@ -169,13 +182,37 @@ export default function ProfilesPage() {
       return;
     }
 
+    // Handle is optional. Validate format if present, then check uniqueness.
+    const trimmedHandle = handleInput.trim();
+    let canonicalHandle: string | null = null;
+    if (trimmedHandle) {
+      canonicalHandle = normalizeHandle(trimmedHandle);
+      if (!canonicalHandle) {
+        setBdayError(handleErrorMessage(trimmedHandle) || 'Invalid handle.');
+        return;
+      }
+    }
+
     // Build a partial update — Firestore rejects `undefined`, so only include
     // fields the user actually filled in. Clearing a value is intentionally a
     // no-op for v1 (avoids accidental data loss); a "Remove" affordance can
     // come later if needed.
     const updates: Record<string, unknown> = {};
     if (trimmedDate) updates.birthday = trimmedDate;
-    if (trimmedEmail) updates.email = trimmedEmail;
+    if (trimmedEmail) {
+      updates.email = trimmedEmail;
+      updates.emailLower = trimmedEmail; // mirror used by findChildByEmail
+    }
+    if (canonicalHandle && canonicalHandle.toLowerCase() !== (child.handle || '').toLowerCase()) {
+      // Handle changed — check uniqueness before saving.
+      const ok = await isHandleAvailable(canonicalHandle, { childId: child.id });
+      if (!ok) {
+        setBdayError(`@${canonicalHandle} is already taken — try another.`);
+        return;
+      }
+      updates.handle = canonicalHandle;
+      updates.handleLower = canonicalHandle.toLowerCase();
+    }
     if (Object.keys(updates).length === 0) {
       setEditingIdentity(false);
       return;
@@ -190,6 +227,37 @@ export default function ProfilesPage() {
       setBdayError(e?.message || 'Failed to save');
     }
     setSavingIdentity(false);
+  };
+
+  const toggleKidLogin = async () => {
+    if (!profile?.familyId || !child || isGuest || savingLoginToggle) return;
+    setSavingLoginToggle(true);
+    try {
+      await updateChild(profile.familyId, child.id, {
+        loginEnabled: !child.loginEnabled,
+      } as any);
+    } catch {}
+    setSavingLoginToggle(false);
+  };
+
+  const sendKidInvite = async () => {
+    if (!profile || !child || isGuest || !child.email) return;
+    setSendingInvite(true);
+    setInviteError('');
+    setInviteSent(false);
+    try {
+      await notifyInvite({
+        to: [child.email],
+        kidName: child.name,
+        familyName: family?.name || 'Your family',
+        inviterName: profile.displayName,
+      });
+      setInviteSent(true);
+      setTimeout(() => setInviteSent(false), 4000);
+    } catch (e: any) {
+      setInviteError(e?.message || 'Could not send invitation.');
+    }
+    setSendingInvite(false);
   };
 
   const toggleInterest = async (label: string) => {
@@ -547,6 +615,24 @@ export default function ProfilesPage() {
                 className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
               />
             </div>
+            <div>
+              <label className="block text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Public handle (optional)</label>
+              <div className="flex items-center gap-1 bg-kaya-cream rounded-kaya-sm pl-3">
+                <span className="text-kaya-sand font-bold">@</span>
+                <input
+                  value={handleInput}
+                  onChange={(e) => setHandleInput(e.target.value)}
+                  placeholder={child ? suggestPersonHandle(child.name) || 'Daniella' : 'Daniella'}
+                  maxLength={24}
+                  className="flex-1 h-10 bg-transparent text-sm focus:outline-none"
+                />
+              </div>
+              <p className="text-[10px] text-kaya-sand mt-1">
+                {handleInput.trim()
+                  ? <>Will display as <strong>{normalizeHandle(handleInput) ? formatPersonHandle(normalizeHandle(handleInput)!) : `@${handleInput}`}</strong>.</>
+                  : 'Letters and numbers, starts with a capital. Globally unique across Kaya.'}
+              </p>
+            </div>
             {bdayError && <p className="text-red-500 text-[11px]">{bdayError}</p>}
             <div className="flex gap-2">
               <button onClick={saveIdentity} disabled={savingIdentity} className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40">
@@ -590,13 +676,21 @@ export default function ProfilesPage() {
                 {child.email ? (
                   <>
                     <p className="text-sm font-bold truncate">{child.email}</p>
-                    <p className="text-[11px] text-kaya-sand mt-0.5">For future kid login</p>
+                    <p className="text-[11px] text-kaya-sand mt-0.5">{child.loginEnabled ? '✓ Login enabled' : 'Login disabled'}</p>
                   </>
                 ) : (
                   <p className="text-xs text-kaya-sand">No email yet</p>
                 )}
               </div>
             </div>
+
+            {child.handle && (
+              <div className="bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm p-3">
+                <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-1">Public handle</p>
+                <p className="text-sm font-bold text-kaya-gold">{formatPersonHandle(child.handle)}</p>
+                <p className="text-[11px] text-kaya-sand mt-0.5">{child.name}&apos;s public identity on Kaya.</p>
+              </div>
+            )}
 
             {/* Interests */}
             <div>
@@ -686,6 +780,57 @@ export default function ProfilesPage() {
           </div>
         )}
       </div>
+
+      {/* Kid login (parent-only, not guest) */}
+      {isParent && !isGuest && (
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">{child.name}&apos;s login</h3>
+            <button
+              onClick={toggleKidLogin}
+              disabled={savingLoginToggle}
+              className="flex items-center gap-2 disabled:opacity-60"
+              aria-label={child.loginEnabled ? 'Disable kid login' : 'Enable kid login'}
+            >
+              <div className={`w-10 h-6 rounded-full relative transition-colors ${child.loginEnabled ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                <div
+                  className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                  style={{ left: child.loginEnabled ? '18px' : '2px' }}
+                />
+              </div>
+            </button>
+          </div>
+
+          {child.loginEnabled ? (
+            child.email ? (
+              <div className="space-y-2.5">
+                <p className="text-[12px] text-kaya-chocolate leading-relaxed">
+                  ✓ Login enabled. When <strong>{child.email}</strong> signs up at ourkaya.com/login, they&apos;ll be linked to {child.name}&apos;s profile automatically.
+                </p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={sendKidInvite}
+                    disabled={sendingInvite || inviteSent}
+                    className="h-9 px-3 bg-kaya-chocolate text-white rounded-kaya-sm text-[12px] font-bold disabled:opacity-60 hover:bg-kaya-chocolate-light transition-colors"
+                  >
+                    {inviteSent ? '✅ Invite sent' : sendingInvite ? 'Sending…' : '✉️ Send invitation'}
+                  </button>
+                  <span className="text-[10px] text-kaya-sand">Sends them a Kaya-branded email with the sign-up link.</span>
+                </div>
+                {inviteError && <p className="text-red-500 text-[11px]">{inviteError}</p>}
+              </div>
+            ) : (
+              <p className="text-[12px] text-kaya-sand">
+                ⚠️ Login is on, but no email is set. Add {child.name}&apos;s email above (in the About editor) so we know who to link on signup.
+              </p>
+            )
+          ) : (
+            <p className="text-[12px] text-kaya-sand leading-relaxed">
+              Login is off. {child.name} can&apos;t sign in even if you&apos;ve set their email. Toggle on when you&apos;re ready for them to have their own account.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Born on this day */}
       {child.birthday && bornToday.length > 0 && (

@@ -37,6 +37,50 @@ export default function SettingsPage() {
   const [savingName, setSavingName] = useState(false);
   const [nameError, setNameError] = useState('');
 
+  // Personal handle editor
+  const [editingMyHandle, setEditingMyHandle] = useState(false);
+  const [myHandleInput, setMyHandleInput] = useState('');
+  const [myHandleError, setMyHandleError] = useState('');
+  const [savingMyHandle, setSavingMyHandle] = useState(false);
+
+  const startEditingMyHandle = () => {
+    setMyHandleInput(profile?.handle || '');
+    setMyHandleError('');
+    setEditingMyHandle(true);
+  };
+
+  const saveMyHandle = async () => {
+    if (!user || isGuest) return;
+    const canonical = normalizeHandle(myHandleInput);
+    if (!canonical) {
+      setMyHandleError(handleErrorMessage(myHandleInput) || 'Invalid handle.');
+      return;
+    }
+    if (canonical.toLowerCase() === (profile?.handle || '').toLowerCase()) {
+      setEditingMyHandle(false);
+      return;
+    }
+    setSavingMyHandle(true);
+    setMyHandleError('');
+    try {
+      const ok = await isHandleAvailable(canonical, { userUid: user.uid });
+      if (!ok) {
+        setMyHandleError(`@${canonical} is already taken — try another.`);
+        setSavingMyHandle(false);
+        return;
+      }
+      await updateUserProfile(user.uid, {
+        handle: canonical,
+        handleLower: canonical.toLowerCase(),
+      } as any);
+      await refreshProfile();
+      setEditingMyHandle(false);
+    } catch (e: any) {
+      setMyHandleError(e?.message || 'Failed to save handle');
+    }
+    setSavingMyHandle(false);
+  };
+
   // Referral panel
   const [referralCode, setReferralCode] = useState<string>('');
   const [referredFamilies, setReferredFamilies] = useState<Family[]>([]);
@@ -447,10 +491,75 @@ export default function SettingsPage() {
                     </div>
                     <p className="text-xs text-kaya-sand truncate">{profile?.email}</p>
                     <p className="text-xs font-semibold capitalize" style={{ color: '#D4A017' }}>{profile?.role}</p>
+                    {profile?.handle && (
+                      <p className="text-[11px] font-semibold text-kaya-gold mt-0.5">{formatPersonHandle(profile.handle)}</p>
+                    )}
                   </>
                 )}
               </div>
             </div>
+
+            {/* Personal handle editor */}
+            {!isGuest && (
+              <div className="border-t border-kaya-warm-dark pt-3 mt-3">
+                {!editingMyHandle ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Your handle</p>
+                      {profile?.handle ? (
+                        <p className="text-[12px] truncate font-semibold text-kaya-gold">{formatPersonHandle(profile.handle)}</p>
+                      ) : (
+                        <p className="text-[12px] text-kaya-sand">Pick a personal handle (no &quot;&apos;s Family&quot; suffix).</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={startEditingMyHandle}
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                    >
+                      {profile?.handle ? 'Change' : 'Pick handle'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Your handle</p>
+                    <div className="flex items-center gap-1 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm pl-3">
+                      <span className="text-kaya-sand font-bold">@</span>
+                      <input
+                        value={myHandleInput}
+                        onChange={(e) => setMyHandleInput(e.target.value)}
+                        autoFocus
+                        maxLength={24}
+                        placeholder="Eli"
+                        className="flex-1 h-9 bg-transparent text-sm font-semibold focus:outline-none"
+                      />
+                    </div>
+                    <p className="text-[10px] text-kaya-sand-light leading-snug">
+                      Will display as <strong>{myHandleInput.trim() ? formatPersonHandle(normalizeHandle(myHandleInput) || myHandleInput) : '@…'}</strong>.
+                      Letters and numbers, starts with a capital. Globally unique.
+                    </p>
+                    {myHandleError && (
+                      <p className="text-red-500 text-[11px]">{myHandleError}</p>
+                    )}
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={saveMyHandle}
+                        disabled={savingMyHandle}
+                        className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                      >
+                        {savingMyHandle ? 'Checking…' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => { setEditingMyHandle(false); setMyHandleError(''); }}
+                        disabled={savingMyHandle}
+                        className="h-9 px-4 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Family identity — name, handle, photo */}
