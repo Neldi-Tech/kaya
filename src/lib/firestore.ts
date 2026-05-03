@@ -188,6 +188,15 @@ export async function updateUserProfile(uid: string, data: Partial<UserProfile>)
   await updateDoc(doc(db, 'users', uid), data);
 }
 
+// Returns all user profiles attached to a family — used to find notification
+// recipients (parents + helpers) when ratings or awards are submitted.
+export async function getFamilyMembers(familyId: string): Promise<UserProfile[]> {
+  if (isGuestActive()) return [];
+  const q = query(collection(db, 'users'), where('familyId', '==', familyId));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => d.data() as UserProfile);
+}
+
 // ── Family Operations ─────────────────────────────
 export async function createFamily(
   name: string,

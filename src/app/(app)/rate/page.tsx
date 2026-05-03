@@ -4,7 +4,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { submitRating, getTodayRatings, todayString, RatingValue } from '@/lib/firestore';
+import { submitRating, getTodayRatings, getFamilyMembers, todayString, RatingValue } from '@/lib/firestore';
+import { notifyRating } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -96,6 +97,21 @@ export default function RatePage() {
     setAlreadyRated(true);
     setSaving(false);
     setTimeout(() => setSaved(false), 3000);
+
+    // Fire-and-forget email notification to other family members.
+    (async () => {
+      const members = await getFamilyMembers(profile.familyId);
+      const recipients = members
+        .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
+        .map((m) => m.email);
+      notifyRating({
+        to: recipients,
+        childName: child.name,
+        actorName: profile.displayName,
+        points: totalPoints,
+        period,
+      });
+    })();
   };
 
   if (children.length === 0) {

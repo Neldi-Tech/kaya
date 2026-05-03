@@ -3,7 +3,8 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { giveAward } from '@/lib/firestore';
+import { giveAward, getFamilyMembers } from '@/lib/firestore';
+import { notifyAward } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -52,6 +53,24 @@ export default function AwardPage() {
     } as any);
     setSuccess(true);
     setSaving(false);
+
+    // Fire-and-forget email notification to other family members.
+    (async () => {
+      if (!child) return;
+      const members = await getFamilyMembers(profile.familyId);
+      const recipients = members
+        .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
+        .map((m) => m.email);
+      notifyAward({
+        to: recipients,
+        childName: child.name,
+        actorName: profile.displayName,
+        points: finalPoints,
+        reason: reason.trim(),
+        isDiamond,
+      });
+    })();
+
     setTimeout(() => {
       setSuccess(false);
       setSelectedChild(''); setCategory(''); setIsDiamond(false);
