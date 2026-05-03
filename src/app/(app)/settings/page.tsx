@@ -124,7 +124,7 @@ export default function SettingsPage() {
     setSavingHandle(true);
     setHandleError('');
     try {
-      const ok = await isHandleAvailable(canonical, family.id);
+      const ok = await isHandleAvailable(canonical, { familyId: family.id });
       if (!ok) {
         setHandleError('That handle is taken — try another.');
         setSavingHandle(false);
