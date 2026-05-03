@@ -64,6 +64,12 @@ export interface Family {
   spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
   // ── Family milestones ──
   anniversary?: string;           // canonical YYYY-MM-DD; UI shows DD-MMM-YYYY + day-of-week
+  // ── Family identity policy ──
+  // Whether the "Other" gender option is shown when picking a gender for a
+  // kid or a parent inside this family. Defaults to **false** — many cultures
+  // and faith communities consider only Female/Male appropriate, so the
+  // option is opt-in. Parents can flip this in Settings.
+  allowGenderOther?: boolean;
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent

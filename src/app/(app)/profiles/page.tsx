@@ -129,6 +129,10 @@ export default function ProfilesPage() {
 
   const earnedBadges = BADGES.filter((b) => (child.badges || []).includes(b.id));
   const isParent = profile?.role === 'parent';
+  // Family-level policy — when off, the 🌈 Other chip is hidden in the
+  // kid gender selector. Existing kids whose gender was already 'other'
+  // keep that value visible so we never silently rewrite their data.
+  const allowGenderOther = !!family?.allowGenderOther;
 
   const choosePhoto = async (url: string) => {
     if (!profile?.familyId || !child || isGuest) return;
@@ -722,12 +726,18 @@ export default function ProfilesPage() {
               <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-2">Gender</p>
               {isParent && !isGuest ? (
                 <div className="flex flex-wrap gap-1.5">
-                  {([
+                  {(([
                     { value: 'female', label: 'Girl', emoji: '👧' },
                     { value: 'male', label: 'Boy', emoji: '👦' },
                     { value: 'other', label: 'Other', emoji: '🌈' },
                     { value: 'unspecified', label: 'Prefer not to say', emoji: '—' },
-                  ] as { value: Gender; label: string; emoji: string }[]).map((g) => {
+                  ] as { value: Gender; label: string; emoji: string }[]).filter((g) => {
+                    // Hide "Other" unless the family has opted in. Keep it
+                    // visible if this kid is currently set to 'other' so the
+                    // parent doesn't lose the existing choice.
+                    if (g.value === 'other' && !allowGenderOther && child.gender !== 'other') return false;
+                    return true;
+                  })).map((g) => {
                     const sel = (child.gender || 'unspecified') === g.value;
                     return (
                       <button

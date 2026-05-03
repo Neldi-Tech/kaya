@@ -42,6 +42,7 @@ export default function SettingsPage() {
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
   const [savingMethod, setSavingMethod] = useState<string | null>(null);
+  const [savingGenderOption, setSavingGenderOption] = useState(false);
 
   // Display name editor
   const [editingName, setEditingName] = useState(false);
@@ -456,6 +457,20 @@ export default function SettingsPage() {
     await updateFamily(profile.familyId, { pointsMode: mode } as any);
   };
 
+  // Family-level gender policy. Defaults to false so the "Other" chip only
+  // appears in profile editors after a parent explicitly opts in. We persist
+  // the boolean either way so a parent who turns it ON and OFF lands back
+  // exactly where they expect.
+  const allowGenderOther = !!family?.allowGenderOther;
+  const toggleAllowGenderOther = async () => {
+    if (!profile?.familyId || !family || isGuest || savingGenderOption) return;
+    setSavingGenderOption(true);
+    try {
+      await updateFamily(profile.familyId, { allowGenderOther: !allowGenderOther } as any);
+    } catch {}
+    setSavingGenderOption(false);
+  };
+
   // Earning-method picker. Fall back to the Phase-1 default for families that
   // existed before this feature so their UX doesn't suddenly empty out.
   const selectedMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
@@ -865,17 +880,23 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Gender chips */}
+            {/* Gender chips — the "Other" option is gated by the
+                family-level allowGenderOther flag (Family options card). */}
             {!isGuest && (
               <div className="border-t border-kaya-warm-dark pt-3 mt-3">
                 <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mb-2">Gender</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {([
+                  {(([
                     { value: 'female', label: 'Woman', emoji: '👩' },
                     { value: 'male', label: 'Man', emoji: '👨' },
                     { value: 'other', label: 'Other', emoji: '🌈' },
                     { value: 'unspecified', label: 'Prefer not to say', emoji: '—' },
-                  ] as { value: Gender; label: string; emoji: string }[]).map((g) => {
+                  ] as { value: Gender; label: string; emoji: string }[]).filter((g) => {
+                    // Always keep the user's currently-saved choice visible so
+                    // a family that flips the toggle off doesn't lose state.
+                    if (g.value === 'other' && !allowGenderOther && profile?.gender !== 'other') return false;
+                    return true;
+                  })).map((g) => {
                     const sel = (profile?.gender || 'unspecified') === g.value;
                     return (
                       <button
@@ -1284,6 +1305,33 @@ export default function SettingsPage() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Family options — small toggles that change what kids and
+              parents see when editing their profiles. */}
+          {isParent && family && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Family options</p>
+              <button
+                onClick={toggleAllowGenderOther}
+                disabled={savingGenderOption || isGuest}
+                className="w-full flex items-start gap-3 p-3 rounded-kaya-sm border border-kaya-warm-dark hover:border-kaya-sand-light text-left transition-colors disabled:opacity-60"
+              >
+                <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${allowGenderOther ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                  <div
+                    className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                    style={{ left: allowGenderOther ? '18px' : '2px' }}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">Show &quot;Other&quot; gender option</p>
+                  <p className="text-[11px] text-kaya-sand leading-relaxed">
+                    Off by default. Many families only want Female and Male choices when
+                    setting up a child or parent profile. Turn on to also show 🌈 Other.
+                  </p>
+                </div>
+              </button>
             </div>
           )}
 
