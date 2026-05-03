@@ -917,12 +917,12 @@ export default function ProfilesPage() {
         </div>
       )}
 
-      {/* Major events on this day */}
+      {/* Innovations & inspiring moments on this day */}
       {child.birthday && eventsToday.length > 0 && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
           <div className="flex items-baseline justify-between mb-3">
-            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Major events on this day</h3>
-            <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
+            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Inspiring on this day</h3>
+            <span className="text-[10px] text-kaya-sand-light">curated · Wikipedia</span>
           </div>
           <ul className="space-y-2">
             {eventsToday.map((e, idx) => {

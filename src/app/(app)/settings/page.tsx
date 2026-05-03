@@ -15,7 +15,7 @@ import {
 } from '@/lib/handles';
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
-import { toDisplayDate, monthDayOf } from '@/lib/dates';
+import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday } from '@/lib/dates';
 import {
   bornOnThisDay, eventsOnThisDay,
   BornOnThisDayPerson, OnThisDayEvent,
@@ -135,6 +135,36 @@ export default function SettingsPage() {
   const [savingFamilyPhoto, setSavingFamilyPhoto] = useState(false);
   const [familyPhotoError, setFamilyPhotoError] = useState('');
   const familyPhotoRef = useRef<HTMLInputElement | null>(null);
+
+  // Family anniversary (shared across both parents — lives on the Family doc)
+  const [editingAnniversary, setEditingAnniversary] = useState(false);
+  const [anniversaryInput, setAnniversaryInput] = useState('');
+  const [anniversaryError, setAnniversaryError] = useState('');
+  const [savingAnniversary, setSavingAnniversary] = useState(false);
+
+  const startEditingAnniversary = () => {
+    setAnniversaryInput(family?.anniversary || '');
+    setAnniversaryError('');
+    setEditingAnniversary(true);
+  };
+
+  const saveAnniversary = async () => {
+    if (!profile?.familyId || !family || isGuest) return;
+    const trimmed = anniversaryInput.trim();
+    if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      setAnniversaryError('Pick a valid date.');
+      return;
+    }
+    setSavingAnniversary(true);
+    setAnniversaryError('');
+    try {
+      await updateFamily(profile.familyId, { anniversary: trimmed || null } as any);
+      setEditingAnniversary(false);
+    } catch (e: any) {
+      setAnniversaryError(e?.message || 'Failed to save anniversary.');
+    }
+    setSavingAnniversary(false);
+  };
 
   const startEditingHandle = () => {
     setHandleInput(family?.handle || (family?.name ? suggestFamilyHandles(family.name)[0] || '' : ''));
@@ -871,14 +901,27 @@ export default function SettingsPage() {
                     <div className="min-w-0">
                       <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Birthday</p>
                       {profile?.birthday ? (
-                        <p className="text-[12px] truncate">
-                          🎂 {myBirthdayDisplay || <span className="text-kaya-sand">Hidden</span>}
-                          <span className="text-kaya-sand-light ml-2">·{' '}
-                            {(profile.birthdayPrivacy || 'partial') === 'public' && 'Public'}
-                            {(profile.birthdayPrivacy || 'partial') === 'partial' && 'Day & month only'}
-                            {(profile.birthdayPrivacy || 'partial') === 'private' && 'Private'}
-                          </span>
-                        </p>
+                        <>
+                          <p className="text-[12px] truncate">
+                            🎂 {myBirthdayDisplay || <span className="text-kaya-sand">Hidden</span>}
+                            <span className="text-kaya-sand-light ml-2">·{' '}
+                              {(profile.birthdayPrivacy || 'partial') === 'public' && 'Public'}
+                              {(profile.birthdayPrivacy || 'partial') === 'partial' && 'Day & month only'}
+                              {(profile.birthdayPrivacy || 'partial') === 'private' && 'Private'}
+                            </span>
+                          </p>
+                          {(profile.birthdayPrivacy || 'partial') !== 'private' && (() => {
+                            const day = dayOfWeek(profile.birthday!);
+                            const d = daysToNextBirthday(profile.birthday!);
+                            const parts: string[] = [];
+                            if (day) parts.push(`Born on a ${day}`);
+                            if (d === 0) parts.push('🎉 today!');
+                            else if (d !== null) parts.push(`${d} day${d === 1 ? '' : 's'} to go`);
+                            return parts.length > 0 ? (
+                              <p className="text-[11px] text-kaya-sand mt-0.5">{parts.join(' · ')}</p>
+                            ) : null;
+                          })()}
+                        </>
                       ) : (
                         <p className="text-[12px] text-kaya-sand">Not set — add it for on-this-day surprises.</p>
                       )}
@@ -982,12 +1025,12 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Major events on this day (parent) */}
+          {/* Inspiring innovations on this day (parent) */}
           {!isGuest && profile?.birthday && (profile?.birthdayPrivacy || 'partial') !== 'private' && myEventsToday.length > 0 && (
             <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
               <div className="flex items-baseline justify-between mb-3">
-                <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Major events on this day</h3>
-                <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
+                <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Inspiring on this day</h3>
+                <span className="text-[10px] text-kaya-sand-light">curated · Wikipedia</span>
               </div>
               <ul className="space-y-2">
                 {myEventsToday.map((e, idx) => {
@@ -1161,6 +1204,76 @@ export default function SettingsPage() {
                         <button
                           onClick={() => { setEditingHandle(false); setHandleError(''); }}
                           disabled={savingHandle}
+                          className="h-9 px-4 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Anniversary — shared across both parents. Read-only for
+                  helpers/kids; editable by parents. */}
+              {!isGuest && (
+                <div className="border-t border-kaya-warm-dark pt-3">
+                  {!editingAnniversary ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                        {family.anniversary ? (
+                          <p className="text-[12px] truncate">
+                            💍 {toDisplayDate(family.anniversary)} ·{' '}
+                            <span className="text-kaya-sand">{dayOfWeek(family.anniversary)}</span>
+                            {(() => {
+                              const d = daysToNextBirthday(family.anniversary!);
+                              if (d === null) return null;
+                              if (d === 0) return <span className="ml-2 font-bold text-kaya-gold">🎉 Today!</span>;
+                              return <span className="ml-2 text-kaya-gold font-semibold">{d} day{d === 1 ? '' : 's'} to go</span>;
+                            })()}
+                          </p>
+                        ) : (
+                          <p className="text-[12px] text-kaya-sand">Add the wedding date so both parents see the countdown.</p>
+                        )}
+                      </div>
+                      {isParent && (
+                        <button
+                          onClick={startEditingAnniversary}
+                          className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                        >
+                          {family.anniversary ? 'Change' : 'Add'}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                      <input
+                        type="date"
+                        value={anniversaryInput}
+                        onChange={(e) => setAnniversaryInput(e.target.value)}
+                        max={new Date().toISOString().slice(0, 10)}
+                        className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                        autoFocus
+                      />
+                      <p className="text-[10px] text-kaya-sand-light">
+                        Visible to everyone in the family. Both parents see the same countdown.
+                      </p>
+                      {anniversaryError && (
+                        <p className="text-red-500 text-[11px]">{anniversaryError}</p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          onClick={saveAnniversary}
+                          disabled={savingAnniversary}
+                          className="h-9 px-4 bg-kaya-gold text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                        >
+                          {savingAnniversary ? 'Saving…' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingAnniversary(false); setAnniversaryError(''); }}
+                          disabled={savingAnniversary}
                           className="h-9 px-4 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand"
                         >
                           Cancel

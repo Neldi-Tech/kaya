@@ -62,6 +62,8 @@ export interface Family {
   compoundCredit?: number;        // credit from referral-of-referral (1 level deep)
   isFoundingFamily?: boolean;     // true if among the first FOUNDING_FAMILY_LIMIT families
   spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
+  // ── Family milestones ──
+  anniversary?: string;           // canonical YYYY-MM-DD; UI shows DD-MMM-YYYY + day-of-week
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent
