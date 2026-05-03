@@ -17,7 +17,8 @@ import {
   daysToNextBirthday, ageAtNextBirthday, monthDayOf,
 } from '@/lib/dates';
 import { INTERESTS, ASPIRATIONS, ASPIRATION_LIMIT } from '@/lib/kidPresets';
-import { bornOnThisDay, BornOnThisDayPerson } from '@/lib/onThisDay';
+import { bornOnThisDay, eventsOnThisDay, BornOnThisDayPerson, OnThisDayEvent } from '@/lib/onThisDay';
+import type { Gender } from '@/lib/firestore';
 import { fileToAvatarDataUrl, MAX_UPLOAD_BYTES } from '@/lib/imageUpload';
 import {
   normalizeHandle, handleErrorMessage, suggestPersonHandle, formatPersonHandle,
@@ -59,8 +60,9 @@ export default function ProfilesPage() {
   const [inviteSent, setInviteSent] = useState(false);
   const [inviteError, setInviteError] = useState('');
 
-  // Born on this day
+  // Born on this day + Major events
   const [bornToday, setBornToday] = useState<BornOnThisDayPerson[]>([]);
+  const [eventsToday, setEventsToday] = useState<OnThisDayEvent[]>([]);
 
   // Wishlist
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
@@ -98,14 +100,19 @@ export default function ProfilesPage() {
     getWishlist(profile.familyId, child.id).then(setWishlist).catch(() => setWishlist([]));
   }, [profile?.familyId, child?.id, savingWish]);
 
-  // Born on this day — fetched when birthday is set
+  // Born on this day + Major events — fetched when birthday is set.
+  // Gender steers the "born today" suggestion list so a girl sees more
+  // women, a boy more men. 'unspecified'/'other' falls back to mixed.
   useEffect(() => {
     setBornToday([]);
+    setEventsToday([]);
     if (!child?.birthday) return;
     const md = monthDayOf(child.birthday);
     if (!md) return;
-    bornOnThisDay(md.month, md.day, 5).then(setBornToday).catch(() => setBornToday([]));
-  }, [child?.birthday]);
+    const gender = (child.gender || 'unspecified') as Gender;
+    bornOnThisDay(md.month, md.day, 5, gender).then(setBornToday).catch(() => setBornToday([]));
+    eventsOnThisDay(md.month, md.day, 5).then(setEventsToday).catch(() => setEventsToday([]));
+  }, [child?.birthday, child?.gender]);
 
   if (!child) return null;
 
@@ -258,6 +265,12 @@ export default function ProfilesPage() {
       setInviteError(e?.message || 'Could not send invitation.');
     }
     setSendingInvite(false);
+  };
+
+  const setGender = async (gender: Gender) => {
+    if (!profile?.familyId || !child || isGuest) return;
+    if ((child.gender || 'unspecified') === gender) return;
+    await updateChild(profile.familyId, child.id, { gender });
   };
 
   const toggleInterest = async (label: string) => {
@@ -692,6 +705,42 @@ export default function ProfilesPage() {
               </div>
             )}
 
+            {/* Gender — used to personalise avatar suggestions and the
+                "Born on this day" panel below. */}
+            <div>
+              <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-2">Gender</p>
+              {isParent && !isGuest ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {([
+                    { value: 'female', label: 'Girl', emoji: '👧' },
+                    { value: 'male', label: 'Boy', emoji: '👦' },
+                    { value: 'other', label: 'Other', emoji: '🌈' },
+                    { value: 'unspecified', label: 'Prefer not to say', emoji: '—' },
+                  ] as { value: Gender; label: string; emoji: string }[]).map((g) => {
+                    const sel = (child.gender || 'unspecified') === g.value;
+                    return (
+                      <button
+                        key={g.value}
+                        onClick={() => setGender(g.value)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
+                          sel ? 'bg-kaya-chocolate text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-sand-light'
+                        }`}
+                      >
+                        {g.emoji} {g.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-kaya-sand">
+                  {child.gender === 'female' ? '👧 Girl'
+                    : child.gender === 'male' ? '👦 Boy'
+                    : child.gender === 'other' ? '🌈 Other'
+                    : 'Not set'}
+                </p>
+              )}
+            </div>
+
             {/* Interests */}
             <div>
               <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-2">Things {child.name} likes</p>
@@ -836,7 +885,11 @@ export default function ProfilesPage() {
       {child.birthday && bornToday.length > 0 && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
           <div className="flex items-baseline justify-between mb-3">
-            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Born on the same day</h3>
+            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">
+              Born on the same day
+              {child.gender === 'female' && <span className="ml-1 text-kaya-sand-light normal-case">· women</span>}
+              {child.gender === 'male' && <span className="ml-1 text-kaya-sand-light normal-case">· men</span>}
+            </h3>
             <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -861,6 +914,43 @@ export default function ProfilesPage() {
               </a>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Innovations & inspiring moments on this day */}
+      {child.birthday && eventsToday.length > 0 && (
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Inspiring on this day</h3>
+            <span className="text-[10px] text-kaya-sand-light">curated · Wikipedia</span>
+          </div>
+          <ul className="space-y-2">
+            {eventsToday.map((e, idx) => {
+              const inner = (
+                <>
+                  {e.thumbnailUrl ? (
+                    <img src={e.thumbnailUrl} alt="" className="w-10 h-10 rounded-kaya-sm object-cover bg-white shrink-0" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-kaya-sm bg-kaya-gold-light flex items-center justify-center shrink-0">📜</div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] font-bold text-kaya-gold">{e.year}</p>
+                    <p className="text-[12px] leading-snug">{e.text}</p>
+                  </div>
+                </>
+              );
+              const cls = 'flex items-start gap-2.5 p-2.5 rounded-kaya-sm border border-kaya-warm-dark bg-kaya-cream/40 hover:border-kaya-chocolate transition-colors no-underline text-inherit';
+              return (
+                <li key={`${e.year}-${idx}`}>
+                  {e.pageUrl ? (
+                    <a href={e.pageUrl} target="_blank" rel="noopener noreferrer" className={cls}>{inner}</a>
+                  ) : (
+                    <div className={cls}>{inner}</div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

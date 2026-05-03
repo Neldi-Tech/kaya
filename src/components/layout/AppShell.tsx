@@ -29,9 +29,10 @@ const FUN_NAV: NavItem[] = [
 ];
 
 const HELPER_NAV: NavItem[] = [
-  { path: '/dashboard', icon: '🏠', label: 'Home',  mobileLabel: 'Home' },
-  { path: '/rate',      icon: '📋', label: 'Rate',  mobileLabel: 'Rate' },
-  { path: '/profiles',  icon: '👧', label: 'Kids',  mobileLabel: 'Kids' },
+  { path: '/dashboard', icon: '🏠', label: 'Home',   mobileLabel: 'Home' },
+  { path: '/rate',      icon: '📋', label: 'Rate',   mobileLabel: 'Rate' },
+  { path: '/award',     icon: '🎖️', label: 'Award',  mobileLabel: 'Award' },
+  { path: '/profiles',  icon: '👧', label: 'Kids',   mobileLabel: 'Kids' },
 ];
 
 const KID_NAV: NavItem[] = [

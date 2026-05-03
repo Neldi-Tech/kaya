@@ -1,10 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
-import { formatFamilyHandle, formatPersonHandle } from '@/lib/handles';
+import { formatFamilyHandle, formatPersonHandle, handleToSlug } from '@/lib/handles';
+import { toDisplayDate, dayOfWeek, daysToNextBirthday, ageNow } from '@/lib/dates';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -25,6 +27,7 @@ export default function FamilyTreePage() {
   const parents = members.filter((m) => m.role === 'parent');
   const helpers = members.filter((m) => m.role === 'helper');
   const kidUsers = members.filter((m) => m.role === 'kid');
+  const isParent = profile?.role === 'parent';
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-5xl px-4 lg:px-8 pt-4 lg:pt-8">
@@ -61,6 +64,38 @@ export default function FamilyTreePage() {
         </div>
       )}
 
+      {/* Anniversary card — countdown shared across both parents. */}
+      {family?.anniversary && (() => {
+        const days = daysToNextBirthday(family.anniversary);
+        const yearsTogether = ageNow(family.anniversary);
+        const dow = dayOfWeek(family.anniversary);
+        const isToday = days === 0;
+        return (
+          <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-center gap-4 ${
+            isToday
+              ? 'bg-gradient-to-br from-kaya-gold to-kaya-gold-dark text-white shadow-md'
+              : 'bg-white border border-kaya-warm-dark'
+          }`}>
+            <div className={`w-12 h-12 lg:w-14 lg:h-14 rounded-[14px] flex items-center justify-center text-2xl lg:text-3xl shrink-0 ${
+              isToday ? 'bg-white/20' : 'bg-kaya-gold-light'
+            }`}>💍</div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-[10px] font-bold uppercase tracking-[0.14em] ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>
+                Anniversary
+              </p>
+              <p className="font-display font-bold text-base lg:text-lg truncate">
+                {toDisplayDate(family.anniversary)}{dow && <span className={`font-normal ml-2 ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>· {dow}</span>}
+              </p>
+              <p className={`text-[12px] ${isToday ? 'text-white/90 font-bold' : 'text-kaya-gold font-semibold'}`}>
+                {isToday
+                  ? `🎉 Today — ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} together`
+                  : `${days} day${days === 1 ? '' : 's'} to go${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`}
+              </p>
+            </div>
+          </div>
+        );
+      })()}
+
       {loading ? (
         <p className="text-kaya-sand text-sm text-center py-8">Loading members…</p>
       ) : (
@@ -72,7 +107,7 @@ export default function FamilyTreePage() {
             ) : (
               <Grid>
                 {parents.map((p) => (
-                  <PersonCard key={p.uid} person={p} role="Parent" />
+                  <PersonCard key={p.uid} person={p} role="Parent" isMe={p.uid === profile?.uid} />
                 ))}
               </Grid>
             )}
@@ -83,13 +118,14 @@ export default function FamilyTreePage() {
             <Section title="Helpers" emoji="🤝" count={helpers.length}>
               <Grid>
                 {helpers.map((h) => (
-                  <PersonCard key={h.uid} person={h} role="Helper" />
+                  <PersonCard key={h.uid} person={h} role="Helper" isMe={h.uid === profile?.uid} />
                 ))}
               </Grid>
             </Section>
           )}
 
-          {/* Kids */}
+          {/* Kids — clickable: parents/helpers tap into the kid profile editor;
+              kid users (signed in as themselves) get a non-clickable card. */}
           <Section title="Kids" emoji="👧" count={children.length}>
             {children.length === 0 ? (
               <Empty text="No kids added yet — start in Settings → Children." />
@@ -97,8 +133,8 @@ export default function FamilyTreePage() {
               <Grid>
                 {children.map((c) => {
                   const linkedUser = kidUsers.find((u) => u.childId === c.id);
-                  return (
-                    <div key={c.id} className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3">
+                  const inner = (
+                    <>
                       <KidAvatar child={c} size="lg" shape="circle" bgOpacity="20" />
                       <div className="min-w-0 flex-1">
                         <p className="font-display font-bold text-base truncate">{c.name}</p>
@@ -109,7 +145,18 @@ export default function FamilyTreePage() {
                           <p className="text-[10px] text-kaya-sand">{c.email}</p>
                         ) : null}
                       </div>
-                    </div>
+                      {isParent && (
+                        <span className="text-[11px] text-kaya-gold font-semibold shrink-0">Edit →</span>
+                      )}
+                    </>
+                  );
+                  const cls = `bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3 ${
+                    isParent ? 'hover:border-kaya-chocolate transition-colors no-underline text-inherit' : ''
+                  }`;
+                  return isParent ? (
+                    <Link key={c.id} href={`/profiles?child=${c.id}`} className={cls}>{inner}</Link>
+                  ) : (
+                    <div key={c.id} className={cls}>{inner}</div>
                   );
                 })}
               </Grid>
@@ -157,12 +204,25 @@ function Empty({ text }: { text: string }) {
   );
 }
 
-function PersonCard({ person, role }: { person: UserProfile; role: string }) {
+function PersonCard({ person, role, isMe }: { person: UserProfile; role: string; isMe?: boolean }) {
   const initial = person.displayName?.[0]?.toUpperCase() || 'U';
-  return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3">
-      {person.photoURL ? (
-        <img src={person.photoURL} alt={person.displayName} className="w-12 h-12 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
+  // Prefer the user-uploaded avatar if present; fall back to Google photoURL.
+  const photo = person.avatarPhoto || person.photoURL;
+  const handle = (person as any).handle as string | undefined;
+
+  // Self → /settings (your own editable profile).
+  // Others with a public handle → /u/<slug> (their public Kaya page).
+  // Anyone else → non-interactive card.
+  const href = isMe ? '/settings' : (handle ? `/u/${handleToSlug(handle)}` : null);
+
+  const cardClass = `bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3 ${
+    href ? 'hover:border-kaya-chocolate transition-colors no-underline text-inherit' : ''
+  }`;
+
+  const inner = (
+    <>
+      {photo ? (
+        <img src={photo} alt={person.displayName} className="w-12 h-12 rounded-full object-cover shrink-0" referrerPolicy="no-referrer" />
       ) : (
         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-white font-display font-black shrink-0">
           {initial}
@@ -170,11 +230,23 @@ function PersonCard({ person, role }: { person: UserProfile; role: string }) {
       )}
       <div className="min-w-0 flex-1">
         <p className="font-display font-bold text-base truncate">{person.displayName || 'Member'}</p>
-        <p className="text-[11px] text-kaya-sand truncate">{role}</p>
-        {(person as any).handle && (
-          <p className="text-[10px] font-semibold text-kaya-gold truncate">{formatPersonHandle((person as any).handle)}</p>
+        <p className="text-[11px] text-kaya-sand truncate">{role}{isMe && ' · You'}</p>
+        {handle && (
+          <p className="text-[10px] font-semibold text-kaya-gold truncate">{formatPersonHandle(handle)}</p>
         )}
       </div>
-    </div>
+      {isMe && (
+        <span className="text-[11px] text-kaya-gold font-semibold shrink-0">Edit →</span>
+      )}
+      {!isMe && href && (
+        <span className="text-[11px] text-kaya-sand font-semibold shrink-0">View →</span>
+      )}
+    </>
+  );
+
+  return href ? (
+    <Link href={href} className={cardClass}>{inner}</Link>
+  ) : (
+    <div className={cardClass}>{inner}</div>
   );
 }

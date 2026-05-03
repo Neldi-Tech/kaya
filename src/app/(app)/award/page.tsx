@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { giveAward, getFamilyMembers } from '@/lib/firestore';
+import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { notifyAward } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -24,7 +25,12 @@ const DIAMOND_POINTS = [3, 4, 5, 6, 7, 8, 9, 10];
 
 export default function AwardPage() {
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { family, children } = useFamily();
+
+  // Families can disable Diamond points from Settings → "How kids earn points".
+  // Honour that preference here; otherwise fall back to the Phase-1 default.
+  const earningMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
+  const diamondEnabled = earningMethods.includes('diamond');
 
   const [selectedChild, setSelectedChild] = useState<string>('');
   const [category, setCategory] = useState('');
@@ -35,7 +41,10 @@ export default function AwardPage() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
 
-  const finalPoints = isDiamond ? diamondPts : regularPts;
+  // If a family disables Diamond mid-flow, fall back to regular points so we
+  // never submit a diamond award the family said they don't use.
+  const diamondActive = isDiamond && diamondEnabled;
+  const finalPoints = diamondActive ? diamondPts : regularPts;
   const child = children.find((c) => c.id === selectedChild) || null;
   const cat = CATEGORIES.find((c) => c.id === category) || null;
   const canSubmit = !!(selectedChild && category && reason.trim() && !saving);
@@ -47,7 +56,7 @@ export default function AwardPage() {
       childId: selectedChild,
       points: finalPoints,
       reason: reason.trim(),
-      category: isDiamond ? `diamond-${category}` : category,
+      category: diamondActive ? `diamond-${category}` : category,
       awardedBy: profile.uid,
       awardedByName: profile.displayName,
     } as any);
@@ -68,7 +77,7 @@ export default function AwardPage() {
         actorName: profile.displayName,
         points: finalPoints,
         reason: reason.trim(),
-        isDiamond,
+        isDiamond: diamondActive,
       });
     })();
 
@@ -205,10 +214,12 @@ export default function AwardPage() {
           <CategoryGrid />
         </div>
 
-        <div className="mb-4">
-          <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Points type</label>
-          <TypeToggle />
-        </div>
+        {diamondEnabled && (
+          <div className="mb-4">
+            <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Points type</label>
+            <TypeToggle />
+          </div>
+        )}
 
         <div className="mb-5">
           <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">{isDiamond ? 'Diamond points (3–10)' : 'How many points?'}</label>
@@ -260,11 +271,13 @@ export default function AwardPage() {
               <CategoryGrid cols={8} />
             </div>
 
-            <div className="grid grid-cols-2 gap-6">
-              <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-6">
-                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand mb-3">Points type</p>
-                <TypeToggle />
-              </div>
+            <div className={diamondEnabled ? 'grid grid-cols-2 gap-6' : ''}>
+              {diamondEnabled && (
+                <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-6">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand mb-3">Points type</p>
+                  <TypeToggle />
+                </div>
+              )}
               <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-6">
                 <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand mb-3">
                   {isDiamond ? 'Diamond points (3–10)' : 'How many points?'}
