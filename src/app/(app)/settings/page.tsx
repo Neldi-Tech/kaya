@@ -10,7 +10,7 @@ import {
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
-  formatFamilyHandle, handleToSlug,
+  formatFamilyHandle, formatPersonHandle, handleToSlug,
 } from '@/lib/handles';
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
 import { useRef } from 'react';
