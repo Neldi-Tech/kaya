@@ -72,7 +72,7 @@ export default function ProfilesPage() {
   const [wishUrl, setWishUrl] = useState('');
   const [savingWish, setSavingWish] = useState(false);
 
-  // Honor ?child=<id> for deep links from the dashboard kid cards.
+  // Honor ?child=<id> for deep links from the dashboard / Family Tree.
   useEffect(() => {
     const childId = searchParams.get('child');
     if (!childId || children.length === 0) return;
@@ -80,7 +80,18 @@ export default function ProfilesPage() {
     if (idx >= 0) setSelected(idx);
   }, [searchParams, children]);
 
+  // Honor ?edit=<section> deep link so a tap from the Family Tree lands
+  // straight in the editor for that kid without an extra "Edit" tap.
+  // Supported values today: 'identity' (the About editor — birthday, email,
+  // handle), 'photo' (avatar picker).
   const child = children[selected];
+  useEffect(() => {
+    if (!child || isGuest || profile?.role !== 'parent') return;
+    const editMode = searchParams.get('edit');
+    if (editMode === 'identity') startEditingIdentity();
+    if (editMode === 'photo') setPickingPhoto(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, child?.id]);
 
   useEffect(() => {
     if (!profile?.familyId) return;
@@ -118,6 +129,10 @@ export default function ProfilesPage() {
 
   const earnedBadges = BADGES.filter((b) => (child.badges || []).includes(b.id));
   const isParent = profile?.role === 'parent';
+  // Family-level policy — when off, the 🌈 Other chip is hidden in the
+  // kid gender selector. Existing kids whose gender was already 'other'
+  // keep that value visible so we never silently rewrite their data.
+  const allowGenderOther = !!family?.allowGenderOther;
 
   const choosePhoto = async (url: string) => {
     if (!profile?.familyId || !child || isGuest) return;
@@ -711,12 +726,18 @@ export default function ProfilesPage() {
               <p className="text-[10px] font-bold text-kaya-sand uppercase tracking-wider mb-2">Gender</p>
               {isParent && !isGuest ? (
                 <div className="flex flex-wrap gap-1.5">
-                  {([
+                  {(([
                     { value: 'female', label: 'Girl', emoji: '👧' },
                     { value: 'male', label: 'Boy', emoji: '👦' },
                     { value: 'other', label: 'Other', emoji: '🌈' },
                     { value: 'unspecified', label: 'Prefer not to say', emoji: '—' },
-                  ] as { value: Gender; label: string; emoji: string }[]).map((g) => {
+                  ] as { value: Gender; label: string; emoji: string }[]).filter((g) => {
+                    // Hide "Other" unless the family has opted in. Keep it
+                    // visible if this kid is currently set to 'other' so the
+                    // parent doesn't lose the existing choice.
+                    if (g.value === 'other' && !allowGenderOther && child.gender !== 'other') return false;
+                    return true;
+                  })).map((g) => {
                     const sel = (child.gender || 'unspecified') === g.value;
                     return (
                       <button

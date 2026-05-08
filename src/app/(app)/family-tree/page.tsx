@@ -6,7 +6,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import { formatFamilyHandle, formatPersonHandle, handleToSlug } from '@/lib/handles';
-import { toDisplayDate, dayOfWeek, daysToNextBirthday, ageNow } from '@/lib/dates';
+import { toDisplayDate, dayOfWeek, daysToNextBirthday, ageNow, ageAtNextBirthday } from '@/lib/dates';
+import { milestoneForYear, ordinal } from '@/lib/anniversaryMilestones';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -64,14 +65,51 @@ export default function FamilyTreePage() {
         </div>
       )}
 
-      {/* Anniversary card — countdown shared across both parents. */}
-      {family?.anniversary && (() => {
-        const days = daysToNextBirthday(family.anniversary);
-        const yearsTogether = ageNow(family.anniversary);
-        const dow = dayOfWeek(family.anniversary);
+      {/* Anniversary card — always rendered so parents always know where
+          to go to set/see it. When no anniversary is on the Family doc,
+          it becomes an "+ Add anniversary" prompt that links straight
+          into the editor. */}
+      {family && (() => {
+        const anniversary = family.anniversary;
+        const familyShortName = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
+        if (!anniversary) {
+          return isParent ? (
+            <Link
+              href="/settings#family"
+              className="mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-center gap-4 bg-white border border-dashed border-kaya-warm-dark hover:border-kaya-chocolate transition-colors no-underline text-inherit"
+            >
+              <div className="w-12 h-12 lg:w-14 lg:h-14 rounded-[14px] flex items-center justify-center text-2xl lg:text-3xl shrink-0 bg-kaya-warm/60">💍</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Anniversary</p>
+                <p className="font-display font-bold text-base lg:text-lg">+ Add anniversary</p>
+                <p className="text-[12px] text-kaya-sand">Both parents will see the countdown.</p>
+              </div>
+              <span className="text-[12px] text-kaya-gold font-bold shrink-0">Add →</span>
+            </Link>
+          ) : null;
+        }
+        const days = daysToNextBirthday(anniversary);
+        const yearsTogether = ageNow(anniversary);
+        // Years they will have completed *on* the next anniversary — drives
+        // the milestone callout (e.g. 9 years today → "celebrating Tin (10th)
+        // Anniversary in X days").
+        const upcomingYear = ageAtNextBirthday(anniversary);
+        const dow = dayOfWeek(anniversary);
         const isToday = days === 0;
+        const title = family.anniversaryName?.trim() || 'Anniversary';
+        // Heartfelt tagline that uses the family's short name when known,
+        // falls back to a generic phrasing otherwise.
+        const tagline = yearsTogether !== null
+          ? (familyShortName
+              ? `${yearsTogether} year${yearsTogether === 1 ? '' : 's'} of building the ${familyShortName} family with love together 💛`
+              : `${yearsTogether} year${yearsTogether === 1 ? '' : 's'} of building this family with love together 💛`)
+          : null;
+        // Milestone for the upcoming celebration. When today IS the
+        // anniversary, show the milestone for the year they JUST completed.
+        const milestoneYear = isToday ? yearsTogether : upcomingYear;
+        const milestone = milestoneYear !== null ? milestoneForYear(milestoneYear) : null;
         return (
-          <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-center gap-4 ${
+          <div className={`mb-6 rounded-kaya-lg p-4 lg:p-5 flex items-start gap-4 ${
             isToday
               ? 'bg-gradient-to-br from-kaya-gold to-kaya-gold-dark text-white shadow-md'
               : 'bg-white border border-kaya-warm-dark'
@@ -81,17 +119,35 @@ export default function FamilyTreePage() {
             }`}>💍</div>
             <div className="flex-1 min-w-0">
               <p className={`text-[10px] font-bold uppercase tracking-[0.14em] ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>
-                Anniversary
+                {title}
               </p>
               <p className="font-display font-bold text-base lg:text-lg truncate">
-                {toDisplayDate(family.anniversary)}{dow && <span className={`font-normal ml-2 ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>· {dow}</span>}
+                {toDisplayDate(anniversary)}{dow && <span className={`font-normal ml-2 ${isToday ? 'text-white/80' : 'text-kaya-sand'}`}>· {dow}</span>}
               </p>
               <p className={`text-[12px] ${isToday ? 'text-white/90 font-bold' : 'text-kaya-gold font-semibold'}`}>
                 {isToday
-                  ? `🎉 Today — ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} together`
-                  : `${days} day${days === 1 ? '' : 's'} to go${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`}
+                  ? (milestone
+                      ? `🎉 Today — celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                      : `🎉 Today — ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} together`)
+                  : (milestone && upcomingYear !== null
+                      ? `${days} day${days === 1 ? '' : 's'} to celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year) Anniversary`
+                      : `${days} day${days === 1 ? '' : 's'} to your ${upcomingYear !== null ? ordinal(upcomingYear) + ' ' : ''}anniversary${yearsTogether !== null ? ` · ${yearsTogether} year${yearsTogether === 1 ? '' : 's'} so far` : ''}`)}
               </p>
+              {tagline && (
+                <p className={`text-[12px] leading-snug mt-1.5 italic ${isToday ? 'text-white/85' : 'text-kaya-chocolate'}`}>
+                  {tagline}
+                </p>
+              )}
             </div>
+            {isParent && (
+              <Link
+                href="/settings#family"
+                className="text-[11px] font-bold shrink-0 hover:underline self-center"
+                style={{ color: isToday ? '#fff' : '#D4A017' }}
+              >
+                Edit
+              </Link>
+            )}
           </div>
         );
       })()}
@@ -154,7 +210,9 @@ export default function FamilyTreePage() {
                     isParent ? 'hover:border-kaya-chocolate transition-colors no-underline text-inherit' : ''
                   }`;
                   return isParent ? (
-                    <Link key={c.id} href={`/profiles?child=${c.id}`} className={cls}>{inner}</Link>
+                    // ?edit=identity auto-opens the identity editor on arrival
+                    // so a parent can complete the edit without an extra tap.
+                    <Link key={c.id} href={`/profiles?child=${c.id}&edit=identity`} className={cls}>{inner}</Link>
                   ) : (
                     <div key={c.id} className={cls}>{inner}</div>
                   );
@@ -210,10 +268,10 @@ function PersonCard({ person, role, isMe }: { person: UserProfile; role: string;
   const photo = person.avatarPhoto || person.photoURL;
   const handle = (person as any).handle as string | undefined;
 
-  // Self → /settings (your own editable profile).
+  // Self → /settings#profile (anchor scrolls straight to the profile card).
   // Others with a public handle → /u/<slug> (their public Kaya page).
   // Anyone else → non-interactive card.
-  const href = isMe ? '/settings' : (handle ? `/u/${handleToSlug(handle)}` : null);
+  const href = isMe ? '/settings#profile' : (handle ? `/u/${handleToSlug(handle)}` : null);
 
   const cardClass = `bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 flex items-center gap-3 ${
     href ? 'hover:border-kaya-chocolate transition-colors no-underline text-inherit' : ''

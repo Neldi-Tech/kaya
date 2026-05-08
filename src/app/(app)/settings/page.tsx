@@ -15,7 +15,8 @@ import {
 } from '@/lib/handles';
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
-import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday } from '@/lib/dates';
+import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday, ageNow, ageAtNextBirthday } from '@/lib/dates';
+import { milestoneForYear, ordinal } from '@/lib/anniversaryMilestones';
 import {
   bornOnThisDay, eventsOnThisDay,
   BornOnThisDayPerson, OnThisDayEvent,
@@ -30,6 +31,7 @@ import {
   effectiveCount, referralLink,
 } from '@/lib/referral';
 import BackButton from '@/components/ui/BackButton';
+import DateSelect from '@/components/ui/DateSelect';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -42,6 +44,7 @@ export default function SettingsPage() {
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
   const [savingMethod, setSavingMethod] = useState<string | null>(null);
+  const [savingGenderOption, setSavingGenderOption] = useState(false);
 
   // Display name editor
   const [editingName, setEditingName] = useState(false);
@@ -139,11 +142,14 @@ export default function SettingsPage() {
   // Family anniversary (shared across both parents — lives on the Family doc)
   const [editingAnniversary, setEditingAnniversary] = useState(false);
   const [anniversaryInput, setAnniversaryInput] = useState('');
+  const [anniversaryNameInput, setAnniversaryNameInput] = useState('');
   const [anniversaryError, setAnniversaryError] = useState('');
   const [savingAnniversary, setSavingAnniversary] = useState(false);
+  const [anniversarySaved, setAnniversarySaved] = useState(false);
 
   const startEditingAnniversary = () => {
     setAnniversaryInput(family?.anniversary || '');
+    setAnniversaryNameInput(family?.anniversaryName || '');
     setAnniversaryError('');
     setEditingAnniversary(true);
   };
@@ -151,6 +157,7 @@ export default function SettingsPage() {
   const saveAnniversary = async () => {
     if (!profile?.familyId || !family || isGuest) return;
     const trimmed = anniversaryInput.trim();
+    const trimmedName = anniversaryNameInput.trim().slice(0, 60);
     if (trimmed && !/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
       setAnniversaryError('Pick a valid date.');
       return;
@@ -158,8 +165,13 @@ export default function SettingsPage() {
     setSavingAnniversary(true);
     setAnniversaryError('');
     try {
-      await updateFamily(profile.familyId, { anniversary: trimmed || null } as any);
+      await updateFamily(profile.familyId, {
+        anniversary: trimmed || null,
+        anniversaryName: trimmedName || null,
+      } as any);
       setEditingAnniversary(false);
+      setAnniversarySaved(true);
+      setTimeout(() => setAnniversarySaved(false), 2200);
     } catch (e: any) {
       setAnniversaryError(e?.message || 'Failed to save anniversary.');
     }
@@ -456,6 +468,20 @@ export default function SettingsPage() {
     await updateFamily(profile.familyId, { pointsMode: mode } as any);
   };
 
+  // Family-level gender policy. Defaults to false so the "Other" chip only
+  // appears in profile editors after a parent explicitly opts in. We persist
+  // the boolean either way so a parent who turns it ON and OFF lands back
+  // exactly where they expect.
+  const allowGenderOther = !!family?.allowGenderOther;
+  const toggleAllowGenderOther = async () => {
+    if (!profile?.familyId || !family || isGuest || savingGenderOption) return;
+    setSavingGenderOption(true);
+    try {
+      await updateFamily(profile.familyId, { allowGenderOther: !allowGenderOther } as any);
+    } catch {}
+    setSavingGenderOption(false);
+  };
+
   // Earning-method picker. Fall back to the Phase-1 default for families that
   // existed before this feature so their UX doesn't suddenly empty out.
   const selectedMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
@@ -625,8 +651,9 @@ export default function SettingsPage() {
         {/* ── Left column: account + family + preferences ──────── */}
         <div className="lg:col-span-7 space-y-4">
 
-          {/* Profile card */}
-          <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+          {/* Profile card · anchored at #profile so deep links from the
+              Family Tree land directly on it. */}
+          <div id="profile" className="scroll-mt-24 bg-white border border-kaya-warm-dark rounded-kaya p-4">
             <div className="flex items-center gap-3">
               {profile?.avatarPhoto ? (
                 <img
@@ -864,17 +891,23 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Gender chips */}
+            {/* Gender chips — the "Other" option is gated by the
+                family-level allowGenderOther flag (Family options card). */}
             {!isGuest && (
               <div className="border-t border-kaya-warm-dark pt-3 mt-3">
                 <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mb-2">Gender</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {([
+                  {(([
                     { value: 'female', label: 'Woman', emoji: '👩' },
                     { value: 'male', label: 'Man', emoji: '👨' },
                     { value: 'other', label: 'Other', emoji: '🌈' },
                     { value: 'unspecified', label: 'Prefer not to say', emoji: '—' },
-                  ] as { value: Gender; label: string; emoji: string }[]).map((g) => {
+                  ] as { value: Gender; label: string; emoji: string }[]).filter((g) => {
+                    // Always keep the user's currently-saved choice visible so
+                    // a family that flips the toggle off doesn't lose state.
+                    if (g.value === 'other' && !allowGenderOther && profile?.gender !== 'other') return false;
+                    return true;
+                  })).map((g) => {
                     const sel = (profile?.gender || 'unspecified') === g.value;
                     return (
                       <button
@@ -936,13 +969,10 @@ export default function SettingsPage() {
                 ) : (
                   <div className="space-y-2">
                     <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Birthday</p>
-                    <input
-                      type="date"
+                    <DateSelect
                       value={myBdayInput}
-                      onChange={(e) => setMyBdayInput(e.target.value)}
-                      max={new Date().toISOString().slice(0, 10)}
-                      className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                      autoFocus
+                      onChange={setMyBdayInput}
+                      maxDate={new Date().toISOString().slice(0, 10)}
                     />
                     <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mt-2">Who can see it</p>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
@@ -985,6 +1015,74 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Anniversary — read-only here. The shared family-level field
+                lives on the Family doc and is edited under Family identity
+                ↓; we surface it on the personal profile so the parent sees
+                their key dates side-by-side (birthday + anniversary). */}
+            {!isGuest && family && (
+              <div className="border-t border-kaya-warm-dark pt-3 mt-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">
+                      {family.anniversaryName?.trim() || 'Anniversary'}
+                    </p>
+                    {family.anniversary ? (
+                      <>
+                        <p className="text-[12px] truncate">
+                          💍 {toDisplayDate(family.anniversary)}{' '}
+                          <span className="text-kaya-sand">· {dayOfWeek(family.anniversary)}</span>
+                        </p>
+                        {(() => {
+                          const d = daysToNextBirthday(family.anniversary!);
+                          const yrs = ageNow(family.anniversary!);
+                          const upcoming = ageAtNextBirthday(family.anniversary!);
+                          const milestoneYear = d === 0 ? yrs : upcoming;
+                          const milestone = milestoneYear !== null ? milestoneForYear(milestoneYear) : null;
+                          const familyShort = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
+                          return (
+                            <>
+                              {d !== null && (d === 0
+                                ? (
+                                  <p className="text-[11px] font-bold text-kaya-gold mt-0.5">
+                                    {milestone
+                                      ? `🎉 Today — ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                                      : '🎉 Today!'}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">
+                                    {milestone && upcoming !== null
+                                      ? `${d} day${d === 1 ? '' : 's'} to celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                                      : `${d} day${d === 1 ? '' : 's'} to your ${upcoming !== null ? ordinal(upcoming) + ' ' : ''}anniversary${yrs !== null ? ` · ${yrs} year${yrs === 1 ? '' : 's'} so far` : ''}`}
+                                  </p>
+                                )
+                              )}
+                              {yrs !== null && (
+                                <p className="text-[11px] italic text-kaya-chocolate mt-1 leading-snug">
+                                  {familyShort
+                                    ? `${yrs} year${yrs === 1 ? '' : 's'} of building the ${familyShort} family with love together 💛`
+                                    : `${yrs} year${yrs === 1 ? '' : 's'} of building this family with love together 💛`}
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </>
+                    ) : (
+                      <p className="text-[12px] text-kaya-sand">Not set on the family yet.</p>
+                    )}
+                  </div>
+                  {isParent && (
+                    <a
+                      href="#family"
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                    >
+                      {family.anniversary ? 'Edit ↓' : 'Add ↓'}
+                    </a>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -1062,9 +1160,11 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Family identity — name, handle, photo */}
+          {/* Family identity — name, handle, photo. Anchored at #family so
+              deep links from the Family Tree (anniversary card "Edit" /
+              empty-state "+ Add anniversary") land directly on this card. */}
           {family && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
+            <div id="family" className="scroll-mt-24 bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
               <div className="flex items-start gap-4">
                 {/* Family photo */}
                 <div className="shrink-0">
@@ -1221,18 +1321,50 @@ export default function SettingsPage() {
                   {!editingAnniversary ? (
                     <div className="flex items-center justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
+                        <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider flex items-center gap-2">
+                          {family.anniversaryName?.trim() || 'Anniversary'}
+                          {anniversarySaved && (
+                            <span className="text-[10px] font-bold text-kaya-gold normal-case">✓ Saved</span>
+                          )}
+                        </p>
                         {family.anniversary ? (
-                          <p className="text-[12px] truncate">
-                            💍 {toDisplayDate(family.anniversary)} ·{' '}
-                            <span className="text-kaya-sand">{dayOfWeek(family.anniversary)}</span>
+                          <>
+                            <p className="text-[12px] truncate">
+                              💍 {toDisplayDate(family.anniversary)} ·{' '}
+                              <span className="text-kaya-sand">{dayOfWeek(family.anniversary)}</span>
+                            </p>
                             {(() => {
                               const d = daysToNextBirthday(family.anniversary!);
+                              const yrs = ageNow(family.anniversary!);
+                              const upcoming = ageAtNextBirthday(family.anniversary!);
+                              const milestoneYear = d === 0 ? yrs : upcoming;
+                              const milestone = milestoneYear !== null ? milestoneForYear(milestoneYear) : null;
                               if (d === null) return null;
-                              if (d === 0) return <span className="ml-2 font-bold text-kaya-gold">🎉 Today!</span>;
-                              return <span className="ml-2 text-kaya-gold font-semibold">{d} day{d === 1 ? '' : 's'} to go</span>;
+                              return (
+                                <p className="text-[11px] text-kaya-gold font-semibold mt-0.5">
+                                  {d === 0
+                                    ? (milestone
+                                        ? `🎉 Today — ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year)`
+                                        : '🎉 Today!')
+                                    : (milestone && upcoming !== null
+                                        ? `${d} day${d === 1 ? '' : 's'} to celebrating ${milestone.emoji} ${milestone.name} (${ordinal(milestone.year)} year) Anniversary`
+                                        : `${d} day${d === 1 ? '' : 's'} to your ${upcoming !== null ? ordinal(upcoming) + ' ' : ''}anniversary`)}
+                                </p>
+                              );
                             })()}
-                          </p>
+                            {(() => {
+                              const yrs = ageNow(family.anniversary!);
+                              if (yrs === null) return null;
+                              const familyShort = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
+                              return (
+                                <p className="text-[11px] italic text-kaya-chocolate mt-1 leading-snug">
+                                  {familyShort
+                                    ? `${yrs} year${yrs === 1 ? '' : 's'} of building the ${familyShort} family with love together 💛`
+                                    : `${yrs} year${yrs === 1 ? '' : 's'} of building this family with love together 💛`}
+                                </p>
+                              );
+                            })()}
+                          </>
                         ) : (
                           <p className="text-[12px] text-kaya-sand">Add the wedding date so both parents see the countdown.</p>
                         )}
@@ -1248,17 +1380,25 @@ export default function SettingsPage() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary</p>
-                      <input
-                        type="date"
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Anniversary date</p>
+                      <DateSelect
                         value={anniversaryInput}
-                        onChange={(e) => setAnniversaryInput(e.target.value)}
-                        max={new Date().toISOString().slice(0, 10)}
+                        onChange={setAnniversaryInput}
+                        maxDate={new Date().toISOString().slice(0, 10)}
+                      />
+                      <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mt-2">What to call it</p>
+                      <input
+                        value={anniversaryNameInput}
+                        onChange={(e) => setAnniversaryNameInput(e.target.value)}
+                        placeholder="Wedding Anniversary"
+                        maxLength={60}
                         className="w-full h-10 px-3 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                        autoFocus
                       />
                       <p className="text-[10px] text-kaya-sand-light">
-                        Visible to everyone in the family. Both parents see the same countdown.
+                        Optional. Defaults to &quot;Anniversary&quot;. Try &quot;Wedding Anniversary&quot;,
+                        &quot;Engagement Day&quot;, &quot;The Day We Met&quot; — anything that means
+                        something to you. Visible to everyone in the family; both parents
+                        see the same countdown.
                       </p>
                       {anniversaryError && (
                         <p className="text-red-500 text-[11px]">{anniversaryError}</p>
@@ -1283,6 +1423,33 @@ export default function SettingsPage() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Family options — small toggles that change what kids and
+              parents see when editing their profiles. */}
+          {isParent && family && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Family options</p>
+              <button
+                onClick={toggleAllowGenderOther}
+                disabled={savingGenderOption || isGuest}
+                className="w-full flex items-start gap-3 p-3 rounded-kaya-sm border border-kaya-warm-dark hover:border-kaya-sand-light text-left transition-colors disabled:opacity-60"
+              >
+                <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${allowGenderOther ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                  <div
+                    className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                    style={{ left: allowGenderOther ? '18px' : '2px' }}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold">Show &quot;Other&quot; gender option</p>
+                  <p className="text-[11px] text-kaya-sand leading-relaxed">
+                    Off by default. Many families only want Female and Male choices when
+                    setting up a child or parent profile. Turn on to also show 🌈 Other.
+                  </p>
+                </div>
+              </button>
             </div>
           )}
 

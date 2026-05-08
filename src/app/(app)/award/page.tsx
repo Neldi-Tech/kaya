@@ -32,7 +32,9 @@ export default function AwardPage() {
   const earningMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
   const diamondEnabled = earningMethods.includes('diamond');
 
-  const [selectedChild, setSelectedChild] = useState<string>('');
+  // Multi-select: parents often want to award a shared moment ("you all
+  // helped grandma carry the groceries") to several kids in one go.
+  const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
   const [category, setCategory] = useState('');
   const [isDiamond, setIsDiamond] = useState(false);
   const [regularPts, setRegularPts] = useState(3);
@@ -40,62 +42,98 @@ export default function AwardPage() {
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  // Snapshot of who received the award — used by the success screen so it
+  // stays accurate even after the form resets.
+  const [awardedNames, setAwardedNames] = useState<string[]>([]);
 
   // If a family disables Diamond mid-flow, fall back to regular points so we
   // never submit a diamond award the family said they don't use.
   const diamondActive = isDiamond && diamondEnabled;
   const finalPoints = diamondActive ? diamondPts : regularPts;
-  const child = children.find((c) => c.id === selectedChild) || null;
+  const selectedKidObjs = children.filter((c) => selectedChildren.includes(c.id));
+  // Preview shows the first selected kid's avatar; if multiple, the title
+  // line says "EarlnathanIrisha + 2 others".
+  const child = selectedKidObjs[0] || null;
   const cat = CATEGORIES.find((c) => c.id === category) || null;
-  const canSubmit = !!(selectedChild && category && reason.trim() && !saving);
+  const canSubmit = !!(selectedChildren.length > 0 && category && reason.trim() && !saving);
+
+  const toggleChild = (id: string) => {
+    setSelectedChildren((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
+  };
 
   const handleAward = async () => {
-    if (!profile?.familyId || !selectedChild || !category || !reason.trim()) return;
+    if (!profile?.familyId || selectedChildren.length === 0 || !category || !reason.trim()) return;
     setSaving(true);
-    await giveAward(profile.familyId, {
-      childId: selectedChild,
-      points: finalPoints,
-      reason: reason.trim(),
-      category: diamondActive ? `diamond-${category}` : category,
-      awardedBy: profile.uid,
-      awardedByName: profile.displayName,
-    } as any);
+    // Submit one award per selected kid in parallel — each kid's points,
+    // activity feed and badge thresholds are independent so we can't batch
+    // a single write.
+    await Promise.all(
+      selectedChildren.map((childId) =>
+        giveAward(profile.familyId, {
+          childId,
+          points: finalPoints,
+          reason: reason.trim(),
+          category: diamondActive ? `diamond-${category}` : category,
+          awardedBy: profile.uid,
+          awardedByName: profile.displayName,
+        } as any),
+      ),
+    );
+    setAwardedNames(selectedKidObjs.map((c) => c.name));
     setSuccess(true);
     setSaving(false);
 
-    // Fire-and-forget email notification to other family members.
+    // Fire-and-forget email notification per kid (so each kid's parents/helpers
+    // see the awardee name in the email subject).
     (async () => {
-      if (!child) return;
+      if (selectedKidObjs.length === 0) return;
       const members = await getFamilyMembers(profile.familyId);
       const recipients = members
         .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
         .filter((m) => m.notifyOnAward !== false) // default true
         .map((m) => m.email);
-      notifyAward({
-        to: recipients,
-        childName: child.name,
-        actorName: profile.displayName,
-        points: finalPoints,
-        reason: reason.trim(),
-        isDiamond: diamondActive,
-      });
+      for (const c of selectedKidObjs) {
+        notifyAward({
+          to: recipients,
+          childName: c.name,
+          actorName: profile.displayName,
+          points: finalPoints,
+          reason: reason.trim(),
+          isDiamond: diamondActive,
+        });
+      }
     })();
 
     setTimeout(() => {
       setSuccess(false);
-      setSelectedChild(''); setCategory(''); setIsDiamond(false);
+      setAwardedNames([]);
+      setSelectedChildren([]); setCategory(''); setIsDiamond(false);
       setRegularPts(3); setDiamondPts(5); setReason('');
     }, 2500);
+  };
+
+  // "Daniella, Diella & Earlnathan" / "Daniella & Diella" / "Daniella"
+  const formatNames = (names: string[]): string => {
+    if (names.length === 0) return '';
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return `${names[0]} & ${names[1]}`;
+    return `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}`;
   };
 
   if (success) {
     return (
       <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 pt-16 lg:pt-24 text-center animate-slide-up">
         <div className="text-6xl lg:text-7xl mb-4">{isDiamond ? '💎' : '🎉'}</div>
-        <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">Points Awarded!</h2>
+        <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">
+          {awardedNames.length > 1 ? 'Points Awarded to All!' : 'Points Awarded!'}
+        </h2>
         <p className="text-kaya-sand text-sm lg:text-base">
-          {child?.name} received{' '}
-          <span className="text-kaya-gold font-bold">+{finalPoints} {isDiamond ? 'diamond ' : ''}points</span>{' '}
+          {formatNames(awardedNames)} received{' '}
+          <span className="text-kaya-gold font-bold">
+            +{finalPoints} {isDiamond ? 'diamond ' : ''}points{awardedNames.length > 1 ? ' each' : ''}
+          </span>{' '}
           for {reason}
         </p>
       </div>
@@ -103,25 +141,54 @@ export default function AwardPage() {
   }
 
   // ── Field components used by both layouts ─────────────────
+  // Multi-select chips: tap to add/remove. A small ✓ overlay confirms
+  // selection state on already-selected kids.
   const KidPicker = ({ size = 'sm' }: { size?: 'sm' | 'lg' }) => (
-    <div className={size === 'lg' ? 'grid grid-cols-2 gap-2' : 'flex gap-2 flex-wrap'}>
-      {children.map((c) => {
-        const sel = selectedChild === c.id;
-        return (
-          <button
-            key={c.id}
-            onClick={() => setSelectedChild(c.id)}
-            className={`flex items-center gap-2.5 px-3 py-2.5 rounded-kaya-sm border-2 transition-all ${
-              sel ? 'text-white border-transparent shadow-sm' : 'border-kaya-warm-dark bg-white text-kaya-sand'
-            }`}
-            style={sel ? { backgroundColor: c.houseColor } : {}}
-          >
-            <span className="text-base">{c.avatarEmoji}</span>
-            <span className="text-sm font-bold">{c.name}</span>
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <div className={size === 'lg' ? 'grid grid-cols-2 gap-2' : 'flex gap-2 flex-wrap'}>
+        {children.map((c) => {
+          const sel = selectedChildren.includes(c.id);
+          return (
+            <button
+              key={c.id}
+              onClick={() => toggleChild(c.id)}
+              aria-pressed={sel}
+              className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-kaya-sm border-2 transition-all ${
+                sel ? 'text-white border-transparent shadow-sm' : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-sand-light'
+              }`}
+              style={sel ? { backgroundColor: c.houseColor } : {}}
+            >
+              <span className="text-base">{c.avatarEmoji}</span>
+              <span className="text-sm font-bold">{c.name}</span>
+              {sel && (
+                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-white/25 text-[10px] font-black">✓</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {children.length > 1 && (
+        <p className="text-[10px] text-kaya-sand-light mt-2">
+          Tap each kid you want to award. They&apos;ll all get the same points and message.
+          {selectedChildren.length > 0 && children.length > selectedChildren.length && (
+            <button
+              onClick={() => setSelectedChildren(children.map((c) => c.id))}
+              className="ml-2 text-kaya-gold font-semibold hover:underline"
+            >
+              Select all
+            </button>
+          )}
+          {selectedChildren.length > 0 && (
+            <button
+              onClick={() => setSelectedChildren([])}
+              className="ml-2 text-kaya-sand font-semibold hover:underline"
+            >
+              Clear
+            </button>
+          )}
+        </p>
+      )}
+    </>
   );
 
   const CategoryGrid = ({ cols = 4 }: { cols?: 4 | 8 }) => (
@@ -243,7 +310,9 @@ export default function AwardPage() {
             isDiamond ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-kaya-gold hover:bg-kaya-gold-dark text-white'
           }`}
         >
-          {saving ? 'Awarding…' : `Award +${finalPoints} Points ${isDiamond ? '💎' : '🎖️'}`}
+          {saving
+            ? 'Awarding…'
+            : `Award +${finalPoints} Points ${selectedChildren.length > 1 ? `to ${selectedChildren.length} kids ` : ''}${isDiamond ? '💎' : '🎖️'}`}
         </button>
       </div>
 
@@ -318,14 +387,22 @@ export default function AwardPage() {
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-bold uppercase tracking-[0.14em] opacity-70">For</p>
-                    <p className="font-display font-bold text-lg truncate">{child?.name || 'Pick a child'}</p>
+                    <p className="font-display font-bold text-lg truncate">
+                      {selectedKidObjs.length === 0
+                        ? 'Pick a child'
+                        : selectedKidObjs.length === 1
+                          ? selectedKidObjs[0].name
+                          : `${selectedKidObjs[0].name} + ${selectedKidObjs.length - 1} other${selectedKidObjs.length > 2 ? 's' : ''}`}
+                    </p>
                   </div>
                   {isDiamond && <span className="text-2xl">💎</span>}
                 </div>
 
                 <div className="flex items-baseline gap-2 mb-4">
                   <span className="font-display font-black text-6xl">+{finalPoints}</span>
-                  <span className="text-sm opacity-70">{isDiamond ? 'diamond pts' : 'points'}</span>
+                  <span className="text-sm opacity-70">
+                    {isDiamond ? 'diamond pts' : 'points'}{selectedKidObjs.length > 1 ? ' each' : ''}
+                  </span>
                 </div>
 
                 <div className="border-t border-white/15 pt-4 space-y-2.5">
@@ -347,11 +424,13 @@ export default function AwardPage() {
                   isDiamond ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-kaya-gold hover:bg-kaya-gold-dark text-white'
                 }`}
               >
-                {saving ? 'Awarding…' : `Award +${finalPoints} ${isDiamond ? 'diamond ' : ''}points`}
+                {saving
+                  ? 'Awarding…'
+                  : `Award +${finalPoints} ${isDiamond ? 'diamond ' : ''}points${selectedChildren.length > 1 ? ` to ${selectedChildren.length} kids` : ''}`}
               </button>
 
               <p className="text-[11px] text-kaya-sand-light px-1 leading-relaxed">
-                Awards land in {child?.name || 'their'} activity feed and family score immediately.
+                Awards land in {selectedKidObjs.length > 1 ? 'each kid’s' : (child?.name ? `${child.name}’s` : 'their')} activity feed and family score immediately.
               </p>
             </div>
           </aside>
