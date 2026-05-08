@@ -1,9 +1,27 @@
 import type { Metadata, Viewport } from 'next';
+import { Nunito, Lato } from 'next/font/google';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { FamilyProvider } from '@/contexts/FamilyContext';
 import { HiveProvider } from '@/contexts/HiveContext';
 import './globals.css';
+
+// The Hive section uses Nunito (display) + Lato (body) per the v2 design
+// proposal. Loaded once at the root and exposed as CSS variables so any
+// Hive component can opt in via `font-nunito` / `font-lato` Tailwind
+// utilities — non-Hive routes keep their existing typography.
+const nunito = Nunito({
+  subsets: ['latin'],
+  weight: ['400', '600', '700', '800', '900'],
+  variable: '--font-nunito',
+  display: 'swap',
+});
+const lato = Lato({
+  subsets: ['latin'],
+  weight: ['400', '700'],
+  variable: '--font-lato',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Kaya — Where Families Grow',
@@ -26,7 +44,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${nunito.variable} ${lato.variable}`}>
       <head>
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>

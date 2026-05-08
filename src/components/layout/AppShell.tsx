@@ -21,6 +21,8 @@ const PARENT_INSIGHTS: NavItem[] = [
   { path: '/profiles',    icon: '👧', label: 'Kid profiles' },
   { path: '/badges',      icon: '🏆', label: 'Badges' },
   { path: '/family-tree', icon: '🌳', label: 'Family tree' },
+  // The Hive · parent-side surface (kid wallets, approvals come in PR-Hive-B).
+  { path: '/hive',        icon: '🍯', label: 'The Hive' },
 ];
 
 const FUN_NAV: NavItem[] = [
@@ -37,6 +39,8 @@ const HELPER_NAV: NavItem[] = [
 
 const KID_NAV: NavItem[] = [
   { path: '/kid',     icon: '🏠', label: 'Home',    mobileLabel: 'Home' },
+  // The Hive · kid's three-layer wallet, conversions, goals.
+  { path: '/hive',    icon: '🍯', label: 'Hive',    mobileLabel: 'Hive' },
   { path: '/badges',  icon: '🏆', label: 'Badges',  mobileLabel: 'Badges' },
   { path: '/rewards', icon: '🎁', label: 'Rewards', mobileLabel: 'Rewards' },
 ];
@@ -54,6 +58,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const role = profile?.role || 'parent';
   const mobileNav: NavItem[] =
     role === 'kid' ? KID_NAV : role === 'helper' ? HELPER_NAV : PARENT_PRIMARY;
+
+  // Inside /hive/* the section renders its own bottom tab bar
+  // (HiveTabBar). Suppress AppShell's mobile bottom nav so the two
+  // don't stack and double the safe-area padding.
+  const inHiveSection = !!pathname?.startsWith('/hive');
 
   const sidebarSections =
     role === 'kid'
@@ -238,7 +247,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         to its own compositor layer so it doesn't flicker on momentum scroll.
       */}
       <div
-        className="fixed bottom-0 inset-x-0 bg-kaya-cream border-t border-kaya-warm-dark/50 z-20 lg:hidden will-change-transform"
+        className={`fixed bottom-0 inset-x-0 bg-kaya-cream border-t border-kaya-warm-dark/50 z-20 lg:hidden will-change-transform ${
+          inHiveSection ? 'hidden' : ''
+        }`}
         style={{
           paddingBottom: 'env(safe-area-inset-bottom)',
           transform: 'translateZ(0)',

@@ -1,0 +1,102 @@
+'use client';
+
+// Hive Home — the Honey Pot dashboard. Read-only in PR-Hive-A.2; the
+// "Earn / Save / Goals / Insights" buttons link to placeholder routes
+// until PR-Hive-B wires them up. Numbers come from HiveContext, which
+// listens to Firestore in real time.
+
+import Link from 'next/link';
+import { useFamily } from '@/contexts/FamilyContext';
+import { useHive } from '@/contexts/HiveContext';
+import HoneyPotHero from '@/components/hive/HoneyPotHero';
+import TransactionRow from '@/components/hive/TransactionRow';
+import RatePill from '@/components/hive/RatePill';
+import KidSwitcher from '@/components/hive/KidSwitcher';
+import { honeyToCashCents } from '@/components/hive/format';
+
+const ACTIONS = [
+  { id: 'earn',     icon: '🏆', label: 'Earn',     desc: 'Quests',     href: '/hive/quests'   },
+  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP', href: '/hive/wallet'   },
+  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward', href: '/hive/wallet'  },
+  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?', href: '/hive/insights' },
+];
+
+export default function HiveHomePage() {
+  const { children } = useFamily();
+  const { activeKidId, wallet, transactions, config, weeklyEarningsCents } = useHive();
+  const activeKid = children.find((c) => c.id === activeKidId);
+
+  const cashEquivalent = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate);
+  const recent = transactions.slice(0, 5);
+
+  return (
+    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+      <div className="mb-3">
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
+          {activeKid ? `${activeKid.name}'s Hive` : 'Your Hive'}
+        </p>
+        <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1 leading-tight">
+          The Honey Pot 🍯
+        </h1>
+      </div>
+
+      <KidSwitcher />
+
+      <div className="mb-5">
+        <HoneyPotHero
+          honeyCoins={wallet.honeyCoins}
+          cashCents={wallet.cashCents}
+          weeklyEarningsCents={weeklyEarningsCents}
+          cashEquivalentCents={cashEquivalent}
+          currency={config.currency}
+        />
+      </div>
+
+      {/* Rate hint — reminds the kid what their family's rates are. */}
+      <div className="mb-5 flex justify-center">
+        <RatePill
+          hpToHoneyRate={config.hpToHoneyRate}
+          honeyToCashRate={config.honeyToCashRate}
+          currency={config.currency}
+          variant="both"
+        />
+      </div>
+
+      {/* 4-button action grid */}
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {ACTIONS.map((a) => (
+          <Link
+            key={a.id}
+            href={a.href}
+            className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey transition-colors no-underline text-inherit"
+          >
+            <span className="text-2xl leading-none">{a.icon}</span>
+            <span className="font-nunito font-extrabold text-[15px] mt-1">{a.label}</span>
+            <span className="text-[11px] text-hive-muted">{a.desc}</span>
+          </Link>
+        ))}
+      </div>
+
+      {/* Recent activity */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-6">
+        <div className="flex items-baseline justify-between mb-2">
+          <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
+          <Link href="/hive/wallet" className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            See all →
+          </Link>
+        </div>
+        {recent.length === 0 ? (
+          <p className="text-[12px] text-hive-muted py-6 text-center">
+            No activity yet. Earn House Points and they&apos;ll start showing up here.
+          </p>
+        ) : (
+          <div>
+            {recent.map((t) => (
+              <TransactionRow key={t.id} tx={t} currency={config.currency} showLayerBadge />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
