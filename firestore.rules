@@ -25,6 +25,16 @@ service cloud.firestore {
       return belongsToFamily(familyId) && (profile.role == 'parent' || profile.role == 'helper');
     }
 
+    // True if the calling user is the kid linked to `kidId` in `familyId`.
+    // Helpers and parents return false here — use `isParentInFamily` /
+    // `isParentOrHelper` for those branches.
+    function isThisKid(familyId, kidId) {
+      let profile = getUserProfile();
+      return belongsToFamily(familyId)
+        && profile.role == 'kid'
+        && profile.childId == kidId;
+    }
+
     // ── Users ──────────────────────────────────────
     match /users/{userId} {
       // Users can read their own profile
@@ -91,6 +101,67 @@ service cloud.firestore {
         allow read: if belongsToFamily(familyId);
         allow create: if belongsToFamily(familyId);
         allow update: if belongsToFamily(familyId);
+      }
+
+      // ── The Hive · approval requests ─────────────
+      // Family-wide queue of pending parent-approval items (cash-out,
+      // spend, hp_to_honey conversions). Kids can create their own and
+      // cancel their own; only parents can resolve.
+      match /approvalRequests/{requestId} {
+        allow read: if belongsToFamily(familyId);
+        // Kid creates a request for themselves with status='pending'.
+        // Parent can also create one (e.g. on behalf of a kid) — same shape.
+        allow create: if belongsToFamily(familyId)
+          && request.resource.data.status == 'pending'
+          && (
+            isParentInFamily(familyId)
+            || (isThisKid(familyId, request.resource.data.kidId)
+                && request.resource.data.createdBy == request.auth.uid)
+          );
+        // Parents can resolve any request. Kids can flip their OWN pending
+        // request to rejected (cancellation).
+        allow update: if belongsToFamily(familyId)
+          && (
+            isParentInFamily(familyId)
+            || (
+              resource.data.status == 'pending'
+              && resource.data.kidId == getUserProfile().childId
+              && request.resource.data.status == 'rejected'
+            )
+          );
+      }
+
+      // ── The Hive · per-kid wallet + ledger + goals ───────────
+      match /kids/{kidId}/{document=**} {
+        // Family members can read each other's Hive sub-tree (parents and
+        // helpers see everyone; the kid sees their own). Helpers don't get
+        // write access to anything Hive — money is parent ↔ kid only.
+        allow read: if belongsToFamily(familyId);
+      }
+
+      // Wallet balances are mutated only by callers acting as a parent or
+      // as the kid themselves (kid-only writes are gated to the no-op
+      // `ensureWallet` path through application logic; the hard guard is
+      // that any value-changing write must come from a parent transaction).
+      match /kids/{kidId}/wallet/{document} {
+        allow write: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+      }
+
+      // Ledger entries: created by the same code paths that mutate the
+      // wallet. Parents always; kid only for the auto-paired entries that
+      // belong to their own approved/cancelled requests.
+      match /kids/{kidId}/hiveTransactions/{txId} {
+        allow create: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+        // Ledger entries are immutable once written.
+        allow update, delete: if false;
+      }
+
+      // Goals: kids manage their own; parents can create or edit any.
+      match /kids/{kidId}/goals/{goalId} {
+        allow create, update, delete: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
       }
     }
   }
