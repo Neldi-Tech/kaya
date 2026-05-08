@@ -21,8 +21,13 @@ const PARENT_INSIGHTS: NavItem[] = [
   { path: '/profiles',    icon: '👧', label: 'Kid profiles' },
   { path: '/badges',      icon: '🏆', label: 'Badges' },
   { path: '/family-tree', icon: '🌳', label: 'Family tree' },
-  // The Hive · parent-side surface (kid wallets, approvals come in PR-Hive-B).
-  { path: '/hive',        icon: '🍯', label: 'The Hive' },
+];
+
+const PARENT_HIVE_NAV: NavItem[] = [
+  { path: '/hive',              icon: '🍯', label: 'The Hive' },
+  { path: '/parent/approvals',  icon: '✅', label: 'Approvals' },
+  { path: '/parent/rates',      icon: '⚖️', label: 'Rates & policy' },
+  { path: '/parent/hive-deposit', icon: '💸', label: 'Deposit cash' },
 ];
 
 const FUN_NAV: NavItem[] = [
@@ -72,6 +77,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       : [
           { items: PARENT_PRIMARY },
           { title: 'Insights', items: PARENT_INSIGHTS },
+          { title: 'The Hive', items: PARENT_HIVE_NAV },
           { title: 'Fun', items: FUN_NAV },
         ];
 

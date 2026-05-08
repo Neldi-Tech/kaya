@@ -12,13 +12,14 @@ import HoneyPotHero from '@/components/hive/HoneyPotHero';
 import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
 import KidSwitcher from '@/components/hive/KidSwitcher';
+import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
 import { honeyToCashCents } from '@/components/hive/format';
 
 const ACTIONS = [
-  { id: 'earn',     icon: '🏆', label: 'Earn',     desc: 'Quests',     href: '/hive/quests'   },
-  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP', href: '/hive/wallet'   },
-  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward', href: '/hive/wallet'  },
-  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?', href: '/hive/insights' },
+  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🍯',  href: '/hive/convert'  },
+  { id: 'spend',    icon: '🛒', label: 'Spend',    desc: 'Request a spend',  href: '/hive/cash-out' },
+  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward',      href: '/hive/goals'    },
+  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?',  href: '/hive/insights' },
 ];
 
 export default function HiveHomePage() {
@@ -41,6 +42,8 @@ export default function HiveHomePage() {
       </div>
 
       <KidSwitcher />
+
+      <PendingRequestBanner />
 
       <div className="mb-5">
         <HoneyPotHero
