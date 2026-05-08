@@ -75,6 +75,26 @@ export interface Family {
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent
   routines: Routine[];
+  // ── The Hive ──
+  // Parent-controlled rates + policy for the three-layer money module.
+  // See `src/lib/hive.ts` for the canonical shape (`HiveConfig`). Persisted
+  // as a partial — `readHiveConfig(family)` merges with `DEFAULT_HIVE_CONFIG`.
+  hiveConfig?: {
+    hpToHoneyRate?: number;
+    honeyToCashRate?: number;
+    currency?: string;
+    minCashOut?: number;
+    spendRequiresApproval?: boolean;
+    cashOutRequiresApproval?: boolean;
+    requireApprovalForHpToHoney?: boolean;
+    autoAllowance?: {
+      enabled: boolean;
+      kidId?: string;
+      amountCents?: number;
+      cadence?: 'weekly' | 'monthly';
+      nextRunAt?: Timestamp;
+    };
+  };
   createdAt: Timestamp;
 }
 

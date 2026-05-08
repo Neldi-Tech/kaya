@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { FamilyProvider } from '@/contexts/FamilyContext';
+import { HiveProvider } from '@/contexts/HiveContext';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -33,7 +34,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <GoogleOAuthProvider clientId={process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''}>
           <AuthProvider>
             <FamilyProvider>
-              {children}
+              <HiveProvider>
+                {children}
+              </HiveProvider>
             </FamilyProvider>
           </AuthProvider>
         </GoogleOAuthProvider>
