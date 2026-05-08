@@ -213,13 +213,38 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        {/* Content */}
-        <div className="pb-24 lg:pb-0">{children}</div>
+        {/* Content
+            Bottom padding clears the fixed mobile bottom nav (~64px tall) PLUS
+            the home-indicator safe-area on notched phones, so nothing stays
+            hidden under the nav. */}
+        <div
+          className="lg:pb-0"
+          style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+        >
+          {children}
+        </div>
       </div>
 
-      {/* Mobile bottom nav (lg- only) */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-kaya-cream/95 backdrop-blur-md border-t border-kaya-warm-dark/50 safe-bottom z-20 lg:hidden">
-        <div className="flex justify-around px-2 pt-1.5 pb-5">
+      {/*
+        Mobile bottom nav (lg- only).
+
+        Anchored with `inset-x-0` instead of `left-1/2 + -translate-x-1/2` —
+        a transform on a fixed element causes iOS Safari to jitter when the
+        URL bar collapses/expands during scroll. We also drop backdrop-blur
+        here for the same reason (the blur layer repaints per-frame on iOS).
+        Centering up to max-w-md happens on the INNER row.
+
+        `will-change: transform` and an explicit translateZ promote the nav
+        to its own compositor layer so it doesn't flicker on momentum scroll.
+      */}
+      <div
+        className="fixed bottom-0 inset-x-0 bg-kaya-cream border-t border-kaya-warm-dark/50 z-20 lg:hidden will-change-transform"
+        style={{
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          transform: 'translateZ(0)',
+        }}
+      >
+        <div className="mx-auto max-w-md flex justify-around px-2 pt-1.5 pb-2">
           {mobileNav.map((item) => {
             const active = isActive(item.path);
             return (
