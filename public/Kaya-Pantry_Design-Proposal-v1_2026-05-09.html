@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kaya · Pantry — Design Proposal v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --leaf:#5BA88C; --leaf-dk:#3F7A66; --leaf-soft:#C9E5D7;
+    --honey:#F39C2F; --honey-dk:#D17F1A; --honey-soft:#FCD9A0;
+    --navy:#1F2D3D; --ink:#0F1822; --cream:#FFF8EC; --paper:#FFFFFF;
+    --muted:#5C6975; --line:#E8DEC9; --green:#3FAF6C; --rose:#E36F6F; --blue:#3F7AAF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy);}
+  .shell{max-width:1200px;margin:0 auto;padding:48px 32px 80px;}
+  h1,h2,h3,h4,h5,.display{font-family:'Nunito',sans-serif;color:var(--navy);letter-spacing:-0.01em}
+  h1{font-size:52px;font-weight:900;margin:0 0 8px}
+  .eyebrow{text-transform:uppercase;letter-spacing:3px;font-size:12px;font-weight:700;color:var(--leaf-dk)}
+  .lede{font-size:18px;color:var(--muted);max-width:760px;margin:8px 0 0;line-height:1.55}
+  hr.rule{border:none;border-top:1px solid var(--line);margin:48px 0}
+  .section-title{display:flex;align-items:baseline;gap:16px;margin-bottom:24px}
+  .section-num{font-family:'Nunito';font-weight:900;font-size:14px;color:var(--leaf-dk);letter-spacing:2px}
+  .pill{display:inline-block;background:var(--paper);border:1px solid var(--line);padding:6px 14px;border-radius:999px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:24px}
+
+  /* ── Sub-modules grid ── */
+  .modules{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:8px}
+  .mod{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:20px;display:flex;flex-direction:column;gap:6px;min-height:160px}
+  .mod .num{font-family:'Nunito';font-weight:900;font-size:11px;letter-spacing:3px;color:var(--leaf-dk);opacity:.85}
+  .mod h3{margin:0;font-family:'Nunito';font-weight:900;font-size:20px}
+  .mod .where{font-size:11px;color:var(--muted);font-family:'Nunito';font-weight:700;letter-spacing:1px;text-transform:uppercase}
+  .mod p{font-size:13px;line-height:1.5;margin:6px 0 0;color:var(--muted)}
+  .mod .glyph{font-size:32px;margin-top:4px}
+
+  /* ── Phones ── */
+  .phones{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:8px}
+  .phone{background:var(--ink);border-radius:42px;padding:14px;box-shadow:0 30px 60px -20px rgba(15,24,34,.45),0 0 0 1px rgba(255,255,255,.04) inset}
+  .screen{background:var(--cream);border-radius:30px;overflow:hidden;height:720px;position:relative;display:flex;flex-direction:column}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:90px;height:22px;background:var(--ink);border-radius:0 0 14px 14px;z-index:5}
+  .status{display:flex;justify-content:space-between;align-items:center;padding:12px 22px 0;font-family:'Nunito';font-weight:700;font-size:11px;color:var(--navy)}
+  .screen-title{padding:0 22px;margin-top:18px}
+  .screen-title .small{font-size:11px;color:var(--leaf-dk);text-transform:uppercase;letter-spacing:2px;font-weight:700}
+  .screen-title h4{font-family:'Nunito';font-weight:900;font-size:24px;margin:2px 0 0}
+  .screen .body{padding:14px 22px 0;flex:1;overflow:hidden}
+  .tabbar{display:flex;justify-content:space-around;align-items:center;background:var(--paper);border-top:1px solid var(--line);padding:10px 6px 18px;flex:0 0 auto}
+  .tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:'Nunito';font-weight:700;font-size:10px;color:var(--muted)}
+  .tabbar .tab.active{color:var(--leaf-dk)}
+  .tabbar .tab .dot{width:24px;height:24px;border-radius:8px;background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .tabbar .tab.active .dot{background:var(--leaf);color:#fff}
+
+  /* Cards */
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:10px}
+  .card .h{font-family:'Nunito';font-weight:900;font-size:13px;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  .card .h .lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);font-weight:700}
+
+  /* Budget bar */
+  .budget-bar{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  .budget-bar .row{display:flex;justify-content:space-between;align-items:baseline}
+  .budget-bar .now{font-family:'Nunito';font-weight:900;font-size:18px;color:var(--leaf-dk)}
+  .budget-bar .of{font-size:11px;color:var(--muted);font-weight:700}
+  .budget-bar .left{font-size:11px;color:var(--leaf-dk);font-weight:800}
+  .budget-bar .track{height:6px;background:var(--line);border-radius:999px;overflow:hidden;margin-top:8px}
+  .budget-bar .fill{height:100%;background:var(--leaf);border-radius:999px}
+  .budget-bar.warn .fill{background:var(--rose)}
+  .budget-bar.warn .now,.budget-bar.warn .left{color:var(--rose)}
+
+  /* Items list */
+  .item{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .item:last-child{border:none}
+  .item .ico{width:32px;height:32px;border-radius:10px;background:var(--leaf-soft);display:flex;align-items:center;justify-content:center;font-size:14px;flex:0 0 auto}
+  .item .meta{flex:1;min-width:0}
+  .item .name{font-family:'Nunito';font-weight:800;font-size:13px;line-height:1.2}
+  .item .sub{font-size:10px;color:var(--muted);margin-top:1px}
+  .item .price{font-family:'Nunito';font-weight:900;font-size:12px;color:var(--leaf-dk);margin-left:auto}
+  .item .check{width:18px;height:18px;border:2px solid var(--line);border-radius:6px;display:inline-block;flex:0 0 auto}
+  .item.done .check{background:var(--leaf);border-color:var(--leaf);position:relative}
+  .item.done .check::after{content:'✓';color:#fff;font-size:12px;font-weight:900;position:absolute;left:2px;top:-3px}
+  .item.done .name{text-decoration:line-through;color:var(--muted)}
+
+  .supplier-group{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:12px;margin-bottom:10px}
+  .supplier-group .gh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .supplier-group .av{width:30px;height:30px;border-radius:10px;background:var(--leaf-soft);color:var(--leaf-dk);display:flex;align-items:center;justify-content:center;font-family:'Nunito';font-weight:900;font-size:14px}
+  .supplier-group .gn{font-family:'Nunito';font-weight:900;font-size:13px}
+  .supplier-group .gs{font-size:10px;color:var(--muted);font-weight:700}
+  .supplier-group .send{margin-top:8px;background:#25D366;color:#fff;border-radius:14px;padding:10px;text-align:center;font-family:'Nunito';font-weight:900;font-size:12px}
+
+  /* Meals planner */
+  .day{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:10px;margin-bottom:8px}
+  .day .dt{font-family:'Nunito';font-weight:900;font-size:12px;display:flex;justify-content:space-between;align-items:center}
+  .day .dn{color:var(--leaf-dk);text-transform:uppercase;letter-spacing:1.5px;font-size:10px;font-weight:800}
+  .meal-slots{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:6px}
+  .slot{background:var(--cream);border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-family:'Nunito';font-weight:700;font-size:11px;text-align:center;color:var(--navy)}
+  .slot .lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px}
+  .slot.empty{color:var(--muted);font-style:italic}
+  .slot.out{background:var(--leaf-soft);color:var(--leaf-dk)}
+
+  /* Categories budget */
+  .cat-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .cat-row:last-child{border:none}
+  .cat-row .em{font-size:18px;width:28px;text-align:center}
+  .cat-row .name{flex:1;font-family:'Nunito';font-weight:800;font-size:12px}
+  .cat-row .pct{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--leaf-dk);min-width:40px;text-align:right}
+  .cat-row .pct.over{color:var(--rose)}
+  .cat-row .track{flex:1;height:6px;background:var(--line);border-radius:999px;overflow:hidden}
+  .cat-row .fill{height:100%;background:var(--leaf);border-radius:999px}
+  .cat-row .fill.warn{background:var(--rose)}
+
+  /* Supplier card */
+  .supp-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:10px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+  .supp-card .av{width:36px;height:36px;border-radius:11px;background:var(--leaf-soft);color:var(--leaf-dk);display:flex;align-items:center;justify-content:center;font-family:'Nunito';font-weight:900;font-size:14px}
+  .supp-card .info{flex:1;min-width:0}
+  .supp-card .nm{font-family:'Nunito';font-weight:900;font-size:13px}
+  .supp-card .tags{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap}
+  .supp-card .tag{background:var(--cream);border:1px solid var(--line);border-radius:999px;padding:1px 6px;font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+  .supp-card .tag.soko{background:var(--leaf-soft);color:var(--leaf-dk);border-color:transparent}
+  .supp-card .wa{font-size:14px;color:#25D366}
+
+  /* Roster bridge note */
+  .roster-link{background:linear-gradient(150deg,var(--leaf-soft),#FFFFFF);border:1px dashed var(--leaf);border-radius:14px;padding:10px 12px;margin-top:8px;font-size:11px;line-height:1.5;color:var(--navy)}
+  .roster-link strong{color:var(--leaf-dk)}
+
+  /* Roadmap */
+  .roadmap{background:var(--paper);border-radius:24px;padding:32px;border:1px solid var(--line)}
+  .phases{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:18px}
+  .phase{padding:22px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(180deg,var(--cream),var(--paper))}
+  .phase .pn{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--leaf-dk);letter-spacing:2px}
+  .phase h4{font-family:'Nunito';font-weight:900;font-size:20px;margin:6px 0 10px}
+  .phase p{font-size:13px;color:var(--muted);line-height:1.55;margin:0 0 12px}
+  .phase ul{margin:0;padding-left:18px;font-size:12px;line-height:1.6}
+  .phase ul li{color:var(--navy)}
+  .phase.now{border:2px solid var(--leaf);background:linear-gradient(180deg,var(--leaf-soft),#FFFFFF)}
+
+  /* Roles */
+  .roles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .role{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:18px}
+  .role h4{margin:0 0 6px;font-family:'Nunito';font-weight:900;font-size:16px}
+  .role .lvl{font-size:11px;color:var(--leaf-dk);font-weight:800;text-transform:uppercase;letter-spacing:1.5px}
+  .role ul{margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.6;color:var(--muted)}
+
+  .approve{margin-top:30px;background:var(--paper);border:1px dashed var(--leaf);border-radius:18px;padding:18px 24px}
+  .approve h4{margin:0 0 6px;font-family:'Nunito';font-weight:900}
+  .approve p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
+  .foot{margin-top:40px;text-align:center;font-size:12px;color:var(--muted)}
+
+  @media (max-width:1100px){.phones{grid-template-columns:1fr 1fr}.modules{grid-template-columns:1fr 1fr}.phases,.roles{grid-template-columns:1fr 1fr}}
+  @media (max-width:680px){.phones,.modules,.phases,.roles{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <span class="pill">Kaya · Module Proposal v1 · 9 May 2026</span>
+  <div class="eyebrow">Phase 1.6 · The Pantry (Soko)</div>
+  <h1>Run the household.</h1>
+  <p class="lede">Where parents — with helpers, optionally with kids — plan meals, manage the master shopping list, track the food &amp; household budget, and one-tap send the run to suppliers over WhatsApp. Stand-alone module. Not linked to the Hive.</p>
+
+  <hr class="rule"/>
+
+  <!-- ─────────────────────────── 01 SUB-MODULES ─────────────────────────── -->
+  <div class="section-title">
+    <span class="section-num">01</span>
+    <h2>Six surfaces under one module</h2>
+  </div>
+  <p style="color:var(--muted);max-width:780px;margin:0 0 24px;font-size:15px;line-height:1.6">
+    Each surface owns its own ritual. They share data — staples flow into the weekly list, meals link to ingredients, suppliers tag every item. The Pantry tab bar at the bottom of every screen jumps you across.
+  </p>
+
+  <div class="modules">
+    <div class="mod">
+      <span class="num">01</span>
+      <span class="where">/pantry</span>
+      <h3>Home</h3>
+      <p>Dashboard for the week. Budget bar, active list preview, upcoming meals, "Send to suppliers" CTA.</p>
+      <span class="glyph">🛒</span>
+    </div>
+    <div class="mod">
+      <span class="num">02</span>
+      <span class="where">/pantry/staples</span>
+      <h3>Staples</h3>
+      <p>Master list of recurring items. Default qty, last-bought price, supplier hint. Source of truth for every weekly list.</p>
+      <span class="glyph">📦</span>
+    </div>
+    <div class="mod">
+      <span class="num">03</span>
+      <span class="where">/pantry/list/[id]</span>
+      <h3>List</h3>
+      <p>Active shopping run. Auto-populated from Staples. Grouped by supplier; one-tap WhatsApp send per supplier.</p>
+      <span class="glyph">📝</span>
+    </div>
+    <div class="mod">
+      <span class="num">04</span>
+      <span class="where">/pantry/meals</span>
+      <h3>Meals</h3>
+      <p>7-day food timetable. Breakfast, lunch, dinner, eating-out. Phase 2: meals → ingredients → list.</p>
+      <span class="glyph">🍽️</span>
+    </div>
+    <div class="mod">
+      <span class="num">05</span>
+      <span class="where">/pantry/budget</span>
+      <h3>Budget</h3>
+      <p>Monthly category budgets. Live spend. "TSh 12k left · 8 days remaining" footers everywhere.</p>
+      <span class="glyph">💰</span>
+    </div>
+    <div class="mod">
+      <span class="num">06</span>
+      <span class="where">/pantry/suppliers</span>
+      <h3>Soko · Suppliers</h3>
+      <p>Trusted vendors with WhatsApp numbers. Filtered window onto The Roster — same record, two views.</p>
+      <span class="glyph">🏪</span>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ─────────────────────────── 02 SCREENS ─────────────────────────── -->
+  <div class="section-title">
+    <span class="section-num">02</span>
+    <h2>The screens</h2>
+  </div>
+  <p style="color:var(--muted);max-width:780px;margin:0 0 24px;font-size:15px;line-height:1.6">
+    Mobile-first. Tab bar pinned at the bottom. Same color language as the rest of Kaya, leaf-green accent so the section feels its own.
+  </p>
+
+  <div class="phones">
+
+    <!-- ── HOME ── -->
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span>●●● ●</span></div>
+      <div class="screen-title">
+        <div class="small">Pantry · This week</div>
+        <h4>Run the week 🛒</h4>
+      </div>
+      <div class="body">
+        <div class="budget-bar">
+          <div class="row"><span class="now">TSh 245k</span><span class="of">/ 350k spent</span><span class="left">8 days left</span></div>
+          <div class="track"><div class="fill" style="width:70%"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="h">
+            <span>Active list <span class="lbl" style="margin-left:6px">12 items · ~TSh 87,500</span></span>
+            <span style="color:var(--leaf-dk);font-size:11px;font-weight:800">Open →</span>
+          </div>
+          <div class="item"><span class="ico">🍅</span><div class="meta"><div class="name">Tomatoes 1kg</div><div class="sub">Mama Kibo</div></div><span class="price">4,000</span></div>
+          <div class="item"><span class="ico">🥛</span><div class="meta"><div class="name">Milk 4L</div><div class="sub">Sokoni</div></div><span class="price">4,800</span></div>
+          <div class="item"><span class="ico">🥖</span><div class="meta"><div class="name">Bread x3</div><div class="sub">Bakery St</div></div><span class="price">6,000</span></div>
+        </div>
+
+        <div class="card">
+          <div class="h"><span>Upcoming meals</span><span class="lbl">next 3 days</span></div>
+          <div class="day" style="margin-bottom:6px;padding:8px 10px">
+            <div class="dt"><span class="dn">MON</span><span style="font-weight:700;color:var(--muted);font-size:11px">🍝 Spaghetti</span></div>
+          </div>
+          <div class="day" style="margin-bottom:6px;padding:8px 10px">
+            <div class="dt"><span class="dn">TUE</span><span style="font-weight:700;color:var(--leaf-dk);font-size:11px">🍕 Eating out</span></div>
+          </div>
+          <div class="day" style="padding:8px 10px">
+            <div class="dt"><span class="dn">WED</span><span style="font-weight:700;color:var(--muted);font-size:11px">🍛 Rice &amp; beans</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="tabbar">
+        <div class="tab active"><div class="dot">🛒</div>Home</div>
+        <div class="tab"><div class="dot">📝</div>List</div>
+        <div class="tab"><div class="dot">🍽️</div>Meals</div>
+        <div class="tab"><div class="dot">💰</div>Budget</div>
+        <div class="tab"><div class="dot">🏪</div>Soko</div>
+      </div>
+    </div></div>
+
+    <!-- ── STAPLES ── -->
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span>●●● ●</span></div>
+      <div class="screen-title">
+        <div class="small">Pantry · Staples</div>
+        <h4>What we always need 📦</h4>
+      </div>
+      <div class="body">
+        <div style="display:flex;gap:5px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px">
+          <span class="tag" style="background:var(--leaf);color:#fff;border:none;font-family:'Nunito';font-weight:800;font-size:10px;padding:5px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px">All</span>
+          <span class="tag" style="background:var(--paper);color:var(--muted);border:1px solid var(--line);font-family:'Nunito';font-weight:800;font-size:10px;padding:5px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px">Produce</span>
+          <span class="tag" style="background:var(--paper);color:var(--muted);border:1px solid var(--line);font-family:'Nunito';font-weight:800;font-size:10px;padding:5px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px">Dairy</span>
+          <span class="tag" style="background:var(--paper);color:var(--muted);border:1px solid var(--line);font-family:'Nunito';font-weight:800;font-size:10px;padding:5px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px">Cleaning</span>
+        </div>
+
+        <div class="card">
+          <div class="item"><span class="ico">🍚</span><div class="meta"><div class="name">Rice 2kg/wk</div><div class="sub">Pantry · TSh 5,500 · Mama Kibo</div></div><span class="price">recurring</span></div>
+          <div class="item"><span class="ico">🥛</span><div class="meta"><div class="name">Milk 4L/wk</div><div class="sub">Dairy · TSh 4,800 · Sokoni</div></div><span class="price">recurring</span></div>
+          <div class="item"><span class="ico">🥖</span><div class="meta"><div class="name">Bread daily</div><div class="sub">Pantry · TSh 2,000 · Bakery St</div></div><span class="price">recurring</span></div>
+          <div class="item"><span class="ico">🧼</span><div class="meta"><div class="name">Soap monthly</div><div class="sub">Cleaning · TSh 6,500</div></div><span class="price">monthly</span></div>
+          <div class="item"><span class="ico">🍌</span><div class="meta"><div class="name">Bananas 2x/wk</div><div class="sub">Produce · TSh 3,000 · Mama Kibo</div></div><span class="price">recurring</span></div>
+          <div class="item"><span class="ico">🧴</span><div class="meta"><div class="name">Shampoo</div><div class="sub">Personal Care · TSh 12,000</div></div><span class="price">monthly</span></div>
+        </div>
+
+        <div style="margin-top:8px;text-align:center;background:var(--leaf);color:#fff;border-radius:14px;padding:10px;font-family:'Nunito';font-weight:900;font-size:12px">+ Add staple</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab"><div class="dot">🛒</div>Home</div>
+        <div class="tab"><div class="dot">📝</div>List</div>
+        <div class="tab"><div class="dot">🍽️</div>Meals</div>
+        <div class="tab"><div class="dot">💰</div>Budget</div>
+        <div class="tab"><div class="dot">🏪</div>Soko</div>
+      </div>
+    </div></div>
+
+    <!-- ── ACTIVE LIST ── -->
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span>●●● ●</span></div>
+      <div class="screen-title">
+        <div class="small">Pantry · List</div>
+        <h4>Week of May 12 📝</h4>
+      </div>
+      <div class="body">
+        <div class="budget-bar" style="background:var(--leaf-soft);border:none">
+          <div class="row"><span class="now" style="color:var(--leaf-dk)">12 items · 4 done</span><span class="left">~TSh 87,500</span></div>
+          <div class="track" style="background:rgba(255,255,255,.5)"><div class="fill" style="width:33%"></div></div>
+        </div>
+
+        <div class="supplier-group">
+          <div class="gh"><div class="av">M</div><div><div class="gn">Mama Kibo · 8 items</div><div class="gs">~ TSh 32,000</div></div></div>
+          <div class="item done"><span class="check"></span><div class="meta"><div class="name">Tomatoes 1kg</div><div class="sub">TSh 4,000</div></div></div>
+          <div class="item"><span class="check"></span><div class="meta"><div class="name">Spinach 500g</div><div class="sub">TSh 2,500</div></div></div>
+          <div class="item"><span class="check"></span><div class="meta"><div class="name">Onions 1kg</div><div class="sub">TSh 3,500</div></div></div>
+          <div class="item"><span class="check"></span><div class="meta"><div class="name">Bananas 2 bunches</div><div class="sub">TSh 6,000</div></div></div>
+          <div class="send">📤 Send to Mama Kibo on WhatsApp</div>
+        </div>
+
+        <div class="supplier-group">
+          <div class="gh"><div class="av">S</div><div><div class="gn">Sokoni · 4 items</div><div class="gs">~ TSh 18,000</div></div></div>
+          <div class="item"><span class="check"></span><div class="meta"><div class="name">Milk 4L</div><div class="sub">TSh 4,800</div></div></div>
+          <div class="item"><span class="check"></span><div class="meta"><div class="name">Bread x3</div><div class="sub">TSh 6,000</div></div></div>
+          <div class="send">📤 Send to Sokoni on WhatsApp</div>
+        </div>
+      </div>
+      <div class="tabbar">
+        <div class="tab"><div class="dot">🛒</div>Home</div>
+        <div class="tab active"><div class="dot">📝</div>List</div>
+        <div class="tab"><div class="dot">🍽️</div>Meals</div>
+        <div class="tab"><div class="dot">💰</div>Budget</div>
+        <div class="tab"><div class="dot">🏪</div>Soko</div>
+      </div>
+    </div></div>
+
+    <!-- ── MEALS ── -->
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span>●●● ●</span></div>
+      <div class="screen-title">
+        <div class="small">Pantry · Meals</div>
+        <h4>This week 🍽️</h4>
+      </div>
+      <div class="body">
+        <div class="day">
+          <div class="dt"><span class="dn">MON · MAY 12</span></div>
+          <div class="meal-slots">
+            <div class="slot"><div class="lbl">Breakfast</div>🥣 Porridge</div>
+            <div class="slot"><div class="lbl">Lunch</div>🍱 Leftovers</div>
+            <div class="slot"><div class="lbl">Dinner</div>🍝 Spaghetti</div>
+          </div>
+        </div>
+        <div class="day">
+          <div class="dt"><span class="dn">TUE · MAY 13</span><span class="tag" style="background:var(--leaf-soft);color:var(--leaf-dk);border:none;font-family:'Nunito';font-weight:800;font-size:9px;padding:3px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:0.5px">Eating out</span></div>
+          <div class="meal-slots">
+            <div class="slot"><div class="lbl">Breakfast</div>🥣 Porridge</div>
+            <div class="slot empty"><div class="lbl">Lunch</div>—</div>
+            <div class="slot out"><div class="lbl">Dinner</div>🍕 Pizza place</div>
+          </div>
+        </div>
+        <div class="day">
+          <div class="dt"><span class="dn">WED · MAY 14</span></div>
+          <div class="meal-slots">
+            <div class="slot"><div class="lbl">Breakfast</div>🍞 Toast</div>
+            <div class="slot empty"><div class="lbl">Lunch</div>—</div>
+            <div class="slot"><div class="lbl">Dinner</div>🍛 Rice &amp; beans</div>
+          </div>
+        </div>
+        <div class="day">
+          <div class="dt"><span class="dn">THU · MAY 15</span></div>
+          <div class="meal-slots">
+            <div class="slot empty"><div class="lbl">Breakfast</div>—</div>
+            <div class="slot empty"><div class="lbl">Lunch</div>—</div>
+            <div class="slot empty"><div class="lbl">Dinner</div>—</div>
+          </div>
+        </div>
+        <div style="text-align:center;font-size:10px;color:var(--muted);font-style:italic;margin-top:6px">Tap a slot to plan a meal · Phase 2 auto-suggests ingredients</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab"><div class="dot">🛒</div>Home</div>
+        <div class="tab"><div class="dot">📝</div>List</div>
+        <div class="tab active"><div class="dot">🍽️</div>Meals</div>
+        <div class="tab"><div class="dot">💰</div>Budget</div>
+        <div class="tab"><div class="dot">🏪</div>Soko</div>
+      </div>
+    </div></div>
+
+    <!-- ── BUDGET ── -->
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span>●●● ●</span></div>
+      <div class="screen-title">
+        <div class="small">Pantry · Budget</div>
+        <h4>May spend 💰</h4>
+      </div>
+      <div class="body">
+        <div style="background:linear-gradient(150deg,var(--leaf-soft),#FFFFFF);border:1px solid var(--leaf);border-radius:18px;padding:16px;margin-bottom:10px">
+          <div class="lbl" style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--leaf-dk);font-weight:800">This month</div>
+          <div style="font-family:'Nunito';font-weight:900;font-size:28px;margin-top:4px">TSh 245k <span style="color:var(--muted);font-size:14px;font-weight:700">/ 350k</span></div>
+          <div style="font-size:11px;color:var(--leaf-dk);font-weight:800;margin-top:2px">8 days left · TSh 12k/day average pace</div>
+          <div class="track" style="height:8px;margin-top:10px"><div class="fill" style="width:70%"></div></div>
+        </div>
+
+        <div class="card">
+          <div class="h"><span>By category</span></div>
+          <div class="cat-row">
+            <span class="em">🥬</span>
+            <span class="name">Produce</span>
+            <div style="flex:1;height:6px;background:var(--line);border-radius:999px;overflow:hidden;margin:0 8px"><div style="height:100%;background:var(--leaf);border-radius:999px;width:65%"></div></div>
+            <span class="pct">65%</span>
+          </div>
+          <div class="cat-row">
+            <span class="em">🥛</span>
+            <span class="name">Dairy</span>
+            <div style="flex:1;height:6px;background:var(--line);border-radius:999px;overflow:hidden;margin:0 8px"><div style="height:100%;background:var(--leaf);border-radius:999px;width:30%"></div></div>
+            <span class="pct">30%</span>
+          </div>
+          <div class="cat-row">
+            <span class="em">🧴</span>
+            <span class="name">Cleaning</span>
+            <div style="flex:1;height:6px;background:var(--line);border-radius:999px;overflow:hidden;margin:0 8px"><div style="height:100%;background:var(--rose);border-radius:999px;width:90%"></div></div>
+            <span class="pct over">90%</span>
+          </div>
+          <div class="cat-row">
+            <span class="em">🧼</span>
+            <span class="name">Personal</span>
+            <div style="flex:1;height:6px;background:var(--line);border-radius:999px;overflow:hidden;margin:0 8px"><div style="height:100%;background:var(--leaf);border-radius:999px;width:50%"></div></div>
+            <span class="pct">50%</span>
+          </div>
+          <div class="cat-row">
+            <span class="em">🍚</span>
+            <span class="name">Pantry</span>
+            <div style="flex:1;height:6px;background:var(--line);border-radius:999px;overflow:hidden;margin:0 8px"><div style="height:100%;background:var(--leaf);border-radius:999px;width:80%"></div></div>
+            <span class="pct">80%</span>
+          </div>
+        </div>
+
+        <div style="margin-top:8px;text-align:center;font-size:11px;color:var(--rose);font-weight:800">⚠️ Cleaning at 90% — consider a tighter run this week</div>
+      </div>
+      <div class="tabbar">
+        <div class="tab"><div class="dot">🛒</div>Home</div>
+        <div class="tab"><div class="dot">📝</div>List</div>
+        <div class="tab"><div class="dot">🍽️</div>Meals</div>
+        <div class="tab active"><div class="dot">💰</div>Budget</div>
+        <div class="tab"><div class="dot">🏪</div>Soko</div>
+      </div>
+    </div></div>
+
+    <!-- ── SUPPLIERS / SOKO ── -->
+    <div class="phone"><div class="screen">
+      <div class="notch"></div>
+      <div class="status"><span>9:41</span><span>●●● ●</span></div>
+      <div class="screen-title">
+        <div class="small">Pantry · Soko</div>
+        <h4>Trusted vendors 🏪</h4>
+      </div>
+      <div class="body">
+        <p style="font-size:11px;color:var(--muted);margin:0 0 10px;line-height:1.5">Your household's go-to. Same record as <strong style="color:var(--leaf-dk)">The Roster</strong> — these are tagged Soko there.</p>
+
+        <div class="supp-card">
+          <div class="av">M</div>
+          <div class="info">
+            <div class="nm">Mama Kibo</div>
+            <div class="tags"><span class="tag soko">SOKO</span><span class="tag">⭐ Often</span></div>
+          </div>
+          <span class="wa">📱</span>
+        </div>
+
+        <div class="supp-card">
+          <div class="av">S</div>
+          <div class="info">
+            <div class="nm">Sokoni</div>
+            <div class="tags"><span class="tag soko">SOKO</span><span class="tag">⭐ Often</span></div>
+          </div>
+          <span class="wa">📱</span>
+        </div>
+
+        <div class="supp-card">
+          <div class="av">B</div>
+          <div class="info">
+            <div class="nm">Bakery St</div>
+            <div class="tags"><span class="tag soko">SOKO</span><span class="tag">Weekly</span></div>
+          </div>
+          <span class="wa">📱</span>
+        </div>
+
+        <div class="supp-card">
+          <div class="av">C</div>
+          <div class="info">
+            <div class="nm">Cleaning Co</div>
+            <div class="tags"><span class="tag soko">SOKO</span><span class="tag">Monthly</span></div>
+          </div>
+          <span class="wa" style="color:var(--muted)">☎</span>
+        </div>
+
+        <div style="margin-top:8px;text-align:center;background:var(--leaf);color:#fff;border-radius:14px;padding:10px;font-family:'Nunito';font-weight:900;font-size:12px">+ Add supplier</div>
+
+        <div class="roster-link">
+          🌐 <strong>Bridges to The Roster</strong> · these vendors are tagged <strong>Soko</strong> in the household directory. Other categories (transport, security, maids…) live there too. <strong>One source of truth.</strong>
+        </div>
+      </div>
+      <div class="tabbar">
+        <div class="tab"><div class="dot">🛒</div>Home</div>
+        <div class="tab"><div class="dot">📝</div>List</div>
+        <div class="tab"><div class="dot">🍽️</div>Meals</div>
+        <div class="tab"><div class="dot">💰</div>Budget</div>
+        <div class="tab active"><div class="dot">🏪</div>Soko</div>
+      </div>
+    </div></div>
+
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ─────────────────────────── 03 PERMISSIONS ─────────────────────────── -->
+  <div class="section-title">
+    <span class="section-num">03</span>
+    <h2>Who can do what</h2>
+  </div>
+
+  <div class="roles">
+    <div class="role">
+      <span class="lvl">Full access</span>
+      <h4>Parents</h4>
+      <ul>
+        <li>Edit staples, lists, budgets</li>
+        <li>Add &amp; edit suppliers</li>
+        <li>Send WhatsApp orders</li>
+        <li>Toggle kid-suggestion mode</li>
+      </ul>
+    </div>
+    <div class="role">
+      <span class="lvl">Operational</span>
+      <h4>Helpers</h4>
+      <ul>
+        <li>Edit lists, check items off</li>
+        <li>Edit staples</li>
+        <li>Send WhatsApp orders</li>
+        <li><em>No budget edits</em> · parents own the money</li>
+      </ul>
+    </div>
+    <div class="role">
+      <span class="lvl">Read + suggest</span>
+      <h4>Kids</h4>
+      <ul>
+        <li>See lists, meals, what's coming</li>
+        <li>Suggest items (parent confirms)</li>
+        <li>No edit, no send, no budget</li>
+        <li>Toggleable per family</li>
+      </ul>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ─────────────────────────── 04 ROADMAP ─────────────────────────── -->
+  <div class="section-title">
+    <span class="section-num">04</span>
+    <h2>Roadmap</h2>
+  </div>
+
+  <div class="roadmap">
+    <div class="phases">
+      <div class="phase now">
+        <div class="pn">PHASE 1A · NOW</div>
+        <h4>The shopping run</h4>
+        <p>Get a household's weekly run from spreadsheet to one-tap. No budget yet, no meal plan.</p>
+        <ul>
+          <li>Staples master list</li>
+          <li>Active list grouped by supplier</li>
+          <li>Suppliers shortlist (Soko view)</li>
+          <li>WhatsApp send-list deep links</li>
+          <li>Pantry Home dashboard preview</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="pn">PHASE 1B · NEXT</div>
+        <h4>Plan + track</h4>
+        <p>Add the parts that turn it into a habit: budgets and meal planning.</p>
+        <ul>
+          <li>Meals planner (7-day grid)</li>
+          <li>Monthly category budgets</li>
+          <li>Sunday auto-populate</li>
+          <li>Budget warnings + insights</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="pn">PHASE 2 · FUTURE</div>
+        <h4>Automate the run</h4>
+        <p>Pricing intelligence, recipe → list, payments, delivery, supplier-side onboarding.</p>
+        <ul>
+          <li>Location-based price suggestions</li>
+          <li>Recipe → ingredients → list</li>
+          <li>Credit-card-on-file orders</li>
+          <li>Supplier sign-up + Roster bridge</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="approve">
+    <h4>Final approval call.</h4>
+    <p>If the six surfaces, permissions and phasing feel right, say the word and PR-Pantry-A.1 starts: schema (designed for Soko↔Roster filtering from day one), security rules, <code>PantryContext</code>, the four Phase-1A surfaces, and WhatsApp send. Phase 1B follows on a stack.</p>
+  </div>
+
+  <p class="foot">Kaya · The Pantry (Soko) · ourkaya.com · Design proposal v1 · 2026-05-09</p>
+</div>
+</body>
+</html>
