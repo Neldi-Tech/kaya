@@ -15,15 +15,16 @@ import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/component
 
 export default function WalletPage() {
   const { children } = useFamily();
-  const { activeKidId, wallet, config, totalNetWorthCents } = useHive();
+  const { activeKidId, wallet, config, totalNetWorthCents, fxUsdToFamily } = useHive();
   const activeKid = children.find((c) => c.id === activeKidId);
+  const fxRate = fxUsdToFamily ?? 1;
 
-  const honeyAsCash = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate);
+  const honeyAsCash = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxRate);
   // HP "if cashed out" is a useful hint but more speculative — we mention
   // it lower with a "if you converted" caveat so kids don't read it as a
   // current cash value.
   const hpAsCash = config.hpToHoneyRate > 0
-    ? Math.round((wallet.housePoints / config.hpToHoneyRate) * config.honeyToCashRate * 100)
+    ? Math.round((wallet.housePoints / config.hpToHoneyRate) * config.honeyToCashRate * fxRate * 100)
     : 0;
 
   return (

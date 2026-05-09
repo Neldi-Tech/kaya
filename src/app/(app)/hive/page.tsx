@@ -26,10 +26,10 @@ const ACTIONS = [
 
 export default function HiveHomePage() {
   const { children } = useFamily();
-  const { activeKidId, wallet, transactions, config, weeklyEarningsCents } = useHive();
+  const { activeKidId, wallet, transactions, config, weeklyEarningsCents, fxUsdToFamily } = useHive();
   const activeKid = children.find((c) => c.id === activeKidId);
 
-  const cashEquivalent = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate);
+  const cashEquivalent = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxUsdToFamily ?? 1);
   const recent = transactions.slice(0, 5);
 
   return (

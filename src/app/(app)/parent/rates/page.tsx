@@ -9,7 +9,10 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import { setHiveConfig, CURRENCIES, currencyMeta } from '@/lib/hive';
+import { useFamily } from '@/contexts/FamilyContext';
+import { updateChild, Child } from '@/lib/firestore';
 import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
+import KidAvatar from '@/components/ui/KidAvatar';
 import BackButton from '@/components/ui/BackButton';
 
 export default function ParentRatesPage() {
@@ -157,41 +160,46 @@ export default function ParentRatesPage() {
         </div>
 
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Lever B · 🍯 → {symbolText}</p>
-          <p className="text-[12px] text-hive-muted mt-1 mb-3">How much {currency} does each Honey Coin become?</p>
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Lever B · 🍯 → $ USD</p>
+          <p className="text-[12px] text-hive-muted mt-1 mb-3">
+            How many <strong>US dollars</strong> does each Honey Coin become?
+            Honey is benchmarked in USD on purpose — same value across every Kaya family,
+            same language for every kid. The cash that lands in the wallet shows up in your family currency.
+          </p>
           <div className="flex items-baseline gap-3">
-            <span className="font-nunito font-extrabold text-lg">1 🍯 = {symbolText}</span>
+            <span className="font-nunito font-extrabold text-lg">1 🍯 = $</span>
             <input
               type="number"
               min={0}
-              max={meta.honeyMax * 10}
-              step={meta.honeyStep}
+              max={100}
+              step={0.05}
               value={honeyToCash}
               onChange={(e) => setHoneyToCash(Math.max(0, parseFloat(e.target.value || '0') || 0))}
-              className="w-32 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+              className="w-28 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
+            <span className="font-nunito font-extrabold text-sm text-hive-muted">USD</span>
           </div>
           <input
             type="range"
             min={0}
-            max={meta.honeyMax}
-            step={meta.honeyStep}
+            max={5}
+            step={0.05}
             value={honeyToCash}
             onChange={(e) => setHoneyToCash(parseFloat(e.target.value))}
             className="w-full mt-3 accent-hive-honey"
           />
-          {/* FX-aware suggestion: at today's market rate, what makes
-              "1 🍯 worth $1 of real-world buying power" look like in
-              the active currency? */}
-          {usdToActive && currency !== 'USD' && (
-            <button
-              type="button"
-              onClick={() => setHoneyToCash(Math.round(usdToActive))}
-              className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-hive-pill bg-hive-honey-soft/70 text-hive-honey-dk text-[11px] font-nunito font-extrabold hover:brightness-105"
-            >
-              💡 Today: 1 USD ≈ {symbolText}{formatRate(usdToActive)}{' '}
-              · Use {symbolText}{formatRate(usdToActive)} per 🍯
-            </button>
+
+          {/* Family-currency "what does that look like today" preview. */}
+          {currency !== 'USD' && (
+            usdToActive ? (
+              <p className="mt-3 text-[11px] text-hive-honey-dk font-nunito font-extrabold">
+                💡 Today: 1 🍯 = ${honeyToCash.toFixed(2)} USD ≈ {symbolText}{formatRate(honeyToCash * usdToActive)} {currency}
+              </p>
+            ) : (
+              <p className="mt-3 text-[11px] text-hive-muted">
+                Today&apos;s {currency} preview unavailable — falls back to the USD value when offline.
+              </p>
+            )
           )}
         </div>
 
@@ -293,6 +301,17 @@ export default function ParentRatesPage() {
           </p>
         </div>
 
+        {/* Per-child overrides — different kids, different ages,
+            different ceilings. A kid with a custom value uses theirs;
+            otherwise the family default above. */}
+        <PerChildOverrides
+          symbolText={symbolText}
+          familyDefaultCents={autoApproveCents}
+          smallSpends={meta.smallSpends}
+          step={meta.step}
+          max={meta.max}
+        />
+
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg divide-y divide-hive-line">
           <PolicyToggle
             label="Approve every HP → 🍯 conversion"
@@ -336,6 +355,175 @@ export default function ParentRatesPage() {
           </Link>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Per-child overrides for the auto-approve threshold. Renders one row per
+// kid with a Custom toggle: when off the kid uses the family default;
+// when on they get their own value (which can be 0 = always require
+// approval — useful for a younger kid you'd rather double-check).
+function PerChildOverrides({
+  symbolText, familyDefaultCents, smallSpends, step, max,
+}: {
+  symbolText: string;
+  familyDefaultCents: number;
+  smallSpends: number[];
+  step: number;
+  max: number;
+}) {
+  const { profile, isGuest } = useAuth();
+  const { children } = useFamily();
+  if (children.length === 0) return null;
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Per-kid overrides</p>
+      <p className="text-[12px] text-hive-muted mt-1 mb-3">
+        Different kids, different ceilings. Off → uses the family default
+        of {familyDefaultCents > 0 ? `${symbolText}${(familyDefaultCents / 100).toLocaleString('en-US')}` : '“Off”'} above.
+      </p>
+      <div className="space-y-2">
+        {children.map((c) => (
+          <ChildOverrideRow
+            key={c.id}
+            familyId={profile?.familyId || ''}
+            child={c}
+            isGuest={isGuest}
+            symbolText={symbolText}
+            familyDefaultCents={familyDefaultCents}
+            smallSpends={smallSpends}
+            step={step}
+            max={max}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ChildOverrideRow({
+  familyId, child, isGuest, symbolText, familyDefaultCents, smallSpends, step, max,
+}: {
+  familyId: string;
+  child: Child;
+  isGuest: boolean;
+  symbolText: string;
+  familyDefaultCents: number;
+  smallSpends: number[];
+  step: number;
+  max: number;
+}) {
+  const persisted = (child as any).spendAutoApproveBelowCents as number | null | undefined;
+  const hasOverride = typeof persisted === 'number';
+  // Local working copy so the input is snappy. We persist on chip-tap and
+  // on blur for the free-form input.
+  const [working, setWorking] = useState<number>(
+    hasOverride ? persisted! : familyDefaultCents,
+  );
+  // Sync if the persisted value changes (e.g. another parent toggles).
+  useEffect(() => {
+    if (hasOverride) setWorking(persisted!);
+  }, [hasOverride, persisted]);
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  const persist = async (cents: number | null) => {
+    if (!familyId || isGuest) return;
+    setSaving(true);
+    try {
+      await updateChild(familyId, child.id, { spendAutoApproveBelowCents: cents } as any);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1400);
+    } catch {}
+    setSaving(false);
+  };
+
+  const toggle = async () => {
+    if (hasOverride) {
+      await persist(null);
+    } else {
+      await persist(working);
+    }
+  };
+
+  const setMajor = async (major: number) => {
+    const cents = Math.max(0, Math.round(major * 100));
+    setWorking(cents);
+    await persist(cents);
+  };
+
+  return (
+    <div className="rounded-hive border border-hive-line bg-hive-cream/60 p-3">
+      <div className="flex items-center gap-3">
+        <KidAvatar child={child} size="sm" />
+        <div className="flex-1 min-w-0">
+          <p className="font-nunito font-extrabold text-[13px] truncate">{child.name}</p>
+          <p className="text-[11px] text-hive-muted">
+            {hasOverride
+              ? (persisted === 0
+                  ? 'Always require approval (custom)'
+                  : `Custom: ${symbolText}${(persisted! / 100).toLocaleString('en-US')}`)
+              : (familyDefaultCents > 0
+                  ? `Using default: ${symbolText}${(familyDefaultCents / 100).toLocaleString('en-US')}`
+                  : 'Using default: Off')}
+            {saving && <span className="ml-2 text-hive-muted">· Saving…</span>}
+            {savedFlash && <span className="ml-2 text-hive-green font-bold">· ✓ Saved</span>}
+          </p>
+        </div>
+        <button
+          onClick={toggle}
+          disabled={saving || isGuest}
+          className="flex items-center gap-2 disabled:opacity-60"
+          aria-label={hasOverride ? 'Use family default' : 'Use a custom value for this kid'}
+        >
+          <div className={`w-10 h-6 rounded-hive-pill relative transition-colors ${hasOverride ? 'bg-hive-honey' : 'bg-hive-line'}`}>
+            <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all" style={{ left: hasOverride ? '18px' : '2px' }} />
+          </div>
+        </button>
+      </div>
+
+      {hasOverride && (
+        <div className="mt-3">
+          <div className="flex items-baseline gap-2">
+            <span className="font-nunito font-black text-lg text-hive-muted">{symbolText}</span>
+            <input
+              type="number"
+              min={0}
+              max={max}
+              step={step}
+              value={working / 100}
+              onChange={(e) => setWorking(Math.max(0, Math.round((parseFloat(e.target.value || '0') || 0) * 100)))}
+              onBlur={() => persist(working)}
+              className="flex-1 h-10 px-3 bg-hive-paper rounded-hive-pill font-nunito font-black text-lg border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+            />
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setMajor(0)}
+              className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                working === 0
+                  ? 'bg-hive-rose text-white border-transparent'
+                  : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-rose/40'
+              }`}
+            >
+              Always approve
+            </button>
+            {smallSpends.map((v) => (
+              <button
+                key={v}
+                onClick={() => setMajor(v)}
+                className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                  working === Math.round(v * 100)
+                    ? 'bg-hive-honey text-white border-transparent'
+                    : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
+                }`}
+              >
+                {symbolText}{v.toLocaleString('en-US')}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -10,7 +10,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
+  effectiveAutoApproveCents,
 } from '@/lib/hive';
+import { useFamily } from '@/contexts/FamilyContext';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
 import PlanProgressStrip from '@/components/hive/PlanProgressStrip';
@@ -24,10 +26,16 @@ const SPEND_CHIPS = PLAN_CATEGORIES.filter((c) => c.id !== 'savings');
 
 export default function CashOutPage() {
   const { profile, isGuest } = useAuth();
+  const { children } = useFamily();
   const {
     activeKidId, transactions, myRequests, config, wallet,
     monthlyPlan, monthSpending,
   } = useHive();
+  // Per-child override beats family default. Recomputed when the kid's
+  // child doc updates via the FamilyContext live subscription.
+  const activeKid = children.find((c) => c.id === activeKidId);
+  const effectiveThresholdCents = effectiveAutoApproveCents(activeKid as any, config);
+  const usingPerKidOverride = activeKid && typeof (activeKid as any).spendAutoApproveBelowCents === 'number';
   // "[Auto-approved] Lego candy bar" flash — surfaces for ~3s after a
   // small spend that posted directly without going to the parent inbox.
   const [autoApproveFlash, setAutoApproveFlash] = useState<{ amount: number; desc: string } | null>(null);
@@ -79,7 +87,9 @@ export default function CashOutPage() {
     setSubmitting(true);
     try {
       const result = await requestOrAutoSpend(
-        profile.familyId, activeKidId, cents, desc.trim(), category, config, profile.uid,
+        profile.familyId, activeKidId, cents, desc.trim(), category,
+        effectiveThresholdCents,
+        profile.uid,
       );
       const wasAuto = result.kind === 'auto';
       setShowForm(false);
@@ -239,16 +249,17 @@ export default function CashOutPage() {
             );
           })()}
 
-          {/* Auto-approve hint — only when the family has set a threshold AND
-              the entered amount qualifies. Tells the kid "this'll just go
-              through" so they're not waiting for an approval that never comes. */}
+          {/* Auto-approve hint — only when there's a non-zero threshold for
+              this kid AND the entered amount qualifies. Per-child override
+              beats family default; we tweak the copy so the kid knows
+              whether it's "your limit" vs "your family's limit". */}
           {(() => {
             const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
-            const threshold = config.spendAutoApproveBelowCents || 0;
+            const threshold = effectiveThresholdCents;
             if (cents <= 0 || threshold <= 0 || cents >= threshold) return null;
             return (
               <p className="text-[12px] text-hive-green leading-relaxed">
-                ⚡ Auto-approved · under your family&apos;s {formatCash(threshold, config.currency)} limit. No need to wait.
+                ⚡ Auto-approved · under your{usingPerKidOverride ? '' : ' family’s'} {formatCash(threshold, config.currency)} limit. No need to wait.
               </p>
             );
           })()}
@@ -257,7 +268,7 @@ export default function CashOutPage() {
 
           {(() => {
             const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
-            const threshold = config.spendAutoApproveBelowCents || 0;
+            const threshold = effectiveThresholdCents;
             const willAuto = cents > 0 && threshold > 0 && cents < threshold;
             return (
               <button

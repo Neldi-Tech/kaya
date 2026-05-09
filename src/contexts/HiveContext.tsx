@@ -18,6 +18,7 @@ import {
   subscribeToKidRequests, subscribeToPendingApprovals,
   subscribeToGoals, subscribeToMonthlyPlan,
 } from '@/lib/hive';
+import { fetchFxRates, suggestedRate } from '@/lib/fxRates';
 
 interface HiveContextType {
   /** The kid this context is currently focused on. Null if none picked. */
@@ -49,6 +50,14 @@ interface HiveContextType {
   /** Per-category spending in the current month, derived from `transactions`. */
   monthSpending: Partial<Record<string, number>>;
 
+  /**
+   * Live USD → family-currency rate. Used to render "≈ X family-currency"
+   * for any honey amount and to lock in the rate at cash-out request time.
+   * 1 when the family currency is USD; null while the live rate is loading
+   * or unavailable (callers should fall back to 1 in that case).
+   */
+  fxUsdToFamily: number | null;
+
   loading: boolean;
 }
 
@@ -73,6 +82,27 @@ export function HiveProvider({ children }: { children: ReactNode }) {
   }, [profile?.role, profile?.childId, kids, activeKidId]);
 
   const config = useMemo(() => readHiveConfig(family), [family]);
+
+  // Live USD → family-currency rate. Fetched once per day from
+  // open.er-api.com (no key, free) and cached in localStorage. Honey is
+  // benchmarked in USD; this is what makes "≈ TSh 2,650" possible for a
+  // TZS family while still keeping 1 🍯 globally meaningful.
+  const [fxUsdToFamily, setFxUsdToFamily] = useState<number | null>(
+    config.currency === 'USD' ? 1 : null,
+  );
+  useEffect(() => {
+    if (config.currency === 'USD') {
+      setFxUsdToFamily(1);
+      return;
+    }
+    let cancelled = false;
+    fetchFxRates('USD').then((rates) => {
+      if (cancelled) return;
+      const r = suggestedRate(rates, 'USD', config.currency);
+      setFxUsdToFamily(r); // null if unavailable — callers fall back to 1
+    });
+    return () => { cancelled = true; };
+  }, [config.currency]);
 
   const [wallet, setWallet] = useState<Wallet>(EMPTY_WALLET);
   const [transactions, setTransactions] = useState<HiveTransaction[]>([]);
@@ -125,12 +155,15 @@ export function HiveProvider({ children }: { children: ReactNode }) {
 
   // ── Derived values ──────────────────────────────────────────────
   const totalNetWorthCents = useMemo(() => {
-    // HP → Cash via the two configured rates. Honey → Cash via Lever B.
-    // We always convert through Honey to keep the single source of truth.
+    // HP → Honey → USD → family-currency. Honey is USD-benchmarked, so the
+    // FX rate (USD → family currency) lands the value in the right
+    // currency for the user's wallet display.
+    const fx = fxUsdToFamily ?? 1;
     const hpAsHoney = config.hpToHoneyRate > 0 ? wallet.housePoints / config.hpToHoneyRate : 0;
-    const honeyAsCash = (wallet.honeyCoins + hpAsHoney) * config.honeyToCashRate * 100;
-    return Math.round(honeyAsCash + wallet.cashCents);
-  }, [wallet, config]);
+    const honeyAsFamilyCents =
+      (wallet.honeyCoins + hpAsHoney) * config.honeyToCashRate * fx * 100;
+    return Math.round(honeyAsFamilyCents + wallet.cashCents);
+  }, [wallet, config, fxUsdToFamily]);
 
   const saveRate = useMemo(() => {
     if (transactions.length === 0) return null;
@@ -175,6 +208,7 @@ export function HiveProvider({ children }: { children: ReactNode }) {
         myRequests, pendingApprovals,
         totalNetWorthCents, saveRate, weeklyEarningsCents,
         monthlyPlan, monthKey, monthSpending,
+        fxUsdToFamily,
         loading: walletLoading,
       }}
     >

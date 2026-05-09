@@ -60,6 +60,14 @@ export const PLAN_CATEGORIES: { id: TxCategory; emoji: string; label: string }[]
 
 export interface HiveConfig {
   hpToHoneyRate: number;            // HP per 1 Honey Coin (default 100)
+  /**
+   * USD per 1 Honey Coin. **Always denominated in USD**, regardless of
+   * the family's display currency. This makes 🍯 a globally comparable
+   * unit — every family's honey carries the same USD-equivalent value,
+   * so kids in different currencies can think about saving in the same
+   * "honey-language". For non-USD families we convert at the live FX
+   * rate when honey actually moves into Cash.
+   */
   honeyToCashRate: number;          // USD per 1 Honey Coin (default 1.00)
   currency: string;                 // ISO-4217-like; default "USD"
   minCashOut: number;               // minimum Honey to allow a cash-out request (default 5)
@@ -69,7 +77,8 @@ export interface HiveConfig {
   /** Spends strictly below this amount (in cents of `currency`) auto-approve
    *  — they skip the parent inbox and post straight to the wallet. Default
    *  0 means "every spend goes through approval". A small threshold lets
-   *  kids buy a candy bar without making the parent tap a button. */
+   *  kids buy a candy bar without making the parent tap a button.
+   *  Per-child overrides live on `Child.spendAutoApproveBelowCents`. */
   spendAutoApproveBelowCents: number;
   autoAllowance?: {
     enabled: boolean;
@@ -82,7 +91,7 @@ export interface HiveConfig {
 
 export const DEFAULT_HIVE_CONFIG: HiveConfig = {
   hpToHoneyRate: 100,
-  honeyToCashRate: 1.0,
+  honeyToCashRate: 1.0, // USD
   currency: 'USD',
   minCashOut: 5,
   spendRequiresApproval: true,
@@ -90,6 +99,38 @@ export const DEFAULT_HIVE_CONFIG: HiveConfig = {
   requireApprovalForHpToHoney: true,
   spendAutoApproveBelowCents: 0,
 };
+
+/**
+ * Effective auto-approve threshold for a given kid. A child's per-kid
+ * override (if a number) wins over the family-wide default. `null` /
+ * `undefined` falls through to the family default.
+ */
+export function effectiveAutoApproveCents(
+  child: { spendAutoApproveBelowCents?: number | null } | null | undefined,
+  cfg: HiveConfig,
+): number {
+  if (child && typeof child.spendAutoApproveBelowCents === 'number') {
+    return Math.max(0, child.spendAutoApproveBelowCents);
+  }
+  return Math.max(0, cfg.spendAutoApproveBelowCents || 0);
+}
+
+/**
+ * "How many cents of the family's currency does this honey amount equal
+ * RIGHT NOW?" Honey is benchmarked in USD, so we apply the configured
+ * USD-per-honey rate first, then convert to the family currency at
+ * `fxUsdToFamily` (which a caller fetches live, with a graceful fall back
+ * to 1 when FX is unavailable or the family already uses USD).
+ */
+export function honeyToFamilyCents(
+  honey: number,
+  cfg: HiveConfig,
+  fxUsdToFamily: number = 1,
+): number {
+  const usdValue = honey * cfg.honeyToCashRate;          // USD
+  const familyMajor = usdValue * (fxUsdToFamily || 1);   // family-currency major units
+  return Math.round(familyMajor * 100);                  // cents (minor units)
+}
 
 // Currency catalog — ISO 4217 codes plus a friendly label and a symbol
 // hint. Used by the /parent/rates picker and on /parent/hive-deposit
@@ -483,18 +524,25 @@ export async function requestCashOut(
   honeyAmount: number,
   cfg: HiveConfig,
   createdBy: string,
+  /** Live USD → family-currency rate; pass 1 for USD families. The FX
+   *  rate at *request* time is the rate the kid sees promised; we lock
+   *  it in via the computed amountCents so today's deal sticks even if
+   *  the parent approves a few days later. */
+  fxUsdToFamily: number = 1,
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   if (!Number.isInteger(honeyAmount) || honeyAmount <= 0) throw new Error('Pick a positive 🍯 amount.');
   if (honeyAmount < cfg.minCashOut) throw new Error(`Cash-out minimum is ${cfg.minCashOut} 🍯.`);
-  const amountCents = Math.round(honeyAmount * cfg.honeyToCashRate * 100);
+  const amountCents = honeyToFamilyCents(honeyAmount, cfg, fxUsdToFamily);
 
   const ref = await addDoc(requestCol(familyId), {
     kidId,
     type: 'cash_out' as ApprovalType,
     honeyAmount,
     amountCents,
-    description: `Cash out ${honeyAmount} 🍯 → $${(amountCents / 100).toFixed(2)}`,
+    // Snapshot the rate so the audit trail shows what the kid was promised.
+    fxUsdToFamily,
+    description: `Cash out ${honeyAmount} 🍯`,
     status: 'pending' as ApprovalStatus,
     createdAt: serverTimestamp(),
     createdBy,
@@ -529,7 +577,10 @@ export async function requestSpend(
 
 /**
  * Either creates a parent-approval request OR posts the spend straight
- * through to the wallet, depending on `cfg.spendAutoApproveBelowCents`.
+ * through to the wallet, depending on `autoApproveBelowCents`. The
+ * caller computes the effective threshold (per-child override beats
+ * family default — see `effectiveAutoApproveCents`).
+ *
  * Returns `{ kind, txId | requestId }` so the caller can branch its UX —
  * auto-approved spends should show "Approved automatically · under your
  * family's $X auto-approve limit" instead of the pending banner.
@@ -540,15 +591,14 @@ export async function requestOrAutoSpend(
   amountCents: number,
   description: string,
   category: TxCategory,
-  cfg: HiveConfig,
+  autoApproveBelowCents: number,
   createdBy: string,
 ): Promise<{ kind: 'auto'; txId: string } | { kind: 'pending'; requestId: string }> {
   if (isGuestActive()) return { kind: 'pending', requestId: 'guest-request' };
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
   if (!description.trim()) throw new Error('Tell us what the money is for.');
 
-  const auto = cfg.spendAutoApproveBelowCents > 0
-    && amountCents < cfg.spendAutoApproveBelowCents;
+  const auto = autoApproveBelowCents > 0 && amountCents < autoApproveBelowCents;
 
   if (!auto) {
     const id = await requestSpend(familyId, kidId, amountCents, description, category, createdBy);

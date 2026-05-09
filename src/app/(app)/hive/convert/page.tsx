@@ -25,7 +25,7 @@ export default function ConvertPage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { children } = useFamily();
-  const { activeKidId, wallet, config } = useHive();
+  const { activeKidId, wallet, config, fxUsdToFamily } = useHive();
 
   const [mode, setMode] = useState<Mode>('hp_to_honey');
   const [amount, setAmount] = useState<string>('');
@@ -34,9 +34,11 @@ export default function ConvertPage() {
 
   const activeKid = children.find((c) => c.id === activeKidId);
   const numAmount = parseInt(amount.replace(/[^0-9]/g, ''), 10) || 0;
+  const fxRate = fxUsdToFamily ?? 1;
 
-  // Compute the "TO" preview live.
-  const fromHoneyToCashCents = honeyToCashCents(numAmount, config.honeyToCashRate);
+  // Compute the "TO" preview live. Honey is USD-benchmarked, so the cash
+  // amount lands in family currency via the live USD→family FX rate.
+  const fromHoneyToCashCents = honeyToCashCents(numAmount, config.honeyToCashRate, fxRate);
   const fromHpToHoney = config.hpToHoneyRate > 0 ? Math.floor(numAmount / config.hpToHoneyRate) : 0;
 
   const submit = async () => {
@@ -51,7 +53,10 @@ export default function ConvertPage() {
         await requestHpToHoney(profile.familyId, activeKidId, numAmount, config, profile.uid);
       } else {
         if (numAmount > wallet.honeyCoins) throw new Error(`You only have ${formatHoney(wallet.honeyCoins)} 🍯.`);
-        await requestCashOut(profile.familyId, activeKidId, numAmount, config, profile.uid);
+        await requestCashOut(
+          profile.familyId, activeKidId, numAmount, config, profile.uid,
+          fxRate,
+        );
       }
       router.push('/hive/wallet?pending=1');
     } catch (e: any) {
@@ -156,7 +161,7 @@ export default function ConvertPage() {
         <p className="text-[11px] text-hive-muted mt-2">
           New balance:{' '}
           {mode === 'hp_to_honey'
-            ? `${formatHoney(wallet.honeyCoins + fromHpToHoney)} 🍯 (≈ ${formatCash(honeyToCashCents(wallet.honeyCoins + fromHpToHoney, config.honeyToCashRate), config.currency)})`
+            ? `${formatHoney(wallet.honeyCoins + fromHpToHoney)} 🍯 (≈ ${formatCash(honeyToCashCents(wallet.honeyCoins + fromHpToHoney, config.honeyToCashRate, fxRate), config.currency)})`
             : formatCash(wallet.cashCents + fromHoneyToCashCents, config.currency)}
         </p>
       </div>
