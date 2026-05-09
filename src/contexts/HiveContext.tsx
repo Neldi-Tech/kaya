@@ -12,11 +12,11 @@ import {
 import { useAuth } from './AuthContext';
 import { useFamily } from './FamilyContext';
 import {
-  Wallet, HiveTransaction, ApprovalRequest, Goal, HiveConfig,
-  EMPTY_WALLET, readHiveConfig,
+  Wallet, HiveTransaction, ApprovalRequest, Goal, HiveConfig, MonthlyPlan,
+  EMPTY_WALLET, readHiveConfig, currentMonthKey, spendingByCategoryInMonth,
   subscribeToWallet, subscribeToHiveTransactions,
   subscribeToKidRequests, subscribeToPendingApprovals,
-  subscribeToGoals,
+  subscribeToGoals, subscribeToMonthlyPlan,
 } from '@/lib/hive';
 
 interface HiveContextType {
@@ -41,6 +41,13 @@ interface HiveContextType {
   saveRate: number | null;
   /** Derived: cents earned in the last 7 days. */
   weeklyEarningsCents: number;
+
+  /** This calendar month's spending plan, or null if the kid hasn't set one. */
+  monthlyPlan: MonthlyPlan | null;
+  /** Convenience: current YYYY-MM key. Re-rendered with the active month. */
+  monthKey: string;
+  /** Per-category spending in the current month, derived from `transactions`. */
+  monthSpending: Partial<Record<string, number>>;
 
   loading: boolean;
 }
@@ -72,7 +79,15 @@ export function HiveProvider({ children }: { children: ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [myRequests, setMyRequests] = useState<ApprovalRequest[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<ApprovalRequest[]>([]);
+  const [monthlyPlan, setMonthlyPlan] = useState<MonthlyPlan | null>(null);
   const [walletLoading, setWalletLoading] = useState(true);
+  // Recompute the month key once a minute so the month rolls over without
+  // a page reload near midnight on the first of the month.
+  const [monthKey, setMonthKey] = useState(currentMonthKey());
+  useEffect(() => {
+    const id = setInterval(() => setMonthKey(currentMonthKey()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const familyId = profile?.familyId;
 
@@ -95,8 +110,9 @@ export function HiveProvider({ children }: { children: ReactNode }) {
     unsubs.push(subscribeToHiveTransactions(familyId, activeKidId, setTransactions));
     unsubs.push(subscribeToGoals(familyId, activeKidId, setGoals));
     unsubs.push(subscribeToKidRequests(familyId, activeKidId, setMyRequests));
+    unsubs.push(subscribeToMonthlyPlan(familyId, activeKidId, monthKey, setMonthlyPlan));
     return () => { unsubs.forEach((u) => u()); };
-  }, [familyId, activeKidId]);
+  }, [familyId, activeKidId, monthKey]);
 
   // Parent-only inbox subscription.
   useEffect(() => {
@@ -134,6 +150,11 @@ export function HiveProvider({ children }: { children: ReactNode }) {
     return Math.round((inCents / total) * 100);
   }, [transactions]);
 
+  const monthSpending = useMemo(
+    () => spendingByCategoryInMonth(transactions, monthKey),
+    [transactions, monthKey],
+  );
+
   const weeklyEarningsCents = useMemo(() => {
     const cutoff = Date.now() - 7 * 86_400_000;
     let earned = 0;
@@ -153,6 +174,7 @@ export function HiveProvider({ children }: { children: ReactNode }) {
         config, wallet, transactions, goals,
         myRequests, pendingApprovals,
         totalNetWorthCents, saveRate, weeklyEarningsCents,
+        monthlyPlan, monthKey, monthSpending,
         loading: walletLoading,
       }}
     >

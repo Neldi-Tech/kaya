@@ -5,27 +5,28 @@
 // right-most phone in the v2 mockup.
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  cancelOwnRequest, requestSpend, TxCategory,
+  cancelOwnRequest, requestSpend, TxCategory, PLAN_CATEGORIES,
 } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash } from '@/components/hive/format';
 
-const SPEND_CATEGORIES: { id: TxCategory; emoji: string; label: string }[] = [
-  { id: 'spend',    emoji: '🛒', label: 'Shopping' },
-  { id: 'spend',    emoji: '📚', label: 'Books' },
-  { id: 'spend',    emoji: '🍦', label: 'Treats' },
-  { id: 'donation', emoji: '❤️', label: 'Donation' },
-  { id: 'other',    emoji: '✨', label: 'Other' },
-];
+// Use the same finer category set as the plan (PLAN_CATEGORIES) — but
+// drop "Savings" because that's not a thing you spend money on, it's a
+// budget allocation choice on /hive/plan.
+const SPEND_CHIPS = PLAN_CATEGORIES.filter((c) => c.id !== 'savings');
 
 export default function CashOutPage() {
   const { profile, isGuest } = useAuth();
-  const { activeKidId, transactions, myRequests, config, wallet } = useHive();
+  const {
+    activeKidId, transactions, myRequests, config, wallet,
+    monthlyPlan, monthSpending,
+  } = useHive();
 
   const outgoing = useMemo(
     () => transactions.filter((t) => t.layer === 'cash' && t.direction === 'out'),
@@ -57,7 +58,7 @@ export default function CashOutPage() {
   const [showForm, setShowForm] = useState(false);
   const [amountInput, setAmountInput] = useState('');
   const [desc, setDesc] = useState('');
-  const [category, setCategory] = useState<TxCategory>('spend');
+  const [category, setCategory] = useState<TxCategory>('shopping');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -75,7 +76,7 @@ export default function CashOutPage() {
     try {
       await requestSpend(profile.familyId, activeKidId, cents, desc.trim(), category, profile.uid);
       setShowForm(false);
-      setAmountInput(''); setDesc(''); setCategory('spend');
+      setAmountInput(''); setDesc(''); setCategory('shopping');
     } catch (e: any) {
       setError(e?.message || 'Failed to submit.');
     }
@@ -164,29 +165,50 @@ export default function CashOutPage() {
           <div>
             <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">Category</label>
             <div className="flex flex-wrap gap-1.5">
-              {SPEND_CATEGORIES.map((c, i) => {
-                const sel = i === 0 ? category === 'spend' && c.label === 'Shopping' : false;
-                // Multiple "spend" categories share the same id but different labels —
-                // we treat the chip as the source of the category id and store the
-                // emoji+label in the description for display.
-                return (
-                  <button
-                    key={c.label}
-                    onClick={() => {
-                      setCategory(c.id);
-                      // Prepend the chip's emoji+label to the description if blank.
-                      if (!desc.trim()) setDesc(`${c.emoji} ${c.label}: `);
-                    }}
-                    className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
-                      category === c.id ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
-                    }`}
-                  >
-                    {c.emoji} {c.label}
-                  </button>
-                );
-              })}
+              {SPEND_CHIPS.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setCategory(c.id)}
+                  className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
+                    category === c.id ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                  }`}
+                >
+                  {c.emoji} {c.label}
+                </button>
+              ))}
             </div>
           </div>
+
+          {/* Soft over-budget warning — only when the kid actually has a
+              plan budget for this category and adding the requested amount
+              would push them past it. We never block; this is a nudge. */}
+          {(() => {
+            const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
+            if (cents <= 0) return null;
+            const budget = (monthlyPlan?.budget as any)?.[category] as number | undefined;
+            if (!budget || budget <= 0) return null;
+            const spent = (monthSpending as any)[category] || 0;
+            const after = spent + cents;
+            const overBy = after - budget;
+            if (overBy <= 0) {
+              const left = budget - after;
+              return (
+                <p className="text-[12px] text-hive-muted leading-relaxed">
+                  ✅ Within plan — <strong className="text-hive-green">{formatCash(left, config.currency)}</strong> would be left for {SPEND_CHIPS.find((c) => c.id === category)?.label || category} this month.
+                </p>
+              );
+            }
+            return (
+              <div className="rounded-hive border border-hive-rose/40 bg-[#FCEAEA] p-3 text-[12px] text-hive-navy leading-relaxed">
+                ⚠️ This would put you{' '}
+                <strong className="text-hive-rose">{formatCash(overBy, config.currency)} over</strong>{' '}
+                your <strong>{SPEND_CHIPS.find((c) => c.id === category)?.label || category}</strong> plan
+                ({formatCash(spent, config.currency)} spent of {formatCash(budget, config.currency)} planned).{' '}
+                You can still ask — your parent decides.{' '}
+                <Link href="/hive/plan" className="text-hive-honey-dk font-bold hover:underline">Tweak plan ↗</Link>
+              </div>
+            );
+          })()}
 
           {error && <p className="text-hive-rose text-sm font-bold">{error}</p>}
 

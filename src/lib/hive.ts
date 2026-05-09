@@ -32,12 +32,31 @@ import { isGuestActive } from './mockFamily';
 export type HiveLayer = 'house_points' | 'honey' | 'cash';
 export type TxDirection = 'in' | 'out';
 export type TxStatus = 'completed' | 'pending_approval' | 'approved' | 'rejected';
-export type TxCategory =
-  | 'chore' | 'quest' | 'award' | 'convert' | 'allowance'
-  | 'gift'  | 'business' | 'spend' | 'donation' | 'other';
 
 export type ApprovalType = 'hp_to_honey' | 'cash_out' | 'spend';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+// Categories used both as the `category` on a HiveTransaction AND as the
+// keys of a kid's monthly spending plan. Earning categories (chore, quest,
+// award, convert, allowance, gift, business) are also valid TxCategory
+// values but never appear in a budget — they're income, not expenses.
+//
+// 'spend' remains as a generic fallback for legacy / "I'm not sure" entries.
+export type TxCategory =
+  | 'chore' | 'quest' | 'award' | 'convert' | 'allowance'
+  | 'gift'  | 'business'
+  | 'spend' | 'shopping' | 'books' | 'treats' | 'donation' | 'savings' | 'other';
+
+// Subset of TxCategory that can appear on a budget line. Keep this list
+// lined up with the chips on /hive/cash-out and /hive/plan.
+export const PLAN_CATEGORIES: { id: TxCategory; emoji: string; label: string }[] = [
+  { id: 'shopping', emoji: '🛒', label: 'Shopping' },
+  { id: 'books',    emoji: '📚', label: 'Books' },
+  { id: 'treats',   emoji: '🍦', label: 'Treats' },
+  { id: 'donation', emoji: '❤️', label: 'Donation' },
+  { id: 'savings',  emoji: '🍯', label: 'Savings' },
+  { id: 'other',    emoji: '✨', label: 'Other' },
+];
 
 export interface HiveConfig {
   hpToHoneyRate: number;            // HP per 1 Honey Coin (default 100)
@@ -123,6 +142,50 @@ export interface Goal {
   completedAt?: Timestamp;
 }
 
+// ── Monthly spending plan ─────────────────────────────────────────
+//
+// A kid-set budget for the current calendar month, keyed by category. Total
+// is denormalised so the Hive Home can show "$30 planned" without summing
+// the map. Lives at families/{f}/kids/{kidId}/monthlyPlans/{YYYY-MM} —
+// document id IS the month key so we can read the active month with one
+// snapshot listener.
+export interface MonthlyPlan {
+  monthKey: string;                          // 'YYYY-MM'
+  /** Map of category → planned cents. Missing keys = no budget for that category. */
+  budget: Partial<Record<TxCategory, number>>;
+  totalCents: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+/** "2026-05" for May 2026. Used as the doc id of the active monthly plan. */
+export function currentMonthKey(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+/** Sum a kid's spending in the given month, grouped by category. Pure
+ *  function on the existing transaction stream — no extra Firestore read. */
+export function spendingByCategoryInMonth(
+  transactions: HiveTransaction[],
+  monthKey: string,
+): Partial<Record<TxCategory, number>> {
+  const [yyyy, mm] = monthKey.split('-').map((n) => parseInt(n, 10));
+  if (!yyyy || !mm) return {};
+  const start = new Date(yyyy, mm - 1, 1).getTime();
+  const end = new Date(yyyy, mm, 1).getTime();
+  const out: Partial<Record<TxCategory, number>> = {};
+  for (const t of transactions) {
+    if (t.layer !== 'cash' || t.direction !== 'out') continue;
+    const ts = (t.createdAt as any)?.toMillis?.();
+    if (typeof ts !== 'number' || ts < start || ts >= end) continue;
+    const c = t.category;
+    out[c] = (out[c] || 0) + t.amount;
+  }
+  return out;
+}
+
 export interface ApprovalRequest {
   id: string;
   kidId: string;
@@ -157,6 +220,9 @@ const goalCol = (familyId: string, kidId: string) =>
 
 const requestCol = (familyId: string) =>
   collection(db, 'families', familyId, 'approvalRequests');
+
+const planRef = (familyId: string, kidId: string, monthKey: string) =>
+  doc(db, 'families', familyId, 'kids', kidId, 'monthlyPlans', monthKey);
 
 const childRef = (familyId: string, kidId: string) =>
   doc(db, 'families', familyId, 'children', kidId);
@@ -257,6 +323,56 @@ export function subscribeToKidRequests(
   return onSnapshot(q, (s) => {
     cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as ApprovalRequest)));
   });
+}
+
+// ── Monthly plan ──────────────────────────────────────────────────
+
+export function subscribeToMonthlyPlan(
+  familyId: string,
+  kidId: string,
+  monthKey: string,
+  cb: (plan: MonthlyPlan | null) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb(null);
+    return () => {};
+  }
+  return onSnapshot(planRef(familyId, kidId, monthKey), (snap) => {
+    cb(snap.exists() ? ({ ...(snap.data() as MonthlyPlan), monthKey }) : null);
+  });
+}
+
+/** Save a kid's plan for a given month. Idempotent — re-saving the same
+ *  month overwrites. Total is recomputed from the budget map. */
+export async function saveMonthlyPlan(
+  familyId: string,
+  kidId: string,
+  monthKey: string,
+  budget: Partial<Record<TxCategory, number>>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  // Drop zero / negative entries so the doc stays clean.
+  const cleaned: Partial<Record<TxCategory, number>> = {};
+  let total = 0;
+  for (const [k, v] of Object.entries(budget)) {
+    if (typeof v === 'number' && v > 0) {
+      cleaned[k as TxCategory] = Math.round(v);
+      total += Math.round(v);
+    }
+  }
+  await setDoc(
+    planRef(familyId, kidId, monthKey),
+    {
+      monthKey,
+      budget: cleaned,
+      totalCents: total,
+      updatedAt: serverTimestamp(),
+      // Set createdAt only if absent — Firestore preserves the existing
+      // value when merge:true and the field is omitted on update.
+      createdAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
 }
 
 // ── Wallet bootstrap ──────────────────────────────────────────────

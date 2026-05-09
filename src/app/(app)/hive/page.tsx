@@ -13,13 +13,15 @@ import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
+import PlanSummaryCard from '@/components/hive/PlanSummaryCard';
 import { honeyToCashCents } from '@/components/hive/format';
 
 const ACTIONS = [
-  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🍯',  href: '/hive/convert'  },
-  { id: 'spend',    icon: '🛒', label: 'Spend',    desc: 'Request a spend',  href: '/hive/cash-out' },
-  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward',      href: '/hive/goals'    },
-  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?',  href: '/hive/insights' },
+  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🍯',   href: '/hive/convert'  },
+  { id: 'spend',    icon: '🛒', label: 'Spend',    desc: 'Request a spend',   href: '/hive/cash-out' },
+  { id: 'plan',     icon: '🗓️', label: 'Plan',     desc: 'Budget the month',  href: '/hive/plan'     },
+  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward',       href: '/hive/goals'    },
+  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?',   href: '/hive/insights' },
 ];
 
 export default function HiveHomePage() {
@@ -65,7 +67,10 @@ export default function HiveHomePage() {
         />
       </div>
 
-      {/* 4-button action grid */}
+      {/* This-month spending plan summary (or "+ Set up a plan" prompt). */}
+      <PlanSummaryCard />
+
+      {/* Action grid (5 items in a 2-col layout — last row spans alone). */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         {ACTIONS.map((a) => (
           <Link
