@@ -49,17 +49,24 @@ export function PantryProvider({ children }: { children: ReactNode }) {
       return;
     }
     setLoading(true);
-    let mountedListeners = 0;
-    const onAnyLoaded = () => {
-      mountedListeners++;
-      if (mountedListeners >= 3) setLoading(false);
-    };
+    // Each listener owns its own "first emission has fired" flag — we
+    // only show "Loading…" until the FIRST listener fires (that's enough
+    // to render the page; the others will populate as they arrive).
+    // Hard timeout fallback (1.5s) so a misconfigured rule or composite
+    // index never sticks the user on a loading screen.
+    let cancelled = false;
+    const flip = () => { if (!cancelled) setLoading(false); };
+    const timeout = setTimeout(flip, 1500);
     const unsubs = [
-      subscribeToStaples(familyId, (s) => { setStaples(s); onAnyLoaded(); }),
-      subscribeToSuppliers(familyId, 'soko', (s) => { setSokoSuppliers(s); onAnyLoaded(); }),
-      subscribeToActiveLists(familyId, (l) => { setActiveLists(l); onAnyLoaded(); }),
+      subscribeToStaples(familyId, (s) => { setStaples(s); flip(); }),
+      subscribeToSuppliers(familyId, 'soko', (s) => { setSokoSuppliers(s); flip(); }),
+      subscribeToActiveLists(familyId, (l) => { setActiveLists(l); flip(); }),
     ];
-    return () => { unsubs.forEach((u) => u()); };
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      unsubs.forEach((u) => u());
+    };
   }, [familyId]);
 
   const currentList = useMemo(

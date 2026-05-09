@@ -11,9 +11,11 @@ import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   STAPLE_CATEGORIES, StapleCategory, Cadence,
+  STAPLE_UNITS, MAX_PREFERRED_BRANDS,
   addStaple, updateStaple, deleteStaple,
   Staple,
 } from '@/lib/pantry';
+import { suggestStaples } from '@/lib/pantryStapleSuggestions';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
 import NumberInput from '@/components/ui/NumberInput';
@@ -176,7 +178,15 @@ function StapleRow({
         {cat?.emoji || '✨'}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-nunito font-extrabold text-[14px] truncate">{staple.name}</p>
+        <p className="font-nunito font-extrabold text-[14px] truncate">
+          {staple.name}
+          {staple.preferredBrands && staple.preferredBrands.length > 0 && (
+            <span className="ml-1.5 text-[11px] font-bold text-pantry-leaf-dk">
+              · {staple.preferredBrands.slice(0, 2).join(' · ')}
+              {staple.preferredBrands.length > 2 && ` · +${staple.preferredBrands.length - 2}`}
+            </span>
+          )}
+        </p>
         <p className="text-[11px] text-hive-muted truncate">
           {staple.defaultQty}{staple.unit ? ` ${staple.unit}` : ''} · {cadence?.label || staple.cadence}
           {typeof staple.lastBoughtCents === 'number' && (
@@ -212,14 +222,53 @@ function StapleForm({
   const [name, setName] = useState(existing?.name || '');
   const [category, setCategory] = useState<StapleCategory>(existing?.category || 'pantry');
   const [defaultQty, setDefaultQty] = useState<number>(existing?.defaultQty || 1);
-  const [unit, setUnit] = useState(existing?.unit || '');
+  // The unit is a dropdown choice; if the existing value isn't in the
+  // catalog we drop it into a free-text "Other" field.
+  const knownUnitIds = STAPLE_UNITS.map((u) => u.id as string);
+  const startingUnit = existing?.unit || '';
+  const [unitMode, setUnitMode] = useState<'dropdown' | 'other'>(
+    startingUnit && !knownUnitIds.includes(startingUnit) ? 'other' : 'dropdown',
+  );
+  const [unit, setUnit] = useState(startingUnit);
+  const [unitOther, setUnitOther] = useState(unitMode === 'other' ? startingUnit : '');
   const [cadence, setCadence] = useState<Cadence>(existing?.cadence || 'weekly');
   const [lastBoughtMajor, setLastBoughtMajor] = useState<number>(
     existing?.lastBoughtCents ? existing.lastBoughtCents / 100 : 0,
   );
   const [supplierId, setSupplierId] = useState<string>(existing?.preferredSupplierId || '');
+  // Up to MAX_PREFERRED_BRANDS slots, indexed by preference (1st, 2nd, 3rd).
+  const [brands, setBrands] = useState<string[]>(() => {
+    const arr: string[] = [];
+    for (let i = 0; i < MAX_PREFERRED_BRANDS; i++) {
+      arr.push(existing?.preferredBrands?.[i] || '');
+    }
+    return arr;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Typeahead suggestions from the COMMON_STAPLES dictionary. Only
+  // surfaces while typing a new staple (we hide them once the user is
+  // editing an existing row to avoid noise).
+  const suggestions = useMemo(
+    () => existing ? [] : suggestStaples(name, 4),
+    [name, existing],
+  );
+  const applySuggestion = (s: ReturnType<typeof suggestStaples>[number]) => {
+    setName(s.label);
+    setCategory(s.category);
+    setDefaultQty(s.defaultQty);
+    if (knownUnitIds.includes(s.unit)) {
+      setUnitMode('dropdown');
+      setUnit(s.unit);
+      setUnitOther('');
+    } else {
+      setUnitMode('other');
+      setUnit(s.unit);
+      setUnitOther(s.unit);
+    }
+    setCadence(s.cadence);
+  };
 
   const submit = async () => {
     setError('');
@@ -227,14 +276,17 @@ function StapleForm({
     if (defaultQty <= 0) { setError('Default quantity must be at least 1.'); return; }
     setSaving(true);
     try {
+      const finalUnit = unitMode === 'other' ? unitOther.trim() : unit;
+      const cleanedBrands = brands.map((b) => b.trim()).filter((b) => b.length > 0);
       const payload = {
         name: name.trim(),
         category,
         defaultQty: Math.round(defaultQty),
-        unit: unit.trim(),
+        unit: finalUnit,
         cadence,
         lastBoughtCents: lastBoughtMajor > 0 ? Math.round(lastBoughtMajor * 100) : undefined,
         preferredSupplierId: supplierId || undefined,
+        preferredBrands: cleanedBrands.length > 0 ? cleanedBrands : undefined,
         active: true,
       };
       if (existing) {
@@ -256,11 +308,25 @@ function StapleForm({
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Rice"
+          placeholder="Start typing — e.g. ri… → Rice"
           maxLength={60}
           autoFocus
           className="w-full mt-1 h-11 px-3 bg-hive-cream rounded-[12px] text-[15px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
         />
+        {suggestions.length > 0 && (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {suggestions.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => applySuggestion(s)}
+                className="px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border border-pantry-leaf/40 bg-pantry-leaf-soft text-pantry-leaf-dk hover:brightness-105"
+              >
+                {s.emoji} {s.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div>
@@ -296,13 +362,45 @@ function StapleForm({
         </div>
         <div className="col-span-2">
           <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Unit</label>
-          <input
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-            placeholder="kg / L / x / packets"
-            maxLength={20}
-            className="w-full mt-1 h-10 px-3 bg-hive-cream rounded-[12px] text-[13px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
-          />
+          {unitMode === 'dropdown' ? (
+            <select
+              value={unit}
+              onChange={(e) => {
+                if (e.target.value === '__other__') {
+                  setUnitMode('other');
+                  setUnitOther('');
+                  setUnit('');
+                } else {
+                  setUnit(e.target.value);
+                }
+              }}
+              className="w-full mt-1 h-10 px-2 bg-hive-cream rounded-[12px] font-nunito font-extrabold text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+            >
+              <option value="">— pick a unit —</option>
+              {STAPLE_UNITS.map((u) => (
+                <option key={u.id} value={u.id}>{u.label}</option>
+              ))}
+              <option value="__other__">Other (custom)…</option>
+            </select>
+          ) : (
+            <div className="flex gap-1.5">
+              <input
+                value={unitOther}
+                onChange={(e) => { setUnitOther(e.target.value); setUnit(e.target.value); }}
+                placeholder="Custom unit"
+                maxLength={20}
+                autoFocus
+                className="flex-1 mt-1 h-10 px-3 bg-hive-cream rounded-[12px] text-[13px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              />
+              <button
+                type="button"
+                onClick={() => { setUnitMode('dropdown'); setUnit(''); setUnitOther(''); }}
+                className="mt-1 h-10 px-3 rounded-hive-pill bg-hive-line text-hive-muted font-nunito font-extrabold text-[11px]"
+              >
+                ↩
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -339,6 +437,36 @@ function StapleForm({
             placeholder="0"
             className="flex-1 h-10 px-3 bg-hive-cream rounded-[12px] font-nunito font-black text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
           />
+        </div>
+      </div>
+
+      <div>
+        <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+          Preferred brands (optional · up to {MAX_PREFERRED_BRANDS})
+        </label>
+        <p className="text-[10px] text-hive-muted mt-1">
+          Listed on the active list and in the WhatsApp message —
+          &quot;Rice (Pishori or Daawat) — 2kg&quot;.
+        </p>
+        <div className="mt-2 space-y-1.5">
+          {brands.map((b, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-[8px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-[11px] font-nunito font-black shrink-0">
+                {i + 1}
+              </span>
+              <input
+                value={b}
+                onChange={(e) => {
+                  const next = [...brands];
+                  next[i] = e.target.value;
+                  setBrands(next);
+                }}
+                placeholder={i === 0 ? '1st choice — e.g. Pishori' : i === 1 ? '2nd choice (optional)' : '3rd choice (optional)'}
+                maxLength={40}
+                className="flex-1 h-9 px-3 bg-hive-cream rounded-[10px] text-[13px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              />
+            </div>
+          ))}
         </div>
       </div>
 

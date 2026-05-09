@@ -263,6 +263,11 @@ function ListRow({
         <div className="flex-1 min-w-0">
           <p className={`font-nunito font-extrabold text-[13px] truncate ${item.done ? 'line-through text-hive-muted' : ''}`}>
             {item.name}
+            {item.preferredBrands && item.preferredBrands.length > 0 && !item.done && (
+              <span className="ml-1.5 text-[10px] font-bold text-pantry-leaf-dk">
+                · {item.preferredBrands.slice(0, 2).join(' / ')}
+              </span>
+            )}
           </p>
           <p className="text-[10px] text-hive-muted truncate">
             {item.qty}{item.unit ? ` ${item.unit}` : ''}
@@ -355,6 +360,10 @@ function AddItemForm({
   const [estimatedMajor, setEstimatedMajor] = useState<number>(0);
   const [supplierId, setSupplierId] = useState<string>('');
   const [category, setCategory] = useState<StapleCategory | ''>('');
+  // Brand preferences carry over from the picked staple. We snapshot
+  // them here so the parent can still tweak before submitting.
+  const [brands, setBrands] = useState<string[]>([]);
+  const [stapleId, setStapleId] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
 
   // Quick-pick staple suggestions filter as the parent types.
@@ -371,6 +380,8 @@ function AddItemForm({
     setEstimatedMajor((s.lastBoughtCents || 0) / 100);
     setSupplierId(s.preferredSupplierId || '');
     setCategory(s.category);
+    setBrands(s.preferredBrands ? [...s.preferredBrands] : []);
+    setStapleId(s.id);
   };
 
   const submit = async () => {
@@ -384,6 +395,8 @@ function AddItemForm({
       estimatedCents: estimatedMajor > 0 ? Math.round(estimatedMajor * 100) : undefined,
       supplierId: supplierId || undefined,
       category: category || undefined,
+      preferredBrands: brands.length > 0 ? brands : undefined,
+      stapleId,
       done: false,
     });
     setSubmitting(false);

@@ -13,6 +13,7 @@ import {
   Supplier, SupplierCategory,
   addSupplier, updateSupplier, deleteSupplier,
 } from '@/lib/pantry';
+import ContactPickerButton from '@/components/pantry/ContactPickerButton';
 import BackButton from '@/components/ui/BackButton';
 
 export default function SuppliersPage() {
@@ -229,6 +230,25 @@ function SupplierForm({
 
   return (
     <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive-lg p-4 mb-3 space-y-3">
+      {/* Phone-contact picker · pre-fills name + phone in one tap on
+          supported browsers (Android Chrome, etc.). Disabled with an
+          inline hint on iOS / desktop. */}
+      {!existing && (
+        <ContactPickerButton
+          onPicked={({ name: pickedName, phone: pickedPhone }) => {
+            // Don't overwrite a name the parent already typed.
+            if (pickedName && !name.trim()) setName(pickedName);
+            if (pickedPhone && !phone.trim()) setPhone(pickedPhone);
+            // If they pick a contact and didn't have a contact-person yet,
+            // mirror the picked name there too — common case is the supplier
+            // is the person.
+            if (pickedName && !contactName.trim() && !name.trim()) {
+              setContactName(pickedName);
+            }
+          }}
+        />
+      )}
+
       <div>
         <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Business name</label>
         <input

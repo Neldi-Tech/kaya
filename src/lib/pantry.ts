@@ -39,6 +39,33 @@ export const STAPLE_CATEGORIES: { id: StapleCategory; emoji: string; label: stri
   { id: 'other',    emoji: '✨', label: 'Other' },
 ];
 
+// ── Units ─────────────────────────────────────────────────────────
+
+/** Common units. We keep this short on purpose — covers ~95% of
+ *  household items. The form has an "Other" escape hatch that opens a
+ *  free-text input for anything not in the list. */
+export const STAPLE_UNITS = [
+  { id: 'kg',     label: 'kg' },
+  { id: 'g',      label: 'g' },
+  { id: 'L',      label: 'L' },
+  { id: 'ml',     label: 'ml' },
+  { id: 'x',      label: 'x (count)' },
+  { id: 'pack',   label: 'pack' },
+  { id: 'pkt',    label: 'packet' },
+  { id: 'dozen',  label: 'dozen' },
+  { id: 'bunch',  label: 'bunch' },
+  { id: 'bag',    label: 'bag' },
+  { id: 'bottle', label: 'bottle' },
+  { id: 'can',    label: 'can' },
+  { id: 'jar',    label: 'jar' },
+  { id: 'tin',    label: 'tin' },
+  { id: 'bar',    label: 'bar' },
+  { id: 'roll',   label: 'roll' },
+  { id: 'box',    label: 'box' },
+] as const;
+
+// ── Recurrence cadence ───────────────────────────────────────────
+
 /** Recurrence cadence — used to decide which staples auto-flow into
  *  next week's list (Phase 1B will run the auto-populate; Phase 1A
  *  treats every staple as "available to add to this week".) */
@@ -94,6 +121,10 @@ export interface Staple {
   /** Optional supplier this staple usually comes from — drives the
    *  "group by supplier" UX on the active list. */
   preferredSupplierId?: string;
+  /** Up to 3 preferred brands in order of preference (1st = most
+   *  preferred). Surfaces on the active list rows AND in the WhatsApp
+   *  message we send to the supplier so they know what to grab. */
+  preferredBrands?: string[];
   notes?: string;
   /** False to keep the staple in the master list but skip it in the
    *  Phase 1B auto-populate. Phase 1A treats it as advisory only. */
@@ -101,6 +132,9 @@ export interface Staple {
   createdAt: Timestamp;
   updatedAt?: Timestamp;
 }
+
+/** Maximum brand-preference slots we render on the staple form. */
+export const MAX_PREFERRED_BRANDS = 3;
 
 // ── Grocery list (a "run") ───────────────────────────────────────
 
@@ -117,6 +151,10 @@ export interface GroceryListItem {
    *  inline. The eventual "spent" field comes when the list closes. */
   estimatedCents?: number;
   supplierId?: string;
+  /** Snapshot of the staple's preferred brands at list-creation time.
+   *  Display + WhatsApp formatter use this directly so the parent's
+   *  current Staple doc isn't read on every render. */
+  preferredBrands?: string[];
   /** Has someone already picked it up? Drives the line-through. */
   done: boolean;
   /** Source staple id when the row originated from the master list.
@@ -268,15 +306,26 @@ export function subscribeToActiveLists(
     cb([]);
     return () => {};
   }
-  const q = query(
+  // We pull the whole collection and filter in-memory rather than using a
+  // composite index. With one list per week, the doc count grows slowly
+  // (~52 a year) so a tiny in-memory sort is far cheaper than asking the
+  // family to deploy an index before the Pantry Home renders.
+  return onSnapshot(
     listCol(familyId),
-    where('status', '==', 'active'),
-    orderBy('weekOf', 'desc'),
-    limit(max),
+    (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as GroceryList));
+      const active = all
+        .filter((l) => l.status === 'active')
+        .sort((a, b) => (b.weekOf || '').localeCompare(a.weekOf || ''))
+        .slice(0, max);
+      cb(active);
+    },
+    () => {
+      // Permission errors / network blips → render empty so the page
+      // doesn't sit on "Loading…" forever.
+      cb([]);
+    },
   );
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as GroceryList)));
-  });
 }
 
 export function subscribeToList(
@@ -332,6 +381,7 @@ export async function createListFromStaples(
       unit: s.unit,
       estimatedCents: s.lastBoughtCents,
       supplierId: s.preferredSupplierId,
+      preferredBrands: s.preferredBrands && s.preferredBrands.length > 0 ? [...s.preferredBrands] : undefined,
       done: false,
       stapleId: s.id,
     }));
@@ -442,7 +492,9 @@ export function groupBySupplier(
 
 // ── WhatsApp / phone helpers ─────────────────────────────────────
 
-/** Compose a friendly, scannable message for a supplier's list group. */
+/** Compose a friendly, scannable message for a supplier's list group.
+ *  Brand preferences are appended in parens — "Rice (Pishori or Daawat)
+ *  — 2kg" — so the supplier knows what to grab if they have options. */
 export function formatListForWhatsApp(
   supplierName: string,
   items: GroceryListItem[],
@@ -453,7 +505,10 @@ export function formatListForWhatsApp(
     .filter((i) => !i.done)
     .map((i) => {
       const qty = i.qty > 1 || i.unit ? `${i.qty}${i.unit ? ' ' + i.unit : ''}` : '';
-      return `• ${i.name}${qty ? ` — ${qty}` : ''}`;
+      const brands = i.preferredBrands && i.preferredBrands.length > 0
+        ? ` (${i.preferredBrands.join(' or ')})`
+        : '';
+      return `• ${i.name}${brands}${qty ? ` — ${qty}` : ''}`;
     });
   const signoff = opts?.signoff ?? 'Asante! 🙏';
   return `${greeting}\n\nHere's our list:\n${lines.join('\n')}\n\n${signoff}`;
