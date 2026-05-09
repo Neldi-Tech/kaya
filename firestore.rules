@@ -172,6 +172,33 @@ service cloud.firestore {
           || isThisKid(familyId, kidId);
         allow delete: if false;
       }
+
+      // ── The Pantry · staples ─────────────────────────────────────
+      // Master list of recurring household items. Parents + helpers
+      // edit; kids read only (suggest mode arrives in Phase 1B).
+      match /staples/{stapleId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentOrHelper(familyId);
+      }
+
+      // ── Suppliers (Soko + future Roster) ──────────────────────────
+      // Single source of truth shared with The Roster directory. The
+      // Pantry view filters by `categories` array-contains 'soko'; the
+      // Roster shows all entries.
+      match /suppliers/{supplierId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentOrHelper(familyId);
+      }
+
+      // ── Grocery lists ────────────────────────────────────────────
+      // Active runs (one per week, by convention). Parents + helpers
+      // edit; kids read only. Phase 1B will let kids suggest items via
+      // a separate `suggestions` subcollection that doesn't touch the
+      // list directly.
+      match /groceryLists/{listId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentOrHelper(familyId);
+      }
     }
   }
 }

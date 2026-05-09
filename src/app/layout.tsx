@@ -4,6 +4,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { FamilyProvider } from '@/contexts/FamilyContext';
 import { HiveProvider } from '@/contexts/HiveContext';
+import { PantryProvider } from '@/contexts/PantryContext';
 import './globals.css';
 
 // The Hive section uses Nunito (display) + Lato (body) per the v2 design
@@ -53,7 +54,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <AuthProvider>
             <FamilyProvider>
               <HiveProvider>
-                {children}
+                <PantryProvider>
+                  {children}
+                </PantryProvider>
               </HiveProvider>
             </FamilyProvider>
           </AuthProvider>
