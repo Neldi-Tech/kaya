@@ -12,13 +12,32 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory } from '@/lib/hive';
+import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory, currencySymbol } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash } from '@/components/hive/format';
 
-const QUICK_AMOUNTS = [500, 1000, 1500, 2000, 3000]; // $5, $10, $15, $20, $30
+// Quick-chip preset values for the per-category budget input. Currency-
+// aware so a TZS family doesn't see "$5 / $10" chips that mean ~TSh 25
+// in real terms. All values in MAJOR units of the active currency.
+const QUICK_AMOUNTS_BY_CURRENCY: Record<string, number[]> = {
+  USD: [5, 10, 15, 20, 30],
+  EUR: [5, 10, 15, 20, 30],
+  GBP: [5, 10, 15, 20, 30],
+  CAD: [5, 10, 15, 20, 30],
+  AUD: [5, 10, 15, 20, 30],
+  AED: [20, 50, 100, 200, 500],
+  TZS: [5000, 10000, 25000, 50000, 100000],
+  UGX: [10000, 25000, 50000, 100000, 250000],
+  KES: [500, 1000, 2500, 5000, 10000],
+  NGN: [1000, 2500, 5000, 10000, 25000],
+  ZAR: [50, 100, 250, 500, 1000],
+  INR: [250, 500, 1000, 2500, 5000],
+};
+function quickAmounts(currency: string): number[] {
+  return QUICK_AMOUNTS_BY_CURRENCY[currency] || QUICK_AMOUNTS_BY_CURRENCY.USD;
+}
 
 export default function PlanPage() {
   const { profile, isGuest } = useAuth();
@@ -157,7 +176,7 @@ export default function PlanPage() {
                   )}
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-hive-muted font-nunito font-bold text-base">$</span>
+                  <span className="text-hive-muted font-nunito font-bold text-base">{currencySymbol(config.currency).trim() || '$'}</span>
                   <NumberInput
                     value={planned / 100}
                     onChange={(n) => setCategory(c.id, Math.round(n * 100))}
@@ -170,21 +189,25 @@ export default function PlanPage() {
                 </div>
               </div>
 
-              {/* Quick-amount chips */}
+              {/* Quick-amount chips · scaled per active currency */}
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {QUICK_AMOUNTS.map((cents) => (
-                  <button
-                    key={cents}
-                    onClick={() => setCategory(c.id, cents)}
-                    className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
-                      planned === cents
-                        ? 'bg-hive-honey text-white border-transparent'
-                        : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
-                    }`}
-                  >
-                    ${cents / 100}
-                  </button>
-                ))}
+                {quickAmounts(config.currency).map((major) => {
+                  const cents = Math.round(major * 100);
+                  const symbol = currencySymbol(config.currency).trim() || '$';
+                  return (
+                    <button
+                      key={cents}
+                      onClick={() => setCategory(c.id, cents)}
+                      className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                        planned === cents
+                          ? 'bg-hive-honey text-white border-transparent'
+                          : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
+                      }`}
+                    >
+                      {symbol}{major.toLocaleString('en-US')}
+                    </button>
+                  );
+                })}
                 {planned > 0 && (
                   <button
                     onClick={() => setCategory(c.id, 0)}
