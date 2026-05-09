@@ -38,6 +38,14 @@ module.exports = {
           rose: '#E36F6F',
           blue: '#3F7AAF',
         },
+        // ── The Pantry (Soko) · leaf-green section accents, sharing the
+        //    cream/line/paper neutrals with The Hive so the family of
+        //    sections feels cohesive. Pantry-only colour is `leaf-*`.
+        pantry: {
+          leaf: '#5BA88C',
+          'leaf-dk': '#3F7A66',
+          'leaf-soft': '#C9E5D7',
+        },
       },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],

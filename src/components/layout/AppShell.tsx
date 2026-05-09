@@ -25,6 +25,13 @@ const PARENT_INSIGHTS: NavItem[] = [
   { path: '/hive',        icon: '🍯', label: 'The Hive' },
 ];
 
+// Household section · adult-facing surfaces that aren't about kids
+// directly. Pantry today; The Roster (suppliers directory) and
+// household chats land here next.
+const PARENT_HOUSEHOLD: NavItem[] = [
+  { path: '/pantry', icon: '🛒', label: 'The Pantry' },
+];
+
 const FUN_NAV: NavItem[] = [
   { path: '/videos', icon: '📺', label: 'Videos', soon: true },
   { path: '/games',  icon: '🎮', label: 'Games',  soon: true },
@@ -34,6 +41,7 @@ const HELPER_NAV: NavItem[] = [
   { path: '/dashboard', icon: '🏠', label: 'Home',   mobileLabel: 'Home' },
   { path: '/rate',      icon: '📋', label: 'Rate',   mobileLabel: 'Rate' },
   { path: '/award',     icon: '🎖️', label: 'Award',  mobileLabel: 'Award' },
+  { path: '/pantry',    icon: '🛒', label: 'Pantry', mobileLabel: 'Pantry' },
   { path: '/profiles',  icon: '👧', label: 'Kids',   mobileLabel: 'Kids' },
 ];
 
@@ -59,10 +67,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const mobileNav: NavItem[] =
     role === 'kid' ? KID_NAV : role === 'helper' ? HELPER_NAV : PARENT_PRIMARY;
 
-  // Inside /hive/* the section renders its own bottom tab bar
-  // (HiveTabBar). Suppress AppShell's mobile bottom nav so the two
-  // don't stack and double the safe-area padding.
+  // Inside /hive/* OR /pantry/* the section renders its own bottom tab
+  // bar. Suppress AppShell's mobile bottom nav so the two don't stack
+  // and double the safe-area padding.
   const inHiveSection = !!pathname?.startsWith('/hive');
+  const inPantrySection = !!pathname?.startsWith('/pantry');
+  const inSectionWithOwnTabBar = inHiveSection || inPantrySection;
 
   const sidebarSections =
     role === 'kid'
@@ -71,6 +81,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       ? [{ items: HELPER_NAV }]
       : [
           { items: PARENT_PRIMARY },
+          { title: 'Household', items: PARENT_HOUSEHOLD },
           { title: 'Insights', items: PARENT_INSIGHTS },
           { title: 'Fun', items: FUN_NAV },
         ];
@@ -248,7 +259,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       */}
       <div
         className={`fixed bottom-0 inset-x-0 bg-kaya-cream border-t border-kaya-warm-dark/50 z-20 lg:hidden will-change-transform ${
-          inHiveSection ? 'hidden' : ''
+          inSectionWithOwnTabBar ? 'hidden' : ''
         }`}
         style={{
           paddingBottom: 'env(safe-area-inset-bottom)',
