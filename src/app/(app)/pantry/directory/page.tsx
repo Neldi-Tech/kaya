@@ -14,12 +14,16 @@ import {
   STAPLES_DIRECTORY, FOODS_DIRECTORY, FOOD_MEAL_TYPES,
   FoodMealType, StapleDirectoryItem,
 } from '@/lib/pantryDirectory';
-import { addStaplesBulk, STAPLE_CATEGORIES, StapleCategory } from '@/lib/pantry';
+import {
+  addStaplesBulk, STAPLE_CATEGORIES, StapleCategory,
+  STAPLE_KINDS, StapleKind, kindForCategory,
+} from '@/lib/pantry';
 import BackButton from '@/components/ui/BackButton';
 
 type Tab = 'staples' | 'foods';
 type CatFilter = 'all' | StapleCategory;
 type RegionFilter = 'all' | 'east-africa' | 'south-asia' | 'global';
+type DietFilter = 'all' | 'vegetarian' | 'vegan' | 'halal';
 
 export default function DirectoryPage() {
   const { profile, isGuest } = useAuth();
@@ -27,9 +31,14 @@ export default function DirectoryPage() {
 
   const [tab, setTab] = useState<Tab>('staples');
   const [query, setQuery] = useState('');
+  // Top-level Food/Household toggle on the staples tab. Defaults to
+  // 'food' since most onboarding traffic is grocery-shaped.
+  const [kind, setKind] = useState<StapleKind>('food');
   const [catFilter, setCatFilter] = useState<CatFilter>('all');
   const [region, setRegion] = useState<RegionFilter>('all');
   const [foodMeal, setFoodMeal] = useState<FoodMealType | 'all'>('all');
+  const [foodRegion, setFoodRegion] = useState<RegionFilter>('all');
+  const [foodDiet, setFoodDiet] = useState<DietFilter>('all');
 
   // Multi-select keyed by item label (works for both staples & foods'
   // resolved staples — labels are unique within each catalog).
@@ -43,10 +52,17 @@ export default function DirectoryPage() {
     [staples],
   );
 
+  // Categories belonging to the active Food/Household kind.
+  const kindCategories = useMemo(
+    () => STAPLE_CATEGORIES.filter((c) => kindForCategory(c.id) === kind),
+    [kind],
+  );
+
   // ── Filtering ─────────────────────────────────────────────────
   const visibleStaples = useMemo(() => {
     const q = query.trim().toLowerCase();
     return STAPLES_DIRECTORY
+      .filter((s) => kindForCategory(s.category) === kind)
       .filter((s) => catFilter === 'all' || s.category === catFilter)
       .filter((s) => region === 'all' || s.tags.includes(region))
       .filter((s) =>
@@ -55,18 +71,20 @@ export default function DirectoryPage() {
         s.match.some((m) => m.includes(q)),
       )
       .sort((a, b) => b.weight - a.weight);
-  }, [query, catFilter, region]);
+  }, [query, kind, catFilter, region]);
 
   const visibleFoods = useMemo(() => {
     const q = query.trim().toLowerCase();
     return FOODS_DIRECTORY
       .filter((f) => foodMeal === 'all' || f.mealTypes.includes(foodMeal))
+      .filter((f) => foodRegion === 'all' || f.tags.includes(foodRegion))
+      .filter((f) => foodDiet === 'all' || f.tags.includes(foodDiet))
       .filter((f) =>
         q.length < 2 ||
         f.label.toLowerCase().includes(q) ||
         f.match.some((m) => m.includes(q)),
       );
-  }, [query, foodMeal]);
+  }, [query, foodMeal, foodRegion, foodDiet]);
 
   // ── Multi-select ──────────────────────────────────────────────
   const toggle = (label: string) => {
@@ -160,9 +178,23 @@ export default function DirectoryPage() {
       {/* Filters · staples tab */}
       {tab === 'staples' && (
         <>
+          {/* Top-level Food / Household toggle */}
+          <div className="flex gap-1 bg-hive-cream rounded-hive-pill p-1 mb-2">
+            {STAPLE_KINDS.map((k) => (
+              <button
+                key={k.id}
+                onClick={() => { setKind(k.id); setCatFilter('all'); }}
+                className={`flex-1 h-9 rounded-hive-pill text-[12px] font-nunito font-extrabold transition-colors ${
+                  kind === k.id ? 'bg-pantry-leaf text-white shadow-sm' : 'text-hive-muted hover:text-hive-navy'
+                }`}
+              >
+                {k.emoji} {k.label}
+              </button>
+            ))}
+          </div>
           <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2">
             <Chip active={catFilter === 'all'} onClick={() => setCatFilter('all')}>All</Chip>
-            {STAPLE_CATEGORIES.map((c) => (
+            {kindCategories.map((c) => (
               <Chip key={c.id} active={catFilter === c.id} onClick={() => setCatFilter(c.id)}>
                 {c.emoji} {c.label}
               </Chip>
@@ -179,14 +211,28 @@ export default function DirectoryPage() {
 
       {/* Filters · foods tab */}
       {tab === 'foods' && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
-          <Chip active={foodMeal === 'all'} onClick={() => setFoodMeal('all')}>All meals</Chip>
-          {FOOD_MEAL_TYPES.map((m) => (
-            <Chip key={m.id} active={foodMeal === m.id} onClick={() => setFoodMeal(m.id)}>
-              {m.emoji} {m.label}
-            </Chip>
-          ))}
-        </div>
+        <>
+          <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2">
+            <Chip active={foodMeal === 'all'} onClick={() => setFoodMeal('all')}>All meals</Chip>
+            {FOOD_MEAL_TYPES.map((m) => (
+              <Chip key={m.id} active={foodMeal === m.id} onClick={() => setFoodMeal(m.id)}>
+                {m.emoji} {m.label}
+              </Chip>
+            ))}
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2">
+            <SmallChip active={foodRegion === 'all'} onClick={() => setFoodRegion('all')}>🌍 Any region</SmallChip>
+            <SmallChip active={foodRegion === 'east-africa'} onClick={() => setFoodRegion('east-africa')}>🇹🇿 East Africa</SmallChip>
+            <SmallChip active={foodRegion === 'south-asia'} onClick={() => setFoodRegion('south-asia')}>🇮🇳 South Asia</SmallChip>
+            <SmallChip active={foodRegion === 'global'} onClick={() => setFoodRegion('global')}>🌐 Global</SmallChip>
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
+            <SmallChip active={foodDiet === 'all'} onClick={() => setFoodDiet('all')}>Any diet</SmallChip>
+            <SmallChip active={foodDiet === 'vegetarian'} onClick={() => setFoodDiet('vegetarian')}>🥬 Vegetarian</SmallChip>
+            <SmallChip active={foodDiet === 'vegan'} onClick={() => setFoodDiet('vegan')}>🌱 Vegan</SmallChip>
+            <SmallChip active={foodDiet === 'halal'} onClick={() => setFoodDiet('halal')}>☪️ Halal</SmallChip>
+          </div>
+        </>
       )}
 
       {error && <p className="text-hive-rose text-sm font-bold text-center mb-3">{error}</p>}

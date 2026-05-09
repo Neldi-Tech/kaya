@@ -99,15 +99,20 @@ export default function ListPage() {
 
       {/* Empty state */}
       {items.length === 0 ? (
-        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-6 text-center">
           <div className="text-4xl mb-2">📝</div>
           <p className="font-nunito font-extrabold text-[14px]">Empty list</p>
           <p className="text-[12px] text-hive-muted mt-1 mb-4">
-            Add items below or seed from staples.
+            Add items below, seed from staples, or browse the Directory.
           </p>
-          <Link href="/pantry/staples" className="inline-block px-4 py-2 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-extrabold text-[12px] no-underline">
-            Open staples →
-          </Link>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Link href="/pantry/staples" className="px-4 py-2 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-extrabold text-[12px] no-underline">
+              Open staples →
+            </Link>
+            <Link href="/pantry/directory" className="px-4 py-2 rounded-hive-pill border border-hive-line bg-hive-paper text-hive-muted font-nunito font-extrabold text-[12px] no-underline hover:border-pantry-leaf">
+              🧺 Browse Directory
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -142,12 +147,20 @@ export default function ListPage() {
             onCancel={() => setAdding(false)}
           />
         ) : (
-          <button
-            onClick={() => setAdding(true)}
-            className="w-full mt-3 py-3 rounded-hive border-2 border-dashed border-pantry-leaf/60 text-pantry-leaf-dk font-nunito font-extrabold text-[13px] hover:bg-pantry-leaf-soft/50 transition-colors"
-          >
-            + Add an item
-          </button>
+          <div className="flex gap-2 mt-3">
+            <button
+              onClick={() => setAdding(true)}
+              className="flex-1 py-3 rounded-hive border-2 border-dashed border-pantry-leaf/60 text-pantry-leaf-dk font-nunito font-extrabold text-[13px] hover:bg-pantry-leaf-soft/50 transition-colors"
+            >
+              + Add an item
+            </button>
+            <Link
+              href="/pantry/directory"
+              className="px-4 py-3 rounded-hive border border-hive-line bg-hive-paper text-hive-muted font-nunito font-extrabold text-[12px] no-underline flex items-center hover:border-pantry-leaf"
+            >
+              🧺 Directory
+            </Link>
+          </div>
         )
       )}
 

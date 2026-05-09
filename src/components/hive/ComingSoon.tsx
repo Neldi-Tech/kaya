@@ -5,6 +5,7 @@
 // in the meantime tabbing to them shouldn't 404 or look broken.
 
 import Link from 'next/link';
+import BackButton from '@/components/ui/BackButton';
 
 export default function ComingSoon({
   emoji,
@@ -19,7 +20,9 @@ export default function ComingSoon({
   pr: string;
 }) {
   return (
-    <div className="mx-auto max-w-md w-full px-4 pt-16 lg:pt-24 text-center">
+    <div className="mx-auto max-w-md w-full px-4 pt-4 lg:pt-8">
+      <div className="lg:hidden"><BackButton /></div>
+      <div className="text-center pt-12 lg:pt-16">
       <div className="text-6xl lg:text-7xl mb-4">{emoji}</div>
       <h2 className="font-nunito font-black text-3xl lg:text-4xl mb-2">{title}</h2>
       <p className="text-hive-muted text-sm lg:text-base mb-6 max-w-sm mx-auto">{blurb}</p>
@@ -30,6 +33,7 @@ export default function ComingSoon({
         <Link href="/hive" className="px-4 py-2.5 rounded-hive-pill border border-hive-line text-[12px] font-nunito font-extrabold text-hive-navy no-underline hover:bg-hive-paper transition-colors">
           ← Back to Hive
         </Link>
+      </div>
       </div>
     </div>
   );

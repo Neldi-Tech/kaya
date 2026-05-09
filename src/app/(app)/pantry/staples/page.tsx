@@ -12,6 +12,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   STAPLE_CATEGORIES, StapleCategory, Cadence,
   STAPLE_UNITS, MAX_PREFERRED_BRANDS,
+  STAPLE_KINDS, StapleKind, kindForCategory,
   addStaple, updateStaple, deleteStaple,
   Staple,
 } from '@/lib/pantry';
@@ -37,13 +38,34 @@ export default function StaplesPage() {
   const { config } = useHive();
   const currency = config.currency;
 
+  const [kind, setKind] = useState<StapleKind>('food');
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
+  const kindCategories = useMemo(
+    () => STAPLE_CATEGORIES.filter((c) => kindForCategory(c.id) === kind),
+    [kind],
+  );
+
+  const kindStaples = useMemo(
+    () => staples.filter((s) => kindForCategory(s.category) === kind),
+    [staples, kind],
+  );
+
   const visible = useMemo(
-    () => filter === 'all' ? staples : staples.filter((s) => s.category === filter),
-    [staples, filter],
+    () => filter === 'all' ? kindStaples : kindStaples.filter((s) => s.category === filter),
+    [kindStaples, filter],
+  );
+
+  // Per-kind counts for the toggle.
+  const foodCount = useMemo(
+    () => staples.filter((s) => kindForCategory(s.category) === 'food').length,
+    [staples],
+  );
+  const householdCount = useMemo(
+    () => staples.filter((s) => kindForCategory(s.category) === 'household').length,
+    [staples],
   );
 
   return (
@@ -82,10 +104,30 @@ export default function StaplesPage() {
         </div>
       )}
 
-      {/* Filter chips */}
+      {/* Food / Household top-level toggle. Splits the master list so
+          shopping items don't share screen space with light bulbs and
+          mosquito coils. */}
+      <div className="flex gap-1 bg-hive-cream rounded-hive-pill p-1 mb-2">
+        {STAPLE_KINDS.map((k) => {
+          const count = k.id === 'food' ? foodCount : householdCount;
+          return (
+            <button
+              key={k.id}
+              onClick={() => { setKind(k.id); setFilter('all'); }}
+              className={`flex-1 h-9 rounded-hive-pill text-[12px] font-nunito font-extrabold transition-colors ${
+                kind === k.id ? 'bg-pantry-leaf text-white shadow-sm' : 'text-hive-muted hover:text-hive-navy'
+              }`}
+            >
+              {k.emoji} {k.label} <span className="opacity-70">· {count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Category sub-filter — limited to the selected kind. */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
         <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
-        {STAPLE_CATEGORIES.map((c) => (
+        {kindCategories.map((c) => (
           <Chip key={c.id} active={filter === c.id} onClick={() => setFilter(c.id)}>
             {c.emoji} {c.label}
           </Chip>

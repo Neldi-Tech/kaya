@@ -1,12 +1,14 @@
 'use client';
 
-// /pantry/meals — 7-day food timetable. Phase 1A is free-text per slot
-// (Breakfast / Lunch / Dinner) plus an "Eating out" toggle per day.
-// Phase 2 will add a recipe library + ingredient → list flow.
+// /pantry/meals — 7-day food timetable. Phase 1B: free-text per slot
+// (Breakfast / Lunch / Dinner) + an "Eating out" toggle per day, plus
+// a one-tap "Suggest week" sheet that builds a 21-meal plan filtered
+// by region + diet, and a quick-pick dropdown per slot pulling from
+// FOODS_DIRECTORY.
 //
-// Inline tap-to-edit: each slot opens a small input. Saves on blur.
-// All writes are setDoc-merge so two parents editing different slots
-// can't clobber each other's work.
+// All writes are setDoc-merge with nested object literals — dot-
+// notation does NOT work with setDoc-merge in Firestore. Two parents
+// editing different slots won't clobber each other's work.
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -14,13 +16,19 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import {
   MEAL_DAYS, MEAL_SLOTS, MealDay, MealSlot,
-  setMealSlot, setEatingOut, MealEntry,
+  setMealSlot, setEatingOut, applyMealPlanSuggestion, MealEntry,
 } from '@/lib/pantry';
+import { foodsMatching, MealPlanFilters } from '@/lib/pantryDirectory';
 import BackButton from '@/components/ui/BackButton';
+import SuggestSheet from '@/components/pantry/SuggestSheet';
 
 export default function MealsPage() {
   const { profile, isGuest } = useAuth();
   const { mealPlan, weekKey } = usePantry();
+
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState('');
 
   const days = mealPlan?.days || {};
 
@@ -32,15 +40,40 @@ export default function MealsPage() {
     return `${fmt(monday)} → ${fmt(sunday)}`;
   })();
 
+  const apply = async (suggestion: Record<string, { breakfast?: string; lunch?: string; dinner?: string }>) => {
+    if (!profile?.familyId || isGuest) return;
+    setError('');
+    setApplying(true);
+    try {
+      await applyMealPlanSuggestion(profile.familyId, weekKey, suggestion as any, profile.uid);
+      setSuggestOpen(false);
+    } catch (e: any) {
+      setError(e?.message || 'Could not apply the plan.');
+    }
+    setApplying(false);
+  };
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Pantry · Meals · {weekLabel}
-        </p>
-        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">This week 🍽️</h1>
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
+            Pantry · Meals · {weekLabel}
+          </p>
+          <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">This week 🍽️</h1>
+        </div>
+        {!isGuest && (
+          <button
+            onClick={() => setSuggestOpen(true)}
+            className="shrink-0 h-10 px-3 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
+          >
+            ✨ Suggest week
+          </button>
+        )}
       </div>
+
+      {error && <p className="text-hive-rose text-sm font-bold text-center mb-3">{error}</p>}
 
       <div className="space-y-3">
         {MEAL_DAYS.map((d, i) => {
@@ -65,9 +98,23 @@ export default function MealsPage() {
       </div>
 
       <p className="text-center text-[11px] text-hive-muted mt-6 leading-relaxed">
-        Phase 2: tap a meal to surface its ingredients straight into the shopping list.{' '}
+        Tap a meal to type your own, or use{' '}
+        <button
+          onClick={() => !isGuest && setSuggestOpen(true)}
+          className="text-pantry-leaf-dk font-bold hover:underline"
+        >
+          ✨ Suggest week
+        </button>{' '}
+        to fill 7 days at once. Phase 2: tap a meal to surface its ingredients straight into the shopping list.{' '}
         <Link href="/pantry" className="text-pantry-leaf-dk font-bold hover:underline">← Back to Pantry</Link>
       </p>
+
+      <SuggestSheet
+        open={suggestOpen}
+        onClose={() => setSuggestOpen(false)}
+        onApply={apply}
+        applying={applying}
+      />
     </div>
   );
 }
@@ -113,6 +160,7 @@ function DayCard({
             key={s.id}
             label={s.label}
             emoji={s.emoji}
+            slotId={s.id}
             value={entry[s.id]}
             onSave={(v) => {
               if (!familyId || isGuest) return;
@@ -141,43 +189,75 @@ function DayCard({
 }
 
 function MealSlotCell({
-  label, emoji, value, onSave, disabled,
+  label, emoji, slotId, value, onSave, disabled,
 }: {
   label: string;
   emoji: string;
+  slotId: MealSlot;
   value?: string;
   onSave: (v: string) => void;
   disabled: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || '');
+  const [showPicker, setShowPicker] = useState(false);
 
   // Re-sync if the upstream value changes externally (other parent edits).
   useEffect(() => { setDraft(value || ''); }, [value]);
 
-  const save = () => {
+  const save = (override?: string) => {
     setEditing(false);
-    const trimmed = draft.trim();
-    if (trimmed !== (value || '')) onSave(trimmed);
+    setShowPicker(false);
+    const next = (override ?? draft).trim();
+    if (next !== (value || '')) onSave(next);
+    if (override !== undefined) setDraft(override);
   };
+
+  // Top picks for this slot — region-agnostic, just first ~12 from the
+  // directory matching the slot's meal type.
+  const picks = foodsMatching({ region: 'all' } as MealPlanFilters, slotId).slice(0, 12);
 
   if (editing && !disabled) {
     return (
-      <div className="bg-hive-cream border-2 border-pantry-leaf rounded-[10px] p-2">
-        <p className="text-[8px] uppercase tracking-[1.5px] font-bold text-hive-muted">{label}</p>
+      <div className="bg-hive-cream border-2 border-pantry-leaf rounded-[10px] p-2 relative">
+        <div className="flex items-baseline justify-between">
+          <p className="text-[8px] uppercase tracking-[1.5px] font-bold text-hive-muted">{label}</p>
+          <button
+            type="button"
+            onMouseDown={(e) => { e.preventDefault(); setShowPicker((v) => !v); }}
+            className="text-[9px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline"
+          >
+            {showPicker ? 'Type' : 'Pick ▾'}
+          </button>
+        </div>
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={save}
+          onBlur={() => { if (!showPicker) save(); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') save();
-            if (e.key === 'Escape') { setDraft(value || ''); setEditing(false); }
+            if (e.key === 'Escape') { setDraft(value || ''); setEditing(false); setShowPicker(false); }
           }}
           autoFocus
           maxLength={60}
           placeholder={`${emoji} What's for ${label.toLowerCase()}?`}
           className="w-full mt-0.5 bg-transparent text-[11px] font-nunito font-extrabold focus:outline-none placeholder:text-hive-muted/40"
         />
+        {showPicker && picks.length > 0 && (
+          <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-hive-paper border border-hive-line rounded-hive shadow-lg max-h-56 overflow-y-auto">
+            {picks.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); save(p.label); }}
+                className="w-full text-left px-3 py-2 text-[12px] font-nunito font-extrabold hover:bg-pantry-leaf-soft/40 flex items-center gap-2"
+              >
+                <span>{p.emoji}</span>
+                <span className="flex-1 truncate">{p.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     );
   }

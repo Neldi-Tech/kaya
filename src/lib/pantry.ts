@@ -39,6 +39,31 @@ export const STAPLE_CATEGORIES: { id: StapleCategory; emoji: string; label: stri
   { id: 'other',    emoji: '✨', label: 'Other' },
 ];
 
+/** Top-level "is this food or a household supply?" axis. Derived from
+ *  StapleCategory so old data needs no migration — the existing six
+ *  buckets group cleanly into two kinds. UI surfaces (Directory,
+ *  Staples) use this for a primary tab + the existing categories as a
+ *  secondary chip filter. */
+export type StapleKind = 'food' | 'household';
+
+export const STAPLE_KINDS: { id: StapleKind; emoji: string; label: string }[] = [
+  { id: 'food',      emoji: '🍽️', label: 'Food' },
+  { id: 'household', emoji: '🧺', label: 'Household' },
+];
+
+const KIND_BY_CATEGORY: Record<StapleCategory, StapleKind> = {
+  produce:  'food',
+  dairy:    'food',
+  pantry:   'food',
+  cleaning: 'household',
+  personal: 'household',
+  other:    'household',
+};
+
+export function kindForCategory(c: StapleCategory): StapleKind {
+  return KIND_BY_CATEGORY[c] || 'household';
+}
+
 // ── Units ─────────────────────────────────────────────────────────
 
 /** Common units. We keep this short on purpose — covers ~95% of
@@ -588,7 +613,10 @@ export function subscribeToMealPlan(
 }
 
 /** Set or clear a single meal slot. Idempotent — first call to a missing
- *  doc creates it via setDoc-merge. */
+ *  doc creates it via setDoc-merge. We pass a *nested* object literal
+ *  rather than dot-notation keys: `setDoc({ merge: true })` does NOT
+ *  parse dot-notation paths, so `'days.mon.dinner'` would be written as
+ *  a literal flat field. The nested form deep-merges as expected. */
 export async function setMealSlot(
   familyId: string,
   weekKey: string,
@@ -598,17 +626,56 @@ export async function setMealSlot(
   createdBy: string,
 ): Promise<void> {
   if (isGuestActive()) return;
-  const patch: Record<string, unknown> = {
-    weekKey,
-    [`days.${day}.${slot}`]: value || null,
-    updatedAt: serverTimestamp(),
-    createdAt: serverTimestamp(), // setDoc-merge preserves an earlier value
-    createdBy,
-  };
-  await setDoc(mealPlanRef(familyId, weekKey), patch, { merge: true });
+  const trimmed = (value || '').trim();
+  await setDoc(
+    mealPlanRef(familyId, weekKey),
+    {
+      weekKey,
+      days: { [day]: { [slot]: trimmed || null } },
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(), // setDoc-merge preserves an earlier value
+      createdBy,
+    },
+    { merge: true },
+  );
 }
 
-/** Toggle the eating-out flag (and optionally set a note). */
+/** Apply a full week of suggestions in a single write. Used by the
+ *  "Suggest week" feature on /pantry/meals. The patch is shallow-
+ *  merged per-day so existing entries the user didn't override (e.g.
+ *  eatingOut flags) survive. */
+export async function applyMealPlanSuggestion(
+  familyId: string,
+  weekKey: string,
+  suggestion: Partial<Record<MealDay, { breakfast?: string; lunch?: string; dinner?: string }>>,
+  createdBy: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  // Build a clean nested object — only set keys we have values for.
+  const days: Record<string, Record<string, unknown>> = {};
+  for (const [d, slots] of Object.entries(suggestion)) {
+    if (!slots) continue;
+    const slotPatch: Record<string, unknown> = {};
+    if (slots.breakfast) slotPatch.breakfast = slots.breakfast;
+    if (slots.lunch)     slotPatch.lunch = slots.lunch;
+    if (slots.dinner)    slotPatch.dinner = slots.dinner;
+    if (Object.keys(slotPatch).length > 0) days[d] = slotPatch;
+  }
+  await setDoc(
+    mealPlanRef(familyId, weekKey),
+    {
+      weekKey,
+      days,
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      createdBy,
+    },
+    { merge: true },
+  );
+}
+
+/** Toggle the eating-out flag (and optionally set a note). Same nested-
+ *  literal pattern as setMealSlot — see comment above. */
 export async function setEatingOut(
   familyId: string,
   weekKey: string,
@@ -622,8 +689,12 @@ export async function setEatingOut(
     mealPlanRef(familyId, weekKey),
     {
       weekKey,
-      [`days.${day}.eatingOut`]: on,
-      [`days.${day}.eatingOutNote`]: on ? (note || null) : null,
+      days: {
+        [day]: {
+          eatingOut: on,
+          eatingOutNote: on ? (note || null) : null,
+        },
+      },
       updatedAt: serverTimestamp(),
       createdAt: serverTimestamp(),
       createdBy,

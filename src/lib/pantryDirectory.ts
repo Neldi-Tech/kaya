@@ -282,56 +282,81 @@ export interface FoodDirectoryItem {
 
 export const FOODS_DIRECTORY: FoodDirectoryItem[] = [
   // ── Breakfast ───────────────────────────────────────────────────
-  { match: ['mandazi'],          label: 'Mandazi',                 mealTypes: ['breakfast','snack'], emoji: '🍩', staples: ['Wheat flour','Sugar','Milk','Cooking oil'], tags: ['east-africa'], hint: 'East-African fried dough.' },
-  { match: ['chapati'],           label: 'Chapati',                 mealTypes: ['breakfast','lunch','dinner'], emoji: '🫓', staples: ['Atta / chapati flour','Cooking oil','Salt'], tags: ['east-africa','south-asia','indian'] },
-  { match: ['uji', 'porridge'],   label: 'Uji (porridge)',          mealTypes: ['breakfast'], emoji: '🥣', staples: ['Maize flour (ugali)','Sugar','Milk'], tags: ['east-africa','kids'] },
-  { match: ['oatmeal porridge'],  label: 'Oatmeal',                 mealTypes: ['breakfast'], emoji: '🥣', staples: ['Oats','Milk','Honey','Bananas'], tags: ['global','kids','health-conscious'] },
-  { match: ['pancakes'],          label: 'Pancakes',                mealTypes: ['breakfast'], emoji: '🥞', staples: ['Wheat flour','Sugar','Eggs','Milk'], tags: ['global','kids'] },
-  { match: ['french toast'],      label: 'French toast',            mealTypes: ['breakfast'], emoji: '🍞', staples: ['Bread','Eggs','Milk','Sugar'], tags: ['global','kids'] },
-  { match: ['scrambled eggs'],    label: 'Scrambled eggs',          mealTypes: ['breakfast'], emoji: '🍳', staples: ['Eggs','Milk','Salt','Butter'], tags: ['global','breakfast-staple','protein'] },
-  { match: ['boiled eggs'],       label: 'Boiled eggs',             mealTypes: ['breakfast','snack'], emoji: '🥚', staples: ['Eggs','Salt'], tags: ['global','breakfast-staple','protein'] },
-  { match: ['toast jam'],         label: 'Toast & jam',             mealTypes: ['breakfast'], emoji: '🍞', staples: ['Bread','Margarine','Jam'], tags: ['global','kids','breakfast-staple'] },
-  { match: ['cereal milk'],       label: 'Cereal & milk',           mealTypes: ['breakfast'], emoji: '🥣', staples: ['Cereal','Milk'], tags: ['global','kids','breakfast-staple'] },
-  { match: ['yogurt fruit'],      label: 'Yogurt & fruit',          mealTypes: ['breakfast','snack'], emoji: '🥣', staples: ['Yogurt','Bananas','Honey'], tags: ['global','kids','health-conscious'] },
-  { match: ['idli'],              label: 'Idli',                    mealTypes: ['breakfast'], emoji: '🍘', staples: ['Rice (white)','Lentils'], tags: ['south-asia','indian','vegetarian'] },
-  { match: ['dosa'],              label: 'Dosa',                    mealTypes: ['breakfast','dinner'], emoji: '🫓', staples: ['Rice (white)','Lentils'], tags: ['south-asia','indian','vegetarian'] },
-  { match: ['paratha'],           label: 'Paratha',                 mealTypes: ['breakfast'], emoji: '🫓', staples: ['Atta / chapati flour','Ghee','Salt'], tags: ['south-asia','indian'] },
-  { match: ['poha'],              label: 'Poha',                    mealTypes: ['breakfast'], emoji: '🍚', tags: ['south-asia','indian','vegetarian'] },
-  { match: ['vitumbua'],          label: 'Vitumbua',                mealTypes: ['breakfast','snack'], emoji: '🍩', staples: ['Rice (white)','Coconut milk','Sugar'], tags: ['east-africa'] },
+  { match: ['mandazi'],          label: 'Mandazi',                 mealTypes: ['breakfast','snack'], emoji: '🍩', staples: ['Wheat flour','Sugar','Milk','Cooking oil'], tags: ['east-africa','vegetarian'], hint: 'East-African fried dough.' },
+  { match: ['chapati'],           label: 'Chapati',                 mealTypes: ['breakfast','lunch','dinner'], emoji: '🫓', staples: ['Atta / chapati flour','Cooking oil','Salt'], tags: ['east-africa','south-asia','indian','vegan','vegetarian','halal'] },
+  { match: ['uji', 'porridge'],   label: 'Uji (porridge)',          mealTypes: ['breakfast'], emoji: '🥣', staples: ['Maize flour (ugali)','Sugar','Milk'], tags: ['east-africa','kids','vegetarian'] },
+  { match: ['oatmeal porridge'],  label: 'Oatmeal',                 mealTypes: ['breakfast'], emoji: '🥣', staples: ['Oats','Milk','Honey','Bananas'], tags: ['global','kids','health-conscious','vegetarian'] },
+  { match: ['pancakes'],          label: 'Pancakes',                mealTypes: ['breakfast'], emoji: '🥞', staples: ['Wheat flour','Sugar','Eggs','Milk'], tags: ['global','kids','vegetarian'] },
+  { match: ['french toast'],      label: 'French toast',            mealTypes: ['breakfast'], emoji: '🍞', staples: ['Bread','Eggs','Milk','Sugar'], tags: ['global','kids','vegetarian'] },
+  { match: ['scrambled eggs'],    label: 'Scrambled eggs',          mealTypes: ['breakfast'], emoji: '🍳', staples: ['Eggs','Milk','Salt','Butter'], tags: ['global','breakfast-staple','protein','vegetarian','halal'] },
+  { match: ['boiled eggs'],       label: 'Boiled eggs',             mealTypes: ['breakfast','snack'], emoji: '🥚', staples: ['Eggs','Salt'], tags: ['global','breakfast-staple','protein','vegetarian','halal'] },
+  { match: ['toast jam'],         label: 'Toast & jam',             mealTypes: ['breakfast'], emoji: '🍞', staples: ['Bread','Margarine','Jam'], tags: ['global','kids','breakfast-staple','vegetarian'] },
+  { match: ['cereal milk'],       label: 'Cereal & milk',           mealTypes: ['breakfast'], emoji: '🥣', staples: ['Cereal','Milk'], tags: ['global','kids','breakfast-staple','vegetarian'] },
+  { match: ['yogurt fruit'],      label: 'Yogurt & fruit',          mealTypes: ['breakfast','snack'], emoji: '🥣', staples: ['Yogurt','Bananas','Honey'], tags: ['global','kids','health-conscious','vegetarian'] },
+  { match: ['smoothie bowl'],     label: 'Smoothie bowl',           mealTypes: ['breakfast','snack'], emoji: '🥣', staples: ['Bananas','Strawberries','Yogurt','Honey'], tags: ['global','health-conscious','vegetarian'] },
+  { match: ['fruit smoothie'],    label: 'Fruit smoothie',          mealTypes: ['breakfast','snack'], emoji: '🥤', staples: ['Bananas','Mangoes','Milk'], tags: ['global','kids','health-conscious','vegetarian'] },
+  { match: ['idli'],              label: 'Idli',                    mealTypes: ['breakfast'], emoji: '🍘', staples: ['Rice (white)','Lentils'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['dosa'],              label: 'Dosa',                    mealTypes: ['breakfast','dinner'], emoji: '🫓', staples: ['Rice (white)','Lentils'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['masala dosa'],       label: 'Masala dosa',             mealTypes: ['breakfast','lunch'], emoji: '🫓', staples: ['Rice (white)','Lentils','Potatoes','Onions'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['upma'],              label: 'Upma',                    mealTypes: ['breakfast'], emoji: '🥣', staples: ['Semolina','Onions','Cooking oil'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['paratha'],           label: 'Paratha',                 mealTypes: ['breakfast'], emoji: '🫓', staples: ['Atta / chapati flour','Ghee','Salt'], tags: ['south-asia','indian','vegetarian','halal'] },
+  { match: ['aloo paratha'],      label: 'Aloo paratha',            mealTypes: ['breakfast'], emoji: '🫓', staples: ['Atta / chapati flour','Potatoes','Onions','Cumin'], tags: ['south-asia','indian','vegetarian','halal'] },
+  { match: ['poha'],              label: 'Poha',                    mealTypes: ['breakfast'], emoji: '🍚', tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['vitumbua'],          label: 'Vitumbua',                mealTypes: ['breakfast','snack'], emoji: '🍩', staples: ['Rice (white)','Coconut milk','Sugar'], tags: ['east-africa','vegetarian','vegan'] },
   { match: ['sausage breakfast'], label: 'Sausages & eggs',         mealTypes: ['breakfast'], emoji: '🌭', staples: ['Sausages','Eggs'], tags: ['global','kids','breakfast-staple'] },
-  { match: ['avocado toast'],     label: 'Avocado toast',           mealTypes: ['breakfast'], emoji: '🥑', staples: ['Bread','Avocados','Salt'], tags: ['global','health-conscious'] },
+  { match: ['avocado toast'],     label: 'Avocado toast',           mealTypes: ['breakfast'], emoji: '🥑', staples: ['Bread','Avocados','Salt'], tags: ['global','health-conscious','vegetarian','vegan'] },
+  { match: ['breakfast burrito'], label: 'Breakfast burrito',       mealTypes: ['breakfast'], emoji: '🌯', staples: ['Atta / chapati flour','Eggs','Cheese','Beans'], tags: ['global','kids','vegetarian'] },
+  { match: ['mahamri'],           label: 'Mahamri',                 mealTypes: ['breakfast','snack'], emoji: '🍩', staples: ['Wheat flour','Coconut milk','Cardamom','Sugar'], tags: ['east-africa','vegetarian'] },
+  { match: ['katogo'],            label: 'Katogo',                  mealTypes: ['breakfast','lunch'], emoji: '🍌', staples: ['Plantains / matoke','Dry beans','Onions'], tags: ['east-africa','vegetarian'], hint: 'Ugandan plantain-bean stew.' },
 
   // ── Lunch ───────────────────────────────────────────────────────
-  { match: ['ugali sukuma'],      label: 'Ugali & sukuma wiki',     mealTypes: ['lunch','dinner'], emoji: '🥬', staples: ['Maize flour (ugali)','Kale (sukuma wiki)','Cooking oil','Onions','Tomatoes'], tags: ['east-africa','staple'] },
-  { match: ['rice beans'],        label: 'Rice & beans',            mealTypes: ['lunch','dinner'], emoji: '🍚', staples: ['Rice (white)','Dry beans','Onions','Tomatoes','Cooking oil'], tags: ['east-africa','global','vegetarian'] },
-  { match: ['pilau'],             label: 'Pilau',                   mealTypes: ['lunch','dinner'], emoji: '🍚', staples: ['Rice (basmati)','Beef','Onions','Cumin','Cardamom'], tags: ['east-africa','south-asia'] },
-  { match: ['biryani'],           label: 'Biryani',                 mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Basmati rice','Chicken','Onions','Yogurt','Masala / curry powder'], tags: ['south-asia','east-africa','indian'] },
-  { match: ['chapati beans'],     label: 'Chapati & beans',         mealTypes: ['lunch','dinner'], emoji: '🫓', staples: ['Atta / chapati flour','Dry beans','Onions'], tags: ['east-africa','vegetarian'] },
-  { match: ['rice stew'],         label: 'Rice & stew',             mealTypes: ['lunch','dinner'], emoji: '🍲', staples: ['Rice (white)','Beef','Tomatoes','Onions'], tags: ['east-africa','global'] },
-  { match: ['chicken stew'],      label: 'Chicken stew',            mealTypes: ['lunch','dinner'], emoji: '🍗', staples: ['Chicken','Tomatoes','Onions','Garlic','Ginger'], tags: ['east-africa','global','protein'] },
-  { match: ['fish stew'],         label: 'Fish stew',               mealTypes: ['lunch','dinner'], emoji: '🐟', staples: ['Fish','Tomatoes','Onions','Coconut milk','Lemons'], tags: ['east-africa','global'] },
-  { match: ['matoke'],            label: 'Matoke',                  mealTypes: ['lunch','dinner'], emoji: '🍌', staples: ['Plantains / matoke','Beef','Onions','Tomatoes'], tags: ['east-africa'] },
-  { match: ['sandwich'],          label: 'Sandwich',                mealTypes: ['lunch','snack'], emoji: '🥪', staples: ['Bread','Cheese','Tomatoes','Cucumber'], tags: ['global','kids'] },
-  { match: ['salad'],             label: 'Garden salad',            mealTypes: ['lunch','dinner'], emoji: '🥗', staples: ['Lettuce','Tomatoes','Cucumber','Onions','Olive oil'], tags: ['global','health-conscious','vegetarian'] },
-  { match: ['fried rice'],        label: 'Fried rice',              mealTypes: ['lunch','dinner'], emoji: '🍚', staples: ['Rice (white)','Eggs','Carrots','Soy sauce'], tags: ['global','kids','asian'] },
-  { match: ['burgers'],           label: 'Burgers',                 mealTypes: ['lunch','dinner'], emoji: '🍔', staples: ['Beef','Bread','Lettuce','Tomatoes','Cheese'], tags: ['global','kids','treat'] },
-  { match: ['samosas'],           label: 'Samosas',                 mealTypes: ['lunch','snack'], emoji: '🥟', staples: ['Wheat flour','Beef','Onions','Cumin'], tags: ['east-africa','south-asia','indian'] },
-  { match: ['rolex'],             label: 'Rolex',                   mealTypes: ['lunch','snack'], emoji: '🌯', staples: ['Atta / chapati flour','Eggs','Onions','Tomatoes'], tags: ['east-africa'], hint: 'Ugandan chapati-egg roll.' },
-  { match: ['dal rice'],          label: 'Dal & rice',              mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Lentils','Rice (white)','Turmeric','Cumin'], tags: ['south-asia','indian','vegetarian'] },
-  { match: ['chana masala'],      label: 'Chana masala',            mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Chickpeas','Tomatoes','Onions','Masala / curry powder'], tags: ['south-asia','indian','vegetarian'] },
+  { match: ['ugali sukuma'],      label: 'Ugali & sukuma wiki',     mealTypes: ['lunch','dinner'], emoji: '🥬', staples: ['Maize flour (ugali)','Kale (sukuma wiki)','Cooking oil','Onions','Tomatoes'], tags: ['east-africa','staple','vegetarian','vegan','halal'] },
+  { match: ['ugali fish'],        label: 'Ugali & fish',            mealTypes: ['lunch','dinner'], emoji: '🐟', staples: ['Maize flour (ugali)','Fish','Tomatoes','Onions'], tags: ['east-africa','halal'] },
+  { match: ['rice beans'],        label: 'Rice & beans',            mealTypes: ['lunch','dinner'], emoji: '🍚', staples: ['Rice (white)','Dry beans','Onions','Tomatoes','Cooking oil'], tags: ['east-africa','global','vegetarian','vegan','halal'] },
+  { match: ['pilau'],             label: 'Pilau',                   mealTypes: ['lunch','dinner'], emoji: '🍚', staples: ['Rice (basmati)','Beef','Onions','Cumin','Cardamom'], tags: ['east-africa','south-asia','halal'] },
+  { match: ['biryani'],           label: 'Biryani',                 mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Basmati rice','Chicken','Onions','Yogurt','Masala / curry powder'], tags: ['south-asia','east-africa','indian','halal'] },
+  { match: ['veg biryani'],       label: 'Vegetable biryani',       mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Basmati rice','Carrots','Onions','Cauliflower','Masala / curry powder'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['chapati beans'],     label: 'Chapati & beans',         mealTypes: ['lunch','dinner'], emoji: '🫓', staples: ['Atta / chapati flour','Dry beans','Onions'], tags: ['east-africa','vegetarian','vegan','halal'] },
+  { match: ['rice stew'],         label: 'Rice & stew',             mealTypes: ['lunch','dinner'], emoji: '🍲', staples: ['Rice (white)','Beef','Tomatoes','Onions'], tags: ['east-africa','global','halal'] },
+  { match: ['chicken stew'],      label: 'Chicken stew',            mealTypes: ['lunch','dinner'], emoji: '🍗', staples: ['Chicken','Tomatoes','Onions','Garlic','Ginger'], tags: ['east-africa','global','protein','halal'] },
+  { match: ['fish stew'],         label: 'Fish stew',               mealTypes: ['lunch','dinner'], emoji: '🐟', staples: ['Fish','Tomatoes','Onions','Coconut milk','Lemons'], tags: ['east-africa','global','halal'] },
+  { match: ['matoke'],            label: 'Matoke',                  mealTypes: ['lunch','dinner'], emoji: '🍌', staples: ['Plantains / matoke','Beef','Onions','Tomatoes'], tags: ['east-africa','halal'] },
+  { match: ['sandwich'],          label: 'Sandwich',                mealTypes: ['lunch','snack'], emoji: '🥪', staples: ['Bread','Cheese','Tomatoes','Cucumber'], tags: ['global','kids','vegetarian'] },
+  { match: ['veg wrap'],          label: 'Veggie wrap',             mealTypes: ['lunch','snack'], emoji: '🌯', staples: ['Atta / chapati flour','Lettuce','Tomatoes','Cucumber','Avocados'], tags: ['global','vegetarian','vegan','health-conscious'] },
+  { match: ['salad'],             label: 'Garden salad',            mealTypes: ['lunch','dinner'], emoji: '🥗', staples: ['Lettuce','Tomatoes','Cucumber','Onions','Olive oil'], tags: ['global','health-conscious','vegetarian','vegan','halal'] },
+  { match: ['quinoa salad'],      label: 'Quinoa salad',            mealTypes: ['lunch'], emoji: '🥗', staples: ['Quinoa','Cucumber','Tomatoes','Lemons','Olive oil'], tags: ['global','health-conscious','vegetarian','vegan'] },
+  { match: ['lentil soup'],       label: 'Lentil soup',             mealTypes: ['lunch','dinner'], emoji: '🍲', staples: ['Lentils','Onions','Carrots','Garlic','Cumin'], tags: ['global','south-asia','vegetarian','vegan','health-conscious','halal'] },
+  { match: ['fried rice'],        label: 'Fried rice',              mealTypes: ['lunch','dinner'], emoji: '🍚', staples: ['Rice (white)','Eggs','Carrots','Soy sauce'], tags: ['global','kids','asian','vegetarian'] },
+  { match: ['burgers'],           label: 'Burgers',                 mealTypes: ['lunch','dinner'], emoji: '🍔', staples: ['Beef','Bread','Lettuce','Tomatoes','Cheese'], tags: ['global','kids','treat','halal'] },
+  { match: ['veg burger'],        label: 'Veggie burger',           mealTypes: ['lunch','dinner'], emoji: '🍔', staples: ['Bread','Chickpeas','Lettuce','Tomatoes'], tags: ['global','kids','vegetarian','vegan'] },
+  { match: ['samosas'],           label: 'Samosas',                 mealTypes: ['lunch','snack'], emoji: '🥟', staples: ['Wheat flour','Beef','Onions','Cumin'], tags: ['east-africa','south-asia','indian','halal'] },
+  { match: ['rolex'],             label: 'Rolex',                   mealTypes: ['lunch','snack'], emoji: '🌯', staples: ['Atta / chapati flour','Eggs','Onions','Tomatoes'], tags: ['east-africa','vegetarian'], hint: 'Ugandan chapati-egg roll.' },
+  { match: ['dal rice'],          label: 'Dal & rice',              mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Lentils','Rice (white)','Turmeric','Cumin'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['chana masala'],      label: 'Chana masala',            mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Chickpeas','Tomatoes','Onions','Masala / curry powder'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['rajma'],             label: 'Rajma',                   mealTypes: ['lunch','dinner'], emoji: '🍛', staples: ['Dry beans','Tomatoes','Onions','Masala / curry powder'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['palak paneer'],      label: 'Palak paneer',            mealTypes: ['lunch','dinner'], emoji: '🥬', staples: ['Paneer','Spinach','Onions','Garlic'], tags: ['south-asia','indian','vegetarian','halal'] },
+  { match: ['aloo gobi'],         label: 'Aloo gobi',               mealTypes: ['lunch','dinner'], emoji: '🥔', staples: ['Potatoes','Cauliflower','Turmeric','Cumin'], tags: ['south-asia','indian','vegetarian','vegan','halal'] },
+  { match: ['saag'],              label: 'Saag',                    mealTypes: ['lunch','dinner'], emoji: '🥬', staples: ['Spinach','Onions','Garlic','Cumin'], tags: ['south-asia','indian','vegetarian','vegan','health-conscious','halal'] },
 
   // ── Dinner ──────────────────────────────────────────────────────
-  { match: ['nyama choma'],       label: 'Nyama choma',             mealTypes: ['dinner'], emoji: '🍖', staples: ['Goat meat','Salt','Onions'], tags: ['east-africa','protein'] },
-  { match: ['mishkaki'],          label: 'Mishkaki',                mealTypes: ['dinner','snack'], emoji: '🍢', staples: ['Beef','Onions','Cumin','Salt'], tags: ['east-africa','protein'] },
-  { match: ['spaghetti bolognese'], label: 'Spaghetti bolognese',   mealTypes: ['dinner'], emoji: '🍝', staples: ['Pasta','Beef','Tomatoes','Onions','Garlic'], tags: ['global','kids'] },
-  { match: ['pasta tomato'],      label: 'Pasta & tomato sauce',    mealTypes: ['dinner'], emoji: '🍝', staples: ['Pasta','Canned tomatoes','Garlic','Olive oil'], tags: ['global','kids','vegetarian'] },
-  { match: ['mac cheese'],        label: 'Mac & cheese',            mealTypes: ['dinner'], emoji: '🧀', staples: ['Pasta','Cheese','Milk','Butter'], tags: ['global','kids','treat'] },
-  { match: ['fried chicken chips'], label: 'Fried chicken & chips', mealTypes: ['dinner'], emoji: '🍗', staples: ['Chicken','Potatoes','Cooking oil'], tags: ['east-africa','global','kids'] },
-  { match: ['pizza'],             label: 'Pizza',                   mealTypes: ['dinner'], emoji: '🍕', staples: ['Wheat flour','Cheese','Canned tomatoes','Yeast'], tags: ['global','kids','treat'] },
-  { match: ['curry'],             label: 'Beef curry',              mealTypes: ['dinner'], emoji: '🍛', staples: ['Beef','Tomatoes','Onions','Masala / curry powder','Coconut milk'], tags: ['south-asia','east-africa','indian'] },
-  { match: ['paneer butter'],     label: 'Paneer butter masala',    mealTypes: ['dinner'], emoji: '🍛', staples: ['Paneer','Tomatoes','Cream','Masala / curry powder'], tags: ['south-asia','indian','vegetarian'] },
-  { match: ['fish chips'],        label: 'Fish & chips',            mealTypes: ['dinner'], emoji: '🐟', staples: ['Fish','Potatoes','Cooking oil'], tags: ['global','kids'] },
-  { match: ['stew rice'],         label: 'Stew & rice',             mealTypes: ['dinner'], emoji: '🍲', staples: ['Beef','Rice (white)','Onions','Tomatoes'], tags: ['east-africa','global'] },
+  { match: ['nyama choma'],       label: 'Nyama choma',             mealTypes: ['dinner'], emoji: '🍖', staples: ['Goat meat','Salt','Onions'], tags: ['east-africa','protein','halal'] },
+  { match: ['mishkaki'],          label: 'Mishkaki',                mealTypes: ['dinner','snack'], emoji: '🍢', staples: ['Beef','Onions','Cumin','Salt'], tags: ['east-africa','protein','halal'] },
+  { match: ['spaghetti bolognese'], label: 'Spaghetti bolognese',   mealTypes: ['dinner'], emoji: '🍝', staples: ['Pasta','Beef','Tomatoes','Onions','Garlic'], tags: ['global','kids','halal'] },
+  { match: ['pasta tomato'],      label: 'Pasta & tomato sauce',    mealTypes: ['dinner'], emoji: '🍝', staples: ['Pasta','Canned tomatoes','Garlic','Olive oil'], tags: ['global','kids','vegetarian','vegan','halal'] },
+  { match: ['pasta pesto'],       label: 'Pasta pesto',             mealTypes: ['dinner'], emoji: '🍝', staples: ['Pasta','Olive oil','Garlic','Cheese'], tags: ['global','vegetarian'] },
+  { match: ['mac cheese'],        label: 'Mac & cheese',            mealTypes: ['dinner'], emoji: '🧀', staples: ['Pasta','Cheese','Milk','Butter'], tags: ['global','kids','treat','vegetarian'] },
+  { match: ['fried chicken chips'], label: 'Fried chicken & chips', mealTypes: ['dinner'], emoji: '🍗', staples: ['Chicken','Potatoes','Cooking oil'], tags: ['east-africa','global','kids','halal'] },
+  { match: ['grilled chicken'],   label: 'Grilled chicken & veg',   mealTypes: ['dinner'], emoji: '🍗', staples: ['Chicken','Bell pepper','Onions','Olive oil'], tags: ['global','health-conscious','protein','halal'] },
+  { match: ['pizza'],             label: 'Pizza',                   mealTypes: ['dinner'], emoji: '🍕', staples: ['Wheat flour','Cheese','Canned tomatoes','Yeast'], tags: ['global','kids','treat','vegetarian'] },
+  { match: ['curry'],             label: 'Beef curry',              mealTypes: ['dinner'], emoji: '🍛', staples: ['Beef','Tomatoes','Onions','Masala / curry powder','Coconut milk'], tags: ['south-asia','east-africa','indian','halal'] },
+  { match: ['butter chicken'],    label: 'Butter chicken',          mealTypes: ['dinner'], emoji: '🍛', staples: ['Chicken','Tomatoes','Cream','Masala / curry powder'], tags: ['south-asia','indian','halal'] },
+  { match: ['paneer butter'],     label: 'Paneer butter masala',    mealTypes: ['dinner'], emoji: '🍛', staples: ['Paneer','Tomatoes','Cream','Masala / curry powder'], tags: ['south-asia','indian','vegetarian','halal'] },
+  { match: ['tofu stir fry'],     label: 'Tofu stir-fry',           mealTypes: ['dinner'], emoji: '🥦', staples: ['Broccoli','Bell pepper','Garlic','Soy sauce','Rice (white)'], tags: ['global','asian','vegetarian','vegan','health-conscious'] },
+  { match: ['vegetable stir fry'],label: 'Vegetable stir-fry',      mealTypes: ['dinner'], emoji: '🥦', staples: ['Broccoli','Carrots','Bell pepper','Garlic','Soy sauce'], tags: ['global','asian','vegetarian','vegan','health-conscious'] },
+  { match: ['fish chips'],        label: 'Fish & chips',            mealTypes: ['dinner'], emoji: '🐟', staples: ['Fish','Potatoes','Cooking oil'], tags: ['global','kids','halal'] },
+  { match: ['stew rice'],         label: 'Stew & rice',             mealTypes: ['dinner'], emoji: '🍲', staples: ['Beef','Rice (white)','Onions','Tomatoes'], tags: ['east-africa','global','halal'] },
+  { match: ['veg stew rice'],     label: 'Vegetable stew & rice',   mealTypes: ['dinner'], emoji: '🍲', staples: ['Rice (white)','Carrots','Potatoes','Onions','Tomatoes'], tags: ['global','vegetarian','vegan','halal'] },
+  { match: ['roast vegetables'],  label: 'Roast veggies & rice',    mealTypes: ['dinner'], emoji: '🥕', staples: ['Carrots','Potatoes','Bell pepper','Olive oil','Rice (white)'], tags: ['global','vegetarian','vegan','health-conscious','halal'] },
 
   // ── Snacks ──────────────────────────────────────────────────────
   { match: ['popcorn snack'],     label: 'Popcorn',                 mealTypes: ['snack'], emoji: '🍿', staples: ['Popcorn','Salt','Butter'], tags: ['kids','treat'] },
@@ -354,6 +379,8 @@ export const FOODS_DIRECTORY: FoodDirectoryItem[] = [
   { match: ['grape fruit'],       label: 'Grapes',                  mealTypes: ['fruit','snack'], emoji: '🍇', staples: ['Grapes'], tags: ['global','kids'] },
   { match: ['avocado fruit'],     label: 'Avocado',                 mealTypes: ['fruit','snack'], emoji: '🥑', staples: ['Avocados'], tags: ['east-africa','global'] },
   { match: ['strawberry fruit'],  label: 'Strawberries',            mealTypes: ['fruit','snack'], emoji: '🍓', staples: ['Strawberries'], tags: ['global','kids','treat'] },
+  { match: ['mixed fruit'],       label: 'Mixed fruit bowl',        mealTypes: ['fruit','snack'], emoji: '🍇', staples: ['Bananas','Apples','Mangoes','Grapes'], tags: ['global','kids','health-conscious','vegan','vegetarian'] },
+  { match: ['fruit yogurt'],      label: 'Fruit & yogurt parfait',  mealTypes: ['fruit','snack'], emoji: '🥣', staples: ['Yogurt','Bananas','Strawberries','Honey'], tags: ['global','kids','health-conscious','vegetarian'] },
 ];
 
 export function searchFoods(query: string, mealType?: FoodMealType, max = 24): FoodDirectoryItem[] {
@@ -364,6 +391,76 @@ export function searchFoods(query: string, mealType?: FoodMealType, max = 24): F
     pool = pool.filter((f) => f.label.toLowerCase().includes(q) || f.match.some((m) => m.includes(q)));
   }
   return pool.slice(0, max);
+}
+
+// ────────────────────────────────────────────────────────────────────
+//  Weekly meal-plan suggester
+// ────────────────────────────────────────────────────────────────────
+
+export interface MealPlanFilters {
+  /** Region tag — 'east-africa', 'south-asia', 'global', or 'all'. */
+  region?: 'east-africa' | 'south-asia' | 'global' | 'all';
+  /** Diet — 'vegetarian', 'vegan', 'halal', or undefined (no diet filter). */
+  diet?: 'vegetarian' | 'vegan' | 'halal';
+  /** When true, prefers items tagged 'kids'. */
+  kidFriendly?: boolean;
+}
+
+/** Pool of foods matching the filters, ranked-ish by tag-overlap. */
+export function foodsMatching(filters: MealPlanFilters, mealType: FoodMealType): FoodDirectoryItem[] {
+  return FOODS_DIRECTORY
+    .filter((f) => f.mealTypes.includes(mealType))
+    .filter((f) => {
+      if (filters.diet && !f.tags.includes(filters.diet)) return false;
+      if (filters.region && filters.region !== 'all') {
+        // 'global' matches anything tagged 'global' OR untagged regions.
+        if (filters.region === 'global') return f.tags.includes('global');
+        return f.tags.includes(filters.region);
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      const score = (item: FoodDirectoryItem) => {
+        let s = 0;
+        if (filters.kidFriendly && item.tags.includes('kids')) s += 2;
+        if (filters.region && filters.region !== 'all' && item.tags.includes(filters.region)) s += 1;
+        return s;
+      };
+      return score(b) - score(a);
+    });
+}
+
+/** Build a 7-day plan from the directory. Picks a deterministic-ish
+ *  but varied set so the same filters produce different output on
+ *  refresh (we shuffle the candidate pool). The output map matches
+ *  MealPlan.days shape so the meals page can patch directly. */
+export function suggestWeeklyMealPlan(filters: MealPlanFilters): Record<string, { breakfast?: string; lunch?: string; dinner?: string }> {
+  const days = ['mon','tue','wed','thu','fri','sat','sun'] as const;
+  const breakfasts = shuffle(foodsMatching(filters, 'breakfast'));
+  const lunches    = shuffle(foodsMatching(filters, 'lunch'));
+  const dinners    = shuffle(foodsMatching(filters, 'dinner'));
+
+  // Round-robin pick. If the pool is shorter than 7 we cycle.
+  const pick = (pool: FoodDirectoryItem[], i: number) => pool.length > 0 ? pool[i % pool.length].label : undefined;
+
+  const plan: Record<string, { breakfast?: string; lunch?: string; dinner?: string }> = {};
+  days.forEach((d, i) => {
+    plan[d] = {
+      breakfast: pick(breakfasts, i),
+      lunch:     pick(lunches, i),
+      dinner:    pick(dinners, i),
+    };
+  });
+  return plan;
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const out = [...arr];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 // ────────────────────────────────────────────────────────────────────
