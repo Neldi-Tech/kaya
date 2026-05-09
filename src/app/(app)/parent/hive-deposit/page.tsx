@@ -16,6 +16,7 @@ import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates'
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { formatCash } from '@/components/hive/format';
+import NumberInput from '@/components/hive/NumberInput';
 
 const CATEGORIES = [
   { id: 'allowance' as const, emoji: '💵', label: 'Allowance',     desc: 'Regular pocket money' },
@@ -31,7 +32,9 @@ export default function HiveDepositPage() {
   const defaultCurrency = config.currency;
 
   const [kidIds, setKidIds] = useState<string[]>([]);
-  const [amount, setAmount] = useState('');
+  /** Source amount in MAJOR units of `sourceCurrency` (or default currency
+   *  if FX is off). Held as a number so the NumberInput stays clean. */
+  const [amount, setAmount] = useState<number>(0);
   const [category, setCategory] = useState<typeof CATEGORIES[number]['id']>('allowance');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -44,7 +47,7 @@ export default function HiveDepositPage() {
   // record both sides so the audit trail is unambiguous.
   const [useFx, setUseFx] = useState(false);
   const [sourceCurrency, setSourceCurrency] = useState(defaultCurrency);
-  const [fxRate, setFxRate] = useState<string>('1.00');
+  const [fxRate, setFxRate] = useState<number>(1);
   // Live exchange rates from open.er-api.com (no key, free, cached daily
   // in localStorage). Drives the "Suggested rate" pill so a parent doesn't
   // have to pull up Google Finance every time.
@@ -62,7 +65,7 @@ export default function HiveDepositPage() {
   // the first time (or switches source currency). They can override.
   useEffect(() => {
     if (fxSuggestion && fxSuggestion > 0) {
-      setFxRate(formatRate(fxSuggestion).replace(/,/g, ''));
+      setFxRate(parseFloat(formatRate(fxSuggestion).replace(/,/g, '')) || 0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceCurrency, useFx, fx]);
@@ -72,10 +75,10 @@ export default function HiveDepositPage() {
   };
 
   // Compute the destination amount (in cents of the family's default
-  // currency). Without FX it's just dollars × 100. With FX it's
+  // currency). Without FX it's just amount × 100. With FX it's
   // sourceAmount × fxRate × 100.
-  const sourceAmount = parseFloat(amount.replace(/[^0-9.]/g, '')) || 0;
-  const fxNum = parseFloat(fxRate) || 0;
+  const sourceAmount = amount;
+  const fxNum = fxRate;
   const destCents = useFx
     ? Math.round(sourceAmount * fxNum * 100)
     : Math.round(sourceAmount * 100);
@@ -108,7 +111,7 @@ export default function HiveDepositPage() {
       );
       const kidNames = children.filter((c) => kidIds.includes(c.id)).map((c) => c.name);
       setSuccess({ kidNames, cents: destCents, perKid: kidIds.length > 1 });
-      setAmount('');
+      setAmount(0);
       setDescription('');
       setKidIds([]);
       setTimeout(() => setSuccess(null), 4000);
@@ -208,7 +211,7 @@ export default function HiveDepositPage() {
                 setUseFx((v) => !v);
                 if (useFx) {
                   setSourceCurrency(defaultCurrency);
-                  setFxRate('1.00');
+                  setFxRate(1);
                 }
               }}
               className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline"
@@ -220,12 +223,14 @@ export default function HiveDepositPage() {
             <span className="font-nunito font-black text-4xl text-hive-muted">
               {(useFx ? sourceSym : (CURRENCIES.find((c) => c.code === defaultCurrency)?.symbol || '$')).trim() || '$'}
             </span>
-            <input
+            <NumberInput
               value={amount}
-              onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
-              inputMode="decimal"
+              onChange={setAmount}
+              allowDecimal
+              min={0}
+              ariaLabel="Deposit amount"
               placeholder="0.00"
-              className="font-nunito font-black text-4xl bg-transparent outline-none flex-1 placeholder:text-hive-muted/30"
+              className="font-nunito font-black text-4xl bg-transparent outline-none flex-1 placeholder:text-hive-muted/30 min-w-0"
             />
           </div>
           {useFx && (
@@ -247,10 +252,12 @@ export default function HiveDepositPage() {
                   <p className="text-[10px] uppercase tracking-[1.5px] font-bold text-hive-muted mb-1">
                     Rate · 1 {sourceCurrency} = ? {defaultCurrency}
                   </p>
-                  <input
+                  <NumberInput
                     value={fxRate}
-                    onChange={(e) => setFxRate(e.target.value.replace(/[^0-9.]/g, ''))}
-                    inputMode="decimal"
+                    onChange={setFxRate}
+                    allowDecimal
+                    min={0}
+                    ariaLabel="Exchange rate"
                     placeholder="1.00"
                     className="w-full h-10 px-3 bg-hive-cream rounded-[10px] font-nunito font-extrabold text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
                   />
@@ -263,7 +270,7 @@ export default function HiveDepositPage() {
               {fxSuggestion && (
                 <button
                   type="button"
-                  onClick={() => setFxRate(formatRate(fxSuggestion).replace(/,/g, ''))}
+                  onClick={() => setFxRate(parseFloat(formatRate(fxSuggestion).replace(/,/g, '')) || 0)}
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-hive-pill bg-hive-honey-soft/70 text-hive-honey-dk text-[11px] font-nunito font-extrabold hover:brightness-105"
                 >
                   💡 Today: 1 {sourceCurrency} ≈ {formatRate(fxSuggestion)} {defaultCurrency} ·

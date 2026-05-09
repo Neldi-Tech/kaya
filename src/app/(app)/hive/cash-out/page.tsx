@@ -18,6 +18,7 @@ import TransactionRow from '@/components/hive/TransactionRow';
 import PlanProgressStrip from '@/components/hive/PlanProgressStrip';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash } from '@/components/hive/format';
+import NumberInput from '@/components/hive/NumberInput';
 
 // Use the same finer category set as the plan (PLAN_CATEGORIES) — but
 // drop "Savings" because that's not a thing you spend money on, it's a
@@ -68,7 +69,7 @@ export default function CashOutPage() {
 
   // Spend request inline form
   const [showForm, setShowForm] = useState(false);
-  const [amountInput, setAmountInput] = useState('');
+  const [amountInput, setAmountInput] = useState<number>(0);
   const [desc, setDesc] = useState('');
   const [category, setCategory] = useState<TxCategory>('shopping');
   const [submitting, setSubmitting] = useState(false);
@@ -77,7 +78,7 @@ export default function CashOutPage() {
   const submit = async () => {
     if (!profile?.familyId || !activeKidId || isGuest) return;
     setError('');
-    const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100);
+    const cents = Math.round(amountInput * 100);
     if (!Number.isFinite(cents) || cents <= 0) { setError('Pick an amount.'); return; }
     if (cents > wallet.cashCents) {
       setError(`You only have ${formatCash(wallet.cashCents, config.currency)} in Cash.`);
@@ -97,7 +98,7 @@ export default function CashOutPage() {
         setAutoApproveFlash({ amount: cents, desc: desc.trim() });
         setTimeout(() => setAutoApproveFlash(null), 3500);
       }
-      setAmountInput(''); setDesc(''); setCategory('shopping');
+      setAmountInput(0); setDesc(''); setCategory('shopping');
     } catch (e: any) {
       setError(e?.message || 'Failed to submit.');
     }
@@ -176,13 +177,15 @@ export default function CashOutPage() {
             <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Amount</label>
             <div className="flex items-baseline gap-2 mt-1">
               <span className="font-nunito font-black text-3xl text-hive-muted">$</span>
-              <input
+              <NumberInput
                 value={amountInput}
-                onChange={(e) => setAmountInput(e.target.value.replace(/[^0-9.]/g, ''))}
-                inputMode="decimal"
+                onChange={setAmountInput}
+                allowDecimal
+                min={0}
+                ariaLabel="Spend amount"
                 placeholder="0.00"
-                className="font-nunito font-black text-3xl bg-transparent outline-none w-full max-w-[200px] placeholder:text-hive-muted/30"
                 autoFocus
+                className="font-nunito font-black text-3xl bg-transparent outline-none w-full max-w-[200px] placeholder:text-hive-muted/30 min-w-0"
               />
             </div>
             <p className="text-[11px] text-hive-muted mt-1">
@@ -222,7 +225,7 @@ export default function CashOutPage() {
               plan budget for this category and adding the requested amount
               would push them past it. We never block; this is a nudge. */}
           {(() => {
-            const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
+            const cents = Math.round(amountInput * 100) || 0;
             if (cents <= 0) return null;
             const budget = (monthlyPlan?.budget as any)?.[category] as number | undefined;
             if (!budget || budget <= 0) return null;
@@ -254,7 +257,7 @@ export default function CashOutPage() {
               beats family default; we tweak the copy so the kid knows
               whether it's "your limit" vs "your family's limit". */}
           {(() => {
-            const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
+            const cents = Math.round(amountInput * 100) || 0;
             const threshold = effectiveThresholdCents;
             if (cents <= 0 || threshold <= 0 || cents >= threshold) return null;
             return (
@@ -267,7 +270,7 @@ export default function CashOutPage() {
           {error && <p className="text-hive-rose text-sm font-bold">{error}</p>}
 
           {(() => {
-            const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
+            const cents = Math.round(amountInput * 100) || 0;
             const threshold = effectiveThresholdCents;
             const willAuto = cents > 0 && threshold > 0 && cents < threshold;
             return (

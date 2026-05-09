@@ -5,6 +5,7 @@
 // or cents. We let the kid pick a quick icon from a small palette.
 
 import { useState } from 'react';
+import NumberInput from '@/components/hive/NumberInput';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -21,7 +22,7 @@ export default function NewGoalPage() {
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState(ICONS[0]);
   const [layer, setLayer] = useState<'cash' | 'honey'>('cash');
-  const [target, setTarget] = useState('');
+  const [target, setTarget] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,7 +30,7 @@ export default function NewGoalPage() {
     if (!profile?.familyId || !activeKidId || isGuest) return;
     setError('');
     if (!title.trim()) { setError('Give your goal a name.'); return; }
-    const num = parseFloat(target.replace(/[^0-9.]/g, ''));
+    const num = target;
     if (!Number.isFinite(num) || num <= 0) { setError('Pick a target amount.'); return; }
     const targetAmount = layer === 'cash' ? Math.round(num * 100) : Math.round(num);
     setSubmitting(true);
@@ -96,7 +97,7 @@ export default function NewGoalPage() {
               return (
                 <button
                   key={c.id}
-                  onClick={() => { setLayer(c.id); setTarget(''); }}
+                  onClick={() => { setLayer(c.id); setTarget(0); }}
                   className={`p-3 rounded-hive border-2 text-left transition-all ${
                     sel ? 'border-hive-honey bg-hive-honey-soft/50' : 'border-hive-line bg-hive-paper'
                   }`}
@@ -117,12 +118,14 @@ export default function NewGoalPage() {
             <span className="font-nunito font-black text-3xl text-hive-muted">
               {layer === 'cash' ? '$' : '🍯'}
             </span>
-            <input
+            <NumberInput
               value={target}
-              onChange={(e) => setTarget(e.target.value.replace(/[^0-9.]/g, ''))}
-              inputMode="decimal"
+              onChange={setTarget}
+              allowDecimal={layer === 'cash'}
+              min={0}
+              ariaLabel="Goal target amount"
               placeholder={layer === 'cash' ? '120.00' : '120'}
-              className="font-nunito font-black text-3xl bg-transparent outline-none flex-1 placeholder:text-hive-muted/30"
+              className="font-nunito font-black text-3xl bg-transparent outline-none flex-1 placeholder:text-hive-muted/30 min-w-0"
             />
           </div>
         </div>

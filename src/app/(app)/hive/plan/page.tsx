@@ -14,6 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
+import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash } from '@/components/hive/format';
 
@@ -157,15 +158,14 @@ export default function PlanPage() {
                 </div>
                 <div className="flex items-baseline gap-1">
                   <span className="text-hive-muted font-nunito font-bold text-base">$</span>
-                  <input
-                    inputMode="decimal"
-                    value={planned > 0 ? (planned / 100).toFixed(planned % 100 === 0 ? 0 : 2) : ''}
-                    onChange={(e) => {
-                      const num = parseFloat(e.target.value.replace(/[^0-9.]/g, ''));
-                      setCategory(c.id, Number.isFinite(num) ? num * 100 : 0);
-                    }}
+                  <NumberInput
+                    value={planned / 100}
+                    onChange={(n) => setCategory(c.id, Math.round(n * 100))}
+                    allowDecimal
+                    min={0}
+                    ariaLabel={`${c.label} budget`}
                     placeholder="0"
-                    className="w-20 h-10 px-2 bg-hive-cream rounded-[10px] text-right font-nunito font-black text-lg border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                    className="w-24 h-10 px-2 bg-hive-cream rounded-[10px] text-right font-nunito font-black text-lg border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
                   />
                 </div>
               </div>

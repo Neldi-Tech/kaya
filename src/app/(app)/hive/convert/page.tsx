@@ -16,6 +16,7 @@ import { useHive } from '@/contexts/HiveContext';
 import { requestHpToHoney, requestCashOut } from '@/lib/hive';
 import RatePill from '@/components/hive/RatePill';
 import KidSwitcher from '@/components/hive/KidSwitcher';
+import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/components/hive/format';
 
@@ -28,12 +29,12 @@ export default function ConvertPage() {
   const { activeKidId, wallet, config, fxUsdToFamily } = useHive();
 
   const [mode, setMode] = useState<Mode>('hp_to_honey');
-  const [amount, setAmount] = useState<string>('');
+  const [amount, setAmount] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const activeKid = children.find((c) => c.id === activeKidId);
-  const numAmount = parseInt(amount.replace(/[^0-9]/g, ''), 10) || 0;
+  const numAmount = Math.max(0, Math.round(amount));
   const fxRate = fxUsdToFamily ?? 1;
 
   // Compute the "TO" preview live. Honey is USD-benchmarked, so the cash
@@ -80,7 +81,7 @@ export default function ConvertPage() {
       {/* Mode switcher */}
       <div className="grid grid-cols-2 gap-2 mb-5">
         <button
-          onClick={() => { setMode('hp_to_honey'); setAmount(''); setError(''); }}
+          onClick={() => { setMode('hp_to_honey'); setAmount(0); setError(''); }}
           className={`h-12 rounded-hive-pill font-nunito font-black text-[13px] transition-colors ${
             mode === 'hp_to_honey' ? 'bg-hive-honey text-white shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]' : 'bg-hive-paper border border-hive-line text-hive-muted'
           }`}
@@ -88,7 +89,7 @@ export default function ConvertPage() {
           ⭐ → 🍯  Save HP
         </button>
         <button
-          onClick={() => { setMode('honey_to_cash'); setAmount(''); setError(''); }}
+          onClick={() => { setMode('honey_to_cash'); setAmount(0); setError(''); }}
           className={`h-12 rounded-hive-pill font-nunito font-black text-[13px] transition-colors ${
             mode === 'honey_to_cash' ? 'bg-hive-green text-white shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)]' : 'bg-hive-paper border border-hive-line text-hive-muted'
           }`}
@@ -112,12 +113,13 @@ export default function ConvertPage() {
           </p>
         </div>
         <div className="flex items-baseline gap-2">
-          <input
+          <NumberInput
             value={amount}
-            onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
-            inputMode="numeric"
+            onChange={setAmount}
+            min={0}
+            ariaLabel="Amount to convert"
             placeholder="0"
-            className="font-nunito font-black text-[44px] leading-none bg-transparent outline-none w-full max-w-[200px] placeholder:text-hive-muted/30"
+            className="font-nunito font-black text-[44px] leading-none bg-transparent outline-none w-full max-w-[200px] placeholder:text-hive-muted/30 min-w-0"
           />
           <span className="text-base text-hive-muted font-bold">
             {mode === 'hp_to_honey' ? 'HP' : '🍯'}

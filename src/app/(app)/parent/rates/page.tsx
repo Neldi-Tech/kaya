@@ -14,6 +14,7 @@ import { updateChild, Child } from '@/lib/firestore';
 import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import BackButton from '@/components/ui/BackButton';
+import NumberInput from '@/components/hive/NumberInput';
 
 export default function ParentRatesPage() {
   const { profile, isGuest } = useAuth();
@@ -137,13 +138,12 @@ export default function ParentRatesPage() {
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Lever A · HP → 🍯</p>
           <p className="text-[12px] text-hive-muted mt-1 mb-3">How many House Points convert to one Honey Coin?</p>
           <div className="flex items-baseline gap-3">
-            <input
-              type="number"
+            <NumberInput
+              value={hpToHoney}
+              onChange={(n) => setHpToHoney(Math.max(1, Math.round(n)))}
               min={1}
               max={1000}
-              step={1}
-              value={hpToHoney}
-              onChange={(e) => setHpToHoney(Math.max(1, parseInt(e.target.value || '0', 10) || 0))}
+              ariaLabel="House Points per Honey Coin"
               className="w-28 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
             <span className="font-nunito font-extrabold text-lg">HP = 1 🍯</span>
@@ -168,13 +168,13 @@ export default function ParentRatesPage() {
           </p>
           <div className="flex items-baseline gap-3">
             <span className="font-nunito font-extrabold text-lg">1 🍯 = $</span>
-            <input
-              type="number"
+            <NumberInput
+              value={honeyToCash}
+              onChange={(n) => setHoneyToCash(Math.max(0, n))}
+              allowDecimal
               min={0}
               max={100}
-              step={0.05}
-              value={honeyToCash}
-              onChange={(e) => setHoneyToCash(Math.max(0, parseFloat(e.target.value || '0') || 0))}
+              ariaLabel="USD per Honey Coin"
               className="w-28 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
             <span className="font-nunito font-extrabold text-sm text-hive-muted">USD</span>
@@ -212,13 +212,12 @@ export default function ParentRatesPage() {
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk mb-3">Cash-out minimum</p>
           <div className="flex items-baseline gap-3">
-            <input
-              type="number"
+            <NumberInput
+              value={minCashOut}
+              onChange={(n) => setMinCashOut(Math.max(0, Math.round(n)))}
               min={0}
               max={100}
-              step={1}
-              value={minCashOut}
-              onChange={(e) => setMinCashOut(Math.max(0, parseInt(e.target.value || '0', 10) || 0))}
+              ariaLabel="Honey minimum for cash-out"
               className="w-24 h-11 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-lg border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
             <span className="font-nunito font-extrabold text-sm">🍯 minimum to cash out</span>
@@ -259,14 +258,14 @@ export default function ParentRatesPage() {
           <div className="flex items-baseline gap-3">
             <span className="font-nunito font-extrabold text-lg">Below</span>
             <span className="font-nunito font-black text-2xl text-hive-muted">{symbolText}</span>
-            <input
-              type="number"
+            <NumberInput
+              value={autoApproveDollars}
+              onChange={(n) => setAutoApproveDollars(Math.max(0, n))}
+              allowDecimal={meta.step < 1}
               min={0}
               max={meta.max}
-              step={meta.step}
-              value={autoApproveDollars}
-              onChange={(e) => setAutoApproveDollars(Math.max(0, parseFloat(e.target.value || '0') || 0))}
-              className="w-32 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+              ariaLabel="Auto-approve threshold"
+              className="w-36 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -486,14 +485,14 @@ function ChildOverrideRow({
         <div className="mt-3">
           <div className="flex items-baseline gap-2">
             <span className="font-nunito font-black text-lg text-hive-muted">{symbolText}</span>
-            <input
-              type="number"
+            <NumberInput
+              value={working / 100}
+              onChange={(n) => setWorking(Math.max(0, Math.round(n * 100)))}
+              onBlur={() => persist(working)}
+              allowDecimal={step < 1}
               min={0}
               max={max}
-              step={step}
-              value={working / 100}
-              onChange={(e) => setWorking(Math.max(0, Math.round((parseFloat(e.target.value || '0') || 0) * 100)))}
-              onBlur={() => persist(working)}
+              ariaLabel={`${child.name} auto-approve override`}
               className="flex-1 h-10 px-3 bg-hive-paper rounded-hive-pill font-nunito font-black text-lg border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
           </div>
