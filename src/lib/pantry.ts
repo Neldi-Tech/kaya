@@ -180,6 +180,60 @@ export interface GroceryList {
   closedAt?: Timestamp;
 }
 
+// ── Meal plan (Phase 1B) ─────────────────────────────────────────
+
+export type MealDay = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type MealSlot = 'breakfast' | 'lunch' | 'dinner';
+
+export const MEAL_DAYS: { id: MealDay; short: string; full: string }[] = [
+  { id: 'mon', short: 'Mon', full: 'Monday' },
+  { id: 'tue', short: 'Tue', full: 'Tuesday' },
+  { id: 'wed', short: 'Wed', full: 'Wednesday' },
+  { id: 'thu', short: 'Thu', full: 'Thursday' },
+  { id: 'fri', short: 'Fri', full: 'Friday' },
+  { id: 'sat', short: 'Sat', full: 'Saturday' },
+  { id: 'sun', short: 'Sun', full: 'Sunday' },
+];
+
+export const MEAL_SLOTS: { id: MealSlot; label: string; emoji: string }[] = [
+  { id: 'breakfast', label: 'Breakfast', emoji: '🥣' },
+  { id: 'lunch',     label: 'Lunch',     emoji: '🍱' },
+  { id: 'dinner',    label: 'Dinner',    emoji: '🍝' },
+];
+
+export interface MealEntry {
+  breakfast?: string;
+  lunch?: string;
+  dinner?: string;
+  /** When true, the family is eating out that day; `eatingOutNote` can
+   *  carry "Pizza place" / "with grandma" / etc. The `dinner` slot is
+   *  treated as the eating-out meal by convention so we don't need a
+   *  fourth slot in the data. */
+  eatingOut?: boolean;
+  eatingOutNote?: string;
+}
+
+export interface MealPlan {
+  weekKey: string;            // YYYY-MM-DD (Monday)
+  days: Partial<Record<MealDay, MealEntry>>;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+  createdBy: string;
+}
+
+// ── Pantry budget (Phase 1B) ─────────────────────────────────────
+
+export interface PantryBudget {
+  monthKey: string;           // YYYY-MM
+  /** Map of staple-category → cents budgeted for the month. */
+  categoryBudgets: Partial<Record<StapleCategory, number>>;
+  /** Cached sum of categoryBudgets for fast Home renders. */
+  totalBudgetCents: number;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+  createdBy: string;
+}
+
 // ── Path helpers ──────────────────────────────────────────────────
 
 const stapleCol = (familyId: string) =>
@@ -190,6 +244,12 @@ const supplierCol = (familyId: string) =>
 
 const listCol = (familyId: string) =>
   collection(db, 'families', familyId, 'groceryLists');
+
+const mealPlanRef = (familyId: string, weekKey: string) =>
+  doc(db, 'families', familyId, 'mealPlans', weekKey);
+
+const budgetRef = (familyId: string, monthKey: string) =>
+  doc(db, 'families', familyId, 'pantryBudgets', monthKey);
 
 // ── Staples ──────────────────────────────────────────────────────
 
@@ -490,6 +550,134 @@ export function groupBySupplier(
   return out;
 }
 
+// ── Meal plans ───────────────────────────────────────────────────
+
+export function subscribeToMealPlan(
+  familyId: string,
+  weekKey: string,
+  cb: (plan: MealPlan | null) => void,
+): () => void {
+  if (isGuestActive()) { cb(null); return () => {}; }
+  return onSnapshot(
+    mealPlanRef(familyId, weekKey),
+    (snap) => cb(snap.exists() ? ({ ...(snap.data() as MealPlan), weekKey }) : null),
+    () => cb(null),
+  );
+}
+
+/** Set or clear a single meal slot. Idempotent — first call to a missing
+ *  doc creates it via setDoc-merge. */
+export async function setMealSlot(
+  familyId: string,
+  weekKey: string,
+  day: MealDay,
+  slot: MealSlot,
+  value: string | undefined,
+  createdBy: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const patch: Record<string, unknown> = {
+    weekKey,
+    [`days.${day}.${slot}`]: value || null,
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp(), // setDoc-merge preserves an earlier value
+    createdBy,
+  };
+  await setDoc(mealPlanRef(familyId, weekKey), patch, { merge: true });
+}
+
+/** Toggle the eating-out flag (and optionally set a note). */
+export async function setEatingOut(
+  familyId: string,
+  weekKey: string,
+  day: MealDay,
+  on: boolean,
+  note: string | undefined,
+  createdBy: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await setDoc(
+    mealPlanRef(familyId, weekKey),
+    {
+      weekKey,
+      [`days.${day}.eatingOut`]: on,
+      [`days.${day}.eatingOutNote`]: on ? (note || null) : null,
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      createdBy,
+    },
+    { merge: true },
+  );
+}
+
+// ── Pantry budget ────────────────────────────────────────────────
+
+export function subscribeToPantryBudget(
+  familyId: string,
+  monthKey: string,
+  cb: (b: PantryBudget | null) => void,
+): () => void {
+  if (isGuestActive()) { cb(null); return () => {}; }
+  return onSnapshot(
+    budgetRef(familyId, monthKey),
+    (snap) => cb(snap.exists() ? ({ ...(snap.data() as PantryBudget), monthKey }) : null),
+    () => cb(null),
+  );
+}
+
+/** Save the whole budget map. We recompute the cached total here so the
+ *  Home + Budget surfaces have a single number to display without
+ *  summing the map. */
+export async function savePantryBudget(
+  familyId: string,
+  monthKey: string,
+  categoryBudgets: Partial<Record<StapleCategory, number>>,
+  createdBy: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const cleaned: Partial<Record<StapleCategory, number>> = {};
+  let total = 0;
+  for (const [k, v] of Object.entries(categoryBudgets)) {
+    if (typeof v === 'number' && v > 0) {
+      cleaned[k as StapleCategory] = Math.round(v);
+      total += Math.round(v);
+    }
+  }
+  await setDoc(
+    budgetRef(familyId, monthKey),
+    {
+      monthKey,
+      categoryBudgets: cleaned,
+      totalBudgetCents: total,
+      updatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      createdBy,
+    },
+    { merge: true },
+  );
+}
+
+/** Pure derivation: "how much did the family commit to this category
+ *  this month?" Sums item.estimatedCents on every list whose `weekOf`
+ *  falls in the given calendar month. We use estimatedCents rather than
+ *  a separate "actual spent" field because Phase 1A doesn't capture
+ *  receipts — Phase 2 may add `actualCents` per row. */
+export function spentByCategoryInMonth(
+  lists: GroceryList[],
+  monthKey: string,
+): Partial<Record<StapleCategory, number>> {
+  const out: Partial<Record<StapleCategory, number>> = {};
+  for (const list of lists) {
+    if (!list.weekOf || !list.weekOf.startsWith(monthKey)) continue;
+    for (const it of list.items) {
+      if (!it.estimatedCents || it.estimatedCents <= 0) continue;
+      const cat = (it.category || 'other') as StapleCategory;
+      out[cat] = (out[cat] || 0) + it.estimatedCents;
+    }
+  }
+  return out;
+}
+
 // ── WhatsApp / phone helpers ─────────────────────────────────────
 
 /** Compose a friendly, scannable message for a supplier's list group.
@@ -558,4 +746,49 @@ export function thisWeekLabel(d = new Date()): string {
   const monday = thisWeekKey(d);
   const date = new Date(monday + 'T00:00:00');
   return `Week of ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+}
+
+/** "2026-05" for May 2026 — used as the doc id of the active monthly
+ *  budget AND as the prefix-match for `weekOf` strings. */
+export function currentMonthKey(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+/** Friendly "May 2026" for headers. */
+export function monthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map((n) => parseInt(n, 10));
+  if (!y || !m) return monthKey;
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+/** True when today is Sunday (or later in the week than the current
+ *  active list's `weekOf`). Drives the "Sunday auto-fill" copy on the
+ *  Pantry Home empty state. */
+export function isSundayOrNewWeek(d = new Date()): boolean {
+  return d.getDay() === 0;
+}
+
+// ── Lists by month (for budget tracking) ─────────────────────────
+
+/** Subscribe to every list whose `weekOf` falls in the given month.
+ *  Used by the Budget surface to sum estimated spend. We pull the
+ *  family's whole groceryLists collection and filter in-memory — the
+ *  doc count stays small (~52 a year). */
+export function subscribeToListsInMonth(
+  familyId: string,
+  monthKey: string,
+  cb: (lists: GroceryList[]) => void,
+): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  return onSnapshot(
+    listCol(familyId),
+    (snap) => {
+      const all = snap.docs.map((d) => ({ id: d.id, ...d.data() } as GroceryList));
+      cb(all.filter((l) => l.weekOf?.startsWith(monthKey)));
+    },
+    () => cb([]),
+  );
 }

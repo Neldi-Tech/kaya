@@ -199,6 +199,25 @@ service cloud.firestore {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentOrHelper(familyId);
       }
+
+      // ── The Pantry · meal plans ──────────────────────────────────
+      // 7-day food timetable, one doc per ISO-Monday week. Parents +
+      // helpers edit; kids read.
+      match /mealPlans/{weekKey} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentOrHelper(familyId);
+        allow delete: if false;
+      }
+
+      // ── The Pantry · monthly budgets ─────────────────────────────
+      // Per-category cents budget for the month. Parents only — money
+      // policy. Helpers + kids read so the Home + List surfaces can
+      // show "you have X left" copy.
+      match /pantryBudgets/{monthKey} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId);
+        allow delete: if false;
+      }
     }
   }
 }

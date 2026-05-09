@@ -13,10 +13,12 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  createListFromStaples, createList, thisWeekKey, thisWeekLabel,
+  createListFromStaples, createList, thisWeekKey, thisWeekLabel, isSundayOrNewWeek,
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
+import BudgetStrip from '@/components/pantry/BudgetStrip';
+import MealsPreview from '@/components/pantry/MealsPreview';
 
 export default function PantryHomePage() {
   const router = useRouter();
@@ -63,7 +65,10 @@ export default function PantryHomePage() {
         </h1>
       </div>
 
-      {/* Active list card — or "Start a new list" empty state. */}
+      {/* Budget strip — top of the page so cost is always visible. */}
+      <BudgetStrip />
+
+      {/* Active list card — or Sunday-aware "Start a new list" empty state. */}
       {loading ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-6 text-center text-hive-muted text-sm">
           Loading…
@@ -71,7 +76,7 @@ export default function PantryHomePage() {
       ) : currentList ? (
         <Link
           href={`/pantry/list/${currentList.id}`}
-          className="block bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-4 no-underline text-inherit hover:border-pantry-leaf transition-colors"
+          className="block bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-3 no-underline text-inherit hover:border-pantry-leaf transition-colors"
         >
           <div className="flex items-baseline justify-between mb-2">
             <p className="font-nunito font-extrabold text-[14px]">
@@ -90,13 +95,25 @@ export default function PantryHomePage() {
           )}
         </Link>
       ) : (
-        <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border border-pantry-leaf rounded-hive-lg p-5 mb-4 text-center">
-          <p className="font-nunito font-black text-lg mb-1">No active list</p>
-          <p className="text-[12px] text-hive-muted leading-relaxed mb-4">
-            {staples.length > 0
-              ? `Start this week's list — we'll seed it from your ${staples.length} staple${staples.length === 1 ? '' : 's'}.`
-              : 'Add a few staples first, or start with a blank list and build it up.'}
-          </p>
+        <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border border-pantry-leaf rounded-hive-lg p-5 mb-3 text-center">
+          {isSundayOrNewWeek() && staples.length > 0 ? (
+            <>
+              <p className="font-nunito font-black text-lg mb-1">🗓️ Sunday auto-fill ready</p>
+              <p className="text-[12px] text-hive-muted leading-relaxed mb-4">
+                One tap and we&apos;ll seed this week&apos;s list from your{' '}
+                <strong className="text-pantry-leaf-dk">{staples.length} staple{staples.length === 1 ? '' : 's'}</strong>.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-nunito font-black text-lg mb-1">No active list</p>
+              <p className="text-[12px] text-hive-muted leading-relaxed mb-4">
+                {staples.length > 0
+                  ? `Start this week's list — we'll seed it from your ${staples.length} staple${staples.length === 1 ? '' : 's'}.`
+                  : 'Add a few staples first, or start with a blank list and build it up.'}
+              </p>
+            </>
+          )}
           <button
             onClick={startWeek}
             disabled={creating || isGuest}
@@ -112,6 +129,9 @@ export default function PantryHomePage() {
           {error && <p className="text-hive-rose text-[12px] font-bold mt-2">{error}</p>}
         </div>
       )}
+
+      {/* Meal preview — what's coming up. */}
+      <MealsPreview />
 
       {/* Quick actions */}
       <div className="grid grid-cols-2 gap-3 mb-5">

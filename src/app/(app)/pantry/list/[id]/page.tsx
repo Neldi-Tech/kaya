@@ -22,6 +22,7 @@ import {
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import WhatsAppSendButton from '@/components/pantry/WhatsAppSendButton';
+import BudgetStrip from '@/components/pantry/BudgetStrip';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 
@@ -92,6 +93,9 @@ export default function ListPage() {
           ~ {formatCents(list.estimatedTotalCents, currency)}
         </span>
       </div>
+
+      {/* Month budget context — keeps the run honest against the bigger picture. */}
+      <BudgetStrip />
 
       {/* Empty state */}
       {items.length === 0 ? (
