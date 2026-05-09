@@ -7,11 +7,12 @@
 //     exchange rate. We always store in the family's default currency.
 // No approval is required because the parent IS the approver.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { depositCash, CURRENCIES } from '@/lib/hive';
+import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { formatCash } from '@/components/hive/format';
@@ -44,6 +45,27 @@ export default function HiveDepositPage() {
   const [useFx, setUseFx] = useState(false);
   const [sourceCurrency, setSourceCurrency] = useState(defaultCurrency);
   const [fxRate, setFxRate] = useState<string>('1.00');
+  // Live exchange rates from open.er-api.com (no key, free, cached daily
+  // in localStorage). Drives the "Suggested rate" pill so a parent doesn't
+  // have to pull up Google Finance every time.
+  const [fx, setFx] = useState<FxRates | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchFxRates('USD').then((r) => { if (!cancelled) setFx(r); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const fxSuggestion = useFx && sourceCurrency !== defaultCurrency
+    ? suggestedRate(fx, sourceCurrency, defaultCurrency)
+    : null;
+  // Auto-fill the suggested rate when the parent opens the FX panel for
+  // the first time (or switches source currency). They can override.
+  useEffect(() => {
+    if (fxSuggestion && fxSuggestion > 0) {
+      setFxRate(formatRate(fxSuggestion).replace(/,/g, ''));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceCurrency, useFx, fx]);
 
   const toggleKid = (id: string) => {
     setKidIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
@@ -234,11 +256,49 @@ export default function HiveDepositPage() {
                   />
                 </div>
               </div>
-              {sourceAmount > 0 && fxNum > 0 && (
-                <p className="text-[12px] text-hive-honey-dk font-nunito font-extrabold">
-                  ≈ {formatCash(destCents, defaultCurrency)} stored as {defaultCurrency}
-                  {kidIds.length > 1 ? ` (each · total ${formatCash(destCents * kidIds.length, defaultCurrency)})` : ''}
-                </p>
+
+              {/* Suggested rate pill — fetched live from open.er-api.com,
+                  cached for the day. Only renders when source ≠ default
+                  AND we got a usable rate. */}
+              {fxSuggestion && (
+                <button
+                  type="button"
+                  onClick={() => setFxRate(formatRate(fxSuggestion).replace(/,/g, ''))}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-hive-pill bg-hive-honey-soft/70 text-hive-honey-dk text-[11px] font-nunito font-extrabold hover:brightness-105"
+                >
+                  💡 Today: 1 {sourceCurrency} ≈ {formatRate(fxSuggestion)} {defaultCurrency} ·
+                  {' '}{Math.abs(fxNum - fxSuggestion) < fxSuggestion * 0.001 ? '✓ already using this' : 'Use suggested'}
+                </button>
+              )}
+
+              {/* Verbose commentary — keeps the parent oriented as they
+                  type. Mirrors what the receipt will say in the ledger. */}
+              {sourceAmount > 0 && fxNum > 0 ? (
+                <div className="rounded-hive bg-hive-cream border border-hive-line p-3 text-[12px] leading-relaxed">
+                  <p className="font-nunito font-extrabold text-hive-honey-dk uppercase tracking-[1.5px] text-[10px] mb-1">Conversion</p>
+                  <p>
+                    <strong>{sourceSym}{sourceAmount.toLocaleString('en-US')} {sourceCurrency}</strong>{' '}
+                    × <strong>{fxNum}</strong> ={' '}
+                    <strong className="text-hive-green">{formatCash(destCents, defaultCurrency)}</strong>{' '}
+                    stored as {defaultCurrency}.
+                    {kidIds.length > 1 && (
+                      <> Per kid · <strong>{kidIds.length} kids</strong> = total{' '}
+                        <strong>{formatCash(destCents * kidIds.length, defaultCurrency)}</strong>.</>
+                    )}
+                  </p>
+                  {fx && fxSuggestion && Math.abs(fxNum - fxSuggestion) > fxSuggestion * 0.05 && (
+                    <p className="mt-1 text-hive-muted text-[11px]">
+                      ⚠ {Math.round(Math.abs(fxNum - fxSuggestion) / fxSuggestion * 100)}% off today&apos;s market rate
+                      ({formatRate(fxSuggestion)}). Worth a double-check.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                !fxSuggestion && (
+                  <p className="text-[11px] text-hive-muted leading-relaxed">
+                    Tip: enter the rate from your bank or a search like &quot;1 {sourceCurrency} to {defaultCurrency}&quot;.
+                  </p>
+                )
               )}
             </div>
           )}

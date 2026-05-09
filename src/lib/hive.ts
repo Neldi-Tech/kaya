@@ -93,27 +93,49 @@ export const DEFAULT_HIVE_CONFIG: HiveConfig = {
 
 // Currency catalog — ISO 4217 codes plus a friendly label and a symbol
 // hint. Used by the /parent/rates picker and on /parent/hive-deposit
-// when accepting deposits in a non-default currency. Add to this list
-// whenever a family asks for a new currency; the storage layer is
-// currency-agnostic (always integer minor units of the active currency).
-export const CURRENCIES: { code: string; label: string; symbol: string }[] = [
-  { code: 'USD', label: 'US Dollar',          symbol: '$'    },
-  { code: 'EUR', label: 'Euro',               symbol: '€'    },
-  { code: 'GBP', label: 'British Pound',      symbol: '£'    },
-  { code: 'TZS', label: 'Tanzanian Shilling', symbol: 'TSh ' },
-  { code: 'KES', label: 'Kenyan Shilling',    symbol: 'KSh ' },
-  { code: 'UGX', label: 'Ugandan Shilling',   symbol: 'USh ' },
-  { code: 'ZAR', label: 'South African Rand', symbol: 'R '   },
-  { code: 'NGN', label: 'Nigerian Naira',     symbol: '₦'    },
-  { code: 'AED', label: 'UAE Dirham',         symbol: 'AED ' },
-  { code: 'INR', label: 'Indian Rupee',       symbol: '₹'    },
-  { code: 'CAD', label: 'Canadian Dollar',    symbol: 'C$'   },
-  { code: 'AUD', label: 'Australian Dollar',  symbol: 'A$'   },
+// when accepting deposits in a non-default currency.
+//
+// Each entry also carries scale hints so UI inputs adapt: "small spends"
+// and "Lever B" defaults are dramatically different in TZS (1 USD ≈
+// 2,650 TZS) than in USD. The amounts here are in MAJOR units of the
+// currency (TSh, USD, EUR…). Storage is always in cents internally.
+export interface CurrencyMeta {
+  code: string;
+  label: string;
+  symbol: string;
+  /** Quick-chip preset values for the auto-approve threshold (major units). */
+  smallSpends: number[];
+  /** Step + max for the auto-approve threshold input (major units). */
+  step: number;
+  max: number;
+  /** Suggested max for the Lever B (Honey → Cash) slider — same scale concept. */
+  honeyMax: number;
+  honeyStep: number;
+}
+
+export const CURRENCIES: CurrencyMeta[] = [
+  { code: 'USD', label: 'US Dollar',          symbol: '$',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'EUR', label: 'Euro',               symbol: '€',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'GBP', label: 'British Pound',      symbol: '£',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'TZS', label: 'Tanzanian Shilling', symbol: 'TSh ',  smallSpends: [1000, 2500, 5000, 10000], step: 500,  max: 100000, honeyMax: 10000, honeyStep: 50 },
+  { code: 'KES', label: 'Kenyan Shilling',    symbol: 'KSh ',  smallSpends: [100, 250, 500, 1000],    step: 50,   max: 10000,  honeyMax: 500,   honeyStep: 5 },
+  { code: 'UGX', label: 'Ugandan Shilling',   symbol: 'USh ',  smallSpends: [2000, 5000, 10000, 25000], step: 500, max: 200000, honeyMax: 25000, honeyStep: 100 },
+  { code: 'ZAR', label: 'South African Rand', symbol: 'R ',    smallSpends: [10, 25, 50, 100],        step: 5,    max: 2000,   honeyMax: 100,   honeyStep: 1 },
+  { code: 'NGN', label: 'Nigerian Naira',     symbol: '₦',     smallSpends: [500, 1000, 2500, 5000],  step: 100,  max: 100000, honeyMax: 5000,  honeyStep: 25 },
+  { code: 'AED', label: 'UAE Dirham',         symbol: 'AED ',  smallSpends: [5, 10, 25, 50],          step: 1,    max: 1000,   honeyMax: 25,    honeyStep: 0.25 },
+  { code: 'INR', label: 'Indian Rupee',       symbol: '₹',     smallSpends: [50, 100, 250, 500],      step: 10,   max: 10000,  honeyMax: 500,   honeyStep: 5 },
+  { code: 'CAD', label: 'Canadian Dollar',    symbol: 'C$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'AUD', label: 'Australian Dollar',  symbol: 'A$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
 ];
 
 /** Find the symbol for the active currency; defaults to '$' if unknown. */
 export function currencySymbol(code: string): string {
   return CURRENCIES.find((c) => c.code === code)?.symbol || '$';
+}
+
+/** Find the full meta for a currency; falls back to the USD entry. */
+export function currencyMeta(code: string): CurrencyMeta {
+  return CURRENCIES.find((c) => c.code === code) || CURRENCIES[0];
 }
 
 export interface Wallet {

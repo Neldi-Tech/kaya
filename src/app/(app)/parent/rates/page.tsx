@@ -4,11 +4,12 @@
 // toggles. Writes the merged hiveConfig back to the family doc; the
 // HiveContext picks up the change live across every kid wallet.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { setHiveConfig, CURRENCIES } from '@/lib/hive';
+import { setHiveConfig, CURRENCIES, currencyMeta } from '@/lib/hive';
+import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
 import BackButton from '@/components/ui/BackButton';
 
 export default function ParentRatesPage() {
@@ -93,8 +94,25 @@ export default function ParentRatesPage() {
     setError('');
   };
 
-  const currencyMeta = CURRENCIES.find((c) => c.code === currency);
-  const currencySymbol = currencyMeta?.symbol || '$';
+  const meta = currencyMeta(currency);
+  const currencySymbol = meta.symbol;
+  const symbolText = currencySymbol.trim() || '$';
+
+  // Live FX rates (used for the Lever B "today's market" hint). Fetched
+  // once when the page mounts; cached in localStorage per (base, day).
+  const [fx, setFx] = useState<FxRates | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchFxRates('USD').then((r) => { if (!cancelled) setFx(r); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Per-USD rate of the active currency (e.g. 2650 for TZS). Drives the
+  // Lever B suggestion: "If you want 1 🍯 ≈ $1, set 1 🍯 = TSh 2,650".
+  const usdToActive = useMemo(() => {
+    if (currency === 'USD') return 1;
+    return suggestedRate(fx, 'USD', currency);
+  }, [fx, currency]);
 
   // Live preview: e.g. 100 HP / 100 = 1 🍯 × $1 = $1.
   const preview100 = (hpToHoney > 0 ? (100 / hpToHoney) * honeyToCash : 0).toFixed(2);
@@ -139,29 +157,42 @@ export default function ParentRatesPage() {
         </div>
 
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Lever B · 🍯 → $</p>
-          <p className="text-[12px] text-hive-muted mt-1 mb-3">How much real cash does each Honey Coin become?</p>
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Lever B · 🍯 → {symbolText}</p>
+          <p className="text-[12px] text-hive-muted mt-1 mb-3">How much {currency} does each Honey Coin become?</p>
           <div className="flex items-baseline gap-3">
-            <span className="font-nunito font-extrabold text-lg">1 🍯 = $</span>
+            <span className="font-nunito font-extrabold text-lg">1 🍯 = {symbolText}</span>
             <input
               type="number"
               min={0}
-              max={100}
-              step={0.05}
+              max={meta.honeyMax * 10}
+              step={meta.honeyStep}
               value={honeyToCash}
               onChange={(e) => setHoneyToCash(Math.max(0, parseFloat(e.target.value || '0') || 0))}
-              className="w-28 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+              className="w-32 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
           </div>
           <input
             type="range"
             min={0}
-            max={5}
-            step={0.05}
+            max={meta.honeyMax}
+            step={meta.honeyStep}
             value={honeyToCash}
             onChange={(e) => setHoneyToCash(parseFloat(e.target.value))}
             className="w-full mt-3 accent-hive-honey"
           />
+          {/* FX-aware suggestion: at today's market rate, what makes
+              "1 🍯 worth $1 of real-world buying power" look like in
+              the active currency? */}
+          {usdToActive && currency !== 'USD' && (
+            <button
+              type="button"
+              onClick={() => setHoneyToCash(Math.round(usdToActive))}
+              className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-hive-pill bg-hive-honey-soft/70 text-hive-honey-dk text-[11px] font-nunito font-extrabold hover:brightness-105"
+            >
+              💡 Today: 1 USD ≈ {symbolText}{formatRate(usdToActive)}{' '}
+              · Use {symbolText}{formatRate(usdToActive)} per 🍯
+            </button>
+          )}
         </div>
 
         <div className="bg-gradient-to-br from-[#FFE9C2] to-hive-honey-soft rounded-hive-lg p-5">
@@ -210,7 +241,8 @@ export default function ParentRatesPage() {
 
         {/* Spend auto-approve threshold. Spends strictly below this go
             straight through; spends at or above the threshold still need
-            your approval. Default 0 = approve everything. */}
+            your approval. Default 0 = approve everything. Chips and step
+            scale per active currency so TZS doesn't get $1-sized presets. */}
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Auto-approve small spends</p>
           <p className="text-[12px] text-hive-muted mt-1 mb-3">
@@ -218,19 +250,29 @@ export default function ParentRatesPage() {
           </p>
           <div className="flex items-baseline gap-3">
             <span className="font-nunito font-extrabold text-lg">Below</span>
-            <span className="font-nunito font-black text-2xl text-hive-muted">{currencySymbol.trim() || '$'}</span>
+            <span className="font-nunito font-black text-2xl text-hive-muted">{symbolText}</span>
             <input
               type="number"
               min={0}
-              max={100}
-              step={0.5}
+              max={meta.max}
+              step={meta.step}
               value={autoApproveDollars}
               onChange={(e) => setAutoApproveDollars(Math.max(0, parseFloat(e.target.value || '0') || 0))}
-              className="w-28 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+              className="w-32 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
             />
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {[0, 1, 2, 5, 10].map((v) => (
+            <button
+              onClick={() => setAutoApproveDollars(0)}
+              className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                autoApproveDollars === 0
+                  ? 'bg-hive-honey text-white border-transparent'
+                  : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
+              }`}
+            >
+              Off
+            </button>
+            {meta.smallSpends.map((v) => (
               <button
                 key={v}
                 onClick={() => setAutoApproveDollars(v)}
@@ -240,13 +282,13 @@ export default function ParentRatesPage() {
                     : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
                 }`}
               >
-                {v === 0 ? 'Off' : `${currencySymbol.trim() || '$'}${v}`}
+                {symbolText}{v.toLocaleString('en-US')}
               </button>
             ))}
           </div>
           <p className="text-[11px] text-hive-muted mt-3 leading-relaxed">
             {autoApproveCents > 0
-              ? `Kids can spend up to ${currencySymbol.trim() || '$'}${(autoApproveCents / 100).toFixed(2)} on their own — perfect for snacks and small treats.`
+              ? `Kids can spend up to ${symbolText}${autoApproveDollars.toLocaleString('en-US')} on their own — perfect for snacks and small treats.`
               : 'Off — every spend lands in your Approvals inbox.'}
           </p>
         </div>
