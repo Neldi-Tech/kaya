@@ -114,7 +114,7 @@ export default function StaplesPage() {
 
       <p className="text-center text-[11px] text-hive-muted mt-6 leading-relaxed">
         Staples seed every weekly list with default qty + last-bought price.{' '}
-        <Link href="/pantry" className="text-pantry-leaf-dk font-bold hover:underline">Back to Pantry →</Link>
+        <Link href="/pantry" className="text-pantry-leaf-dk font-bold hover:underline">← Back to Pantry</Link>
       </p>
     </div>
   );
