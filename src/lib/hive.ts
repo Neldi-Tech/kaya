@@ -32,21 +32,54 @@ import { isGuestActive } from './mockFamily';
 export type HiveLayer = 'house_points' | 'honey' | 'cash';
 export type TxDirection = 'in' | 'out';
 export type TxStatus = 'completed' | 'pending_approval' | 'approved' | 'rejected';
-export type TxCategory =
-  | 'chore' | 'quest' | 'award' | 'convert' | 'allowance'
-  | 'gift'  | 'business' | 'spend' | 'donation' | 'other';
 
 export type ApprovalType = 'hp_to_honey' | 'cash_out' | 'spend';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
+// Categories used both as the `category` on a HiveTransaction AND as the
+// keys of a kid's monthly spending plan. Earning categories (chore, quest,
+// award, convert, allowance, gift, business) are also valid TxCategory
+// values but never appear in a budget — they're income, not expenses.
+//
+// 'spend' remains as a generic fallback for legacy / "I'm not sure" entries.
+export type TxCategory =
+  | 'chore' | 'quest' | 'award' | 'convert' | 'allowance'
+  | 'gift'  | 'business'
+  | 'spend' | 'shopping' | 'books' | 'treats' | 'donation' | 'savings' | 'other';
+
+// Subset of TxCategory that can appear on a budget line. Keep this list
+// lined up with the chips on /hive/cash-out and /hive/plan.
+export const PLAN_CATEGORIES: { id: TxCategory; emoji: string; label: string }[] = [
+  { id: 'shopping', emoji: '🛒', label: 'Shopping' },
+  { id: 'books',    emoji: '📚', label: 'Books' },
+  { id: 'treats',   emoji: '🍦', label: 'Treats' },
+  { id: 'donation', emoji: '❤️', label: 'Donation' },
+  { id: 'savings',  emoji: '🍯', label: 'Savings' },
+  { id: 'other',    emoji: '✨', label: 'Other' },
+];
+
 export interface HiveConfig {
   hpToHoneyRate: number;            // HP per 1 Honey Coin (default 100)
+  /**
+   * USD per 1 Honey Coin. **Always denominated in USD**, regardless of
+   * the family's display currency. This makes 🍯 a globally comparable
+   * unit — every family's honey carries the same USD-equivalent value,
+   * so kids in different currencies can think about saving in the same
+   * "honey-language". For non-USD families we convert at the live FX
+   * rate when honey actually moves into Cash.
+   */
   honeyToCashRate: number;          // USD per 1 Honey Coin (default 1.00)
   currency: string;                 // ISO-4217-like; default "USD"
   minCashOut: number;               // minimum Honey to allow a cash-out request (default 5)
   spendRequiresApproval: boolean;   // default true
   cashOutRequiresApproval: boolean; // default true
   requireApprovalForHpToHoney: boolean; // default true — see comment in code
+  /** Spends strictly below this amount (in cents of `currency`) auto-approve
+   *  — they skip the parent inbox and post straight to the wallet. Default
+   *  0 means "every spend goes through approval". A small threshold lets
+   *  kids buy a candy bar without making the parent tap a button.
+   *  Per-child overrides live on `Child.spendAutoApproveBelowCents`. */
+  spendAutoApproveBelowCents: number;
   autoAllowance?: {
     enabled: boolean;
     kidId?: string;
@@ -58,18 +91,93 @@ export interface HiveConfig {
 
 export const DEFAULT_HIVE_CONFIG: HiveConfig = {
   hpToHoneyRate: 100,
-  honeyToCashRate: 1.0,
+  honeyToCashRate: 1.0, // USD
   currency: 'USD',
   minCashOut: 5,
   spendRequiresApproval: true,
   cashOutRequiresApproval: true,
-  // Per the v2 design, HP→Honey is "auto-approved · no parent confirmation
-  // needed" (line 434 of Kaya-Hive_Design-Proposal-v2_2026-05-07.html).
-  // Per the user's overriding instruction ("parents to approve transfers"),
-  // we default this to true. Families can flip it off in /parent/rates to
-  // restore the original instant flow.
   requireApprovalForHpToHoney: true,
+  spendAutoApproveBelowCents: 0,
 };
+
+/**
+ * Effective auto-approve threshold for a given kid. A child's per-kid
+ * override (if a number) wins over the family-wide default. `null` /
+ * `undefined` falls through to the family default.
+ */
+export function effectiveAutoApproveCents(
+  child: { spendAutoApproveBelowCents?: number | null } | null | undefined,
+  cfg: HiveConfig,
+): number {
+  if (child && typeof child.spendAutoApproveBelowCents === 'number') {
+    return Math.max(0, child.spendAutoApproveBelowCents);
+  }
+  return Math.max(0, cfg.spendAutoApproveBelowCents || 0);
+}
+
+/**
+ * "How many cents of the family's currency does this honey amount equal
+ * RIGHT NOW?" Honey is benchmarked in USD, so we apply the configured
+ * USD-per-honey rate first, then convert to the family currency at
+ * `fxUsdToFamily` (which a caller fetches live, with a graceful fall back
+ * to 1 when FX is unavailable or the family already uses USD).
+ */
+export function honeyToFamilyCents(
+  honey: number,
+  cfg: HiveConfig,
+  fxUsdToFamily: number = 1,
+): number {
+  const usdValue = honey * cfg.honeyToCashRate;          // USD
+  const familyMajor = usdValue * (fxUsdToFamily || 1);   // family-currency major units
+  return Math.round(familyMajor * 100);                  // cents (minor units)
+}
+
+// Currency catalog — ISO 4217 codes plus a friendly label and a symbol
+// hint. Used by the /parent/rates picker and on /parent/hive-deposit
+// when accepting deposits in a non-default currency.
+//
+// Each entry also carries scale hints so UI inputs adapt: "small spends"
+// and "Lever B" defaults are dramatically different in TZS (1 USD ≈
+// 2,650 TZS) than in USD. The amounts here are in MAJOR units of the
+// currency (TSh, USD, EUR…). Storage is always in cents internally.
+export interface CurrencyMeta {
+  code: string;
+  label: string;
+  symbol: string;
+  /** Quick-chip preset values for the auto-approve threshold (major units). */
+  smallSpends: number[];
+  /** Step + max for the auto-approve threshold input (major units). */
+  step: number;
+  max: number;
+  /** Suggested max for the Lever B (Honey → Cash) slider — same scale concept. */
+  honeyMax: number;
+  honeyStep: number;
+}
+
+export const CURRENCIES: CurrencyMeta[] = [
+  { code: 'USD', label: 'US Dollar',          symbol: '$',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'EUR', label: 'Euro',               symbol: '€',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'GBP', label: 'British Pound',      symbol: '£',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'TZS', label: 'Tanzanian Shilling', symbol: 'TSh ',  smallSpends: [1000, 2500, 5000, 10000], step: 500,  max: 100000, honeyMax: 10000, honeyStep: 50 },
+  { code: 'KES', label: 'Kenyan Shilling',    symbol: 'KSh ',  smallSpends: [100, 250, 500, 1000],    step: 50,   max: 10000,  honeyMax: 500,   honeyStep: 5 },
+  { code: 'UGX', label: 'Ugandan Shilling',   symbol: 'USh ',  smallSpends: [2000, 5000, 10000, 25000], step: 500, max: 200000, honeyMax: 25000, honeyStep: 100 },
+  { code: 'ZAR', label: 'South African Rand', symbol: 'R ',    smallSpends: [10, 25, 50, 100],        step: 5,    max: 2000,   honeyMax: 100,   honeyStep: 1 },
+  { code: 'NGN', label: 'Nigerian Naira',     symbol: '₦',     smallSpends: [500, 1000, 2500, 5000],  step: 100,  max: 100000, honeyMax: 5000,  honeyStep: 25 },
+  { code: 'AED', label: 'UAE Dirham',         symbol: 'AED ',  smallSpends: [5, 10, 25, 50],          step: 1,    max: 1000,   honeyMax: 25,    honeyStep: 0.25 },
+  { code: 'INR', label: 'Indian Rupee',       symbol: '₹',     smallSpends: [50, 100, 250, 500],      step: 10,   max: 10000,  honeyMax: 500,   honeyStep: 5 },
+  { code: 'CAD', label: 'Canadian Dollar',    symbol: 'C$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'AUD', label: 'Australian Dollar',  symbol: 'A$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+];
+
+/** Find the symbol for the active currency; defaults to '$' if unknown. */
+export function currencySymbol(code: string): string {
+  return CURRENCIES.find((c) => c.code === code)?.symbol || '$';
+}
+
+/** Find the full meta for a currency; falls back to the USD entry. */
+export function currencyMeta(code: string): CurrencyMeta {
+  return CURRENCIES.find((c) => c.code === code) || CURRENCIES[0];
+}
 
 export interface Wallet {
   // Mirror of the kid's HP from the legacy `children/{id}.totalPoints`. Kept
@@ -123,6 +231,50 @@ export interface Goal {
   completedAt?: Timestamp;
 }
 
+// ── Monthly spending plan ─────────────────────────────────────────
+//
+// A kid-set budget for the current calendar month, keyed by category. Total
+// is denormalised so the Hive Home can show "$30 planned" without summing
+// the map. Lives at families/{f}/kids/{kidId}/monthlyPlans/{YYYY-MM} —
+// document id IS the month key so we can read the active month with one
+// snapshot listener.
+export interface MonthlyPlan {
+  monthKey: string;                          // 'YYYY-MM'
+  /** Map of category → planned cents. Missing keys = no budget for that category. */
+  budget: Partial<Record<TxCategory, number>>;
+  totalCents: number;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+/** "2026-05" for May 2026. Used as the doc id of the active monthly plan. */
+export function currentMonthKey(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+/** Sum a kid's spending in the given month, grouped by category. Pure
+ *  function on the existing transaction stream — no extra Firestore read. */
+export function spendingByCategoryInMonth(
+  transactions: HiveTransaction[],
+  monthKey: string,
+): Partial<Record<TxCategory, number>> {
+  const [yyyy, mm] = monthKey.split('-').map((n) => parseInt(n, 10));
+  if (!yyyy || !mm) return {};
+  const start = new Date(yyyy, mm - 1, 1).getTime();
+  const end = new Date(yyyy, mm, 1).getTime();
+  const out: Partial<Record<TxCategory, number>> = {};
+  for (const t of transactions) {
+    if (t.layer !== 'cash' || t.direction !== 'out') continue;
+    const ts = (t.createdAt as any)?.toMillis?.();
+    if (typeof ts !== 'number' || ts < start || ts >= end) continue;
+    const c = t.category;
+    out[c] = (out[c] || 0) + t.amount;
+  }
+  return out;
+}
+
 export interface ApprovalRequest {
   id: string;
   kidId: string;
@@ -157,6 +309,9 @@ const goalCol = (familyId: string, kidId: string) =>
 
 const requestCol = (familyId: string) =>
   collection(db, 'families', familyId, 'approvalRequests');
+
+const planRef = (familyId: string, kidId: string, monthKey: string) =>
+  doc(db, 'families', familyId, 'kids', kidId, 'monthlyPlans', monthKey);
 
 const childRef = (familyId: string, kidId: string) =>
   doc(db, 'families', familyId, 'children', kidId);
@@ -259,6 +414,56 @@ export function subscribeToKidRequests(
   });
 }
 
+// ── Monthly plan ──────────────────────────────────────────────────
+
+export function subscribeToMonthlyPlan(
+  familyId: string,
+  kidId: string,
+  monthKey: string,
+  cb: (plan: MonthlyPlan | null) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb(null);
+    return () => {};
+  }
+  return onSnapshot(planRef(familyId, kidId, monthKey), (snap) => {
+    cb(snap.exists() ? ({ ...(snap.data() as MonthlyPlan), monthKey }) : null);
+  });
+}
+
+/** Save a kid's plan for a given month. Idempotent — re-saving the same
+ *  month overwrites. Total is recomputed from the budget map. */
+export async function saveMonthlyPlan(
+  familyId: string,
+  kidId: string,
+  monthKey: string,
+  budget: Partial<Record<TxCategory, number>>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  // Drop zero / negative entries so the doc stays clean.
+  const cleaned: Partial<Record<TxCategory, number>> = {};
+  let total = 0;
+  for (const [k, v] of Object.entries(budget)) {
+    if (typeof v === 'number' && v > 0) {
+      cleaned[k as TxCategory] = Math.round(v);
+      total += Math.round(v);
+    }
+  }
+  await setDoc(
+    planRef(familyId, kidId, monthKey),
+    {
+      monthKey,
+      budget: cleaned,
+      totalCents: total,
+      updatedAt: serverTimestamp(),
+      // Set createdAt only if absent — Firestore preserves the existing
+      // value when merge:true and the field is omitted on update.
+      createdAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
 // ── Wallet bootstrap ──────────────────────────────────────────────
 
 /** Idempotent: ensures a wallet doc exists for the kid, mirroring HP from
@@ -319,18 +524,25 @@ export async function requestCashOut(
   honeyAmount: number,
   cfg: HiveConfig,
   createdBy: string,
+  /** Live USD → family-currency rate; pass 1 for USD families. The FX
+   *  rate at *request* time is the rate the kid sees promised; we lock
+   *  it in via the computed amountCents so today's deal sticks even if
+   *  the parent approves a few days later. */
+  fxUsdToFamily: number = 1,
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   if (!Number.isInteger(honeyAmount) || honeyAmount <= 0) throw new Error('Pick a positive 🍯 amount.');
   if (honeyAmount < cfg.minCashOut) throw new Error(`Cash-out minimum is ${cfg.minCashOut} 🍯.`);
-  const amountCents = Math.round(honeyAmount * cfg.honeyToCashRate * 100);
+  const amountCents = honeyToFamilyCents(honeyAmount, cfg, fxUsdToFamily);
 
   const ref = await addDoc(requestCol(familyId), {
     kidId,
     type: 'cash_out' as ApprovalType,
     honeyAmount,
     amountCents,
-    description: `Cash out ${honeyAmount} 🍯 → $${(amountCents / 100).toFixed(2)}`,
+    // Snapshot the rate so the audit trail shows what the kid was promised.
+    fxUsdToFamily,
+    description: `Cash out ${honeyAmount} 🍯`,
     status: 'pending' as ApprovalStatus,
     createdAt: serverTimestamp(),
     createdBy,
@@ -361,6 +573,67 @@ export async function requestSpend(
     createdBy,
   });
   return ref.id;
+}
+
+/**
+ * Either creates a parent-approval request OR posts the spend straight
+ * through to the wallet, depending on `autoApproveBelowCents`. The
+ * caller computes the effective threshold (per-child override beats
+ * family default — see `effectiveAutoApproveCents`).
+ *
+ * Returns `{ kind, txId | requestId }` so the caller can branch its UX —
+ * auto-approved spends should show "Approved automatically · under your
+ * family's $X auto-approve limit" instead of the pending banner.
+ */
+export async function requestOrAutoSpend(
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  description: string,
+  category: TxCategory,
+  autoApproveBelowCents: number,
+  createdBy: string,
+): Promise<{ kind: 'auto'; txId: string } | { kind: 'pending'; requestId: string }> {
+  if (isGuestActive()) return { kind: 'pending', requestId: 'guest-request' };
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
+  if (!description.trim()) throw new Error('Tell us what the money is for.');
+
+  const auto = autoApproveBelowCents > 0 && amountCents < autoApproveBelowCents;
+
+  if (!auto) {
+    const id = await requestSpend(familyId, kidId, amountCents, description, category, createdBy);
+    return { kind: 'pending', requestId: id };
+  }
+
+  // Below the family's auto-approve threshold → atomic wallet+ledger write,
+  // no approvalRequest doc. The kid still sees the spend in their cash-out
+  // ledger immediately. Description is tagged "[auto]" so the family can
+  // distinguish from a parent-approved entry when reading the ledger later.
+  let createdTxId = '';
+  await runTransaction(db, async (txn) => {
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await txn.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
+    const wallet = wSnap.data() as Wallet;
+    if (wallet.cashCents < amountCents) throw new Error('Not enough Cash to cover the spend.');
+    const txRef = doc(txCol(familyId, kidId));
+    createdTxId = txRef.id;
+    const now = serverTimestamp();
+    txn.set(wRef, {
+      ...wallet,
+      cashCents: wallet.cashCents - amountCents,
+      totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + amountCents,
+      updatedAt: now,
+    });
+    txn.set(txRef, {
+      layer: 'cash', direction: 'out', amount: amountCents,
+      category, description: description.trim(),
+      status: 'completed',
+      createdBy, approvedBy: 'auto',
+      createdAt: now, completedAt: now,
+    });
+  });
+  return { kind: 'auto', txId: createdTxId };
 }
 
 /** Kid cancels their own still-pending request. */

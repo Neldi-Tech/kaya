@@ -87,6 +87,7 @@ export interface Family {
     spendRequiresApproval?: boolean;
     cashOutRequiresApproval?: boolean;
     requireApprovalForHpToHoney?: boolean;
+    spendAutoApproveBelowCents?: number;
     autoAllowance?: {
       enabled: boolean;
       kidId?: string;
@@ -132,6 +133,12 @@ export interface Child {
   weeklyPoints: number;
   streak: number;
   badges: string[];
+  // ── The Hive · per-child overrides ──
+  // Override the family-wide `hiveConfig.spendAutoApproveBelowCents` for
+  // this kid. `null` (or absent) → use the family default. `0` → force
+  // every spend through approval, even if the family has a default
+  // threshold. Stored in the active currency's minor units (cents).
+  spendAutoApproveBelowCents?: number | null;
 }
 
 export interface WishlistItem {

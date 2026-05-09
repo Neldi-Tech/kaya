@@ -164,6 +164,15 @@ service cloud.firestore {
           || isThisKid(familyId, kidId);
       }
 
+      // Monthly spending plan: kid-set discipline tool. The kid writes
+      // their own; parents can also write any kid's (e.g. "let me set up
+      // your first plan with you"). Helpers can read but not edit.
+      match /kids/{kidId}/monthlyPlans/{monthKey} {
+        allow create, update: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+        allow delete: if false;
+      }
+
       // ── The Pantry · staples ─────────────────────────────────────
       // Master list of recurring household items. Parents + helpers
       // edit; kids read only (suggest mode arrives in Phase 1B).

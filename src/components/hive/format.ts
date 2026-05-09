@@ -25,6 +25,17 @@ export function formatHp(points: number): string {
   return new Intl.NumberFormat('en-US').format(Math.max(0, Math.floor(points)));
 }
 
-export function honeyToCashCents(honey: number, rate: number): number {
-  return Math.round(honey * rate * 100);
+/**
+ * Convert a Honey amount to cents in the family's display currency.
+ * Honey is USD-benchmarked, so we apply the USD-per-honey rate first,
+ * then convert to the family currency at `fxUsdToFamily` (live, with
+ * a 1.0 fallback that's correct for USD families and a "best effort"
+ * for non-USD families when the FX fetch is still in flight).
+ */
+export function honeyToCashCents(
+  honey: number,
+  rateUsdPerHoney: number,
+  fxUsdToFamily: number = 1,
+): number {
+  return Math.round(honey * rateUsdPerHoney * (fxUsdToFamily || 1) * 100);
 }
