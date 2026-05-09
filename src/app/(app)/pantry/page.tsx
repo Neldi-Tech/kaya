@@ -65,6 +65,29 @@ export default function PantryHomePage() {
         </h1>
       </div>
 
+      {/* AI quick-start tile — only shown when the family has no staples
+          yet. Once they have any, the same surface lives behind the
+          "Browse Directory" tile + the staples-page action button. */}
+      {!loading && staples.length === 0 && !isGuest && (
+        <Link
+          href="/pantry/onboard"
+          className="block bg-gradient-to-br from-pantry-leaf-soft via-white to-hive-honey-soft/40 border border-pantry-leaf rounded-hive-lg p-4 mb-3 no-underline text-inherit hover:brightness-[1.02] transition"
+        >
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-pantry-leaf-dk mb-1">
+            ✨ AI Quick start
+          </p>
+          <p className="font-nunito font-black text-lg leading-tight">
+            Build your starter list in 30 seconds
+          </p>
+          <p className="text-[12px] text-hive-muted mt-1 leading-relaxed">
+            Tell us about your family — we&apos;ll suggest staples scaled to size, with brand picks and quantities. Tweak before saving.
+          </p>
+          <p className="text-[12px] text-pantry-leaf-dk font-nunito font-extrabold mt-2">
+            Get started →
+          </p>
+        </Link>
+      )}
+
       {/* Budget strip — top of the page so cost is always visible. */}
       <BudgetStrip />
 
@@ -144,6 +167,14 @@ export default function PantryHomePage() {
           <span className="text-[11px] text-hive-muted">{staples.length} item{staples.length === 1 ? '' : 's'}</span>
         </Link>
         <Link
+          href="/pantry/directory"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🧺</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Directory</span>
+          <span className="text-[11px] text-hive-muted">Browse + foods</span>
+        </Link>
+        <Link
           href="/pantry/suppliers"
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
         >
@@ -157,15 +188,15 @@ export default function PantryHomePage() {
         >
           <span className="text-2xl leading-none">🍽️</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Meals</span>
-          <span className="text-[11px] text-hive-muted">Coming next</span>
+          <span className="text-[11px] text-hive-muted">Plan the week</span>
         </Link>
         <Link
           href="/pantry/budget"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit col-span-2"
         >
           <span className="text-2xl leading-none">💰</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
-          <span className="text-[11px] text-hive-muted">Coming next</span>
+          <span className="text-[11px] text-hive-muted">Set monthly limits</span>
         </Link>
       </div>
 

@@ -19,7 +19,7 @@
 import {
   collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot,
+  onSnapshot, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -294,6 +294,28 @@ export async function updateStaple(
 export async function deleteStaple(familyId: string, stapleId: string): Promise<void> {
   if (isGuestActive()) return;
   await deleteDoc(doc(stapleCol(familyId), stapleId));
+}
+
+/** Bulk-add staples in a single Firestore batch. Used by the onboarding
+ *  flow ("seed N items at once") and the Directory's multi-select add.
+ *  Skips entries whose `name` already appears in `existing` to keep the
+ *  master list deduped. Returns how many staples were actually written. */
+export async function addStaplesBulk(
+  familyId: string,
+  rows: Array<Omit<Staple, 'id' | 'createdAt' | 'active'> & { active?: boolean }>,
+  existing: Staple[],
+): Promise<number> {
+  if (isGuestActive()) return rows.length;
+  const have = new Set(existing.map((s) => s.name.trim().toLowerCase()));
+  const fresh = rows.filter((r) => !have.has(r.name.trim().toLowerCase()));
+  if (fresh.length === 0) return 0;
+  const batch = writeBatch(db);
+  for (const r of fresh) {
+    const ref = doc(stapleCol(familyId));
+    batch.set(ref, { ...r, active: r.active ?? true, createdAt: serverTimestamp() });
+  }
+  await batch.commit();
+  return fresh.length;
 }
 
 // ── Suppliers ────────────────────────────────────────────────────

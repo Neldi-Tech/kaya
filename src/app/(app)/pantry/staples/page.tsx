@@ -64,6 +64,24 @@ export default function StaplesPage() {
         )}
       </div>
 
+      {/* Quick-add helpers — AI starter + browse Directory */}
+      {!isGuest && (
+        <div className="flex gap-2 mb-3">
+          <Link
+            href="/pantry/onboard"
+            className="flex-1 h-10 px-3 rounded-hive border border-pantry-leaf bg-pantry-leaf-soft/40 text-pantry-leaf-dk font-nunito font-extrabold text-[12px] flex items-center justify-center gap-1 no-underline hover:bg-pantry-leaf-soft transition-colors"
+          >
+            ✨ AI starter
+          </Link>
+          <Link
+            href="/pantry/directory"
+            className="flex-1 h-10 px-3 rounded-hive border border-hive-line bg-hive-paper text-hive-muted font-nunito font-extrabold text-[12px] flex items-center justify-center gap-1 no-underline hover:border-pantry-leaf transition-colors"
+          >
+            🧺 Browse Directory
+          </Link>
+        </div>
+      )}
+
       {/* Filter chips */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
         <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
@@ -86,14 +104,30 @@ export default function StaplesPage() {
 
       {/* List */}
       {visible.length === 0 ? (
-        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-6 text-center">
           <div className="text-4xl mb-2">📦</div>
           <p className="font-nunito font-extrabold text-[14px]">No staples here yet</p>
           <p className="text-[12px] text-hive-muted mt-1">
             {filter === 'all'
-              ? 'Add the items your household always needs — rice, milk, soap, bread.'
-              : 'No staples in this category. Tap + Add to add one.'}
+              ? 'Try the AI starter to seed your list in 30 seconds, or browse the Directory.'
+              : 'No staples in this category. Tap + Add or browse the Directory.'}
           </p>
+          {filter === 'all' && !isGuest && (
+            <div className="flex gap-2 mt-4 justify-center">
+              <Link
+                href="/pantry/onboard"
+                className="px-4 h-10 rounded-hive bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] no-underline flex items-center"
+              >
+                ✨ AI starter
+              </Link>
+              <Link
+                href="/pantry/directory"
+                className="px-4 h-10 rounded-hive border border-hive-line bg-hive-paper text-hive-muted font-nunito font-extrabold text-[12px] no-underline flex items-center hover:border-pantry-leaf"
+              >
+                Browse Directory
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
