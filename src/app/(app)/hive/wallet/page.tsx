@@ -10,6 +10,7 @@ import { useHive } from '@/contexts/HiveContext';
 import BalanceCard from '@/components/hive/BalanceCard';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import RatePill from '@/components/hive/RatePill';
+import BackButton from '@/components/ui/BackButton';
 import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/components/hive/format';
 
 export default function WalletPage() {
@@ -27,6 +28,7 @@ export default function WalletPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+      <div className="lg:hidden"><BackButton /></div>
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
           {activeKid ? `${activeKid.name}'s Wallet` : 'Wallet'}
