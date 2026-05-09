@@ -341,9 +341,12 @@ export default function DirectoryPage() {
         </div>
       )}
 
-      {/* Floating action — visible whenever picks > 0 */}
+      {/* Floating action — visible whenever picks > 0.
+          On mobile we float the save bar above the section tab bar
+          (~80px tall) so it isn't covered. Desktop (lg+) keeps it
+          flush at viewport bottom since there's no tab bar. */}
       {picked.size > 0 && (
-        <div className="sticky bottom-2 mt-4 bg-hive-paper/95 backdrop-blur border border-hive-line rounded-hive p-3 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.15)]">
+        <div className="sticky bottom-24 lg:bottom-2 mt-4 bg-hive-paper/95 backdrop-blur border border-hive-line rounded-hive p-3 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.15)] z-40">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setPicked(new Set())}
@@ -363,7 +366,7 @@ export default function DirectoryPage() {
       )}
 
       {toast && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-pantry-leaf-dk text-white text-[12px] font-nunito font-extrabold px-4 py-2 rounded-hive-pill shadow-lg z-50">
+        <div className="fixed bottom-28 lg:bottom-6 left-1/2 -translate-x-1/2 bg-pantry-leaf-dk text-white text-[12px] font-nunito font-extrabold px-4 py-2 rounded-hive-pill shadow-lg z-50">
           {toast}
         </div>
       )}

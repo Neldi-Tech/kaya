@@ -244,7 +244,7 @@ function MealSlotCell({
           className="w-full mt-0.5 bg-transparent text-[11px] font-nunito font-extrabold focus:outline-none placeholder:text-hive-muted/40"
         />
         {showPicker && picks.length > 0 && (
-          <div className="absolute left-0 right-0 top-full mt-1 z-30 bg-hive-paper border border-hive-line rounded-hive shadow-lg max-h-56 overflow-y-auto">
+          <div className="absolute left-0 right-0 top-full mt-1 z-40 bg-hive-paper border border-hive-line rounded-hive shadow-lg max-h-56 overflow-y-auto">
             {picks.map((p) => (
               <button
                 key={p.label}

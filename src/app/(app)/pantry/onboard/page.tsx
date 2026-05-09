@@ -250,7 +250,7 @@ export default function OnboardPage() {
             })}
           </div>
 
-          <div className="mt-4 sticky bottom-2 bg-hive-paper/95 backdrop-blur border border-hive-line rounded-hive p-3 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.15)]">
+          <div className="mt-4 sticky bottom-24 lg:bottom-2 bg-hive-paper/95 backdrop-blur border border-hive-line rounded-hive p-3 shadow-[0_8px_20px_-8px_rgba(0,0,0,0.15)] z-40">
             <button
               onClick={submit}
               disabled={saving || seedCount === 0 || isGuest}

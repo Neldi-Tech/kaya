@@ -50,10 +50,11 @@ export default function SuggestSheet({ open, onClose, onApply, applying }: Props
   const minPool = Math.min(coverage.breakfast, coverage.lunch, coverage.dinner);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-2" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center" onClick={onClose}>
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-hive-paper rounded-hive-lg w-full max-w-md max-h-[92vh] flex flex-col shadow-2xl"
+        className="bg-hive-paper rounded-t-[24px] sm:rounded-hive-lg w-full max-w-md max-h-[92vh] flex flex-col shadow-2xl"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="p-4 border-b border-hive-line flex items-baseline justify-between">
           <div>
