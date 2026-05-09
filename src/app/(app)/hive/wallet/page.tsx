@@ -9,20 +9,22 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import BalanceCard from '@/components/hive/BalanceCard';
 import KidSwitcher from '@/components/hive/KidSwitcher';
+import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
 import RatePill from '@/components/hive/RatePill';
 import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/components/hive/format';
 
 export default function WalletPage() {
   const { children } = useFamily();
-  const { activeKidId, wallet, config, totalNetWorthCents } = useHive();
+  const { activeKidId, wallet, config, totalNetWorthCents, fxUsdToFamily } = useHive();
   const activeKid = children.find((c) => c.id === activeKidId);
+  const fxRate = fxUsdToFamily ?? 1;
 
-  const honeyAsCash = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate);
+  const honeyAsCash = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxRate);
   // HP "if cashed out" is a useful hint but more speculative — we mention
   // it lower with a "if you converted" caveat so kids don't read it as a
   // current cash value.
   const hpAsCash = config.hpToHoneyRate > 0
-    ? Math.round((wallet.housePoints / config.hpToHoneyRate) * config.honeyToCashRate * 100)
+    ? Math.round((wallet.housePoints / config.hpToHoneyRate) * config.honeyToCashRate * fxRate * 100)
     : 0;
 
   return (
@@ -38,7 +40,10 @@ export default function WalletPage() {
 
       <KidSwitcher />
 
-      {/* Three balance cards stacked. */}
+      <PendingRequestBanner />
+
+      {/* Three balance cards stacked. Each links to the matching ledger
+          surface (HP → Rewards store, Honey → Convert, Cash → Cash In). */}
       <div className="space-y-2.5 mb-4">
         <BalanceCard
           variant="hp"
@@ -55,12 +60,30 @@ export default function WalletPage() {
             </>
           )}
           sub={`≈ ${formatCash(honeyAsCash, config.currency)} if cashed out`}
+          href="/hive/convert"
         />
         <BalanceCard
           variant="cash"
           value={formatCash(wallet.cashCents, config.currency)}
           sub="real money · spend with parent approval"
+          href="/hive/cash-out"
         />
+      </div>
+
+      {/* Quick links to the cash ledgers, sitting under the balance cards. */}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <Link
+          href="/hive/cash-in"
+          className="rounded-hive border border-hive-line bg-hive-paper p-3 text-center font-nunito font-extrabold text-[12px] no-underline text-inherit hover:border-hive-honey transition-colors"
+        >
+          ⬇ Cash in
+        </Link>
+        <Link
+          href="/hive/cash-out"
+          className="rounded-hive border border-hive-line bg-hive-paper p-3 text-center font-nunito font-extrabold text-[12px] no-underline text-inherit hover:border-hive-honey transition-colors"
+        >
+          ⬆ Cash out
+        </Link>
       </div>
 
       {/* Convert CTA — placeholder until PR-Hive-B */}
