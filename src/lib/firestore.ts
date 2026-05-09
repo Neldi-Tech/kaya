@@ -87,6 +87,7 @@ export interface Family {
     spendRequiresApproval?: boolean;
     cashOutRequiresApproval?: boolean;
     requireApprovalForHpToHoney?: boolean;
+    spendAutoApproveBelowCents?: number;
     autoAllowance?: {
       enabled: boolean;
       kidId?: string;

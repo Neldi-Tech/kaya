@@ -9,10 +9,11 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  cancelOwnRequest, requestSpend, TxCategory, PLAN_CATEGORIES,
+  cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
 } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
+import PlanProgressStrip from '@/components/hive/PlanProgressStrip';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash } from '@/components/hive/format';
 
@@ -27,6 +28,9 @@ export default function CashOutPage() {
     activeKidId, transactions, myRequests, config, wallet,
     monthlyPlan, monthSpending,
   } = useHive();
+  // "[Auto-approved] Lego candy bar" flash — surfaces for ~3s after a
+  // small spend that posted directly without going to the parent inbox.
+  const [autoApproveFlash, setAutoApproveFlash] = useState<{ amount: number; desc: string } | null>(null);
 
   const outgoing = useMemo(
     () => transactions.filter((t) => t.layer === 'cash' && t.direction === 'out'),
@@ -74,8 +78,15 @@ export default function CashOutPage() {
     if (!desc.trim()) { setError('Tell us what the money is for.'); return; }
     setSubmitting(true);
     try {
-      await requestSpend(profile.familyId, activeKidId, cents, desc.trim(), category, profile.uid);
+      const result = await requestOrAutoSpend(
+        profile.familyId, activeKidId, cents, desc.trim(), category, config, profile.uid,
+      );
+      const wasAuto = result.kind === 'auto';
       setShowForm(false);
+      if (wasAuto) {
+        setAutoApproveFlash({ amount: cents, desc: desc.trim() });
+        setTimeout(() => setAutoApproveFlash(null), 3500);
+      }
       setAmountInput(''); setDesc(''); setCategory('shopping');
     } catch (e: any) {
       setError(e?.message || 'Failed to submit.');
@@ -105,6 +116,24 @@ export default function CashOutPage() {
       </div>
 
       <KidSwitcher />
+
+      {/* Plan progress strip — keeps the budget visible while spending. */}
+      <PlanProgressStrip />
+
+      {/* Auto-approve confirmation flash — kid sees "Bought it · auto-approved" */}
+      {autoApproveFlash && (
+        <div className="rounded-hive bg-hive-green/15 border border-hive-green/40 p-3 mb-3 flex items-center gap-3">
+          <div className="text-2xl shrink-0">⚡</div>
+          <div className="flex-1 min-w-0">
+            <p className="font-nunito font-extrabold text-[13px] text-hive-green">
+              Bought it · auto-approved
+            </p>
+            <p className="text-[11px] text-hive-muted truncate">
+              −{formatCash(autoApproveFlash.amount, config.currency)} · {autoApproveFlash.desc}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Pending spend requests */}
       {pendingSpends.map((r) => (
@@ -210,15 +239,44 @@ export default function CashOutPage() {
             );
           })()}
 
+          {/* Auto-approve hint — only when the family has set a threshold AND
+              the entered amount qualifies. Tells the kid "this'll just go
+              through" so they're not waiting for an approval that never comes. */}
+          {(() => {
+            const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
+            const threshold = config.spendAutoApproveBelowCents || 0;
+            if (cents <= 0 || threshold <= 0 || cents >= threshold) return null;
+            return (
+              <p className="text-[12px] text-hive-green leading-relaxed">
+                ⚡ Auto-approved · under your family&apos;s {formatCash(threshold, config.currency)} limit. No need to wait.
+              </p>
+            );
+          })()}
+
           {error && <p className="text-hive-rose text-sm font-bold">{error}</p>}
 
-          <button
-            onClick={submit}
-            disabled={submitting}
-            className="w-full h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-[13px] disabled:opacity-40 transition-colors"
-          >
-            {submitting ? 'Sending…' : 'Send request to parent'}
-          </button>
+          {(() => {
+            const cents = Math.round(parseFloat(amountInput.replace(/[^0-9.]/g, '')) * 100) || 0;
+            const threshold = config.spendAutoApproveBelowCents || 0;
+            const willAuto = cents > 0 && threshold > 0 && cents < threshold;
+            return (
+              <button
+                onClick={submit}
+                disabled={submitting}
+                className={`w-full h-12 rounded-hive font-nunito font-black text-[13px] disabled:opacity-40 transition-colors text-white ${
+                  willAuto
+                    ? 'bg-hive-green hover:brightness-110 shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)]'
+                    : 'bg-hive-honey hover:bg-hive-honey-dk'
+                }`}
+              >
+                {submitting
+                  ? 'Sending…'
+                  : willAuto
+                    ? 'Buy it now ⚡'
+                    : 'Send request to parent'}
+              </button>
+            );
+          })()}
         </div>
       )}
 

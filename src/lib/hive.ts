@@ -66,6 +66,11 @@ export interface HiveConfig {
   spendRequiresApproval: boolean;   // default true
   cashOutRequiresApproval: boolean; // default true
   requireApprovalForHpToHoney: boolean; // default true — see comment in code
+  /** Spends strictly below this amount (in cents of `currency`) auto-approve
+   *  — they skip the parent inbox and post straight to the wallet. Default
+   *  0 means "every spend goes through approval". A small threshold lets
+   *  kids buy a candy bar without making the parent tap a button. */
+  spendAutoApproveBelowCents: number;
   autoAllowance?: {
     enabled: boolean;
     kidId?: string;
@@ -82,13 +87,34 @@ export const DEFAULT_HIVE_CONFIG: HiveConfig = {
   minCashOut: 5,
   spendRequiresApproval: true,
   cashOutRequiresApproval: true,
-  // Per the v2 design, HP→Honey is "auto-approved · no parent confirmation
-  // needed" (line 434 of Kaya-Hive_Design-Proposal-v2_2026-05-07.html).
-  // Per the user's overriding instruction ("parents to approve transfers"),
-  // we default this to true. Families can flip it off in /parent/rates to
-  // restore the original instant flow.
   requireApprovalForHpToHoney: true,
+  spendAutoApproveBelowCents: 0,
 };
+
+// Currency catalog — ISO 4217 codes plus a friendly label and a symbol
+// hint. Used by the /parent/rates picker and on /parent/hive-deposit
+// when accepting deposits in a non-default currency. Add to this list
+// whenever a family asks for a new currency; the storage layer is
+// currency-agnostic (always integer minor units of the active currency).
+export const CURRENCIES: { code: string; label: string; symbol: string }[] = [
+  { code: 'USD', label: 'US Dollar',          symbol: '$'    },
+  { code: 'EUR', label: 'Euro',               symbol: '€'    },
+  { code: 'GBP', label: 'British Pound',      symbol: '£'    },
+  { code: 'TZS', label: 'Tanzanian Shilling', symbol: 'TSh ' },
+  { code: 'KES', label: 'Kenyan Shilling',    symbol: 'KSh ' },
+  { code: 'UGX', label: 'Ugandan Shilling',   symbol: 'USh ' },
+  { code: 'ZAR', label: 'South African Rand', symbol: 'R '   },
+  { code: 'NGN', label: 'Nigerian Naira',     symbol: '₦'    },
+  { code: 'AED', label: 'UAE Dirham',         symbol: 'AED ' },
+  { code: 'INR', label: 'Indian Rupee',       symbol: '₹'    },
+  { code: 'CAD', label: 'Canadian Dollar',    symbol: 'C$'   },
+  { code: 'AUD', label: 'Australian Dollar',  symbol: 'A$'   },
+];
+
+/** Find the symbol for the active currency; defaults to '$' if unknown. */
+export function currencySymbol(code: string): string {
+  return CURRENCIES.find((c) => c.code === code)?.symbol || '$';
+}
 
 export interface Wallet {
   // Mirror of the kid's HP from the legacy `children/{id}.totalPoints`. Kept
@@ -477,6 +503,65 @@ export async function requestSpend(
     createdBy,
   });
   return ref.id;
+}
+
+/**
+ * Either creates a parent-approval request OR posts the spend straight
+ * through to the wallet, depending on `cfg.spendAutoApproveBelowCents`.
+ * Returns `{ kind, txId | requestId }` so the caller can branch its UX —
+ * auto-approved spends should show "Approved automatically · under your
+ * family's $X auto-approve limit" instead of the pending banner.
+ */
+export async function requestOrAutoSpend(
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  description: string,
+  category: TxCategory,
+  cfg: HiveConfig,
+  createdBy: string,
+): Promise<{ kind: 'auto'; txId: string } | { kind: 'pending'; requestId: string }> {
+  if (isGuestActive()) return { kind: 'pending', requestId: 'guest-request' };
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
+  if (!description.trim()) throw new Error('Tell us what the money is for.');
+
+  const auto = cfg.spendAutoApproveBelowCents > 0
+    && amountCents < cfg.spendAutoApproveBelowCents;
+
+  if (!auto) {
+    const id = await requestSpend(familyId, kidId, amountCents, description, category, createdBy);
+    return { kind: 'pending', requestId: id };
+  }
+
+  // Below the family's auto-approve threshold → atomic wallet+ledger write,
+  // no approvalRequest doc. The kid still sees the spend in their cash-out
+  // ledger immediately. Description is tagged "[auto]" so the family can
+  // distinguish from a parent-approved entry when reading the ledger later.
+  let createdTxId = '';
+  await runTransaction(db, async (txn) => {
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await txn.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
+    const wallet = wSnap.data() as Wallet;
+    if (wallet.cashCents < amountCents) throw new Error('Not enough Cash to cover the spend.');
+    const txRef = doc(txCol(familyId, kidId));
+    createdTxId = txRef.id;
+    const now = serverTimestamp();
+    txn.set(wRef, {
+      ...wallet,
+      cashCents: wallet.cashCents - amountCents,
+      totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + amountCents,
+      updatedAt: now,
+    });
+    txn.set(txRef, {
+      layer: 'cash', direction: 'out', amount: amountCents,
+      category, description: description.trim(),
+      status: 'completed',
+      createdBy, approvedBy: 'auto',
+      createdAt: now, completedAt: now,
+    });
+  });
+  return { kind: 'auto', txId: createdTxId };
 }
 
 /** Kid cancels their own still-pending request. */

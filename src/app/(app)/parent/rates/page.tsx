@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { setHiveConfig } from '@/lib/hive';
+import { setHiveConfig, CURRENCIES } from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
 
 export default function ParentRatesPage() {
@@ -22,6 +22,10 @@ export default function ParentRatesPage() {
   const [requireHpToHoney, setRequireHpToHoney] = useState(config.requireApprovalForHpToHoney);
   const [spendApproval, setSpendApproval] = useState(config.spendRequiresApproval);
   const [cashOutApproval, setCashOutApproval] = useState(config.cashOutRequiresApproval);
+  const [currency, setCurrency] = useState(config.currency);
+  // Auto-approve threshold is held in dollars (the user-facing unit) and
+  // converted to cents on save so the UI can show "$5.00" cleanly.
+  const [autoApproveDollars, setAutoApproveDollars] = useState((config.spendAutoApproveBelowCents || 0) / 100);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -34,7 +38,11 @@ export default function ParentRatesPage() {
     setRequireHpToHoney(config.requireApprovalForHpToHoney);
     setSpendApproval(config.spendRequiresApproval);
     setCashOutApproval(config.cashOutRequiresApproval);
+    setCurrency(config.currency);
+    setAutoApproveDollars((config.spendAutoApproveBelowCents || 0) / 100);
   }, [config]);
+
+  const autoApproveCents = Math.max(0, Math.round(autoApproveDollars * 100));
 
   const dirty =
     hpToHoney !== config.hpToHoneyRate ||
@@ -42,7 +50,9 @@ export default function ParentRatesPage() {
     minCashOut !== config.minCashOut ||
     requireHpToHoney !== config.requireApprovalForHpToHoney ||
     spendApproval !== config.spendRequiresApproval ||
-    cashOutApproval !== config.cashOutRequiresApproval;
+    cashOutApproval !== config.cashOutRequiresApproval ||
+    currency !== config.currency ||
+    autoApproveCents !== (config.spendAutoApproveBelowCents || 0);
 
   const save = async () => {
     if (isGuest || !profile?.familyId) return;
@@ -60,6 +70,8 @@ export default function ParentRatesPage() {
         requireApprovalForHpToHoney: requireHpToHoney,
         spendRequiresApproval: spendApproval,
         cashOutRequiresApproval: cashOutApproval,
+        currency,
+        spendAutoApproveBelowCents: autoApproveCents,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2200);
@@ -76,8 +88,13 @@ export default function ParentRatesPage() {
     setRequireHpToHoney(config.requireApprovalForHpToHoney);
     setSpendApproval(config.spendRequiresApproval);
     setCashOutApproval(config.cashOutRequiresApproval);
+    setCurrency(config.currency);
+    setAutoApproveDollars((config.spendAutoApproveBelowCents || 0) / 100);
     setError('');
   };
+
+  const currencyMeta = CURRENCIES.find((c) => c.code === currency);
+  const currencySymbol = currencyMeta?.symbol || '$';
 
   // Live preview: e.g. 100 HP / 100 = 1 🍯 × $1 = $1.
   const preview100 = (hpToHoney > 0 ? (100 / hpToHoney) * honeyToCash : 0).toFixed(2);
@@ -170,6 +187,70 @@ export default function ParentRatesPage() {
           <p className="text-[12px] text-hive-muted mt-2">Stops kids from cashing out tiny amounts.</p>
         </div>
 
+        {/* Currency. Family picks once; everything in the Hive renders
+            in this currency. Existing balances aren't mathematically
+            converted on switch — see the helper note. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk mb-2">Currency</p>
+          <select
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="w-full h-12 px-3 bg-hive-cream rounded-hive-pill font-nunito font-extrabold text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>{c.symbol.trim()}  {c.code} — {c.label}</option>
+            ))}
+          </select>
+          <p className="text-[11px] text-hive-muted mt-2 leading-relaxed">
+            Default for every kid wallet, plan, deposit and ledger entry. When you receive cash in a different
+            currency, you can enter the source amount + exchange rate on{' '}
+            <strong>Deposit cash</strong>.
+          </p>
+        </div>
+
+        {/* Spend auto-approve threshold. Spends strictly below this go
+            straight through; spends at or above the threshold still need
+            your approval. Default 0 = approve everything. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">Auto-approve small spends</p>
+          <p className="text-[12px] text-hive-muted mt-1 mb-3">
+            Spends under this amount post instantly — no approval inbox tap. Anything at or above still needs you.
+          </p>
+          <div className="flex items-baseline gap-3">
+            <span className="font-nunito font-extrabold text-lg">Below</span>
+            <span className="font-nunito font-black text-2xl text-hive-muted">{currencySymbol.trim() || '$'}</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={autoApproveDollars}
+              onChange={(e) => setAutoApproveDollars(Math.max(0, parseFloat(e.target.value || '0') || 0))}
+              className="w-28 h-12 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-2xl border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+            />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {[0, 1, 2, 5, 10].map((v) => (
+              <button
+                key={v}
+                onClick={() => setAutoApproveDollars(v)}
+                className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                  autoApproveDollars === v
+                    ? 'bg-hive-honey text-white border-transparent'
+                    : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
+                }`}
+              >
+                {v === 0 ? 'Off' : `${currencySymbol.trim() || '$'}${v}`}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-hive-muted mt-3 leading-relaxed">
+            {autoApproveCents > 0
+              ? `Kids can spend up to ${currencySymbol.trim() || '$'}${(autoApproveCents / 100).toFixed(2)} on their own — perfect for snacks and small treats.`
+              : 'Off — every spend lands in your Approvals inbox.'}
+          </p>
+        </div>
+
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg divide-y divide-hive-line">
           <PolicyToggle
             label="Approve every HP → 🍯 conversion"
@@ -185,7 +266,7 @@ export default function ParentRatesPage() {
           />
           <PolicyToggle
             label="Approve every cash spend"
-            desc="Recommended on. Kids submit a description; you approve before money leaves."
+            desc={`Recommended on. Kids submit a description; you approve before money leaves.${autoApproveCents > 0 ? ` (Spends below ${currencySymbol.trim() || '$'}${(autoApproveCents / 100).toFixed(2)} skip this and post instantly.)` : ''}`}
             on={spendApproval}
             onChange={setSpendApproval}
           />

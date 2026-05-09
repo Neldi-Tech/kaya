@@ -1,16 +1,17 @@
 'use client';
 
-// /parent/hive-deposit — manual cash deposit. Parent picks a kid, picks a
-// category (allowance / gift / business / other), enters an amount, and
-// hits Deposit. Goes through depositCash(), which writes the wallet and
-// the ledger entry in one transaction. No approval needed because the
-// parent IS the approver here.
+// /parent/hive-deposit — manual cash deposit. Parent can:
+//   - Pick one OR several kids at once (each gets the same deposit).
+//   - Pick a category (allowance / gift / business / other).
+//   - Optionally enter the amount in a *different* currency at a given
+//     exchange rate. We always store in the family's default currency.
+// No approval is required because the parent IS the approver.
 
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { depositCash } from '@/lib/hive';
+import { depositCash, CURRENCIES } from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { formatCash } from '@/components/hive/format';
@@ -26,37 +27,69 @@ export default function HiveDepositPage() {
   const { profile, isGuest } = useAuth();
   const { children } = useFamily();
   const { config } = useHive();
+  const defaultCurrency = config.currency;
 
-  const [kidId, setKidId] = useState<string>('');
+  const [kidIds, setKidIds] = useState<string[]>([]);
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState<typeof CATEGORIES[number]['id']>('allowance');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ kidName: string; cents: number } | null>(null);
+  const [success, setSuccess] = useState<{ kidNames: string[]; cents: number; perKid: boolean } | null>(null);
   const [error, setError] = useState('');
 
-  const cents = Math.round(parseFloat(amount.replace(/[^0-9.]/g, '')) * 100) || 0;
+  // Source-currency toggle. When ON, the parent enters the amount in the
+  // source currency and a 1-unit-source-to-default-currency rate; we
+  // compute the destination cents and store that. Receipts (descriptions)
+  // record both sides so the audit trail is unambiguous.
+  const [useFx, setUseFx] = useState(false);
+  const [sourceCurrency, setSourceCurrency] = useState(defaultCurrency);
+  const [fxRate, setFxRate] = useState<string>('1.00');
+
+  const toggleKid = (id: string) => {
+    setKidIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  };
+
+  // Compute the destination amount (in cents of the family's default
+  // currency). Without FX it's just dollars × 100. With FX it's
+  // sourceAmount × fxRate × 100.
+  const sourceAmount = parseFloat(amount.replace(/[^0-9.]/g, '')) || 0;
+  const fxNum = parseFloat(fxRate) || 0;
+  const destCents = useFx
+    ? Math.round(sourceAmount * fxNum * 100)
+    : Math.round(sourceAmount * 100);
+
+  const sourceMeta = CURRENCIES.find((c) => c.code === sourceCurrency);
+  const sourceSym = sourceMeta?.symbol || '$';
 
   const submit = async () => {
     if (!profile?.familyId || isGuest) return;
     setError('');
-    if (!kidId) { setError('Pick a kid.'); return; }
-    if (cents <= 0) { setError('Pick an amount.'); return; }
-    const kid = children.find((c) => c.id === kidId);
+    if (kidIds.length === 0) { setError('Pick at least one kid.'); return; }
+    if (destCents <= 0) { setError('Pick an amount.'); return; }
+    if (useFx && fxNum <= 0) { setError('Pick a positive exchange rate.'); return; }
+
+    // Description records both sides so the parent can read the ledger
+    // later and reconstruct what actually happened.
+    const baseDesc = description.trim() || CATEGORIES.find((c) => c.id === category)!.label;
+    const recordDesc = useFx && sourceCurrency !== defaultCurrency
+      ? `${baseDesc} · ${sourceSym}${sourceAmount.toFixed(2)} ${sourceCurrency} @ ${fxNum} → ${defaultCurrency}`
+      : baseDesc;
+
     setSubmitting(true);
     try {
-      await depositCash(
-        profile.familyId,
-        kidId,
-        cents,
-        category,
-        description.trim() || CATEGORIES.find((c) => c.id === category)!.label,
-        profile.uid,
+      // One deposit per kid. We do them sequentially so a partial failure
+      // (e.g. one kid's wallet doesn't exist yet) doesn't block the rest.
+      await Promise.all(
+        kidIds.map((kidId) => depositCash(
+          profile.familyId, kidId, destCents, category, recordDesc, profile.uid,
+        )),
       );
-      setSuccess({ kidName: kid?.name || 'kid', cents });
+      const kidNames = children.filter((c) => kidIds.includes(c.id)).map((c) => c.name);
+      setSuccess({ kidNames, cents: destCents, perKid: kidIds.length > 1 });
       setAmount('');
       setDescription('');
-      setTimeout(() => setSuccess(null), 3500);
+      setKidIds([]);
+      setTimeout(() => setSuccess(null), 4000);
     } catch (e: any) {
       setError(e?.message || 'Deposit failed.');
     }
@@ -64,13 +97,23 @@ export default function HiveDepositPage() {
   };
 
   if (success) {
+    const formatNames = (names: string[]) => {
+      if (names.length === 1) return names[0];
+      if (names.length === 2) return `${names[0]} & ${names[1]}`;
+      return `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}`;
+    };
     return (
       <div className="mx-auto max-w-md w-full px-4 pt-16 lg:pt-24 text-center">
         <div className="text-6xl mb-4">💸</div>
-        <h2 className="font-nunito font-black text-3xl mb-2">Deposited!</h2>
+        <h2 className="font-nunito font-black text-3xl mb-2">
+          {success.perKid ? 'Deposited to all!' : 'Deposited!'}
+        </h2>
         <p className="text-hive-muted text-sm">
-          {success.kidName} got{' '}
-          <span className="text-hive-green font-bold">+{formatCash(success.cents, config.currency)}</span>{' '}
+          {formatNames(success.kidNames)} got{' '}
+          <span className="text-hive-green font-bold">
+            +{formatCash(success.cents, defaultCurrency)}
+            {success.perKid ? ' each' : ''}
+          </span>{' '}
           in their Cash balance.
         </p>
       </div>
@@ -84,38 +127,77 @@ export default function HiveDepositPage() {
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · The Hive</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Deposit cash 💸</h1>
         <p className="text-sm text-hive-muted mt-2">
-          Allowance, gifts, or business income — credits the kid&apos;s Cash balance instantly.
+          Allowance, gifts, or business income — credits each kid&apos;s Cash balance instantly.
+          You can disburse to several kids at once.
         </p>
       </div>
 
       <div className="space-y-4">
-        {/* Kid picker */}
+        {/* Multi-select kid picker */}
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">For who?</p>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+              For who?
+              {kidIds.length > 0 && (
+                <span className="ml-2 text-hive-honey-dk normal-case">{kidIds.length} selected</span>
+              )}
+            </p>
+            {children.length > 1 && (
+              kidIds.length === children.length ? (
+                <button onClick={() => setKidIds([])} className="text-[11px] font-nunito font-extrabold text-hive-muted hover:text-hive-rose">
+                  Clear
+                </button>
+              ) : (
+                <button onClick={() => setKidIds(children.map((c) => c.id))} className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+                  Select all
+                </button>
+              )
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {children.map((c) => {
-              const sel = kidId === c.id;
+              const sel = kidIds.includes(c.id);
               return (
                 <button
                   key={c.id}
-                  onClick={() => setKidId(c.id)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-hive border transition-all ${
+                  onClick={() => toggleKid(c.id)}
+                  aria-pressed={sel}
+                  className={`relative flex items-center gap-2.5 px-3 py-2.5 rounded-hive border-2 transition-all ${
                     sel ? 'bg-hive-honey text-white border-transparent shadow-sm' : 'bg-hive-paper border-hive-line text-hive-muted hover:border-hive-honey/50'
                   }`}
                 >
                   <KidAvatar child={c} size="sm" />
                   <span className="font-nunito font-extrabold text-[13px]">{c.name}</span>
+                  {sel && (
+                    <span className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full bg-white/25 text-[10px] font-black">✓</span>
+                  )}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Amount */}
+        {/* Amount + currency. Toggle reveals the FX inputs. */}
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">How much?</p>
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">How much?</p>
+            <button
+              onClick={() => {
+                setUseFx((v) => !v);
+                if (useFx) {
+                  setSourceCurrency(defaultCurrency);
+                  setFxRate('1.00');
+                }
+              }}
+              className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline"
+            >
+              {useFx ? 'Same as default currency' : 'Different currency?'}
+            </button>
+          </div>
           <div className="flex items-baseline gap-2">
-            <span className="font-nunito font-black text-4xl text-hive-muted">$</span>
+            <span className="font-nunito font-black text-4xl text-hive-muted">
+              {(useFx ? sourceSym : (CURRENCIES.find((c) => c.code === defaultCurrency)?.symbol || '$')).trim() || '$'}
+            </span>
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ''))}
@@ -124,6 +206,42 @@ export default function HiveDepositPage() {
               className="font-nunito font-black text-4xl bg-transparent outline-none flex-1 placeholder:text-hive-muted/30"
             />
           </div>
+          {useFx && (
+            <div className="mt-3 space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[1.5px] font-bold text-hive-muted mb-1">Source currency</p>
+                  <select
+                    value={sourceCurrency}
+                    onChange={(e) => setSourceCurrency(e.target.value)}
+                    className="w-full h-10 px-2 bg-hive-cream rounded-[10px] font-nunito font-extrabold text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                  >
+                    {CURRENCIES.map((c) => (
+                      <option key={c.code} value={c.code}>{c.code}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-[1.5px] font-bold text-hive-muted mb-1">
+                    Rate · 1 {sourceCurrency} = ? {defaultCurrency}
+                  </p>
+                  <input
+                    value={fxRate}
+                    onChange={(e) => setFxRate(e.target.value.replace(/[^0-9.]/g, ''))}
+                    inputMode="decimal"
+                    placeholder="1.00"
+                    className="w-full h-10 px-3 bg-hive-cream rounded-[10px] font-nunito font-extrabold text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                  />
+                </div>
+              </div>
+              {sourceAmount > 0 && fxNum > 0 && (
+                <p className="text-[12px] text-hive-honey-dk font-nunito font-extrabold">
+                  ≈ {formatCash(destCents, defaultCurrency)} stored as {defaultCurrency}
+                  {kidIds.length > 1 ? ` (each · total ${formatCash(destCents * kidIds.length, defaultCurrency)})` : ''}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Category */}
@@ -157,7 +275,7 @@ export default function HiveDepositPage() {
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={`e.g. Birthday gift from Auntie Sarah`}
+            placeholder="e.g. Birthday gift from Auntie Sarah"
             maxLength={120}
             className="w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
           />
@@ -174,7 +292,9 @@ export default function HiveDepositPage() {
         >
           {submitting
             ? 'Depositing…'
-            : `Deposit ${cents > 0 ? formatCash(cents, config.currency) : ''}`}
+            : kidIds.length > 1 && destCents > 0
+              ? `Deposit ${formatCash(destCents, defaultCurrency)} to ${kidIds.length} kids`
+              : `Deposit ${destCents > 0 ? formatCash(destCents, defaultCurrency) : ''}`}
         </button>
       </div>
     </div>
