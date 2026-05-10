@@ -1,14 +1,14 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import GuestBanner from './GuestBanner';
 
-type NavItem = { path: string; icon: string; label: string; mobileLabel?: string; soon?: boolean };
-type NavSection = { title?: string; items: NavItem[] };
+type NavItem = { path: string; icon: string; label: string; mobileLabel?: string; soon?: boolean; disabled?: boolean };
+type NavSection = { title?: string; href?: string; items: NavItem[] };
 
 // Mobile bottom nav uses category-level "groups" rather than the flat
 // list of routes the desktop sidebar shows. Each group is one of:
@@ -55,6 +55,13 @@ const PARENT_HIVE_NAV: NavItem[] = [
 // household chats land here next.
 const PARENT_HOUSEHOLD: NavItem[] = [
   { path: '/pantry', icon: '🛒', label: 'The Pantry' },
+];
+
+// Directory · the Yellow Pages module isn't built yet. Render in the
+// sidebar as a non-interactive item with a SOON pill so users know
+// it's coming. `disabled: true` short-circuits the Link render.
+const PARENT_DIRECTORY: NavItem[] = [
+  { path: '/directory', icon: '📒', label: 'Yellow Pages', soon: true, disabled: true },
 ];
 
 const FUN_NAV: NavItem[] = [
@@ -161,10 +168,16 @@ const HELPER_MOBILE_GROUPS: MobileGroup[] = HELPER_NAV.map((item) => ({
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { profile } = useAuth();
   const { family, children: kids } = useFamily();
 
   const role = profile?.role || 'parent';
+  // Where "home" lives for this role. Used by the Kaya logo, the
+  // mobile top-header back button, and to know when to show that
+  // back button at all.
+  const homePath = role === 'kid' ? '/kid' : '/dashboard';
+  const isAtHome = pathname === homePath;
 
   // Inside /hive/* OR /pantry/* the section renders its own bottom tab
   // bar. Suppress AppShell's mobile bottom nav so the two don't stack
@@ -173,19 +186,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const inPantrySection = !!pathname?.startsWith('/pantry');
   const inSectionWithOwnTabBar = inHiveSection || inPantrySection;
 
-  // Desktop sidebar still uses the flat list — section structure
-  // matches what parents/kids/helpers expect at lg+ today.
+  // Desktop sidebar mirrors the mobile 6-group model for parents:
+  // Home, Household, The Hive, Insights, Directory, Fun. Section
+  // headers carry an `href` when there's a single landing page —
+  // clicking "Household" jumps to /pantry, "The Hive" to /hive,
+  // matching the mobile group-tap behavior. Insights/Directory/Fun
+  // headers stay plain text since they have no single landing page.
   const sidebarSections: NavSection[] =
     role === 'kid'
       ? [{ items: KID_NAV }, { title: 'Fun', items: KID_FUN_NAV }]
       : role === 'helper'
       ? [{ items: HELPER_NAV }]
       : [
-          { items: PARENT_PRIMARY },
-          { title: 'Household', items: PARENT_HOUSEHOLD },
-          { title: 'Insights', items: PARENT_INSIGHTS },
-          { title: 'The Hive', items: PARENT_HIVE_NAV },
-          { title: 'Fun', items: FUN_NAV },
+          { title: 'Home',                       items: PARENT_PRIMARY },
+          { title: 'Household', href: '/pantry', items: PARENT_HOUSEHOLD },
+          { title: 'The Hive',  href: '/hive',   items: PARENT_HIVE_NAV },
+          { title: 'Insights',                   items: PARENT_INSIGHTS },
+          { title: 'Directory',                  items: PARENT_DIRECTORY },
+          { title: 'Fun',                        items: FUN_NAV },
         ];
 
   // Mobile bottom nav uses the new 6-group model for parents.
@@ -254,8 +272,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Desktop sidebar (lg+) ─────────────────────────── */}
       <aside className="hidden lg:flex fixed top-0 left-0 bottom-0 w-[260px] flex-col border-r border-kaya-warm-dark/60 bg-kaya-cream z-30">
         <Link
-          href="/"
-          aria-label="Go to ourkaya.com"
+          href={homePath}
+          aria-label="Go to home"
           className="px-5 pt-6 pb-5 flex items-center gap-2.5 hover:opacity-80 transition-opacity"
         >
           <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light flex items-center justify-center font-display font-bold text-base">K</div>
@@ -281,37 +299,69 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         )}
 
         <nav className="px-3 flex-1 overflow-y-auto space-y-0.5">
-          {sidebarSections.map((section, sIdx) => (
-            <div key={sIdx}>
-              {section.title && (
-                <div className="pt-3 pb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-kaya-sand">
-                  {section.title}
-                </div>
-              )}
-              {section.items.map((item) => {
-                const active = isActive(item.path);
-                return (
-                  <Link
-                    key={item.path}
-                    href={item.path}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-kaya-sm text-[13px] transition-colors ${
-                      active
-                        ? 'bg-kaya-chocolate text-white font-semibold'
-                        : 'text-kaya-chocolate hover:bg-white font-medium'
-                    }`}
-                  >
-                    <span className="text-base leading-none">{item.icon}</span>
-                    <span className="text-left flex-1 truncate">{item.label}</span>
-                    {item.soon && (
-                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
-                        active ? 'bg-white/20 text-kaya-gold-light' : 'bg-kaya-warm-dark/60 text-kaya-sand'
-                      }`}>Soon</span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          ))}
+          {sidebarSections.map((section, sIdx) => {
+            // A section header is clickable when its NavSection
+            // carries an `href`, lighting up like the items beneath it.
+            const headerActive = section.href ? isActive(section.href) : false;
+            const headerClasses = `pt-3 pb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] ${
+              headerActive ? 'text-kaya-chocolate' : 'text-kaya-sand'
+            }`;
+            return (
+              <div key={sIdx}>
+                {section.title && (
+                  section.href ? (
+                    <Link
+                      href={section.href}
+                      className={`${headerClasses} block hover:text-kaya-chocolate transition-colors`}
+                    >
+                      {section.title}
+                    </Link>
+                  ) : (
+                    <div className={headerClasses}>{section.title}</div>
+                  )
+                )}
+                {section.items.map((item) => {
+                  const active = isActive(item.path);
+                  // Disabled items (e.g. Yellow Pages SOON) render as
+                  // a non-interactive div instead of a Link.
+                  const itemClasses = `w-full flex items-center gap-3 px-3 py-2.5 rounded-kaya-sm text-[13px] transition-colors ${
+                    active
+                      ? 'bg-kaya-chocolate text-white font-semibold'
+                      : item.disabled
+                      ? 'text-kaya-sand cursor-not-allowed'
+                      : 'text-kaya-chocolate hover:bg-white font-medium'
+                  }`;
+                  const inner = (
+                    <>
+                      <span className="text-base leading-none">{item.icon}</span>
+                      <span className="text-left flex-1 truncate">{item.label}</span>
+                      {item.soon && (
+                        <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                          active ? 'bg-white/20 text-kaya-gold-light' : 'bg-kaya-warm-dark/60 text-kaya-sand'
+                        }`}>Soon</span>
+                      )}
+                    </>
+                  );
+                  if (item.disabled) {
+                    return (
+                      <div
+                        key={item.path}
+                        aria-disabled="true"
+                        className={itemClasses}
+                      >
+                        {inner}
+                      </div>
+                    );
+                  }
+                  return (
+                    <Link key={item.path} href={item.path} className={itemClasses}>
+                      {inner}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="p-3 border-t border-kaya-warm-dark/60">
@@ -334,18 +384,39 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       {/* ── Right column (shifted right of sidebar at lg+) ── */}
       <div className="lg:pl-[260px]">
         <GuestBanner />
-        {/* Mobile top header */}
+        {/* Mobile top header
+            Layout:
+              [← back (when not at home)]  [🏠 Kaya logo → home]   [🔔]  [⚙ avatar]
+            The Kaya logo always navigates to the role's home (was
+            linking to the marketing site, which felt like a dead-end
+            for logged-in users). When the user is anywhere except
+            home, a back chevron appears that calls router.back() —
+            so deep modules like Reports or a Hive sub-page have an
+            obvious way out without having to find the small Home
+            tab in the bottom nav. */}
         <div className="lg:hidden sticky top-0 z-20 bg-kaya-cream/95 backdrop-blur-md border-b border-kaya-warm-dark/50 safe-top">
-          <div className="mx-auto max-w-md flex items-center justify-between px-4 h-14">
-            <Link
-              href="/"
-              aria-label="Go to ourkaya.com"
-              className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
-            >
-              <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light flex items-center justify-center text-base">🏠</div>
-              <span className="font-display text-lg font-black tracking-tight">Kaya</span>
-            </Link>
-            <div className="flex items-center gap-2">
+          <div className="mx-auto max-w-md flex items-center justify-between px-4 h-14 gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              {!isAtHome && (
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  aria-label="Go back"
+                  className="w-9 h-9 rounded-full bg-white border border-kaya-warm-dark flex items-center justify-center text-base hover:bg-kaya-warm transition-colors shrink-0"
+                >
+                  ←
+                </button>
+              )}
+              <Link
+                href={homePath}
+                aria-label="Go to home"
+                className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+              >
+                <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light flex items-center justify-center text-base shrink-0">🏠</div>
+                <span className="font-display text-lg font-black tracking-tight truncate">Kaya</span>
+              </Link>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
               <Link
                 href="/notifications"
                 aria-label="Notifications"
