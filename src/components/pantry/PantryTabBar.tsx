@@ -1,18 +1,23 @@
 'use client';
 
-// Bottom tab bar for the Pantry section: Home · List · Meals · Budget ·
-// Soko. Mobile-only; desktop reaches the same routes via the parent
-// sidebar in AppShell. Same shape as HiveTabBar, leaf-green active state.
+// Bottom tab bar for the Pantry section: Home · List · Browse ·
+// Budget · Soko. Mobile-only; desktop reaches the same routes via
+// the parent sidebar in AppShell. Same shape as HiveTabBar,
+// leaf-green active state.
+//
+// "Browse" points at /pantry/directory — the catalog of 167 staples
+// + 91 foods. It replaced the old "Meals (coming next)" placeholder
+// since meal browsing is now part of the Directory's Foods tab.
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { path: '/pantry',           icon: '🛒', label: 'Home',   match: 'exact' as const },
+  { path: '/pantry',             icon: '🛒', label: 'Home',   match: 'exact' as const },
   { path: '/pantry/list/active', icon: '📝', label: 'List',   match: 'list-prefix' as const },
-  { path: '/pantry/meals',     icon: '🍽️', label: 'Meals',  match: 'prefix' as const },
-  { path: '/pantry/budget',    icon: '💰', label: 'Budget', match: 'prefix' as const },
-  { path: '/pantry/suppliers', icon: '🏪', label: 'Soko',   match: 'prefix' as const },
+  { path: '/pantry/directory',   icon: '🧺', label: 'Browse', match: 'prefix' as const },
+  { path: '/pantry/budget',      icon: '💰', label: 'Budget', match: 'prefix' as const },
+  { path: '/pantry/suppliers',   icon: '🏪', label: 'Soko',   match: 'prefix' as const },
 ];
 
 export default function PantryTabBar() {
