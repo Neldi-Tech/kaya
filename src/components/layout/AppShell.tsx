@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import GuestBanner from './GuestBanner';
-import PageFooterNav from '@/components/ui/PageFooterNav';
 
 type NavItem = { path: string; icon: string; label: string; mobileLabel?: string; soon?: boolean; disabled?: boolean };
 type NavSection = { title?: string; href?: string; items: NavItem[] };
@@ -461,16 +460,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Content
             Bottom padding clears the fixed mobile bottom nav (~64px tall) PLUS
             the home-indicator safe-area on notched phones, so nothing stays
-            hidden under the nav.
-            PageFooterNav renders just after the page's own content (mobile
-            only, hidden on the role's home page) so a user who has scrolled
-            to the bottom can tap back / home without scrolling back up. */}
+            hidden under the nav. */}
         <div
           className="lg:pb-0"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
           {children}
-          {!isAtHome && <PageFooterNav homePath={homePath} />}
         </div>
       </div>
 
