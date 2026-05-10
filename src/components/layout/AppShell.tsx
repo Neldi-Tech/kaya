@@ -386,27 +386,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <GuestBanner />
         {/* Mobile top header
             Layout:
-              [← back (when not at home)]  [🏠 Kaya logo → home]   [🔔]  [⚙ avatar]
-            The Kaya logo always navigates to the role's home (was
-            linking to the marketing site, which felt like a dead-end
-            for logged-in users). When the user is anywhere except
-            home, a back chevron appears that calls router.back() —
-            so deep modules like Reports or a Hive sub-page have an
-            obvious way out without having to find the small Home
-            tab in the bottom nav. */}
+              [🏠 Kaya logo → home]                       [🔔]  [⚙ avatar]
+            The top header is intentionally minimal — Back lives at
+            the bottom of every page (just above the section tab
+            bar) and Kaya home is the first tab in the section tab
+            bars / first item in the main bottom nav, so neither
+            needs a slot up here. The Kaya logo still navigates to
+            the role's home as a redundant entry point. */}
         <div className="lg:hidden sticky top-0 z-20 bg-kaya-cream/95 backdrop-blur-md border-b border-kaya-warm-dark/50 safe-top">
           <div className="mx-auto max-w-md flex items-center justify-between px-4 h-14 gap-2">
             <div className="flex items-center gap-2 min-w-0">
-              {!isAtHome && (
-                <button
-                  type="button"
-                  onClick={() => router.back()}
-                  aria-label="Go back"
-                  className="w-9 h-9 rounded-full bg-white border border-kaya-warm-dark flex items-center justify-center text-base hover:bg-kaya-warm transition-colors shrink-0"
-                >
-                  ←
-                </button>
-              )}
               <Link
                 href={homePath}
                 aria-label="Go to home"
@@ -460,12 +449,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         {/* Content
             Bottom padding clears the fixed mobile bottom nav (~64px tall) PLUS
             the home-indicator safe-area on notched phones, so nothing stays
-            hidden under the nav. */}
+            hidden under the nav.
+            A visible Back button sits inline at the very end of {children}
+            on every non-home page (mobile only). It's the deliberate
+            counterpart to the always-visible Kaya tab in the section tab
+            bars: home is one tap, going back is one step (a tap at the
+            end of the page you've just read). */}
         <div
           className="lg:pb-0"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
           {children}
+          {!isAtHome && (
+            <div className="lg:hidden mt-8 px-4">
+              <div className="mx-auto max-w-md">
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  aria-label="Go back to previous page"
+                  className="w-full flex items-center justify-center gap-2 h-12 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[14px] hover:bg-kaya-warm active:scale-[0.99] transition-all shadow-sm"
+                >
+                  <span className="text-base leading-none">←</span>
+                  <span>Back</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
