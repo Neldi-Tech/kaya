@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import GuestBanner from './GuestBanner';
 
 type NavItem = { path: string; icon: string; label: string; mobileLabel?: string; soon?: boolean };
+type NavSection = { title?: string; items: NavItem[] };
 
 const PARENT_PRIMARY: NavItem[] = [
   { path: '/dashboard', icon: '🏠', label: 'Home',           mobileLabel: 'Home' },
@@ -67,6 +69,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { profile } = useAuth();
   const { family, children: kids } = useFamily();
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const role = profile?.role || 'parent';
   const mobileNav: NavItem[] =
@@ -79,7 +82,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const inPantrySection = !!pathname?.startsWith('/pantry');
   const inSectionWithOwnTabBar = inHiveSection || inPantrySection;
 
-  const sidebarSections =
+  const sidebarSections: NavSection[] =
     role === 'kid'
       ? [{ items: KID_NAV }, { title: 'Fun', items: KID_FUN_NAV }]
       : role === 'helper'
@@ -91,6 +94,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           { title: 'The Hive', items: PARENT_HIVE_NAV },
           { title: 'Fun', items: FUN_NAV },
         ];
+
+  // Mobile "More" sheet: surface every sidebar section that isn't
+  // already in the bottom-nav primary row. Helper has full parity so
+  // they get no More tab.
+  const mobileMoreSections: NavSection[] =
+    role === 'kid'
+      ? [{ title: 'Fun', items: KID_FUN_NAV }]
+      : role === 'helper'
+      ? []
+      : [
+          { title: 'Household', items: PARENT_HOUSEHOLD },
+          { title: 'Insights', items: PARENT_INSIGHTS },
+          { title: 'The Hive', items: PARENT_HIVE_NAV },
+          { title: 'Fun', items: FUN_NAV },
+        ];
+  const showMoreTab = mobileMoreSections.length > 0;
+
+  // Close the sheet on route change so it doesn't linger after a tap.
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
+
+  // Highlight the More tab whenever the user is on any of its routes.
+  const moreActive =
+    showMoreTab &&
+    mobileMoreSections.some((s) =>
+      s.items.some(
+        (i) => pathname === i.path || pathname?.startsWith(i.path + '/')
+      )
+    );
 
   const isActive = (path: string) =>
     pathname === path || (path !== '/dashboard' && pathname?.startsWith(path + '/'));
@@ -279,7 +312,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.path}
                 href={item.path}
-                className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-opacity ${
+                className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-opacity ${
                   active ? 'opacity-100' : 'opacity-40'
                 }`}
               >
@@ -289,8 +322,98 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {showMoreTab && (
+            <button
+              type="button"
+              onClick={() => setMoreOpen(true)}
+              aria-label="More"
+              aria-expanded={moreOpen}
+              className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-opacity ${
+                moreActive || moreOpen ? 'opacity-100' : 'opacity-40'
+              }`}
+            >
+              <span className="text-xl leading-none">⋯</span>
+              <span className="text-[10px] font-extrabold">More</span>
+              {moreActive && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Mobile "More" sheet · slides up from the bottom and lists every
+          sidebar section that didn't fit in the primary tab row. */}
+      {showMoreTab && (
+        <div
+          className={`fixed inset-0 z-40 lg:hidden ${moreOpen ? '' : 'pointer-events-none'}`}
+          aria-hidden={!moreOpen}
+        >
+          <button
+            type="button"
+            aria-label="Close more menu"
+            onClick={() => setMoreOpen(false)}
+            className={`absolute inset-0 bg-black transition-opacity ${
+              moreOpen ? 'opacity-40' : 'opacity-0'
+            }`}
+          />
+          <div
+            role="dialog"
+            aria-label="More"
+            className={`absolute left-0 right-0 bottom-0 bg-kaya-cream border-t border-kaya-warm-dark/60 rounded-t-2xl shadow-xl transform transition-transform duration-200 ${
+              moreOpen ? 'translate-y-0' : 'translate-y-full'
+            }`}
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+          >
+            <div className="flex items-center justify-between px-5 pt-3 pb-2">
+              <div className="w-10 h-1 rounded-full bg-kaya-warm-dark/60 mx-auto" />
+            </div>
+            <div className="flex items-center justify-between px-5 pb-2">
+              <div className="text-[15px] font-display font-bold">More</div>
+              <button
+                type="button"
+                onClick={() => setMoreOpen(false)}
+                aria-label="Close"
+                className="w-8 h-8 rounded-full bg-white border border-kaya-warm-dark text-kaya-chocolate text-sm flex items-center justify-center"
+              >
+                ✕
+              </button>
+            </div>
+            <nav className="px-3 pb-4 max-h-[70vh] overflow-y-auto">
+              {mobileMoreSections.map((section, sIdx) => (
+                <div key={sIdx} className="mb-2">
+                  {section.title && (
+                    <div className="pt-3 pb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-kaya-sand">
+                      {section.title}
+                    </div>
+                  )}
+                  {section.items.map((item) => {
+                    const active = isActive(item.path);
+                    return (
+                      <Link
+                        key={item.path}
+                        href={item.path}
+                        onClick={() => setMoreOpen(false)}
+                        className={`w-full flex items-center gap-3 px-3 py-3 rounded-kaya-sm text-[14px] transition-colors ${
+                          active
+                            ? 'bg-kaya-chocolate text-white font-semibold'
+                            : 'text-kaya-chocolate hover:bg-white font-medium'
+                        }`}
+                      >
+                        <span className="text-lg leading-none">{item.icon}</span>
+                        <span className="text-left flex-1 truncate">{item.label}</span>
+                        {item.soon && (
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
+                            active ? 'bg-white/20 text-kaya-gold-light' : 'bg-kaya-warm-dark/60 text-kaya-sand'
+                          }`}>Soon</span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              ))}
+            </nav>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
