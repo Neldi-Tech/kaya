@@ -451,23 +451,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             the home-indicator safe-area on notched phones, so nothing stays
             hidden under the nav.
             A visible Back button sits inline at the very end of {children}
-            on every non-home page (mobile only). It's the deliberate
-            counterpart to the always-visible Kaya tab in the section tab
-            bars: home is one tap, going back is one step (a tap at the
-            end of the page you've just read). */}
+            on every non-home page, on BOTH mobile and desktop. It's the
+            deliberate counterpart to the always-visible Kaya home (Kaya
+            tab on mobile section tab bars, Kaya logo in the desktop
+            sidebar): home is one click, going back is one step (a click
+            at the end of the page you've just read). */}
         <div
           className="lg:pb-0"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
           {children}
           {!isAtHome && (
-            <div className="lg:hidden mt-8 px-4">
-              <div className="mx-auto max-w-md">
+            <div className="mt-8 px-4 lg:px-8 pb-2 lg:pb-12">
+              <div className="mx-auto max-w-md lg:max-w-3xl">
                 <button
                   type="button"
                   onClick={() => router.back()}
                   aria-label="Go back to previous page"
-                  className="w-full flex items-center justify-center gap-2 h-12 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[14px] hover:bg-kaya-warm active:scale-[0.99] transition-all shadow-sm"
+                  className="w-full flex items-center justify-center gap-2 h-12 lg:h-14 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[14px] lg:text-[15px] hover:bg-kaya-warm active:scale-[0.99] transition-all shadow-sm"
                 >
                   <span className="text-base leading-none">←</span>
                   <span>Back</span>
