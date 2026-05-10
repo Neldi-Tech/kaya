@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kaya · PageFooterNav preview</title>
+<style>
+  /* ── Kaya design tokens (pulled from tailwind.config.js) ──── */
+  :root {
+    --kaya-cream:        #FDFBF7;
+    --kaya-warm:         #F0EBE3;
+    --kaya-warm-dark:    #E8E0D4;
+    --kaya-chocolate:    #1E120B;
+    --kaya-chocolate-lt: #3D241A;
+    --kaya-sand:         #9B8A72;
+    --kaya-gold:         #D4A017;
+    --kaya-gold-lt:      #F5E6B8;
+    --pantry-leaf:       #5BA88C;
+    --pantry-leaf-dk:    #3F7A66;
+    --pantry-leaf-soft:  #C9E5D7;
+    --hive-paper:        #FFFFFF;
+    --hive-line:         #E8DEC9;
+    --hive-navy:         #1F2D3D;
+    --hive-muted:        #5C6975;
+    --hive-cream:        #FFF8EC;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #efeae0;
+    min-height: 100vh;
+    padding: 24px 16px 60px;
+    color: var(--kaya-chocolate);
+  }
+
+  .gallery {
+    max-width: 880px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+  }
+  @media (max-width: 720px) {
+    .gallery { grid-template-columns: 1fr; }
+  }
+
+  .caption {
+    text-align: center;
+    color: #5b4d3a;
+    font-size: 13px;
+    margin-bottom: 12px;
+    letter-spacing: 0.04em;
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+
+  /* ── Phone frame ──────────────────────────────────────────── */
+  .phone {
+    width: 380px;
+    max-width: 100%;
+    margin: 0 auto;
+    height: 760px;
+    background: var(--kaya-cream);
+    border: 10px solid #1a1a1a;
+    border-radius: 38px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+  }
+  .notch {
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 110px; height: 18px;
+    background: #1a1a1a;
+    border-radius: 0 0 12px 12px;
+    z-index: 5;
+  }
+
+  /* ── Sticky top header ────────────────────────────────────── */
+  .top-header {
+    flex-shrink: 0;
+    background: rgba(253,251,247,0.96);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(232,224,212,0.6);
+    padding: 28px 16px 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .icon-btn, .icon-link {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: white;
+    border: 1px solid var(--kaya-warm-dark);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; cursor: pointer;
+    flex-shrink: 0;
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    text-decoration: none; color: inherit;
+  }
+  .logo-tile {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--kaya-chocolate), var(--kaya-chocolate-lt));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+  .logo-text {
+    font-family: Georgia, serif;
+    font-weight: 900;
+    font-size: 18px;
+    letter-spacing: -0.02em;
+  }
+  .right-cluster { margin-left: auto; display: flex; gap: 8px; }
+  .avatar {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--kaya-gold), #B8860B);
+    color: white;
+    font-weight: 900; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* ── Scrollable page content ──────────────────────────────── */
+  .page-scroll {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 16px 8px;
+  }
+  .scroll-hint {
+    background: var(--kaya-gold-lt);
+    color: #6B4F0E;
+    font-size: 10px;
+    text-align: center;
+    padding: 6px 8px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  /* Crumb + title */
+  .crumb {
+    color: var(--pantry-leaf-dk);
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .title {
+    font-family: Georgia, serif;
+    font-weight: 900;
+    font-size: 26px;
+    margin: 4px 0 4px;
+  }
+  .subtitle {
+    color: var(--hive-muted);
+    font-size: 12px;
+    margin: 0 0 16px;
+  }
+
+  /* Tabs row */
+  .tabs {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    margin-bottom: 12px;
+  }
+  .tab {
+    height: 44px; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 13px;
+    background: transparent; color: var(--hive-muted);
+    border: none; cursor: pointer;
+  }
+  .tab.active {
+    background: var(--pantry-leaf); color: white;
+    box-shadow: 0 8px 20px -8px rgba(91,168,140,0.5);
+  }
+
+  /* Search */
+  .search {
+    width: 100%; height: 44px;
+    border-radius: 999px;
+    background: white;
+    border: 1px solid var(--hive-line);
+    padding: 0 16px;
+    font-size: 13px;
+    color: var(--hive-muted);
+    margin-bottom: 12px;
+  }
+
+  /* Filter chips */
+  .chip-row {
+    display: flex; gap: 6px; overflow-x: auto;
+    margin-bottom: 8px; padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .chip-row::-webkit-scrollbar { display: none; }
+  .chip {
+    flex-shrink: 0;
+    padding: 6px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 800;
+    background: white; border: 1px solid var(--hive-line);
+    color: var(--hive-muted); white-space: nowrap;
+  }
+  .chip.active {
+    background: var(--pantry-leaf-soft);
+    color: var(--pantry-leaf-dk);
+    border-color: var(--pantry-leaf);
+  }
+
+  /* Sample staple cards */
+  .cards { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .card {
+    display: flex; gap: 12px; align-items: flex-start;
+    background: white; border: 1px solid var(--hive-line);
+    border-radius: 14px; padding: 12px;
+  }
+  .card-icon {
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    background: var(--pantry-leaf-soft); color: var(--pantry-leaf-dk);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+  }
+  .card-name { font-weight: 800; font-size: 14px; margin: 0; }
+  .card-meta { color: var(--hive-muted); font-size: 11px; margin: 2px 0 0; }
+  .card-note { color: var(--hive-muted); font-size: 11px; font-style: italic; margin: 1px 0 0; }
+
+  /* ── ✨ Page footer nav (the new visible box) ✨ ─────────── */
+  .footer-nav-wrap {
+    margin-top: 32px;
+  }
+  .footer-nav-label {
+    text-align: center;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--kaya-sand);
+    margin-bottom: 8px;
+  }
+  .footer-nav-box {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    background: white;
+    border: 2px solid var(--kaya-warm-dark);
+    border-radius: 16px;
+    padding: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+  }
+  .footer-btn {
+    height: 48px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px;
+    font-family: Georgia, serif;
+    font-weight: 800; font-size: 14px;
+    border: none; cursor: pointer;
+    text-decoration: none;
+  }
+  .footer-btn--back {
+    background: var(--kaya-cream);
+    border: 1px solid rgba(232,224,212,0.6);
+    color: var(--kaya-chocolate);
+  }
+  .footer-btn--home {
+    background: var(--kaya-chocolate);
+    color: white;
+  }
+  .footer-btn span:first-child { font-size: 16px; line-height: 1; }
+
+  /* ── Section tab bar at the bottom (Pantry style) ────────── */
+  .section-tabbar {
+    flex-shrink: 0;
+    background: white;
+    border-top: 1px solid var(--hive-line);
+    padding: 8px 6px 16px;
+    display: flex;
+  }
+  .section-tab {
+    flex: 1;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px;
+    font-size: 10px; font-weight: 700; color: var(--hive-muted);
+    text-decoration: none;
+  }
+  .section-tab-icon {
+    width: 28px; height: 28px;
+    border-radius: 10px;
+    background: var(--hive-cream);
+    color: var(--hive-muted);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .section-tab.active .section-tab-icon {
+    background: var(--pantry-leaf);
+    color: white;
+  }
+  .section-tab.active { color: var(--pantry-leaf-dk); }
+
+  /* Annotation callouts */
+  .callout {
+    margin-top: 14px;
+    background: white;
+    border: 1px dashed var(--kaya-warm-dark);
+    padding: 10px 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #5b4d3a;
+  }
+  .callout strong { color: var(--kaya-chocolate); }
+</style>
+</head>
+<body>
+
+<h1 style="text-align:center;margin:0 0 6px;font-family:Georgia,serif;font-weight:900;font-size:22px;color:#1E120B;">
+  Kaya · Bottom-of-page navigation preview
+</h1>
+<p style="text-align:center;margin:0 0 28px;color:#5b4d3a;font-size:13px;max-width:640px;margin-left:auto;margin-right:auto;">
+  Two views of the same page so you can compare. Both are the <em>Pantry · Directory</em> page on a phone.
+  The <strong>NAVIGATE</strong> box at the bottom is the new piece — it sits inline with content (so it scrolls into view at the end of the page), above whatever section tab bar is showing.
+</p>
+
+<div class="gallery">
+
+  <!-- ───────────────────────── A · TOP OF PAGE ─────────── -->
+  <div>
+    <div class="caption">A · Top of page (just opened)</div>
+    <div class="phone">
+      <div class="notch"></div>
+
+      <div class="top-header">
+        <button class="icon-btn" title="Top header back chevron">←</button>
+        <a class="logo" href="#">
+          <span class="logo-tile">🏠</span>
+          <span class="logo-text">Kaya</span>
+        </a>
+        <div class="right-cluster">
+          <a class="icon-link">🔔</a>
+          <span class="avatar">U</span>
+        </div>
+      </div>
+
+      <div class="page-scroll">
+        <div class="scroll-hint">Page just opened — scroll down to see the bottom nav box ↓</div>
+
+        <p class="crumb">Pantry · Directory</p>
+        <h1 class="title">Browse everything 🧺</h1>
+        <p class="subtitle">Tap to multi-select, then save to your staples.</p>
+
+        <div class="tabs">
+          <button class="tab active">🧺 Staples · 192</button>
+          <button class="tab">🍱 Foods · 94</button>
+        </div>
+
+        <input class="search" placeholder="🔎  Search rice, omo, eggs…" disabled />
+
+        <div class="tabs">
+          <button class="tab active" style="height:42px;font-size:12px;">🍱 Food</button>
+          <button class="tab" style="height:42px;font-size:12px;">🧺 Household</button>
+        </div>
+
+        <div class="chip-row">
+          <span class="chip active">✨ All</span>
+          <span class="chip">🥬 Produce</span>
+          <span class="chip">🥛 Dairy</span>
+          <span class="chip">🍚 Pantry</span>
+        </div>
+
+        <div class="chip-row">
+          <span class="chip active">🌍 Any region</span>
+          <span class="chip">🇹🇿 East Africa</span>
+          <span class="chip">🇮🇳 South Asia</span>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="card-icon">🍚</div>
+            <div>
+              <p class="card-name">Rice (white)</p>
+              <p class="card-meta">5 kg · biweekly</p>
+              <p class="card-note">Pishori, basmati, jasmine — all common.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🌽</div>
+            <div>
+              <p class="card-name">Maize flour (ugali)</p>
+              <p class="card-meta">2 kg · weekly</p>
+              <p class="card-note">Sembe / dona for ugali.</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🌾</div>
+            <div>
+              <p class="card-name">Wheat flour</p>
+              <p class="card-meta">2 kg · biweekly</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-tabbar">
+        <a class="section-tab active"><span class="section-tab-icon">🛒</span><span>Home</span></a>
+        <a class="section-tab"><span class="section-tab-icon">📝</span><span>List</span></a>
+        <a class="section-tab"><span class="section-tab-icon">🧺</span><span>Browse</span></a>
+        <a class="section-tab"><span class="section-tab-icon">💰</span><span>Budget</span></a>
+        <a class="section-tab"><span class="section-tab-icon">🏪</span><span>Soko</span></a>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>What's visible at top:</strong> the top-header back chevron + Kaya home tile (added earlier).
+      The new <strong>NAVIGATE</strong> box is below the fold — scroll down on your phone to reach it,
+      OR look at view B for what it looks like once you've scrolled there.
+    </div>
+  </div>
+
+  <!-- ───────────────────────── B · SCROLLED TO BOTTOM ──── -->
+  <div>
+    <div class="caption">B · After scrolling to the bottom</div>
+    <div class="phone">
+      <div class="notch"></div>
+
+      <div class="top-header">
+        <button class="icon-btn">←</button>
+        <a class="logo" href="#">
+          <span class="logo-tile">🏠</span>
+          <span class="logo-text">Kaya</span>
+        </a>
+        <div class="right-cluster">
+          <a class="icon-link">🔔</a>
+          <span class="avatar">U</span>
+        </div>
+      </div>
+
+      <div class="page-scroll">
+        <div class="cards">
+          <div class="card">
+            <div class="card-icon">🍞</div>
+            <div>
+              <p class="card-name">Bread</p>
+              <p class="card-meta">3 x · weekly</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🥚</div>
+            <div>
+              <p class="card-name">Eggs</p>
+              <p class="card-meta">2 dozen · weekly</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🍌</div>
+            <div>
+              <p class="card-name">Bananas</p>
+              <p class="card-meta">2 bunch · weekly</p>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-icon">🧀</div>
+            <div>
+              <p class="card-name">Cheese</p>
+              <p class="card-meta">1 pack · biweekly</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ✨ THE NEW PAGE FOOTER NAV BOX ✨ -->
+        <div class="footer-nav-wrap">
+          <p class="footer-nav-label">Navigate</p>
+          <div class="footer-nav-box">
+            <button class="footer-btn footer-btn--back">
+              <span>←</span><span>Back</span>
+            </button>
+            <a href="#" class="footer-btn footer-btn--home">
+              <span>🏠</span><span>Kaya Home</span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-tabbar">
+        <a class="section-tab active"><span class="section-tab-icon">🛒</span><span>Home</span></a>
+        <a class="section-tab"><span class="section-tab-icon">📝</span><span>List</span></a>
+        <a class="section-tab"><span class="section-tab-icon">🧺</span><span>Browse</span></a>
+        <a class="section-tab"><span class="section-tab-icon">💰</span><span>Budget</span></a>
+        <a class="section-tab"><span class="section-tab-icon">🏪</span><span>Soko</span></a>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>What's new:</strong> the <strong>NAVIGATE</strong> box with two big tap targets —
+      <strong>← Back</strong> (cream button, calls router.back()) and
+      <strong>🏠 Kaya Home</strong> (chocolate button, jumps straight to /dashboard).
+      It sits <em>inline with content</em>, just before the section tab bar at the bottom.
+      No need to scroll back up to use the top-header chevron.
+    </div>
+  </div>
+
+</div>
+
+<div style="max-width:640px;margin:36px auto 0;font-size:13px;line-height:1.6;color:#5b4d3a;">
+  <p style="margin:0 0 12px;"><strong style="color:#1E120B;">Things to call out / change:</strong></p>
+  <ul style="margin:0;padding-left:20px;">
+    <li>Box border thickness, corner radius, button heights</li>
+    <li>Wording — "Kaya Home" vs "Home" vs "Back home"</li>
+    <li>Color treatment — currently <em>cream + chocolate</em> matching the top header. Could go <em>pantry-leaf green</em> on Pantry pages, <em>hive honey</em> on Hive pages if you want it section-colored</li>
+    <li>Whether to also show on desktop (currently mobile-only since the desktop sidebar already has both affordances)</li>
+    <li>Whether to show on every non-home page or only deep modules</li>
+  </ul>
+</div>
+
+</body>
+</html>
