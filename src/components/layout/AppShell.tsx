@@ -10,6 +10,24 @@ import GuestBanner from './GuestBanner';
 type NavItem = { path: string; icon: string; label: string; mobileLabel?: string; soon?: boolean };
 type NavSection = { title?: string; items: NavItem[] };
 
+// Mobile bottom nav uses category-level "groups" rather than the flat
+// list of routes the desktop sidebar shows. Each group is one of:
+//   - link  : taps go straight to a route (e.g. Home → /dashboard,
+//             House → /pantry, Hive → /hive). For groups with their
+//             own section tab bar (Pantry, Hive) this avoids a
+//             redundant intermediate menu.
+//   - sheet : taps open a slide-up sheet listing the group's routes.
+//             Used for groups that don't (yet) have a single landing
+//             page — Insights, Fun.
+//   - soon  : non-interactive placeholder with a SOON pill, for
+//             groups the feature hasn't shipped yet (Directory).
+// `activePrefixes` lets a link group light up while the user is on a
+// related route — e.g. Home stays active on /rate, /award, /meetings.
+type MobileGroup =
+  | { kind: 'link'; id: string; path: string; icon: string; label: string; activePrefixes?: string[] }
+  | { kind: 'sheet'; id: string; icon: string; label: string; title: string; sections: NavSection[] }
+  | { kind: 'soon'; id: string; icon: string; label: string };
+
 const PARENT_PRIMARY: NavItem[] = [
   { path: '/dashboard', icon: '🏠', label: 'Home',           mobileLabel: 'Home' },
   { path: '/rate',      icon: '📋', label: 'Rate routines',  mobileLabel: 'Rate' },
@@ -65,15 +83,88 @@ const KID_FUN_NAV: NavItem[] = [
   { path: '/games',  icon: '🎮', label: 'Games',  mobileLabel: 'Games',  soon: true },
 ];
 
+// Six top-level groups for parents on mobile.
+//   1. Home       — dashboard, surfaces Rate/Award/Meet/Rewards as cards
+//   2. House      — Household section (Pantry today; Roster, chats next)
+//   3. Hive       — The Hive section (Approvals/Rates/Deposit live inside)
+//   4. Stats      — Insights sheet (Reports, Profiles, Badges, Family tree)
+//   5. Pages      — Directory / Yellow Pages, not yet built
+//   6. Fun        — Videos/Games sheet (both Soon)
+const PARENT_MOBILE_GROUPS: MobileGroup[] = [
+  {
+    kind: 'link',
+    id: 'home',
+    path: '/dashboard',
+    icon: '🏠',
+    label: 'Home',
+    // Routes that conceptually belong to the Home group — keep Home
+    // highlighted when the user is rating, awarding, in a meeting,
+    // browsing rewards, or reading notifications.
+    activePrefixes: ['/rate', '/award', '/meetings', '/rewards', '/notifications'],
+  },
+  { kind: 'link', id: 'household', path: '/pantry', icon: '🛒', label: 'House' },
+  {
+    kind: 'link',
+    id: 'hive',
+    path: '/hive',
+    icon: '🍯',
+    label: 'Hive',
+    // Parent-only Hive routes that live outside /hive/* but belong
+    // to the Hive group conceptually.
+    activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'],
+  },
+  {
+    kind: 'sheet',
+    id: 'insights',
+    icon: '📊',
+    label: 'Stats',
+    title: 'Insights',
+    sections: [{ items: PARENT_INSIGHTS }],
+  },
+  { kind: 'soon', id: 'directory', icon: '📒', label: 'Pages' },
+  {
+    kind: 'sheet',
+    id: 'fun',
+    icon: '🎮',
+    label: 'Fun',
+    title: 'Fun',
+    sections: [{ items: FUN_NAV }],
+  },
+];
+
+// Kid mobile groups — 4 primary routes plus a Fun sheet so Videos/Games
+// are reachable on mobile.
+const KID_MOBILE_GROUPS: MobileGroup[] = [
+  { kind: 'link', id: 'home',    path: '/kid',     icon: '🏠', label: 'Home' },
+  { kind: 'link', id: 'hive',    path: '/hive',    icon: '🍯', label: 'Hive' },
+  { kind: 'link', id: 'badges',  path: '/badges',  icon: '🏆', label: 'Badges' },
+  { kind: 'link', id: 'rewards', path: '/rewards', icon: '🎁', label: 'Rewards' },
+  {
+    kind: 'sheet',
+    id: 'fun',
+    icon: '🎮',
+    label: 'Fun',
+    title: 'Fun',
+    sections: [{ items: KID_FUN_NAV }],
+  },
+];
+
+// Helper already has full sidebar parity — convert their flat nav to
+// link-kind groups so the rendering loop is uniform.
+const HELPER_MOBILE_GROUPS: MobileGroup[] = HELPER_NAV.map((item) => ({
+  kind: 'link' as const,
+  id: item.path,
+  path: item.path,
+  icon: item.icon,
+  label: item.mobileLabel || item.label,
+}));
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { profile } = useAuth();
   const { family, children: kids } = useFamily();
-  const [moreOpen, setMoreOpen] = useState(false);
 
   const role = profile?.role || 'parent';
-  const mobileNav: NavItem[] =
-    role === 'kid' ? KID_NAV : role === 'helper' ? HELPER_NAV : PARENT_PRIMARY;
 
   // Inside /hive/* OR /pantry/* the section renders its own bottom tab
   // bar. Suppress AppShell's mobile bottom nav so the two don't stack
@@ -82,6 +173,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const inPantrySection = !!pathname?.startsWith('/pantry');
   const inSectionWithOwnTabBar = inHiveSection || inPantrySection;
 
+  // Desktop sidebar still uses the flat list — section structure
+  // matches what parents/kids/helpers expect at lg+ today.
   const sidebarSections: NavSection[] =
     role === 'kid'
       ? [{ items: KID_NAV }, { title: 'Fun', items: KID_FUN_NAV }]
@@ -95,38 +188,59 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           { title: 'Fun', items: FUN_NAV },
         ];
 
-  // Mobile "More" sheet: surface every sidebar section that isn't
-  // already in the bottom-nav primary row. Helper has full parity so
-  // they get no More tab.
-  const mobileMoreSections: NavSection[] =
-    role === 'kid'
-      ? [{ title: 'Fun', items: KID_FUN_NAV }]
-      : role === 'helper'
-      ? []
-      : [
-          { title: 'Household', items: PARENT_HOUSEHOLD },
-          { title: 'Insights', items: PARENT_INSIGHTS },
-          { title: 'The Hive', items: PARENT_HIVE_NAV },
-          { title: 'Fun', items: FUN_NAV },
-        ];
-  const showMoreTab = mobileMoreSections.length > 0;
+  // Mobile bottom nav uses the new 6-group model for parents.
+  const mobileGroups: MobileGroup[] =
+    role === 'kid' ? KID_MOBILE_GROUPS :
+    role === 'helper' ? HELPER_MOBILE_GROUPS :
+    PARENT_MOBILE_GROUPS;
+
+  // Sheet state: which group's sub-menu is currently open. We also
+  // remember the last sheet that was open so the slide-down animation
+  // keeps showing its content as it animates off-screen.
+  const [openSheetId, setOpenSheetId] = useState<string | null>(null);
+  const [lastSheetId, setLastSheetId] = useState<string | null>(null);
+  useEffect(() => {
+    if (openSheetId) setLastSheetId(openSheetId);
+  }, [openSheetId]);
+
+  const sheetGroup = mobileGroups.find(
+    (g) => g.kind === 'sheet' && g.id === lastSheetId
+  );
 
   // Close the sheet on route change so it doesn't linger after a tap.
   useEffect(() => {
-    setMoreOpen(false);
+    setOpenSheetId(null);
   }, [pathname]);
 
-  // Highlight the More tab whenever the user is on any of its routes.
-  const moreActive =
-    showMoreTab &&
-    mobileMoreSections.some((s) =>
-      s.items.some(
-        (i) => pathname === i.path || pathname?.startsWith(i.path + '/')
-      )
-    );
-
-  const isActive = (path: string) =>
+  // Path matching helpers — exact for /dashboard (so it doesn't swallow
+  // /dashboard/foo if it ever appears), prefix-match otherwise.
+  const isPathActive = (path: string) =>
     pathname === path || (path !== '/dashboard' && pathname?.startsWith(path + '/'));
+  const isActive = isPathActive;
+
+  // A link group is active if its path matches OR any of its
+  // activePrefixes match. This lets Home stay highlighted on /rate,
+  // /award, etc.
+  const isLinkGroupActive = (
+    g: Extract<MobileGroup, { kind: 'link' }>
+  ): boolean => {
+    if (isPathActive(g.path)) return true;
+    if (g.activePrefixes) {
+      for (const p of g.activePrefixes) {
+        if (pathname === p || pathname?.startsWith(p + '/')) return true;
+      }
+    }
+    return false;
+  };
+
+  // A sheet group is active if any route inside any of its sections
+  // matches the current path.
+  const isSheetGroupActive = (
+    g: Extract<MobileGroup, { kind: 'sheet' }>
+  ): boolean =>
+    g.sections.some((s) =>
+      s.items.some((i) => isPathActive(i.path))
+    );
 
   const initial = profile?.displayName?.[0]?.toUpperCase() || 'U';
   const today = new Date().toLocaleDateString('en-US', {
@@ -305,61 +419,89 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           transform: 'translateZ(0)',
         }}
       >
-        <div className="mx-auto max-w-md flex justify-around px-2 pt-1.5 pb-2">
-          {mobileNav.map((item) => {
-            const active = isActive(item.path);
+        <div className="mx-auto max-w-md flex justify-around px-1 pt-1.5 pb-2">
+          {mobileGroups.map((g) => {
+            // Link group: direct nav.
+            if (g.kind === 'link') {
+              const active = isLinkGroupActive(g);
+              return (
+                <Link
+                  key={g.id}
+                  href={g.path}
+                  className={`flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-xl transition-opacity ${
+                    active ? 'opacity-100' : 'opacity-40'
+                  }`}
+                >
+                  <span className="text-xl leading-none">{g.icon}</span>
+                  <span className="text-[10px] font-extrabold">{g.label}</span>
+                  {active && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
+                </Link>
+              );
+            }
+            // Sheet group: opens a slide-up sheet listing this group's
+            // sub-modules.
+            if (g.kind === 'sheet') {
+              const active = isSheetGroupActive(g);
+              const open = openSheetId === g.id;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => setOpenSheetId(open ? null : g.id)}
+                  aria-label={g.title}
+                  aria-expanded={open}
+                  className={`flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-xl transition-opacity ${
+                    active || open ? 'opacity-100' : 'opacity-40'
+                  }`}
+                >
+                  <span className="text-xl leading-none">{g.icon}</span>
+                  <span className="text-[10px] font-extrabold">{g.label}</span>
+                  {active && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
+                </button>
+              );
+            }
+            // Soon group: non-interactive placeholder.
             return (
-              <Link
-                key={item.path}
-                href={item.path}
-                className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-opacity ${
-                  active ? 'opacity-100' : 'opacity-40'
-                }`}
+              <button
+                key={g.id}
+                type="button"
+                disabled
+                aria-label={`${g.label} (coming soon)`}
+                className="flex flex-col items-center gap-0.5 px-1.5 py-1.5 rounded-xl opacity-30 cursor-not-allowed relative"
               >
-                <span className="text-xl leading-none">{item.icon}</span>
-                <span className="text-[10px] font-extrabold">{item.mobileLabel || item.label}</span>
-                {active && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
-              </Link>
+                <span className="text-xl leading-none">{g.icon}</span>
+                <span className="text-[10px] font-extrabold">{g.label}</span>
+                <span className="absolute -top-1 right-0 text-[7px] font-black uppercase tracking-wider px-1 py-px rounded-full bg-kaya-warm-dark/70 text-kaya-sand leading-none">
+                  Soon
+                </span>
+              </button>
             );
           })}
-          {showMoreTab && (
-            <button
-              type="button"
-              onClick={() => setMoreOpen(true)}
-              aria-label="More"
-              aria-expanded={moreOpen}
-              className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl transition-opacity ${
-                moreActive || moreOpen ? 'opacity-100' : 'opacity-40'
-              }`}
-            >
-              <span className="text-xl leading-none">⋯</span>
-              <span className="text-[10px] font-extrabold">More</span>
-              {moreActive && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Mobile "More" sheet · slides up from the bottom and lists every
-          sidebar section that didn't fit in the primary tab row. */}
-      {showMoreTab && (
+      {/* Mobile sub-menu sheet · slides up from the bottom for the
+          currently-tapped sheet group (Insights, Fun, …). The sheet
+          DOM is kept mounted while a group has been opened at least
+          once so the slide-down animation has content to animate. */}
+      {sheetGroup && sheetGroup.kind === 'sheet' && (
         <div
-          className={`fixed inset-0 z-40 lg:hidden ${moreOpen ? '' : 'pointer-events-none'}`}
-          aria-hidden={!moreOpen}
+          className={`fixed inset-0 z-40 lg:hidden ${openSheetId ? '' : 'pointer-events-none'}`}
+          aria-hidden={!openSheetId}
         >
           <button
             type="button"
-            aria-label="Close more menu"
-            onClick={() => setMoreOpen(false)}
+            aria-label="Close menu"
+            onClick={() => setOpenSheetId(null)}
             className={`absolute inset-0 bg-black transition-opacity ${
-              moreOpen ? 'opacity-40' : 'opacity-0'
+              openSheetId ? 'opacity-40' : 'opacity-0'
             }`}
           />
           <div
             role="dialog"
-            aria-label="More"
+            aria-label={sheetGroup.title}
             className={`absolute left-0 right-0 bottom-0 bg-kaya-cream border-t border-kaya-warm-dark/60 rounded-t-2xl shadow-xl transform transition-transform duration-200 ${
-              moreOpen ? 'translate-y-0' : 'translate-y-full'
+              openSheetId ? 'translate-y-0' : 'translate-y-full'
             }`}
             style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
           >
@@ -367,10 +509,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <div className="w-10 h-1 rounded-full bg-kaya-warm-dark/60 mx-auto" />
             </div>
             <div className="flex items-center justify-between px-5 pb-2">
-              <div className="text-[15px] font-display font-bold">More</div>
+              <div className="text-[15px] font-display font-bold">{sheetGroup.title}</div>
               <button
                 type="button"
-                onClick={() => setMoreOpen(false)}
+                onClick={() => setOpenSheetId(null)}
                 aria-label="Close"
                 className="w-8 h-8 rounded-full bg-white border border-kaya-warm-dark text-kaya-chocolate text-sm flex items-center justify-center"
               >
@@ -378,7 +520,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
             <nav className="px-3 pb-4 max-h-[70vh] overflow-y-auto">
-              {mobileMoreSections.map((section, sIdx) => (
+              {sheetGroup.sections.map((section, sIdx) => (
                 <div key={sIdx} className="mb-2">
                   {section.title && (
                     <div className="pt-3 pb-1.5 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-kaya-sand">
@@ -391,7 +533,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       <Link
                         key={item.path}
                         href={item.path}
-                        onClick={() => setMoreOpen(false)}
+                        onClick={() => setOpenSheetId(null)}
                         className={`w-full flex items-center gap-3 px-3 py-3 rounded-kaya-sm text-[14px] transition-colors ${
                           active
                             ? 'bg-kaya-chocolate text-white font-semibold'
