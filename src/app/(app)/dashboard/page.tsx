@@ -22,6 +22,8 @@ const QUICK_ACTIONS = [
   { icon: '🌙', short: 'Evening\nRating',  long: 'Evening rating',  hint: 'Rate today’s wind-down routines', path: '/rate?period=evening', color: '#EFF0FF' },
   { icon: '🎖️', short: 'Award\nPoints',    long: 'Award points',    hint: 'Catch a kindness',                path: '/award',               color: '#FFF0E7' },
   { icon: '👨‍👩‍👧‍👦', short: 'Family\nMeeting', long: 'Family meeting', hint: '6-step weekly flow',              path: '/meetings',            color: '#E7FFF0' },
+  { icon: '🎁', short: 'Rewards',          long: 'Rewards',         hint: 'Spend points on family treats',   path: '/rewards',             color: '#FBE7FF' },
+  { icon: '👧', short: 'Kid\nProfiles',    long: 'Kid profiles',    hint: 'Per-child progress',              path: '/profiles',            color: '#E7F3FF' },
 ];
 
 export default function DashboardPage() {

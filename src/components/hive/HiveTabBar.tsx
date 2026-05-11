@@ -1,14 +1,21 @@
 'use client';
 
-// Bottom tab bar specific to the Hive section: Hive · Quests · Wallet ·
-// Insights. Renders only inside /hive/* routes — the main app keeps its
-// own bottom nav untouched. Visible on mobile (lg-); on desktop the Hive
-// nav lives in the existing sidebar so this stays out of the way.
+// Bottom tab bar specific to the Hive section: Kaya · Hive ·
+// Quests · Wallet · Insights. Renders only inside /hive/* routes —
+// the main app keeps its own bottom nav untouched. Visible on
+// mobile (lg-); on desktop the Hive nav lives in the existing
+// sidebar so this stays out of the way.
+//
+// First tab is "Kaya" → /dashboard, the global app home. It sits
+// before the section's own "Hive" tab so a user deep inside Hive
+// can escape back to the Kaya dashboard without finding the small
+// chevron up at the top header.
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
+  { path: '/dashboard',     icon: '🏠', label: 'Kaya',     external: true },
   { path: '/hive',          icon: '🍯', label: 'Hive' },
   { path: '/hive/quests',   icon: '🏆', label: 'Quests' },
   { path: '/hive/wallet',   icon: '💰', label: 'Wallet' },
@@ -19,13 +26,16 @@ export default function HiveTabBar() {
   const pathname = usePathname() || '';
   // Active rules: exact match for the Home tab, prefix match for the
   // others so /hive/wallet and /hive/wallet/foo both highlight Wallet.
-  const isActive = (path: string) =>
-    path === '/hive' ? pathname === '/hive' : pathname.startsWith(path);
+  // The Kaya escape-hatch tab never lights up inside /hive.
+  const isActive = (path: string, external?: boolean) => {
+    if (external) return false;
+    return path === '/hive' ? pathname === '/hive' : pathname.startsWith(path);
+  };
   return (
     <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-hive-paper border-t border-hive-line z-30 lg:hidden safe-bottom">
       <div className="flex items-center px-1.5 pt-2 pb-4">
         {TABS.map((t) => {
-          const active = isActive(t.path);
+          const active = isActive(t.path, t.external);
           return (
             <Link
               key={t.path}
