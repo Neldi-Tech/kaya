@@ -469,3 +469,106 @@ export const DIRECTORY_FOODS: DirectoryFood[] = [
 // Suppress the unused-row helper TS warning; kept for future
 // builders who may want to compose rows differently.
 export type __DirectoryRowShape = _Row;
+
+// ── Starter packs ────────────────────────────────────────────────
+// Curated bundles a parent can one-tap to seed their staples list
+// without entering items one-by-one. Each pack lists DIRECTORY_STAPLES
+// labels (must match exactly); quantities scale from the row's own
+// `defaultQty` by the pack's qtyMultiplier so a 5-person household
+// pulls bigger bags than a 1-2 person one.
+
+export type StarterPackId = 'solo' | 'family' | 'big';
+
+export interface StarterPack {
+  id: StarterPackId;
+  emoji: string;
+  label: string;
+  sizeRange: string;
+  description: string;
+  /** Multiplier applied to each item's defaultQty when bulk-adding.
+   *  1 = use catalog default. 1.5/2 = scaled up for bigger households. */
+  qtyMultiplier: number;
+  /** Item labels — must match a `label` in DIRECTORY_STAPLES exactly. */
+  items: string[];
+}
+
+// Common essentials every pack includes (food + household). The bigger
+// packs layer on top of this base.
+const _ESSENTIALS = [
+  // food · daily/weekly
+  'Rice (white)', 'Wheat flour', 'Cooking oil', 'Sugar', 'Salt',
+  'Onions', 'Tomatoes', 'Potatoes', 'Garlic', 'Lemons',
+  'Milk', 'Eggs', 'Bread', 'Tea', 'Coffee',
+  // household · monthly
+  'Dish soap', 'Laundry detergent', 'Toilet paper',
+  'Bar soap', 'Toothpaste', 'Shampoo',
+  'Bin liners', 'Cooking gas refill',
+];
+
+export const STARTER_PACKS: StarterPack[] = [
+  {
+    id: 'solo',
+    emoji: '👤',
+    label: 'Small household',
+    sizeRange: '1–2 people',
+    description: 'Single, couple, or small flat. Lighter quantities, just the essentials.',
+    qtyMultiplier: 0.6,
+    items: _ESSENTIALS,
+  },
+  {
+    id: 'family',
+    emoji: '👨‍👩‍👧',
+    label: 'Family',
+    sizeRange: '3–4 people',
+    description: 'Two adults plus 1–2 kids. Catalog default quantities, broader variety.',
+    qtyMultiplier: 1,
+    items: [
+      ..._ESSENTIALS,
+      // produce + protein
+      'Carrots', 'Cabbage', 'Spinach', 'Bananas', 'Apples', 'Avocados',
+      'Chicken', 'Beef',
+      // pantry
+      'Pasta', 'Beans (dry)', 'Lentils', 'Tomato paste', 'Stock cubes',
+      // dairy
+      'Butter', 'Yogurt', 'Cheese',
+      // household extras
+      'Toothbrush', 'Body lotion', 'Deodorant', 'Sanitary pads',
+      'Sponges', 'Paper towels',
+    ],
+  },
+  {
+    id: 'big',
+    emoji: '👨‍👩‍👧‍👦',
+    label: 'Big household',
+    sizeRange: '5+ people',
+    description: 'Larger family or extended household. Bigger pack sizes, more variety, baby + cleaning extras.',
+    qtyMultiplier: 1.5,
+    items: [
+      ..._ESSENTIALS,
+      'Carrots', 'Cabbage', 'Spinach', 'Cucumber', 'Bell peppers',
+      'Bananas', 'Apples', 'Mangoes', 'Oranges', 'Avocados', 'Watermelon',
+      'Chicken', 'Beef', 'Fish (tilapia)',
+      'Pasta', 'Noodles', 'Beans (dry)', 'Lentils', 'Maize flour (ugali)',
+      'Tomato paste', 'Stock cubes', 'Spices · curry powder', 'Spices · black pepper',
+      'Butter', 'Yogurt', 'Cheese',
+      'Toothbrush', 'Body lotion', 'Deodorant', 'Sanitary pads',
+      'Diapers', 'Baby wipes', 'Baby formula',
+      'Sponges', 'Paper towels', 'Fabric softener', 'Toilet cleaner',
+      'Light bulbs', 'Batteries (AA)',
+    ],
+  },
+];
+
+/** Resolve a starter pack into concrete (staple, qty) pairs ready to
+ *  hand to `addStaple`. Filters out any items whose label doesn't
+ *  resolve, and rounds the scaled qty up to keep "1 → 1" intact. */
+export function resolveStarterPack(pack: StarterPack): Array<{ staple: DirectoryStaple; qty: number }> {
+  const out: Array<{ staple: DirectoryStaple; qty: number }> = [];
+  for (const label of pack.items) {
+    const staple = DIRECTORY_STAPLES.find((s) => s.label === label);
+    if (!staple) continue;
+    const qty = Math.max(1, Math.ceil(staple.defaultQty * pack.qtyMultiplier));
+    out.push({ staple, qty });
+  }
+  return out;
+}

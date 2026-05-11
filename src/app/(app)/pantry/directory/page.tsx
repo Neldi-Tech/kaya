@@ -20,8 +20,10 @@ import {
   DIRECTORY_STAPLES, DIRECTORY_FOODS,
   REGIONS, DIETS, MEALS,
   FOOD_CATEGORY_CHIPS, HOUSEHOLD_CATEGORY_CHIPS,
+  STARTER_PACKS, resolveStarterPack,
   type Surface, type Region, type Diet, type MealType,
   type DirectoryStaple, type DirectoryFood,
+  type StarterPack,
 } from '@/lib/pantryDirectory';
 import type { StapleCategory } from '@/lib/pantry';
 
@@ -50,6 +52,8 @@ export default function PantryDirectoryPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [packsOpen, setPacksOpen] = useState(true);
+  const [packBusy, setPackBusy] = useState<string | null>(null);
 
   // Already in the family's staples (by lower-cased name) — used to
   // hide the "Add" affordance and skip duplicates on bulk-save.
@@ -123,6 +127,31 @@ export default function PantryDirectoryPage() {
     );
   };
 
+  const addStarterPack = async (pack: StarterPack) => {
+    if (!profile?.familyId || isGuest) return;
+    setPackBusy(pack.id);
+    const resolved = resolveStarterPack(pack);
+    let added = 0;
+    let skipped = 0;
+    for (const { staple, qty } of resolved) {
+      if (ownedNames.has(staple.label.toLowerCase())) { skipped++; continue; }
+      await addStaple(profile.familyId, {
+        name: staple.label,
+        category: staple.category,
+        defaultQty: qty,
+        unit: staple.unit,
+        cadence: staple.cadence,
+      });
+      added++;
+    }
+    setPackBusy(null);
+    flashToast(
+      added === 0
+        ? `Your pantry already has ${pack.label.toLowerCase()} staples`
+        : `Added ${added} from ${pack.label}${skipped > 0 ? ` · skipped ${skipped} you already had` : ''}`,
+    );
+  };
+
   const addFoodIngredients = async (food: DirectoryFood) => {
     if (!profile?.familyId || isGuest) return;
     let added = 0;
@@ -180,6 +209,55 @@ export default function PantryDirectoryPage() {
 
       {tab === 'staples' ? (
         <>
+          {/* Starter packs — one-tap bulk-add by household size. */}
+          <div className="mb-4 bg-pantry-leaf-soft/50 border border-pantry-leaf/40 rounded-hive-lg p-3 lg:p-4">
+            <button
+              type="button"
+              onClick={() => setPacksOpen((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 text-left"
+            >
+              <div className="min-w-0">
+                <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-pantry-leaf-dk">
+                  Quick start · by household size
+                </p>
+                <p className="font-nunito font-extrabold text-[14px] lg:text-[15px] mt-0.5 truncate">
+                  Pick a pack — we'll seed your staples in one tap ✨
+                </p>
+              </div>
+              <span className="text-pantry-leaf-dk font-black text-base shrink-0">{packsOpen ? '−' : '+'}</span>
+            </button>
+
+            {packsOpen && (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mt-3">
+                {STARTER_PACKS.map((pack) => {
+                  const itemCount = pack.items.length;
+                  const busy = packBusy === pack.id;
+                  return (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      onClick={() => addStarterPack(pack)}
+                      disabled={isGuest || busy || packBusy !== null}
+                      className="text-left bg-hive-paper border border-hive-line rounded-hive p-3 hover:border-pantry-leaf transition-colors disabled:opacity-50 disabled:cursor-wait"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl leading-none shrink-0">{pack.emoji}</span>
+                        <div className="min-w-0">
+                          <p className="font-nunito font-extrabold text-[13px] truncate">{pack.label}</p>
+                          <p className="text-[10px] text-hive-muted">{pack.sizeRange}</p>
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-hive-muted mt-2 leading-snug">{pack.description}</p>
+                      <p className="mt-2 text-[11px] font-nunito font-extrabold text-pantry-leaf-dk">
+                        {busy ? 'Adding…' : `+ Add ${itemCount} staples →`}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-2 mb-3">
             <SubTab active={surface === 'food'} onClick={() => { setSurface('food'); setSelected(new Set()); }}>
               🍱 Food
