@@ -10,10 +10,13 @@
 //   - When Firestore is wired in, only this module changes — the
 //     page already calls saveWeekPlan / loadWeekPlan.
 
-import { DIRECTORY_FOODS, type DirectoryFood, type MealType, type Region, type Diet } from './pantryDirectory';
+import { DIRECTORY_FOODS, findVenue, type DirectoryFood, type DiningVenueId, type MealType, type Region, type Diet } from './pantryDirectory';
 
 export type SlotKind = 'empty' | 'home' | 'out';
 export type SlotName = 'breakfast' | 'lunch' | 'dinner' | 'snack';
+/** Who's eating? `family` = everyone, `parents` = adults only
+ *  (date-night style). Defaults to `family` when not set. */
+export type Audience = 'family' | 'parents';
 
 export interface Slot {
   kind: SlotKind;
@@ -21,8 +24,14 @@ export interface Slot {
   foodLabel?: string;
   /** Mirror of the food's emoji so we don't need to re-resolve. */
   emoji?: string;
-  /** When kind === 'out': optional venue like "Pizza place". */
+  /** When kind === 'out': venue id from DINING_VENUES (Yellow Pages
+   *  catalog). For free-text overrides see `venue`. */
+  venueId?: DiningVenueId;
+  /** When kind === 'out': free-text venue note ("Aunt Sarah's", etc.)
+   *  used either alongside or in place of `venueId`. */
   venue?: string;
+  /** Who's eating. Defaults to `family` if unspecified. */
+  audience?: Audience;
 }
 
 export interface DayPlan {
@@ -242,12 +251,12 @@ export function setSlot(plan: WeekPlan, dayIdx: number, slotName: SlotName, slot
   return { ...plan, days, updatedAt: Date.now() };
 }
 
-/** Mark whole day as dining out (sets lunch + dinner to 'out', leaves
- *  breakfast and snack alone). */
-export function markDiningOut(plan: WeekPlan, dayIdx: number, venue?: string): WeekPlan {
-  const out: Slot = { kind: 'out', venue: venue || undefined };
-  const days = plan.days.map((d, i) =>
-    i === dayIdx ? { ...d, lunch: { ...out }, dinner: { ...out } } : d,
-  );
-  return { ...plan, days, updatedAt: Date.now() };
+/** Resolve a slot's display venue name. Prefers free-text override
+ *  when present, then the Yellow Pages venue name, then a generic
+ *  fallback. */
+export function slotVenueLabel(slot: Slot): string {
+  if (slot.venue?.trim()) return slot.venue.trim();
+  const v = findVenue(slot.venueId);
+  if (v) return v.name;
+  return 'Dining out';
 }

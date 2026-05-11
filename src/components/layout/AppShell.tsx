@@ -450,32 +450,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             Bottom padding clears the fixed mobile bottom nav (~64px tall) PLUS
             the home-indicator safe-area on notched phones, so nothing stays
             hidden under the nav.
-            A visible Back button sits inline at the very end of {children}
-            on every non-home page, on BOTH mobile and desktop. It's the
-            deliberate counterpart to the always-visible Kaya home (Kaya
-            tab on mobile section tab bars, Kaya logo in the desktop
-            sidebar): home is one click, going back is one step (a click
-            at the end of the page you've just read). */}
+            A visible Back button sits inline at BOTH the top and the bottom
+            of {children} on every non-home page (mobile + desktop). Two
+            copies because a long list buries the bottom one off-screen —
+            this way Back is reachable at any scroll position without making
+            the button float over content. */}
         <div
           className="lg:pb-0"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
+          {!isAtHome && <BackBar onBack={() => router.back()} placement="top" />}
           {children}
-          {!isAtHome && (
-            <div className="mt-8 px-4 lg:px-8 pb-2 lg:pb-12">
-              <div className="mx-auto max-w-md lg:max-w-3xl">
-                <button
-                  type="button"
-                  onClick={() => router.back()}
-                  aria-label="Go back to previous page"
-                  className="w-full flex items-center justify-center gap-2 h-12 lg:h-14 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[14px] lg:text-[15px] hover:bg-kaya-warm active:scale-[0.99] transition-all shadow-sm"
-                >
-                  <span className="text-base leading-none">←</span>
-                  <span>Back</span>
-                </button>
-              </div>
-            </div>
-          )}
+          {!isAtHome && <BackBar onBack={() => router.back()} placement="bottom" />}
         </div>
       </div>
 
@@ -637,6 +623,32 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Inline Back button used at both ends of {children} on every
+// non-home page. Same look top + bottom — the only thing that
+// changes is the vertical margins so the top instance sits flush
+// under the page header and the bottom instance gets breathing
+// room from the last content card.
+function BackBar({ onBack, placement }: { onBack: () => void; placement: 'top' | 'bottom' }) {
+  const wrap = placement === 'top'
+    ? 'mt-3 mb-4 px-4 lg:px-8'
+    : 'mt-8 px-4 lg:px-8 pb-2 lg:pb-12';
+  return (
+    <div className={wrap}>
+      <div className="mx-auto max-w-md lg:max-w-3xl">
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Go back to previous page"
+          className="w-full flex items-center justify-center gap-2 h-12 lg:h-14 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[14px] lg:text-[15px] hover:bg-kaya-warm active:scale-[0.99] transition-all shadow-sm"
+        >
+          <span className="text-base leading-none">←</span>
+          <span>Back</span>
+        </button>
+      </div>
     </div>
   );
 }

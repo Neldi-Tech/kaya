@@ -572,3 +572,84 @@ export function resolveStarterPack(pack: StarterPack): Array<{ staple: Directory
   }
   return out;
 }
+
+// ── Dining-out venues (Yellow Pages stub) ────────────────────────
+// First-pass venue catalog used by /pantry/meals when a slot is
+// marked as "dining out". When the full Yellow Pages module ships
+// these become the seed entries — the same `DiningVenue` shape will
+// back both surfaces, just sourced from Firestore for live entries.
+//
+// Each venue carries:
+//   - `recommended`: surfaces it at the top of the picker
+//   - `kidFriendly`: filtered out when audience is "parents only"
+//   - `tier`: rough price tier $ / $$ / $$$ — purely informational
+//   - `category`: free-text bucket used as a chip in the picker
+
+export type DiningVenueId = string;
+export type DiningCategory =
+  | 'casual'        // family-friendly, everyday spots
+  | 'fine-dining'   // date night, special occasions
+  | 'cafe'          // breakfast / coffee
+  | 'fast-food'     // quick lunch
+  | 'street-food'   // local stalls + market food
+  | 'travel';       // food on the road, airport, etc.
+
+export interface DiningVenue {
+  id: DiningVenueId;
+  name: string;
+  emoji: string;
+  category: DiningCategory;
+  tier: '$' | '$$' | '$$$';
+  recommended?: boolean;
+  kidFriendly?: boolean;
+  /** Optional one-liner the picker shows under the name. */
+  blurb?: string;
+}
+
+export const DINING_CATEGORIES: { id: DiningCategory | 'all'; emoji: string; label: string }[] = [
+  { id: 'all',         emoji: '🍽️', label: 'All' },
+  { id: 'casual',      emoji: '🥗', label: 'Casual' },
+  { id: 'fine-dining', emoji: '🥂', label: 'Fine dining' },
+  { id: 'cafe',        emoji: '☕', label: 'Café' },
+  { id: 'fast-food',   emoji: '🍔', label: 'Fast food' },
+  { id: 'street-food', emoji: '🌽', label: 'Street food' },
+  { id: 'travel',      emoji: '✈️', label: 'On the road' },
+];
+
+export const DINING_VENUES: DiningVenue[] = [
+  // ── Recommended · family-friendly ──
+  { id: 'family-diner',  name: 'Family diner',         emoji: '🥘', category: 'casual',      tier: '$$',  recommended: true, kidFriendly: true, blurb: 'Local sit-down spot, kid menu available.' },
+  { id: 'pizza-place',   name: 'Pizza place',          emoji: '🍕', category: 'casual',      tier: '$$',  recommended: true, kidFriendly: true },
+  { id: 'burger-joint',  name: 'Burger joint',         emoji: '🍔', category: 'fast-food',   tier: '$',   recommended: true, kidFriendly: true },
+  { id: 'local-rest',    name: 'Local restaurant',     emoji: '🥘', category: 'casual',      tier: '$$',  recommended: true, kidFriendly: true },
+  { id: 'food-court',    name: 'Mall food court',      emoji: '🍱', category: 'fast-food',   tier: '$',   recommended: true, kidFriendly: true, blurb: 'Quick variety — everyone picks their own.' },
+  // ── Cafés ──
+  { id: 'cafe',          name: 'Café',                 emoji: '☕', category: 'cafe',        tier: '$$',  kidFriendly: true },
+  { id: 'bakery',        name: 'Bakery',               emoji: '🥐', category: 'cafe',        tier: '$',   kidFriendly: true },
+  { id: 'breakfast-spot',name: 'Breakfast spot',       emoji: '🥞', category: 'cafe',        tier: '$$',  kidFriendly: true },
+  // ── Fine dining · parents-only feel ──
+  { id: 'fine-dining',   name: 'Fine dining',          emoji: '🥂', category: 'fine-dining', tier: '$$$', kidFriendly: false, blurb: 'Date night.' },
+  { id: 'steakhouse',    name: 'Steakhouse',           emoji: '🥩', category: 'fine-dining', tier: '$$$', kidFriendly: false },
+  { id: 'wine-bar',      name: 'Wine bar / lounge',    emoji: '🍷', category: 'fine-dining', tier: '$$$', kidFriendly: false, blurb: 'Adults only.' },
+  // ── Cuisine specifics ──
+  { id: 'indian-rest',   name: 'Indian restaurant',    emoji: '🍛', category: 'casual',      tier: '$$',  kidFriendly: true },
+  { id: 'chinese-rest',  name: 'Chinese restaurant',   emoji: '🥡', category: 'casual',      tier: '$$',  kidFriendly: true },
+  { id: 'sushi',         name: 'Sushi',                emoji: '🍣', category: 'fine-dining', tier: '$$$', kidFriendly: true },
+  { id: 'ethiopian',     name: 'Ethiopian',            emoji: '🍲', category: 'casual',      tier: '$$',  kidFriendly: true },
+  { id: 'kebab',         name: 'Kebab / shawarma',     emoji: '🥙', category: 'fast-food',   tier: '$',   kidFriendly: true },
+  // ── Street + quick ──
+  { id: 'nyama-choma',   name: 'Nyama choma joint',    emoji: '🍖', category: 'street-food', tier: '$$',  kidFriendly: true, blurb: 'Roast meat with sides.' },
+  { id: 'street-snacks', name: 'Street snacks',        emoji: '🌭', category: 'street-food', tier: '$',   kidFriendly: true },
+  { id: 'food-truck',    name: 'Food truck',           emoji: '🚚', category: 'fast-food',   tier: '$',   kidFriendly: true },
+  { id: 'juice-bar',     name: 'Juice / smoothie bar', emoji: '🥤', category: 'cafe',        tier: '$',   kidFriendly: true },
+  // ── Travel ──
+  { id: 'airport',       name: 'Airport / on the road',emoji: '✈️', category: 'travel',      tier: '$$',  kidFriendly: true },
+  { id: 'hotel-rest',    name: 'Hotel restaurant',     emoji: '🏨', category: 'travel',      tier: '$$$', kidFriendly: true },
+  // ── Special occasion ──
+  { id: 'special',       name: 'Special occasion',     emoji: '🎉', category: 'fine-dining', tier: '$$$', kidFriendly: true, blurb: 'Birthday, anniversary, milestone.' },
+];
+
+export function findVenue(id: DiningVenueId | undefined): DiningVenue | undefined {
+  if (!id) return undefined;
+  return DINING_VENUES.find((v) => v.id === id);
+}

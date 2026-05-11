@@ -19,10 +19,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   newWeekPlan, loadWeekPlan, saveWeekPlan,
-  autoFillWeek, clearWeek, setSlot, markDiningOut, foodsForSlot,
-  SLOT_NAMES, type WeekPlan, type SlotName, type Slot,
+  autoFillWeek, clearWeek, setSlot, foodsForSlot, slotVenueLabel,
+  SLOT_NAMES, type WeekPlan, type SlotName, type Slot, type Audience,
 } from '@/lib/mealPlan';
-import { REGIONS, DIETS, type Region, type Diet, type DirectoryFood } from '@/lib/pantryDirectory';
+import {
+  REGIONS, DIETS, DINING_VENUES, DINING_CATEGORIES, findVenue,
+  type Region, type Diet, type DirectoryFood,
+  type DiningVenue, type DiningCategory,
+} from '@/lib/pantryDirectory';
 
 export default function MealsPage() {
   const { profile, isGuest } = useAuth();
@@ -63,18 +67,21 @@ export default function MealsPage() {
     flash('Week cleared');
   };
 
-  const onSlotChosen = (food: DirectoryFood) => {
+  const onSlotChosen = (food: DirectoryFood, audience: Audience) => {
     if (!picker) return;
     setPlan((p) => setSlot(p, picker.dayIdx, picker.slot, {
-      kind: 'home', foodLabel: food.label, emoji: food.emoji,
+      kind: 'home', foodLabel: food.label, emoji: food.emoji, audience,
     }));
     setPicker(null);
   };
 
-  const onSlotDiningOut = (venue?: string) => {
+  const onSlotDiningOut = (opts: { venueId?: string; venue?: string; audience: Audience }) => {
     if (!picker) return;
     setPlan((p) => setSlot(p, picker.dayIdx, picker.slot, {
-      kind: 'out', venue: venue?.trim() || undefined,
+      kind: 'out',
+      venueId: opts.venueId,
+      venue: opts.venue?.trim() || undefined,
+      audience: opts.audience,
     }));
     setPicker(null);
   };
@@ -141,30 +148,24 @@ export default function MealsPage() {
         </p>
       </div>
 
-      {/* Days grid — single column on mobile, two columns on desktop. */}
+      {/* Days grid — single column on mobile, two columns on desktop.
+          The per-day "Eating out" shortcut was removed because it
+          forced both lunch + dinner to dining-out. Dining-out is
+          now per-slot via the picker, so users can dine out for
+          just dinner (or just lunch, or only Sunday brunch). */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {plan.days.map((day, dayIdx) => {
-          const allOut = day.lunch.kind === 'out' && day.dinner.kind === 'out';
+          const outCount = SLOT_NAMES.filter((s) => day[s.id].kind === 'out').length;
           return (
             <div key={day.date} className="bg-hive-paper border border-hive-line rounded-hive-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <p className="font-nunito font-black text-[13px]">
                   {day.dayName} · {day.dateLabel}
                 </p>
-                {allOut ? (
+                {outCount > 0 && (
                   <span className="text-[9px] font-nunito font-extrabold uppercase tracking-[1px] bg-hive-honey-soft text-hive-honey-dk px-2 py-0.5 rounded-hive-pill">
-                    Dining out
+                    🍽️ Out {outCount}×
                   </span>
-                ) : (
-                  <button
-                    onClick={() => {
-                      const venue = window.prompt('Venue name (optional)') || undefined;
-                      setPlan((p) => markDiningOut(p, dayIdx, venue));
-                    }}
-                    className="text-[10px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline"
-                  >
-                    🍽️ Eating out
-                  </button>
                 )}
               </div>
 
@@ -233,6 +234,9 @@ function SlotCard({
 }) {
   const isOut = slot.kind === 'out';
   const isHome = slot.kind === 'home';
+  const venue = isOut ? findVenue(slot.venueId) : undefined;
+  const venueLabel = isOut ? slotVenueLabel(slot) : '';
+  const audienceTag = (isHome || isOut) && slot.audience === 'parents' ? '👨‍❤️‍👨 Parents' : null;
   return (
     <button
       onClick={onTap}
@@ -253,10 +257,15 @@ function SlotCard({
         </p>
       ) : isOut ? (
         <p className="font-nunito font-extrabold text-[12px] mt-1 truncate">
-          🍽️ {slot.venue || 'Dining out'}
+          {venue?.emoji || '🍽️'} {venueLabel}
         </p>
       ) : (
         <p className="text-[12px] italic mt-1">— tap to plan</p>
+      )}
+      {audienceTag && (
+        <p className="text-[9px] font-nunito font-extrabold opacity-70 mt-0.5 truncate">
+          {audienceTag}
+        </p>
       )}
     </button>
   );
@@ -268,12 +277,30 @@ function SlotPicker({
   dayLabel: string;
   slotLabel: string;
   foods: DirectoryFood[];
-  onPick: (food: DirectoryFood) => void;
-  onDiningOut: (venue?: string) => void;
+  onPick: (food: DirectoryFood, audience: Audience) => void;
+  onDiningOut: (opts: { venueId?: string; venue?: string; audience: Audience }) => void;
   onClear: () => void;
   onClose: () => void;
 }) {
-  const [venue, setVenue] = useState('');
+  // Tabs inside the picker: pick a home meal vs pick a dining-out
+  // venue. Defaults to "cook at home" since that's the more common
+  // path; flips to "out" the moment the user touches a venue.
+  const [tab, setTab] = useState<'home' | 'out'>('home');
+  const [audience, setAudience] = useState<Audience>('family');
+  const [venueCategory, setVenueCategory] = useState<DiningCategory | 'all'>('all');
+  const [customVenue, setCustomVenue] = useState('');
+
+  // Filter the venues by audience + category. Parents-only hides
+  // non-kid-friendly spots so the wine bar disappears for "family"
+  // and the family diner can still appear for either audience.
+  const venues = DINING_VENUES.filter((v) => {
+    if (audience === 'family' && v.kidFriendly === false) return false;
+    if (venueCategory !== 'all' && v.category !== venueCategory) return false;
+    return true;
+  });
+  const recommended = venues.filter((v) => v.recommended);
+  const others = venues.filter((v) => !v.recommended);
+
   return (
     <>
       <div
@@ -282,7 +309,8 @@ function SlotPicker({
         aria-hidden="true"
       />
       <div className="fixed inset-x-0 bottom-0 lg:inset-0 lg:flex lg:items-center lg:justify-center z-50 px-0 lg:px-4 pointer-events-none">
-        <div className="pointer-events-auto bg-hive-paper rounded-t-[28px] lg:rounded-hive-lg w-full lg:max-w-lg max-h-[80vh] lg:max-h-[85vh] flex flex-col shadow-2xl">
+        <div className="pointer-events-auto bg-hive-paper rounded-t-[28px] lg:rounded-hive-lg w-full lg:max-w-lg max-h-[85vh] lg:max-h-[88vh] flex flex-col shadow-2xl">
+          {/* Header */}
           <div className="px-4 pt-3 pb-2 border-b border-hive-line">
             <div className="w-10 h-1 rounded-full bg-hive-line mx-auto mb-2 lg:hidden" />
             <div className="flex items-baseline justify-between">
@@ -302,60 +330,162 @@ function SlotPicker({
             </div>
           </div>
 
-          <div className="px-4 py-3 border-b border-hive-line bg-hive-honey-soft/40">
-            <p className="text-[11px] font-nunito font-extrabold text-hive-honey-dk uppercase tracking-wider mb-2">
-              🍽️ Dining out
+          {/* Audience (family vs parents-only) — applies to whichever
+              path the user takes. */}
+          <div className="px-4 py-3 border-b border-hive-line">
+            <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-muted mb-2">
+              Who's eating?
             </p>
-            <div className="flex gap-2">
-              <input
-                value={venue}
-                onChange={(e) => setVenue(e.target.value)}
-                placeholder="Venue (optional) — e.g. Pizza place"
-                maxLength={40}
-                className="flex-1 h-10 px-3 rounded-hive bg-hive-paper border border-hive-line text-[13px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+            <div className="grid grid-cols-2 gap-2">
+              <AudienceChoice
+                active={audience === 'family'}
+                onClick={() => setAudience('family')}
+                emoji="👪"
+                label="Whole family"
+                blurb="Everyone joins"
               />
+              <AudienceChoice
+                active={audience === 'parents'}
+                onClick={() => setAudience('parents')}
+                emoji="👨‍❤️‍👨"
+                label="Parents only"
+                blurb="Date night"
+              />
+            </div>
+          </div>
+
+          {/* Home / Out tab toggle */}
+          <div className="px-4 pt-3 pb-2 border-b border-hive-line">
+            <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={() => onDiningOut(venue)}
-                className="h-10 px-4 rounded-hive-pill bg-hive-honey text-white font-nunito font-black text-[12px]"
+                onClick={() => setTab('home')}
+                className={`h-10 rounded-hive-pill font-nunito font-extrabold text-[12px] transition-colors ${
+                  tab === 'home' ? 'bg-pantry-leaf text-white' : 'bg-hive-cream text-hive-muted'
+                }`}
               >
-                Mark out
+                🍳 Cooking at home
+              </button>
+              <button
+                onClick={() => setTab('out')}
+                className={`h-10 rounded-hive-pill font-nunito font-extrabold text-[12px] transition-colors ${
+                  tab === 'out' ? 'bg-hive-honey text-white' : 'bg-hive-cream text-hive-muted'
+                }`}
+              >
+                🍽️ Dining out
               </button>
             </div>
           </div>
 
+          {/* Body */}
           <div className="flex-1 overflow-y-auto px-2 py-2">
-            {foods.length === 0 ? (
-              <p className="text-center text-[12px] text-hive-muted italic py-8">
-                No meals match your current region + diet for {slotLabel.toLowerCase()}.
-                Loosen the filters or pick "Dining out".
-              </p>
+            {tab === 'home' ? (
+              foods.length === 0 ? (
+                <p className="text-center text-[12px] text-hive-muted italic py-8">
+                  No meals match your current region + diet for {slotLabel.toLowerCase()}.
+                  Loosen the filters or switch to "Dining out".
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-1.5">
+                  {foods.map((f) => (
+                    <button
+                      key={f.label}
+                      onClick={() => onPick(f, audience)}
+                      className="flex items-center gap-3 text-left bg-hive-paper border border-hive-line hover:border-pantry-leaf rounded-hive p-2.5 transition-colors"
+                    >
+                      <span className="text-xl shrink-0">{f.emoji}</span>
+                      <div className="min-w-0">
+                        <p className="font-nunito font-extrabold text-[13px] truncate">{f.label}</p>
+                        <p className="text-[10px] text-hive-muted uppercase tracking-wide">
+                          {f.meals.join(' · ')}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
             ) : (
-              <div className="grid grid-cols-1 gap-1.5">
-                {foods.map((f) => (
-                  <button
-                    key={f.label}
-                    onClick={() => onPick(f)}
-                    className="flex items-center gap-3 text-left bg-hive-paper border border-hive-line hover:border-pantry-leaf rounded-hive p-2.5 transition-colors"
-                  >
-                    <span className="text-xl shrink-0">{f.emoji}</span>
-                    <div className="min-w-0">
-                      <p className="font-nunito font-extrabold text-[13px] truncate">{f.label}</p>
-                      <p className="text-[10px] text-hive-muted uppercase tracking-wide">
-                        {f.meals.join(' · ')}
-                      </p>
+              <>
+                {/* Yellow Pages category chips. Tagged "from Yellow Pages"
+                    so users know where the catalog lives once that
+                    module ships in full. */}
+                <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-muted px-2 mt-1 mb-2">
+                  Venues · from Yellow Pages
+                </p>
+                <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3 px-2">
+                  {DINING_CATEGORIES.map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => setVenueCategory(c.id)}
+                      className={`shrink-0 px-3 py-1.5 rounded-hive-pill text-[11px] font-nunito font-extrabold border whitespace-nowrap transition-colors ${
+                        venueCategory === c.id
+                          ? 'bg-hive-honey-soft text-hive-honey-dk border-hive-honey'
+                          : 'border-hive-line bg-hive-paper text-hive-muted'
+                      }`}
+                    >
+                      {c.emoji} {c.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Recommended (stars) come first */}
+                {recommended.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-honey-dk px-2 mb-1.5">
+                      ⭐ Recommended
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5 mb-3">
+                      {recommended.map((v) => (
+                        <VenueRow key={v.id} venue={v} onPick={() => onDiningOut({ venueId: v.id, audience })} />
+                      ))}
                     </div>
-                  </button>
-                ))}
-              </div>
+                  </>
+                )}
+                {others.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-muted px-2 mb-1.5">
+                      More venues
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5 mb-3">
+                      {others.map((v) => (
+                        <VenueRow key={v.id} venue={v} onPick={() => onDiningOut({ venueId: v.id, audience })} />
+                      ))}
+                    </div>
+                  </>
+                )}
+                {/* Free-text override for venues not in the Yellow
+                    Pages catalog yet. */}
+                <div className="px-2 pb-2">
+                  <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-muted mb-1.5">
+                    Or type a custom venue
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      value={customVenue}
+                      onChange={(e) => setCustomVenue(e.target.value)}
+                      placeholder="e.g. Aunt Sarah's place"
+                      maxLength={40}
+                      className="flex-1 h-10 px-3 rounded-hive bg-hive-paper border border-hive-line text-[13px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                    />
+                    <button
+                      onClick={() => onDiningOut({ venue: customVenue, audience })}
+                      disabled={!customVenue.trim()}
+                      className="h-10 px-4 rounded-hive-pill bg-hive-honey text-white font-nunito font-black text-[12px] disabled:opacity-50"
+                    >
+                      Use
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
+          {/* Footer · Clear is its own dedicated button now */}
           <div className="px-4 py-3 border-t border-hive-line flex gap-2">
             <button
               onClick={onClear}
-              className="flex-1 h-10 rounded-hive-pill bg-hive-paper border border-hive-line text-hive-muted font-nunito font-extrabold text-[12px]"
+              className="flex-1 h-10 rounded-hive-pill bg-hive-rose/10 border border-hive-rose/40 text-hive-rose font-nunito font-extrabold text-[12px]"
             >
-              Clear slot
+              🗑 Clear slot
             </button>
             <button
               onClick={onClose}
@@ -367,5 +497,57 @@ function SlotPicker({
         </div>
       </div>
     </>
+  );
+}
+
+function AudienceChoice({
+  active, onClick, emoji, label, blurb,
+}: {
+  active: boolean;
+  onClick: () => void;
+  emoji: string;
+  label: string;
+  blurb: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2 px-3 py-2 rounded-hive border text-left transition-colors ${
+        active
+          ? 'bg-pantry-leaf-soft border-pantry-leaf text-hive-navy'
+          : 'bg-hive-paper border-hive-line text-hive-muted hover:border-pantry-leaf/50'
+      }`}
+    >
+      <span className="text-xl leading-none shrink-0">{emoji}</span>
+      <div className="min-w-0">
+        <p className="font-nunito font-extrabold text-[12px] truncate">{label}</p>
+        <p className="text-[10px] opacity-80 truncate">{blurb}</p>
+      </div>
+    </button>
+  );
+}
+
+function VenueRow({ venue, onPick }: { venue: DiningVenue; onPick: () => void }) {
+  return (
+    <button
+      onClick={onPick}
+      className="flex items-center gap-3 text-left bg-hive-paper border border-hive-line hover:border-hive-honey rounded-hive p-2.5 transition-colors"
+    >
+      <span className="text-xl shrink-0">{venue.emoji}</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <p className="font-nunito font-extrabold text-[13px] truncate">{venue.name}</p>
+          <span className="text-[10px] font-nunito font-extrabold text-hive-muted shrink-0">{venue.tier}</span>
+        </div>
+        {venue.blurb && (
+          <p className="text-[11px] text-hive-muted truncate">{venue.blurb}</p>
+        )}
+      </div>
+      {!venue.kidFriendly && (
+        <span className="text-[9px] font-nunito font-extrabold uppercase tracking-wider bg-hive-honey-soft text-hive-honey-dk px-1.5 py-0.5 rounded-full shrink-0">
+          21+
+        </span>
+      )}
+    </button>
   );
 }
