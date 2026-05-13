@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kaya · Business — Design Proposal v1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --honey:#F39C2F; --honey-dk:#D17F1A; --honey-soft:#FCD9A0;
+    --navy:#1F2D3D; --ink:#0F1822; --cream:#FFF8EC; --paper:#FFFFFF;
+    --muted:#5C6975; --line:#E8DEC9; --green:#3FAF6C; --rose:#E36F6F; --blue:#3F7AAF;
+    --leaf:#4FB87A; --leaf-dk:#2E7D52; --leaf-soft:#E6F7EE;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy);}
+  .shell{max-width:1280px;margin:0 auto;padding:48px 32px 80px;}
+  h1,h2,h3,h4,h5,.display{font-family:'Nunito',sans-serif;color:var(--navy);letter-spacing:-0.01em}
+  h1{font-size:52px;font-weight:900;margin:0 0 8px;line-height:1.05}
+  h1 .accent{color:var(--leaf-dk)}
+  .eyebrow{text-transform:uppercase;letter-spacing:3px;font-size:12px;font-weight:700;color:var(--leaf-dk)}
+  .lede{font-size:18px;color:var(--muted);max-width:820px;margin:8px 0 0;line-height:1.55}
+  hr.rule{border:none;border-top:1px solid var(--line);margin:48px 0}
+  .section-title{display:flex;align-items:baseline;gap:16px;margin-bottom:24px;flex-wrap:wrap}
+  .section-num{font-family:'Nunito';font-weight:900;font-size:14px;color:var(--leaf-dk);letter-spacing:2px}
+  .section-tag{display:inline-block;background:var(--leaf-soft);color:var(--leaf-dk);padding:4px 10px;border-radius:999px;font-family:'Nunito';font-weight:800;font-size:10px;letter-spacing:1.5px;text-transform:uppercase}
+  .section-tag.web{background:#E5EBF3;color:var(--blue)}
+  .section-tag.both{background:#FFF3D9;color:var(--honey-dk)}
+  .pill{display:inline-block;background:var(--paper);border:1px solid var(--line);padding:6px 14px;border-radius:999px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:24px}
+
+  .section-intro{color:var(--muted);max-width:820px;margin:0 0 24px;font-size:15px;line-height:1.6}
+
+  /* === Idea band (3 columns) === */
+  .ideas{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:8px}
+  .idea{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:22px 22px 24px;position:relative;overflow:hidden}
+  .idea .glyph{position:absolute;right:14px;top:14px;font-size:38px;opacity:.85}
+  .idea h3{font-family:'Nunito';font-weight:900;font-size:18px;margin:0 0 8px}
+  .idea p{font-size:13px;color:var(--muted);line-height:1.55;margin:0}
+  .idea.leaf{background:linear-gradient(160deg,var(--leaf-soft),#FFFFFF);border-color:#B5DDC2}
+  .idea.honey{background:linear-gradient(160deg,#FFF3D9,#FFFFFF);border-color:var(--honey-soft)}
+  .idea.blue{background:linear-gradient(160deg,#E5EBF3,#FFFFFF);border-color:#D5DEE9}
+
+  /* === Phones === */
+  .phones{display:grid;gap:24px;margin-top:8px}
+  .phones.five{grid-template-columns:repeat(5,1fr);gap:18px}
+  .phones.three{grid-template-columns:repeat(3,1fr)}
+  .phones.two{grid-template-columns:repeat(2,1fr);max-width:780px;margin:0 auto}
+  .phone{background:var(--ink);border-radius:38px;padding:12px;box-shadow:0 30px 60px -20px rgba(15,24,34,.45),0 0 0 1px rgba(255,255,255,.04) inset}
+  .phones.five .phone{border-radius:32px;padding:10px}
+  .screen{background:var(--cream);border-radius:28px;overflow:hidden;height:680px;position:relative;display:flex;flex-direction:column}
+  .phones.five .screen{height:620px;border-radius:24px}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:80px;height:20px;background:var(--ink);border-radius:0 0 14px 14px;z-index:5}
+  .status{display:flex;justify-content:space-between;align-items:center;padding:12px 18px 0;font-family:'Nunito';font-weight:700;font-size:10px;color:var(--navy)}
+  .screen-title{padding:0 18px;margin-top:14px}
+  .screen-title .small{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.8px;font-weight:700}
+  .screen-title h4{font-family:'Nunito';font-weight:900;font-size:20px;margin:2px 0 0}
+  .phones.five .screen-title h4{font-size:17px}
+  .screen .body{padding:12px 18px 0;flex:1;overflow:hidden}
+  .tabbar{display:flex;justify-content:space-around;align-items:center;background:var(--paper);border-top:1px solid var(--line);padding:8px 4px 14px;flex:0 0 auto}
+  .tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:'Nunito';font-weight:700;font-size:9px;color:var(--muted)}
+  .tabbar .tab.active{color:var(--leaf-dk)}
+  .tabbar .tab .dot{width:22px;height:22px;border-radius:8px;background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:13px}
+  .tabbar .tab.active .dot{background:var(--leaf);color:#fff}
+
+  /* === Cards & rows === */
+  .biz-hero{padding:14px 16px;border-radius:18px;background:linear-gradient(150deg,var(--leaf-soft),#C9EBD7);border:1px solid #8FD3AB;margin-bottom:10px}
+  .biz-hero .hi{font-family:'Nunito';font-weight:800;font-size:11px;color:var(--leaf-dk);text-transform:uppercase;letter-spacing:1.8px}
+  .biz-hero .v{font-family:'Nunito';font-weight:900;font-size:30px;line-height:1;margin:4px 0 2px;color:var(--ink)}
+  .biz-hero .vs{font-size:11px;color:var(--leaf-dk);font-weight:700}
+
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+  .stat{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:10px;text-align:center}
+  .stat .lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px;font-weight:800}
+  .stat .v{font-family:'Nunito';font-weight:900;font-size:14px;margin-top:3px;line-height:1.1}
+  .stat.in .v{color:var(--leaf-dk)}
+  .stat.out .v{color:var(--rose)}
+  .stat.profit .v{color:var(--ink)}
+
+  .care-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  .care-card .ch{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+  .care-card .ch .pill-mini{background:var(--leaf-soft);color:var(--leaf-dk);padding:2px 8px;border-radius:999px;font-size:9px}
+  .care-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
+  .care-row:last-child{border:none}
+  .care-row .ck{width:18px;height:18px;border-radius:6px;border:1.5px solid var(--leaf);display:flex;align-items:center;justify-content:center;color:var(--leaf-dk);font-weight:900;font-size:10px;flex:0 0 auto}
+  .care-row.done .ck{background:var(--leaf);color:#fff}
+  .care-row .ct{flex:1;font-weight:700;color:var(--navy)}
+  .care-row.done .ct{text-decoration:line-through;color:var(--muted);font-weight:600}
+  .care-row .cr{font-family:'Nunito';font-weight:800;font-size:10px;color:var(--honey-dk);background:#FFF3D9;padding:2px 6px;border-radius:6px}
+
+  .float-row{background:linear-gradient(150deg,#FFF3D9,#FFFFFF);border:1px dashed var(--honey);border-radius:12px;padding:8px 12px;margin-bottom:10px;display:flex;align-items:center;gap:10px}
+  .float-row .fr-l{font-family:'Nunito';font-weight:800;font-size:10px;color:var(--honey-dk);text-transform:uppercase;letter-spacing:1.3px}
+  .float-row .fr-v{font-family:'Nunito';font-weight:900;font-size:13px;color:var(--ink);flex:1;text-align:right}
+
+  /* Asset list */
+  .asset-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:11px 12px;margin-bottom:8px;display:flex;align-items:center;gap:10px}
+  .asset-card .a-glyph{font-size:24px;width:38px;height:38px;border-radius:11px;background:var(--leaf-soft);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .asset-card .a-meta{flex:1;min-width:0}
+  .asset-card .an{font-family:'Nunito';font-weight:900;font-size:13px;line-height:1.2;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .stage-pill{font-family:'Nunito';font-weight:800;font-size:9px;padding:2px 6px;border-radius:6px;letter-spacing:.4px;text-transform:uppercase}
+  .stage-pill.fruit{background:var(--leaf-soft);color:var(--leaf-dk)}
+  .stage-pill.lay{background:#FFF3D9;color:var(--honey-dk)}
+  .stage-pill.young{background:#E5EBF3;color:var(--blue)}
+  .stage-pill.retired{background:#F1E1E1;color:var(--rose)}
+  .asset-card .ad{font-size:10px;color:var(--muted);margin-top:2px}
+  .asset-card .av{font-family:'Nunito';font-weight:900;font-size:13px;color:var(--ink);text-align:right}
+  .asset-card .av .vsmall{display:block;font-size:9px;color:var(--muted);font-weight:700}
+
+  /* Sales / costs entries */
+  .entry{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .entry:last-child{border:none}
+  .entry .e-ico{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:15px;background:var(--leaf-soft);flex:0 0 auto}
+  .entry .e-meta{flex:1;min-width:0}
+  .entry .et{font-family:'Nunito';font-weight:800;font-size:12px;line-height:1.2;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .entry .ed{font-size:10px;color:var(--muted);margin-top:1px}
+  .entry .ea{font-family:'Nunito';font-weight:900;font-size:13px}
+  .entry.in .ea{color:var(--leaf-dk)}
+  .entry.out .ea{color:var(--rose)}
+  .badge{font-family:'Nunito';font-weight:800;font-size:9px;padding:2px 5px;border-radius:5px;letter-spacing:.3px}
+  .badge.family{background:#FFF3D9;color:var(--honey-dk)}
+  .badge.relative{background:#E5EBF3;color:var(--blue)}
+  .badge.dest{background:var(--leaf-soft);color:var(--leaf-dk)}
+  .badge.float{background:#FFF3D9;color:var(--honey-dk)}
+  .badge.wallet{background:var(--leaf-soft);color:var(--leaf-dk)}
+  .badge.pending{background:#FFF1D9;color:var(--honey-dk)}
+
+  /* Quick action button row */
+  .qa-row{display:flex;gap:6px;margin-bottom:10px}
+  .qa{flex:1;background:var(--leaf);color:#fff;border-radius:12px;padding:10px;text-align:center;font-family:'Nunito';font-weight:900;font-size:11px;display:flex;align-items:center;justify-content:center;gap:5px;box-shadow:0 6px 14px -6px rgba(79,184,122,.5)}
+  .qa.alt{background:var(--paper);color:var(--leaf-dk);border:1px solid var(--leaf)}
+  .qa.honey{background:var(--honey);box-shadow:0 6px 14px -6px rgba(243,156,47,.5)}
+
+  /* "What's this?" cards */
+  .whats-this{background:#FFF8EC;border:1px dashed var(--honey);border-radius:14px;padding:10px 12px;margin-top:10px;display:flex;gap:10px;align-items:flex-start}
+  .whats-this .wt-icon{font-size:15px;flex:0 0 auto}
+  .whats-this .wt-body{flex:1}
+  .whats-this .wt-title{font-family:'Nunito';font-weight:900;font-size:10px;color:var(--honey-dk);text-transform:uppercase;letter-spacing:1.4px;margin-bottom:2px}
+  .whats-this .wt-body p{font-size:11px;color:var(--navy);line-height:1.45;margin:0}
+
+  /* Sales — funding/destination toggles */
+  .seg-toggle{display:flex;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:4px;margin-bottom:12px}
+  .seg{flex:1;text-align:center;padding:8px;font-family:'Nunito';font-weight:800;font-size:11px;color:var(--muted);border-radius:10px;cursor:pointer}
+  .seg.active{background:var(--leaf);color:#fff}
+  .seg.active.honey{background:var(--honey)}
+
+  .picker-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:10px}
+  .picker-card .pc-l{font-family:'Nunito';font-weight:900;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px;margin-bottom:8px}
+  .chip-row{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:6px 10px;border-radius:999px;font-family:'Nunito';font-weight:800;font-size:10px;background:var(--cream);color:var(--muted);border:1px solid var(--line);cursor:pointer}
+  .chip.selected{background:var(--leaf-soft);color:var(--leaf-dk);border-color:var(--leaf)}
+  .chip.selected.honey{background:#FFF3D9;color:var(--honey-dk);border-color:var(--honey)}
+
+  .total-line{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--line);margin-top:6px}
+  .total-line .tl{font-family:'Nunito';font-weight:800;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px}
+  .total-line .tv{font-family:'Nunito';font-weight:900;font-size:18px;color:var(--ink)}
+
+  .submit-btn{margin-top:10px;background:var(--leaf);color:#fff;border-radius:14px;padding:12px;text-align:center;font-family:'Nunito';font-weight:900;font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 8px 18px -8px rgba(79,184,122,.5)}
+
+  /* Weekly report */
+  .report-hero{padding:14px;border-radius:16px;background:linear-gradient(150deg,#FFF3D9,#FCD9A0);border:1px solid var(--honey);margin-bottom:10px;text-align:center}
+  .report-hero .rh-w{font-family:'Nunito';font-weight:800;font-size:10px;color:var(--honey-dk);text-transform:uppercase;letter-spacing:1.5px}
+  .report-hero .rh-h{font-family:'Nunito';font-weight:900;font-size:16px;margin:4px 0;color:var(--ink)}
+  .report-hero .rh-pl{display:flex;justify-content:center;gap:14px;margin-top:6px;font-size:11px;color:var(--ink);font-weight:700}
+  .report-hero .rh-pl .delta{color:var(--leaf-dk);font-weight:900}
+  .win-list, .reminder-list{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+  .win-list h6, .reminder-list h6{font-family:'Nunito';font-weight:900;font-size:10px;color:var(--leaf-dk);text-transform:uppercase;letter-spacing:1.5px;margin:0 0 6px}
+  .reminder-list h6{color:var(--honey-dk)}
+  .win-row, .rem-row{display:flex;align-items:flex-start;gap:8px;padding:5px 0;font-size:11px;color:var(--navy);line-height:1.4}
+  .win-row .wb{font-size:13px}
+  .siblings-note{text-align:center;font-size:10px;color:var(--muted);margin-top:6px;font-style:italic}
+
+  /* === Web mockups (desktop) === */
+  .webframe{background:#222;border-radius:14px;padding:8px 8px 14px;margin-top:8px;box-shadow:0 30px 60px -20px rgba(15,24,34,.45)}
+  .webdots{display:flex;gap:6px;padding:6px 6px 8px}
+  .webdots span{width:10px;height:10px;border-radius:50%}
+  .webdots .r{background:#FF5F56}.webdots .y{background:#FFBD2E}.webdots .g{background:#27C93F}
+  .weburl{background:#FFFFFF;color:var(--muted);font-family:'Lato',sans-serif;font-size:11px;border-radius:6px;padding:5px 12px;margin:0 6px 6px;display:flex;align-items:center;gap:6px}
+  .weburl .lock{color:var(--leaf-dk);font-weight:900}
+  .webcanvas{background:var(--cream);border-radius:8px;overflow:hidden;min-height:560px}
+  .webcanvas .topbar{background:var(--paper);border-bottom:1px solid var(--line);padding:14px 24px;display:flex;align-items:center;justify-content:space-between}
+  .webcanvas .topbar .brand{display:flex;align-items:center;gap:10px;font-family:'Nunito';font-weight:900;font-size:16px;color:var(--ink)}
+  .webcanvas .topbar .brand .lf{width:30px;height:30px;border-radius:8px;background:var(--leaf);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px}
+  .webcanvas .topbar nav{display:flex;gap:20px;font-family:'Nunito';font-weight:800;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px}
+  .webcanvas .topbar nav a{color:var(--muted);text-decoration:none}
+  .webcanvas .topbar nav a.active{color:var(--leaf-dk)}
+  .webcanvas .topbar .who{display:flex;align-items:center;gap:8px;font-family:'Nunito';font-weight:800;font-size:12px;color:var(--navy)}
+  .webcanvas .topbar .who .av{width:28px;height:28px;border-radius:50%;background:var(--honey);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900}
+
+  .webcanvas .console{display:grid;grid-template-columns:260px 1fr 320px;gap:0;min-height:500px}
+  .console .left{background:var(--paper);border-right:1px solid var(--line);padding:18px}
+  .console .left h5{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin:0 0 10px}
+  .leftnav{display:flex;flex-direction:column;gap:4px;margin-bottom:18px}
+  .leftnav a{padding:8px 10px;border-radius:8px;font-family:'Nunito';font-weight:800;font-size:12px;color:var(--navy);display:flex;align-items:center;gap:8px;text-decoration:none}
+  .leftnav a:hover{background:var(--cream)}
+  .leftnav a.active{background:var(--leaf-soft);color:var(--leaf-dk)}
+  .leftnav .glyph{width:18px;text-align:center}
+  .leftbox{background:var(--cream);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  .leftbox h6{font-family:'Nunito';font-weight:900;font-size:10px;color:var(--leaf-dk);text-transform:uppercase;letter-spacing:1.5px;margin:0 0 8px}
+  .leftbox .kbox{display:flex;justify-content:space-between;font-size:11px;font-weight:700;padding:4px 0;border-top:1px solid var(--line)}
+  .leftbox .kbox:first-of-type{border-top:none}
+
+  .console .center{padding:22px 24px}
+  .console .center h2{font-family:'Nunito';font-weight:900;font-size:24px;margin:0 0 6px}
+  .console .center .week{font-size:12px;color:var(--muted);font-weight:700;margin-bottom:18px}
+  .kid-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px}
+  .kid-card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}
+  .kid-card .kh{display:flex;align-items:center;gap:8px}
+  .kid-card .kh .av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Nunito';font-weight:900;font-size:11px}
+  .kid-card .kh .av.gold{background:#D4A03A}.kid-card .kh .av.white{background:#A4B0BF}.kid-card .kh .av.silver{background:#7A8694}
+  .kid-card .kh .nm{font-family:'Nunito';font-weight:900;font-size:13px}
+  .kid-card .kh .biz{font-size:10px;color:var(--muted);font-weight:700}
+  .kid-card .nums{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px}
+  .kid-card .nums .nv{background:var(--cream);border-radius:8px;padding:6px;text-align:center}
+  .kid-card .nums .nv .l{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:800}
+  .kid-card .nums .nv .v{font-family:'Nunito';font-weight:900;font-size:13px;margin-top:2px}
+  .kid-card .nums .nv.in .v{color:var(--leaf-dk)}
+  .kid-card .nums .nv.out .v{color:var(--rose)}
+  .kid-card .care-bar{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);font-weight:700}
+  .kid-card .care-bar .bar{flex:1;height:6px;background:var(--cream);border-radius:6px;overflow:hidden}
+  .kid-card .care-bar .bar .fill{height:100%;background:var(--leaf);border-radius:6px}
+
+  .pricelist{background:var(--paper);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .pricelist .pl-head, .pricelist .pl-row{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 60px;gap:14px;padding:10px 16px;align-items:center}
+  .pricelist .pl-head{background:var(--cream);font-family:'Nunito';font-weight:900;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px}
+  .pricelist .pl-row{border-top:1px solid var(--line);font-size:13px}
+  .pricelist .pl-row input{font-family:'Lato';font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;width:100%;background:var(--cream)}
+  .pricelist .pl-row .pl-active{display:flex;justify-content:flex-end}
+  .toggle{width:34px;height:18px;background:var(--leaf);border-radius:999px;position:relative}
+  .toggle::after{content:'';position:absolute;width:14px;height:14px;background:#fff;border-radius:50%;top:2px;right:2px}
+  .toggle.off{background:var(--line)}
+  .toggle.off::after{left:2px;right:auto}
+
+  .console .right{background:var(--paper);border-left:1px solid var(--line);padding:18px}
+  .console .right h5{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin:0 0 12px}
+  .approval{background:linear-gradient(150deg,#FFF8EC,#FFFFFF);border:1.5px dashed var(--honey);border-radius:12px;padding:12px;margin-bottom:10px}
+  .approval .at{font-family:'Nunito';font-weight:900;font-size:12px;display:flex;align-items:center;gap:6px}
+  .approval .at .pill-mini{background:#FFF3D9;color:var(--honey-dk);font-size:9px;padding:2px 6px;border-radius:5px;font-weight:800;letter-spacing:.3px}
+  .approval .ad{font-size:11px;color:var(--muted);margin:4px 0 8px;line-height:1.4}
+  .approval .arow{display:flex;justify-content:space-between;align-items:center}
+  .approval .aamt{font-family:'Nunito';font-weight:900;font-size:14px;color:var(--leaf-dk)}
+  .approval.cost .aamt{color:var(--rose)}
+  .approval .actions{display:flex;gap:5px}
+  .approval .actions .x{padding:5px 10px;border-radius:7px;font-family:'Nunito';font-weight:800;font-size:10px;border:none;cursor:pointer}
+  .approval .actions .x.no{background:#FCEAEA;color:var(--rose)}
+  .approval .actions .x.yes{background:var(--leaf);color:#fff}
+  .approval .dest-toggle{display:flex;gap:4px;margin-top:6px;font-size:10px}
+  .approval .dest-toggle .dt{padding:3px 7px;border-radius:6px;background:var(--cream);color:var(--muted);font-weight:800}
+  .approval .dest-toggle .dt.active{background:var(--leaf-soft);color:var(--leaf-dk)}
+
+  /* Wiring diagram */
+  .wiring{background:var(--paper);border:1px solid var(--line);border-radius:24px;padding:32px 28px;display:grid;grid-template-columns:1fr 60px 1fr;gap:14px;align-items:center;margin-top:8px}
+  .wiring .col{background:var(--cream);border-radius:18px;padding:20px;min-height:300px;display:flex;flex-direction:column;gap:10px}
+  .wiring .col h4{font-family:'Nunito';font-weight:900;font-size:14px;color:var(--leaf-dk);text-transform:uppercase;letter-spacing:1.5px;margin:0 0 4px}
+  .wiring .col.hive h4{color:var(--honey-dk)}
+  .wflow{background:var(--paper);border-radius:12px;padding:10px 12px;font-size:12px;display:flex;align-items:center;gap:8px;border:1px solid var(--line)}
+  .wflow .wglyph{font-size:16px;width:26px;height:26px;border-radius:8px;background:var(--leaf-soft);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+  .wflow.honey .wglyph{background:#FFF3D9}
+  .wflow .wt{flex:1;font-weight:700;color:var(--navy)}
+  .wflow .wd{font-size:10px;color:var(--muted);font-weight:700;margin-top:2px}
+  .warrows{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--leaf);font-size:24px;font-weight:900}
+
+  /* Asset library cards */
+  .lib-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  .lib-card{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:18px;display:flex;flex-direction:column;gap:10px}
+  .lib-card .lc-head{display:flex;align-items:center;gap:10px}
+  .lib-card .lc-emoji{font-size:32px;width:50px;height:50px;border-radius:14px;background:var(--leaf-soft);display:flex;align-items:center;justify-content:center}
+  .lib-card .lc-name{font-family:'Nunito';font-weight:900;font-size:16px}
+  .lib-card .lc-stages{display:flex;gap:5px;flex-wrap:wrap}
+  .lib-card .lc-care{font-size:12px;color:var(--muted);line-height:1.5}
+  .lib-card .lc-care strong{color:var(--navy)}
+  .lib-card .lc-hp{font-family:'Nunito';font-weight:800;font-size:10px;color:var(--honey-dk);background:#FFF3D9;padding:4px 10px;border-radius:999px;align-self:flex-start}
+
+  /* Glossary */
+  .glossary{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:24px;margin-top:8px}
+  .gloss-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 24px}
+  .gterm{padding:10px 0;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.5}
+  .gterm strong{font-family:'Nunito';font-weight:900;color:var(--leaf-dk);display:block;margin-bottom:2px;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+
+  /* Roadmap */
+  .roadmap{background:var(--paper);border-radius:24px;padding:32px;border:1px solid var(--line)}
+  .phases{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:18px}
+  .phase{padding:22px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(180deg,var(--cream),var(--paper))}
+  .phase .pn{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--leaf-dk);letter-spacing:2px}
+  .phase h4{font-family:'Nunito';font-weight:900;font-size:18px;margin:6px 0 10px}
+  .phase p{font-size:13px;color:var(--muted);line-height:1.55;margin:0 0 12px}
+  .phase ul{margin:0;padding-left:18px;font-size:12px;line-height:1.6}
+  .phase.now{border:2px solid var(--leaf);background:linear-gradient(180deg,var(--leaf-soft),#FFFFFF)}
+
+  .signoff{margin-top:20px;background:var(--paper);border:1px dashed var(--leaf);border-radius:18px;padding:22px 26px}
+  .signoff h4{margin:0 0 6px;font-family:'Nunito';font-weight:900}
+  .signoff p{margin:0;font-size:13px;color:var(--muted);line-height:1.6}
+  .signoff code{background:var(--cream);padding:2px 6px;border-radius:6px;font-family:'SF Mono',monospace;font-size:11px;color:var(--ink)}
+  .foot{margin-top:40px;text-align:center;font-size:12px;color:var(--muted)}
+
+  @media (max-width:1100px){
+    .phones.five{grid-template-columns:repeat(2,1fr)}
+    .console{grid-template-columns:1fr !important}
+    .console .left, .console .right{border:none}
+  }
+  @media (max-width:980px){
+    .phones.three,.phones.two,.phases,.lib-grid,.gloss-grid,.ideas{grid-template-columns:1fr 1fr}
+    .wiring{grid-template-columns:1fr}
+    .warrows{flex-direction:row;transform:rotate(90deg);margin:14px 0}
+    .kid-grid{grid-template-columns:1fr}
+  }
+  @media (max-width:620px){
+    .phones.three,.phones.two,.phases,.lib-grid,.gloss-grid,.ideas{grid-template-columns:1fr}
+    .pricelist .pl-head, .pricelist .pl-row{grid-template-columns:1fr 1fr;gap:8px}
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <span class="pill">Kaya · Module Proposal · v1 · 13 May 2026</span>
+  <div class="eyebrow">Phase 1.5 · Kaya Business 🌱</div>
+  <h1>Real businesses for <span class="accent">real kids.</span></h1>
+  <p class="lede">One business per kid. Five kid screens, one Parent Console. Sales credit Hive Cash; costs draw from a parent-funded float or the kid's wallet. Sunday auto-generated weekly P&amp;L is visible to siblings. Every screen carries kid-friendly definitions so the vocabulary teaches itself. Designed for both <strong>mobile</strong> (kid-first) and <strong>web</strong> (parent console).</p>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §01 THE BIG IDEA                                         -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">01</span>
+    <h2>The Big Idea</h2>
+  </div>
+  <p class="section-intro">Kaya Business is the <strong>operations layer</strong> for kid micro-enterprises. The Hive remains the <strong>money layer</strong>. Every sale a kid logs flows through Hive's parent-approval rules and lands in their Hive Cash (on-hand or on deposit). Every care task a kid completes earns House Points through the existing routine engine. Business doesn't reinvent money — it teaches it.</p>
+
+  <div class="ideas">
+    <div class="idea leaf">
+      <div class="glyph">🌱</div>
+      <h3>Venture-agnostic</h3>
+      <p>An orchard, a chicken pen, a baking stand, an art shop, a tutoring side-hustle. One business per kid, with a flat list of assets — not nested ventures. Whatever the kid invents.</p>
+    </div>
+    <div class="idea honey">
+      <div class="glyph">🍯</div>
+      <h3>Wired into Hive</h3>
+      <p>Sales credit Hive Cash with a destination of the kid's choice (👛 On Hand or 🏦 On Deposit). Costs draw from a parent-funded float or the kid's wallet. Care tasks earn HP through Hive routines. Single source of money truth.</p>
+    </div>
+    <div class="idea blue">
+      <div class="glyph">📈</div>
+      <h3>Teaches by doing</h3>
+      <p>Kids learn the vocabulary of business by using it. Asset, profit, deposit, float, valuation — these are real grown-up words. Every screen has an inline "What's this?" definition card.</p>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §02 FIVE KID SCREENS (MOBILE)                            -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">02</span>
+    <h2>Five Kid Screens</h2>
+    <span class="section-tag">Mobile · Kid-first</span>
+  </div>
+  <p class="section-intro">Diella's view, shown across all five screens. Each kid's business lives behind the same five-tab structure: <em>My Business · My Assets · Sales · Costs · Weekly Report</em>.</p>
+
+  <div class="phones five">
+
+    <!-- 1. MY BUSINESS -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Diella's Garden Magic 🌿</div>
+          <h4>My Business</h4>
+        </div>
+        <div class="body">
+          <div class="biz-hero">
+            <div class="hi">Total Asset Value</div>
+            <div class="v">TSh 78,000</div>
+            <div class="vs">+TSh 6,000 this week (2 vines fruiting)</div>
+          </div>
+          <div class="stat-grid">
+            <div class="stat in"><div class="lbl">Revenue</div><div class="v">+18k</div></div>
+            <div class="stat out"><div class="lbl">Costs</div><div class="v">−4k</div></div>
+            <div class="stat profit"><div class="lbl">Profit</div><div class="v">+14k</div></div>
+          </div>
+          <div class="float-row">
+            <span style="font-size:14px">💰</span>
+            <div class="fr-l">Float from Mama</div>
+            <div class="fr-v">TSh 8,000</div>
+          </div>
+          <div class="care-card">
+            <div class="ch">Today's care <span class="pill-mini">2 of 3 done</span></div>
+            <div class="care-row done"><div class="ck">✓</div><div class="ct">Water vines · AM</div><div class="cr">+5 HP</div></div>
+            <div class="care-row done"><div class="ck">✓</div><div class="ct">Check for ripe fruit</div><div class="cr">+3 HP</div></div>
+            <div class="care-row"><div class="ck"></div><div class="ct">Water vines · PM</div><div class="cr">+5 HP</div></div>
+          </div>
+          <div class="whats-this">
+            <span class="wt-icon">💡</span>
+            <div class="wt-body">
+              <div class="wt-title">What's My Business?</div>
+              <p>Your very own little company — the things you grow or make, the people you sell to, and the money you earn.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot">🌿</div>Business</div>
+          <div class="tab"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab"><div class="dot">💰</div>Wallet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. MY ASSETS -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Inventory · Live valuation</div>
+          <h4>My Assets</h4>
+        </div>
+        <div class="body">
+          <div class="asset-card">
+            <div class="a-glyph">🌿</div>
+            <div class="a-meta">
+              <div class="an">Passion fruit vines <span class="stage-pill fruit">Fruiting</span></div>
+              <div class="ad">10 vines · TSh 6,000 each</div>
+            </div>
+            <div class="av">TSh 60,000<span class="vsmall">live</span></div>
+          </div>
+          <div class="asset-card">
+            <div class="a-glyph">🌱</div>
+            <div class="a-meta">
+              <div class="an">Passion fruit vines <span class="stage-pill young">Growing</span></div>
+              <div class="ad">2 vines · TSh 3,000 each</div>
+            </div>
+            <div class="av">TSh 6,000<span class="vsmall">live</span></div>
+          </div>
+          <div class="asset-card">
+            <div class="a-glyph">🥬</div>
+            <div class="a-meta">
+              <div class="an">Sukuma plants <span class="stage-pill fruit">Producing</span></div>
+              <div class="ad">8 plants · TSh 1,500 each</div>
+            </div>
+            <div class="av">TSh 12,000<span class="vsmall">live</span></div>
+          </div>
+          <div class="asset-card" style="border-style:dashed;background:var(--cream)">
+            <div class="a-glyph" style="background:var(--paper);border:1px dashed var(--leaf)">+</div>
+            <div class="a-meta">
+              <div class="an" style="color:var(--leaf-dk)">Add an asset</div>
+              <div class="ad">Vines, hens, garden, goats, baking…</div>
+            </div>
+          </div>
+          <div class="whats-this">
+            <span class="wt-icon">💡</span>
+            <div class="wt-body">
+              <div class="wt-title">What's an Asset?</div>
+              <p>Something you own that helps you make money. A passion fruit vine starts as a <em>seedling</em>, then <em>grows</em>, then <em>fruits</em> — its <strong>stage</strong> tells you what to expect.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🌿</div>Business</div>
+          <div class="tab active"><div class="dot">📦</div>Assets</div>
+          <div class="tab"><div class="dot">💵</div>Sales</div>
+          <div class="tab"><div class="dot">🧾</div>Costs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. SALES -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">This week: TSh 18,000</div>
+          <h4>Sales</h4>
+        </div>
+        <div class="body">
+          <div class="qa-row">
+            <div class="qa">+ Family sale</div>
+            <div class="qa alt">+ Relative sale</div>
+          </div>
+          <div class="entry in">
+            <div class="e-ico">🍈</div>
+            <div class="e-meta">
+              <div class="et">3 kg passion fruit <span class="badge relative">Aunt Ruth</span></div>
+              <div class="ed">Sat · <span class="badge dest">→ On Deposit</span></div>
+            </div>
+            <div class="ea">+9k</div>
+          </div>
+          <div class="entry in">
+            <div class="e-ico">🍈</div>
+            <div class="e-meta">
+              <div class="et">2 kg passion fruit <span class="badge family">Mama</span></div>
+              <div class="ed">Fri · <span class="badge dest">→ On Hand</span></div>
+            </div>
+            <div class="ea">+6k</div>
+          </div>
+          <div class="entry in">
+            <div class="e-ico">🥬</div>
+            <div class="e-meta">
+              <div class="et">1 bunch sukuma <span class="badge family">Jacky</span></div>
+              <div class="ed">Wed · <span class="badge dest">→ On Hand</span></div>
+            </div>
+            <div class="ea">+1.5k</div>
+          </div>
+          <div class="entry in" style="opacity:.7">
+            <div class="e-ico" style="background:#FFF3D9">⏳</div>
+            <div class="e-meta">
+              <div class="et">2 kg passion fruit <span class="badge relative">Neighbor</span> <span class="badge pending">PENDING</span></div>
+              <div class="ed">Awaiting Mama's approval</div>
+            </div>
+            <div class="ea" style="color:var(--honey-dk)">+5k</div>
+          </div>
+          <div class="whats-this">
+            <span class="wt-icon">💡</span>
+            <div class="wt-body">
+              <div class="wt-title">Family vs Relative sale?</div>
+              <p>A <strong>family sale</strong> uses the price already set in our Family Price List. A <strong>relative sale</strong> is to anyone outside the house — the price is a suggestion you can change.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🌿</div>Business</div>
+          <div class="tab"><div class="dot">📦</div>Assets</div>
+          <div class="tab active"><div class="dot">💵</div>Sales</div>
+          <div class="tab"><div class="dot">🧾</div>Costs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. COSTS -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">This week: TSh 4,000</div>
+          <h4>Costs</h4>
+        </div>
+        <div class="body">
+          <div class="float-row">
+            <span style="font-size:14px">💰</span>
+            <div class="fr-l">Float remaining</div>
+            <div class="fr-v">TSh 8,000</div>
+          </div>
+          <div class="qa-row">
+            <div class="qa honey">+ Add a cost</div>
+          </div>
+          <div class="entry out">
+            <div class="e-ico" style="background:#FCEAEA">🌱</div>
+            <div class="e-meta">
+              <div class="et">Fertilizer for vines <span class="badge float">From Float</span></div>
+              <div class="ed">Approved by Mama · May 8</div>
+            </div>
+            <div class="ea">−4k</div>
+          </div>
+          <div class="entry out">
+            <div class="e-ico" style="background:#FCEAEA">🌰</div>
+            <div class="e-meta">
+              <div class="et">2 new seedlings <span class="badge wallet">From Wallet</span></div>
+              <div class="ed">Approved by Papa · Apr 30</div>
+            </div>
+            <div class="ea">−3k</div>
+          </div>
+          <div class="entry out">
+            <div class="e-ico" style="background:#F1E1E1">🐛</div>
+            <div class="e-meta">
+              <div class="et">2 vines failed <span class="badge" style="background:#F1E1E1;color:var(--rose)">LOSS</span></div>
+              <div class="ed">Logged Apr 27 · non-cash cost</div>
+            </div>
+            <div class="ea" style="color:var(--rose)">−6k</div>
+          </div>
+          <div class="whats-this">
+            <span class="wt-icon">💡</span>
+            <div class="wt-body">
+              <div class="wt-title">Float vs Wallet?</div>
+              <p>The <strong>Float</strong> is money Mama or Papa puts into your business so you don't have to use your savings. <strong>Wallet</strong> means you're spending your own Hive Cash.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🌿</div>Business</div>
+          <div class="tab"><div class="dot">📦</div>Assets</div>
+          <div class="tab"><div class="dot">💵</div>Sales</div>
+          <div class="tab active"><div class="dot">🧾</div>Costs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. WEEKLY REPORT -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Auto-generated · Sundays</div>
+          <h4>Weekly Report</h4>
+        </div>
+        <div class="body">
+          <div class="report-hero">
+            <div class="rh-w">Week of 11–17 May 2026</div>
+            <div class="rh-h">Diella's Garden Magic 🌿</div>
+            <div class="rh-pl">
+              <span>Rev <span class="delta">+18k</span></span>
+              <span>Cost <span style="color:var(--rose);font-weight:900">−4k</span></span>
+              <span>Profit <span class="delta">+14k</span></span>
+            </div>
+          </div>
+          <div class="win-list">
+            <h6>🌟 Top Wins</h6>
+            <div class="win-row"><span class="wb">🥇</span><div>Best-seller: <strong>passion fruit (kg)</strong> — 5 kg sold</div></div>
+            <div class="win-row"><span class="wb">💸</span><div>Biggest sale: <strong>TSh 9,000</strong> to Aunt Ruth on Sat</div></div>
+            <div class="win-row"><span class="wb">📈</span><div><strong>2 vines</strong> advanced from <em>growing</em> to <em>fruiting</em></div></div>
+          </div>
+          <div class="reminder-list">
+            <h6>📅 Next Week</h6>
+            <div class="rem-row">💧 Water vines Mon, Wed, Fri (don't miss like last week)</div>
+            <div class="rem-row">🛒 Fertilizer running low — top up by Wed</div>
+            <div class="rem-row">🌱 3 more vines about to fruit</div>
+          </div>
+          <div class="siblings-note">👀 Earlnathan and Daniella can see this report.</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot">🌿</div>Business</div>
+          <div class="tab"><div class="dot">📦</div>Assets</div>
+          <div class="tab"><div class="dot">💵</div>Sales</div>
+          <div class="tab"><div class="dot">🧾</div>Costs</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §03 SALES — TWO PATHS DEEP DIVE                          -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">03</span>
+    <h2>Sales · the two paths</h2>
+    <span class="section-tag">Mobile</span>
+  </div>
+  <p class="section-intro">Family sales are one-tap (price locked from the Family Price List). Relative sales are free entry, with the price <strong>auto-suggested</strong> from the same list as a starting point — kids can edit per transaction (Aunt Ruth gets a discount; the neighbor pays a premium).</p>
+
+  <div class="phones two">
+
+    <!-- FAMILY SALE -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">New sale</div>
+          <h4>Family sale 🏠</h4>
+        </div>
+        <div class="body">
+          <div class="seg-toggle">
+            <div class="seg active">🏠 Family</div>
+            <div class="seg">👋 Relative</div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Buyer</div>
+            <div class="chip-row">
+              <span class="chip selected">Mama</span>
+              <span class="chip">Papa</span>
+              <span class="chip">Earlnathan</span>
+              <span class="chip">Daniella</span>
+              <span class="chip">Mage</span>
+              <span class="chip">Jacky</span>
+            </div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Item · from price list</div>
+            <div class="chip-row">
+              <span class="chip selected">🍈 Passion fruit / kg · TSh 3,000</span>
+              <span class="chip">🥬 Sukuma / bunch · TSh 1,500</span>
+            </div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Quantity</div>
+            <div style="display:flex;align-items:center;gap:10px"><div style="width:32px;height:32px;background:var(--cream);border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Nunito';font-weight:900">−</div><div style="flex:1;text-align:center;font-family:'Nunito';font-weight:900;font-size:24px">2</div><div style="width:32px;height:32px;background:var(--leaf);color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Nunito';font-weight:900">+</div></div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Cash destination</div>
+            <div class="chip-row">
+              <span class="chip selected">👛 On Hand</span>
+              <span class="chip">🏦 On Deposit</span>
+            </div>
+          </div>
+          <div class="total-line"><div class="tl">Total</div><div class="tv">TSh 6,000</div></div>
+          <div class="submit-btn">Submit sale → Mama 💵</div>
+          <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:6px">Auto-approved (under TSh 50,000 family threshold)</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🌿</div>Business</div>
+          <div class="tab"><div class="dot">📦</div>Assets</div>
+          <div class="tab active"><div class="dot">💵</div>Sales</div>
+          <div class="tab"><div class="dot">🧾</div>Costs</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RELATIVE SALE -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">New sale</div>
+          <h4>Relative sale 👋</h4>
+        </div>
+        <div class="body">
+          <div class="seg-toggle">
+            <div class="seg">🏠 Family</div>
+            <div class="seg active honey">👋 Relative</div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Buyer name</div>
+            <div style="background:var(--cream);border:1px solid var(--line);border-radius:10px;padding:10px;font-family:'Nunito';font-weight:800;font-size:13px;color:var(--ink)">Aunt Ruth</div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Item · from price list</div>
+            <div class="chip-row">
+              <span class="chip selected honey">🍈 Passion fruit / kg</span>
+              <span class="chip">🥬 Sukuma / bunch</span>
+              <span class="chip">+ Other</span>
+            </div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Price · suggested TSh 3,000 / kg <span style="color:var(--honey-dk);font-weight:800">— editable</span></div>
+            <div style="display:flex;align-items:center;gap:6px"><div style="background:var(--cream);border:1px solid var(--line);border-radius:10px;padding:10px;flex:1;font-family:'Nunito';font-weight:900;font-size:18px;color:var(--ink)">TSh 2,800</div><div style="font-size:11px;color:var(--muted);font-weight:700">/ kg</div></div>
+            <div style="font-size:10px;color:var(--honey-dk);margin-top:4px;font-weight:700">↓ TSh 200 family discount applied</div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Quantity</div>
+            <div style="display:flex;align-items:center;gap:10px"><div style="width:32px;height:32px;background:var(--cream);border:1px solid var(--line);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Nunito';font-weight:900">−</div><div style="flex:1;text-align:center;font-family:'Nunito';font-weight:900;font-size:24px">3</div><div style="width:32px;height:32px;background:var(--leaf);color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Nunito';font-weight:900">+</div></div>
+          </div>
+          <div class="picker-card">
+            <div class="pc-l">Cash destination</div>
+            <div class="chip-row">
+              <span class="chip">👛 On Hand</span>
+              <span class="chip selected">🏦 On Deposit</span>
+            </div>
+            <div style="font-size:10px;color:var(--muted);margin-top:6px">Default flips to On Deposit for sales above TSh 5,000</div>
+          </div>
+          <div class="total-line"><div class="tl">Total</div><div class="tv">TSh 8,400</div></div>
+          <div class="submit-btn" style="background:var(--honey)">Submit for Mama's approval ⏳</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🌿</div>Business</div>
+          <div class="tab"><div class="dot">📦</div>Assets</div>
+          <div class="tab active"><div class="dot">💵</div>Sales</div>
+          <div class="tab"><div class="dot">🧾</div>Costs</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §04 PARENT CONSOLE (WEB)                                 -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">04</span>
+    <h2>Parent Console</h2>
+    <span class="section-tag web">Web · Desktop-first</span>
+  </div>
+  <p class="section-intro">Parents work from a desktop. Three responsibilities, one screen: see every kid's books side-by-side, approve pending sales and costs, and edit the Family Price List. Inputs to the Sunday family meeting.</p>
+
+  <div class="webframe">
+    <div class="webdots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+    <div class="weburl"><span class="lock">🔒</span> ourkaya.com / parent / business</div>
+    <div class="webcanvas">
+      <div class="topbar">
+        <div class="brand"><div class="lf">🌿</div>Kaya Business · Parent Console</div>
+        <nav>
+          <a>Hive</a>
+          <a class="active">Business</a>
+          <a>Routines</a>
+          <a>Reports</a>
+          <a>Settings</a>
+        </nav>
+        <div class="who">
+          <div class="av">M</div>
+          Mama Timotheo
+        </div>
+      </div>
+      <div class="console">
+        <!-- LEFT NAV -->
+        <aside class="left">
+          <h5>Business</h5>
+          <div class="leftnav">
+            <a class="active"><span class="glyph">📊</span>Side-by-side</a>
+            <a><span class="glyph">✓</span>Approvals <span style="margin-left:auto;background:var(--honey);color:#fff;font-size:9px;padding:2px 7px;border-radius:999px;font-weight:900">3</span></a>
+            <a><span class="glyph">📋</span>Family Price List</a>
+            <a><span class="glyph">💰</span>Cost Floats</a>
+            <a><span class="glyph">📚</span>Asset Library</a>
+            <a><span class="glyph">⚙️</span>Thresholds</a>
+          </div>
+          <div class="leftbox">
+            <h6>This week — family</h6>
+            <div class="kbox"><span>Total revenue</span><span style="color:var(--leaf-dk)">+TSh 41k</span></div>
+            <div class="kbox"><span>Total costs</span><span style="color:var(--rose)">−TSh 9k</span></div>
+            <div class="kbox"><span>Net profit</span><span style="font-weight:900">+TSh 32k</span></div>
+            <div class="kbox"><span>Care completion</span><span>78%</span></div>
+          </div>
+          <div class="leftbox" style="background:#FFF3D9;border-color:var(--honey-soft)">
+            <h6 style="color:var(--honey-dk)">Sunday meeting in 2 days</h6>
+            <div style="font-size:11px;color:var(--muted);line-height:1.4">Reports auto-generate Sun 21:00 local. <a style="color:var(--honey-dk);font-weight:800">Preview now →</a></div>
+          </div>
+        </aside>
+
+        <!-- CENTER: SIDE-BY-SIDE -->
+        <main class="center">
+          <h2>Side-by-side books</h2>
+          <div class="week">Week of 11–17 May 2026 · all three kids</div>
+
+          <div class="kid-grid">
+            <div class="kid-card">
+              <div class="kh"><div class="av gold">E</div><div><div class="nm">Earlnathan</div><div class="biz">Earlnathan's Eggs 🐔</div></div></div>
+              <div class="nums">
+                <div class="nv in"><div class="l">Rev</div><div class="v">+15k</div></div>
+                <div class="nv out"><div class="l">Cost</div><div class="v">−3k</div></div>
+                <div class="nv"><div class="l">Profit</div><div class="v">+12k</div></div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);font-weight:700">6 hens · 2 eggs/day avg · TSh 78k assets</div>
+              <div class="care-bar"><span>Care</span><div class="bar"><div class="fill" style="width:85%"></div></div><span>85%</span></div>
+            </div>
+            <div class="kid-card">
+              <div class="kh"><div class="av white">D</div><div><div class="nm">Diella</div><div class="biz">Diella's Garden Magic 🌿</div></div></div>
+              <div class="nums">
+                <div class="nv in"><div class="l">Rev</div><div class="v">+18k</div></div>
+                <div class="nv out"><div class="l">Cost</div><div class="v">−4k</div></div>
+                <div class="nv"><div class="l">Profit</div><div class="v">+14k</div></div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);font-weight:700">12 vines · 8 sukuma · TSh 78k assets</div>
+              <div class="care-bar"><span>Care</span><div class="bar"><div class="fill" style="width:79%"></div></div><span>79%</span></div>
+            </div>
+            <div class="kid-card">
+              <div class="kh"><div class="av silver">D</div><div><div class="nm">Daniella</div><div class="biz">Daniella's Cookie Lab 🍪</div></div></div>
+              <div class="nums">
+                <div class="nv in"><div class="l">Rev</div><div class="v">+8k</div></div>
+                <div class="nv out"><div class="l">Cost</div><div class="v">−2k</div></div>
+                <div class="nv"><div class="l">Profit</div><div class="v">+6k</div></div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);font-weight:700">2 batches/wk · TSh 12k ingredients</div>
+              <div class="care-bar"><span>Care</span><div class="bar"><div class="fill" style="width:70%"></div></div><span>70%</span></div>
+            </div>
+          </div>
+
+          <h2 style="margin-top:24px;font-size:18px">Family Price List</h2>
+          <div class="week">Used for family sales (locked) and as starting suggestion for relative sales (editable)</div>
+          <div class="pricelist">
+            <div class="pl-head">
+              <div>Item</div><div>Unit</div><div>Price (TSh)</div><div>Seller</div><div></div>
+            </div>
+            <div class="pl-row">
+              <div>🍈 Passion fruit</div>
+              <div>kg</div>
+              <div><input value="3,000"/></div>
+              <div>Diella</div>
+              <div class="pl-active"><div class="toggle"></div></div>
+            </div>
+            <div class="pl-row">
+              <div>🥬 Sukuma</div>
+              <div>bunch</div>
+              <div><input value="1,500"/></div>
+              <div>Diella</div>
+              <div class="pl-active"><div class="toggle"></div></div>
+            </div>
+            <div class="pl-row">
+              <div>🥚 Eggs</div>
+              <div>dozen</div>
+              <div><input value="5,000"/></div>
+              <div>Earlnathan</div>
+              <div class="pl-active"><div class="toggle"></div></div>
+            </div>
+            <div class="pl-row">
+              <div>🍪 Chocolate cookie</div>
+              <div>piece</div>
+              <div><input value="500"/></div>
+              <div>Daniella</div>
+              <div class="pl-active"><div class="toggle"></div></div>
+            </div>
+            <div class="pl-row" style="background:var(--cream);font-style:italic;color:var(--muted)">
+              <div>+ Add item</div><div>—</div><div>—</div><div>—</div><div></div>
+            </div>
+          </div>
+        </main>
+
+        <!-- RIGHT: APPROVALS QUEUE -->
+        <aside class="right">
+          <h5>Approvals · 3 pending</h5>
+          <div class="approval">
+            <div class="at"><span class="pill-mini">SALE</span> Diella → Neighbor</div>
+            <div class="ad">2 kg passion fruit · negotiated TSh 5,000</div>
+            <div class="arow">
+              <div class="aamt">+TSh 5,000</div>
+              <div class="actions"><button class="x no">Reject</button><button class="x yes">Approve</button></div>
+            </div>
+            <div class="dest-toggle">
+              <span style="color:var(--muted);font-weight:700;align-self:center;font-size:9px">DESTINATION</span>
+              <span class="dt active">👛 On Hand</span>
+              <span class="dt">🏦 On Deposit</span>
+            </div>
+          </div>
+          <div class="approval cost">
+            <div class="at"><span class="pill-mini" style="background:#FCEAEA;color:var(--rose)">COST</span> Earlnathan</div>
+            <div class="ad">Layer feed · 2 kg · from Float</div>
+            <div class="arow">
+              <div class="aamt">−TSh 6,000</div>
+              <div class="actions"><button class="x no">Reject</button><button class="x yes">Approve</button></div>
+            </div>
+          </div>
+          <div class="approval">
+            <div class="at"><span class="pill-mini" style="background:var(--leaf-soft);color:var(--leaf-dk)">DEPOSIT</span> Daniella</div>
+            <div class="ad">Wants to hand TSh 3,000 cash to Mama for safekeeping</div>
+            <div class="arow">
+              <div class="aamt" style="color:var(--leaf-dk)">→ TSh 3,000</div>
+              <div class="actions"><button class="x no">No</button><button class="x yes">Confirm</button></div>
+            </div>
+          </div>
+          <div style="font-size:10px;color:var(--muted);text-align:center;margin-top:14px;font-style:italic">Auto-approve threshold: TSh 5,000 / sale</div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §05 COST FLOAT (WEB DETAIL)                              -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">05</span>
+    <h2>Cost Float — parent pre-funding</h2>
+    <span class="section-tag web">Web · Detail</span>
+  </div>
+  <p class="section-intro">Each kid's business has an optional <strong>float</strong> — working capital the parent pre-loads. Costs draw from the float; when empty, kid-side cost requests sit as <code style="background:var(--cream);padding:2px 6px;border-radius:5px">pending_topup</code> rather than silently falling through to the kid's wallet. The float never appears in Hive balances — it belongs to the business.</p>
+
+  <div class="webframe">
+    <div class="webdots"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+    <div class="weburl"><span class="lock">🔒</span> ourkaya.com / parent / business / floats</div>
+    <div class="webcanvas">
+      <div class="topbar">
+        <div class="brand"><div class="lf">💰</div>Cost Floats</div>
+        <nav><a>Hive</a><a class="active">Business</a><a>Routines</a></nav>
+        <div class="who"><div class="av">M</div>Mama Timotheo</div>
+      </div>
+      <div style="padding:32px 36px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px">
+        <div class="kid-card" style="padding:20px">
+          <div class="kh"><div class="av gold">E</div><div><div class="nm">Earlnathan</div><div class="biz">Earnathan's Eggs 🐔</div></div></div>
+          <div style="margin-top:10px;font-family:'Nunito';font-weight:900;font-size:32px;color:var(--ink)">TSh 12,000</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:700">float remaining · funded TSh 30k lifetime</div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <button style="flex:1;background:var(--leaf);color:#fff;border:none;border-radius:10px;padding:9px;font-family:'Nunito';font-weight:900;font-size:11px">+ Top up</button>
+            <button style="flex:1;background:var(--paper);color:var(--leaf-dk);border:1px solid var(--leaf);border-radius:10px;padding:9px;font-family:'Nunito';font-weight:900;font-size:11px">History</button>
+          </div>
+        </div>
+        <div class="kid-card" style="padding:20px">
+          <div class="kh"><div class="av white">D</div><div><div class="nm">Diella</div><div class="biz">Diella's Garden Magic 🌿</div></div></div>
+          <div style="margin-top:10px;font-family:'Nunito';font-weight:900;font-size:32px;color:var(--ink)">TSh 8,000</div>
+          <div style="font-size:11px;color:var(--muted);font-weight:700">float remaining · funded TSh 25k lifetime</div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <button style="flex:1;background:var(--leaf);color:#fff;border:none;border-radius:10px;padding:9px;font-family:'Nunito';font-weight:900;font-size:11px">+ Top up</button>
+            <button style="flex:1;background:var(--paper);color:var(--leaf-dk);border:1px solid var(--leaf);border-radius:10px;padding:9px;font-family:'Nunito';font-weight:900;font-size:11px">History</button>
+          </div>
+        </div>
+        <div class="kid-card" style="padding:20px;border:1.5px dashed var(--rose)">
+          <div class="kh"><div class="av silver">D</div><div><div class="nm">Daniella</div><div class="biz">Daniella's Cookie Lab 🍪</div></div></div>
+          <div style="margin-top:10px;font-family:'Nunito';font-weight:900;font-size:32px;color:var(--rose)">TSh 0</div>
+          <div style="font-size:11px;color:var(--rose);font-weight:800">⚠ 1 cost waiting on top-up</div>
+          <div style="display:flex;gap:6px;margin-top:10px">
+            <button style="flex:1;background:var(--rose);color:#fff;border:none;border-radius:10px;padding:9px;font-family:'Nunito';font-weight:900;font-size:11px">Top up now</button>
+            <button style="flex:1;background:var(--paper);color:var(--muted);border:1px solid var(--line);border-radius:10px;padding:9px;font-family:'Nunito';font-weight:900;font-size:11px">History</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="padding:0 36px 32px">
+        <h3 style="font-family:'Nunito';font-weight:900;font-size:16px;margin:6px 0 12px">Top-up history · last 4 events</h3>
+        <div style="background:var(--paper);border:1px solid var(--line);border-radius:14px;overflow:hidden">
+          <div style="display:grid;grid-template-columns:120px 1fr 120px 100px;gap:14px;padding:10px 16px;background:var(--cream);font-family:'Nunito';font-weight:900;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.3px">
+            <div>Date</div><div>Kid</div><div>Amount</div><div>By</div>
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr 120px 100px;gap:14px;padding:10px 16px;border-top:1px solid var(--line);font-size:13px">
+            <div style="color:var(--muted)">May 11</div><div>Diella's Garden Magic</div><div style="color:var(--leaf-dk);font-weight:900">+TSh 5,000</div><div>Mama</div>
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr 120px 100px;gap:14px;padding:10px 16px;border-top:1px solid var(--line);font-size:13px">
+            <div style="color:var(--muted)">May 4</div><div>Earnathan's Eggs</div><div style="color:var(--leaf-dk);font-weight:900">+TSh 10,000</div><div>Papa</div>
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr 120px 100px;gap:14px;padding:10px 16px;border-top:1px solid var(--line);font-size:13px">
+            <div style="color:var(--muted)">Apr 27</div><div>Daniella's Cookie Lab</div><div style="color:var(--leaf-dk);font-weight:900">+TSh 4,000</div><div>Mama</div>
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr 120px 100px;gap:14px;padding:10px 16px;border-top:1px solid var(--line);font-size:13px">
+            <div style="color:var(--muted)">Apr 20</div><div>Diella's Garden Magic</div><div style="color:var(--leaf-dk);font-weight:900">+TSh 8,000</div><div>Mama</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §06 ASSET LIBRARY                                        -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">06</span>
+    <h2>Asset library &amp; care defaults</h2>
+    <span class="section-tag both">Mobile + Web</span>
+  </div>
+  <p class="section-intro">v1 ships with five built-in asset types and a <em>custom</em> option families can use immediately. Each type has a default care schedule — tasks become Hive routines so the kid earns House Points for doing them.</p>
+
+  <div class="lib-grid">
+    <div class="lib-card">
+      <div class="lc-head">
+        <div class="lc-emoji">🍈</div>
+        <div>
+          <div class="lc-name">Passion fruit</div>
+          <div class="lc-stages"><span class="stage-pill young">Seedling</span><span class="stage-pill young">Growing</span><span class="stage-pill fruit">Fruiting</span></div>
+        </div>
+      </div>
+      <div class="lc-care"><strong>Water</strong> 3×/week · <strong>Fertilize</strong> monthly · <strong>Prune</strong> quarterly</div>
+      <div class="lc-hp">+5 HP per care task</div>
+    </div>
+    <div class="lib-card">
+      <div class="lc-head">
+        <div class="lc-emoji">🐔</div>
+        <div>
+          <div class="lc-name">Laying hens</div>
+          <div class="lc-stages"><span class="stage-pill young">Chick</span><span class="stage-pill young">Pullet</span><span class="stage-pill lay">Laying</span><span class="stage-pill retired">Retired</span></div>
+        </div>
+      </div>
+      <div class="lc-care"><strong>Feed</strong> daily · <strong>Refresh water</strong> daily · <strong>Clean coop</strong> weekly · <strong>Health check</strong> monthly</div>
+      <div class="lc-hp">+5 HP per care task</div>
+    </div>
+    <div class="lib-card">
+      <div class="lc-head">
+        <div class="lc-emoji">🥬</div>
+        <div>
+          <div class="lc-name">Vegetable garden</div>
+          <div class="lc-stages"><span class="stage-pill young">Seedling</span><span class="stage-pill fruit">Producing</span></div>
+        </div>
+      </div>
+      <div class="lc-care"><strong>Water</strong> daily · <strong>Weed</strong> weekly · <strong>Fertilize</strong> monthly</div>
+      <div class="lc-hp">+5 HP per care task</div>
+    </div>
+    <div class="lib-card">
+      <div class="lc-head">
+        <div class="lc-emoji">🐐</div>
+        <div>
+          <div class="lc-name">Goats</div>
+          <div class="lc-stages"><span class="stage-pill young">Kid</span><span class="stage-pill lay">Adult</span></div>
+        </div>
+      </div>
+      <div class="lc-care"><strong>Feed</strong> 2×/day · <strong>Water</strong> daily · <strong>Deworm</strong> quarterly</div>
+      <div class="lc-hp">+8 HP per care task</div>
+    </div>
+    <div class="lib-card">
+      <div class="lc-head">
+        <div class="lc-emoji">🍪</div>
+        <div>
+          <div class="lc-name">Bakery / kitchen</div>
+          <div class="lc-stages"><span class="stage-pill fruit">Active</span></div>
+        </div>
+      </div>
+      <div class="lc-care"><strong>Restock ingredients</strong> weekly · <strong>Clean station</strong> daily</div>
+      <div class="lc-hp">+4 HP per care task</div>
+    </div>
+    <div class="lib-card" style="border:1.5px dashed var(--leaf);background:var(--cream)">
+      <div class="lc-head">
+        <div class="lc-emoji" style="background:var(--paper);border:1px dashed var(--leaf)">+</div>
+        <div>
+          <div class="lc-name" style="color:var(--leaf-dk)">Custom asset</div>
+          <div class="lc-stages"><span class="stage-pill young">You define</span></div>
+        </div>
+      </div>
+      <div class="lc-care">Define stages and care schedule together with a parent. Family-scoped and editable.</div>
+      <div class="lc-hp">HP reward set per task</div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §07 WHAT'S THIS PATTERN + GLOSSARY                       -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">07</span>
+    <h2>"What's this?" — the teaching pattern</h2>
+    <span class="section-tag both">Mobile + Web</span>
+  </div>
+  <p class="section-intro">Every screen carries a small <em>What's this?</em> card with the relevant kid-friendly definition. Kids tap to expand. The product teaches the vocabulary of business by using it — Asset, Profit, Deposit, Float, Valuation are real grown-up words, and kids should learn them in context, not avoid them.</p>
+
+  <div class="glossary">
+    <div class="gloss-grid">
+      <div class="gterm"><strong>My Business</strong>Your very own little company — the things you grow or make, the people you sell to, and the money you earn.</div>
+      <div class="gterm"><strong>Asset</strong>Something you own that helps you make money. Diella's vines, Earlnathan's hens.</div>
+      <div class="gterm"><strong>Stage</strong>Where your asset is in its life. A vine starts as a <em>seedling</em>, then <em>grows</em>, then <em>fruits</em>.</div>
+      <div class="gterm"><strong>Unit Price</strong>How much <em>one</em> of your assets is worth right now. A laying hen is worth more than a chick.</div>
+      <div class="gterm"><strong>Live Valuation</strong>Total worth of all your assets. Count × Unit Price.</div>
+      <div class="gterm"><strong>Sale</strong>When you give something you made or grew to someone in exchange for money.</div>
+      <div class="gterm"><strong>Family Sale</strong>A sale to someone in our house. The price is set in the Family Price List.</div>
+      <div class="gterm"><strong>Relative Sale</strong>A sale to someone outside our house. You decide the price together.</div>
+      <div class="gterm"><strong>Cost</strong>Money you spend to keep your business going — feed, fertilizer, sugar.</div>
+      <div class="gterm"><strong>Float</strong>Money Mama or Papa puts into your business to help you start, so you don't use your own savings.</div>
+      <div class="gterm"><strong>Profit</strong>What's left after you take costs out of sales. Profit = Sales − Costs. If costs are bigger, that's a <em>loss</em> — and that's okay; it teaches us to plan.</div>
+      <div class="gterm"><strong>The Hive</strong>Your money home inside Kaya. Holds House Points, Honey Coins, and Cash.</div>
+      <div class="gterm"><strong>Cash on Hand</strong>The real money you carry — in your pocket. You can spend it.</div>
+      <div class="gterm"><strong>Deposit</strong>Money you've handed to Mama or Papa to keep safe. You ask to take some out first.</div>
+      <div class="gterm"><strong>Care Reminder</strong>A small job your asset needs to stay healthy. Doing them earns House Points.</div>
+      <div class="gterm"><strong>Weekly Report</strong>A summary every Sunday of how your business did. What sold? What's next?</div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §08 WIRING DIAGRAM                                       -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">08</span>
+    <h2>Wiring · Business → Hive</h2>
+    <span class="section-tag both">System</span>
+  </div>
+  <p class="section-intro">Kaya Business never writes to a kid's wallet directly. Sales and wallet-funded costs become approval requests; Hive's existing flow does the actual ledger move. Float-funded costs stay inside Business — they don't touch Hive. Care tasks complete through Hive's existing routine engine.</p>
+
+  <div class="wiring">
+    <div class="col">
+      <h4>🌿 Kaya Business</h4>
+      <div class="wflow">
+        <div class="wglyph">✅</div>
+        <div><div class="wt">Care task done</div><div class="wd">Kid taps the checkbox</div></div>
+      </div>
+      <div class="wflow">
+        <div class="wglyph">💵</div>
+        <div><div class="wt">Sale logged</div><div class="wd">Family or Relative · destination chosen</div></div>
+      </div>
+      <div class="wflow">
+        <div class="wglyph">🧾</div>
+        <div><div class="wt">Cost from Wallet</div><div class="wd">Kid picks "From wallet"</div></div>
+      </div>
+      <div class="wflow honey">
+        <div class="wglyph" style="background:#FFF3D9">💰</div>
+        <div><div class="wt">Cost from Float</div><div class="wd">Stays in Business — does not touch Hive</div></div>
+      </div>
+    </div>
+    <div class="warrows">
+      <div>→</div>
+      <div>→</div>
+      <div>→</div>
+      <div>×</div>
+    </div>
+    <div class="col hive">
+      <h4>🍯 The Hive</h4>
+      <div class="wflow honey">
+        <div class="wglyph" style="background:#FFF3D9">⭐</div>
+        <div><div class="wt">+HP credited</div><div class="wd">via existing routine engine</div></div>
+      </div>
+      <div class="wflow honey">
+        <div class="wglyph" style="background:#FFF3D9">💵</div>
+        <div><div class="wt">Cash credit</div><div class="wd">→ On Hand or On Deposit (per destination)</div></div>
+      </div>
+      <div class="wflow honey">
+        <div class="wglyph" style="background:#FFF3D9">📉</div>
+        <div><div class="wt">Cash debit</div><div class="wd">From On Hand only · withdraw if insufficient</div></div>
+      </div>
+      <div style="background:var(--cream);padding:10px;border-radius:10px;font-size:11px;color:var(--muted);text-align:center;font-style:italic;border:1px dashed var(--line)">Float never enters Hive. It belongs to the business.</div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <!-- ====================================================== -->
+  <!-- §09 ROADMAP                                              -->
+  <!-- ====================================================== -->
+  <div class="section-title">
+    <span class="section-num">09</span>
+    <h2>Roadmap</h2>
+  </div>
+
+  <div class="roadmap">
+    <div class="phases">
+      <div class="phase now">
+        <div class="pn">v1 · NOW</div>
+        <h4>Kaya Business — Phase 1</h4>
+        <p>Five kid screens, one Parent Console, the Family Price List, the Cost Float, the Asset Library, sibling-visible Sunday reports, kid-friendly definitions on every screen.</p>
+        <ul>
+          <li>One business per kid · flat asset list</li>
+          <li>Sales (family + relative) · Costs (float + wallet)</li>
+          <li>Care reminders → Hive routines → HP</li>
+          <li>Asset stages + lifecycle (loss / advance / retire / transfer)</li>
+          <li>Currency family-configured (TZS / USD / …)</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="pn">v2 · NEXT</div>
+        <h4>Polish &amp; reach</h4>
+        <p>Quality-of-life additions once the v1 pilot is real.</p>
+        <ul>
+          <li>Photo evidence on production / sale logs</li>
+          <li>Push / WhatsApp care reminders</li>
+          <li>Joint ventures (two kids co-own a bakery)</li>
+          <li>Per-report privacy toggle</li>
+          <li>Optional global-profile USD translation</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="pn">v3 · FUTURE</div>
+        <h4>Marketplace</h4>
+        <p>When kids outgrow the household.</p>
+        <ul>
+          <li>Inter-venture trade (Earlnathan supplies eggs to Diella's bakery)</li>
+          <li>Real external customers (school, neighborhood)</li>
+          <li>Mobile-money rails (M-Pesa, Tigo Pesa)</li>
+          <li>Tax / profit-sharing concepts</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="signoff">
+    <h4>v1 sign-off.</h4>
+    <p>Five kid screens, one Parent Console, every locked decision from the brief reflected. Mobile-first for kids; web-first for the parent. Plumbing into Hive v3 (cash split + sale-approval) defined and consistent. If this lands, the next artifact is <code>Kaya-Business_Code-Prompt_2026-05-13.md</code> — the Hive-style code-generation prompt that ships this whole module into the existing Next.js + Firebase repo. Reference: <code>Kaya-Business_Project_Briefing_2026-05-13.md</code>.</p>
+  </div>
+
+  <p class="foot">Kaya · Business · ourkaya.com · Design proposal v1 · 2026-05-13</p>
+</div>
+</body>
+</html>
