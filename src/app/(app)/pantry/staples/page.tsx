@@ -40,27 +40,94 @@ export default function StaplesPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Select mode: when on, every row shows a checkbox and the
+  // header swaps Edit/Add for Cancel/Delete. Closing select mode
+  // clears the selection so a stray selection can't haunt the next
+  // session.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const visible = useMemo(
     () => filter === 'all' ? staples : staples.filter((s) => s.category === filter),
     [staples, filter],
   );
 
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllVisible = () => {
+    setSelectedIds(new Set(visible.map((s) => s.id)));
+  };
+
+  const bulkDelete = async () => {
+    if (!profile?.familyId || isGuest || selectedIds.size === 0) return;
+    const n = selectedIds.size;
+    if (!confirm(`Delete ${n} staple${n === 1 ? '' : 's'} from your master list?`)) return;
+    setBulkBusy(true);
+    // Sequential delete keeps the snapshot quiet — if one fails the
+    // rest still run, and the subscription will reflect the partial
+    // state without rolling back. Lists are small (typically <50
+    // staples) so doing this in parallel isn't worth the complexity.
+    for (const id of Array.from(selectedIds)) {
+      await deleteStaple(profile.familyId, id);
+    }
+    setBulkBusy(false);
+    exitSelectMode();
+  };
+
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
+    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Pantry · Staples</p>
           <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">What we always need 📦</h1>
         </div>
-        {!isGuest && (
-          <button
-            onClick={() => { setAdding((v) => !v); setEditingId(null); }}
-            className="h-10 px-4 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
-          >
-            {adding ? 'Close' : '+ Add'}
-          </button>
+        {!isGuest && !selectMode && (
+          <div className="flex items-center gap-1.5">
+            {staples.length > 1 && (
+              <button
+                onClick={() => { setSelectMode(true); setEditingId(null); setAdding(false); }}
+                className="h-10 px-3 rounded-hive-pill bg-hive-paper border border-hive-line text-hive-muted font-nunito font-extrabold text-[12px]"
+              >
+                Select
+              </button>
+            )}
+            <button
+              onClick={() => { setAdding((v) => !v); setEditingId(null); }}
+              className="h-10 px-4 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
+            >
+              {adding ? 'Close' : '+ Add'}
+            </button>
+          </div>
+        )}
+        {!isGuest && selectMode && (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={selectAllVisible}
+              className="h-10 px-3 rounded-hive-pill bg-hive-paper border border-hive-line text-hive-muted font-nunito font-extrabold text-[12px]"
+            >
+              Select all
+            </button>
+            <button
+              onClick={exitSelectMode}
+              className="h-10 px-3 rounded-hive-pill bg-hive-paper border border-hive-line text-hive-muted font-nunito font-extrabold text-[12px]"
+            >
+              Cancel
+            </button>
+          </div>
         )}
       </div>
 
@@ -75,7 +142,7 @@ export default function StaplesPage() {
       </div>
 
       {/* Add form (collapsible) */}
-      {adding && (
+      {adding && !selectMode && (
         <StapleForm
           familyId={profile?.familyId || ''}
           suppliers={sokoSuppliers}
@@ -107,6 +174,9 @@ export default function StaplesPage() {
               onEditToggle={() => setEditingId((id) => (id === s.id ? null : s.id))}
               familyId={profile?.familyId || ''}
               isGuest={isGuest}
+              selectMode={selectMode}
+              selected={selectedIds.has(s.id)}
+              onToggleSelect={() => toggleSelect(s.id)}
             />
           ))}
         </div>
@@ -116,6 +186,31 @@ export default function StaplesPage() {
         Staples seed every weekly list with default qty + last-bought price.{' '}
         <Link href="/pantry" className="text-pantry-leaf-dk font-bold hover:underline">← Back to Pantry</Link>
       </p>
+
+      {/* Sticky bulk-delete bar — only renders in select mode with
+          a non-empty selection so the page stays clean otherwise. */}
+      {selectMode && selectedIds.size > 0 && (
+        <div className="fixed inset-x-0 bottom-[88px] lg:bottom-6 z-40 px-4 lg:left-[260px] pointer-events-none">
+          <div className="mx-auto max-w-md lg:max-w-3xl pointer-events-auto">
+            <div className="bg-hive-rose text-white rounded-hive-lg shadow-[0_18px_40px_-12px_rgba(227,111,111,0.6)] p-3 flex items-center gap-3">
+              <span className="font-nunito font-black text-[14px]">{selectedIds.size} selected</span>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="ml-auto text-[12px] font-nunito font-extrabold underline opacity-90"
+              >
+                Clear
+              </button>
+              <button
+                onClick={bulkDelete}
+                disabled={bulkBusy}
+                className="h-10 px-4 rounded-hive-pill bg-white text-hive-rose font-nunito font-black text-[12px] disabled:opacity-50"
+              >
+                {bulkBusy ? 'Deleting…' : `🗑 Delete ${selectedIds.size}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -139,6 +234,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 
 function StapleRow({
   staple, suppliers, currency, editing, onEditToggle, familyId, isGuest,
+  selectMode, selected, onToggleSelect,
 }: {
   staple: Staple;
   suppliers: import('@/lib/pantry').Supplier[];
@@ -147,12 +243,41 @@ function StapleRow({
   onEditToggle: () => void;
   familyId: string;
   isGuest: boolean;
+  selectMode: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const supplier = staple.preferredSupplierId
     ? suppliers.find((s) => s.id === staple.preferredSupplierId)
     : undefined;
   const cat = STAPLE_CATEGORIES.find((c) => c.id === staple.category);
   const cadence = CADENCES.find((c) => c.id === staple.cadence);
+
+  // Inline price editor — separate from the full edit form so a
+  // parent can adjust just the budget number without opening the
+  // whole row up. Enter or blur saves; Escape cancels.
+  const [priceEditing, setPriceEditing] = useState(false);
+  const [priceDraft, setPriceDraft] = useState<number>(
+    staple.lastBoughtCents ? staple.lastBoughtCents / 100 : 0,
+  );
+  const [priceSaving, setPriceSaving] = useState(false);
+
+  const startPriceEdit = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isGuest || selectMode) return;
+    setPriceDraft(staple.lastBoughtCents ? staple.lastBoughtCents / 100 : 0);
+    setPriceEditing(true);
+  };
+  const cancelPriceEdit = () => setPriceEditing(false);
+  const commitPriceEdit = async () => {
+    if (isGuest) { setPriceEditing(false); return; }
+    const cents = priceDraft > 0 ? Math.round(priceDraft * 100) : undefined;
+    if (cents === staple.lastBoughtCents) { setPriceEditing(false); return; }
+    setPriceSaving(true);
+    await updateStaple(familyId, staple.id, { lastBoughtCents: cents });
+    setPriceSaving(false);
+    setPriceEditing(false);
+  };
 
   if (editing) {
     return (
@@ -172,8 +297,26 @@ function StapleRow({
     );
   }
 
-  return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+  // In select mode the whole row is a toggle target, so we wrap in
+  // a button — this gives us keyboard activation + the right hit
+  // target for thumbs. Outside select mode the row stays a div so
+  // the inline price input doesn't accidentally toggle anything.
+  const rowOuterClass = `bg-hive-paper border rounded-hive p-3 flex items-center gap-3 ${
+    selectMode && selected
+      ? 'border-hive-rose ring-2 ring-hive-rose/30 bg-hive-rose/5'
+      : 'border-hive-line'
+  } ${selectMode ? 'cursor-pointer' : ''}`;
+  const inner = (
+    <>
+      {selectMode && (
+        <div
+          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+            selected ? 'bg-hive-rose border-hive-rose text-white' : 'bg-white border-hive-line'
+          }`}
+        >
+          {selected && <span className="text-[10px] leading-none">✓</span>}
+        </div>
+      )}
       <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
         {cat?.emoji || '✨'}
       </div>
@@ -187,17 +330,58 @@ function StapleRow({
             </span>
           )}
         </p>
-        <p className="text-[11px] text-hive-muted truncate">
-          {staple.defaultQty}{staple.unit ? ` ${staple.unit}` : ''} · {cadence?.label || staple.cadence}
-          {typeof staple.lastBoughtCents === 'number' && (
-            <> · <strong className="text-pantry-leaf-dk">{formatCents(staple.lastBoughtCents, currency)}</strong></>
+        <p className="text-[11px] text-hive-muted truncate flex items-baseline gap-1 flex-wrap">
+          <span>{staple.defaultQty}{staple.unit ? ` ${staple.unit}` : ''} · {cadence?.label || staple.cadence}</span>
+          <span>·</span>
+          {priceEditing ? (
+            <span className="inline-flex items-baseline gap-1" onClick={(e) => e.stopPropagation()}>
+              <span className="text-hive-muted">{currency === 'USD' ? '$' : currency}</span>
+              <NumberInput
+                value={priceDraft}
+                onChange={setPriceDraft}
+                allowDecimal
+                min={0}
+                ariaLabel="Last-bought price"
+                placeholder="0"
+                autoFocus
+                onEnter={commitPriceEdit}
+                className="w-20 h-7 px-2 bg-hive-cream rounded-[8px] text-[12px] font-nunito font-extrabold border border-pantry-leaf focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              />
+              <button
+                type="button"
+                onClick={cancelPriceEdit}
+                disabled={priceSaving}
+                className="text-[11px] font-nunito font-bold text-hive-muted disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={commitPriceEdit}
+                disabled={priceSaving}
+                className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk underline disabled:opacity-50"
+              >
+                {priceSaving ? '…' : 'Save'}
+              </button>
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={startPriceEdit}
+              disabled={isGuest || selectMode}
+              className="text-pantry-leaf-dk font-nunito font-extrabold underline-offset-2 hover:underline disabled:no-underline disabled:opacity-70"
+            >
+              {typeof staple.lastBoughtCents === 'number' && staple.lastBoughtCents > 0
+                ? formatCents(staple.lastBoughtCents, currency)
+                : '+ set price'}
+            </button>
           )}
         </p>
         {supplier && (
           <div className="mt-1"><SupplierBadge supplier={supplier} /></div>
         )}
       </div>
-      {!isGuest && (
+      {!isGuest && !selectMode && (
         <button
           onClick={onEditToggle}
           className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline shrink-0"
@@ -205,8 +389,17 @@ function StapleRow({
           Edit
         </button>
       )}
-    </div>
+    </>
   );
+
+  if (selectMode) {
+    return (
+      <button type="button" onClick={onToggleSelect} className={`w-full text-left ${rowOuterClass}`}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className={rowOuterClass}>{inner}</div>;
 }
 
 function StapleForm({
