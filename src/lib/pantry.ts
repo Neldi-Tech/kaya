@@ -345,16 +345,18 @@ export function subscribeToList(
 /** Empty list. Caller adds items via `setListItems`. */
 export async function createList(
   familyId: string,
-  data: { name: string; weekOf: string },
+  data: { name: string; weekOf: string; items?: GroceryListItem[] },
   createdBy: string,
 ): Promise<string> {
   if (isGuestActive()) return 'guest-list';
+  const items = data.items || [];
+  const estimatedTotalCents = items.reduce((sum, i) => sum + (i.estimatedCents || 0), 0);
   const ref = await addDoc(listCol(familyId), {
     name: data.name,
     weekOf: data.weekOf,
     status: 'active' as const,
-    items: [],
-    estimatedTotalCents: 0,
+    items,
+    estimatedTotalCents,
     createdAt: serverTimestamp(),
     createdBy,
   });

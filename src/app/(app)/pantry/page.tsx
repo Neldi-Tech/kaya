@@ -94,19 +94,31 @@ export default function PantryHomePage() {
           <p className="font-nunito font-black text-lg mb-1">No active list</p>
           <p className="text-[12px] text-hive-muted leading-relaxed mb-4">
             {staples.length > 0
-              ? `Start this week's list — we'll seed it from your ${staples.length} staple${staples.length === 1 ? '' : 's'}.`
-              : 'Add a few staples first, or start with a blank list and build it up.'}
+              ? `Three ways to start — Smart-start, pick a template, or seed from your ${staples.length} saved staple${staples.length === 1 ? '' : 's'}.`
+              : 'Pick a door — Smart-start asks 6 quick questions, or browse templates.'}
           </p>
-          <button
-            onClick={startWeek}
-            disabled={creating || isGuest}
-            className="w-full h-12 rounded-hive bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-sm disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
+
+          {/* Primary CTA → the three-doors page */}
+          <Link
+            href="/pantry/list/new"
+            className="block w-full h-12 leading-[3rem] rounded-hive bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-sm transition-colors shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)] no-underline"
           >
-            {creating ? 'Starting…' : `Start ${thisWeekLabel()}`}
-          </button>
+            ✨ Start a new list
+          </Link>
+
+          {/* Quick pivot for parents who already have staples saved */}
+          {staples.length > 0 && (
+            <button
+              onClick={startWeek}
+              disabled={creating || isGuest}
+              className="w-full mt-2 h-10 rounded-hive-pill bg-hive-paper border border-pantry-leaf/40 text-pantry-leaf-dk font-nunito font-extrabold text-[12px] disabled:opacity-40"
+            >
+              {creating ? 'Seeding…' : `Or seed from my ${staples.length} staples`}
+            </button>
+          )}
           {staples.length === 0 && (
             <p className="mt-3 text-[11px] text-hive-muted">
-              <Link href="/pantry/staples" className="text-pantry-leaf-dk font-bold hover:underline">+ Add staples first</Link> for a faster start.
+              <Link href="/pantry/staples" className="text-pantry-leaf-dk font-bold hover:underline">+ Add staples first</Link> for a saved master list later.
             </p>
           )}
           {error && <p className="text-hive-rose text-[12px] font-bold mt-2">{error}</p>}

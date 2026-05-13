@@ -49,8 +49,28 @@ export default function ListPage() {
   }, [profile?.familyId, listId]);
 
   const items = list?.items || [];
-  const groups = useMemo(() => groupBySupplier(items, sokoSuppliers), [items, sokoSuppliers]);
+
+  // Split the list into Food vs Consumables so parents see what
+  // they're actually shopping for at a glance. The existing
+  // supplier grouping still runs *inside* each section so the
+  // per-supplier WhatsApp send still works one tap from the row.
+  // Items without a category land in Food (the safer default —
+  // most uncategorised items are produce/pantry).
+  const FOOD_CATEGORIES = new Set<StapleCategory>(['produce', 'dairy', 'pantry']);
+  const foodItems = useMemo(
+    () => items.filter((i) => !i.category || FOOD_CATEGORIES.has(i.category)),
+    [items],
+  );
+  const consumableItems = useMemo(
+    () => items.filter((i) => i.category && !FOOD_CATEGORIES.has(i.category)),
+    [items],
+  );
+  const foodGroups = useMemo(() => groupBySupplier(foodItems, sokoSuppliers), [foodItems, sokoSuppliers]);
+  const consumableGroups = useMemo(() => groupBySupplier(consumableItems, sokoSuppliers), [consumableItems, sokoSuppliers]);
   const doneCount = items.filter((i) => i.done).length;
+
+  const sumLine = (rows: GroceryListItem[]) =>
+    rows.reduce((sum, r) => sum + (r.estimatedCents || 0), 0);
 
   // Persist any change to items by writing the full array (lists are
   // small enough that this is fine, and the read-side gets a single
@@ -106,21 +126,58 @@ export default function ListPage() {
           </Link>
         </div>
       ) : (
-        <div className="space-y-3">
-          {groups.map((g) => (
-            <SupplierGroupCard
-              key={g.supplierId || 'unassigned'}
-              group={g}
-              items={items}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4">
+          {/* 🍽️ FOOD section */}
+          {foodItems.length > 0 && (
+            <SectionWrap
+              emoji="🍽️"
+              title="Food"
+              itemCount={foodItems.length}
+              estimatedCents={sumLine(foodItems)}
               currency={currency}
-              familyName={family?.name}
-              onChange={persist}
-              onToggleDone={(itemId) => persist(toggleItemDone(items, itemId))}
-              onRemove={(itemId) => persist(removeItem(items, itemId))}
-              suppliers={sokoSuppliers}
-              isGuest={isGuest}
-            />
-          ))}
+            >
+              {foodGroups.map((g) => (
+                <SupplierGroupCard
+                  key={`food-${g.supplierId || 'unassigned'}`}
+                  group={g}
+                  items={items}
+                  currency={currency}
+                  familyName={family?.name}
+                  onChange={persist}
+                  onToggleDone={(itemId) => persist(toggleItemDone(items, itemId))}
+                  onRemove={(itemId) => persist(removeItem(items, itemId))}
+                  suppliers={sokoSuppliers}
+                  isGuest={isGuest}
+                />
+              ))}
+            </SectionWrap>
+          )}
+
+          {/* 🧴 CONSUMABLES section */}
+          {consumableItems.length > 0 && (
+            <SectionWrap
+              emoji="🧴"
+              title="Consumables"
+              itemCount={consumableItems.length}
+              estimatedCents={sumLine(consumableItems)}
+              currency={currency}
+            >
+              {consumableGroups.map((g) => (
+                <SupplierGroupCard
+                  key={`cons-${g.supplierId || 'unassigned'}`}
+                  group={g}
+                  items={items}
+                  currency={currency}
+                  familyName={family?.name}
+                  onChange={persist}
+                  onToggleDone={(itemId) => persist(toggleItemDone(items, itemId))}
+                  onRemove={(itemId) => persist(removeItem(items, itemId))}
+                  suppliers={sokoSuppliers}
+                  isGuest={isGuest}
+                />
+              ))}
+            </SectionWrap>
+          )}
         </div>
       )}
 
@@ -168,6 +225,35 @@ export default function ListPage() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────
+
+// Wraps a list section (Food or Consumables) with a header showing
+// the count + subtotal, then renders its supplier groups inside.
+// Used to mirror the parent's mental model of "I'm shopping for two
+// kinds of things" rather than one undifferentiated list.
+function SectionWrap({
+  emoji, title, itemCount, estimatedCents, currency, children,
+}: {
+  emoji: string;
+  title: string;
+  itemCount: number;
+  estimatedCents: number;
+  currency: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-baseline justify-between px-1">
+        <p className="text-[12px] font-nunito font-extrabold uppercase tracking-[1.6px] text-pantry-leaf-dk">
+          {emoji} {title} · {itemCount} item{itemCount === 1 ? '' : 's'}
+        </p>
+        <p className="text-[11px] font-nunito font-extrabold text-hive-muted">
+          ~ {formatCents(estimatedCents, currency)}
+        </p>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 function SupplierGroupCard({
   group, items, currency, familyName, onChange, onToggleDone, onRemove, suppliers, isGuest,
