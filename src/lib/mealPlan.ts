@@ -144,14 +144,39 @@ export function loadWeekPlan(familyId: string): WeekPlan | null {
     const raw = window.localStorage.getItem(storageKey(familyId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as WeekPlan;
-    // Roll forward if the stored plan is from a previous week.
-    if (parsed.weekKey !== isoWeekKey(new Date())) {
-      return newWeekPlan();
+    const currentKey = isoWeekKey(new Date());
+    if (parsed.weekKey !== currentKey) {
+      // Roll the previous week's plan forward — keep all the slot
+      // picks (food / dining-out / audience) and only refresh the
+      // dates + week key. Parents asked for the last plan to be
+      // the default for the new week unless they explicitly tap
+      // "Clear week", since most weeks repeat closely.
+      return rollForward(parsed);
     }
     return parsed;
   } catch {
     return null;
   }
+}
+
+/** Carry an existing plan into the current week. Same slot contents
+ *  per weekday (Mon-stays-Mon by index), but day.date / dateLabel /
+ *  weekKey / weekLabel all refreshed. Snack and dining-out picks
+ *  travel along too. */
+export function rollForward(plan: WeekPlan): WeekPlan {
+  const fresh = newWeekPlan();
+  const days = fresh.days.map((day, i) => {
+    const prev = plan.days[i];
+    if (!prev) return day;
+    return {
+      ...day,
+      breakfast: { ...prev.breakfast },
+      lunch:     { ...prev.lunch },
+      dinner:    { ...prev.dinner },
+      snack:     { ...prev.snack },
+    };
+  });
+  return { ...fresh, days, updatedAt: Date.now() };
 }
 
 export function saveWeekPlan(familyId: string, plan: WeekPlan): void {
