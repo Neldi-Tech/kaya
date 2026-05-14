@@ -28,8 +28,16 @@ type MobileGroup =
   | { kind: 'sheet'; id: string; icon: string; label: string; title: string; sections: NavSection[] }
   | { kind: 'soon'; id: string; icon: string; label: string };
 
-const PARENT_PRIMARY: NavItem[] = [
-  { path: '/dashboard', icon: '🏠', label: 'Home',           mobileLabel: 'Home' },
+// Home · the dashboard landing — module overview + family score.
+const PARENT_HOME: NavItem[] = [
+  { path: '/dashboard', icon: '🏠', label: 'Home', mobileLabel: 'Home' },
+];
+
+// Kaya · the point-system foundation — rate routines, award points,
+// run the weekly family meeting, manage rewards. The core parenting
+// loop the rest of the app is built around, so it gets its own
+// top-level slot rather than living only as dashboard cards.
+const KAYA_NAV: NavItem[] = [
   { path: '/rate',      icon: '📋', label: 'Rate routines',  mobileLabel: 'Rate' },
   { path: '/award',     icon: '🎖️', label: 'Award points',   mobileLabel: 'Award' },
   { path: '/meetings',  icon: '👨‍👩‍👧‍👦', label: 'Family meeting', mobileLabel: 'Meet' },
@@ -89,13 +97,16 @@ const KID_FUN_NAV: NavItem[] = [
   { path: '/games',  icon: '🎮', label: 'Games',  mobileLabel: 'Games',  soon: true },
 ];
 
-// Six top-level groups for parents on mobile.
-//   1. Home       — dashboard, surfaces Rate/Award/Meet/Rewards as cards
-//   2. House      — Household section (Pantry today; Roster, chats next)
-//   3. Hive       — The Hive section (Approvals/Rates/Deposit live inside)
-//   4. Stats      — Insights sheet (Reports, Profiles, Badges, Family tree)
-//   5. Pages      — Directory / Yellow Pages (family service directory)
-//   6. Fun        — Videos/Games sheet (both Soon)
+// Seven top-level groups for parents on mobile. These seven slots
+// are fixed for now — a "pick what shows here" customiser is a
+// planned follow-up. Order matches the desktop sidebar sections.
+//   1. Home   — dashboard: module overview + family score
+//   2. Kaya   — point-system sheet (Rate / Award / Meet / Rewards)
+//   3. Pantry — Household section (lists, staples, meals, suppliers)
+//   4. Hive   — The Hive section (wallets, approvals, rates, deposit)
+//   5. Pages  — Yellow Pages service directory
+//   6. Stats  — Insights sheet (Reports, Profiles, Badges, Family tree)
+//   7. Fun    — Videos / Games sheet
 const PARENT_MOBILE_GROUPS: MobileGroup[] = [
   {
     kind: 'link',
@@ -103,12 +114,20 @@ const PARENT_MOBILE_GROUPS: MobileGroup[] = [
     path: '/dashboard',
     icon: '🏠',
     label: 'Home',
-    // Routes that conceptually belong to the Home group — keep Home
-    // highlighted when the user is rating, awarding, in a meeting,
-    // browsing rewards, or reading notifications.
-    activePrefixes: ['/rate', '/award', '/meetings', '/rewards', '/notifications'],
+    // Notifications conceptually belong to Home. Rate/Award/Meet/
+    // Rewards moved to the Kaya group — the Kaya sheet lights up on
+    // those routes automatically since they're its sheet items.
+    activePrefixes: ['/notifications'],
   },
-  { kind: 'link', id: 'household', path: '/pantry', icon: '🛒', label: 'House' },
+  {
+    kind: 'sheet',
+    id: 'kaya',
+    icon: '⭐',
+    label: 'Kaya',
+    title: 'Kaya · point system',
+    sections: [{ items: KAYA_NAV }],
+  },
+  { kind: 'link', id: 'pantry', path: '/pantry', icon: '🛒', label: 'Pantry' },
   {
     kind: 'link',
     id: 'hive',
@@ -119,6 +138,7 @@ const PARENT_MOBILE_GROUPS: MobileGroup[] = [
     // to the Hive group conceptually.
     activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'],
   },
+  { kind: 'link', id: 'directory', path: '/directory', icon: '📒', label: 'Pages' },
   {
     kind: 'sheet',
     id: 'insights',
@@ -127,7 +147,6 @@ const PARENT_MOBILE_GROUPS: MobileGroup[] = [
     title: 'Insights',
     sections: [{ items: PARENT_INSIGHTS }],
   },
-  { kind: 'link', id: 'directory', path: '/directory', icon: '📒', label: 'Pages' },
   {
     kind: 'sheet',
     id: 'fun',
@@ -197,15 +216,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       : role === 'helper'
       ? [{ items: HELPER_NAV }]
       : [
-          { title: 'Home',                       items: PARENT_PRIMARY },
-          { title: 'Household', href: '/pantry', items: PARENT_HOUSEHOLD },
-          { title: 'The Hive',  href: '/hive',   items: PARENT_HIVE_NAV },
-          { title: 'Insights',                   items: PARENT_INSIGHTS },
-          { title: 'Directory',                  items: PARENT_DIRECTORY },
-          { title: 'Fun',                        items: FUN_NAV },
+          // Desktop sidebar mirrors the 7-slot mobile model.
+          { title: 'Home',                         items: PARENT_HOME },
+          { title: 'Kaya',                         items: KAYA_NAV },
+          { title: 'Pantry',    href: '/pantry',    items: PARENT_HOUSEHOLD },
+          { title: 'The Hive',  href: '/hive',      items: PARENT_HIVE_NAV },
+          { title: 'Pages',     href: '/directory', items: PARENT_DIRECTORY },
+          { title: 'Stats',                        items: PARENT_INSIGHTS },
+          { title: 'Fun',                          items: FUN_NAV },
         ];
 
-  // Mobile bottom nav uses the new 6-group model for parents.
+  // Mobile bottom nav uses the 7-slot model for parents.
   const mobileGroups: MobileGroup[] =
     role === 'kid' ? KID_MOBILE_GROUPS :
     role === 'helper' ? HELPER_MOBILE_GROUPS :

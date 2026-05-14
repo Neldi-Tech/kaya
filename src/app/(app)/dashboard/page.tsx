@@ -17,6 +17,9 @@ type ActivityItem = {
   by: string;
 };
 
+// "Kaya" — the point-system foundation. These are the daily-loop
+// actions; they sit under a "Kaya" header on the dashboard and form
+// the Kaya group in the bottom nav.
 const QUICK_ACTIONS = [
   { icon: '☀️', short: 'Morning\nRating',  long: 'Morning rating',  hint: 'Rate today’s wake-up routines',  path: '/rate?period=morning', color: '#FFF8E7' },
   { icon: '🌙', short: 'Evening\nRating',  long: 'Evening rating',  hint: 'Rate today’s wind-down routines', path: '/rate?period=evening', color: '#EFF0FF' },
@@ -24,6 +27,18 @@ const QUICK_ACTIONS = [
   { icon: '👨‍👩‍👧‍👦', short: 'Family\nMeeting', long: 'Family meeting', hint: '6-step weekly flow',              path: '/meetings',            color: '#E7FFF0' },
   { icon: '🎁', short: 'Rewards',          long: 'Rewards',         hint: 'Spend points on family treats',   path: '/rewards',             color: '#FBE7FF' },
   { icon: '👧', short: 'Kid\nProfiles',    long: 'Kid profiles',    hint: 'Per-child progress',              path: '/profiles',            color: '#E7F3FF' },
+];
+
+// The other top-level modules — everything beyond the daily Kaya
+// loop. The dashboard surfaces these as an "Explore" grid so Home
+// is genuinely a view of all existing modules, matching the
+// bottom-nav slots (Pantry / Hive / Pages / Stats / Fun).
+const MODULES = [
+  { icon: '🛒', name: 'Pantry', hint: 'Lists, staples, meals & suppliers', path: '/pantry',    color: '#E7FBF0' },
+  { icon: '🍯', name: 'Hive',   hint: 'Kids’ wallets, goals & approvals',  path: '/hive',      color: '#FFF6E0' },
+  { icon: '📒', name: 'Pages',  hint: 'Your family service directory',     path: '/directory', color: '#FFF0E7' },
+  { icon: '📊', name: 'Stats',  hint: 'Reports, profiles, badges & tree',  path: '/reports',   color: '#E7F3FF' },
+  { icon: '🎮', name: 'Fun',    hint: 'Games & videos',                    path: '/games',     color: '#FBE7FF' },
 ];
 
 export default function DashboardPage() {
@@ -131,6 +146,9 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        <h2 className="font-display text-base font-bold mb-2 flex items-center gap-1.5">
+          <span>⭐</span> Kaya · point system
+        </h2>
         <div className="grid grid-cols-2 gap-3 mb-6">
           {QUICK_ACTIONS.map((a) => (
             <button
@@ -145,6 +163,30 @@ export default function DashboardPage() {
                 {a.icon}
               </div>
               <span className="text-xs font-bold leading-tight whitespace-pre-line">{a.short}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Explore — every other top-level module, so Home is a real
+            overview of the whole app, not just the points loop. */}
+        <h2 className="font-display text-base font-bold mb-2 flex items-center gap-1.5">
+          <span>🧭</span> Explore
+        </h2>
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          {MODULES.map((m) => (
+            <button
+              key={m.path}
+              onClick={() => router.push(m.path)}
+              className="flex flex-col gap-1.5 p-4 rounded-kaya border border-kaya-warm-dark bg-white hover:shadow-sm transition-shadow text-left"
+            >
+              <div
+                className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
+                style={{ backgroundColor: m.color }}
+              >
+                {m.icon}
+              </div>
+              <span className="text-sm font-bold mt-0.5">{m.name}</span>
+              <span className="text-[11px] text-kaya-sand leading-tight">{m.hint}</span>
             </button>
           ))}
         </div>
@@ -279,9 +321,11 @@ export default function DashboardPage() {
           })}
         </div>
 
-        {/* Quick actions */}
+        {/* Kaya · the point-system foundation */}
         <div className="mb-8">
-          <h2 className="font-display text-base font-bold mb-3">Quick actions</h2>
+          <h2 className="font-display text-base font-bold mb-3 flex items-center gap-1.5">
+            <span>⭐</span> Kaya · point system
+          </h2>
           <div className="grid grid-cols-4 gap-3">
             {QUICK_ACTIONS.map((a) => (
               <button
@@ -298,6 +342,33 @@ export default function DashboardPage() {
                 <div>
                   <div className="text-sm font-bold">{a.long}</div>
                   <div className="text-[11px] text-kaya-sand">{a.hint}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Explore — the other top-level modules */}
+        <div className="mb-8">
+          <h2 className="font-display text-base font-bold mb-3 flex items-center gap-1.5">
+            <span>🧭</span> Explore
+          </h2>
+          <div className="grid grid-cols-5 gap-3">
+            {MODULES.map((m) => (
+              <button
+                key={m.path}
+                onClick={() => router.push(m.path)}
+                className="flex flex-col gap-2 p-4 rounded-kaya border border-kaya-warm-dark bg-white hover:shadow-md hover:-translate-y-0.5 transition-all text-left"
+              >
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
+                  style={{ backgroundColor: m.color }}
+                >
+                  {m.icon}
+                </div>
+                <div>
+                  <div className="text-sm font-bold">{m.name}</div>
+                  <div className="text-[11px] text-kaya-sand leading-tight">{m.hint}</div>
                 </div>
               </button>
             ))}
