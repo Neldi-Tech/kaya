@@ -1,53 +1,46 @@
-// Price estimation for /pantry/list smart-start + templates.
+// Price estimation for the Pantry directory + /pantry/list
+// smart-start + templates.
 //
 // We don't carry a per-item price in the directory (would mean
-// hand-tagging 192 items × 3 regions × occasional inflation
-// updates). Instead this module gives a deterministic "reasonable
-// number" based on the staple's `category` + the household's
-// region, so the first list a parent sees feels real with numbers
-// rather than empty TSh placeholders.
+// hand-tagging 192 items and re-touching them on every inflation
+// tick). Instead this module gives a deterministic "reasonable
+// number" from the staple's `category` + a small per-item override
+// table — a USD baseline — then converts it into the family's
+// actual display currency using a real exchange rate.
 //
 // Numbers are intentionally coarse — the goal is "good first
 // estimate", not retail accuracy. The list captures real prices as
-// soon as the parent edits a row or closes a list (existing
-// lastBoughtCents flow), so the estimates only matter at plan
-// time.
-//
-// Currency is the family's display currency from HiveConfig today
-// (TSh / KSh / USD / etc.); the cents value here is in the family's
-// currency-minor-units. Conversion between currencies happens
-// downstream — this module produces a single "local cents" number
-// per item.
+// soon as the parent edits a row or closes a list, so the estimates
+// only matter at plan time. The conversion does respect the
+// family's currency though: a TZS family sees TSh-scale numbers,
+// an INR family sees ₹-scale numbers, a USD family sees dollars —
+// using the FX table below rather than a crude region guess.
 
 import type { DirectoryStaple } from './pantryDirectory';
-import type { Region } from './pantryDirectory';
 import type { Cadence, StapleCategory } from './pantry';
 
 // ── Base price table ─────────────────────────────────────────────
-// Per-unit "typical retail" rounded to the nearest 100 minor units
-// (so TSh 2,400 not TSh 2,378). Calibrated for a normal supermarket
-// run, not bulk wholesale. The regional multipliers below scale.
+// Per-unit "typical retail" baseline in USD cents. Calibrated for a
+// normal supermarket run, not bulk wholesale. The FX table converts
+// to the family's currency.
 
 interface BaseUnitPrice {
-  /** Per-unit baseline price in USD cents (Global region). The
-   *  region multiplier converts to the family's local currency
-   *  minor unit. */
-  perUnitCentsGlobal: number;
+  /** Per-unit baseline price in USD cents. */
+  perUnitCentsUsd: number;
 }
 
 const CATEGORY_DEFAULTS: Record<StapleCategory, BaseUnitPrice> = {
-  produce:  { perUnitCentsGlobal: 200 },   // ~$2 / kg or bunch
-  dairy:    { perUnitCentsGlobal: 350 },   // milk / cheese / eggs
-  pantry:   { perUnitCentsGlobal: 250 },   // grains, flour, oil, spices
-  cleaning: { perUnitCentsGlobal: 400 },   // soaps, detergents
-  personal: { perUnitCentsGlobal: 450 },   // hygiene + grooming
-  other:    { perUnitCentsGlobal: 600 },   // gas, batteries, misc
+  produce:  { perUnitCentsUsd: 200 },   // ~$2 / kg or bunch
+  dairy:    { perUnitCentsUsd: 350 },   // milk / cheese / eggs
+  pantry:   { perUnitCentsUsd: 250 },   // grains, flour, oil, spices
+  cleaning: { perUnitCentsUsd: 400 },   // soaps, detergents
+  personal: { perUnitCentsUsd: 450 },   // hygiene + grooming
+  other:    { perUnitCentsUsd: 600 },   // gas, batteries, misc
 };
 
 // ── Per-unit overrides ───────────────────────────────────────────
 // Some items have wildly different price/unit than the category
-// average. Keyed by lowercased label so adding a new staple
-// doesn't break the table.
+// average. USD cents, keyed by lowercased label.
 
 const UNIT_OVERRIDES: Record<string, number> = {
   // Meat / fish (premium)
@@ -75,39 +68,60 @@ const UNIT_OVERRIDES: Record<string, number> = {
   'ghee':                    700,
 };
 
-// ── Region multipliers ───────────────────────────────────────────
-// Rough scalars so the same baseline number renders in the right
-// magnitude. The display currency is decided by HiveConfig — we
-// only scale magnitude here.
+// ── USD → family-currency exchange rates ─────────────────────────
+// Covers every currency in the HiveConfig CURRENCIES catalog. These
+// are coarse, hand-maintained mid-rates — a budget *estimate*, not a
+// forex feed — but they mean a Tanzanian family sees realistic
+// TSh-scale numbers instead of the old "region × 250" guess that
+// ignored which currency the family actually uses.
 //
-//   global:      USD-ish     · cents = USD¢
-//   east-africa: TSh / KSh   · ~150x USD cents (≈ $1 ≈ TSh 150 ?  use 100x for a rough TSh)
-//   south-asia:  INR / NPR   · ~80x USD cents
-
-const REGION_MULT: Record<Region | 'any', number> = {
-  'global':      1,
-  'east-africa': 250,   // dollars * 250 → roughly TSh for that dollar
-  'south-asia':  85,    // dollars * 85  → roughly INR for that dollar
-  'any':         1,
+// Maintenance note: bump these when a rate drifts a lot. They only
+// affect the *initial* estimate; once a parent edits a price or
+// closes a list, the real number takes over.
+const USD_FX: Record<string, number> = {
+  USD: 1,
+  EUR: 0.92,
+  GBP: 0.79,
+  TZS: 2650,
+  KES: 129,
+  UGX: 3700,
+  ZAR: 18.5,
+  NGN: 1550,
+  AED: 3.67,
+  INR: 83,
+  CAD: 1.37,
+  AUD: 1.52,
 };
+
+/** USD → `currency` rate. Unknown / missing codes fall back to 1
+ *  (treat as USD) so a new currency never crashes the estimator. */
+export function usdFxRate(currency: string | undefined): number {
+  if (!currency) return 1;
+  return USD_FX[currency] ?? 1;
+}
 
 // ── Public API ───────────────────────────────────────────────────
 
 /** Best-effort "what would a parent expect to pay" estimate for one
- *  unit of the staple, in the family's local currency minor unit
- *  (cents-equivalent). Multiply by `qty` at the call site. */
-export function estimateUnitPriceCents(staple: DirectoryStaple, region: Region | 'any' = 'any'): number {
+ *  unit of the staple, in the family's currency MINOR units (cents-
+ *  equivalent). Multiply by `qty` at the call site.
+ *
+ *  The math lines up cleanly: a USD-cents baseline × the USD→target
+ *  major-unit rate already lands in target minor units, because
+ *  `USDcents × (targetMajor / USDmajor) = targetMajor × 100 =
+ *  targetMinor`. So 200 USD¢ ($2) at TZS 2650/USD → 530000 (TSh
+ *  5,300). */
+export function estimateUnitPriceCents(staple: DirectoryStaple, currency: string = 'USD'): number {
   const key = staple.label.toLowerCase();
-  const baseGlobal = UNIT_OVERRIDES[key] ?? CATEGORY_DEFAULTS[staple.category].perUnitCentsGlobal;
-  const mult = REGION_MULT[region] ?? 1;
-  return Math.round(baseGlobal * mult);
+  const baseUsdCents = UNIT_OVERRIDES[key] ?? CATEGORY_DEFAULTS[staple.category].perUnitCentsUsd;
+  return Math.round(baseUsdCents * usdFxRate(currency));
 }
 
 /** Total line-item estimate = unit price × qty, rounded to a clean
  *  number to keep the list readable (no "TSh 1,237.45"). */
-export function estimateLineCents(staple: DirectoryStaple, qty: number, region: Region | 'any' = 'any'): number {
-  const raw = estimateUnitPriceCents(staple, region) * Math.max(1, qty);
-  // Round to nearest 100 minor units so the list reads cleanly.
+export function estimateLineCents(staple: DirectoryStaple, qty: number, currency: string = 'USD'): number {
+  const raw = estimateUnitPriceCents(staple, currency) * Math.max(1, qty);
+  // Round to the nearest 100 minor units so the list reads cleanly.
   return Math.round(raw / 100) * 100;
 }
 

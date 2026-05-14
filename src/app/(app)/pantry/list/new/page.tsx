@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { usePantry } from '@/contexts/PantryContext';
+import { useHive } from '@/contexts/HiveContext';
 import { createList, thisWeekKey, thisWeekLabel } from '@/lib/pantry';
 import {
   generateList, generateListName,
@@ -177,6 +178,9 @@ function SmartStartForm({
   defaultSize: HouseholdSize;
   onCreated: (id: string) => void;
 }) {
+  // The family's display currency drives the exchange-rate
+  // conversion in the generator's price estimates.
+  const { config } = useHive();
   const [size, setSize] = useState<HouseholdSize>(defaultSize);
   const [household, setHousehold] = useState<HouseholdType>('apartment');
   const [region, setRegion] = useState<Region | 'any'>('east-africa');
@@ -204,7 +208,7 @@ function SmartStartForm({
         size, household, region, city: city.trim() || undefined,
         lifestyle, special, budget, cadence,
       };
-      const items = generateList(prefs);
+      const items = generateList(prefs, config.currency);
       if (items.length === 0) {
         setError('No items match those preferences — try widening one filter.');
         setBusy(false);

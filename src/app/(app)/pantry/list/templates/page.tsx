@@ -202,7 +202,7 @@ export default function TemplatesPage() {
     if (!profile?.familyId || isGuest) return;
     setBusy(true);
     try {
-      const items = generateList(t.prefs);
+      const items = generateList(t.prefs, currency);
       const id = await createList(profile.familyId, {
         name: t.title,
         weekOf: thisWeekKey(),
@@ -334,7 +334,7 @@ function TemplatePreview({
   onUse: () => void;
   onClose: () => void;
 }) {
-  const items = useMemo(() => generateList(template.prefs), [template]);
+  const items = useMemo(() => generateList(template.prefs, currency), [template, currency]);
   const total = items.reduce((sum, i) => sum + (i.estimatedCents || 0), 0);
   const foodItems = items.filter((i) => i.category && ['produce','dairy','pantry'].includes(i.category));
   const consItems = items.filter((i) => i.category && ['cleaning','personal','other'].includes(i.category));

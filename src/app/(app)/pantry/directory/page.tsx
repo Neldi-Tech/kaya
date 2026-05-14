@@ -98,7 +98,7 @@ export default function PantryDirectoryPage() {
       qty,
       unit: o?.unit || s.unit,
       cadence: o?.cadence || s.cadence,
-      priceCents: typeof o?.priceCents === 'number' ? o.priceCents : estimateLineCents(s, qty, region),
+      priceCents: typeof o?.priceCents === 'number' ? o.priceCents : estimateLineCents(s, qty, currency),
       edited: !!o,
     };
   };
@@ -221,7 +221,7 @@ export default function PantryDirectoryPage() {
         defaultQty: qty,
         unit: staple.unit,
         cadence: staple.cadence,
-        lastBoughtCents: estimateLineCents(staple, qty, region),
+        lastBoughtCents: estimateLineCents(staple, qty, currency),
       });
       added++;
     }
@@ -246,7 +246,7 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, region),
+        lastBoughtCents: estimateLineCents(item, item.defaultQty, currency),
       });
       added++;
     }
