@@ -57,11 +57,10 @@ const PARENT_HOUSEHOLD: NavItem[] = [
   { path: '/pantry', icon: '🛒', label: 'The Pantry' },
 ];
 
-// Directory · the Yellow Pages module isn't built yet. Render in the
-// sidebar as a non-interactive item with a SOON pill so users know
-// it's coming. `disabled: true` short-circuits the Link render.
+// Directory · the Yellow Pages — the family's service directory
+// (plumber, pharmacy, mama wa kazi, school). Live now.
 const PARENT_DIRECTORY: NavItem[] = [
-  { path: '/directory', icon: '📒', label: 'Yellow Pages', soon: true, disabled: true },
+  { path: '/directory', icon: '📒', label: 'Yellow Pages' },
 ];
 
 const FUN_NAV: NavItem[] = [
@@ -95,7 +94,7 @@ const KID_FUN_NAV: NavItem[] = [
 //   2. House      — Household section (Pantry today; Roster, chats next)
 //   3. Hive       — The Hive section (Approvals/Rates/Deposit live inside)
 //   4. Stats      — Insights sheet (Reports, Profiles, Badges, Family tree)
-//   5. Pages      — Directory / Yellow Pages, not yet built
+//   5. Pages      — Directory / Yellow Pages (family service directory)
 //   6. Fun        — Videos/Games sheet (both Soon)
 const PARENT_MOBILE_GROUPS: MobileGroup[] = [
   {
@@ -128,7 +127,7 @@ const PARENT_MOBILE_GROUPS: MobileGroup[] = [
     title: 'Insights',
     sections: [{ items: PARENT_INSIGHTS }],
   },
-  { kind: 'soon', id: 'directory', icon: '📒', label: 'Pages' },
+  { kind: 'link', id: 'directory', path: '/directory', icon: '📒', label: 'Pages' },
   {
     kind: 'sheet',
     id: 'fun',

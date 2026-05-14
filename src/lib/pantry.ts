@@ -99,6 +99,14 @@ export interface Supplier {
   /** Categories — drives which directory views show this supplier.
    *  Pantry queries `array-contains 'soko'`. */
   categories: SupplierCategory[];
+  /** Fine-grained service type for the Yellow Pages directory — one
+   *  of the DirectoryCategory ids in `lib/directory.ts` (e.g.
+   *  'plumber', 'pharmacy', 'mama wa kazi'). Optional: legacy Soko
+   *  suppliers won't have it; the Yellow Pages buckets those under
+   *  "Uncategorised" until a parent tags them. */
+  directoryCategory?: string;
+  /** Optional email — captured by the contact importer when present. */
+  email?: string;
   /** Last time we sent them an order (or chatted). Updated on send. */
   lastContactedAt?: Timestamp;
   createdAt: Timestamp;
