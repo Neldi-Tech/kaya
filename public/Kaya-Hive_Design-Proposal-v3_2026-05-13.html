@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Kaya · Hive — Design Proposal v3</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --honey:#F39C2F; --honey-dk:#D17F1A; --honey-soft:#FCD9A0;
+    --navy:#1F2D3D; --ink:#0F1822; --cream:#FFF8EC; --paper:#FFFFFF;
+    --muted:#5C6975; --line:#E8DEC9; --green:#3FAF6C; --rose:#E36F6F; --blue:#3F7AAF;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy);}
+  .shell{max-width:1200px;margin:0 auto;padding:48px 32px 80px;}
+  h1,h2,h3,h4,h5,.display{font-family:'Nunito',sans-serif;color:var(--navy);letter-spacing:-0.01em}
+  h1{font-size:52px;font-weight:900;margin:0 0 8px}
+  .eyebrow{text-transform:uppercase;letter-spacing:3px;font-size:12px;font-weight:700;color:var(--honey-dk)}
+  .lede{font-size:18px;color:var(--muted);max-width:760px;margin:8px 0 0;line-height:1.55}
+  hr.rule{border:none;border-top:1px solid var(--line);margin:48px 0}
+  .section-title{display:flex;align-items:baseline;gap:16px;margin-bottom:24px}
+  .section-num{font-family:'Nunito';font-weight:900;font-size:14px;color:var(--honey-dk);letter-spacing:2px}
+  .pill{display:inline-block;background:var(--paper);border:1px solid var(--line);padding:6px 14px;border-radius:999px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:24px}
+
+  /* === 3-LAYER DIAGRAM === */
+  .flow{background:var(--paper);border-radius:24px;border:1px solid var(--line);padding:36px 28px;margin-top:8px}
+  .layers{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:14px;align-items:stretch}
+  .layer{padding:24px 22px;border-radius:18px;display:flex;flex-direction:column;gap:8px;min-height:200px;position:relative}
+  .layer .num{font-family:'Nunito';font-weight:900;font-size:11px;letter-spacing:3px;opacity:.7}
+  .layer h3{margin:0;font-family:'Nunito';font-weight:900;font-size:24px}
+  .layer .where{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;opacity:.7;margin-bottom:4px}
+  .layer p{font-size:13px;line-height:1.5;margin:4px 0 0}
+  .layer .glyph{position:absolute;right:16px;bottom:14px;font-size:42px;opacity:.85}
+  .layer.l1{background:linear-gradient(160deg,#E5EBF3,#F4F7FB);color:var(--navy)}
+  .layer.l2{background:linear-gradient(160deg,#FFF3D9,#FCD9A0);color:var(--ink)}
+  .layer.l3{background:linear-gradient(160deg,#E6F7EE,#C9EBD7);color:var(--ink)}
+  .arrow{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px;min-width:80px}
+  .arrow .rate{font-family:'Nunito';font-weight:900;font-size:12px;color:var(--honey-dk);background:var(--cream);border:1px solid var(--line);padding:4px 10px;border-radius:999px;white-space:nowrap}
+  .arrow .a{font-size:28px;color:var(--honey);line-height:1}
+  .arrow .label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700}
+  .levers{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
+  .lever{background:var(--cream);border:1px solid var(--line);border-radius:14px;padding:14px 18px}
+  .lever .lt{font-family:'Nunito';font-weight:900;font-size:13px;color:var(--honey-dk);letter-spacing:2px;text-transform:uppercase}
+  .lever .ld{font-size:13px;color:var(--navy);margin-top:4px;line-height:1.5}
+
+  /* === MOCKUPS === */
+  .phones{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:8px}
+  .phones.two{grid-template-columns:repeat(2,1fr);max-width:780px;margin:0 auto}
+  .phone{background:var(--ink);border-radius:42px;padding:14px;box-shadow:0 30px 60px -20px rgba(15,24,34,.45),0 0 0 1px rgba(255,255,255,.04) inset}
+  .screen{background:var(--cream);border-radius:30px;overflow:hidden;height:680px;position:relative;display:flex;flex-direction:column}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:90px;height:22px;background:var(--ink);border-radius:0 0 14px 14px;z-index:5}
+  .status{display:flex;justify-content:space-between;align-items:center;padding:12px 22px 0;font-family:'Nunito';font-weight:700;font-size:11px;color:var(--navy)}
+  .screen-title{padding:0 22px;margin-top:18px}
+  .screen-title .small{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:2px;font-weight:700}
+  .screen-title h4{font-family:'Nunito';font-weight:900;font-size:24px;margin:2px 0 0}
+  .screen .body{padding:14px 22px 0;flex:1;overflow:hidden}
+  .tabbar{display:flex;justify-content:space-around;align-items:center;background:var(--paper);border-top:1px solid var(--line);padding:10px 6px 18px;flex:0 0 auto}
+  .tabbar .tab{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-family:'Nunito';font-weight:700;font-size:10px;color:var(--muted)}
+  .tabbar .tab.active{color:var(--honey-dk)}
+  .tabbar .tab .dot{width:24px;height:24px;border-radius:8px;background:var(--cream);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .tabbar .tab.active .dot{background:var(--honey);color:#fff}
+
+  /* Wallet — 3 balance cards */
+  .balance-stack{display:flex;flex-direction:column;gap:10px}
+  .bal{padding:14px 16px;border-radius:18px;display:flex;align-items:center;gap:14px;position:relative;overflow:hidden}
+  .bal.l1{background:linear-gradient(150deg,#E5EBF3,#F4F7FB);border:1px solid #D5DEE9}
+  .bal.l2{background:linear-gradient(150deg,#FFF3D9,#FCD9A0);border:1px solid var(--honey)}
+  .bal.l3{background:linear-gradient(150deg,#E6F7EE,#C9EBD7);border:1px solid #8FD3AB}
+  .bal .icon{width:46px;height:46px;border-radius:14px;background:rgba(255,255,255,.6);display:flex;align-items:center;justify-content:center;font-size:24px;flex:0 0 auto}
+  .bal .meta{flex:1;min-width:0}
+  .bal .meta .lbl{font-size:10px;text-transform:uppercase;letter-spacing:2px;font-weight:700;color:var(--muted)}
+  .bal .meta .val{font-family:'Nunito';font-weight:900;font-size:22px;line-height:1;margin-top:2px}
+  .bal .meta .sub{font-size:11px;color:var(--muted);margin-top:3px;font-weight:700}
+  .bal .chev{font-size:18px;color:var(--muted)}
+  .convert-btn{margin-top:14px;background:var(--honey);color:#fff;border-radius:18px;padding:14px;text-align:center;font-family:'Nunito';font-weight:900;font-size:14px;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 8px 20px -8px rgba(243,156,47,.5)}
+
+  /* Convert screen */
+  .convert-card{background:var(--paper);border-radius:18px;border:1px solid var(--line);padding:18px;margin-bottom:12px}
+  .convert-card .row{display:flex;justify-content:space-between;align-items:center}
+  .convert-card .who{font-family:'Nunito';font-weight:900;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:2px}
+  .convert-card .amount{font-family:'Nunito';font-weight:900;font-size:38px;line-height:1;margin-top:6px}
+  .convert-card .unit{font-size:14px;color:var(--muted);margin-left:6px}
+  .convert-arrow{text-align:center;font-size:24px;color:var(--honey);margin:-2px 0}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+  .key{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center;font-family:'Nunito';font-weight:800;font-size:18px}
+  .rate-pill{display:inline-flex;align-items:center;gap:6px;background:#FFF1D9;color:var(--honey-dk);padding:6px 12px;border-radius:999px;font-family:'Nunito';font-weight:800;font-size:11px;margin-top:8px}
+
+  /* Cash In/Out lists */
+  .ledger-card{background:var(--paper);border-radius:18px;border:1px solid var(--line);padding:14px;margin-bottom:10px}
+  .summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .summary .s{padding:14px;border-radius:14px;background:var(--paper);border:1px solid var(--line)}
+  .summary .s .lbl{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:700;color:var(--muted)}
+  .summary .s .v{font-family:'Nunito';font-weight:900;font-size:22px;line-height:1;margin-top:4px}
+  .summary .s.in{background:#E6F7EE;border-color:#8FD3AB}
+  .summary .s.in .v{color:var(--green)}
+  .summary .s.out{background:#FCEAEA;border-color:#E8B5B5}
+  .summary .s.out .v{color:var(--rose)}
+  .entry{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .entry:last-child{border:none}
+  .entry .e-ico{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:16px;background:#E5EBF3;flex:0 0 auto}
+  .entry.in .e-ico{background:#E6F7EE}
+  .entry.out .e-ico{background:#FCEAEA}
+  .entry .e-meta{flex:1;min-width:0}
+  .entry .e-meta .et{font-family:'Nunito';font-weight:800;font-size:13px;line-height:1.2}
+  .entry .e-meta .ed{font-size:10px;color:var(--muted);margin-top:1px}
+  .entry .e-amt{font-family:'Nunito';font-weight:900;font-size:13px}
+  .entry.in .e-amt{color:var(--green)}
+  .entry.out .e-amt{color:var(--rose)}
+  .pending{display:inline-block;background:#FFF1D9;color:var(--honey-dk);font-family:'Nunito';font-weight:800;font-size:9px;padding:2px 6px;border-radius:6px;margin-left:6px;letter-spacing:.5px}
+
+  /* Spend approval card */
+  .request-card{background:linear-gradient(150deg,#FFF3D9,#FFFFFF);border:2px dashed var(--honey);border-radius:18px;padding:16px;margin-bottom:12px}
+  .request-card h5{font-family:'Nunito';font-weight:900;font-size:14px;margin:0 0 4px}
+  .request-card p{font-size:12px;color:var(--muted);margin:0;line-height:1.5}
+  .request-card .req-row{display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+  .req-amt{font-family:'Nunito';font-weight:900;font-size:18px;color:var(--honey-dk)}
+  .req-actions{display:flex;gap:6px}
+  .req-actions .x{padding:6px 12px;border-radius:10px;font-family:'Nunito';font-weight:800;font-size:11px;border:none}
+  .req-actions .x.no{background:#FCEAEA;color:var(--rose)}
+  .req-actions .x.yes{background:var(--green);color:#fff}
+
+  /* Phase row */
+  .roadmap{background:var(--paper);border-radius:24px;padding:32px;border:1px solid var(--line)}
+  .phases{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:18px}
+  .phase{padding:22px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(180deg,var(--cream),var(--paper))}
+  .phase .pn{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--honey-dk);letter-spacing:2px}
+  .phase h4{font-family:'Nunito';font-weight:900;font-size:20px;margin:6px 0 10px}
+  .phase p{font-size:13px;color:var(--muted);line-height:1.55;margin:0 0 12px}
+  .phase ul{margin:0;padding-left:18px;font-size:12px;line-height:1.6}
+  .phase ul li{color:var(--navy)}
+  .phase.now{border:2px solid var(--honey);background:linear-gradient(180deg,#FFF3D9,#FFFFFF)}
+
+  .approve{margin-top:20px;background:var(--paper);border:1px dashed var(--honey);border-radius:18px;padding:18px 24px}
+  .approve h4{margin:0 0 6px;font-family:'Nunito';font-weight:900}
+  .approve p{margin:0;font-size:13px;color:var(--muted);line-height:1.55}
+  .foot{margin-top:40px;text-align:center;font-size:12px;color:var(--muted)}
+
+  /* === v3 ADDITIONS === */
+  /* Cash card — expandable with on-hand vs deposit sub-rows */
+  .bal.l3.split{flex-direction:column;align-items:stretch;padding:14px 16px 12px;gap:10px}
+  .bal.l3.split .top-row{display:flex;align-items:center;gap:14px}
+  .bal.l3.split .sub-rows{display:flex;gap:8px;margin-top:2px}
+  .sub-row{flex:1;background:rgba(255,255,255,.55);border:1px solid #B5DDC2;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:2px}
+  .sub-row .sr-lbl{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;font-weight:800;color:#2E7D52;display:flex;align-items:center;gap:4px}
+  .sub-row .sr-val{font-family:'Nunito';font-weight:900;font-size:15px;color:var(--ink)}
+  .sub-row .sr-glyph{font-size:11px}
+  .cash-actions{display:flex;gap:6px;margin-top:2px}
+  .cash-actions .ca{flex:1;background:rgba(255,255,255,.7);border:1px solid #B5DDC2;border-radius:10px;padding:8px;text-align:center;font-family:'Nunito';font-weight:800;font-size:11px;color:#2E7D52}
+  .cash-actions .ca.primary{background:var(--green);color:#fff;border-color:var(--green)}
+
+  /* "What's this?" kid-friendly definition card */
+  .whats-this{background:#FFF8EC;border:1px dashed var(--honey);border-radius:14px;padding:10px 12px;margin-top:10px;display:flex;gap:10px;align-items:flex-start}
+  .whats-this .wt-icon{font-size:16px;flex:0 0 auto}
+  .whats-this .wt-body{flex:1}
+  .whats-this .wt-title{font-family:'Nunito';font-weight:900;font-size:11px;color:var(--honey-dk);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:2px}
+  .whats-this .wt-body p{font-size:11px;color:var(--navy);line-height:1.45;margin:0}
+
+  /* Safekeeping screen — toggle + amount keypad reuse */
+  .seg-toggle{display:flex;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:4px;margin-bottom:14px}
+  .seg-toggle .seg{flex:1;text-align:center;padding:10px;font-family:'Nunito';font-weight:800;font-size:12px;color:var(--muted);border-radius:10px;cursor:pointer}
+  .seg-toggle .seg.active{background:var(--honey);color:#fff}
+  .seg-toggle .seg.active.green{background:var(--green)}
+  .projection{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:12px;margin-bottom:12px}
+  .projection .pj-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0}
+  .projection .pj-row + .pj-row{border-top:1px solid var(--line)}
+  .projection .pj-lbl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;font-weight:700}
+  .projection .pj-val{font-family:'Nunito';font-weight:900;font-size:13px}
+  .projection .pj-val.delta{color:var(--green)}
+  .projection .pj-val.delta.neg{color:var(--rose)}
+
+  /* Destination picker for Honey→Cash */
+  .dest-picker{display:flex;gap:8px;margin-top:10px}
+  .dest-opt{flex:1;background:var(--paper);border:1.5px solid var(--line);border-radius:12px;padding:10px;text-align:center;font-family:'Nunito';font-weight:800;font-size:11px;color:var(--muted)}
+  .dest-opt.selected{border-color:var(--green);background:#E6F7EE;color:#2E7D52}
+  .dest-opt .do-glyph{font-size:18px;display:block;margin-bottom:2px}
+
+  /* Business sale / cost pill on transactions */
+  .biz-pill{display:inline-block;background:#E6F7EE;color:#2E7D52;font-family:'Nunito';font-weight:800;font-size:9px;padding:2px 6px;border-radius:6px;margin-left:6px;letter-spacing:.5px}
+
+  @media (max-width:1100px){.layers{grid-template-columns:1fr;}.arrow{flex-direction:row;min-width:0;padding:8px 0}.arrow .a{transform:rotate(90deg)}}
+  @media (max-width:980px){.phones,.phases{grid-template-columns:1fr 1fr}}
+  @media (max-width:620px){.phones,.phases,.levers,.summary{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <span class="pill">Kaya · Module Proposal v3 · 13 May 2026</span>
+  <div class="eyebrow">Phase 1.5 · The Hive</div>
+  <h1>Three layers. One Hive. <span style="color:var(--honey-dk)">Real cash, on-hand or safekept.</span></h1>
+  <p class="lede"><strong>v3</strong> splits the Cash layer into <strong>On Hand</strong> (the kid's pocket) and <strong>On Deposit</strong> (parent safekeeping), introduces the <strong>Safekeeping</strong> screen, adds a destination picker to cash-out, and exposes the hooks for <strong>Kaya Business</strong> sale &amp; cost approvals. Currency is family-configured, never hard-coded.</p>
+
+  <hr class="rule"/>
+
+  <div class="section-title">
+    <span class="section-num">01</span>
+    <h2>The 3-Layer Model</h2>
+  </div>
+  <p style="color:var(--muted);max-width:780px;margin:0 0 24px;font-size:15px;line-height:1.6">Each layer has a different purpose. House Points are flexible (in-family rewards, screen time, privileges). Honey Coins are intentional savings (a deliberate "I'm setting this aside"). Cash is real-world money the kid can receive and spend with parent approval. Two parent-controlled rates govern the flow.</p>
+
+  <div class="flow">
+    <div class="layers">
+      <div class="layer l1">
+        <span class="num">LAYER 1</span>
+        <span class="where">Kaya app</span>
+        <h3>House Points</h3>
+        <p>Earned from chores, quests, awards, streaks. Spent on in-family rewards (screen time, choosing dinner, staying up late).</p>
+        <div class="glyph">⭐</div>
+      </div>
+      <div class="arrow">
+        <div class="label">Convert</div>
+        <div class="a">→</div>
+        <div class="rate">100 HP = 1 🍯</div>
+      </div>
+      <div class="layer l2">
+        <span class="num">LAYER 2</span>
+        <span class="where">The Hive</span>
+        <h3>Honey Coins</h3>
+        <p>The savings vault. Once converted, this is committed money. Visible to parents. Sets up cash-out.</p>
+        <div class="glyph">🍯</div>
+      </div>
+      <div class="arrow">
+        <div class="label">Cash out</div>
+        <div class="a">→</div>
+        <div class="rate">1 🍯 = $1.00</div>
+      </div>
+      <div class="layer l3">
+        <span class="num">LAYER 3</span>
+        <span class="where">Wallet</span>
+        <h3>Cash</h3>
+        <p>Real money. Received as allowance, gifts, or business income. <strong>Now split into two pots:</strong> 👛 <strong>On Hand</strong> (kid's pocket — spendable) and 🏦 <strong>On Deposit</strong> (parent safekeeping — must be withdrawn first). Family-configured currency.</p>
+        <div class="glyph">💵</div>
+      </div>
+    </div>
+
+    <div class="levers">
+      <div class="lever">
+        <div class="lt">Lever A · HP → 🍯</div>
+        <div class="ld">Sets how generous gamification feels. Higher rate = kids accumulate honey faster.</div>
+      </div>
+      <div class="lever">
+        <div class="lt">Lever B · 🍯 → $</div>
+        <div class="ld">Sets how much real money flows out. Lets parents tune the cash budget independent of points.</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <div class="section-title">
+    <span class="section-num">02</span>
+    <h2>The Three New Screens</h2>
+  </div>
+  <p style="color:var(--muted);max-width:780px;margin:0 0 24px;font-size:15px;line-height:1.6">Wallet (all three balances at a glance), Cash In (income ledger — allowance, gifts, future business), and Cash Out (spending log with parent approval flow).</p>
+
+  <div class="phones">
+
+    <!-- WALLET -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Earlnathan's Wallet</div>
+          <h4>My money 💰</h4>
+        </div>
+        <div class="body">
+          <div class="balance-stack">
+            <div class="bal l1">
+              <div class="icon">⭐</div>
+              <div class="meta">
+                <div class="lbl">House Points</div>
+                <div class="val">1,240</div>
+                <div class="sub">spend on rewards →</div>
+              </div>
+              <div class="chev">›</div>
+            </div>
+            <div class="bal l2">
+              <div class="icon">🍯</div>
+              <div class="meta">
+                <div class="lbl">Honey Coins</div>
+                <div class="val">85 <span style="font-size:13px;color:var(--muted);font-weight:700">/ saved</span></div>
+                <div class="sub">≈ TSh 85,000 if cashed out</div>
+              </div>
+              <div class="chev">›</div>
+            </div>
+            <div class="bal l3 split">
+              <div class="top-row">
+                <div class="icon">💵</div>
+                <div class="meta">
+                  <div class="lbl">Cash · Total</div>
+                  <div class="val">TSh 42,500</div>
+                  <div class="sub">last in: business sale · today</div>
+                </div>
+                <div class="chev">›</div>
+              </div>
+              <div class="sub-rows">
+                <div class="sub-row">
+                  <div class="sr-lbl"><span class="sr-glyph">👛</span> On Hand</div>
+                  <div class="sr-val">TSh 30,000</div>
+                </div>
+                <div class="sub-row">
+                  <div class="sr-lbl"><span class="sr-glyph">🏦</span> On Deposit</div>
+                  <div class="sr-val">TSh 12,500</div>
+                </div>
+              </div>
+              <div class="cash-actions">
+                <div class="ca">↑ Deposit</div>
+                <div class="ca">↓ Withdraw</div>
+              </div>
+            </div>
+          </div>
+          <div class="whats-this">
+            <span class="wt-icon">💡</span>
+            <div class="wt-body">
+              <div class="wt-title">What's this?</div>
+              <p><strong>On Hand</strong> is the cash you carry — you can spend it. <strong>On Deposit</strong> is money Mama or Papa keeps safe — you have to ask for it first. (Just like a real bank.)</p>
+            </div>
+          </div>
+          <div class="convert-btn" style="margin-top:12px">⇄ Convert between layers</div>
+          <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center;line-height:1.5">Total worth: <strong style="color:var(--navy)">~TSh 140,000</strong> across all layers</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab active"><div class="dot">💰</div>Wallet</div>
+          <div class="tab"><div class="dot">📊</div>Insights</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CASH IN -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Cash · In</div>
+          <h4>Money I received</h4>
+        </div>
+        <div class="body">
+          <div class="summary">
+            <div class="s in">
+              <div class="lbl">This month</div>
+              <div class="v">+TSh 76k</div>
+            </div>
+            <div class="s">
+              <div class="lbl">% from business</div>
+              <div class="v">24%</div>
+            </div>
+          </div>
+          <div class="ledger-card">
+            <div class="entry in">
+              <div class="e-ico" style="background:#E6F7EE">🌱</div>
+              <div class="e-meta">
+                <div class="et">Eggs sold to Mama <span class="biz-pill">BUSINESS</span></div>
+                <div class="ed">1 dozen · → On Hand · today</div>
+              </div>
+              <div class="e-amt">+TSh 5,000</div>
+            </div>
+            <div class="entry in">
+              <div class="e-ico">💵</div>
+              <div class="e-meta">
+                <div class="et">Weekly allowance</div>
+                <div class="ed">From Mama · Mon, May 11 · → On Hand</div>
+              </div>
+              <div class="e-amt">+TSh 10,000</div>
+            </div>
+            <div class="entry in">
+              <div class="e-ico" style="background:#E6F7EE">🌱</div>
+              <div class="e-meta">
+                <div class="et">Passion fruit to Aunt Ruth <span class="biz-pill">BUSINESS</span></div>
+                <div class="ed">3 kg · → On Deposit · Sat, May 9</div>
+              </div>
+              <div class="e-amt">+TSh 9,000</div>
+            </div>
+            <div class="entry in">
+              <div class="e-ico">🎁</div>
+              <div class="e-meta">
+                <div class="et">Birthday gift</div>
+                <div class="ed">From Auntie Sarah · Apr 28 · → On Deposit</div>
+              </div>
+              <div class="e-amt">+TSh 25,000</div>
+            </div>
+            <div class="entry in">
+              <div class="e-ico">🍯</div>
+              <div class="e-meta">
+                <div class="et">Honey cash-out</div>
+                <div class="ed">15 🍯 → TSh 15,000 · Apr 22 · → On Hand</div>
+              </div>
+              <div class="e-amt">+TSh 15,000</div>
+            </div>
+          </div>
+          <div style="margin-top:8px;text-align:center;font-size:11px;color:var(--muted)">Every entry shows where the money landed: 👛 On Hand or 🏦 On Deposit.</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab active"><div class="dot">💰</div>Wallet</div>
+          <div class="tab"><div class="dot">📊</div>Insights</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CASH OUT / SPEND -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Cash · Out</div>
+          <h4>What I spent</h4>
+        </div>
+        <div class="body">
+          <div class="request-card">
+            <h5>🛒 Spend request — pending Mama</h5>
+            <p>Lego City set from the toy store</p>
+            <div class="req-row">
+              <div class="req-amt">TSh 25,000</div>
+              <div class="req-actions">
+                <button class="x no">Cancel</button>
+                <button class="x yes">Awaiting…</button>
+              </div>
+            </div>
+            <div style="font-size:10px;color:var(--rose);margin-top:8px;font-weight:700">⚠ Not enough On Hand. <a style="color:var(--honey-dk)">Withdraw from safekeeping?</a></div>
+          </div>
+          <div class="summary">
+            <div class="s out">
+              <div class="lbl">This month</div>
+              <div class="v">−TSh 32k</div>
+            </div>
+            <div class="s">
+              <div class="lbl">Reinvested</div>
+              <div class="v">TSh 4k</div>
+            </div>
+          </div>
+          <div class="ledger-card">
+            <div class="entry out">
+              <div class="e-ico" style="background:#E6F7EE">🌱</div>
+              <div class="e-meta">
+                <div class="et">Fertilizer for vines <span class="biz-pill">BUSINESS</span></div>
+                <div class="ed">Approved by Mama · From On Hand · May 8</div>
+              </div>
+              <div class="e-amt">−TSh 4,000</div>
+            </div>
+            <div class="entry out">
+              <div class="e-ico">📚</div>
+              <div class="e-meta">
+                <div class="et">Book: Wings of Fire</div>
+                <div class="ed">Approved by Papa · From On Hand · May 2</div>
+              </div>
+              <div class="e-amt">−TSh 12,000</div>
+            </div>
+            <div class="entry out">
+              <div class="e-ico">🍦</div>
+              <div class="e-meta">
+                <div class="et">Ice cream outing</div>
+                <div class="ed">Approved by Mama · From On Hand · Apr 30</div>
+              </div>
+              <div class="e-amt">−TSh 8,000</div>
+            </div>
+            <div class="entry out">
+              <div class="e-ico">❤️</div>
+              <div class="e-meta">
+                <div class="et">Donation — animal shelter</div>
+                <div class="ed">Approved by Mama · From On Hand · Apr 24</div>
+              </div>
+              <div class="e-amt">−TSh 12,000</div>
+            </div>
+          </div>
+          <div style="margin-top:8px;text-align:center;font-size:11px;color:var(--muted)">Spending always uses 👛 On Hand. Need more? Withdraw from 🏦 first.</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab active"><div class="dot">💰</div>Wallet</div>
+          <div class="tab"><div class="dot">📊</div>Insights</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="rule"/>
+
+  <div class="section-title">
+    <span class="section-num">03</span>
+    <h2>Safekeeping · On Hand ↔ On Deposit <span style="color:var(--honey-dk);font-size:14px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-left:10px">v3 · NEW</span></h2>
+  </div>
+  <p style="color:var(--muted);max-width:780px;margin:0 0 24px;font-size:15px;line-height:1.6">Real cash splits two ways. The kid carries some — that's <strong>On Hand</strong>. The rest is handed to a parent for safekeeping — that's <strong>On Deposit</strong>. Two atomic flows: the kid logs a <em>deposit</em> when handing physical cash over (parent confirms), and the parent issues a <em>withdrawal</em> when handing physical cash back. Mirrors how a real bank account works — the lesson is built in.</p>
+
+  <div class="phones two">
+
+    <!-- KID DEPOSIT FLOW -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Safekeeping · Diella</div>
+          <h4>Hand cash to Mama 🏦</h4>
+        </div>
+        <div class="body">
+          <div class="seg-toggle">
+            <div class="seg active">↑ Deposit</div>
+            <div class="seg">↓ Withdraw</div>
+          </div>
+          <div class="convert-card" style="background:linear-gradient(150deg,#E6F7EE,#C9EBD7);border-color:#8FD3AB">
+            <div class="row"><div class="who">FROM 👛 On Hand</div><div style="font-size:11px;color:var(--muted);font-weight:700">Available: TSh 30,000</div></div>
+            <div><span class="amount">9,000</span><span class="unit">TSh</span></div>
+          </div>
+          <div class="projection">
+            <div class="pj-row"><div class="pj-lbl">👛 On Hand after</div><div class="pj-val delta neg">TSh 21,000</div></div>
+            <div class="pj-row"><div class="pj-lbl">🏦 On Deposit after</div><div class="pj-val delta">TSh 21,500</div></div>
+          </div>
+          <div class="convert-btn" style="background:var(--green);box-shadow:0 8px 20px -8px rgba(63,175,108,.5)">Submit deposit →</div>
+          <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center">⏳ Waiting for Mama to confirm she received the cash.</div>
+          <div class="whats-this">
+            <span class="wt-icon">💡</span>
+            <div class="wt-body">
+              <div class="wt-title">What's this?</div>
+              <p>When you hand cash to Mama or Papa to keep safe, log it here. They'll confirm they got it, and your On Deposit pot grows.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab active"><div class="dot">💰</div>Wallet</div>
+          <div class="tab"><div class="dot">📊</div>Insights</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PARENT WITHDRAW FLOW -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Parent · Hive Withdraw</div>
+          <h4>Give cash back 💵</h4>
+        </div>
+        <div class="body">
+          <div class="seg-toggle">
+            <div class="seg">↑ Deposit</div>
+            <div class="seg active green">↓ Withdraw</div>
+          </div>
+          <div class="convert-card" style="background:var(--paper);border-color:var(--line)">
+            <div class="row"><div class="who">KID</div><div style="font-size:11px;color:var(--navy);font-weight:800">Diella</div></div>
+            <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+              <span style="background:#FFF3D9;color:var(--honey-dk);padding:6px 10px;border-radius:999px;font-family:'Nunito';font-weight:800;font-size:11px">Diella ✓</span>
+              <span style="background:var(--cream);color:var(--muted);padding:6px 10px;border-radius:999px;font-family:'Nunito';font-weight:800;font-size:11px;border:1px solid var(--line)">Earlnathan</span>
+              <span style="background:var(--cream);color:var(--muted);padding:6px 10px;border-radius:999px;font-family:'Nunito';font-weight:800;font-size:11px;border:1px solid var(--line)">Daniella</span>
+            </div>
+          </div>
+          <div class="convert-card" style="background:linear-gradient(150deg,#E6F7EE,#C9EBD7);border-color:#8FD3AB">
+            <div class="row"><div class="who">FROM 🏦 On Deposit</div><div style="font-size:11px;color:var(--muted);font-weight:700">Available: TSh 12,500</div></div>
+            <div><span class="amount" style="color:var(--green)">5,000</span><span class="unit">TSh</span></div>
+          </div>
+          <div class="projection">
+            <div class="pj-row"><div class="pj-lbl">🏦 On Deposit after</div><div class="pj-val delta neg">TSh 7,500</div></div>
+            <div class="pj-row"><div class="pj-lbl">👛 On Hand after</div><div class="pj-val delta">TSh 35,000</div></div>
+          </div>
+          <div class="convert-btn" style="background:var(--green);box-shadow:0 8px 20px -8px rgba(63,175,108,.5)">Withdraw &amp; hand to Diella ✓</div>
+          <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center">Instant — no kid approval needed. Logs both sides atomically.</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">👨‍👩‍👧</div>Family</div>
+          <div class="tab active"><div class="dot">✓</div>Approve</div>
+          <div class="tab"><div class="dot">⚙️</div>Settings</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <hr class="rule"/>
+
+  <div class="section-title">
+    <span class="section-num">04</span>
+    <h2>Convert · The Exchange Screen</h2>
+  </div>
+  <p style="color:var(--muted);max-width:780px;margin:0 0 24px;font-size:15px;line-height:1.6">One screen handles both conversions. Pick your "from" layer, pick your "to" layer, type the amount. The rate is shown. Any conversion that touches Cash needs parent confirmation.</p>
+
+  <div class="phones two">
+    <!-- CONVERT HP -> HONEY -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Convert</div>
+          <h4>Save my points 🍯</h4>
+        </div>
+        <div class="body">
+          <div class="convert-card" style="background:linear-gradient(150deg,#E5EBF3,#F4F7FB);border-color:#D5DEE9">
+            <div class="row"><div class="who">FROM ⭐ House Points</div><div style="font-size:11px;color:var(--muted);font-weight:700">Available: 1,240</div></div>
+            <div><span class="amount">500</span><span class="unit">HP</span></div>
+            <div class="rate-pill">⇆ Rate: 100 HP = 1 🍯</div>
+          </div>
+          <div class="convert-arrow">↓</div>
+          <div class="convert-card" style="background:linear-gradient(150deg,#FFF3D9,#FCD9A0);border-color:var(--honey)">
+            <div class="row"><div class="who">TO 🍯 Honey Coins</div><div style="font-size:11px;color:var(--muted);font-weight:700">Current: 85</div></div>
+            <div><span class="amount" style="color:var(--honey-dk)">+5</span><span class="unit">🍯</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">New balance: 90 🍯 (≈ $90)</div>
+          </div>
+          <div class="convert-btn" style="margin-top:14px">Convert now ✓</div>
+          <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center">Auto-approved · no parent confirmation needed</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab"><div class="dot">💰</div>Wallet</div>
+          <div class="tab"><div class="dot">📊</div>Insights</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONVERT HONEY -> CASH -->
+    <div class="phone">
+      <div class="screen">
+        <div class="notch"></div>
+        <div class="status"><span>9:41</span><span>●●● ●</span></div>
+        <div class="screen-title">
+          <div class="small">Cash out</div>
+          <h4>Get real money 💵</h4>
+        </div>
+        <div class="body">
+          <div class="convert-card" style="background:linear-gradient(150deg,#FFF3D9,#FCD9A0);border-color:var(--honey)">
+            <div class="row"><div class="who">FROM 🍯 Honey Coins</div><div style="font-size:11px;color:var(--muted);font-weight:700">Available: 85</div></div>
+            <div><span class="amount">20</span><span class="unit">🍯</span></div>
+            <div class="rate-pill">⇆ Rate: 1 🍯 = $1.00</div>
+          </div>
+          <div class="convert-arrow">↓</div>
+          <div class="convert-card" style="background:linear-gradient(150deg,#E6F7EE,#C9EBD7);border-color:#8FD3AB">
+            <div class="row"><div class="who">TO 💵 Cash</div><div style="font-size:11px;color:var(--muted);font-weight:700">Current: TSh 42,500</div></div>
+            <div><span class="amount" style="color:var(--green)">+TSh 20,000</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:6px">New total: TSh 62,500</div>
+            <div class="dest-picker">
+              <div class="dest-opt selected"><span class="do-glyph">👛</span>On Hand</div>
+              <div class="dest-opt"><span class="do-glyph">🏦</span>On Deposit</div>
+            </div>
+          </div>
+          <div class="convert-btn" style="margin-top:14px;background:var(--green);box-shadow:0 8px 20px -8px rgba(63,175,108,.5)">Request cash-out →</div>
+          <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center">⚠️ Needs parent approval · cash lands in your chosen pot</div>
+        </div>
+        <div class="tabbar">
+          <div class="tab active"><div class="dot">🍯</div>Hive</div>
+          <div class="tab"><div class="dot">🏆</div>Quests</div>
+          <div class="tab"><div class="dot">💰</div>Wallet</div>
+          <div class="tab"><div class="dot">📊</div>Insights</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule"/>
+
+  <div class="section-title">
+    <span class="section-num">05</span>
+    <h2>Updated Roadmap</h2>
+  </div>
+
+  <div class="roadmap">
+    <div class="phases">
+      <div class="phase now">
+        <div class="pn">PHASE 1.5 · NOW (v3)</div>
+        <h4>The Hive · Cash split</h4>
+        <p>Three layers, two rates, full Wallet — with Cash now split into On Hand and On Deposit, plus the Safekeeping flow.</p>
+        <ul>
+          <li>HP ↔ Honey ↔ Cash (with destination picker)</li>
+          <li>Wallet · Cash In · Cash Out · <strong>Safekeeping</strong></li>
+          <li>Parent approval on spend &amp; sales (per-kid threshold)</li>
+          <li>Family-configured currency (TZS / USD / …)</li>
+        </ul>
+      </div>
+      <div class="phase now" style="border-color:var(--green);background:linear-gradient(180deg,#E6F7EE,#FFFFFF)">
+        <div class="pn" style="color:#2E7D52">PHASE 2 · ALONGSIDE</div>
+        <h4>Kaya Business 🌱</h4>
+        <p>Each kid runs a real micro-business. Sales credit Hive Cash; costs draw from a parent-funded float or the kid's wallet. Sunday auto-generated weekly P&amp;L visible to siblings.</p>
+        <ul>
+          <li>5 kid screens: My Business · Assets · Sales · Costs · Report</li>
+          <li>Family Price List + Parent Console</li>
+          <li>Care reminders → House Points via Hive routines</li>
+          <li>Asset stages, lifecycle, loss tracking</li>
+        </ul>
+      </div>
+      <div class="phase">
+        <div class="pn">PHASE 3 · NEXT</div>
+        <h4>Real-money rails</h4>
+        <p>Connect Cash to real bank / mobile-money rails so On Hand and On Deposit can sync to actual accounts.</p>
+        <ul>
+          <li>M-Pesa / Tigo Pesa / Stripe</li>
+          <li>Auto-drip allowance</li>
+          <li>Real-bank-backed safekeeping</li>
+          <li>Donation partners · spending receipts</li>
+          <li>Optional global-profile USD translation</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="approve">
+    <h4>v3 sign-off.</h4>
+    <p>The Hive v3 (cash split + safekeeping + sale plumbing) is the upstream that lets Kaya Business plug in cleanly. The matching code prompt has been updated to v3 — see <code>Kaya-Hive_Code-Prompt_2026-05-07.md</code> (updated 2026-05-13) for the schema migration, new Cloud Functions, and acceptance criteria.</p>
+  </div>
+
+  <p class="foot">Kaya · The Hive · ourkaya.com · Design proposal v3 · 2026-05-13</p>
+</div>
+</body>
+</html>
