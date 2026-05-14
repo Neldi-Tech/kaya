@@ -14,6 +14,7 @@ import { useFamily } from './FamilyContext';
 import {
   Wallet, HiveTransaction, ApprovalRequest, Goal, HiveConfig, MonthlyPlan,
   EMPTY_WALLET, readHiveConfig, currentMonthKey, spendingByCategoryInMonth,
+  cashTotalCents,
   subscribeToWallet, subscribeToHiveTransactions,
   subscribeToKidRequests, subscribeToPendingApprovals,
   subscribeToGoals, subscribeToMonthlyPlan,
@@ -162,7 +163,9 @@ export function HiveProvider({ children }: { children: ReactNode }) {
     const hpAsHoney = config.hpToHoneyRate > 0 ? wallet.housePoints / config.hpToHoneyRate : 0;
     const honeyAsFamilyCents =
       (wallet.honeyCoins + hpAsHoney) * config.honeyToCashRate * fx * 100;
-    return Math.round(honeyAsFamilyCents + wallet.cashCents);
+    // Net worth counts all cash — both the spendable on-hand pocket
+    // and the safekeeping deposit balance.
+    return Math.round(honeyAsFamilyCents + cashTotalCents(wallet));
   }, [wallet, config, fxUsdToFamily]);
 
   const saveRate = useMemo(() => {
@@ -173,6 +176,9 @@ export function HiveProvider({ children }: { children: ReactNode }) {
     let outCents = 0;
     for (const t of transactions) {
       if (t.layer !== 'cash') continue;
+      // Safekeeping moves are intra-cash transfers — not real
+      // earning or spending, so they don't affect the save rate.
+      if (t.category === 'safekeeping') continue;
       const ts = (t.createdAt as any)?.toMillis?.();
       if (typeof ts !== 'number' || ts < monthStart) continue;
       if (t.direction === 'in') inCents += t.amount;
@@ -193,6 +199,8 @@ export function HiveProvider({ children }: { children: ReactNode }) {
     let earned = 0;
     for (const t of transactions) {
       if (t.layer !== 'cash' || t.direction !== 'in') continue;
+      // Withdrawing from safekeeping isn't earning — skip it.
+      if (t.category === 'safekeeping') continue;
       const ts = (t.createdAt as any)?.toMillis?.();
       if (typeof ts !== 'number' || ts < cutoff) continue;
       earned += t.amount;

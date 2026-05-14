@@ -8,6 +8,7 @@
 import Link from 'next/link';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
+import { cashTotalCents } from '@/lib/hive';
 import HoneyPotHero from '@/components/hive/HoneyPotHero';
 import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
@@ -50,7 +51,7 @@ export default function HiveHomePage() {
       <div className="mb-5">
         <HoneyPotHero
           honeyCoins={wallet.honeyCoins}
-          cashCents={wallet.cashCents}
+          cashTotalCents={cashTotalCents(wallet)}
           weeklyEarningsCents={weeklyEarningsCents}
           cashEquivalentCents={cashEquivalent}
           currency={config.currency}

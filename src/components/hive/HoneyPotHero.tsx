@@ -7,13 +7,14 @@ import { formatHoney, formatCash } from './format';
 
 export default function HoneyPotHero({
   honeyCoins,
-  cashCents,
+  cashTotalCents,
   weeklyEarningsCents,
   cashEquivalentCents,
   currency = 'USD',
 }: {
   honeyCoins: number;
-  cashCents: number;
+  /** Total cash across both sub-balances (on-hand + safekeeping deposit). */
+  cashTotalCents: number;
   weeklyEarningsCents: number;
   /** Honey converted to cash at the current rate, for the "≈ $X" hint. */
   cashEquivalentCents: number;
@@ -35,7 +36,7 @@ export default function HoneyPotHero({
         </p>
         <div className="mt-4 flex items-center gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk">
-            ⚡ Cash {formatCash(cashCents, currency)}
+            ⚡ Cash {formatCash(cashTotalCents, currency)}
           </span>
           {weeklyEarningsCents > 0 && (
             <span className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-green/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-green">

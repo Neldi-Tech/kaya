@@ -40,18 +40,20 @@ async function main() {
   await setDoc(famRef, { hiveConfig: DEFAULT_HIVE_CONFIG }, { merge: true });
   console.log('· hiveConfig set');
 
-  // 2) Wallet — the v2 mockup numbers (HP=1240, Honey=85, Cash=$42.50).
+  // 2) Wallet — v3 cash split: HP=1240, Honey=85, Cash $42.50
+  //    ($30.00 on hand · $12.50 in safekeeping).
   const walletRef = doc(db, 'families', FAMILY_ID!, 'kids', KID_ID!, 'wallet', 'balances');
   const seedWallet: Wallet = {
     ...EMPTY_WALLET,
     housePoints: 1240,
     honeyCoins: 85,
-    cashCents: 4250,
+    cashOnHandCents: 3000,
+    cashOnDepositCents: 1250,
     totalLifetimeEarnedCents: 8500,
     totalLifetimeSpentCents: 3200,
   };
   await setDoc(walletRef, { ...seedWallet, updatedAt: serverTimestamp() });
-  console.log('· wallet seeded · HP 1240 · 🍯 85 · $42.50');
+  console.log('· wallet seeded · HP 1240 · 🍯 85 · Cash $42.50 ($30 on hand · $12.50 safekept)');
 
   // 3) Ledger — a small mix across all three layers, last 4 weeks.
   const txCol = collection(db, 'families', FAMILY_ID!, 'kids', KID_ID!, 'hiveTransactions');

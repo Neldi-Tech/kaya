@@ -5,20 +5,25 @@
 // which is a placeholder for now and gets wired up in PR-Hive-B.
 
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
+import { cashTotalCents } from '@/lib/hive';
 import BalanceCard from '@/components/hive/BalanceCard';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
+import SafekeepingPanel from '@/components/hive/SafekeepingPanel';
 import RatePill from '@/components/hive/RatePill';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/components/hive/format';
 
 export default function WalletPage() {
+  const { profile, isGuest } = useAuth();
   const { children } = useFamily();
   const { activeKidId, wallet, config, totalNetWorthCents, fxUsdToFamily } = useHive();
   const activeKid = children.find((c) => c.id === activeKidId);
   const fxRate = fxUsdToFamily ?? 1;
+  const cashTotal = cashTotalCents(wallet);
 
   const honeyAsCash = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxRate);
   // HP "if cashed out" is a useful hint but more speculative — we mention
@@ -66,11 +71,29 @@ export default function WalletPage() {
         />
         <BalanceCard
           variant="cash"
-          value={formatCash(wallet.cashCents, config.currency)}
-          sub="real money · spend with parent approval"
+          value={formatCash(cashTotal, config.currency)}
+          sub={
+            wallet.cashOnDepositCents > 0
+              ? `👛 ${formatCash(wallet.cashOnHandCents, config.currency)} on hand · 🏦 ${formatCash(wallet.cashOnDepositCents, config.currency)} safekept`
+              : 'real money · spend with parent approval'
+          }
           href="/hive/cash-out"
         />
       </div>
+
+      {/* Safekeeping — move cash between the on-hand and deposit pots. */}
+      {activeKidId && profile && !isGuest && (
+        <div className="mb-4">
+          <SafekeepingPanel
+            familyId={profile.familyId}
+            kidId={activeKidId}
+            uid={profile.uid}
+            wallet={wallet}
+            currency={config.currency}
+            canWithdraw={profile.role === 'parent'}
+          />
+        </div>
+      )}
 
       {/* Quick links to the cash ledgers, sitting under the balance cards. */}
       <div className="grid grid-cols-2 gap-2 mb-3">

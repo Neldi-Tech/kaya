@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { requestHpToHoney, requestCashOut } from '@/lib/hive';
+import { requestHpToHoney, requestCashOut, cashTotalCents } from '@/lib/hive';
 import RatePill from '@/components/hive/RatePill';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
@@ -148,7 +148,7 @@ export default function ConvertPage() {
             {mode === 'hp_to_honey' ? 'TO 🍯 Honey Coins' : 'TO 💵 Cash'}
           </p>
           <p className="text-[11px] text-hive-muted font-bold">
-            Current: {mode === 'hp_to_honey' ? formatHoney(wallet.honeyCoins) : formatCash(wallet.cashCents, config.currency)}
+            Current: {mode === 'hp_to_honey' ? formatHoney(wallet.honeyCoins) : formatCash(cashTotalCents(wallet), config.currency)}
           </p>
         </div>
         <div>
@@ -164,7 +164,7 @@ export default function ConvertPage() {
           New balance:{' '}
           {mode === 'hp_to_honey'
             ? `${formatHoney(wallet.honeyCoins + fromHpToHoney)} 🍯 (≈ ${formatCash(honeyToCashCents(wallet.honeyCoins + fromHpToHoney, config.honeyToCashRate, fxRate), config.currency)})`
-            : formatCash(wallet.cashCents + fromHoneyToCashCents, config.currency)}
+            : `${formatCash(cashTotalCents(wallet) + fromHoneyToCashCents, config.currency)} · lands on-hand 👛`}
         </p>
       </div>
 

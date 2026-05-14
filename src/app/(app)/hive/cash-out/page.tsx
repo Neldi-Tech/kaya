@@ -80,8 +80,13 @@ export default function CashOutPage() {
     setError('');
     const cents = Math.round(amountInput * 100);
     if (!Number.isFinite(cents) || cents <= 0) { setError('Pick an amount.'); return; }
-    if (cents > wallet.cashCents) {
-      setError(`You only have ${formatCash(wallet.cashCents, config.currency)} in Cash.`);
+    if (cents > wallet.cashOnHandCents) {
+      setError(
+        `You only have ${formatCash(wallet.cashOnHandCents, config.currency)} on hand.` +
+        (wallet.cashOnDepositCents > 0
+          ? ' Withdraw from safekeeping first to spend more.'
+          : ''),
+      );
       return;
     }
     if (!desc.trim()) { setError('Tell us what the money is for.'); return; }
@@ -189,7 +194,12 @@ export default function CashOutPage() {
               />
             </div>
             <p className="text-[11px] text-hive-muted mt-1">
-              Available: {formatCash(wallet.cashCents, config.currency)}
+              On hand: {formatCash(wallet.cashOnHandCents, config.currency)}
+              {wallet.cashOnDepositCents > 0 && (
+                <span className="text-hive-muted/70">
+                  {' '}· {formatCash(wallet.cashOnDepositCents, config.currency)} in safekeeping 🏦
+                </span>
+              )}
             </p>
           </div>
 

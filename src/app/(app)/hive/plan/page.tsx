@@ -12,7 +12,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory } from '@/lib/hive';
+import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory, cashTotalCents } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
@@ -110,8 +110,8 @@ export default function PlanPage() {
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">This month</p>
         <div className="mt-2 grid grid-cols-3 gap-3 items-baseline">
           <div>
-            <p className="font-nunito font-black text-2xl">{formatCash(wallet.cashCents, config.currency)}</p>
-            <p className="text-[10px] text-hive-muted font-bold uppercase tracking-wider">Available</p>
+            <p className="font-nunito font-black text-2xl">{formatCash(wallet.cashOnHandCents, config.currency)}</p>
+            <p className="text-[10px] text-hive-muted font-bold uppercase tracking-wider">On hand</p>
           </div>
           <div>
             <p className="font-nunito font-black text-2xl text-hive-honey-dk">{formatCash(totalPlannedCents, config.currency)}</p>

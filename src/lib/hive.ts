@@ -45,7 +45,11 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 export type TxCategory =
   | 'chore' | 'quest' | 'award' | 'convert' | 'allowance'
   | 'gift'  | 'business'
-  | 'spend' | 'shopping' | 'books' | 'treats' | 'donation' | 'savings' | 'other';
+  | 'spend' | 'shopping' | 'books' | 'treats' | 'donation' | 'savings' | 'other'
+  // v3 — intra-cash moves between the on-hand and deposit (safekeeping)
+  // sub-balances. Never counted as spending or earning; excluded from
+  // budget/save-rate aggregations.
+  | 'safekeeping';
 
 // Subset of TxCategory that can appear on a budget line. Keep this list
 // lined up with the chips on /hive/cash-out and /hive/plan.
@@ -185,7 +189,20 @@ export interface Wallet {
   // doesn't need a second query. If they ever drift, `totalPoints` wins.
   housePoints: number;
   honeyCoins: number;
-  cashCents: number;
+  // ── v3 cash split ──────────────────────────────────────────────
+  // Cash (L3) is two sub-balances:
+  //   cashOnHandCents     — spendable cash the kid holds. Spends and
+  //                         cash-outs land/leave here.
+  //   cashOnDepositCents  — safekeeping. Money the kid has set aside
+  //                         (or a parent holds for them). Not directly
+  //                         spendable — must be withdrawn to on-hand
+  //                         first. Teaches the bank-account mental model.
+  // Total cash = cashOnHandCents + cashOnDepositCents (see cashTotalCents).
+  // Legacy wallets stored a single `cashCents`; `normalizeWallet()`
+  // back-fills the split and the doc rewrites in the v3 shape on its
+  // next mutation.
+  cashOnHandCents: number;
+  cashOnDepositCents: number;
   totalLifetimeEarnedCents: number;
   totalLifetimeSpentCents: number;
   updatedAt?: Timestamp;
@@ -194,10 +211,37 @@ export interface Wallet {
 export const EMPTY_WALLET: Wallet = {
   housePoints: 0,
   honeyCoins: 0,
-  cashCents: 0,
+  cashOnHandCents: 0,
+  cashOnDepositCents: 0,
   totalLifetimeEarnedCents: 0,
   totalLifetimeSpentCents: 0,
 };
+
+/**
+ * Normalize a raw wallet doc into the v3 cash-split shape. Pre-v3
+ * wallets stored a single `cashCents`; we treat all of it as
+ * spendable on-hand cash and default the deposit balance to 0. The
+ * wallet rewrites in the v3 shape on its next mutation, so this shim
+ * only matters for un-migrated docs. Always returns a complete Wallet.
+ */
+export function normalizeWallet(raw: any): Wallet {
+  if (!raw) return { ...EMPTY_WALLET };
+  const hasSplit = typeof raw.cashOnHandCents === 'number';
+  return {
+    housePoints: raw.housePoints ?? 0,
+    honeyCoins: raw.honeyCoins ?? 0,
+    cashOnHandCents: hasSplit ? raw.cashOnHandCents : (raw.cashCents ?? 0),
+    cashOnDepositCents: raw.cashOnDepositCents ?? 0,
+    totalLifetimeEarnedCents: raw.totalLifetimeEarnedCents ?? 0,
+    totalLifetimeSpentCents: raw.totalLifetimeSpentCents ?? 0,
+    updatedAt: raw.updatedAt,
+  };
+}
+
+/** Total cash across both sub-balances (on-hand + deposit). */
+export function cashTotalCents(w: Wallet): number {
+  return w.cashOnHandCents + w.cashOnDepositCents;
+}
 
 export interface HiveTransaction {
   id: string;
@@ -267,6 +311,8 @@ export function spendingByCategoryInMonth(
   const out: Partial<Record<TxCategory, number>> = {};
   for (const t of transactions) {
     if (t.layer !== 'cash' || t.direction !== 'out') continue;
+    // Safekeeping moves are intra-cash transfers, not spending.
+    if (t.category === 'safekeeping') continue;
     const ts = (t.createdAt as any)?.toMillis?.();
     if (typeof ts !== 'number' || ts < start || ts >= end) continue;
     const c = t.category;
@@ -321,7 +367,7 @@ const childRef = (familyId: string, kidId: string) =>
 export async function getWallet(familyId: string, kidId: string): Promise<Wallet | null> {
   if (isGuestActive()) return EMPTY_WALLET;
   const snap = await getDoc(walletPath(familyId, kidId));
-  return snap.exists() ? (snap.data() as Wallet) : null;
+  return snap.exists() ? normalizeWallet(snap.data()) : null;
 }
 
 export function subscribeToWallet(
@@ -334,7 +380,9 @@ export function subscribeToWallet(
     return () => {};
   }
   return onSnapshot(walletPath(familyId, kidId), (snap) => {
-    cb(snap.exists() ? (snap.data() as Wallet) : null);
+    // Normalize on read so every consumer sees the v3 cash-split shape,
+    // even for wallets that pre-date the split and still store `cashCents`.
+    cb(snap.exists() ? normalizeWallet(snap.data()) : null);
   });
 }
 
@@ -614,14 +662,19 @@ export async function requestOrAutoSpend(
     const wRef = walletPath(familyId, kidId);
     const wSnap = await txn.get(wRef);
     if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
-    const wallet = wSnap.data() as Wallet;
-    if (wallet.cashCents < amountCents) throw new Error('Not enough Cash to cover the spend.');
+    const wallet = normalizeWallet(wSnap.data());
+    // Spending always draws from on-hand cash. If on-hand can't cover it,
+    // the kid must withdraw from safekeeping first — no silent dip into
+    // the deposit balance.
+    if (wallet.cashOnHandCents < amountCents) {
+      throw new Error('Not enough on-hand Cash. Withdraw from safekeeping first.');
+    }
     const txRef = doc(txCol(familyId, kidId));
     createdTxId = txRef.id;
     const now = serverTimestamp();
     txn.set(wRef, {
       ...wallet,
-      cashCents: wallet.cashCents - amountCents,
+      cashOnHandCents: wallet.cashOnHandCents - amountCents,
       totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + amountCents,
       updatedAt: now,
     });
@@ -698,7 +751,7 @@ export async function resolveApprovalRequest(
     const wRef = walletPath(familyId, req.kidId);
     const wSnap = await tx.get(wRef);
     if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
-    const wallet = wSnap.data() as Wallet;
+    const wallet = normalizeWallet(wSnap.data());
 
     if (req.type === 'hp_to_honey') {
       const hp = req.hpAmount ?? 0;
@@ -753,10 +806,12 @@ export async function resolveApprovalRequest(
       const inRef = doc(txCol(familyId, req.kidId), `${link}-in`);
       const now = serverTimestamp();
 
+      // Cash-out lands as spendable on-hand cash — the kid asked for
+      // real money now, so it goes straight to the on-hand pocket.
       tx.set(wRef, {
         ...wallet,
         honeyCoins: wallet.honeyCoins - honey,
-        cashCents: wallet.cashCents + cents,
+        cashOnHandCents: wallet.cashOnHandCents + cents,
         totalLifetimeEarnedCents: wallet.totalLifetimeEarnedCents + cents,
         updatedAt: now,
       });
@@ -782,14 +837,17 @@ export async function resolveApprovalRequest(
       });
     } else if (req.type === 'spend') {
       const cents = req.amountCents ?? 0;
-      if (wallet.cashCents < cents) throw new Error('Not enough Cash to cover the spend.');
+      // Spends draw from on-hand cash only — never the deposit balance.
+      if (wallet.cashOnHandCents < cents) {
+        throw new Error('Not enough on-hand Cash. Withdraw from safekeeping first.');
+      }
 
       const txRef = doc(txCol(familyId, req.kidId));
       const now = serverTimestamp();
 
       tx.set(wRef, {
         ...wallet,
-        cashCents: wallet.cashCents - cents,
+        cashOnHandCents: wallet.cashOnHandCents - cents,
         totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + cents,
         updatedAt: now,
       });
@@ -815,8 +873,14 @@ export async function resolveApprovalRequest(
 
 // ── Direct cash deposit (parent-only) ─────────────────────────────
 
+/** Where a direct cash deposit lands. Defaults to on-hand (spendable);
+ *  a parent can choose to drop a gift straight into safekeeping. */
+export type CashDestination = 'on_hand' | 'on_deposit';
+
 /** Allowance / gift / business income deposit, no approval needed because
- *  the parent IS the approver. Rules block kids from calling this. */
+ *  the parent IS the approver. Rules block kids from calling this.
+ *  `destination` picks which cash sub-balance the money lands in
+ *  (default: on-hand / spendable). */
 export async function depositCash(
   familyId: string,
   kidId: string,
@@ -824,24 +888,117 @@ export async function depositCash(
   category: 'allowance' | 'gift' | 'business' | 'other',
   description: string,
   uid: string,
+  destination: CashDestination = 'on_hand',
 ): Promise<void> {
   if (isGuestActive()) return;
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Amount must be positive cents.');
   await runTransaction(db, async (txn) => {
     const wRef = walletPath(familyId, kidId);
     const wSnap = await txn.get(wRef);
-    const wallet = (wSnap.exists() ? wSnap.data() : EMPTY_WALLET) as Wallet;
+    const wallet = normalizeWallet(wSnap.exists() ? wSnap.data() : EMPTY_WALLET);
     const txRef = doc(txCol(familyId, kidId));
     const now = serverTimestamp();
+    const toDeposit = destination === 'on_deposit';
     txn.set(wRef, {
       ...wallet,
-      cashCents: wallet.cashCents + amountCents,
+      cashOnHandCents: wallet.cashOnHandCents + (toDeposit ? 0 : amountCents),
+      cashOnDepositCents: wallet.cashOnDepositCents + (toDeposit ? amountCents : 0),
       totalLifetimeEarnedCents: wallet.totalLifetimeEarnedCents + amountCents,
       updatedAt: now,
     });
     txn.set(txRef, {
       layer: 'cash', direction: 'in', amount: amountCents, category,
-      description: description.trim() || category, status: 'completed',
+      description:
+        (description.trim() || category) +
+        (toDeposit ? ' · to safekeeping' : ''),
+      status: 'completed',
+      createdBy: uid, approvedBy: uid,
+      createdAt: now, completedAt: now,
+    });
+  });
+}
+
+// ── Safekeeping: move cash between on-hand and deposit ────────────
+
+/**
+ * Move spendable on-hand cash INTO safekeeping (the deposit balance).
+ * A pure intra-cash transfer — total cash is unchanged, so it never
+ * counts as spending or earning. Writes one ledger row with category
+ * `safekeeping` (direction `out` = left the spendable pocket).
+ * Callable by the kid (setting their own money aside) or a parent.
+ */
+export async function depositToSafekeeping(
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  uid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
+  await runTransaction(db, async (txn) => {
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await txn.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
+    const wallet = normalizeWallet(wSnap.data());
+    if (wallet.cashOnHandCents < amountCents) {
+      throw new Error('Not enough on-hand Cash to move to safekeeping.');
+    }
+    const txRef = doc(txCol(familyId, kidId));
+    const now = serverTimestamp();
+    txn.set(wRef, {
+      ...wallet,
+      cashOnHandCents: wallet.cashOnHandCents - amountCents,
+      cashOnDepositCents: wallet.cashOnDepositCents + amountCents,
+      updatedAt: now,
+    });
+    txn.set(txRef, {
+      layer: 'cash', direction: 'out', amount: amountCents,
+      category: 'safekeeping' as TxCategory,
+      description: 'Moved to safekeeping 🏦',
+      status: 'completed',
+      createdBy: uid, approvedBy: uid,
+      createdAt: now, completedAt: now,
+    });
+  });
+}
+
+/**
+ * Move cash OUT of safekeeping back to the spendable on-hand balance.
+ * Intra-cash transfer — total cash unchanged. Writes one ledger row
+ * with category `safekeeping` (direction `in` = back to the spendable
+ * pocket). Intended to be a parent action (the UI gates it), so a kid
+ * can't un-safekeep on impulse — but the wallet write rule already
+ * permits parent OR kid, matching the existing posture.
+ */
+export async function withdrawFromSafekeeping(
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  uid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
+  await runTransaction(db, async (txn) => {
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await txn.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
+    const wallet = normalizeWallet(wSnap.data());
+    if (wallet.cashOnDepositCents < amountCents) {
+      throw new Error('Not enough Cash in safekeeping to withdraw.');
+    }
+    const txRef = doc(txCol(familyId, kidId));
+    const now = serverTimestamp();
+    txn.set(wRef, {
+      ...wallet,
+      cashOnDepositCents: wallet.cashOnDepositCents - amountCents,
+      cashOnHandCents: wallet.cashOnHandCents + amountCents,
+      updatedAt: now,
+    });
+    txn.set(txRef, {
+      layer: 'cash', direction: 'in', amount: amountCents,
+      category: 'safekeeping' as TxCategory,
+      description: 'Withdrawn from safekeeping 👛',
+      status: 'completed',
       createdBy: uid, approvedBy: uid,
       createdAt: now, completedAt: now,
     });
