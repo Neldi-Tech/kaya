@@ -13,10 +13,11 @@
 
 import { useMemo, useState } from 'react';
 import BackButton from '@/components/ui/BackButton';
+import NumberInput from '@/components/ui/NumberInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
-import { addStaple } from '@/lib/pantry';
+import { addStaple, STAPLE_UNITS, type Cadence } from '@/lib/pantry';
 import { estimateLineCents } from '@/lib/pricing';
 import { formatCents } from '@/components/pantry/format';
 import {
@@ -40,6 +41,29 @@ const CADENCE_LABELS: Record<string, string> = {
   'as-needed': 'as needed',
 };
 
+const CADENCE_OPTIONS: { id: Cadence; label: string }[] = [
+  { id: 'daily',     label: 'Daily' },
+  { id: 'weekly',    label: 'Weekly' },
+  { id: 'biweekly',  label: '2x / wk' },
+  { id: 'monthly',   label: 'Monthly' },
+  { id: 'as-needed', label: 'As needed' },
+];
+
+// A per-card "tweak before save" override. The shared DIRECTORY_STAPLES
+// catalog never changes — the override only reshapes what gets written
+// into THIS family's staples on bulk-save. Keyed by the catalog
+// staple's `label` in a Map on the page.
+interface ItemOverride {
+  name?: string;
+  qty?: number;
+  unit?: string;
+  cadence?: Cadence;
+  /** Explicit price in family-currency cents. When unset the card
+   *  falls back to the pricing.ts estimate for the (possibly
+   *  overridden) qty. */
+  priceCents?: number;
+}
+
 export default function PantryDirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { staples } = usePantry();
@@ -59,6 +83,51 @@ export default function PantryDirectoryPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [packsOpen, setPacksOpen] = useState(true);
   const [packBusy, setPackBusy] = useState<string | null>(null);
+  // Per-card tweak-before-save overrides + which card's editor is open.
+  const [overrides, setOverrides] = useState<Map<string, ItemOverride>>(new Map());
+  const [editingLabel, setEditingLabel] = useState<string | null>(null);
+
+  // Resolve a catalog staple to the values that will actually be
+  // saved — override fields win, otherwise the catalog default. The
+  // price falls back to the pricing.ts estimate for the effective qty.
+  const effective = (s: DirectoryStaple) => {
+    const o = overrides.get(s.label);
+    const qty = o?.qty ?? s.defaultQty;
+    return {
+      name: o?.name?.trim() || s.label,
+      qty,
+      unit: o?.unit || s.unit,
+      cadence: o?.cadence || s.cadence,
+      priceCents: typeof o?.priceCents === 'number' ? o.priceCents : estimateLineCents(s, qty, region),
+      edited: !!o,
+    };
+  };
+
+  // Merge a patch into one staple's override. Tweaking an item also
+  // selects it — if you bothered to adjust it, you almost certainly
+  // want it on the list.
+  const patchOverride = (label: string, patch: ItemOverride) => {
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(label, { ...(next.get(label) || {}), ...patch });
+      return next;
+    });
+    setSelected((prev) => {
+      if (prev.has(label)) return prev;
+      const next = new Set(prev);
+      next.add(label);
+      return next;
+    });
+  };
+
+  const resetOverride = (label: string) => {
+    setOverrides((prev) => {
+      if (!prev.has(label)) return prev;
+      const next = new Map(prev);
+      next.delete(label);
+      return next;
+    });
+  };
 
   // Already in the family's staples (by lower-cased name) — used to
   // hide the "Add" affordance and skip duplicates on bulk-save.
@@ -113,18 +182,23 @@ export default function PantryDirectoryPage() {
     for (const label of labels) {
       const item = DIRECTORY_STAPLES.find((s) => s.label === label);
       if (!item) continue;
-      if (ownedNames.has(item.label.toLowerCase())) { skipped++; continue; }
+      // Dup-check against the (possibly overridden) name the user
+      // would actually be saving.
+      const eff = effective(item);
+      if (ownedNames.has(eff.name.toLowerCase())) { skipped++; continue; }
       await addStaple(profile.familyId, {
-        name: item.label,
+        name: eff.name,
         category: item.category,
-        defaultQty: item.defaultQty,
-        unit: item.unit,
-        cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, region),
+        defaultQty: eff.qty,
+        unit: eff.unit,
+        cadence: eff.cadence,
+        lastBoughtCents: eff.priceCents,
       });
       added++;
     }
     setSelected(new Set());
+    setOverrides(new Map());
+    setEditingLabel(null);
     setSaving(false);
     flashToast(
       added === 0
@@ -299,18 +373,25 @@ export default function PantryDirectoryPage() {
           {visibleStaples.length === 0 ? (
             <EmptyState message="No staples match these filters." />
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
-              {visibleStaples.map((s) => (
-                <StapleCard
-                  key={s.label}
-                  staple={s}
-                  selected={selected.has(s.label)}
-                  owned={ownedNames.has(s.label.toLowerCase())}
-                  onTap={() => toggleSelect(s.label)}
-                  region={region}
-                  currency={currency}
-                />
-              ))}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2 items-start">
+              {visibleStaples.map((s) => {
+                const eff = effective(s);
+                return (
+                  <StapleCard
+                    key={s.label}
+                    staple={s}
+                    selected={selected.has(s.label)}
+                    owned={ownedNames.has(eff.name.toLowerCase())}
+                    onTap={() => toggleSelect(s.label)}
+                    currency={currency}
+                    eff={eff}
+                    editing={editingLabel === s.label}
+                    onToggleEdit={() => setEditingLabel((cur) => (cur === s.label ? null : s.label))}
+                    onPatch={(patch) => patchOverride(s.label, patch)}
+                    onReset={() => { resetOverride(s.label); setEditingLabel(null); }}
+                  />
+                );
+              })}
             </div>
           )}
         </>
@@ -439,55 +520,180 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleCard({
-  staple, selected, owned, onTap, region, currency,
+  staple, selected, owned, onTap, currency, eff, editing, onToggleEdit, onPatch, onReset,
 }: {
   staple: DirectoryStaple;
   selected: boolean;
   owned: boolean;
   onTap: () => void;
-  region: Region | 'any';
   currency: string;
+  /** Effective (override-applied) values from the page's `effective`. */
+  eff: { name: string; qty: number; unit: string; cadence: Cadence; priceCents: number; edited: boolean };
+  editing: boolean;
+  onToggleEdit: () => void;
+  onPatch: (patch: ItemOverride) => void;
+  onReset: () => void;
 }) {
-  // Estimated price for this row + quantity, shown so parents see the
-  // budget shape before they commit. Saved through to lastBoughtCents
-  // on bulk-add — the staples list inherits the estimate and lets the
-  // parent override it inline later.
-  const estCents = estimateLineCents(staple, staple.defaultQty, region);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
-    <button
-      onClick={onTap}
-      className={`w-full text-left bg-hive-paper border rounded-hive p-3 flex items-start gap-3 transition-colors ${
+    <div
+      className={`bg-hive-paper border rounded-hive p-3 transition-colors ${
         selected
           ? 'border-pantry-leaf ring-2 ring-pantry-leaf/30 bg-pantry-leaf-soft/40'
           : 'border-hive-line hover:border-pantry-leaf/50'
       }`}
     >
-      <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
-        {staple.emoji}
+      <div className="flex items-start gap-3">
+        {/* Emoji + text = the select toggle. A div (not a button) so
+            the price button + edit button can nest inside it. */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onTap}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(); } }}
+          className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer text-left"
+        >
+          <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
+            {staple.emoji}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-nunito font-extrabold text-[14px] truncate">
+              {eff.name}
+              {owned && (
+                <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-pantry-leaf-dk uppercase tracking-wider">
+                  · saved
+                </span>
+              )}
+              {eff.edited && (
+                <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-hive-honey-dk uppercase tracking-wider">
+                  · edited
+                </span>
+              )}
+            </p>
+            <p className="text-[11px] text-hive-muted truncate">
+              {eff.qty} {eff.unit} · {CADENCE_LABELS[eff.cadence] || eff.cadence}
+              {' · '}
+              {/* Tappable price — opens the same inline editor. */}
+              <button
+                type="button"
+                onClick={(e) => { stop(e); if (!editing) onToggleEdit(); }}
+                className="text-pantry-leaf-dk font-nunito font-extrabold underline-offset-2 hover:underline"
+              >
+                {eff.edited ? '' : '~ '}{formatCents(eff.priceCents, currency)}
+              </button>
+            </p>
+            {staple.note && (
+              <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{staple.note}</p>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {selected && <span className="text-pantry-leaf-dk text-base font-black leading-none">✓</span>}
+          <button
+            type="button"
+            onClick={(e) => { stop(e); onToggleEdit(); }}
+            aria-label={editing ? 'Close editor' : 'Tweak this item'}
+            className="text-[13px] leading-none px-1.5 py-1 rounded-hive-sm hover:bg-hive-cream"
+          >
+            {editing ? '✕' : '✏️'}
+          </button>
+        </div>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-nunito font-extrabold text-[14px] truncate">
-          {staple.label}
-          {owned && (
-            <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-pantry-leaf-dk uppercase tracking-wider">
-              · saved
-            </span>
-          )}
-        </p>
-        <p className="text-[11px] text-hive-muted truncate">
-          {staple.defaultQty} {staple.unit} · {CADENCE_LABELS[staple.cadence] || staple.cadence}
-          <span className="ml-1 text-pantry-leaf-dk font-nunito font-extrabold">
-            · ~ {formatCents(estCents, currency)}
-          </span>
-        </p>
-        {staple.note && (
-          <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{staple.note}</p>
-        )}
-      </div>
-      {selected && (
-        <span className="text-pantry-leaf-dk text-base font-black shrink-0">✓</span>
+
+      {/* Inline tweak-before-save editor */}
+      {editing && (
+        <div className="mt-3 pt-3 border-t border-hive-line space-y-2" onClick={stop}>
+          <div>
+            <label className="text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1">
+              Name
+            </label>
+            <input
+              value={eff.name}
+              onChange={(e) => onPatch({ name: e.target.value })}
+              maxLength={60}
+              className="w-full h-9 px-2.5 bg-hive-cream rounded-[8px] text-[13px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1">
+                Qty
+              </label>
+              <NumberInput
+                value={eff.qty}
+                onChange={(n) => onPatch({ qty: Math.max(1, n) })}
+                min={1}
+                ariaLabel="Quantity"
+                className="w-full h-9 px-2.5 bg-hive-cream rounded-[8px] text-center font-nunito font-black text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1">
+                Unit
+              </label>
+              <select
+                value={eff.unit}
+                onChange={(e) => onPatch({ unit: e.target.value })}
+                className="w-full h-9 px-1.5 bg-hive-cream rounded-[8px] font-nunito font-extrabold text-[12px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              >
+                {STAPLE_UNITS.map((u) => (
+                  <option key={u.id} value={u.id}>{u.label}</option>
+                ))}
+                {!STAPLE_UNITS.some((u) => u.id === eff.unit) && (
+                  <option value={eff.unit}>{eff.unit}</option>
+                )}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1">
+              Cadence
+            </label>
+            <select
+              value={eff.cadence}
+              onChange={(e) => onPatch({ cadence: e.target.value as Cadence })}
+              className="w-full h-9 px-1.5 bg-hive-cream rounded-[8px] font-nunito font-extrabold text-[12px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+            >
+              {CADENCE_OPTIONS.map((c) => (
+                <option key={c.id} value={c.id}>{c.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1">
+              Price ({currency})
+            </label>
+            <NumberInput
+              value={eff.priceCents / 100}
+              onChange={(n) => onPatch({ priceCents: n > 0 ? Math.round(n * 100) : undefined })}
+              allowDecimal
+              min={0}
+              ariaLabel="Estimated price"
+              placeholder="0"
+              className="w-full h-9 px-2.5 bg-hive-cream rounded-[8px] font-nunito font-black text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+            />
+          </div>
+          <div className="flex gap-2 pt-0.5">
+            {eff.edited && (
+              <button
+                type="button"
+                onClick={onReset}
+                className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px]"
+              >
+                Reset
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onToggleEdit}
+              className="flex-1 h-9 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[12px]"
+            >
+              Done
+            </button>
+          </div>
+        </div>
       )}
-    </button>
+    </div>
   );
 }
 
