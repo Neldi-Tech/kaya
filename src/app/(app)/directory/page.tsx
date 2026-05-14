@@ -26,6 +26,7 @@ import {
   contactToVCard, contactsToVCardFile, downloadVCard,
   parseContacts, type DirectoryCategory, type ParsedContact, type ImportFormat,
 } from '@/lib/directory';
+import ContactPickerButton from '@/components/pantry/ContactPickerButton';
 
 export default function DirectoryPage() {
   const { profile, isGuest } = useAuth();
@@ -40,6 +41,9 @@ export default function DirectoryPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Set when a contact is picked from the phone's address book — opens
+  // the Add form pre-filled. Cleared on manual "+ Add contact" / cancel.
+  const [prefill, setPrefill] = useState<{ name?: string; phone?: string } | null>(null);
 
   useEffect(() => {
     if (!familyId) { setLoading(false); return; }
@@ -174,9 +178,9 @@ export default function DirectoryPage() {
       </div>
 
       {/* Actions */}
-      <div className="grid grid-cols-2 gap-2 mb-3">
+      <div className="grid grid-cols-2 gap-2 mb-2">
         <button
-          onClick={() => { setAdding((v) => !v); setEditingId(null); setImporting(false); }}
+          onClick={() => { setAdding((v) => !v); setEditingId(null); setImporting(false); setPrefill(null); }}
           disabled={isGuest}
           className="h-11 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px] disabled:opacity-50 shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
         >
@@ -191,9 +195,31 @@ export default function DirectoryPage() {
         </button>
       </div>
 
+      {/* Pick straight from the phone's address book. Lights up on
+          Android Chrome / Edge / Samsung Internet (and PWA-installed
+          Kaya); shows an inline hint on iOS / desktop. Picking opens
+          the Add form pre-filled. */}
+      {!isGuest && (
+        <div className="mb-3">
+          <ContactPickerButton
+            onPicked={({ name: pickedName, phone: pickedPhone }) => {
+              setPrefill({ name: pickedName, phone: pickedPhone });
+              setAdding(true);
+              setEditingId(null);
+              setImporting(false);
+            }}
+          />
+        </div>
+      )}
+
       {/* Add form */}
       {adding && !editingId && (
-        <ContactForm onSave={(d) => saveContact(d)} onCancel={() => setAdding(false)} />
+        <ContactForm
+          key={prefill ? `prefill-${prefill.name ?? ''}-${prefill.phone ?? ''}` : 'blank'}
+          prefill={prefill ?? undefined}
+          onSave={(d) => saveContact(d)}
+          onCancel={() => { setAdding(false); setPrefill(null); }}
+        />
       )}
 
       {/* Import sheet */}
@@ -370,16 +396,17 @@ interface ContactFormData {
 }
 
 function ContactForm({
-  existing, onSave, onCancel, onDelete,
+  existing, prefill, onSave, onCancel, onDelete,
 }: {
   existing?: Supplier;
+  prefill?: { name?: string; phone?: string };
   onSave: (data: ContactFormData) => void;
   onCancel: () => void;
   onDelete?: () => void;
 }) {
-  const [name, setName] = useState(existing?.name || '');
+  const [name, setName] = useState(existing?.name || prefill?.name || '');
   const [contactName, setContactName] = useState(existing?.contactName || '');
-  const [phone, setPhone] = useState(existing?.phone || '');
+  const [phone, setPhone] = useState(existing?.phone || prefill?.phone || '');
   const [email, setEmail] = useState(existing?.email || '');
   const [notes, setNotes] = useState(existing?.notes || '');
   const [category, setCategory] = useState<DirectoryCategory>(
