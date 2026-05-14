@@ -15,7 +15,10 @@ import { useMemo, useState } from 'react';
 import BackButton from '@/components/ui/BackButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
+import { useHive } from '@/contexts/HiveContext';
 import { addStaple } from '@/lib/pantry';
+import { estimateLineCents } from '@/lib/pricing';
+import { formatCents } from '@/components/pantry/format';
 import {
   DIRECTORY_STAPLES, DIRECTORY_FOODS,
   REGIONS, DIETS, MEALS,
@@ -40,6 +43,8 @@ const CADENCE_LABELS: Record<string, string> = {
 export default function PantryDirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { staples } = usePantry();
+  const { config } = useHive();
+  const currency = config.currency;
 
   const [tab, setTab] = useState<Tab>('staples');
   const [surface, setSurface] = useState<Surface>('food');
@@ -115,6 +120,7 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
+        lastBoughtCents: estimateLineCents(item, item.defaultQty, region),
       });
       added++;
     }
@@ -141,6 +147,7 @@ export default function PantryDirectoryPage() {
         defaultQty: qty,
         unit: staple.unit,
         cadence: staple.cadence,
+        lastBoughtCents: estimateLineCents(staple, qty, region),
       });
       added++;
     }
@@ -165,6 +172,7 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
+        lastBoughtCents: estimateLineCents(item, item.defaultQty, region),
       });
       added++;
     }
@@ -299,6 +307,8 @@ export default function PantryDirectoryPage() {
                   selected={selected.has(s.label)}
                   owned={ownedNames.has(s.label.toLowerCase())}
                   onTap={() => toggleSelect(s.label)}
+                  region={region}
+                  currency={currency}
                 />
               ))}
             </div>
@@ -429,13 +439,20 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleCard({
-  staple, selected, owned, onTap,
+  staple, selected, owned, onTap, region, currency,
 }: {
   staple: DirectoryStaple;
   selected: boolean;
   owned: boolean;
   onTap: () => void;
+  region: Region | 'any';
+  currency: string;
 }) {
+  // Estimated price for this row + quantity, shown so parents see the
+  // budget shape before they commit. Saved through to lastBoughtCents
+  // on bulk-add — the staples list inherits the estimate and lets the
+  // parent override it inline later.
+  const estCents = estimateLineCents(staple, staple.defaultQty, region);
   return (
     <button
       onClick={onTap}
@@ -459,6 +476,9 @@ function StapleCard({
         </p>
         <p className="text-[11px] text-hive-muted truncate">
           {staple.defaultQty} {staple.unit} · {CADENCE_LABELS[staple.cadence] || staple.cadence}
+          <span className="ml-1 text-pantry-leaf-dk font-nunito font-extrabold">
+            · ~ {formatCents(estCents, currency)}
+          </span>
         </p>
         {staple.note && (
           <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{staple.note}</p>
