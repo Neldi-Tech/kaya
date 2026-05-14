@@ -24,6 +24,7 @@ import {
   generateList, generateListName,
   type SmartStartPrefs, type HouseholdSize, type Lifestyle,
 } from '@/lib/listGenerator';
+import { usdToTargetRate } from '@/lib/pricing';
 import { createList, thisWeekKey, type GroceryListItem, type Cadence } from '@/lib/pantry';
 import type { Region } from '@/lib/pantryDirectory';
 import { formatCents } from '@/components/pantry/format';
@@ -175,8 +176,11 @@ const ALL_PERMUTATIONS = buildPermutations();
 export default function TemplatesPage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
-  const { config } = useHive();
+  const { config, fxUsdToFamily } = useHive();
   const currency = config.currency;
+  // USD → family-currency rate for live price estimates. Live FX
+  // from open.er-api.com; static fallback table when offline.
+  const usdToTarget = fxUsdToFamily ?? usdToTargetRate(currency);
 
   const [size, setSize] = useState<HouseholdSize | 'all'>('all');
   const [region, setRegion] = useState<Region | 'any' | 'all'>('all');
@@ -202,7 +206,7 @@ export default function TemplatesPage() {
     if (!profile?.familyId || isGuest) return;
     setBusy(true);
     try {
-      const items = generateList(t.prefs);
+      const items = generateList(t.prefs, usdToTarget);
       const id = await createList(profile.familyId, {
         name: t.title,
         weekOf: thisWeekKey(),
@@ -299,6 +303,7 @@ export default function TemplatesPage() {
         <TemplatePreview
           template={preview}
           currency={currency}
+          usdToTarget={usdToTarget}
           busy={busy}
           onUse={() => useTemplate(preview)}
           onClose={() => setPreview(null)}
@@ -326,15 +331,16 @@ function TemplateCard({ template, onTap }: { template: Template; onTap: () => vo
 }
 
 function TemplatePreview({
-  template, currency, busy, onUse, onClose,
+  template, currency, usdToTarget, busy, onUse, onClose,
 }: {
   template: Template;
   currency: string;
+  usdToTarget: number;
   busy: boolean;
   onUse: () => void;
   onClose: () => void;
 }) {
-  const items = useMemo(() => generateList(template.prefs), [template]);
+  const items = useMemo(() => generateList(template.prefs, usdToTarget), [template, usdToTarget]);
   const total = items.reduce((sum, i) => sum + (i.estimatedCents || 0), 0);
   const foodItems = items.filter((i) => i.category && ['produce','dairy','pantry'].includes(i.category));
   const consItems = items.filter((i) => i.category && ['cleaning','personal','other'].includes(i.category));

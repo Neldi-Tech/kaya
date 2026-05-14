@@ -16,12 +16,14 @@ import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { usePantry } from '@/contexts/PantryContext';
+import { useHive } from '@/contexts/HiveContext';
 import { createList, thisWeekKey, thisWeekLabel } from '@/lib/pantry';
 import {
   generateList, generateListName,
   type SmartStartPrefs, type HouseholdSize, type HouseholdType,
   type Lifestyle, type Budget, type SpecialNeed,
 } from '@/lib/listGenerator';
+import { usdToTargetRate } from '@/lib/pricing';
 import type { Region } from '@/lib/pantryDirectory';
 import type { Cadence } from '@/lib/pantry';
 
@@ -177,6 +179,10 @@ function SmartStartForm({
   defaultSize: HouseholdSize;
   onCreated: (id: string) => void;
 }) {
+  const { config, fxUsdToFamily } = useHive();
+  // USD → family-currency rate for live price estimates. Live FX
+  // from open.er-api.com; static fallback table when offline.
+  const usdToTarget = fxUsdToFamily ?? usdToTargetRate(config.currency);
   const [size, setSize] = useState<HouseholdSize>(defaultSize);
   const [household, setHousehold] = useState<HouseholdType>('apartment');
   const [region, setRegion] = useState<Region | 'any'>('east-africa');
@@ -204,7 +210,7 @@ function SmartStartForm({
         size, household, region, city: city.trim() || undefined,
         lifestyle, special, budget, cadence,
       };
-      const items = generateList(prefs);
+      const items = generateList(prefs, usdToTarget);
       if (items.length === 0) {
         setError('No items match those preferences — try widening one filter.');
         setBusy(false);

@@ -71,6 +71,17 @@ export interface Family {
   // and faith communities consider only Female/Male appropriate, so the
   // option is opt-in. Parents can flip this in Settings.
   allowGenderOther?: boolean;
+  // ── Location ──
+  // Where this family lives. Optional — when set, the country code
+  // drives currency auto-detection (`countryToCurrency()` in
+  // `lib/hive.ts`) and downstream pricing scales to local FX rates.
+  // City is free-text and used only for friendly display ("Run for
+  // Dar es Salaam" in WhatsApp messages, etc.). USD is the global
+  // default when no country is set.
+  location?: {
+    country: string;   // ISO 3166 alpha-2 (e.g., "TZ", "US", "IN")
+    city?: string;     // free-text, e.g., "Dar es Salaam"
+  };
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent

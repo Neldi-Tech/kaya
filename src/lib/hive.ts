@@ -179,6 +179,118 @@ export function currencyMeta(code: string): CurrencyMeta {
   return CURRENCIES.find((c) => c.code === code) || CURRENCIES[0];
 }
 
+// ── Country → Currency mapping ───────────────────────────────────
+// ISO 3166 alpha-2 country code → ISO 4217 currency code. Drives
+// the auto-currency-from-location flow on family setup. Anything
+// not listed here falls back to USD (the global default). Currencies
+// returned MUST exist in the CURRENCIES catalog above so the picker
+// UI renders correctly; for countries whose native currency isn't
+// yet in the catalog, USD is a safe stand-in until we add full meta.
+const COUNTRY_TO_CURRENCY: Record<string, string> = {
+  // ── East / Sub-Saharan Africa ──
+  TZ: 'TZS',  KE: 'KES',  UG: 'UGX',  ZA: 'ZAR',  NG: 'NGN',
+  RW: 'USD',  BI: 'USD',  ET: 'USD',  GH: 'USD',  ZM: 'USD',
+  BW: 'USD',  MZ: 'USD',  CI: 'USD',  SN: 'USD',
+  // ── North America ──
+  US: 'USD',  CA: 'CAD',  MX: 'USD',
+  // ── Eurozone ──
+  DE: 'EUR',  FR: 'EUR',  IT: 'EUR',  ES: 'EUR',  NL: 'EUR',
+  BE: 'EUR',  IE: 'EUR',  AT: 'EUR',  PT: 'EUR',  GR: 'EUR',
+  FI: 'EUR',  LU: 'EUR',
+  // ── Europe (non-Euro) ──
+  GB: 'GBP',  CH: 'USD',  NO: 'USD',  SE: 'USD',  DK: 'USD',
+  PL: 'USD',  CZ: 'USD',  HU: 'USD',  RO: 'USD',
+  // ── Middle East ──
+  AE: 'AED',  SA: 'USD',  QA: 'USD',  BH: 'USD',  KW: 'USD',
+  OM: 'USD',  JO: 'USD',  LB: 'USD',  IL: 'USD',
+  // ── South Asia ──
+  IN: 'INR',  PK: 'USD',  BD: 'USD',  LK: 'USD',  NP: 'USD',
+  // ── Asia-Pacific ──
+  AU: 'AUD',  NZ: 'USD',  JP: 'USD',  CN: 'USD',  SG: 'USD',
+  MY: 'USD',  TH: 'USD',  PH: 'USD',  ID: 'USD',  VN: 'USD',
+  KR: 'USD',  HK: 'USD',  TW: 'USD',
+  // ── Latin America ──
+  BR: 'USD',  AR: 'USD',  CL: 'USD',  CO: 'USD',  PE: 'USD',
+};
+
+/** ISO 3166 alpha-2 country code → ISO 4217 currency code.
+ *  Defaults to USD when the country is unknown or missing.
+ *  Currencies returned are guaranteed to exist in `CURRENCIES`
+ *  (the picker meta) so downstream UI renders correctly. */
+export function countryToCurrency(countryCode: string | undefined | null): string {
+  if (!countryCode) return 'USD';
+  return COUNTRY_TO_CURRENCY[countryCode.toUpperCase()] || 'USD';
+}
+
+// ── Country picker catalog ────────────────────────────────────────
+// Curated list of countries Kaya has known users in or expects to
+// soon — sorted with the founders' regions (East Africa, India)
+// first so the most-likely options surface at the top of the
+// settings dropdown. Add countries here as we expand; the
+// COUNTRY_TO_CURRENCY map above must stay in sync.
+export interface CountryMeta {
+  code: string;   // ISO 3166 alpha-2
+  label: string;  // human display name
+  flag: string;   // emoji flag for the picker
+  region: 'east-africa' | 'africa' | 'middle-east' | 'south-asia'
+        | 'asia-pacific' | 'europe' | 'north-america' | 'latin-america';
+}
+
+export const COUNTRIES: CountryMeta[] = [
+  // East Africa first — Kaya's home region
+  { code: 'TZ', label: 'Tanzania',       flag: '🇹🇿', region: 'east-africa' },
+  { code: 'KE', label: 'Kenya',          flag: '🇰🇪', region: 'east-africa' },
+  { code: 'UG', label: 'Uganda',         flag: '🇺🇬', region: 'east-africa' },
+  { code: 'RW', label: 'Rwanda',         flag: '🇷🇼', region: 'east-africa' },
+  { code: 'ET', label: 'Ethiopia',       flag: '🇪🇹', region: 'east-africa' },
+  // Other Africa
+  { code: 'ZA', label: 'South Africa',   flag: '🇿🇦', region: 'africa' },
+  { code: 'NG', label: 'Nigeria',        flag: '🇳🇬', region: 'africa' },
+  { code: 'GH', label: 'Ghana',          flag: '🇬🇭', region: 'africa' },
+  { code: 'ZM', label: 'Zambia',         flag: '🇿🇲', region: 'africa' },
+  { code: 'BW', label: 'Botswana',       flag: '🇧🇼', region: 'africa' },
+  // Middle East
+  { code: 'AE', label: 'UAE',            flag: '🇦🇪', region: 'middle-east' },
+  { code: 'SA', label: 'Saudi Arabia',   flag: '🇸🇦', region: 'middle-east' },
+  { code: 'QA', label: 'Qatar',          flag: '🇶🇦', region: 'middle-east' },
+  // South Asia
+  { code: 'IN', label: 'India',          flag: '🇮🇳', region: 'south-asia' },
+  { code: 'PK', label: 'Pakistan',       flag: '🇵🇰', region: 'south-asia' },
+  { code: 'BD', label: 'Bangladesh',     flag: '🇧🇩', region: 'south-asia' },
+  { code: 'LK', label: 'Sri Lanka',      flag: '🇱🇰', region: 'south-asia' },
+  // Asia-Pacific
+  { code: 'AU', label: 'Australia',      flag: '🇦🇺', region: 'asia-pacific' },
+  { code: 'NZ', label: 'New Zealand',    flag: '🇳🇿', region: 'asia-pacific' },
+  { code: 'SG', label: 'Singapore',      flag: '🇸🇬', region: 'asia-pacific' },
+  { code: 'MY', label: 'Malaysia',       flag: '🇲🇾', region: 'asia-pacific' },
+  { code: 'JP', label: 'Japan',          flag: '🇯🇵', region: 'asia-pacific' },
+  // Europe
+  { code: 'GB', label: 'United Kingdom', flag: '🇬🇧', region: 'europe' },
+  { code: 'DE', label: 'Germany',        flag: '🇩🇪', region: 'europe' },
+  { code: 'FR', label: 'France',         flag: '🇫🇷', region: 'europe' },
+  { code: 'IT', label: 'Italy',          flag: '🇮🇹', region: 'europe' },
+  { code: 'ES', label: 'Spain',          flag: '🇪🇸', region: 'europe' },
+  { code: 'NL', label: 'Netherlands',    flag: '🇳🇱', region: 'europe' },
+  // North America
+  { code: 'US', label: 'United States',  flag: '🇺🇸', region: 'north-america' },
+  { code: 'CA', label: 'Canada',         flag: '🇨🇦', region: 'north-america' },
+  { code: 'MX', label: 'Mexico',         flag: '🇲🇽', region: 'north-america' },
+  // Latin America
+  { code: 'BR', label: 'Brazil',         flag: '🇧🇷', region: 'latin-america' },
+  { code: 'AR', label: 'Argentina',      flag: '🇦🇷', region: 'latin-america' },
+];
+
+export const COUNTRY_REGION_LABELS: Record<CountryMeta['region'], string> = {
+  'east-africa':   'East Africa',
+  'africa':        'Africa',
+  'middle-east':   'Middle East',
+  'south-asia':    'South Asia',
+  'asia-pacific':  'Asia-Pacific',
+  'europe':        'Europe',
+  'north-america': 'North America',
+  'latin-america': 'Latin America',
+};
+
 export interface Wallet {
   // Mirror of the kid's HP from the legacy `children/{id}.totalPoints`. Kept
   // in sync on each successful HP-touching transaction so the Wallet screen
