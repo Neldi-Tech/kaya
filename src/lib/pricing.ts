@@ -16,8 +16,15 @@
 // an INR family sees ₹-scale numbers, a USD family sees dollars —
 // using the FX table below rather than a crude region guess.
 
-import type { DirectoryStaple } from './pantryDirectory';
 import type { Cadence, StapleCategory } from './pantry';
+
+/** The minimal shape the estimator needs to price an item. Both the
+ *  built-in DIRECTORY_STAPLES entries and the family's editable
+ *  CatalogEntry satisfy it, so the estimator works for either. */
+export interface PricedItem {
+  label: string;
+  category: StapleCategory;
+}
 
 // ── Base price table ─────────────────────────────────────────────
 // Per-unit "typical retail" baseline in USD cents. Calibrated for a
@@ -126,9 +133,9 @@ function lineRoundStepMinor(currency: string): number {
  *  `USDcents × (targetMajor / USDmajor) = targetMajor × 100 =
  *  targetMinor`. So 200 USD¢ ($2) at TZS 2650/USD → 530000 (TSh
  *  5,300). */
-export function estimateUnitPriceCents(staple: DirectoryStaple, currency: string = 'USD'): number {
-  const key = staple.label.toLowerCase();
-  const baseUsdCents = UNIT_OVERRIDES[key] ?? CATEGORY_DEFAULTS[staple.category].perUnitCentsUsd;
+export function estimateUnitPriceCents(item: PricedItem, currency: string = 'USD'): number {
+  const key = item.label.toLowerCase();
+  const baseUsdCents = UNIT_OVERRIDES[key] ?? CATEGORY_DEFAULTS[item.category].perUnitCentsUsd;
   return Math.round(baseUsdCents * usdFxRate(currency));
 }
 
@@ -136,8 +143,8 @@ export function estimateUnitPriceCents(staple: DirectoryStaple, currency: string
  *  number to keep the list readable (no "TSh 39,750" — reads as
  *  "TSh 40,000"). The rounding step scales with the currency, see
  *  `lineRoundStepMinor`. */
-export function estimateLineCents(staple: DirectoryStaple, qty: number, currency: string = 'USD'): number {
-  const raw = estimateUnitPriceCents(staple, currency) * Math.max(1, qty);
+export function estimateLineCents(item: PricedItem, qty: number, currency: string = 'USD'): number {
+  const raw = estimateUnitPriceCents(item, currency) * Math.max(1, qty);
   const step = lineRoundStepMinor(currency);
   const rounded = Math.round(raw / step) * step;
   // Never round a real estimate away to zero.
