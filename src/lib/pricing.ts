@@ -100,6 +100,21 @@ export function usdFxRate(currency: string | undefined): number {
   return USD_FX[currency] ?? 1;
 }
 
+/** The minor-unit increment a line estimate is rounded to, derived
+ *  from the currency's OWN scale — no hardcoded per-currency table,
+ *  so it self-adjusts for any currency we add.
+ *
+ *  Logic: take the order of magnitude of the USD→currency rate and
+ *  halve it. A big-denomination currency like TZS (≈2650/USD) lands
+ *  on a 500-major-unit step (so TSh 39,750 reads as TSh 40,000);
+ *  KES (≈129) lands on 50; USD (1) on 0.50; EUR/GBP (<1) on 0.05.
+ *  Same "drop the confusing trailing digits" feel everywhere. */
+function lineRoundStepMinor(currency: string): number {
+  const fx = usdFxRate(currency);
+  const stepMajor = Math.pow(10, Math.floor(Math.log10(fx))) / 2;
+  return Math.max(1, Math.round(stepMajor * 100));
+}
+
 // ── Public API ───────────────────────────────────────────────────
 
 /** Best-effort "what would a parent expect to pay" estimate for one
@@ -118,11 +133,15 @@ export function estimateUnitPriceCents(staple: DirectoryStaple, currency: string
 }
 
 /** Total line-item estimate = unit price × qty, rounded to a clean
- *  number to keep the list readable (no "TSh 1,237.45"). */
+ *  number to keep the list readable (no "TSh 39,750" — reads as
+ *  "TSh 40,000"). The rounding step scales with the currency, see
+ *  `lineRoundStepMinor`. */
 export function estimateLineCents(staple: DirectoryStaple, qty: number, currency: string = 'USD'): number {
   const raw = estimateUnitPriceCents(staple, currency) * Math.max(1, qty);
-  // Round to the nearest 100 minor units so the list reads cleanly.
-  return Math.round(raw / 100) * 100;
+  const step = lineRoundStepMinor(currency);
+  const rounded = Math.round(raw / step) * step;
+  // Never round a real estimate away to zero.
+  return rounded === 0 && raw > 0 ? step : rounded;
 }
 
 /** Lifestyle multipliers applied on top of the size scaling — drive
