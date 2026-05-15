@@ -7,7 +7,7 @@ export default function BudgetPage() {
     <ComingSoon
       emoji="💰"
       title="Budget"
-      blurb="Set a monthly budget per category and watch the spend tally as you close lists. Warnings when a category creeps past 90%."
+      blurb="One number for the whole household run — weekly Staples plus monthly Utilities and helper salaries. Set a budget per category and watch the spend tally as you close lists, with warnings when a category creeps past 90%."
       pr="PR-Pantry-A.2"
     />
   );
