@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { submitRating, getTodayRatings, getFamilyMembers, todayString, RatingValue } from '@/lib/firestore';
+import { submitRating, getTodayRatings, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
 import { notifyRating } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -98,13 +98,21 @@ export default function RatePage() {
     setSaving(false);
     setTimeout(() => setSaved(false), 3000);
 
-    // Fire-and-forget email notification to other family members.
+    // Fire-and-forget email notification to other family members and
+    // any external contacts opted in for rating notifications.
     (async () => {
-      const members = await getFamilyMembers(profile.familyId);
-      const recipients = members
+      const [members, fam] = await Promise.all([
+        getFamilyMembers(profile.familyId),
+        getFamily(profile.familyId),
+      ]);
+      const familyEmails = members
         .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
         .filter((m) => m.notifyOnRating !== false) // default true
         .map((m) => m.email);
+      const externalEmails = (fam?.externalContacts || [])
+        .filter((c) => c.notifyOnRating !== false)
+        .map((c) => c.email);
+      const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
       notifyRating({
         to: recipients,
         childName: child.name,
