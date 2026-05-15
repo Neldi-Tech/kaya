@@ -519,11 +519,46 @@ function ImportSheet({
   const [rowCats, setRowCats] = useState<Record<number, DirectoryCategory>>({});
   const [bulkCat, setBulkCat] = useState<DirectoryCategory>('fundi');
   const [busy, setBusy] = useState(false);
+  const [phoneBookNotice, setPhoneBookNotice] = useState('');
 
   const onFile = async (file: File) => {
     const text = await file.text();
     setRaw(text);
     runParse(text);
+  };
+
+  // Pull contacts straight from the device address book via the
+  // Contact Picker API (Chrome on Android). `multiple: true` lets
+  // the user tick as many contacts as they like in one go. We turn
+  // the picked entries into the same "Name, +phone" text the paste
+  // box accepts and run them through parseContacts, so category
+  // guessing + the preview/edit step work identically.
+  const onPhoneBook = async () => {
+    setPhoneBookNotice('');
+    const nav = navigator as unknown as {
+      contacts?: { select: (props: string[], opts: { multiple: boolean }) => Promise<Array<{ name?: string[]; tel?: string[] }>> };
+    };
+    if (!nav.contacts || !('ContactsManager' in window)) {
+      setPhoneBookNotice('Phone-book picking works on Chrome for Android. On other devices, use file upload or paste below.');
+      return;
+    }
+    try {
+      const picked = await nav.contacts.select(['name', 'tel'], { multiple: true });
+      if (!picked || picked.length === 0) return; // user cancelled / picked none
+      const blob = picked
+        .map((c) => `${(c.name?.[0] || '').trim()}, ${(c.tel?.[0] || '').trim()}`)
+        .filter((line) => line.replace(/[,\s]/g, '').length > 0)
+        .join('\n');
+      if (!blob) {
+        setPhoneBookNotice('Those contacts had no name or number we could read.');
+        return;
+      }
+      setRaw(blob);
+      runParse(blob);
+    } catch {
+      // Picker dismissed or permission denied — silent, the sheet
+      // stays open so the user can try another import method.
+    }
   };
 
   const runParse = (text: string) => {
@@ -567,14 +602,28 @@ function ImportSheet({
         <button onClick={onClose} className="text-hive-muted text-xl leading-none">×</button>
       </div>
       <p className="text-[11px] text-hive-muted leading-snug">
-        Upload a <strong>.vcf</strong> (phone export or a WhatsApp-shared card), a{' '}
-        <strong>Google Contacts CSV</strong>, or just paste names + numbers. We detect the format automatically.
+        Pick straight from your <strong>phone book</strong>, upload a <strong>.vcf</strong>{' '}
+        (phone export or a WhatsApp-shared card) or <strong>Google Contacts CSV</strong>, or just
+        paste names + numbers. We detect the format automatically.
       </p>
 
       {!parsed ? (
         <>
+          {/* Phone-book picker — multi-select straight from the device. */}
+          <button
+            onClick={onPhoneBook}
+            className="block w-full h-11 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[13px]"
+          >
+            📱 Pick from phone book
+          </button>
+          {phoneBookNotice && (
+            <p className="text-[11px] text-hive-honey-dk bg-hive-honey-soft/50 rounded-hive px-3 py-2 leading-snug">
+              {phoneBookNotice}
+            </p>
+          )}
+          <div className="text-center text-[10px] text-hive-muted font-nunito font-extrabold uppercase tracking-wider">— or —</div>
           <label className="block">
-            <span className="block w-full h-11 leading-[2.75rem] text-center rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[13px] cursor-pointer">
+            <span className="block w-full h-11 leading-[2.75rem] text-center rounded-hive-pill bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[12px] cursor-pointer">
               📂 Choose a file (.vcf / .csv)
             </span>
             <input
