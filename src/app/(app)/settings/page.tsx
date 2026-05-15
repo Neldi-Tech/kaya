@@ -25,6 +25,10 @@ import {
   EARNING_METHODS, DEFAULT_EARNING_METHODS, FREE_EARNING_METHOD_LIMIT,
   isMethodSelectable,
 } from '@/lib/earningMethods';
+import {
+  COUNTRIES, COUNTRY_REGION_LABELS, countryToCurrency, currencyMeta,
+  type CountryMeta,
+} from '@/lib/hive';
 import { useRef } from 'react';
 import {
   TIERS, tierFor, nextTier, progressToNext,
@@ -480,6 +484,34 @@ export default function SettingsPage() {
       await updateFamily(profile.familyId, { allowGenderOther: !allowGenderOther } as any);
     } catch {}
     setSavingGenderOption(false);
+  };
+
+  // Family location → currency. Picking a country writes
+  // `location.country` and derives `hiveConfig.currency` via
+  // `countryToCurrency()`. USD is the default when no country is
+  // set. A parent can still override the currency afterward in
+  // /parent/rates — this just gives a sensible location-based start.
+  const [savingLocation, setSavingLocation] = useState(false);
+  const familyCountry = family?.location?.country || '';
+  const derivedCurrency = countryToCurrency(familyCountry);
+  const handleCountryChange = async (countryCode: string) => {
+    if (!profile?.familyId || !family || isGuest || savingLocation) return;
+    if (!countryCode || countryCode === familyCountry) return;
+    setSavingLocation(true);
+    try {
+      const nextCurrency = countryToCurrency(countryCode);
+      await updateFamily(profile.familyId, {
+        location: {
+          country: countryCode,
+          city: family.location?.city || '',
+        },
+        // Spread the existing hiveConfig so we only change the currency —
+        // updateDoc would otherwise replace the whole nested map.
+        hiveConfig: { ...(family.hiveConfig || {}), currency: nextCurrency },
+      } as any);
+      await refresh();
+    } catch {}
+    setSavingLocation(false);
   };
 
   // Earning-method picker. Fall back to the Phase-1 default for families that
@@ -1311,6 +1343,61 @@ export default function SettingsPage() {
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Location & currency — picking a country derives the
+                  family's display currency and scales pantry prices to
+                  local FX rates. Parent-only; USD is the global default. */}
+              {isParent && !isGuest && (
+                <div className="border-t border-kaya-warm-dark pt-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">
+                      Location &amp; currency
+                    </p>
+                    {savingLocation && (
+                      <span className="text-[10px] text-kaya-sand">Saving…</span>
+                    )}
+                  </div>
+                  <select
+                    value={familyCountry}
+                    onChange={(e) => handleCountryChange(e.target.value)}
+                    disabled={savingLocation}
+                    className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-semibold focus:outline-none focus:border-kaya-chocolate disabled:opacity-60"
+                  >
+                    <option value="">🌍 Select your country…</option>
+                    {(Object.keys(COUNTRY_REGION_LABELS) as CountryMeta['region'][]).map((region) => {
+                      const inRegion = COUNTRIES.filter((c) => c.region === region);
+                      if (inRegion.length === 0) return null;
+                      return (
+                        <optgroup key={region} label={COUNTRY_REGION_LABELS[region]}>
+                          {inRegion.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.flag} {c.label}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                  <p className="text-[10px] text-kaya-sand-light leading-relaxed mt-1.5">
+                    {familyCountry ? (
+                      <>
+                        Currency set to{' '}
+                        <strong>
+                          {currencyMeta(derivedCurrency).label} ({derivedCurrency})
+                        </strong>{' '}
+                        — pantry prices scale to live exchange rates. You can
+                        override the currency in The Hive&apos;s rate settings.
+                      </>
+                    ) : (
+                      <>
+                        No country set — using <strong>US Dollar (USD)</strong> as
+                        the default. Pick your country so pantry prices show in
+                        your local currency.
+                      </>
+                    )}
+                  </p>
                 </div>
               )}
 

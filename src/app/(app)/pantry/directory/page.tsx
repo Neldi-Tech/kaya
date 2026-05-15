@@ -17,7 +17,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import { addStaple } from '@/lib/pantry';
-import { estimateLineCents } from '@/lib/pricing';
+import { estimateLineCents, usdToTargetRate } from '@/lib/pricing';
 import { formatCents } from '@/components/pantry/format';
 import {
   DIRECTORY_STAPLES, DIRECTORY_FOODS,
@@ -43,8 +43,11 @@ const CADENCE_LABELS: Record<string, string> = {
 export default function PantryDirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { staples } = usePantry();
-  const { config } = useHive();
+  const { config, fxUsdToFamily } = useHive();
   const currency = config.currency;
+  // USD → family-currency rate for price estimates. Live rate from
+  // open.er-api.com via HiveContext; static fallback when offline.
+  const usdToTarget = fxUsdToFamily ?? usdToTargetRate(currency);
 
   const [tab, setTab] = useState<Tab>('staples');
   const [surface, setSurface] = useState<Surface>('food');
@@ -120,7 +123,7 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, region),
+        lastBoughtCents: estimateLineCents(item, item.defaultQty, usdToTarget),
       });
       added++;
     }
@@ -147,7 +150,7 @@ export default function PantryDirectoryPage() {
         defaultQty: qty,
         unit: staple.unit,
         cadence: staple.cadence,
-        lastBoughtCents: estimateLineCents(staple, qty, region),
+        lastBoughtCents: estimateLineCents(staple, qty, usdToTarget),
       });
       added++;
     }
@@ -172,7 +175,7 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, region),
+        lastBoughtCents: estimateLineCents(item, item.defaultQty, usdToTarget),
       });
       added++;
     }
@@ -307,7 +310,7 @@ export default function PantryDirectoryPage() {
                   selected={selected.has(s.label)}
                   owned={ownedNames.has(s.label.toLowerCase())}
                   onTap={() => toggleSelect(s.label)}
-                  region={region}
+                  usdToTarget={usdToTarget}
                   currency={currency}
                 />
               ))}
@@ -439,20 +442,20 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleCard({
-  staple, selected, owned, onTap, region, currency,
+  staple, selected, owned, onTap, usdToTarget, currency,
 }: {
   staple: DirectoryStaple;
   selected: boolean;
   owned: boolean;
   onTap: () => void;
-  region: Region | 'any';
+  usdToTarget: number;
   currency: string;
 }) {
   // Estimated price for this row + quantity, shown so parents see the
   // budget shape before they commit. Saved through to lastBoughtCents
   // on bulk-add — the staples list inherits the estimate and lets the
   // parent override it inline later.
-  const estCents = estimateLineCents(staple, staple.defaultQty, region);
+  const estCents = estimateLineCents(staple, staple.defaultQty, usdToTarget);
   return (
     <button
       onClick={onTap}
