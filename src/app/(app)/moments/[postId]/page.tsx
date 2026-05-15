@@ -92,7 +92,11 @@ export default function PostDetailPage() {
 
   const onReact = async (emoji: Reaction) => {
     if (!profile?.familyId || !profile.uid || isGuest) return;
-    await toggleReaction(profile.familyId, post.id, emoji, { uid: profile.uid, name: profile.displayName });
+    await toggleReaction(
+      profile.familyId, post.id, emoji,
+      { uid: profile.uid, name: profile.displayName },
+      { authorUid: post.authorUid, caption: post.caption },
+    );
     // Refresh counters.
     const p = await getPost(profile.familyId, post.id);
     if (p) setPost(p);
@@ -105,12 +109,16 @@ export default function PostDetailPage() {
     setError('');
     setPosting(true);
     try {
-      await addComment(profile.familyId, post.id, {
-        byUid: profile.uid,
-        byName: profile.displayName,
-        byAvatar: profile.avatarPhoto,
-        text,
-      } as any);
+      await addComment(
+        profile.familyId, post.id,
+        {
+          byUid: profile.uid,
+          byName: profile.displayName,
+          byAvatar: profile.avatarPhoto,
+          text,
+        } as any,
+        { authorUid: post.authorUid, caption: post.caption },
+      );
       setCommentDraft('');
     } catch (e: any) {
       setError(e?.message || 'Could not post comment.');

@@ -50,6 +50,9 @@ interface MentionTarget {
   emoji?: string;     // for kids — their avatar emoji
   avatarUrl?: string; // for users — uploaded photo
   kind: 'kid' | 'adult';
+  /** Only set for adults (kids may not have their own user account
+   *  yet). When present, drives notification routing. */
+  uid?: string;
 }
 
 // In-memory state per picked file: blobs ready to upload plus a local
@@ -100,6 +103,11 @@ export default function ComposeMomentPage() {
     return () => { cancelled = true; };
   }, [profile?.familyId, profile?.uid]);
 
+  // UIDs the parent has @mentioned in the caption so far. Persisted on
+  // the post for downstream notifications (and future "tap a mention
+  // to jump to the profile" UX).
+  const [mentionedUids, setMentionedUids] = useState<string[]>([]);
+
   // Flatten kids + adults into one mention list, filtered by query.
   const mentionMatches = useMemo<MentionTarget[]>(() => {
     if (!mention) return [];
@@ -108,7 +116,7 @@ export default function ComposeMomentPage() {
       name: c.name, emoji: c.avatarEmoji, avatarUrl: c.avatarPhoto, kind: 'kid' as const,
     }));
     const adultTargets: MentionTarget[] = members.map((m) => ({
-      name: m.displayName, avatarUrl: m.avatarPhoto, kind: 'adult' as const,
+      name: m.displayName, avatarUrl: m.avatarPhoto, kind: 'adult' as const, uid: m.uid,
     }));
     const all = [...kidTargets, ...adultTargets];
     if (!q) return all.slice(0, 6);
@@ -236,6 +244,11 @@ export default function ComposeMomentPage() {
     const next = before + insert + after;
     setCaption(next);
     setMention(null);
+    // Track the mentioned uid for notification fan-out. Only adults
+    // have uids; kids without an account can be tagged via kidTags.
+    if (target.uid) {
+      setMentionedUids((prev) => (prev.includes(target.uid!) ? prev : [...prev, target.uid!]));
+    }
     queueMicrotask(() => {
       el?.focus();
       const pos = (before + insert).length;
@@ -282,13 +295,21 @@ export default function ComposeMomentPage() {
         uploaded.push(ref);
         setProgress((p) => ({ ...p, done: p.done + 1 }));
       }
+      // Filter the tracked mentions against the final caption — drops
+      // any uid whose @name was typed then deleted before submit.
+      const finalCaption = caption.trim();
+      const finalMentionedUids = mentionedUids.filter((uid) => {
+        const m = members.find((x) => x.uid === uid);
+        return !!m && finalCaption.includes(`@${m.displayName}`);
+      });
       const postData: Omit<Post, 'id' | 'reactionCount' | 'reactionsByType' | 'commentCount' | 'createdAt' | 'updatedAt'> = {
         authorUid: profile.uid,
         authorName: profile.displayName,
         authorAvatar: profile.avatarPhoto,
-        caption: caption.trim(),
+        caption: finalCaption,
         photos: uploaded,
         kidTags,
+        mentionedUids: finalMentionedUids,
         eventTag,
         visibility: 'family',
       };

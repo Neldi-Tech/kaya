@@ -213,11 +213,24 @@ export interface Reward {
 
 export interface Notification {
   id: string;
-  type: 'points' | 'badge' | 'meeting' | 'reward' | 'streak';
+  type:
+    | 'points'
+    | 'badge'
+    | 'meeting'
+    | 'reward'
+    | 'streak'
+    // Moments events — surfaced in the bell icon dropdown.
+    | 'moment-reaction'
+    | 'moment-comment'
+    | 'moment-mention'
+    | 'moment-new';
   title: string;
   message: string;
   read: boolean;
   forUserId: string;
+  /** Optional link target — when set, tapping the notification opens it.
+   *  For Moments events this is `/moments/{postId}`. */
+  link?: string;
   createdAt: Timestamp;
 }
 

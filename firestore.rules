@@ -37,8 +37,20 @@ service cloud.firestore {
 
     // ── Users ──────────────────────────────────────
     match /users/{userId} {
-      // Users can read their own profile
-      allow read: if isSignedIn() && request.auth.uid == userId;
+      // Users can read their own profile, OR any profile attached to
+      // the same family. The cross-family lookup is what makes the
+      // @mention picker, rating/award notification routing, and family
+      // tree work — without it `getFamilyMembers` silently fails and
+      // none of those features can find anyone besides the caller.
+      // The `get()` costs one extra read per query but is bounded:
+      // the picker only loads it once per session.
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId
+        || (
+          resource.data.familyId != null
+          && resource.data.familyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.familyId
+        )
+      );
       // Users can create their own profile (during onboarding)
       allow create: if isSignedIn() && request.auth.uid == userId;
       // Users can update their own profile

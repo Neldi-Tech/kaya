@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { getNotifications, markNotificationRead, Notification } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
@@ -11,6 +12,10 @@ const TYPE_ICONS: Record<string, string> = {
   meeting: '👨‍👩‍👧‍👦',
   reward:  '🎁',
   streak:  '🔥',
+  'moment-reaction': '💖',
+  'moment-comment':  '💬',
+  'moment-mention':  '🏷️',
+  'moment-new':      '📸',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -19,9 +24,14 @@ const TYPE_LABELS: Record<string, string> = {
   meeting: 'Meeting',
   reward:  'Reward',
   streak:  'Streak',
+  'moment-reaction': 'Reaction',
+  'moment-comment':  'Comment',
+  'moment-mention':  'Mention',
+  'moment-new':      'New post',
 };
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const { profile } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,9 +45,11 @@ export default function NotificationsPage() {
   }, [profile?.familyId, profile?.uid]);
 
   const handleRead = async (notif: Notification) => {
-    if (!profile?.familyId || notif.read) return;
-    await markNotificationRead(profile.familyId, notif.id);
-    setNotifications((prev) => prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
+    if (profile?.familyId && !notif.read) {
+      await markNotificationRead(profile.familyId, notif.id);
+      setNotifications((prev) => prev.map((n) => (n.id === notif.id ? { ...n, read: true } : n)));
+    }
+    if (notif.link) router.push(notif.link);
   };
 
   const handleReadAll = async () => {

@@ -84,6 +84,10 @@ export interface Post {
   /** Child ids this post is "about" (0–N). Surfaces the post on the
    *  per-kid filter and on each kid's profile strip. */
   kidTags: string[];
+  /** UIDs the author @-mentioned in the caption. Persisted so the
+   *  reader can render mentions as clickable later; also used to
+   *  fan-out a "you were mentioned" notification on publish. */
+  mentionedUids?: string[];
   eventTag?: EventTag;
   visibility: Visibility;
   /** Denormalised counters — bumped via `increment()` so the feed
@@ -207,6 +211,21 @@ export async function finalizePost(
     commentCount: 0,
     updatedAt: serverTimestamp(),
   });
+  // Fan-out notifications after the post is live. Lazy-loaded to keep
+  // the module from pulling in the firestore admin layer at evaluation
+  // time (and to avoid a circular import).
+  const { notifyOnNewPost } = await import('./momentsNotify');
+  void notifyOnNewPost(
+    familyId,
+    {
+      id: postId,
+      authorUid: data.authorUid,
+      authorName: data.authorName,
+      caption: data.caption,
+      photos: data.photos,
+    },
+    data.mentionedUids || [],
+  );
 }
 
 export async function getPost(familyId: string, postId: string): Promise<Post | null> {
@@ -272,6 +291,10 @@ export async function toggleReaction(
   postId: string,
   emoji: Reaction,
   user: { uid: string; name: string },
+  /** When provided, fires a notification to the post author on ADD
+   *  (not on remove). Callers that have the post loaded should pass
+   *  it — saves us a Firestore read inside the helper. */
+  postContext?: { authorUid: string; caption: string },
 ): Promise<void> {
   const existing = await getDocs(
     query(
@@ -281,7 +304,8 @@ export async function toggleReaction(
     ),
   );
   const batch = writeBatch(db);
-  if (existing.empty) {
+  const isAdd = existing.empty;
+  if (isAdd) {
     const newRef = doc(reactionsCol(familyId, postId));
     batch.set(newRef, {
       emoji,
@@ -301,6 +325,17 @@ export async function toggleReaction(
     });
   }
   await batch.commit();
+  if (isAdd && postContext) {
+    // Lazy-load to avoid a top-level circular import (notify helper
+    // pulls in firestore, which the moments lib also imports).
+    const { notifyOnReaction } = await import('./momentsNotify');
+    void notifyOnReaction(
+      familyId,
+      { id: postId, authorUid: postContext.authorUid, caption: postContext.caption },
+      user,
+      emoji,
+    );
+  }
 }
 
 /** Snapshot of which emojis the current user has reacted with on a
@@ -325,6 +360,8 @@ export async function addComment(
   familyId: string,
   postId: string,
   data: Omit<Comment, 'id' | 'createdAt'>,
+  /** Caller-provided post context for notification routing. */
+  postContext?: { authorUid: string; caption: string },
 ): Promise<string> {
   const batch = writeBatch(db);
   const newRef = doc(commentsCol(familyId, postId));
@@ -333,6 +370,15 @@ export async function addComment(
     commentCount: increment(1),
   });
   await batch.commit();
+  if (postContext) {
+    const { notifyOnComment } = await import('./momentsNotify');
+    void notifyOnComment(
+      familyId,
+      { id: postId, authorUid: postContext.authorUid, caption: postContext.caption },
+      { uid: data.byUid, name: data.byName },
+      data.text,
+    );
+  }
   return newRef.id;
 }
 

@@ -89,7 +89,7 @@ export default function MomentsFeedPage() {
 
       <div className="space-y-4">
         {posts.map((p) => (
-          <PostCard key={p.id} post={p} children={children} myUid={profile?.uid || ''} familyId={profile?.familyId || ''} />
+          <PostCard key={p.id} post={p} children={children} myUid={profile?.uid || ''} myName={profile?.displayName || ''} familyId={profile?.familyId || ''} />
         ))}
       </div>
 
@@ -110,11 +110,12 @@ export default function MomentsFeedPage() {
 // ── Post card ────────────────────────────────────────────────────
 
 function PostCard({
-  post, children, myUid, familyId,
+  post, children, myUid, myName, familyId,
 }: {
   post: Post;
   children: ReturnType<typeof useFamily>['children'];
   myUid: string;
+  myName: string;
   familyId: string;
 }) {
   const [photoIdx, setPhotoIdx] = useState(0);
@@ -133,7 +134,11 @@ function PostCard({
 
   const onReact = async (emoji: Reaction) => {
     if (!familyId || !myUid) return;
-    await toggleReaction(familyId, post.id, emoji, { uid: myUid, name: '' });
+    await toggleReaction(
+      familyId, post.id, emoji,
+      { uid: myUid, name: myName },
+      { authorUid: post.authorUid, caption: post.caption },
+    );
   };
 
   return (

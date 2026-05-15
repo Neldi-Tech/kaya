@@ -23,17 +23,38 @@ const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
 
 const resend = apiKey ? new Resend(apiKey) : null;
 
-type NotifyType = 'rating' | 'award' | 'invite';
+type NotifyType =
+  | 'rating'
+  | 'award'
+  | 'invite'
+  | 'moment-reaction'
+  | 'moment-comment'
+  | 'moment-mention'
+  | 'moment-new';
 
 interface NotifyData {
-  childName: string;
-  actorName: string;
-  points: number;
+  // Rating / award / invite fields (legacy)
+  childName?: string;
+  actorName?: string;
+  points?: number;
   period?: 'morning' | 'evening';
   reason?: string;
   isDiamond?: boolean;
   houseColor?: string;
   familyName?: string;
+  // Moments fields
+  authorName?: string;
+  reactorName?: string;
+  commenterName?: string;
+  mentionedName?: string;
+  fromName?: string;
+  emoji?: string;
+  captionSnippet?: string;
+  commentSnippet?: string;
+  snippet?: string;
+  context?: 'caption' | 'comment';
+  photoCount?: number;
+  postUrl?: string;
 }
 
 interface NotifyBody {
@@ -79,21 +100,47 @@ export async function POST(req: NextRequest) {
     subject = `${data.childName} earned ${data.points} pts this ${period} ⭐`;
     html = renderEmail({
       preheader: `${data.actorName} rated ${data.childName}'s ${period} routine`,
-      body: ratingBody({ ...data, period }),
+      body: ratingBody({ ...data, period } as RatingRender),
     });
   } else if (type === 'award') {
     const diamond = data.isDiamond ? '💎' : '🎖️';
     subject = `${esc(data.actorName)} awarded ${esc(data.childName)} +${data.points} pts ${diamond}`;
     html = renderEmail({
       preheader: `${data.actorName} awarded bonus points to ${data.childName}`,
-      body: awardBody(data),
+      body: awardBody(data as AwardRender),
     });
   } else if (type === 'invite') {
     const familyDisplay = data.familyName || 'Their family';
     subject = `${data.actorName} invited ${data.childName} to Kaya`;
     html = renderEmail({
       preheader: `${data.actorName} from ${familyDisplay} is inviting ${data.childName} to join Kaya`,
-      body: inviteBody({ ...data, familyName: familyDisplay }),
+      body: inviteBody({ ...data, familyName: familyDisplay } as InviteRender),
+    });
+  } else if (type === 'moment-reaction') {
+    subject = `${data.reactorName} reacted ${data.emoji} to your moment`;
+    html = renderEmail({
+      preheader: `${data.reactorName} reacted ${data.emoji} to your photo${data.captionSnippet ? `: "${data.captionSnippet}"` : ''}`,
+      body: momentReactionBody(data),
+    });
+  } else if (type === 'moment-comment') {
+    subject = `${data.commenterName} commented on your moment`;
+    html = renderEmail({
+      preheader: `"${data.commentSnippet || ''}"`,
+      body: momentCommentBody(data),
+    });
+  } else if (type === 'moment-mention') {
+    const where = data.context === 'comment' ? 'a comment' : 'a moment';
+    subject = `${data.fromName} mentioned you in ${where}`;
+    html = renderEmail({
+      preheader: data.snippet ? `"${data.snippet}"` : `${data.fromName} mentioned you`,
+      body: momentMentionBody(data),
+    });
+  } else if (type === 'moment-new') {
+    const photoLabel = (data.photoCount || 0) === 1 ? '1 photo' : `${data.photoCount} photos`;
+    subject = `${data.authorName} shared ${photoLabel} 📸`;
+    html = renderEmail({
+      preheader: data.captionSnippet || `${data.authorName} posted a new moment`,
+      body: momentNewBody(data),
     });
   } else {
     return NextResponse.json({ error: 'Unknown notification type' }, { status: 400 });
@@ -165,7 +212,14 @@ function renderEmail({ preheader, body }: { preheader: string; body: string }): 
 </html>`;
 }
 
-function ratingBody(d: NotifyData & { period: 'morning' | 'evening' }): string {
+// Render-time types — each template reads a subset of NotifyData. We
+// cast at the call site (the dispatcher above) so each render fn can
+// document exactly what fields it expects.
+type RatingRender = NotifyData & { period: 'morning' | 'evening' };
+type AwardRender = NotifyData;
+type InviteRender = NotifyData & { familyName: string };
+
+function ratingBody(d: RatingRender): string {
   const periodLabel = d.period === 'morning' ? 'morning ☀️' : 'evening 🌙';
   return `
     <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
@@ -181,7 +235,7 @@ function ratingBody(d: NotifyData & { period: 'morning' | 'evening' }): string {
   `;
 }
 
-function inviteBody(d: NotifyData & { familyName: string }): string {
+function inviteBody(d: InviteRender): string {
   return `
     <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
       Hi <strong style="color:#1A1412;">${esc(d.childName)}</strong> 👋
@@ -199,7 +253,7 @@ function inviteBody(d: NotifyData & { familyName: string }): string {
   `;
 }
 
-function awardBody(d: NotifyData): string {
+function awardBody(d: AwardRender): string {
   const isDiamond = !!d.isDiamond;
   const cardBg = isDiamond
     ? 'linear-gradient(135deg,#7C3AED,#5B21B6)'
@@ -217,5 +271,63 @@ function awardBody(d: NotifyData): string {
       <div style="margin-top:6px;font-size:11px;color:${muted};text-transform:uppercase;letter-spacing:0.14em;font-weight:700;">${label}</div>
       ${d.reason ? `<div style="margin-top:18px;padding-top:18px;border-top:1px solid rgba(255,255,255,0.1);font-size:14px;color:${accent};font-weight:600;font-style:italic;">"${esc(d.reason)}"</div>` : ''}
     </div>
+  `;
+}
+
+// ── Moments templates ──────────────────────────────────────────────
+
+function momentReactionBody(d: NotifyData): string {
+  const openLink = d.postUrl ? `<a href="${esc(d.postUrl)}" style="color:#D4A017;text-decoration:none;font-weight:600;">Open moment →</a>` : '';
+  return `
+    <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
+      <strong style="color:#1A1412;">${esc(d.reactorName)}</strong> reacted to your moment.
+    </p>
+    <div style="background:linear-gradient(135deg,#1E120B,#3D241A);color:#fff;padding:28px 24px;border-radius:16px;text-align:center;">
+      <div style="font-size:64px;line-height:1;">${esc(d.emoji)}</div>
+      ${d.captionSnippet ? `<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.1);font-size:13px;color:#F5E6B8;font-style:italic;">"${esc(d.captionSnippet)}"</div>` : ''}
+    </div>
+    ${openLink ? `<p style="margin:18px 0 0;font-size:12px;text-align:center;">${openLink}</p>` : ''}
+  `;
+}
+
+function momentCommentBody(d: NotifyData): string {
+  const openLink = d.postUrl ? `<a href="${esc(d.postUrl)}" style="color:#D4A017;text-decoration:none;font-weight:600;">Open moment →</a>` : '';
+  return `
+    <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
+      <strong style="color:#1A1412;">${esc(d.commenterName)}</strong> commented on your moment.
+    </p>
+    <div style="background:#FDFBF7;border:1px solid #E8E0D4;padding:18px 20px;border-radius:12px;font-size:14px;color:#1A1412;line-height:1.55;">
+      "${esc(d.commentSnippet || '')}"
+    </div>
+    ${openLink ? `<p style="margin:18px 0 0;font-size:12px;text-align:center;">${openLink}</p>` : ''}
+  `;
+}
+
+function momentMentionBody(d: NotifyData): string {
+  const where = d.context === 'comment' ? 'a comment' : 'a caption';
+  const openLink = d.postUrl ? `<a href="${esc(d.postUrl)}" style="color:#D4A017;text-decoration:none;font-weight:600;">Open moment →</a>` : '';
+  return `
+    <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
+      <strong style="color:#1A1412;">${esc(d.fromName)}</strong> mentioned
+      <strong style="color:#1A1412;">${esc(d.mentionedName)}</strong> in ${where}.
+    </p>
+    ${d.snippet ? `<div style="background:#FDFBF7;border:1px solid #E8E0D4;padding:18px 20px;border-radius:12px;font-size:14px;color:#1A1412;line-height:1.55;">"${esc(d.snippet)}"</div>` : ''}
+    ${openLink ? `<p style="margin:18px 0 0;font-size:12px;text-align:center;">${openLink}</p>` : ''}
+  `;
+}
+
+function momentNewBody(d: NotifyData): string {
+  const count = d.photoCount || 0;
+  const photoLabel = count === 1 ? '1 photo' : `${count} photos`;
+  const openLink = d.postUrl ? `<a href="${esc(d.postUrl)}" style="color:#D4A017;text-decoration:none;font-weight:600;">View on the feed →</a>` : '';
+  return `
+    <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
+      <strong style="color:#1A1412;">${esc(d.authorName)}</strong> shared a new moment.
+    </p>
+    <div style="background:linear-gradient(135deg,#1E120B,#3D241A);color:#fff;padding:24px;border-radius:16px;text-align:center;">
+      <div style="font-size:11px;color:#C4B89A;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;">${esc(photoLabel)}</div>
+      ${d.captionSnippet ? `<div style="margin-top:14px;font-size:14px;color:#F5E6B8;font-style:italic;line-height:1.55;">"${esc(d.captionSnippet)}"</div>` : ''}
+    </div>
+    ${openLink ? `<p style="margin:18px 0 0;font-size:12px;text-align:center;">${openLink}</p>` : ''}
   `;
 }
