@@ -182,6 +182,7 @@ export async function reservePost(familyId: string, authorUid: string): Promise<
   const ref = await addDoc(postsCol(familyId), {
     pending: true,
     authorUid,
+    visibility: 'family',
     photos: [],
     createdAt: serverTimestamp(),
   });
