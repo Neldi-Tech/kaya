@@ -382,6 +382,7 @@ function AddItemForm({
   const [brands, setBrands] = useState<string[]>([]);
   const [stapleId, setStapleId] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
+  const [addError, setAddError] = useState('');
 
   // Quick-pick staple suggestions filter as the parent types.
   const matches = useMemo(() => {
@@ -403,19 +404,24 @@ function AddItemForm({
 
   const submit = async () => {
     if (!name.trim()) return;
+    setAddError('');
     setSubmitting(true);
-    await onAdd({
-      id: cryptoId(),
-      name: name.trim(),
-      qty,
-      unit: unit.trim(),
-      estimatedCents: estimatedMajor > 0 ? Math.round(estimatedMajor * 100) : undefined,
-      supplierId: supplierId || undefined,
-      category: category || undefined,
-      preferredBrands: brands.length > 0 ? brands : undefined,
-      stapleId,
-      done: false,
-    });
+    try {
+      await onAdd({
+        id: cryptoId(),
+        name: name.trim(),
+        qty,
+        unit: unit.trim(),
+        estimatedCents: estimatedMajor > 0 ? Math.round(estimatedMajor * 100) : undefined,
+        supplierId: supplierId || undefined,
+        category: category || undefined,
+        preferredBrands: brands.length > 0 ? brands : undefined,
+        stapleId,
+        done: false,
+      });
+    } catch (e: any) {
+      setAddError(e?.message || 'Could not add item.');
+    }
     setSubmitting(false);
   };
 
@@ -486,6 +492,8 @@ function AddItemForm({
           <option key={s.id} value={s.id}>{s.name}</option>
         ))}
       </select>
+
+      {addError && <p className="text-hive-rose text-[12px] font-bold">{addError}</p>}
 
       <div className="flex gap-2 pt-1">
         <button

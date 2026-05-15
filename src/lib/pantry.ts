@@ -19,7 +19,7 @@
 import {
   collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch,
+  onSnapshot, writeBatch, deleteField,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -310,10 +310,14 @@ export async function updateStaple(
   patch: Partial<Staple>,
 ): Promise<void> {
   if (isGuestActive()) return;
-  await updateDoc(doc(stapleCol(familyId), stapleId), {
-    ...patch,
-    updatedAt: serverTimestamp(),
-  });
+  // Firebase 10 throws for `undefined` field values. Convert them to
+  // deleteField() so clearing an optional field (price, supplier, brands)
+  // actually removes the key rather than crashing the write.
+  const update: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  for (const [k, v] of Object.entries(patch as Record<string, unknown>)) {
+    update[k] = v === undefined ? deleteField() : v;
+  }
+  await updateDoc(doc(stapleCol(familyId), stapleId), update);
 }
 
 export async function deleteStaple(familyId: string, stapleId: string): Promise<void> {
@@ -512,8 +516,15 @@ export async function setListItems(
   items: GroceryListItem[],
 ): Promise<void> {
   if (isGuestActive()) return;
+  // Strip undefined fields from each item — Firebase 10 rejects `undefined`
+  // values even when nested inside arrays (e.g. estimatedCents: undefined).
+  const clean = items.map((i) =>
+    Object.fromEntries(
+      Object.entries(i).filter(([, v]) => v !== undefined),
+    ) as GroceryListItem,
+  );
   await updateDoc(doc(listCol(familyId), listId), {
-    items,
+    items: clean,
     estimatedTotalCents: sumEstimated(items),
     updatedAt: serverTimestamp(),
   });
