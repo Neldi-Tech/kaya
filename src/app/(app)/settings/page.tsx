@@ -7,7 +7,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   updateFamily, updateUserProfile, addChild, ensureReferralCode,
   getReferredFamilies, isHandleAvailable, Family, PointsMode,
-  Gender, BirthdayPrivacy,
+  Gender, BirthdayPrivacy, ExternalContact,
+  addExternalContact, updateExternalContact, removeExternalContact,
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
@@ -130,6 +131,62 @@ export default function SettingsPage() {
   const notifyOnRating = profile?.notifyOnRating !== false;
   const notifyOnAward = profile?.notifyOnAward !== false;
   const [savingPref, setSavingPref] = useState<'rating' | 'award' | null>(null);
+
+  // External contacts (email-only people who get rating/award emails)
+  const externalContacts: ExternalContact[] = family?.externalContacts || [];
+  const [contactDraft, setContactDraft] = useState({ name: '', email: '' });
+  const [contactDraftError, setContactDraftError] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactBusy, setContactBusy] = useState<string | null>(null); // contact id
+
+  const submitNewContact = async () => {
+    if (!profile?.familyId || !profile.uid) return;
+    setContactDraftError('');
+    setSavingContact(true);
+    try {
+      await addExternalContact(profile.familyId, {
+        name: contactDraft.name,
+        email: contactDraft.email,
+        addedBy: profile.uid,
+      });
+      setContactDraft({ name: '', email: '' });
+      await refresh();
+    } catch (e: any) {
+      setContactDraftError(e?.message || 'Could not add contact.');
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
+  const toggleContactPref = async (
+    contact: ExternalContact,
+    which: 'notifyOnRating' | 'notifyOnAward',
+  ) => {
+    if (!profile?.familyId) return;
+    setContactBusy(contact.id);
+    try {
+      await updateExternalContact(profile.familyId, contact.id, {
+        [which]: !(contact[which] !== false), // flip current effective value
+      });
+      await refresh();
+    } catch {
+      // noop — toggle stays as-is
+    } finally {
+      setContactBusy(null);
+    }
+  };
+
+  const deleteContact = async (contact: ExternalContact) => {
+    if (!profile?.familyId) return;
+    if (!window.confirm(`Remove ${contact.name} (${contact.email}) from notification contacts?`)) return;
+    setContactBusy(contact.id);
+    try {
+      await removeExternalContact(profile.familyId, contact.id);
+      await refresh();
+    } finally {
+      setContactBusy(null);
+    }
+  };
 
   // Champion landing spotlight (only meaningful at Champion tier)
   const spotlightOptIn = !!family?.spotlightOptIn;
@@ -1725,6 +1782,101 @@ export default function SettingsPage() {
               <p className="text-[11px] text-kaya-sand-light mt-3 leading-relaxed">
                 Emails are sent from <strong>noreply@ourkaya.com</strong>. Toggle these any time.
               </p>
+            </div>
+          )}
+
+          {/* Family contacts — email-only recipients (e.g. grandparents,
+              godparents, tutors) who get the same notifications as the
+              parents/helpers in the family. Parents only. */}
+          {!isGuest && isParent && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Family contacts</p>
+              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                Email-only people (grandparents, godparents, tutors…) who get the same rating + award emails as the family. They don&apos;t need a Kaya account.
+              </p>
+
+              {externalContacts.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {externalContacts.map((c) => {
+                    const onRating = c.notifyOnRating !== false;
+                    const onAward  = c.notifyOnAward  !== false;
+                    const busy = contactBusy === c.id;
+                    return (
+                      <div key={c.id} className="border border-kaya-warm-dark rounded-kaya-sm p-3">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold truncate">{c.name}</p>
+                            <p className="text-[11px] text-kaya-sand truncate">{c.email}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => deleteContact(c)}
+                            disabled={busy}
+                            className="text-[11px] font-semibold text-red-500 hover:underline disabled:opacity-40"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            { key: 'notifyOnRating' as const, on: onRating, label: 'Ratings' },
+                            { key: 'notifyOnAward'  as const, on: onAward,  label: 'Awards' },
+                          ].map((p) => (
+                            <button
+                              key={p.key}
+                              type="button"
+                              onClick={() => toggleContactPref(c, p.key)}
+                              disabled={busy}
+                              className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors disabled:opacity-50 ${
+                                p.on
+                                  ? 'bg-kaya-chocolate text-white border-transparent'
+                                  : 'border-kaya-warm-dark bg-white text-kaya-sand'
+                              }`}
+                            >
+                              {p.on ? '✓ ' : ''}{p.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Add new contact form — always visible at the bottom. */}
+              <div className="border border-dashed border-kaya-warm-dark rounded-kaya-sm p-3">
+                <p className="text-[11px] text-kaya-sand font-semibold uppercase tracking-wider mb-2">Add a contact</p>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Name (e.g. Grandma Rose)"
+                    value={contactDraft.name}
+                    onChange={(e) => setContactDraft((d) => ({ ...d, name: e.target.value }))}
+                    disabled={savingContact}
+                    className="w-full px-3 py-2 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  />
+                  <input
+                    type="email"
+                    placeholder="Email address"
+                    value={contactDraft.email}
+                    onChange={(e) => setContactDraft((d) => ({ ...d, email: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') submitNewContact(); }}
+                    disabled={savingContact}
+                    className="w-full px-3 py-2 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  />
+                  {contactDraftError && (
+                    <p className="text-[11px] text-red-500">{contactDraftError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={submitNewContact}
+                    disabled={savingContact || !contactDraft.name.trim() || !contactDraft.email.trim()}
+                    className="w-full h-9 bg-kaya-gold text-white rounded-kaya-sm font-bold text-xs disabled:opacity-40"
+                  >
+                    {savingContact ? 'Adding…' : '+ Add contact'}
+                  </button>
+                </div>
+              </div>
             </div>
           )}
 

@@ -107,7 +107,33 @@ export interface Family {
       nextRunAt?: Timestamp;
     };
   };
+  // ── External email contacts ──────────────────────────────────
+  // Email-only contacts (grandparents, godparents, tutors…) who get
+  // the same rating / award notifications as parents/helpers in the
+  // family. They don't have Kaya accounts. Parents manage the list
+  // in Settings. Per-event toggles default to true so a contact
+  // added today receives both kinds of email until told otherwise.
+  externalContacts?: ExternalContact[];
   createdAt: Timestamp;
+}
+
+export interface ExternalContact {
+  /** Local id (timestamp-random) — used to address a single contact
+   *  inside the array on update/delete since Firestore can't target
+   *  array elements by index. */
+  id: string;
+  name: string;
+  /** Validated client-side via the same regex used in
+   *  `/api/notify`. Stored lowercased so de-dup against family member
+   *  emails works on insert. */
+  email: string;
+  /** Default true. Stored explicitly so a parent can flip it off
+   *  without re-creating the contact. */
+  notifyOnRating?: boolean;
+  notifyOnAward?: boolean;
+  addedAt: Timestamp;
+  /** uid of the parent who added the contact — purely audit. */
+  addedBy: string;
 }
 
 export interface Routine {
@@ -547,6 +573,83 @@ export async function getFamily(familyId: string): Promise<Family | null> {
 export async function updateFamily(familyId: string, data: Partial<Family>) {
   if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId), data);
+}
+
+// ── External contact CRUD ────────────────────────────────────────
+// Operates on the `externalContacts` array on the Family doc. We
+// read-modify-write because Firestore can't update individual array
+// elements by id. Concurrent edits are extremely rare for a family-app
+// settings page so this is fine.
+
+const EMAIL_RX = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+
+export async function addExternalContact(
+  familyId: string,
+  data: { name: string; email: string; notifyOnRating?: boolean; notifyOnAward?: boolean; addedBy: string },
+): Promise<ExternalContact> {
+  if (isGuestActive()) throw new Error('Guests cannot add contacts.');
+  const trimmedName = data.name.trim();
+  const lowerEmail = data.email.trim().toLowerCase();
+  if (!trimmedName) throw new Error('Name is required.');
+  if (!EMAIL_RX.test(lowerEmail)) throw new Error('Invalid email address.');
+  const fam = await getFamily(familyId);
+  const existing = fam?.externalContacts || [];
+  // De-dup by email so the dispatcher doesn't send twice.
+  if (existing.some((c) => c.email === lowerEmail)) {
+    throw new Error('A contact with that email already exists.');
+  }
+  const contact: ExternalContact = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    name: trimmedName,
+    email: lowerEmail,
+    notifyOnRating: data.notifyOnRating !== false,
+    notifyOnAward: data.notifyOnAward !== false,
+    addedAt: Timestamp.now(),
+    addedBy: data.addedBy,
+  };
+  await updateDoc(doc(db, 'families', familyId), {
+    externalContacts: [...existing, contact],
+  });
+  return contact;
+}
+
+export async function updateExternalContact(
+  familyId: string,
+  contactId: string,
+  patch: Partial<Pick<ExternalContact, 'name' | 'email' | 'notifyOnRating' | 'notifyOnAward'>>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const fam = await getFamily(familyId);
+  const existing = fam?.externalContacts || [];
+  const next = existing.map((c) => {
+    if (c.id !== contactId) return c;
+    const updated: ExternalContact = { ...c };
+    if (patch.name !== undefined) {
+      const t = patch.name.trim();
+      if (!t) throw new Error('Name is required.');
+      updated.name = t;
+    }
+    if (patch.email !== undefined) {
+      const lower = patch.email.trim().toLowerCase();
+      if (!EMAIL_RX.test(lower)) throw new Error('Invalid email address.');
+      if (existing.some((x) => x.id !== contactId && x.email === lower)) {
+        throw new Error('Another contact already uses that email.');
+      }
+      updated.email = lower;
+    }
+    if (patch.notifyOnRating !== undefined) updated.notifyOnRating = patch.notifyOnRating;
+    if (patch.notifyOnAward !== undefined) updated.notifyOnAward = patch.notifyOnAward;
+    return updated;
+  });
+  await updateDoc(doc(db, 'families', familyId), { externalContacts: next });
+}
+
+export async function removeExternalContact(familyId: string, contactId: string): Promise<void> {
+  if (isGuestActive()) return;
+  const fam = await getFamily(familyId);
+  const existing = fam?.externalContacts || [];
+  const next = existing.filter((c) => c.id !== contactId);
+  await updateDoc(doc(db, 'families', familyId), { externalContacts: next });
 }
 
 export async function findFamilyByInviteCode(code: string): Promise<Family | null> {

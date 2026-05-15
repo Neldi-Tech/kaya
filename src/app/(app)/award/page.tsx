@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { giveAward, getFamilyMembers } from '@/lib/firestore';
+import { giveAward, getFamilyMembers, getFamily } from '@/lib/firestore';
 import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { notifyAward } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
@@ -86,14 +86,22 @@ export default function AwardPage() {
     setSaving(false);
 
     // Fire-and-forget email notification per kid (so each kid's parents/helpers
-    // see the awardee name in the email subject).
+    // see the awardee name in the email subject). Includes external contacts
+    // opted in for award notifications.
     (async () => {
       if (selectedKidObjs.length === 0) return;
-      const members = await getFamilyMembers(profile.familyId);
-      const recipients = members
+      const [members, fam] = await Promise.all([
+        getFamilyMembers(profile.familyId),
+        getFamily(profile.familyId),
+      ]);
+      const familyEmails = members
         .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
         .filter((m) => m.notifyOnAward !== false) // default true
         .map((m) => m.email);
+      const externalEmails = (fam?.externalContacts || [])
+        .filter((c) => c.notifyOnAward !== false)
+        .map((c) => c.email);
+      const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
       for (const c of selectedKidObjs) {
         notifyAward({
           to: recipients,
