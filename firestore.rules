@@ -209,6 +209,14 @@ service cloud.firestore {
       match /utilities/{utilityId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentOrHelper(familyId);
+
+        // Payment ledger — one doc per period the bill was paid.
+        // Parents + helpers can record payments; everyone in the
+        // family can read the history.
+        match /payments/{paymentId} {
+          allow read: if belongsToFamily(familyId);
+          allow create, update, delete: if isParentOrHelper(familyId);
+        }
       }
 
       // ── Catalog overlay ──────────────────────────────────────────
