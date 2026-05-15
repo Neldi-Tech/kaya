@@ -19,7 +19,7 @@
 import {
   collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot,
+  onSnapshot, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -164,6 +164,82 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
   { id: 'other',    emoji: '✨',  label: 'Other' },
 ];
 
+/** Starter packs for the empty Utilities state. Mirrors the staples
+ *  Browse "Pick a pack" UX: one pack per household size, each with a
+ *  curated bill list and a baseline USD amount that gets converted to
+ *  the family's display currency at seed time. Parent tweaks amounts
+ *  after seeding. */
+export type UtilityPackId = 'small' | 'family' | 'big';
+
+export interface UtilityPackItem {
+  name: string;
+  category: UtilityCategory;
+  /** Baseline monthly cost in USD. Multiplied by the family's live
+   *  USD → family-currency FX rate so the seeded figure lands in the
+   *  right ballpark for any locale. */
+  usdBase: number;
+}
+
+export interface UtilityPack {
+  id: UtilityPackId;
+  emoji: string;
+  label: string;
+  sizeRange: string;
+  description: string;
+  items: UtilityPackItem[];
+}
+
+export const UTILITY_PACKS: UtilityPack[] = [
+  {
+    id: 'small',
+    emoji: '👤',
+    label: 'Small household',
+    sizeRange: '1–2 people',
+    description: 'Single, couple, or small flat. Essentials only — power, water, internet, gas.',
+    items: [
+      { name: 'Power',    category: 'power',    usdBase: 20 },
+      { name: 'Water',    category: 'water',    usdBase: 8  },
+      { name: 'Internet', category: 'internet', usdBase: 25 },
+      { name: 'Gas',      category: 'gas',      usdBase: 15 },
+    ],
+  },
+  {
+    id: 'family',
+    emoji: '👨‍👩‍👧',
+    label: 'Family',
+    sizeRange: '3–4 people',
+    description: 'Two adults plus 1–2 kids. Adds TV and security to the standard bills.',
+    items: [
+      { name: 'Power',    category: 'power',    usdBase: 40 },
+      { name: 'Water',    category: 'water',    usdBase: 16 },
+      { name: 'Internet', category: 'internet', usdBase: 30 },
+      { name: 'TV',       category: 'tv',       usdBase: 20 },
+      { name: 'Security', category: 'security', usdBase: 15 },
+      { name: 'Gas',      category: 'gas',      usdBase: 20 },
+    ],
+  },
+  {
+    id: 'big',
+    emoji: '👨‍👩‍👧‍👦',
+    label: 'Big household',
+    sizeRange: '5+ people',
+    description: 'Larger or extended family. Bigger totals and adds rent as a recurring line.',
+    items: [
+      { name: 'Power',    category: 'power',    usdBase: 80 },
+      { name: 'Water',    category: 'water',    usdBase: 32 },
+      { name: 'Internet', category: 'internet', usdBase: 40 },
+      { name: 'TV',       category: 'tv',       usdBase: 25 },
+      { name: 'Security', category: 'security', usdBase: 25 },
+      { name: 'Gas',      category: 'gas',      usdBase: 30 },
+      { name: 'Rent',     category: 'rent',     usdBase: 400 },
+    ],
+  },
+];
+
+/** Baseline default helper salary in USD. Drives the pre-fill for each
+ *  new helper salary input in the seed wizard. */
+export const DEFAULT_HELPER_SALARY_USD = 100;
+
 /** A recurring household bill or a helper's salary. Lives in
  *  families/{f}/utilities. Designed to roll up — alongside staples —
  *  into the unified Budget surface. Empty optional fields are stored
@@ -190,8 +266,44 @@ export interface Utility {
   notes: string;
   /** False keeps the row but drops it from the Budget roll-up. */
   active: boolean;
+  // ── Denormalised payment status ────────────────────────────────
+  // Mirrors the most recent payment so each utility row can render
+  // its status pill ("Paid · May" / "Overdue 3d") from a single doc
+  // read. The full ledger lives in the `payments` sub-collection.
+  /** Doc id of the payment row reflected in the fields below. Lets
+   *  "mark paid" twice in the same period update one record rather
+   *  than stacking duplicates. */
+  lastPaymentId?: string;
+  /** YYYY-MM bucket the most recent payment satisfied. */
+  lastPaymentPeriodKey?: string;
+  /** Amount of the most recent payment, in cents. */
+  lastPaymentCents?: number;
+  /** When the most recent payment was made. */
+  lastPaymentAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
+}
+
+/** A single payment against a utility — captures what the family
+ *  actually paid (which may differ from the recurring `amountCents`)
+ *  and when. Stored as a sub-collection so the ledger keeps full
+ *  history; the parent doc carries a denormalised pointer to the
+ *  most recent entry for fast row rendering. */
+export interface Payment {
+  id: string;
+  /** Cents in the family's display currency. */
+  amountCents: number;
+  /** When the payment was made (parent-picked; defaults to today). */
+  paidAt: Timestamp;
+  /** uid of the parent / helper who marked it paid. */
+  paidBy: string;
+  /** YYYY-MM bucket this payment satisfies. Derived from `paidAt` at
+   *  write time; lets the row look up "paid this month?" cheaply. */
+  periodKey: string;
+  /** Receipt / transaction reference — '' when none. */
+  reference: string;
+  notes: string;
+  createdAt: Timestamp;
 }
 
 // ── Grocery list (a "run") ───────────────────────────────────────
@@ -251,6 +363,9 @@ const listCol = (familyId: string) =>
 
 const utilityCol = (familyId: string) =>
   collection(db, 'families', familyId, 'utilities');
+
+const paymentCol = (familyId: string, utilityId: string) =>
+  collection(db, 'families', familyId, 'utilities', utilityId, 'payments');
 
 // ── Staples ──────────────────────────────────────────────────────
 
@@ -367,6 +482,197 @@ export function sumMonthlyUtilities(utilities: Utility[]): number {
   return utilities
     .filter((u) => u.active)
     .reduce((sum, u) => sum + monthlyEquivalentCents(u.amountCents || 0, u.cadence), 0);
+}
+
+/** Total of payments captured for the current month, plus the count
+ *  of utilities marked paid. Read from the denormalised lastPayment*
+ *  fields on the utility doc so we don't need to subscribe to every
+ *  payment sub-collection just to render the roll-up. */
+export function sumPaidThisPeriod(
+  utilities: Utility[],
+  now: Date = new Date(),
+): { paidCents: number; paidCount: number } {
+  const key = currentPeriodKey(now);
+  let paidCents = 0;
+  let paidCount = 0;
+  for (const u of utilities) {
+    if (u.active && u.lastPaymentPeriodKey === key) {
+      paidCents += u.lastPaymentCents || 0;
+      paidCount += 1;
+    }
+  }
+  return { paidCents, paidCount };
+}
+
+// ── Seed wizard + payments ───────────────────────────────────────
+
+/** Convert a USD baseline to cents in the family's display currency.
+ *  Falls back to 1:1 when the FX rate hasn't loaded yet — better to
+ *  seed *something* the parent can edit than to block the kick-start
+ *  on a network round-trip. */
+function usdBaseToFamilyCents(usdBase: number, fxUsdToFamily: number): number {
+  const rate = Number.isFinite(fxUsdToFamily) && fxUsdToFamily > 0 ? fxUsdToFamily : 1;
+  return Math.round(usdBase * rate * 100);
+}
+
+/** Batch-seed bills from a pack and helper salary rows in a single
+ *  write. Each helper carries its own pre-filled amount captured by
+ *  the seed wizard. Names already present in `existing` are skipped
+ *  so a re-tap doesn't duplicate. */
+export async function seedFromWizard(
+  familyId: string,
+  existing: Utility[],
+  args: {
+    pack: UtilityPack | null;
+    fxUsdToFamily: number;
+    helperSalariesCents: number[];
+  },
+): Promise<{ billsAdded: number; salariesAdded: number }> {
+  if (isGuestActive()) return { billsAdded: 0, salariesAdded: 0 };
+  const haveByName = new Set(existing.map((u) => u.name.trim().toLowerCase()));
+  const batch = writeBatch(db);
+  let billsAdded = 0;
+  let salariesAdded = 0;
+  const blank = {
+    cadence: 'monthly' as Cadence,
+    dueDay: 0,
+    accountRef: '',
+    preferredSupplierId: '',
+    notes: '',
+    active: true,
+  };
+
+  if (args.pack) {
+    for (const item of args.pack.items) {
+      if (haveByName.has(item.name.toLowerCase())) continue;
+      const ref = doc(utilityCol(familyId));
+      batch.set(ref, {
+        ...blank,
+        name: item.name,
+        category: item.category,
+        amountCents: usdBaseToFamilyCents(item.usdBase, args.fxUsdToFamily),
+        createdAt: serverTimestamp(),
+      });
+      haveByName.add(item.name.toLowerCase());
+      billsAdded++;
+    }
+  }
+
+  const n = args.helperSalariesCents.length;
+  for (let i = 0; i < n; i++) {
+    const name = n === 1 ? 'Helper — salary' : `Helper ${i + 1} — salary`;
+    if (haveByName.has(name.toLowerCase())) continue;
+    const ref = doc(utilityCol(familyId));
+    batch.set(ref, {
+      ...blank,
+      name,
+      category: 'salary' as UtilityCategory,
+      amountCents: Math.max(0, Math.round(args.helperSalariesCents[i] || 0)),
+      createdAt: serverTimestamp(),
+    });
+    haveByName.add(name.toLowerCase());
+    salariesAdded++;
+  }
+
+  if (billsAdded + salariesAdded > 0) await batch.commit();
+  return { billsAdded, salariesAdded };
+}
+
+export function subscribeToPayments(
+  familyId: string,
+  utilityId: string,
+  cb: (payments: Payment[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    paymentCol(familyId, utilityId),
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Payment)));
+    },
+    () => cb([]),
+  );
+}
+
+/** Record (or overwrite) the payment for the period implied by
+ *  `data.periodKey`. If a payment already exists for that period on
+ *  this utility, update it in place rather than stacking — the
+ *  caller passes the current utility doc so we can spot the case
+ *  without an extra read. Both the payment doc and the denormalised
+ *  last-payment fields on the parent utility are written in one
+ *  batch so the row's status pill flips atomically. */
+export async function recordPayment(
+  familyId: string,
+  utility: Utility,
+  data: Omit<Payment, 'id' | 'createdAt'>,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-payment';
+  const batch = writeBatch(db);
+  let paymentId: string;
+  if (utility.lastPaymentId && utility.lastPaymentPeriodKey === data.periodKey) {
+    paymentId = utility.lastPaymentId;
+    batch.update(doc(paymentCol(familyId, utility.id), paymentId), {
+      amountCents: data.amountCents,
+      paidAt: data.paidAt,
+      paidBy: data.paidBy,
+      reference: data.reference,
+      notes: data.notes,
+    });
+  } else {
+    const ref = doc(paymentCol(familyId, utility.id));
+    paymentId = ref.id;
+    batch.set(ref, { ...data, createdAt: serverTimestamp() });
+  }
+  batch.update(doc(utilityCol(familyId), utility.id), {
+    lastPaymentId: paymentId,
+    lastPaymentPeriodKey: data.periodKey,
+    lastPaymentCents: data.amountCents,
+    lastPaymentAt: data.paidAt,
+    updatedAt: serverTimestamp(),
+  });
+  await batch.commit();
+  return paymentId;
+}
+
+// ── Period + status helpers ──────────────────────────────────────
+
+/** YYYY-MM bucket for the supplied date. */
+export function currentPeriodKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** "May 2026" label for a YYYY-MM key. */
+export function periodLabel(periodKey: string): string {
+  const [y, m] = periodKey.split('-').map(Number);
+  if (!y || !m) return periodKey;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+/** Status of a utility for THIS calendar month — drives the row's
+ *  visual pill (paid / due-soon / overdue / unpaid). */
+export type UtilityStatus =
+  | { kind: 'paid'; periodKey: string; amountCents: number }
+  | { kind: 'due-soon'; daysUntil: number; dueDay: number }
+  | { kind: 'overdue'; daysOverdue: number; dueDay: number }
+  | { kind: 'unpaid' };
+
+export function paymentStatus(utility: Utility, now: Date = new Date()): UtilityStatus {
+  const key = currentPeriodKey(now);
+  if (utility.lastPaymentPeriodKey === key) {
+    return { kind: 'paid', periodKey: key, amountCents: utility.lastPaymentCents || 0 };
+  }
+  // Without a due-day the only thing we know is "not paid yet this
+  // month" — keep the pill quiet rather than guessing a date.
+  if (utility.active && utility.dueDay && utility.dueDay > 0) {
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const effectiveDue = Math.min(utility.dueDay, lastDay);
+    const diff = effectiveDue - now.getDate();
+    if (diff < 0) return { kind: 'overdue', daysOverdue: -diff, dueDay: utility.dueDay };
+    if (diff <= 5) return { kind: 'due-soon', daysUntil: diff, dueDay: utility.dueDay };
+  }
+  return { kind: 'unpaid' };
 }
 
 // ── Suppliers ────────────────────────────────────────────────────
