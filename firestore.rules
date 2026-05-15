@@ -173,6 +173,38 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // ── Kaya Business · per-kid business, assets, sales, costs ───
+      // Each kid runs one business. Sales + wallet-funded costs route
+      // money through the shared `approvalRequests` queue above; the
+      // float on the business doc is the only balance mutated here.
+      // Write posture mirrors the wallet: parent OR the kid themselves
+      // (the float-balance field carries the same theoretical
+      // kid-tamper hole as the wallet — accepted for v1, revisit with
+      // Cloud Functions). Reads are covered by kids/{kidId}/{document=**}.
+      match /kids/{kidId}/business/{document=**} {
+        allow write: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+      }
+      // Assets + their lossEvents subcollection.
+      match /kids/{kidId}/assets/{document=**} {
+        allow write: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+      }
+      // Sale log. Kid creates (status pending_approval); the parent's
+      // approval resolution updates it via resolveApprovalRequest.
+      match /kids/{kidId}/sales/{saleId} {
+        allow create, update: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+        allow delete: if false;
+      }
+      // Cost log. Float-funded costs are written approved; wallet-funded
+      // costs are updated by the parent's approval resolution.
+      match /kids/{kidId}/costs/{costId} {
+        allow create, update: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+        allow delete: if false;
+      }
+
       // ── The Pantry · staples ─────────────────────────────────────
       // Master list of recurring household items. Parents + helpers
       // edit; kids read only (suggest mode arrives in Phase 1B).
@@ -198,6 +230,14 @@ service cloud.firestore {
       match /groceryLists/{listId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentOrHelper(familyId);
+      }
+
+      // ── Kaya Business · family price list ───────────────────────
+      // Canonical prices for items kids sell. Parent-maintained; kids
+      // read it (their sale form pulls/auto-suggests from it).
+      match /priceList/{itemId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
       }
     }
   }

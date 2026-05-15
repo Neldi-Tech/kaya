@@ -12,9 +12,11 @@ import { resolveApprovalRequest, ApprovalRequest } from '@/lib/hive';
 import { formatCash, formatHoney, formatHp } from './format';
 
 const TYPE_META: Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }> = {
-  hp_to_honey: { emoji: '⇆', label: 'Save HP → 🍯',     tone: 'honey' },
-  cash_out:    { emoji: '🍯', label: 'Cash out 🍯 → $', tone: 'green' },
-  spend:       { emoji: '🛒', label: 'Cash spend',      tone: 'rose'  },
+  hp_to_honey:   { emoji: '⇆', label: 'Save HP → 🍯',      tone: 'honey' },
+  cash_out:      { emoji: '🍯', label: 'Cash out 🍯 → $',  tone: 'green' },
+  spend:         { emoji: '🛒', label: 'Cash spend',        tone: 'rose'  },
+  business_sale: { emoji: '💼', label: 'Business sale',     tone: 'green' },
+  business_cost: { emoji: '🧾', label: 'Business cost',     tone: 'rose'  },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {

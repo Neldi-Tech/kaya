@@ -33,7 +33,12 @@ export type HiveLayer = 'house_points' | 'honey' | 'cash';
 export type TxDirection = 'in' | 'out';
 export type TxStatus = 'completed' | 'pending_approval' | 'approved' | 'rejected';
 
-export type ApprovalType = 'hp_to_honey' | 'cash_out' | 'spend';
+export type ApprovalType =
+  | 'hp_to_honey' | 'cash_out' | 'spend'
+  // v3 — Kaya Business plugs into the same parent-approval queue.
+  // business_sale  → credits Cash (on-hand or deposit per cashDestination)
+  // business_cost  → debits on-hand Cash for a wallet-funded business cost
+  | 'business_sale' | 'business_cost';
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -333,6 +338,16 @@ export interface ApprovalRequest {
   hpAmount?: number;
   description: string;
   category?: TxCategory;
+  // ── v3 · Kaya Business fields ──────────────────────────────────
+  /** business_sale: which Cash sub-balance the proceeds land in. */
+  cashDestination?: CashDestination;
+  /** business_sale: back-ref to the Kaya Business sale doc, so the
+   *  resolver can flip it to approved + stamp the hiveTxId. Path:
+   *  families/{familyId}/kids/{kidId}/sales/{ventureSaleId}. */
+  ventureSaleId?: string;
+  /** business_cost: back-ref to the Kaya Business cost doc. Path:
+   *  families/{familyId}/kids/{kidId}/costs/{ventureCostId}. */
+  ventureCostId?: string;
   status: ApprovalStatus;
   rejectionReason?: string;
   resultingTxIds?: string[];
@@ -859,6 +874,76 @@ export async function resolveApprovalRequest(
         createdBy: req.createdBy, approvedBy: approverUid,
         createdAt: now, completedAt: now,
       });
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        resolvedAt: now,
+        resolvedBy: approverUid,
+        resultingTxIds: [txRef.id],
+      });
+    } else if (req.type === 'business_sale') {
+      // Kaya Business sale — credit Cash in the kid's chosen pocket.
+      const cents = req.amountCents ?? 0;
+      const destination: CashDestination = req.cashDestination ?? 'on_hand';
+      const toDeposit = destination === 'on_deposit';
+      const txRef = doc(txCol(familyId, req.kidId));
+      const now = serverTimestamp();
+
+      tx.set(wRef, {
+        ...wallet,
+        cashOnHandCents: wallet.cashOnHandCents + (toDeposit ? 0 : cents),
+        cashOnDepositCents: wallet.cashOnDepositCents + (toDeposit ? cents : 0),
+        totalLifetimeEarnedCents: wallet.totalLifetimeEarnedCents + cents,
+        updatedAt: now,
+      });
+      tx.set(txRef, {
+        layer: 'cash', direction: 'in', amount: cents, category: 'business',
+        description: req.description + (toDeposit ? ' · to safekeeping' : ''),
+        status: 'completed', requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      // Flip the originating Kaya Business sale doc to approved.
+      if (req.ventureSaleId) {
+        tx.update(
+          doc(db, 'families', familyId, 'kids', req.kidId, 'sales', req.ventureSaleId),
+          { status: 'approved', hiveTxId: txRef.id, resolvedAt: now, approvedByParentId: approverUid },
+        );
+      }
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        resolvedAt: now,
+        resolvedBy: approverUid,
+        resultingTxIds: [txRef.id],
+      });
+    } else if (req.type === 'business_cost') {
+      // Kaya Business wallet-funded cost — debit on-hand Cash.
+      const cents = req.amountCents ?? 0;
+      if (wallet.cashOnHandCents < cents) {
+        throw new Error('Not enough on-hand Cash to cover this cost.');
+      }
+      const txRef = doc(txCol(familyId, req.kidId));
+      const now = serverTimestamp();
+
+      tx.set(wRef, {
+        ...wallet,
+        cashOnHandCents: wallet.cashOnHandCents - cents,
+        totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + cents,
+        updatedAt: now,
+      });
+      tx.set(txRef, {
+        layer: 'cash', direction: 'out', amount: cents, category: 'business',
+        description: req.description,
+        status: 'completed', requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      // Flip the originating Kaya Business cost doc to approved.
+      if (req.ventureCostId) {
+        tx.update(
+          doc(db, 'families', familyId, 'kids', req.kidId, 'costs', req.ventureCostId),
+          { status: 'approved', hiveTxId: txRef.id, resolvedAt: now, approvedByParentId: approverUid },
+        );
+      }
       tx.update(reqRef, {
         status: 'approved' as ApprovalStatus,
         resolvedAt: now,
