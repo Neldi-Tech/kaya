@@ -24,7 +24,8 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
-  DIRECTORY_STAPLES, type Region, type Surface,
+  DIRECTORY_STAPLES, DIRECTORY_FOODS,
+  type Region, type Surface, type MealType, type Diet,
 } from './pantryDirectory';
 import type { Cadence, StapleCategory } from './pantry';
 
@@ -278,5 +279,159 @@ export function entryToInput(e: CatalogEntry): CatalogItemInput {
     cadence: e.cadence,
     note: e.note,
     priceCents: e.priceCents,
+  };
+}
+
+// ── Foods (custom dishes) ────────────────────────────────────────
+//
+// The built-in DIRECTORY_FOODS dishes are shared and read-only. This
+// layers a per-family set of CUSTOM dishes on top, stored at
+// `families/{familyId}/catalogFoods`. Unlike the staples overlay
+// there's no "override a built-in" — a family just adds dishes of
+// their own. `mergeFoodCatalog()` prepends them to the built-in list.
+
+/** A Firestore `catalogFoods` document — a family's own dish. */
+export interface CatalogFoodDoc {
+  id: string;
+  label: string;
+  emoji: string;
+  region: Region;
+  meals: MealType[];
+  diets: Diet[];
+  /** Ingredient labels. Free text — an ingredient that matches a
+   *  built-in staple label becomes addable via "+ Staples". */
+  ingredients: string[];
+  createdBy: string;
+  updatedAt: Timestamp;
+}
+
+/** The editable field set for a custom dish — what the editor collects. */
+export interface CatalogFoodInput {
+  label: string;
+  emoji: string;
+  region: Region;
+  meals: MealType[];
+  diets: Diet[];
+  ingredients: string[];
+}
+
+/** A built-in dish or a family's custom dish — the single shape the
+ *  Foods tab renders. */
+export interface FoodEntry {
+  /** Stable identity — "food:<label>" | "customfood:<docId>". */
+  key: string;
+  label: string;
+  emoji: string;
+  region: Region;
+  meals: MealType[];
+  diets: Diet[];
+  ingredients: string[];
+  /** Lowercase search tokens. */
+  match: string[];
+  /** Family-created dish (not in the built-in catalog). */
+  isCustom: boolean;
+  /** The `catalogFoods` doc id — set for custom dishes only. */
+  docId?: string;
+}
+
+const foodCol = (familyId: string) =>
+  collection(db, 'families', familyId, 'catalogFoods');
+
+/** Normalise a food input into a writable payload — trims strings and
+ *  drops empty ingredient rows. */
+function toFoodPayload(input: CatalogFoodInput) {
+  return {
+    label: input.label.trim(),
+    emoji: input.emoji?.trim() || '🍽️',
+    region: input.region,
+    meals: input.meals,
+    diets: input.diets,
+    ingredients: input.ingredients.map((i) => i.trim()).filter(Boolean),
+  };
+}
+
+/** Live-subscribe to the family's custom dishes. */
+export function subscribeToFoodCatalog(
+  familyId: string,
+  cb: (docs: CatalogFoodDoc[]) => void,
+): () => void {
+  return onSnapshot(foodCol(familyId), (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CatalogFoodDoc, 'id'>) })));
+  });
+}
+
+/** Create a brand-new family dish. */
+export async function addCustomFood(
+  familyId: string,
+  input: CatalogFoodInput,
+  uid: string,
+): Promise<void> {
+  await addDoc(foodCol(familyId), {
+    ...toFoodPayload(input),
+    createdBy: uid,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Update an existing custom dish. */
+export async function updateCustomFood(
+  familyId: string,
+  docId: string,
+  input: CatalogFoodInput,
+): Promise<void> {
+  await updateDoc(doc(foodCol(familyId), docId), {
+    ...toFoodPayload(input),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Delete a custom dish. */
+export async function deleteCustomFood(
+  familyId: string,
+  docId: string,
+): Promise<void> {
+  await deleteDoc(doc(foodCol(familyId), docId));
+}
+
+/** Fold the family's custom dishes onto the built-in catalog. Custom
+ *  dishes come first so a family's own additions sit at the top. */
+export function mergeFoodCatalog(docs: CatalogFoodDoc[]): FoodEntry[] {
+  const custom: FoodEntry[] = docs.map((d) => ({
+    key: `customfood:${d.id}`,
+    label: d.label,
+    emoji: d.emoji,
+    region: d.region,
+    meals: d.meals,
+    diets: d.diets,
+    ingredients: d.ingredients,
+    match: [d.label.toLowerCase(), ...d.ingredients.map((i) => i.toLowerCase())],
+    isCustom: true,
+    docId: d.id,
+  }));
+
+  const builtIns: FoodEntry[] = DIRECTORY_FOODS.map((f) => ({
+    key: `food:${f.label}`,
+    label: f.label,
+    emoji: f.emoji,
+    region: f.region,
+    meals: f.meals,
+    diets: f.diets,
+    ingredients: f.ingredients,
+    match: f.match,
+    isCustom: false,
+  }));
+
+  return [...custom, ...builtIns];
+}
+
+/** Convert a merged food entry back into the editable input shape. */
+export function foodEntryToInput(e: FoodEntry): CatalogFoodInput {
+  return {
+    label: e.label,
+    emoji: e.emoji,
+    region: e.region,
+    meals: e.meals,
+    diets: e.diets,
+    ingredients: e.ingredients,
   };
 }

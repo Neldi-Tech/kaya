@@ -199,6 +199,14 @@ service cloud.firestore {
         allow create, update, delete: if isParentOrHelper(familyId);
       }
 
+      // ── Custom dishes ────────────────────────────────────────────
+      // Per-family custom dishes layered on the built-in foods catalog
+      // (see lib/pantryCatalog.ts). Parents + helpers edit; kids read.
+      match /catalogFoods/{foodId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentOrHelper(familyId);
+      }
+
       // ── Grocery lists ────────────────────────────────────────────
       // Active runs (one per week, by convention). Parents + helpers
       // edit; kids read only. Phase 1B will let kids suggest items via

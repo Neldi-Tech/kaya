@@ -32,13 +32,16 @@ import {
   FOOD_CATEGORY_CHIPS, HOUSEHOLD_CATEGORY_CHIPS,
   STARTER_PACKS, resolveStarterPack,
   type Surface, type Region, type Diet, type MealType,
-  type DirectoryFood, type StarterPack,
+  type StarterPack,
 } from '@/lib/pantryDirectory';
 import type { StapleCategory } from '@/lib/pantry';
 import {
   subscribeToCatalog, mergeCatalog, entryToInput,
   saveCatalogOverride, addCustomItem, updateCustomItem, deleteCatalogItem,
+  subscribeToFoodCatalog, mergeFoodCatalog, foodEntryToInput,
+  addCustomFood, updateCustomFood, deleteCustomFood,
   type CatalogItemDoc, type CatalogItemInput, type CatalogEntry,
+  type CatalogFoodDoc, type CatalogFoodInput, type FoodEntry,
 } from '@/lib/pantryCatalog';
 
 type Tab = 'staples' | 'foods';
@@ -79,6 +82,15 @@ const REGION_OPTIONS = REGIONS.filter(
   (r): r is { id: Region; emoji: string; label: string } => r.id !== 'any',
 );
 
+// Dish-editor meal / diet pickers — concrete values only (the 'all' /
+// 'any' filter options aren't valid stored values).
+const MEAL_OPTIONS = MEALS.filter(
+  (m): m is { id: MealType; emoji: string; label: string } => m.id !== 'all',
+);
+const DIET_OPTIONS = DIETS.filter(
+  (d): d is { id: Diet; emoji: string; label: string } => d.id !== 'any',
+);
+
 export default function PantryDirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { staples } = usePantry();
@@ -107,12 +119,21 @@ export default function PantryDirectoryPage() {
   const [addingItem, setAddingItem] = useState(false);
   const [itemBusy, setItemBusy] = useState(false);
 
+  // Per-family custom dishes (Firestore) — folded onto DIRECTORY_FOODS.
+  const [foodDocs, setFoodDocs] = useState<CatalogFoodDoc[]>([]);
+  const [editingFoodKey, setEditingFoodKey] = useState<string | null>(null);
+  const [addingFood, setAddingFood] = useState(false);
+  const [foodBusy, setFoodBusy] = useState(false);
+
   useEffect(() => {
     if (!profile?.familyId || isGuest) return;
-    return subscribeToCatalog(profile.familyId, setCatalogDocs);
+    const unsubItems = subscribeToCatalog(profile.familyId, setCatalogDocs);
+    const unsubFoods = subscribeToFoodCatalog(profile.familyId, setFoodDocs);
+    return () => { unsubItems(); unsubFoods(); };
   }, [profile?.familyId, isGuest]);
 
   const catalog = useMemo(() => mergeCatalog(catalogDocs), [catalogDocs]);
+  const foodCatalog = useMemo(() => mergeFoodCatalog(foodDocs), [foodDocs]);
 
   // Already in the family's staples (by lower-cased name) — used to
   // flag duplicates and skip them on bulk-save.
@@ -135,14 +156,14 @@ export default function PantryDirectoryPage() {
 
   const visibleFoods = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return DIRECTORY_FOODS.filter((f) => {
+    return foodCatalog.filter((f) => {
       if (meal !== 'all' && !f.meals.includes(meal)) return false;
       if (region !== 'any' && f.region !== region) return false;
       if (diet !== 'any' && !f.diets.includes(diet)) return false;
       if (q && !f.label.toLowerCase().includes(q) && !f.match.some((m) => m.includes(q))) return false;
       return true;
     });
-  }, [meal, region, diet, search]);
+  }, [foodCatalog, meal, region, diet, search]);
 
   const toggleSelect = (key: string) => {
     setSelected((prev) => {
@@ -212,14 +233,16 @@ export default function PantryDirectoryPage() {
     );
   };
 
-  const addFoodIngredients = async (food: DirectoryFood) => {
+  const addFoodIngredients = async (food: FoodEntry) => {
     if (!profile?.familyId || isGuest) return;
     let added = 0;
     for (const name of food.ingredients) {
       if (ownedNames.has(name.toLowerCase())) continue;
       // Resolve through the family catalog so an edited built-in
-      // (renamed / re-priced) is what actually gets added.
-      const entry = catalog.find((e) => e.baseLabel === name);
+      // (renamed / re-priced) is what actually gets added. A custom
+      // dish's free-text ingredient that matches no catalog item is
+      // silently skipped — nothing to price or add.
+      const entry = catalog.find((e) => e.baseLabel === name || e.label === name);
       if (!entry || ownedNames.has(entry.label.toLowerCase())) continue;
       await addStaple(profile.familyId, {
         name: entry.label,
@@ -308,6 +331,67 @@ export default function PantryDirectoryPage() {
     defaultQty: 1,
     unit: 'kg',
     cadence: 'weekly',
+  });
+
+  // ── Custom dish editing ───────────────────────────────────────
+  // Same try/catch/finally contract as the catalog handlers above —
+  // failures toast, the editor stays open for retry, busy always
+  // clears. A failed write here usually means the catalogFoods rule
+  // isn't deployed yet.
+  const handleAddFood = async (input: CatalogFoodInput) => {
+    if (!profile?.familyId || isGuest) return;
+    setFoodBusy(true);
+    try {
+      await addCustomFood(profile.familyId, input, profile.uid);
+      setAddingFood(false);
+      flashToast(`Added ${input.label.trim()} to your dishes`);
+    } catch (e) {
+      console.error('Custom dish add failed', e);
+      flashToast("Couldn't add the dish — check your connection and try again.");
+    } finally {
+      setFoodBusy(false);
+    }
+  };
+
+  const handleSaveFood = async (entry: FoodEntry, input: CatalogFoodInput) => {
+    if (!profile?.familyId || isGuest || !entry.docId) return;
+    setFoodBusy(true);
+    try {
+      await updateCustomFood(profile.familyId, entry.docId, input);
+      setEditingFoodKey(null);
+      flashToast(`Saved ${input.label.trim()}`);
+    } catch (e) {
+      console.error('Custom dish save failed', e);
+      flashToast("Couldn't save — check your connection and try again.");
+    } finally {
+      setFoodBusy(false);
+    }
+  };
+
+  const handleRemoveFood = async (entry: FoodEntry) => {
+    if (!profile?.familyId || isGuest || !entry.docId) return;
+    setFoodBusy(true);
+    try {
+      await deleteCustomFood(profile.familyId, entry.docId);
+      setEditingFoodKey(null);
+      flashToast(`Removed ${entry.label}`);
+    } catch (e) {
+      console.error('Custom dish remove failed', e);
+      flashToast("Couldn't remove the dish — check your connection and try again.");
+    } finally {
+      setFoodBusy(false);
+    }
+  };
+
+  // Sensible defaults for a brand-new dish — seeded from the meal +
+  // region the parent is currently filtering by.
+  const blankFoodInput = (): CatalogFoodInput => ({
+    label: '',
+    emoji: '🍽️',
+    region: region === 'any' ? 'global' : region,
+    meals: meal === 'all' ? ['lunch'] : [meal],
+    diets: [],
+    ingredients: [],
   });
 
   return (
@@ -506,15 +590,52 @@ export default function PantryDirectoryPage() {
             ))}
           </ChipRow>
 
-          {visibleFoods.length === 0 ? (
-            <EmptyState message="No dishes match these filters." />
-          ) : (
-            <div className="space-y-2 mt-2">
-              {visibleFoods.map((f) => (
-                <FoodCard key={f.label} food={f} disabled={isGuest} onAdd={() => addFoodIngredients(f)} />
-              ))}
-            </div>
-          )}
+          <div className="space-y-2 mt-2">
+            {/* Add-your-own-dish — opens a full inline editor. */}
+            {canEdit && (
+              addingFood ? (
+                <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive p-3">
+                  <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.4px] text-pantry-leaf-dk mb-2">
+                    New dish
+                  </p>
+                  <FoodEditor
+                    initial={blankFoodInput()}
+                    mode="add"
+                    busy={foodBusy}
+                    onSave={handleAddFood}
+                    onCancel={() => setAddingFood(false)}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setAddingFood(true); setEditingFoodKey(null); }}
+                  className="w-full min-h-[68px] border-2 border-dashed border-hive-line rounded-hive p-3 flex items-center justify-center gap-1.5 text-pantry-leaf-dk font-nunito font-extrabold text-[13px] hover:border-pantry-leaf hover:bg-pantry-leaf-soft/30 transition-colors"
+                >
+                  ＋ Add your own dish
+                </button>
+              )
+            )}
+
+            {visibleFoods.length === 0 ? (
+              <EmptyState message="No dishes match these filters." />
+            ) : (
+              visibleFoods.map((f) => (
+                <FoodCard
+                  key={f.key}
+                  food={f}
+                  canEdit={canEdit}
+                  editing={editingFoodKey === f.key}
+                  busy={foodBusy && editingFoodKey === f.key}
+                  onAdd={() => addFoodIngredients(f)}
+                  onEdit={() => { setEditingFoodKey(f.key); setAddingFood(false); }}
+                  onCancelEdit={() => setEditingFoodKey(null)}
+                  onSave={(input) => handleSaveFood(f, input)}
+                  onRemove={f.docId ? () => handleRemoveFood(f) : undefined}
+                />
+              ))
+            )}
+          </div>
         </>
       )}
 
@@ -917,19 +1038,51 @@ function CatalogItemEditor({
 }
 
 function FoodCard({
-  food, disabled, onAdd,
+  food, canEdit, editing, busy, onAdd, onEdit, onCancelEdit, onSave, onRemove,
 }: {
-  food: DirectoryFood;
-  disabled: boolean;
+  food: FoodEntry;
+  canEdit: boolean;
+  editing: boolean;
+  busy: boolean;
   onAdd: () => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSave: (input: CatalogFoodInput) => void;
+  onRemove?: () => void;
 }) {
+  // Editing a custom dish swaps the card for the inline editor.
+  if (editing) {
+    return (
+      <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive p-3">
+        <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.4px] text-pantry-leaf-dk mb-2">
+          Edit your dish
+        </p>
+        <FoodEditor
+          initial={foodEntryToInput(food)}
+          mode="edit"
+          busy={busy}
+          onSave={onSave}
+          onCancel={onCancelEdit}
+          onRemove={onRemove}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-start gap-3">
       <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
         {food.emoji}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-nunito font-extrabold text-[14px] truncate">{food.label}</p>
+        <p className="font-nunito font-extrabold text-[14px] truncate">
+          {food.label}
+          {food.isCustom && (
+            <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-hive-honey-dk uppercase tracking-wider">
+              · yours
+            </span>
+          )}
+        </p>
         <p className="text-[10px] uppercase tracking-[1.5px] text-hive-muted font-nunito font-extrabold mt-0.5">
           {food.meals.join(' · ')}
         </p>
@@ -942,15 +1095,183 @@ function FoodCard({
               {ing}
             </span>
           ))}
+          {food.ingredients.length === 0 && (
+            <span className="text-[10px] text-hive-muted italic">No ingredients listed yet</span>
+          )}
         </div>
       </div>
-      <button
-        onClick={onAdd}
-        disabled={disabled}
-        className="shrink-0 text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline disabled:opacity-40 disabled:no-underline whitespace-nowrap"
-      >
-        + Staples
-      </button>
+      <div className="shrink-0 flex flex-col items-end gap-1.5">
+        <button
+          onClick={onAdd}
+          disabled={!canEdit || food.ingredients.length === 0}
+          className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline disabled:opacity-40 disabled:no-underline whitespace-nowrap"
+        >
+          + Staples
+        </button>
+        {canEdit && food.isCustom && (
+          <button
+            onClick={onEdit}
+            aria-label={`Edit ${food.label}`}
+            className="text-[11px] font-nunito font-extrabold text-hive-muted hover:text-pantry-leaf-dk hover:underline whitespace-nowrap"
+          >
+            ✏️ Edit
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Full inline editor for one custom dish — adding a new one or
+// editing an existing family dish. Holds its own draft so a single
+// Save is one Firestore write.
+function FoodEditor({
+  initial, mode, busy, onSave, onCancel, onRemove,
+}: {
+  initial: CatalogFoodInput;
+  mode: 'add' | 'edit';
+  busy: boolean;
+  onSave: (input: CatalogFoodInput) => void;
+  onCancel: () => void;
+  onRemove?: () => void;
+}) {
+  const [draft, setDraft] = useState<CatalogFoodInput>(initial);
+  // Ingredients are edited as free text (one per line or comma-
+  // separated) and parsed back to a string[] on save.
+  const [ingredientsText, setIngredientsText] = useState(initial.ingredients.join('\n'));
+  const set = <K extends keyof CatalogFoodInput>(k: K, v: CatalogFoodInput[K]) =>
+    setDraft((d) => ({ ...d, [k]: v }));
+
+  const toggleMeal = (m: MealType) =>
+    setDraft((d) => ({
+      ...d,
+      meals: d.meals.includes(m) ? d.meals.filter((x) => x !== m) : [...d.meals, m],
+    }));
+  const toggleDiet = (dt: Diet) =>
+    setDraft((d) => ({
+      ...d,
+      diets: d.diets.includes(dt) ? d.diets.filter((x) => x !== dt) : [...d.diets, dt],
+    }));
+
+  const parsedIngredients = ingredientsText
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const canSave = draft.label.trim().length > 0 && draft.meals.length > 0 && !busy;
+
+  const fieldCls =
+    'w-full h-9 px-2.5 bg-hive-cream rounded-[8px] text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40';
+  const labelCls =
+    'text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1';
+  const chipCls = (on: boolean) =>
+    `px-2 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+      on ? 'bg-pantry-leaf text-white border-transparent' : 'border-hive-line bg-hive-cream text-hive-muted'
+    }`;
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className={labelCls}>Dish name</label>
+        <input
+          value={draft.label}
+          onChange={(e) => set('label', e.target.value)}
+          maxLength={60}
+          placeholder="e.g. Mama's pilau"
+          className={`${fieldCls} font-bold`}
+        />
+      </div>
+
+      <div className="grid grid-cols-[64px_1fr] gap-2">
+        <div>
+          <label className={labelCls}>Icon</label>
+          <input
+            value={draft.emoji}
+            onChange={(e) => set('emoji', e.target.value)}
+            maxLength={4}
+            className={`${fieldCls} text-center`}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Region</label>
+          <select
+            value={draft.region}
+            onChange={(e) => set('region', e.target.value as Region)}
+            className={`${fieldCls} font-nunito font-extrabold`}
+          >
+            {REGION_OPTIONS.map((r) => (
+              <option key={r.id} value={r.id}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>Meals · pick at least one</label>
+        <div className="flex flex-wrap gap-1">
+          {MEAL_OPTIONS.map((m) => (
+            <button key={m.id} type="button" onClick={() => toggleMeal(m.id)} className={chipCls(draft.meals.includes(m.id))}>
+              {m.emoji} {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>Diet tags · optional</label>
+        <div className="flex flex-wrap gap-1">
+          {DIET_OPTIONS.map((d) => (
+            <button key={d.id} type="button" onClick={() => toggleDiet(d.id)} className={chipCls(draft.diets.includes(d.id))}>
+              {d.emoji} {d.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>
+          Ingredients · one per line{parsedIngredients.length > 0 ? ` · ${parsedIngredients.length}` : ''}
+        </label>
+        <textarea
+          value={ingredientsText}
+          onChange={(e) => setIngredientsText(e.target.value)}
+          rows={4}
+          placeholder={'Rice (white)\nBeef\nOnions\n…'}
+          className="w-full px-2.5 py-2 bg-hive-cream rounded-[8px] text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40 resize-none"
+        />
+        <p className="text-[10px] text-hive-muted mt-0.5">
+          Ingredients that match a catalog staple are bulk-addable via &ldquo;+ Staples&rdquo;.
+        </p>
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={busy}
+            className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px] disabled:opacity-50"
+          >
+            Delete
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px] disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave({ ...draft, ingredients: parsedIngredients })}
+          disabled={!canSave}
+          className="flex-1 h-9 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[12px] disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : mode === 'add' ? 'Add dish' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }
