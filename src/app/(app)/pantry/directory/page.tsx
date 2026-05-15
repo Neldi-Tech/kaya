@@ -1,23 +1,29 @@
 'use client';
 
 // /pantry/directory — Browse-everything catalog. Two surfaces:
-//   STAPLES tab: 167 curated household items split Food/Household,
-//     filterable by sub-category and region. Tap any card to
-//     multi-select; a sticky bar surfaces "Save N to staples".
-//   FOODS tab: 91 popular dishes filterable by meal, region, diet.
-//     Each card has a "+ Staples" action that bulk-adds the food's
-//     ingredient list to the family staples.
+//   STAPLES tab: the built-in product catalog (food + household)
+//     split by sub-category and region, layered with this family's
+//     own edits + additions (see lib/pantryCatalog.ts). Tap a card to
+//     multi-select; ✏️ opens a full inline editor; a sticky bar
+//     surfaces "Save N to staples".
+//   FOODS tab: popular dishes filterable by meal, region, diet. Each
+//     card "+ Staples" bulk-adds the dish's ingredient list.
+//
+// The catalog the staples tab renders is per-family: the built-in
+// DIRECTORY_STAPLES seed it, and each family's edits / new items are
+// a Firestore overlay merged on top — synced across the family,
+// invisible to other families.
 //
 // Layout is a single column on phones (mobile-first) and a 2-column
 // grid for staples at lg+ to mirror the desktop screenshots.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import BackButton from '@/components/ui/BackButton';
 import NumberInput from '@/components/ui/NumberInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
-import { addStaple } from '@/lib/pantry';
+import { addStaple, STAPLE_UNITS, type Cadence } from '@/lib/pantry';
 import { estimateLineCents } from '@/lib/pricing';
 import { formatCents } from '@/components/pantry/format';
 import {
@@ -26,10 +32,17 @@ import {
   FOOD_CATEGORY_CHIPS, HOUSEHOLD_CATEGORY_CHIPS,
   STARTER_PACKS, resolveStarterPack,
   type Surface, type Region, type Diet, type MealType,
-  type DirectoryStaple, type DirectoryFood,
   type StarterPack,
 } from '@/lib/pantryDirectory';
 import type { StapleCategory } from '@/lib/pantry';
+import {
+  subscribeToCatalog, mergeCatalog, entryToInput,
+  saveCatalogOverride, addCustomItem, updateCustomItem, deleteCatalogItem,
+  subscribeToFoodCatalog, mergeFoodCatalog, foodEntryToInput,
+  addCustomFood, updateCustomFood, deleteCustomFood,
+  type CatalogItemDoc, type CatalogItemInput, type CatalogEntry,
+  type CatalogFoodDoc, type CatalogFoodInput, type FoodEntry,
+} from '@/lib/pantryCatalog';
 
 type Tab = 'staples' | 'foods';
 
@@ -41,11 +54,49 @@ const CADENCE_LABELS: Record<string, string> = {
   'as-needed': 'as needed',
 };
 
+const CADENCE_OPTIONS: { id: Cadence; label: string }[] = [
+  { id: 'daily',     label: 'Daily' },
+  { id: 'weekly',    label: 'Weekly' },
+  { id: 'biweekly',  label: '2× / week' },
+  { id: 'monthly',   label: 'Monthly' },
+  { id: 'as-needed', label: 'As needed' },
+];
+
+const CATEGORY_OPTIONS: { id: StapleCategory; label: string }[] = [
+  { id: 'produce',  label: 'Produce' },
+  { id: 'dairy',    label: 'Dairy' },
+  { id: 'pantry',   label: 'Pantry' },
+  { id: 'cleaning', label: 'Cleaning' },
+  { id: 'personal', label: 'Personal' },
+  { id: 'other',    label: 'Other' },
+];
+
+const SURFACE_OPTIONS: { id: Surface; label: string }[] = [
+  { id: 'food',      label: 'Food' },
+  { id: 'household', label: 'Household' },
+];
+
+// Editor region picker — concrete regions only (the 'any' filter
+// option isn't a valid value for a catalog item).
+const REGION_OPTIONS = REGIONS.filter(
+  (r): r is { id: Region; emoji: string; label: string } => r.id !== 'any',
+);
+
+// Dish-editor meal / diet pickers — concrete values only (the 'all' /
+// 'any' filter options aren't valid stored values).
+const MEAL_OPTIONS = MEALS.filter(
+  (m): m is { id: MealType; emoji: string; label: string } => m.id !== 'all',
+);
+const DIET_OPTIONS = DIETS.filter(
+  (d): d is { id: Diet; emoji: string; label: string } => d.id !== 'any',
+);
+
 export default function PantryDirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { staples } = usePantry();
   const { config } = useHive();
   const currency = config.currency;
+  const canEdit = !isGuest; // parents + helpers edit; guests read-only
 
   const [tab, setTab] = useState<Tab>('staples');
   const [surface, setSurface] = useState<Surface>('food');
@@ -60,50 +111,32 @@ export default function PantryDirectoryPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [packsOpen, setPacksOpen] = useState(true);
   const [packBusy, setPackBusy] = useState<string | null>(null);
-  // Per-card price overrides + which card's price input is open.
-  // The shared DIRECTORY_STAPLES catalog never changes — an override
-  // only reshapes the price written into THIS family's staples on
-  // bulk-save. Keyed by the catalog staple's `label`, value is the
-  // price in family-currency cents.
-  const [overrides, setOverrides] = useState<Map<string, number>>(new Map());
-  const [editingLabel, setEditingLabel] = useState<string | null>(null);
 
-  // The price that will actually be saved for a catalog staple — the
-  // parent's override if they tapped the price and changed it,
-  // otherwise the pricing.ts estimate for the catalog default qty.
-  const priceFor = (s: DirectoryStaple) => {
-    const o = overrides.get(s.label);
-    return typeof o === 'number' ? o : estimateLineCents(s, s.defaultQty, currency);
-  };
+  // Per-family catalog overlay (Firestore). `catalogDocs` is the raw
+  // overlay; `catalog` is it merged onto the built-in DIRECTORY_STAPLES.
+  const [catalogDocs, setCatalogDocs] = useState<CatalogItemDoc[]>([]);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [addingItem, setAddingItem] = useState(false);
+  const [itemBusy, setItemBusy] = useState(false);
 
-  // Override one staple's price. Editing a price also selects the
-  // item — if you bothered to set a number you almost certainly want
-  // it on the list.
-  const setPrice = (label: string, cents: number) => {
-    setOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(label, cents);
-      return next;
-    });
-    setSelected((prev) => {
-      if (prev.has(label)) return prev;
-      const next = new Set(prev);
-      next.add(label);
-      return next;
-    });
-  };
+  // Per-family custom dishes (Firestore) — folded onto DIRECTORY_FOODS.
+  const [foodDocs, setFoodDocs] = useState<CatalogFoodDoc[]>([]);
+  const [editingFoodKey, setEditingFoodKey] = useState<string | null>(null);
+  const [addingFood, setAddingFood] = useState(false);
+  const [foodBusy, setFoodBusy] = useState(false);
 
-  const clearPrice = (label: string) => {
-    setOverrides((prev) => {
-      if (!prev.has(label)) return prev;
-      const next = new Map(prev);
-      next.delete(label);
-      return next;
-    });
-  };
+  useEffect(() => {
+    if (!profile?.familyId || isGuest) return;
+    const unsubItems = subscribeToCatalog(profile.familyId, setCatalogDocs);
+    const unsubFoods = subscribeToFoodCatalog(profile.familyId, setFoodDocs);
+    return () => { unsubItems(); unsubFoods(); };
+  }, [profile?.familyId, isGuest]);
+
+  const catalog = useMemo(() => mergeCatalog(catalogDocs), [catalogDocs]);
+  const foodCatalog = useMemo(() => mergeFoodCatalog(foodDocs), [foodDocs]);
 
   // Already in the family's staples (by lower-cased name) — used to
-  // hide the "Add" affordance and skip duplicates on bulk-save.
+  // flag duplicates and skip them on bulk-save.
   const ownedNames = useMemo(
     () => new Set(staples.map((s) => s.name.toLowerCase())),
     [staples],
@@ -112,31 +145,31 @@ export default function PantryDirectoryPage() {
   const visibleStaples = useMemo(() => {
     const cat = surface === 'food' ? foodCategory : householdCategory;
     const q = search.trim().toLowerCase();
-    return DIRECTORY_STAPLES.filter((s) => {
+    return catalog.filter((s) => {
       if (s.surface !== surface) return false;
       if (cat !== 'all' && s.category !== cat) return false;
       if (region !== 'any' && s.region !== region) return false;
       if (q && !s.label.toLowerCase().includes(q) && !s.match.some((m) => m.includes(q))) return false;
       return true;
     });
-  }, [surface, foodCategory, householdCategory, region, search]);
+  }, [catalog, surface, foodCategory, householdCategory, region, search]);
 
   const visibleFoods = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return DIRECTORY_FOODS.filter((f) => {
+    return foodCatalog.filter((f) => {
       if (meal !== 'all' && !f.meals.includes(meal)) return false;
       if (region !== 'any' && f.region !== region) return false;
       if (diet !== 'any' && !f.diets.includes(diet)) return false;
       if (q && !f.label.toLowerCase().includes(q) && !f.match.some((m) => m.includes(q))) return false;
       return true;
     });
-  }, [meal, region, diet, search]);
+  }, [foodCatalog, meal, region, diet, search]);
 
-  const toggleSelect = (label: string) => {
+  const toggleSelect = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(label)) next.delete(label);
-      else next.add(label);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -151,24 +184,21 @@ export default function PantryDirectoryPage() {
     setSaving(true);
     let added = 0;
     let skipped = 0;
-    const labels = Array.from(selected);
-    for (const label of labels) {
-      const item = DIRECTORY_STAPLES.find((s) => s.label === label);
-      if (!item) continue;
-      if (ownedNames.has(item.label.toLowerCase())) { skipped++; continue; }
+    for (const key of Array.from(selected)) {
+      const entry = catalog.find((e) => e.key === key);
+      if (!entry) continue;
+      if (ownedNames.has(entry.label.toLowerCase())) { skipped++; continue; }
       await addStaple(profile.familyId, {
-        name: item.label,
-        category: item.category,
-        defaultQty: item.defaultQty,
-        unit: item.unit,
-        cadence: item.cadence,
-        lastBoughtCents: priceFor(item),
+        name: entry.label,
+        category: entry.category,
+        defaultQty: entry.defaultQty,
+        unit: entry.unit,
+        cadence: entry.cadence,
+        lastBoughtCents: entry.priceCents ?? estimateLineCents(entry, entry.defaultQty, currency),
       });
       added++;
     }
     setSelected(new Set());
-    setOverrides(new Map());
-    setEditingLabel(null);
     setSaving(false);
     flashToast(
       added === 0
@@ -203,25 +233,166 @@ export default function PantryDirectoryPage() {
     );
   };
 
-  const addFoodIngredients = async (food: DirectoryFood) => {
+  const addFoodIngredients = async (food: FoodEntry) => {
     if (!profile?.familyId || isGuest) return;
     let added = 0;
     for (const name of food.ingredients) {
       if (ownedNames.has(name.toLowerCase())) continue;
-      const item = DIRECTORY_STAPLES.find((s) => s.label === name);
-      if (!item) continue;
+      // Resolve through the family catalog so an edited built-in
+      // (renamed / re-priced) is what actually gets added. A custom
+      // dish's free-text ingredient that matches no catalog item is
+      // silently skipped — nothing to price or add.
+      const entry = catalog.find((e) => e.baseLabel === name || e.label === name);
+      if (!entry || ownedNames.has(entry.label.toLowerCase())) continue;
       await addStaple(profile.familyId, {
-        name: item.label,
-        category: item.category,
-        defaultQty: item.defaultQty,
-        unit: item.unit,
-        cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, currency),
+        name: entry.label,
+        category: entry.category,
+        defaultQty: entry.defaultQty,
+        unit: entry.unit,
+        cadence: entry.cadence,
+        lastBoughtCents: entry.priceCents ?? estimateLineCents(entry, entry.defaultQty, currency),
       });
       added++;
     }
     flashToast(added === 0 ? `${food.label} ingredients already saved` : `Added ${added} from ${food.label}`);
   };
+
+  // ── Catalog editing ───────────────────────────────────────────
+  // Each handler wraps its Firestore write in try/catch/finally: a
+  // failed write (offline, or a permission-denied if the catalogItems
+  // rule isn't deployed) surfaces as a toast, the editor stays open so
+  // the parent can retry, and `itemBusy` always clears.
+  const handleSaveEntry = async (entry: CatalogEntry, input: CatalogItemInput) => {
+    if (!profile?.familyId || isGuest) return;
+    setItemBusy(true);
+    try {
+      if (entry.isCustom && entry.docId) {
+        await updateCustomItem(profile.familyId, entry.docId, input);
+      } else if (entry.baseLabel) {
+        await saveCatalogOverride(profile.familyId, entry.baseLabel, input, entry.docId, profile.uid);
+      }
+      setEditingKey(null);
+      flashToast(`Saved ${input.label.trim()}`);
+    } catch (e) {
+      console.error('Catalog save failed', e);
+      flashToast("Couldn't save — check your connection and try again.");
+    } finally {
+      setItemBusy(false);
+    }
+  };
+
+  const handleRemoveEntry = async (entry: CatalogEntry) => {
+    if (!profile?.familyId || isGuest || !entry.docId) return;
+    setItemBusy(true);
+    try {
+      await deleteCatalogItem(profile.familyId, entry.docId);
+      setEditingKey(null);
+      // A deleted custom item's row disappears — drop it from selection.
+      if (entry.isCustom) {
+        setSelected((prev) => {
+          if (!prev.has(entry.key)) return prev;
+          const next = new Set(prev);
+          next.delete(entry.key);
+          return next;
+        });
+      }
+      flashToast(entry.isCustom ? `Removed ${entry.label}` : `Reset ${entry.label} to default`);
+    } catch (e) {
+      console.error('Catalog remove failed', e);
+      flashToast("Couldn't update — check your connection and try again.");
+    } finally {
+      setItemBusy(false);
+    }
+  };
+
+  const handleAddItem = async (input: CatalogItemInput) => {
+    if (!profile?.familyId || isGuest) return;
+    setItemBusy(true);
+    try {
+      await addCustomItem(profile.familyId, input, profile.uid);
+      setAddingItem(false);
+      flashToast(`Added ${input.label.trim()} to your catalog`);
+    } catch (e) {
+      console.error('Catalog add failed', e);
+      flashToast("Couldn't add the item — check your connection and try again.");
+    } finally {
+      setItemBusy(false);
+    }
+  };
+
+  // Sensible defaults for a brand-new item — seeded from the tab +
+  // region the parent is currently looking at.
+  const blankInput = (): CatalogItemInput => ({
+    label: '',
+    emoji: '📦',
+    surface,
+    category: surface === 'food' ? 'pantry' : 'cleaning',
+    region: region === 'any' ? 'global' : region,
+    defaultQty: 1,
+    unit: 'kg',
+    cadence: 'weekly',
+  });
+
+  // ── Custom dish editing ───────────────────────────────────────
+  // Same try/catch/finally contract as the catalog handlers above —
+  // failures toast, the editor stays open for retry, busy always
+  // clears. A failed write here usually means the catalogFoods rule
+  // isn't deployed yet.
+  const handleAddFood = async (input: CatalogFoodInput) => {
+    if (!profile?.familyId || isGuest) return;
+    setFoodBusy(true);
+    try {
+      await addCustomFood(profile.familyId, input, profile.uid);
+      setAddingFood(false);
+      flashToast(`Added ${input.label.trim()} to your dishes`);
+    } catch (e) {
+      console.error('Custom dish add failed', e);
+      flashToast("Couldn't add the dish — check your connection and try again.");
+    } finally {
+      setFoodBusy(false);
+    }
+  };
+
+  const handleSaveFood = async (entry: FoodEntry, input: CatalogFoodInput) => {
+    if (!profile?.familyId || isGuest || !entry.docId) return;
+    setFoodBusy(true);
+    try {
+      await updateCustomFood(profile.familyId, entry.docId, input);
+      setEditingFoodKey(null);
+      flashToast(`Saved ${input.label.trim()}`);
+    } catch (e) {
+      console.error('Custom dish save failed', e);
+      flashToast("Couldn't save — check your connection and try again.");
+    } finally {
+      setFoodBusy(false);
+    }
+  };
+
+  const handleRemoveFood = async (entry: FoodEntry) => {
+    if (!profile?.familyId || isGuest || !entry.docId) return;
+    setFoodBusy(true);
+    try {
+      await deleteCustomFood(profile.familyId, entry.docId);
+      setEditingFoodKey(null);
+      flashToast(`Removed ${entry.label}`);
+    } catch (e) {
+      console.error('Custom dish remove failed', e);
+      flashToast("Couldn't remove the dish — check your connection and try again.");
+    } finally {
+      setFoodBusy(false);
+    }
+  };
+
+  // Sensible defaults for a brand-new dish — seeded from the meal +
+  // region the parent is currently filtering by.
+  const blankFoodInput = (): CatalogFoodInput => ({
+    label: '',
+    emoji: '🍽️',
+    region: region === 'any' ? 'global' : region,
+    meals: meal === 'all' ? ['lunch'] : [meal],
+    diets: [],
+    ingredients: [],
+  });
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
@@ -235,7 +406,7 @@ export default function PantryDirectoryPage() {
           Browse everything 🧺
         </h1>
         <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
-          Tap to multi-select, then save to your staples.
+          Tap to multi-select · ✏️ to edit details or add your own.
         </p>
       </div>
 
@@ -340,28 +511,57 @@ export default function PantryDirectoryPage() {
             ))}
           </ChipRow>
 
-          {visibleStaples.length === 0 ? (
-            <EmptyState message="No staples match these filters." />
-          ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2 items-start">
-              {visibleStaples.map((s) => (
-                <StapleCard
-                  key={s.label}
-                  staple={s}
-                  selected={selected.has(s.label)}
-                  owned={ownedNames.has(s.label.toLowerCase())}
-                  onTap={() => toggleSelect(s.label)}
-                  currency={currency}
-                  price={priceFor(s)}
-                  edited={overrides.has(s.label)}
-                  editing={editingLabel === s.label}
-                  onEditPrice={() => setEditingLabel(s.label)}
-                  onClosePrice={() => setEditingLabel(null)}
-                  onSetPrice={(cents) => setPrice(s.label, cents)}
-                  onClearPrice={() => clearPrice(s.label)}
-                />
-              ))}
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2 items-start">
+            {/* Add-your-own-item — opens a full inline editor. */}
+            {canEdit && (
+              addingItem ? (
+                <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive p-3">
+                  <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.4px] text-pantry-leaf-dk mb-2">
+                    New catalog item
+                  </p>
+                  <CatalogItemEditor
+                    initial={blankInput()}
+                    mode="add"
+                    currency={currency}
+                    busy={itemBusy}
+                    onSave={handleAddItem}
+                    onCancel={() => setAddingItem(false)}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setAddingItem(true); setEditingKey(null); }}
+                  className="min-h-[68px] border-2 border-dashed border-hive-line rounded-hive p-3 flex items-center justify-center gap-1.5 text-pantry-leaf-dk font-nunito font-extrabold text-[13px] hover:border-pantry-leaf hover:bg-pantry-leaf-soft/30 transition-colors"
+                >
+                  ＋ Add your own item
+                </button>
+              )
+            )}
+
+            {visibleStaples.map((s) => (
+              <StapleCard
+                key={s.key}
+                entry={s}
+                selected={selected.has(s.key)}
+                owned={ownedNames.has(s.label.toLowerCase())}
+                currency={currency}
+                canEdit={canEdit}
+                editing={editingKey === s.key}
+                busy={itemBusy && editingKey === s.key}
+                onTap={() => toggleSelect(s.key)}
+                onEdit={() => { setEditingKey(s.key); setAddingItem(false); }}
+                onCancelEdit={() => setEditingKey(null)}
+                onSave={(input) => handleSaveEntry(s, input)}
+                onRemove={s.docId ? () => handleRemoveEntry(s) : undefined}
+              />
+            ))}
+          </div>
+
+          {visibleStaples.length === 0 && (
+            <p className="text-[12px] text-hive-muted text-center mt-3">
+              No catalog items match these filters.
+            </p>
           )}
         </>
       ) : (
@@ -390,15 +590,52 @@ export default function PantryDirectoryPage() {
             ))}
           </ChipRow>
 
-          {visibleFoods.length === 0 ? (
-            <EmptyState message="No dishes match these filters." />
-          ) : (
-            <div className="space-y-2 mt-2">
-              {visibleFoods.map((f) => (
-                <FoodCard key={f.label} food={f} disabled={isGuest} onAdd={() => addFoodIngredients(f)} />
-              ))}
-            </div>
-          )}
+          <div className="space-y-2 mt-2">
+            {/* Add-your-own-dish — opens a full inline editor. */}
+            {canEdit && (
+              addingFood ? (
+                <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive p-3">
+                  <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.4px] text-pantry-leaf-dk mb-2">
+                    New dish
+                  </p>
+                  <FoodEditor
+                    initial={blankFoodInput()}
+                    mode="add"
+                    busy={foodBusy}
+                    onSave={handleAddFood}
+                    onCancel={() => setAddingFood(false)}
+                  />
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { setAddingFood(true); setEditingFoodKey(null); }}
+                  className="w-full min-h-[68px] border-2 border-dashed border-hive-line rounded-hive p-3 flex items-center justify-center gap-1.5 text-pantry-leaf-dk font-nunito font-extrabold text-[13px] hover:border-pantry-leaf hover:bg-pantry-leaf-soft/30 transition-colors"
+                >
+                  ＋ Add your own dish
+                </button>
+              )
+            )}
+
+            {visibleFoods.length === 0 ? (
+              <EmptyState message="No dishes match these filters." />
+            ) : (
+              visibleFoods.map((f) => (
+                <FoodCard
+                  key={f.key}
+                  food={f}
+                  canEdit={canEdit}
+                  editing={editingFoodKey === f.key}
+                  busy={foodBusy && editingFoodKey === f.key}
+                  onAdd={() => addFoodIngredients(f)}
+                  onEdit={() => { setEditingFoodKey(f.key); setAddingFood(false); }}
+                  onCancelEdit={() => setEditingFoodKey(null)}
+                  onSave={(input) => handleSaveFood(f, input)}
+                  onRemove={f.docId ? () => handleRemoveFood(f) : undefined}
+                />
+              ))
+            )}
+          </div>
         </>
       )}
 
@@ -489,24 +726,46 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleCard({
-  staple, selected, owned, onTap, currency, price, edited, editing,
-  onEditPrice, onClosePrice, onSetPrice, onClearPrice,
+  entry, selected, owned, currency, canEdit, editing, busy,
+  onTap, onEdit, onCancelEdit, onSave, onRemove,
 }: {
-  staple: DirectoryStaple;
+  entry: CatalogEntry;
   selected: boolean;
   owned: boolean;
-  onTap: () => void;
   currency: string;
-  /** Effective price — the override if set, else the pricing.ts estimate. */
-  price: number;
-  edited: boolean;
+  canEdit: boolean;
   editing: boolean;
-  onEditPrice: () => void;
-  onClosePrice: () => void;
-  onSetPrice: (cents: number) => void;
-  onClearPrice: () => void;
+  busy: boolean;
+  onTap: () => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSave: (input: CatalogItemInput) => void;
+  onRemove?: () => void;
 }) {
+  // Editing mode — the whole card becomes the editor.
+  if (editing) {
+    return (
+      <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive p-3">
+        <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.4px] text-pantry-leaf-dk mb-2">
+          {entry.isCustom ? 'Edit your item' : 'Edit catalog item'}
+        </p>
+        <CatalogItemEditor
+          initial={entryToInput(entry)}
+          mode={entry.isCustom ? 'edit-custom' : 'edit-builtin'}
+          currency={currency}
+          busy={busy}
+          onSave={onSave}
+          onCancel={onCancelEdit}
+          onRemove={onRemove}
+        />
+      </div>
+    );
+  }
+
+  const estimated = entry.priceCents == null;
+  const price = entry.priceCents ?? estimateLineCents(entry, entry.defaultQty, currency);
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
   return (
     <div
       className={`bg-hive-paper border rounded-hive p-3 transition-colors ${
@@ -517,8 +776,8 @@ function StapleCard({
     >
       <div className="flex items-start gap-3">
         {/* Emoji + text = the select toggle. A div (not a button) so
-            the tappable price can nest inside it. The keydown guard
-            ignores events bubbling up from the price controls. */}
+            the price shortcut can nest inside it. The keydown guard
+            ignores events bubbling up from the nested controls. */}
         <div
           role="button"
           tabIndex={0}
@@ -530,100 +789,300 @@ function StapleCard({
           className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer text-left"
         >
           <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
-            {staple.emoji}
+            {entry.emoji}
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-nunito font-extrabold text-[14px] truncate">
-              {staple.label}
+              {entry.label}
               {owned && (
                 <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-pantry-leaf-dk uppercase tracking-wider">
                   · saved
                 </span>
               )}
-              {edited && (
+              {entry.isCustom && (
+                <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-pantry-leaf-dk uppercase tracking-wider">
+                  · yours
+                </span>
+              )}
+              {entry.isEdited && (
                 <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-hive-honey-dk uppercase tracking-wider">
                   · edited
                 </span>
               )}
             </p>
-            <div className="text-[11px] text-hive-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
-              <span className="truncate">
-                {staple.defaultQty} {staple.unit} · {CADENCE_LABELS[staple.cadence] || staple.cadence} ·
-              </span>
-              {editing ? (
-                <span
-                  className="inline-flex items-center gap-1"
-                  onClick={stop}
-                  onKeyDown={stop}
-                >
-                  <span className="text-[10px] font-nunito font-extrabold text-hive-muted">{currency}</span>
-                  <NumberInput
-                    value={price / 100}
-                    onChange={(n) => (n > 0 ? onSetPrice(Math.round(n * 100)) : onClearPrice())}
-                    allowDecimal
-                    min={0}
-                    ariaLabel={`Price for ${staple.label}`}
-                    placeholder="0"
-                    className="w-20 h-7 px-2 bg-hive-cream rounded-[8px] font-nunito font-black text-[12px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
-                  />
-                  <button
-                    type="button"
-                    onClick={(e) => { stop(e); onClosePrice(); }}
-                    aria-label="Done editing price"
-                    className="h-7 px-2 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[11px]"
-                  >
-                    ✓
-                  </button>
-                  {edited && (
-                    <button
-                      type="button"
-                      onClick={(e) => { stop(e); onClearPrice(); }}
-                      aria-label="Reset price to the estimate"
-                      className="h-7 px-2 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px]"
-                    >
-                      ↺
-                    </button>
-                  )}
-                </span>
-              ) : (
-                /* Tappable price — opens the inline price editor. */
-                <button
-                  type="button"
-                  onClick={(e) => { stop(e); onEditPrice(); }}
-                  aria-label={`Edit price for ${staple.label}`}
-                  className="text-pantry-leaf-dk font-nunito font-extrabold underline underline-offset-2 decoration-dotted"
-                >
-                  {edited ? '' : '~ '}{formatCents(price, currency)}
-                </button>
-              )}
+            <div className="text-[11px] text-hive-muted mt-0.5 truncate">
+              {entry.defaultQty} {entry.unit} · {CADENCE_LABELS[entry.cadence] || entry.cadence}
+              {' · '}
+              <button
+                type="button"
+                onClick={(e) => { stop(e); if (canEdit) onEdit(); }}
+                disabled={!canEdit}
+                className="text-pantry-leaf-dk font-nunito font-extrabold underline underline-offset-2 decoration-dotted disabled:no-underline disabled:cursor-default"
+              >
+                {estimated ? '~ ' : ''}{formatCents(price, currency)}
+              </button>
             </div>
-            {staple.note && (
-              <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{staple.note}</p>
+            {entry.note && (
+              <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{entry.note}</p>
             )}
           </div>
         </div>
-        {selected && (
-          <span className="text-pantry-leaf-dk text-base font-black leading-none shrink-0">✓</span>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          {selected && <span className="text-pantry-leaf-dk text-base font-black leading-none">✓</span>}
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              aria-label={`Edit ${entry.label}`}
+              className="text-[13px] leading-none px-1.5 py-1 rounded-hive-sm hover:bg-hive-cream"
+            >
+              ✏️
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Full inline editor for one catalog item — used for editing a
+// built-in (an override), editing a custom item, and adding a new
+// one. Holds its own draft so a single Save is one Firestore write.
+function CatalogItemEditor({
+  initial, mode, currency, busy, onSave, onCancel, onRemove,
+}: {
+  initial: CatalogItemInput;
+  mode: 'add' | 'edit-builtin' | 'edit-custom';
+  currency: string;
+  busy: boolean;
+  onSave: (input: CatalogItemInput) => void;
+  onCancel: () => void;
+  onRemove?: () => void;
+}) {
+  const [draft, setDraft] = useState<CatalogItemInput>(initial);
+  const set = <K extends keyof CatalogItemInput>(k: K, v: CatalogItemInput[K]) =>
+    setDraft((d) => ({ ...d, [k]: v }));
+
+  // Surface is structural for a built-in (which tab it lives under) —
+  // only editable when adding or for a family's own item.
+  const surfaceEditable = mode !== 'edit-builtin';
+  const canSave = draft.label.trim().length > 0 && !busy;
+
+  const fieldCls =
+    'w-full h-9 px-2.5 bg-hive-cream rounded-[8px] text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40';
+  const labelCls =
+    'text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1';
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className={labelCls}>Name</label>
+        <input
+          value={draft.label}
+          onChange={(e) => set('label', e.target.value)}
+          maxLength={60}
+          placeholder="e.g. Pishori rice"
+          className={`${fieldCls} font-bold`}
+        />
+      </div>
+
+      <div className="grid grid-cols-[64px_1fr] gap-2">
+        <div>
+          <label className={labelCls}>Icon</label>
+          <input
+            value={draft.emoji}
+            onChange={(e) => set('emoji', e.target.value)}
+            maxLength={4}
+            className={`${fieldCls} text-center`}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Category</label>
+          <select
+            value={draft.category}
+            onChange={(e) => set('category', e.target.value as StapleCategory)}
+            className={`${fieldCls} font-nunito font-extrabold`}
+          >
+            {CATEGORY_OPTIONS.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className={surfaceEditable ? 'grid grid-cols-2 gap-2' : ''}>
+        {surfaceEditable && (
+          <div>
+            <label className={labelCls}>Catalog tab</label>
+            <select
+              value={draft.surface}
+              onChange={(e) => set('surface', e.target.value as Surface)}
+              className={`${fieldCls} font-nunito font-extrabold`}
+            >
+              {SURFACE_OPTIONS.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+          </div>
         )}
+        <div>
+          <label className={labelCls}>Region</label>
+          <select
+            value={draft.region}
+            onChange={(e) => set('region', e.target.value as Region)}
+            className={`${fieldCls} font-nunito font-extrabold`}
+          >
+            {REGION_OPTIONS.map((r) => (
+              <option key={r.id} value={r.id}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Default qty</label>
+          <NumberInput
+            value={draft.defaultQty}
+            onChange={(n) => set('defaultQty', Math.max(1, n))}
+            min={1}
+            ariaLabel="Default quantity"
+            className={`${fieldCls} text-center font-nunito font-black`}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Unit</label>
+          <select
+            value={draft.unit}
+            onChange={(e) => set('unit', e.target.value)}
+            className={`${fieldCls} font-nunito font-extrabold`}
+          >
+            {STAPLE_UNITS.map((u) => (
+              <option key={u.id} value={u.id}>{u.label}</option>
+            ))}
+            {!STAPLE_UNITS.some((u) => u.id === draft.unit) && (
+              <option value={draft.unit}>{draft.unit}</option>
+            )}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className={labelCls}>Cadence</label>
+          <select
+            value={draft.cadence}
+            onChange={(e) => set('cadence', e.target.value as Cadence)}
+            className={`${fieldCls} font-nunito font-extrabold`}
+          >
+            {CADENCE_OPTIONS.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelCls}>Price {currency} · 0 = estimate</label>
+          <NumberInput
+            value={draft.priceCents ? draft.priceCents / 100 : 0}
+            onChange={(n) => set('priceCents', n > 0 ? Math.round(n * 100) : undefined)}
+            allowDecimal
+            min={0}
+            ariaLabel="Price"
+            placeholder="0"
+            className={`${fieldCls} font-nunito font-black`}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>Note (optional)</label>
+        <input
+          value={draft.note || ''}
+          onChange={(e) => set('note', e.target.value)}
+          maxLength={80}
+          placeholder="Brand hint, where to buy…"
+          className={fieldCls}
+        />
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={busy}
+            className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px] disabled:opacity-50"
+          >
+            {mode === 'edit-custom' ? 'Delete' : 'Reset'}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px] disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          disabled={!canSave}
+          className="flex-1 h-9 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[12px] disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : mode === 'add' ? 'Add to catalog' : 'Save'}
+        </button>
       </div>
     </div>
   );
 }
 
 function FoodCard({
-  food, disabled, onAdd,
+  food, canEdit, editing, busy, onAdd, onEdit, onCancelEdit, onSave, onRemove,
 }: {
-  food: DirectoryFood;
-  disabled: boolean;
+  food: FoodEntry;
+  canEdit: boolean;
+  editing: boolean;
+  busy: boolean;
   onAdd: () => void;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSave: (input: CatalogFoodInput) => void;
+  onRemove?: () => void;
 }) {
+  // Editing a custom dish swaps the card for the inline editor.
+  if (editing) {
+    return (
+      <div className="bg-hive-paper border-2 border-pantry-leaf rounded-hive p-3">
+        <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.4px] text-pantry-leaf-dk mb-2">
+          Edit your dish
+        </p>
+        <FoodEditor
+          initial={foodEntryToInput(food)}
+          mode="edit"
+          busy={busy}
+          onSave={onSave}
+          onCancel={onCancelEdit}
+          onRemove={onRemove}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-start gap-3">
       <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
         {food.emoji}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="font-nunito font-extrabold text-[14px] truncate">{food.label}</p>
+        <p className="font-nunito font-extrabold text-[14px] truncate">
+          {food.label}
+          {food.isCustom && (
+            <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-hive-honey-dk uppercase tracking-wider">
+              · yours
+            </span>
+          )}
+        </p>
         <p className="text-[10px] uppercase tracking-[1.5px] text-hive-muted font-nunito font-extrabold mt-0.5">
           {food.meals.join(' · ')}
         </p>
@@ -636,15 +1095,183 @@ function FoodCard({
               {ing}
             </span>
           ))}
+          {food.ingredients.length === 0 && (
+            <span className="text-[10px] text-hive-muted italic">No ingredients listed yet</span>
+          )}
         </div>
       </div>
-      <button
-        onClick={onAdd}
-        disabled={disabled}
-        className="shrink-0 text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline disabled:opacity-40 disabled:no-underline whitespace-nowrap"
-      >
-        + Staples
-      </button>
+      <div className="shrink-0 flex flex-col items-end gap-1.5">
+        <button
+          onClick={onAdd}
+          disabled={!canEdit || food.ingredients.length === 0}
+          className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline disabled:opacity-40 disabled:no-underline whitespace-nowrap"
+        >
+          + Staples
+        </button>
+        {canEdit && food.isCustom && (
+          <button
+            onClick={onEdit}
+            aria-label={`Edit ${food.label}`}
+            className="text-[11px] font-nunito font-extrabold text-hive-muted hover:text-pantry-leaf-dk hover:underline whitespace-nowrap"
+          >
+            ✏️ Edit
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Full inline editor for one custom dish — adding a new one or
+// editing an existing family dish. Holds its own draft so a single
+// Save is one Firestore write.
+function FoodEditor({
+  initial, mode, busy, onSave, onCancel, onRemove,
+}: {
+  initial: CatalogFoodInput;
+  mode: 'add' | 'edit';
+  busy: boolean;
+  onSave: (input: CatalogFoodInput) => void;
+  onCancel: () => void;
+  onRemove?: () => void;
+}) {
+  const [draft, setDraft] = useState<CatalogFoodInput>(initial);
+  // Ingredients are edited as free text (one per line or comma-
+  // separated) and parsed back to a string[] on save.
+  const [ingredientsText, setIngredientsText] = useState(initial.ingredients.join('\n'));
+  const set = <K extends keyof CatalogFoodInput>(k: K, v: CatalogFoodInput[K]) =>
+    setDraft((d) => ({ ...d, [k]: v }));
+
+  const toggleMeal = (m: MealType) =>
+    setDraft((d) => ({
+      ...d,
+      meals: d.meals.includes(m) ? d.meals.filter((x) => x !== m) : [...d.meals, m],
+    }));
+  const toggleDiet = (dt: Diet) =>
+    setDraft((d) => ({
+      ...d,
+      diets: d.diets.includes(dt) ? d.diets.filter((x) => x !== dt) : [...d.diets, dt],
+    }));
+
+  const parsedIngredients = ingredientsText
+    .split(/[\n,]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const canSave = draft.label.trim().length > 0 && draft.meals.length > 0 && !busy;
+
+  const fieldCls =
+    'w-full h-9 px-2.5 bg-hive-cream rounded-[8px] text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40';
+  const labelCls =
+    'text-[9px] font-nunito font-extrabold uppercase tracking-[1.2px] text-hive-muted block mb-1';
+  const chipCls = (on: boolean) =>
+    `px-2 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+      on ? 'bg-pantry-leaf text-white border-transparent' : 'border-hive-line bg-hive-cream text-hive-muted'
+    }`;
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className={labelCls}>Dish name</label>
+        <input
+          value={draft.label}
+          onChange={(e) => set('label', e.target.value)}
+          maxLength={60}
+          placeholder="e.g. Mama's pilau"
+          className={`${fieldCls} font-bold`}
+        />
+      </div>
+
+      <div className="grid grid-cols-[64px_1fr] gap-2">
+        <div>
+          <label className={labelCls}>Icon</label>
+          <input
+            value={draft.emoji}
+            onChange={(e) => set('emoji', e.target.value)}
+            maxLength={4}
+            className={`${fieldCls} text-center`}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Region</label>
+          <select
+            value={draft.region}
+            onChange={(e) => set('region', e.target.value as Region)}
+            className={`${fieldCls} font-nunito font-extrabold`}
+          >
+            {REGION_OPTIONS.map((r) => (
+              <option key={r.id} value={r.id}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>Meals · pick at least one</label>
+        <div className="flex flex-wrap gap-1">
+          {MEAL_OPTIONS.map((m) => (
+            <button key={m.id} type="button" onClick={() => toggleMeal(m.id)} className={chipCls(draft.meals.includes(m.id))}>
+              {m.emoji} {m.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>Diet tags · optional</label>
+        <div className="flex flex-wrap gap-1">
+          {DIET_OPTIONS.map((d) => (
+            <button key={d.id} type="button" onClick={() => toggleDiet(d.id)} className={chipCls(draft.diets.includes(d.id))}>
+              {d.emoji} {d.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <label className={labelCls}>
+          Ingredients · one per line{parsedIngredients.length > 0 ? ` · ${parsedIngredients.length}` : ''}
+        </label>
+        <textarea
+          value={ingredientsText}
+          onChange={(e) => setIngredientsText(e.target.value)}
+          rows={4}
+          placeholder={'Rice (white)\nBeef\nOnions\n…'}
+          className="w-full px-2.5 py-2 bg-hive-cream rounded-[8px] text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40 resize-none"
+        />
+        <p className="text-[10px] text-hive-muted mt-0.5">
+          Ingredients that match a catalog staple are bulk-addable via &ldquo;+ Staples&rdquo;.
+        </p>
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={busy}
+            className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px] disabled:opacity-50"
+          >
+            Delete
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="h-9 px-3 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px] disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => onSave({ ...draft, ingredients: parsedIngredients })}
+          disabled={!canSave}
+          className="flex-1 h-9 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[12px] disabled:opacity-50"
+        >
+          {busy ? 'Saving…' : mode === 'add' ? 'Add dish' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }
