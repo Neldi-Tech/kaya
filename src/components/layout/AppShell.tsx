@@ -44,6 +44,14 @@ const KAYA_NAV: NavItem[] = [
   { path: '/rewards',   icon: '🎁', label: 'Rewards',        mobileLabel: 'Rewards' },
 ];
 
+// Moments · the family photo feed. Upload + reactions + comments,
+// scoped to the family today. The `visibility: 'network'` lane is in
+// the schema for a later release that opens posts up to referred
+// families.
+const MOMENTS_NAV: NavItem[] = [
+  { path: '/moments', icon: '📸', label: 'Moments', mobileLabel: 'Moments' },
+];
+
 const PARENT_INSIGHTS: NavItem[] = [
   { path: '/reports',     icon: '📊', label: 'Reports' },
   { path: '/profiles',    icon: '👧', label: 'Kid profiles' },
@@ -80,6 +88,7 @@ const HELPER_NAV: NavItem[] = [
   { path: '/dashboard', icon: '🏠', label: 'Home',   mobileLabel: 'Home' },
   { path: '/rate',      icon: '📋', label: 'Rate',   mobileLabel: 'Rate' },
   { path: '/award',     icon: '🎖️', label: 'Award',  mobileLabel: 'Award' },
+  { path: '/moments',   icon: '📸', label: 'Moments', mobileLabel: 'Moments' },
   { path: '/pantry',    icon: '🛒', label: 'Pantry', mobileLabel: 'Pantry' },
   { path: '/profiles',  icon: '👧', label: 'Kids',   mobileLabel: 'Kids' },
 ];
@@ -139,6 +148,10 @@ const PARENT_MOBILE_GROUPS: MobileGroup[] = [
     activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'],
   },
   { kind: 'link', id: 'directory', path: '/directory', icon: '📒', label: 'Pages' },
+  // Moments lives next to Stats — both are "look back at family
+  // life" surfaces, distinct from the action-oriented Kaya / Pantry /
+  // Hive slots.
+  { kind: 'link', id: 'moments', path: '/moments', icon: '📸', label: 'Moments' },
   {
     kind: 'sheet',
     id: 'insights',
@@ -158,10 +171,12 @@ const PARENT_MOBILE_GROUPS: MobileGroup[] = [
 ];
 
 // Kid mobile groups — 4 primary routes plus a Fun sheet so Videos/Games
-// are reachable on mobile.
+// are reachable on mobile. Moments sits in the primary row so kids can
+// see + react/comment on family photos.
 const KID_MOBILE_GROUPS: MobileGroup[] = [
   { kind: 'link', id: 'home',    path: '/kid',     icon: '🏠', label: 'Home' },
   { kind: 'link', id: 'hive',    path: '/hive',    icon: '🍯', label: 'Hive' },
+  { kind: 'link', id: 'moments', path: '/moments', icon: '📸', label: 'Moments' },
   { kind: 'link', id: 'badges',  path: '/badges',  icon: '🏆', label: 'Badges' },
   { kind: 'link', id: 'rewards', path: '/rewards', icon: '🎁', label: 'Rewards' },
   {
@@ -212,16 +227,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // headers stay plain text since they have no single landing page.
   const sidebarSections: NavSection[] =
     role === 'kid'
-      ? [{ items: KID_NAV }, { title: 'Fun', items: KID_FUN_NAV }]
+      ? [{ items: KID_NAV }, { title: 'Moments', href: '/moments', items: MOMENTS_NAV }, { title: 'Fun', items: KID_FUN_NAV }]
       : role === 'helper'
-      ? [{ items: HELPER_NAV }]
+      ? [{ items: HELPER_NAV }, { title: 'Moments', href: '/moments', items: MOMENTS_NAV }]
       : [
-          // Desktop sidebar mirrors the 7-slot mobile model.
+          // Desktop sidebar mirrors the mobile model with Moments
+          // tucked between Pages and Stats.
           { title: 'Home',                         items: PARENT_HOME },
           { title: 'Kaya',                         items: KAYA_NAV },
           { title: 'Pantry',    href: '/pantry',    items: PARENT_HOUSEHOLD },
           { title: 'The Hive',  href: '/hive',      items: PARENT_HIVE_NAV },
           { title: 'Pages',     href: '/directory', items: PARENT_DIRECTORY },
+          { title: 'Moments',   href: '/moments',   items: MOMENTS_NAV },
           { title: 'Stats',                        items: PARENT_INSIGHTS },
           { title: 'Fun',                          items: FUN_NAV },
         ];
