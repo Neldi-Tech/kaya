@@ -24,9 +24,18 @@ export type DirectoryCategory =
   | 'pharmacy' | 'clinic' | 'school' | 'childcare'
   | 'cleaner' | 'restaurant' | 'hardware' | 'plumber'
   | 'electrician' | 'fundi' | 'transport' | 'taxi'
-  | 'mechanic' | 'tailor' | 'salon' | 'mobilemoney';
+  | 'mechanic' | 'tailor' | 'salon' | 'mobilemoney'
+  // ── Universal service types ──
+  // Location-agnostic categories available to every family,
+  // regardless of country. The Tanzania-first list above stays.
+  | 'groceries' | 'rides' | 'delivery';
 
 export const DIRECTORY_CATEGORIES: { id: DirectoryCategory; emoji: string; label: string; hint: string }[] = [
+  // ── Universal service types ──
+  { id: 'groceries',   emoji: '🛍️', label: 'Groceries',             hint: 'Grocery shops & delivery' },
+  { id: 'rides',       emoji: '🚗', label: 'Rides',                 hint: 'Taxi, Bolt, Uber, boda' },
+  { id: 'delivery',    emoji: '📦', label: 'Delivery',              hint: 'Couriers, parcel & food delivery' },
+  // ── Tanzania-first service types ──
   { id: 'supermarket', emoji: '🛒', label: 'Supermarkets / dukas',  hint: 'Groceries, household basics' },
   { id: 'butcher',     emoji: '🥩', label: 'Butchers',              hint: 'Meat, poultry' },
   { id: 'fishmonger',  emoji: '🐟', label: 'Fishmongers',           hint: 'Fresh fish, seafood' },
