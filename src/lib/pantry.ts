@@ -174,6 +174,14 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
 // Each item declares only the fields a parent would otherwise type:
 // name, category, cadence. The Utilities page wires these into
 // `addUtility` with empty amount / dueDay / refs.
+//
+// ⚠ STABILITY CONTRACT — do not remove or rename a pack id without
+// updating both `UtilityPackId` and `REQUIRED_PACK_IDS` below. The
+// satisfies-block at the bottom of this section locks the three packs
+// in place so the build fails the moment one goes missing — the
+// Utilities page would otherwise quietly drop a household-size option
+// and look "empty" again. New packs are welcome: add a literal to
+// `UtilityPackId` and the array, the type-check threads it through.
 
 export interface UtilityPackItem {
   /** Display name shown on the row, e.g. "Power · TANESCO". */
@@ -182,21 +190,34 @@ export interface UtilityPackItem {
   cadence: Cadence;
 }
 
+/** The three pack ids the UI relies on. Adding a new size here is fine;
+ *  removing one will fail the build via the satisfies-block below. */
+export type UtilityPackId = 'solo' | 'family' | 'big';
+
 export interface UtilityStarterPack {
-  id: string;
+  id: UtilityPackId;
   emoji: string;
   label: string;
   sizeRange: string;
   description: string;
+  /** Must be non-empty — asserted at module load (see the guard
+   *  block at the bottom of this section). An empty pack would
+   *  render an unclickable card, so we'd rather fail loudly. */
   items: UtilityPackItem[];
 }
 
 // East-Africa-leaning provider hints (TANESCO / DAWASCO / DStv) since
 // the default audience runs on TZS. Generic enough to edit in seconds
 // for other markets — every row's name is editable post-seed.
-export const UTILITY_STARTER_PACKS: UtilityStarterPack[] = [
+//
+// The `as const` is narrowed to just `id` (not the whole array) so
+// the guard at the bottom can detect a missing pack via literal-id
+// inference, while `items.length` etc. stay typed as `number` for
+// downstream consumers. `satisfies` type-checks each entry against
+// `UtilityStarterPack` without widening the inferred id union.
+export const UTILITY_STARTER_PACKS = [
   {
-    id: 'solo',
+    id: 'solo' as const,
     emoji: '👤',
     label: 'Small household',
     sizeRange: '1–2 people',
@@ -205,10 +226,10 @@ export const UTILITY_STARTER_PACKS: UtilityStarterPack[] = [
       { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
       { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
       { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
-    ],
+    ] as UtilityPackItem[],
   },
   {
-    id: 'family',
+    id: 'family' as const,
     emoji: '👨‍👩‍👧',
     label: 'Family',
     sizeRange: '3–4 people',
@@ -220,10 +241,10 @@ export const UTILITY_STARTER_PACKS: UtilityStarterPack[] = [
       { name: 'TV · DStv / Azam',    category: 'tv',       cadence: 'monthly' },
       { name: 'Gas refill · LPG',    category: 'gas',      cadence: 'as-needed' },
       { name: 'House helper · salary', category: 'salary', cadence: 'monthly' },
-    ],
+    ] as UtilityPackItem[],
   },
   {
-    id: 'big',
+    id: 'big' as const,
     emoji: '👨‍👩‍👧‍👦',
     label: 'Big household',
     sizeRange: '5+ people',
@@ -239,9 +260,35 @@ export const UTILITY_STARTER_PACKS: UtilityStarterPack[] = [
       { name: 'House helper · salary', category: 'salary', cadence: 'monthly' },
       { name: 'Driver · salary',     category: 'salary',   cadence: 'monthly' },
       { name: 'Gardener · salary',   category: 'salary',   cadence: 'monthly' },
-    ],
+    ] as UtilityPackItem[],
   },
-];
+] satisfies readonly UtilityStarterPack[];
+
+// ── Build-time + load-time guard: lock the pack contract ──────────
+// Two layers protect "which household sizes Utilities promises":
+//   1. Compile-time: every id in `REQUIRED_PACK_IDS` must appear in
+//      `UTILITY_STARTER_PACKS`. The literal-id inference from the
+//      `as const` on each pack's `id` keeps the union narrow; remove
+//      a pack and `_MissingPackIds` becomes a non-`never` literal,
+//      which fails the `extends never` ternary and breaks `npm run
+//      build` right here.
+//   2. Load-time: each pack must seed at least one bill. Empty
+//      `items: []` would render an unclickable card. We throw early
+//      so a regression surfaces on the very first render, not as a
+//      silent visual bug.
+const REQUIRED_PACK_IDS = ['solo', 'family', 'big'] as const;
+type _PresentIds = (typeof UTILITY_STARTER_PACKS)[number]['id'];
+type _MissingPackIds = Exclude<(typeof REQUIRED_PACK_IDS)[number], _PresentIds>;
+const _NO_PACKS_MISSING: _MissingPackIds extends never ? true : never = true;
+void _NO_PACKS_MISSING;
+
+for (const pack of UTILITY_STARTER_PACKS) {
+  if (pack.items.length === 0) {
+    throw new Error(
+      `UTILITY_STARTER_PACKS[${pack.id}] has no items — packs must seed at least one bill.`,
+    );
+  }
+}
 
 /** A recurring household bill or a helper's salary. Lives in
  *  families/{f}/utilities. Designed to roll up — alongside staples —
