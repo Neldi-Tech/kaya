@@ -164,6 +164,85 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
   { id: 'other',    emoji: '✨',  label: 'Other' },
 ];
 
+// ── Utility starter packs ────────────────────────────────────────
+// Mirrors the Directory's STARTER_PACKS — a one-tap seed of typical
+// household bills, scaled to household size. Amounts are left at 0 so
+// the parent fills in real figures after the seed; what we contribute
+// is the rows + categories + sensible cadences so the page isn't
+// empty on day one.
+//
+// Each item declares only the fields a parent would otherwise type:
+// name, category, cadence. The Utilities page wires these into
+// `addUtility` with empty amount / dueDay / refs.
+
+export interface UtilityPackItem {
+  /** Display name shown on the row, e.g. "Power · TANESCO". */
+  name: string;
+  category: UtilityCategory;
+  cadence: Cadence;
+}
+
+export interface UtilityStarterPack {
+  id: string;
+  emoji: string;
+  label: string;
+  sizeRange: string;
+  description: string;
+  items: UtilityPackItem[];
+}
+
+// East-Africa-leaning provider hints (TANESCO / DAWASCO / DStv) since
+// the default audience runs on TZS. Generic enough to edit in seconds
+// for other markets — every row's name is editable post-seed.
+export const UTILITY_STARTER_PACKS: UtilityStarterPack[] = [
+  {
+    id: 'solo',
+    emoji: '👤',
+    label: 'Small household',
+    sizeRange: '1–2 people',
+    description: 'Single, couple, or small flat. Just the essentials — power, water, internet.',
+    items: [
+      { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
+      { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
+      { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
+    ],
+  },
+  {
+    id: 'family',
+    emoji: '👨‍👩‍👧',
+    label: 'Family',
+    sizeRange: '3–4 people',
+    description: 'Two adults plus 1–2 kids. Adds TV, gas refill and one helper salary.',
+    items: [
+      { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
+      { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
+      { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
+      { name: 'TV · DStv / Azam',    category: 'tv',       cadence: 'monthly' },
+      { name: 'Gas refill · LPG',    category: 'gas',      cadence: 'as-needed' },
+      { name: 'House helper · salary', category: 'salary', cadence: 'monthly' },
+    ],
+  },
+  {
+    id: 'big',
+    emoji: '👨‍👩‍👧‍👦',
+    label: 'Big household',
+    sizeRange: '5+ people',
+    description: 'Larger family or extended household. Adds security, rent, and extra helper salaries.',
+    items: [
+      { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
+      { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
+      { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
+      { name: 'TV · DStv / Azam',    category: 'tv',       cadence: 'monthly' },
+      { name: 'Security · estate guard', category: 'security', cadence: 'monthly' },
+      { name: 'Gas refill · LPG',    category: 'gas',      cadence: 'as-needed' },
+      { name: 'Rent',                category: 'rent',     cadence: 'monthly' },
+      { name: 'House helper · salary', category: 'salary', cadence: 'monthly' },
+      { name: 'Driver · salary',     category: 'salary',   cadence: 'monthly' },
+      { name: 'Gardener · salary',   category: 'salary',   cadence: 'monthly' },
+    ],
+  },
+];
+
 /** A recurring household bill or a helper's salary. Lives in
  *  families/{f}/utilities. Designed to roll up — alongside staples —
  *  into the unified Budget surface. Empty optional fields are stored
