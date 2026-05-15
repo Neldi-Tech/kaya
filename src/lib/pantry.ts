@@ -164,22 +164,81 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
   { id: 'other',    emoji: '✨',  label: 'Other' },
 ];
 
-/** Default starter set seeded on the empty Utilities page. One tap and
- *  the household's typical recurring bills appear with cadence prefilled
- *  to monthly — the parent only has to fill in their meter numbers /
- *  actual amounts. Helpers are appended separately based on a count the
- *  parent picks at seed time. */
-export const DEFAULT_UTILITY_SEEDS: Array<{
+/** Starter packs for the empty Utilities state. Mirrors the staples
+ *  Browse "Pick a pack" UX: one pack per household size, each with a
+ *  curated bill list and a baseline USD amount that gets converted to
+ *  the family's display currency at seed time. Parent tweaks amounts
+ *  after seeding. */
+export type UtilityPackId = 'small' | 'family' | 'big';
+
+export interface UtilityPackItem {
   name: string;
   category: UtilityCategory;
-}> = [
-  { name: 'Power',    category: 'power' },
-  { name: 'Water',    category: 'water' },
-  { name: 'Internet', category: 'internet' },
-  { name: 'TV',       category: 'tv' },
-  { name: 'Security', category: 'security' },
-  { name: 'Gas',      category: 'gas' },
+  /** Baseline monthly cost in USD. Multiplied by the family's live
+   *  USD → family-currency FX rate so the seeded figure lands in the
+   *  right ballpark for any locale. */
+  usdBase: number;
+}
+
+export interface UtilityPack {
+  id: UtilityPackId;
+  emoji: string;
+  label: string;
+  sizeRange: string;
+  description: string;
+  items: UtilityPackItem[];
+}
+
+export const UTILITY_PACKS: UtilityPack[] = [
+  {
+    id: 'small',
+    emoji: '👤',
+    label: 'Small household',
+    sizeRange: '1–2 people',
+    description: 'Single, couple, or small flat. Essentials only — power, water, internet, gas.',
+    items: [
+      { name: 'Power',    category: 'power',    usdBase: 20 },
+      { name: 'Water',    category: 'water',    usdBase: 8  },
+      { name: 'Internet', category: 'internet', usdBase: 25 },
+      { name: 'Gas',      category: 'gas',      usdBase: 15 },
+    ],
+  },
+  {
+    id: 'family',
+    emoji: '👨‍👩‍👧',
+    label: 'Family',
+    sizeRange: '3–4 people',
+    description: 'Two adults plus 1–2 kids. Adds TV and security to the standard bills.',
+    items: [
+      { name: 'Power',    category: 'power',    usdBase: 40 },
+      { name: 'Water',    category: 'water',    usdBase: 16 },
+      { name: 'Internet', category: 'internet', usdBase: 30 },
+      { name: 'TV',       category: 'tv',       usdBase: 20 },
+      { name: 'Security', category: 'security', usdBase: 15 },
+      { name: 'Gas',      category: 'gas',      usdBase: 20 },
+    ],
+  },
+  {
+    id: 'big',
+    emoji: '👨‍👩‍👧‍👦',
+    label: 'Big household',
+    sizeRange: '5+ people',
+    description: 'Larger or extended family. Bigger totals and adds rent as a recurring line.',
+    items: [
+      { name: 'Power',    category: 'power',    usdBase: 80 },
+      { name: 'Water',    category: 'water',    usdBase: 32 },
+      { name: 'Internet', category: 'internet', usdBase: 40 },
+      { name: 'TV',       category: 'tv',       usdBase: 25 },
+      { name: 'Security', category: 'security', usdBase: 25 },
+      { name: 'Gas',      category: 'gas',      usdBase: 30 },
+      { name: 'Rent',     category: 'rent',     usdBase: 400 },
+    ],
+  },
 ];
+
+/** Baseline default helper salary in USD. Drives the pre-fill for each
+ *  new helper salary input in the seed wizard. */
+export const DEFAULT_HELPER_SALARY_USD = 100;
 
 /** A recurring household bill or a helper's salary. Lives in
  *  families/{f}/utilities. Designed to roll up — alongside staples —
@@ -445,22 +504,36 @@ export function sumPaidThisPeriod(
   return { paidCents, paidCount };
 }
 
-// ── Default seeds + payments ─────────────────────────────────────
+// ── Seed wizard + payments ───────────────────────────────────────
 
-/** Batch-create the default utility set plus N "Helper N — salary"
- *  placeholder rows. Skips bills the family already has by name so
- *  repeated taps are idempotent. */
-export async function seedDefaultUtilities(
+/** Convert a USD baseline to cents in the family's display currency.
+ *  Falls back to 1:1 when the FX rate hasn't loaded yet — better to
+ *  seed *something* the parent can edit than to block the kick-start
+ *  on a network round-trip. */
+function usdBaseToFamilyCents(usdBase: number, fxUsdToFamily: number): number {
+  const rate = Number.isFinite(fxUsdToFamily) && fxUsdToFamily > 0 ? fxUsdToFamily : 1;
+  return Math.round(usdBase * rate * 100);
+}
+
+/** Batch-seed bills from a pack and helper salary rows in a single
+ *  write. Each helper carries its own pre-filled amount captured by
+ *  the seed wizard. Names already present in `existing` are skipped
+ *  so a re-tap doesn't duplicate. */
+export async function seedFromWizard(
   familyId: string,
   existing: Utility[],
-  helperCount: number,
-): Promise<number> {
-  if (isGuestActive()) return 0;
+  args: {
+    pack: UtilityPack | null;
+    fxUsdToFamily: number;
+    helperSalariesCents: number[];
+  },
+): Promise<{ billsAdded: number; salariesAdded: number }> {
+  if (isGuestActive()) return { billsAdded: 0, salariesAdded: 0 };
   const haveByName = new Set(existing.map((u) => u.name.trim().toLowerCase()));
   const batch = writeBatch(db);
-  let added = 0;
+  let billsAdded = 0;
+  let salariesAdded = 0;
   const blank = {
-    amountCents: 0,
     cadence: 'monthly' as Cadence,
     dueDay: 0,
     accountRef: '',
@@ -468,18 +541,24 @@ export async function seedDefaultUtilities(
     notes: '',
     active: true,
   };
-  for (const seed of DEFAULT_UTILITY_SEEDS) {
-    if (haveByName.has(seed.name.toLowerCase())) continue;
-    const ref = doc(utilityCol(familyId));
-    batch.set(ref, {
-      ...blank,
-      name: seed.name,
-      category: seed.category,
-      createdAt: serverTimestamp(),
-    });
-    added++;
+
+  if (args.pack) {
+    for (const item of args.pack.items) {
+      if (haveByName.has(item.name.toLowerCase())) continue;
+      const ref = doc(utilityCol(familyId));
+      batch.set(ref, {
+        ...blank,
+        name: item.name,
+        category: item.category,
+        amountCents: usdBaseToFamilyCents(item.usdBase, args.fxUsdToFamily),
+        createdAt: serverTimestamp(),
+      });
+      haveByName.add(item.name.toLowerCase());
+      billsAdded++;
+    }
   }
-  const n = Math.max(0, Math.min(20, Math.round(helperCount || 0)));
+
+  const n = args.helperSalariesCents.length;
   for (let i = 0; i < n; i++) {
     const name = n === 1 ? 'Helper — salary' : `Helper ${i + 1} — salary`;
     if (haveByName.has(name.toLowerCase())) continue;
@@ -488,12 +567,15 @@ export async function seedDefaultUtilities(
       ...blank,
       name,
       category: 'salary' as UtilityCategory,
+      amountCents: Math.max(0, Math.round(args.helperSalariesCents[i] || 0)),
       createdAt: serverTimestamp(),
     });
-    added++;
+    haveByName.add(name.toLowerCase());
+    salariesAdded++;
   }
-  if (added > 0) await batch.commit();
-  return added;
+
+  if (billsAdded + salariesAdded > 0) await batch.commit();
+  return { billsAdded, salariesAdded };
 }
 
 export function subscribeToPayments(

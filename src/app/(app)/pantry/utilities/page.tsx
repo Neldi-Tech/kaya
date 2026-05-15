@@ -16,9 +16,9 @@ import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   UTILITY_CATEGORIES, UtilityCategory, Cadence,
-  DEFAULT_UTILITY_SEEDS,
+  UTILITY_PACKS, UtilityPack, DEFAULT_HELPER_SALARY_USD,
   addUtility, updateUtility, deleteUtility,
-  seedDefaultUtilities, recordPayment,
+  seedFromWizard, recordPayment,
   monthlyEquivalentCents, sumMonthlyUtilities, sumPaidThisPeriod,
   currentPeriodKey, periodLabel, paymentStatus,
   Utility, Supplier, UtilityStatus,
@@ -41,8 +41,9 @@ const CADENCES: { id: Cadence; label: string }[] = [
 export default function UtilitiesPage() {
   const { profile, isGuest } = useAuth();
   const { utilities, suppliers } = usePantry();
-  const { config } = useHive();
+  const { config, fxUsdToFamily } = useHive();
   const currency = config.currency;
+  const fxRate = fxUsdToFamily ?? 1;
 
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -131,6 +132,8 @@ export default function UtilitiesPage() {
           familyId={profile?.familyId || ''}
           isGuest={isGuest}
           existing={utilities}
+          currency={currency}
+          fxRate={fxRate}
         />
       ) : visible.length === 0 ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
@@ -333,63 +336,177 @@ function UtilityRow({
 }
 
 function SeedDefaultsCard({
-  familyId, isGuest, existing,
+  familyId, isGuest, existing, currency, fxRate,
 }: {
   familyId: string;
   isGuest: boolean;
   existing: Utility[];
+  currency: string;
+  fxRate: number;
 }) {
+  // Default-select Family — it's the modal household for this app.
+  const [packId, setPackId] = useState<UtilityPack['id'] | null>('family');
   const [helperCount, setHelperCount] = useState<number>(0);
+  // Per-helper salary in MAJOR units of the family currency (NumberInput
+  // works in major units, not cents). Index = helper position. Grows /
+  // shrinks with helperCount, preserving entries the parent already typed.
+  const defaultHelperMajor = Math.round(DEFAULT_HELPER_SALARY_USD * fxRate);
+  const [helperSalariesMajor, setHelperSalariesMajor] = useState<number[]>([]);
   const [seeding, setSeeding] = useState(false);
   const [error, setError] = useState('');
 
+  const selectedPack = useMemo(
+    () => UTILITY_PACKS.find((p) => p.id === packId) ?? null,
+    [packId],
+  );
+
+  const handleCountChange = (n: number) => {
+    const next = Math.max(0, Math.min(20, Math.round(n)));
+    setHelperCount(next);
+    setHelperSalariesMajor((prev) => {
+      const out = [...prev];
+      while (out.length < next) out.push(defaultHelperMajor);
+      out.length = next;
+      return out;
+    });
+  };
+
+  const setHelperSalary = (i: number, value: number) => {
+    setHelperSalariesMajor((prev) => {
+      const out = [...prev];
+      out[i] = Math.max(0, value);
+      return out;
+    });
+  };
+
+  const billCount = selectedPack ? selectedPack.items.length : 0;
+  const nothingToSeed = billCount === 0 && helperCount === 0;
+
   const handleSeed = async () => {
-    if (isGuest) return;
+    if (isGuest || nothingToSeed) return;
     setError('');
     setSeeding(true);
     try {
-      await seedDefaultUtilities(familyId, existing, helperCount);
+      await seedFromWizard(familyId, existing, {
+        pack: selectedPack,
+        fxUsdToFamily: fxRate,
+        helperSalariesCents: helperSalariesMajor
+          .slice(0, helperCount)
+          .map((v) => Math.round((v || 0) * 100)),
+      });
     } catch (e: any) {
-      setError(e?.message || 'Could not seed defaults.');
+      setError(e?.message || 'Could not seed.');
     }
     setSeeding(false);
   };
 
-  const billsLabel = `${DEFAULT_UTILITY_SEEDS.length} bills`;
-  const salaryLabel = helperCount > 0
-    ? ` + ${helperCount} salar${helperCount === 1 ? 'y' : 'ies'}`
-    : '';
-
   return (
-    <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border-2 border-dashed border-pantry-leaf rounded-hive-lg p-5">
-      <div className="text-4xl mb-2 text-center">✨</div>
-      <p className="font-nunito font-black text-[16px] text-center">Kick-start with the basics</p>
-      <p className="text-[12px] text-hive-muted text-center mt-1 leading-relaxed">
-        One tap seeds the typical household bills — power, water, internet, TV, security, gas — plus a placeholder row per helper salary. You only fill in <strong>amount</strong> and <strong>meter / account number</strong> later.
-      </p>
+    <div className="bg-pantry-leaf-soft/50 border border-pantry-leaf/40 rounded-hive-lg p-3 lg:p-4">
+      <div className="mb-3">
+        <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-pantry-leaf-dk">
+          Quick start · by household size
+        </p>
+        <p className="font-nunito font-extrabold text-[14px] lg:text-[15px] mt-0.5">
+          Pick a pack — we'll seed your utilities in one tap ✨
+        </p>
+        <p className="text-[11px] text-hive-muted mt-1 leading-snug">
+          Default amounts are converted from a USD baseline at today's rate. Adjust per row after seeding.
+        </p>
+      </div>
 
-      <div className="mt-4 bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
-        <span className="text-[11px] font-nunito font-extrabold text-hive-navy flex-1">
-          Helper salaries to add
-        </span>
-        <NumberInput
-          value={helperCount}
-          onChange={setHelperCount}
-          min={0}
-          max={20}
-          ariaLabel="Helper count"
-          placeholder="0"
-          className="w-20 h-9 px-3 bg-hive-cream rounded-[10px] text-center font-nunito font-black text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
-        />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
+        {UTILITY_PACKS.map((pack) => {
+          const selected = pack.id === packId;
+          return (
+            <button
+              key={pack.id}
+              type="button"
+              onClick={() => setPackId((cur) => (cur === pack.id ? null : pack.id))}
+              className={`text-left rounded-hive p-3 transition-colors border bg-hive-paper ${
+                selected
+                  ? 'border-pantry-leaf ring-2 ring-pantry-leaf/30'
+                  : 'border-hive-line hover:border-pantry-leaf/60'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-2xl leading-none shrink-0">{pack.emoji}</span>
+                <div className="min-w-0">
+                  <p className="font-nunito font-extrabold text-[13px] truncate">{pack.label}</p>
+                  <p className="text-[10px] text-hive-muted">{pack.sizeRange}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-hive-muted mt-2 leading-snug">{pack.description}</p>
+              <p className={`mt-2 text-[11px] font-nunito font-extrabold ${
+                selected ? 'text-pantry-leaf-dk' : 'text-hive-muted'
+              }`}>
+                {selected ? `✓ ${pack.items.length} bills selected` : `+ Add ${pack.items.length} bills →`}
+              </p>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Helpers · count + per-helper salary inputs. Each helper can
+          carry its own budget so the seeded rows are usable on day one. */}
+      <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-3">
+        <div className="flex items-center gap-3">
+          <span className="font-nunito font-extrabold text-[13px] flex-1">
+            Helper salaries
+          </span>
+          <NumberInput
+            value={helperCount}
+            onChange={handleCountChange}
+            min={0}
+            max={20}
+            ariaLabel="Helper count"
+            placeholder="0"
+            className="w-20 h-9 px-3 bg-hive-cream rounded-[10px] text-center font-nunito font-black text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+          />
+        </div>
+        {helperCount === 0 ? (
+          <p className="text-[10px] text-hive-muted mt-1.5">
+            How many helpers does the household pay? Each row gets its own salary.
+          </p>
+        ) : (
+          <div className="mt-2 space-y-1.5">
+            {Array.from({ length: helperCount }).map((_, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-[8px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-[11px] font-nunito font-black shrink-0">
+                  {i + 1}
+                </span>
+                <span className="text-[11px] font-nunito font-extrabold text-hive-navy w-16 shrink-0">
+                  Helper {i + 1}
+                </span>
+                <span className="font-nunito font-black text-[12px] text-hive-muted">
+                  {currency === 'USD' ? '$' : currency}
+                </span>
+                <NumberInput
+                  value={helperSalariesMajor[i] ?? defaultHelperMajor}
+                  onChange={(v) => setHelperSalary(i, v)}
+                  allowDecimal
+                  min={0}
+                  ariaLabel={`Helper ${i + 1} salary`}
+                  placeholder="0"
+                  className="flex-1 h-9 px-3 bg-hive-cream rounded-[10px] font-nunito font-black text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+                />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <button
         onClick={handleSeed}
-        disabled={seeding || isGuest}
+        disabled={seeding || isGuest || nothingToSeed}
         className="w-full mt-3 h-11 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px] disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
       >
-        {seeding ? 'Seeding…' : `✨ Seed ${billsLabel}${salaryLabel}`}
+        {seeding
+          ? 'Seeding…'
+          : nothingToSeed
+            ? 'Pick a pack or add a helper'
+            : `✨ Seed ${seedLabel(billCount, helperCount)}`}
       </button>
+
       {isGuest && (
         <p className="text-[10px] text-hive-muted text-center mt-2 italic">
           Sign in to save these to your family.
@@ -398,6 +515,15 @@ function SeedDefaultsCard({
       {error && <p className="text-hive-rose text-[12px] font-bold mt-2 text-center">{error}</p>}
     </div>
   );
+}
+
+/** "4 bills" · "4 bills + 2 salaries" · "2 salaries" — composed once
+ *  so the seed-button label stays readable. */
+function seedLabel(bills: number, helpers: number): string {
+  const parts: string[] = [];
+  if (bills > 0) parts.push(`${bills} bill${bills === 1 ? '' : 's'}`);
+  if (helpers > 0) parts.push(`${helpers} salar${helpers === 1 ? 'y' : 'ies'}`);
+  return parts.join(' + ');
 }
 
 function PaymentForm({
