@@ -15,6 +15,10 @@
 //   - vCard generation (save-to-phone) + a universal importer that
 //     auto-detects vCard / Google CSV / pasted text
 
+import {
+  collection, addDoc, onSnapshot, serverTimestamp, type Timestamp,
+} from 'firebase/firestore';
+import { db } from './firebase';
 import type { Supplier } from './pantry';
 
 // ── Service categories (Tanzania-first) ──────────────────────────
@@ -61,6 +65,84 @@ export const DIRECTORY_CATEGORIES: { id: DirectoryCategory; emoji: string; label
 export function findDirectoryCategory(id: string | undefined): typeof DIRECTORY_CATEGORIES[number] | undefined {
   if (!id) return undefined;
   return DIRECTORY_CATEGORIES.find((c) => c.id === id);
+}
+
+// ── Custom categories (universal, user-added) ────────────────────
+//
+// Beyond the built-in DIRECTORY_CATEGORIES, a family can add its own
+// Yellow Pages category straight from the contact form. These are
+// UNIVERSAL — stored in a top-level `directoryCategories` collection,
+// so every family sees them. Auto-approved for now; the `status`
+// field is carried so a backend-vetting gate can be added later with
+// no migration.
+
+/** A Firestore `directoryCategories` document — a user-added,
+ *  universal Yellow Pages category. */
+export interface CustomCategoryDoc {
+  id: string;
+  label: string;
+  emoji: string;
+  hint: string;
+  /** Always 'approved' for now. Reserved for future backend vetting. */
+  status: 'approved' | 'pending';
+  createdBy: string;        // uid of the parent/helper who added it
+  createdByFamily: string;  // their familyId — for later attribution
+  createdAt: Timestamp;
+}
+
+/** A category the UI renders — a built-in or a custom one, one shape. */
+export interface DirectoryCategoryEntry {
+  id: string;
+  emoji: string;
+  label: string;
+  hint: string;
+  isCustom: boolean;
+}
+
+const customCategoriesCol = () => collection(db, 'directoryCategories');
+
+/** Live-subscribe to the universal custom-category collection. */
+export function subscribeToCustomCategories(
+  cb: (cats: CustomCategoryDoc[]) => void,
+): () => void {
+  return onSnapshot(customCategoriesCol(), (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<CustomCategoryDoc, 'id'>) })));
+  });
+}
+
+/** Add a new universal category. Auto-approved. Returns the new id. */
+export async function addCustomCategory(
+  input: { label: string; emoji: string; hint?: string },
+  uid: string,
+  familyId: string,
+): Promise<string> {
+  const ref = await addDoc(customCategoriesCol(), {
+    label: input.label.trim(),
+    emoji: input.emoji?.trim() || '🏷️',
+    hint: input.hint?.trim() || '',
+    status: 'approved' as const,
+    createdBy: uid,
+    createdByFamily: familyId,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** Fold the universal custom categories onto the built-in list —
+ *  built-ins first, then approved customs. The single
+ *  `DirectoryCategoryEntry[]` the Yellow Pages UI renders from. */
+export function mergeDirectoryCategories(
+  custom: CustomCategoryDoc[],
+): DirectoryCategoryEntry[] {
+  const builtIns: DirectoryCategoryEntry[] = DIRECTORY_CATEGORIES.map((c) => ({
+    id: c.id, emoji: c.emoji, label: c.label, hint: c.hint, isCustom: false,
+  }));
+  const customs: DirectoryCategoryEntry[] = custom
+    .filter((c) => c.status === 'approved')
+    .map((c) => ({
+      id: c.id, emoji: c.emoji || '🏷️', label: c.label, hint: c.hint || '', isCustom: true,
+    }));
+  return [...builtIns, ...customs];
 }
 
 // ── Phone normalisation ──────────────────────────────────────────

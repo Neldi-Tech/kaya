@@ -21,10 +21,12 @@ import {
   markSupplierContacted, type Supplier,
 } from '@/lib/pantry';
 import {
-  DIRECTORY_CATEGORIES, findDirectoryCategory,
   normalizePhone, displayPhone, whatsappContactLink,
   contactToVCard, contactsToVCardFile, downloadVCard,
-  parseContacts, type DirectoryCategory, type ParsedContact, type ImportFormat,
+  parseContacts, subscribeToCustomCategories, addCustomCategory,
+  mergeDirectoryCategories,
+  type ParsedContact, type ImportFormat,
+  type CustomCategoryDoc, type DirectoryCategoryEntry,
 } from '@/lib/directory';
 import ContactPickerButton from '@/components/pantry/ContactPickerButton';
 
@@ -35,7 +37,8 @@ export default function DirectoryPage() {
 
   const [contacts, setContacts] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState<DirectoryCategory | 'all'>('all');
+  // Category filter — 'all' or a category id (built-in or custom).
+  const [category, setCategory] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -44,6 +47,8 @@ export default function DirectoryPage() {
   // Set when a contact is picked from the phone's address book — opens
   // the Add form pre-filled. Cleared on manual "+ Add contact" / cancel.
   const [prefill, setPrefill] = useState<{ name?: string; phone?: string } | null>(null);
+  // Universal custom categories (top-level Firestore collection).
+  const [customCats, setCustomCats] = useState<CustomCategoryDoc[]>([]);
 
   useEffect(() => {
     if (!familyId) { setLoading(false); return; }
@@ -54,9 +59,33 @@ export default function DirectoryPage() {
     return unsub;
   }, [familyId]);
 
+  // Custom categories are universal — not family-scoped — so this
+  // subscription stands on its own.
+  useEffect(() => subscribeToCustomCategories(setCustomCats), []);
+
+  // Built-in categories + approved custom ones, one list the whole
+  // page renders from.
+  const categories = useMemo(
+    () => mergeDirectoryCategories(customCats),
+    [customCats],
+  );
+
   const flash = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast((t) => (t === msg ? null : t)), 2600);
+  };
+
+  // Add a new universal category (or reuse an existing same-named one).
+  // Returns the category id so the form can immediately select it.
+  const handleAddCategory = async (
+    input: { label: string; emoji: string },
+  ): Promise<string> => {
+    const norm = input.label.trim().toLowerCase();
+    if (!norm) return '';
+    const existing = categories.find((c) => c.label.toLowerCase() === norm);
+    if (existing) return existing.id;
+    if (!profile?.uid || !familyId) return '';
+    return addCustomCategory(input, profile.uid, familyId);
   };
 
   // Filter by category + search. Contacts without a directoryCategory
@@ -82,16 +111,17 @@ export default function DirectoryPage() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(c);
     }
-    // Order: known categories in catalog order, then uncategorised.
+    // Order: known categories in catalog order (built-ins then
+    // customs), then uncategorised.
     const ordered: { key: string; label: string; emoji: string; items: Supplier[] }[] = [];
-    for (const cat of DIRECTORY_CATEGORIES) {
+    for (const cat of categories) {
       const items = map.get(cat.id);
       if (items?.length) ordered.push({ key: cat.id, label: cat.label, emoji: cat.emoji, items });
     }
     const unc = map.get('uncategorised');
     if (unc?.length) ordered.push({ key: 'uncategorised', label: 'Uncategorised', emoji: '❓', items: unc });
     return ordered;
-  }, [visible]);
+  }, [visible, categories]);
 
   // Per-category counts for the chip row.
   const counts = useMemo(() => {
@@ -135,7 +165,7 @@ export default function DirectoryPage() {
     flash(`Removed ${c.name}`);
   };
 
-  const importContacts = async (rows: { contact: ParsedContact; category: DirectoryCategory }[]) => {
+  const importContacts = async (rows: { contact: ParsedContact; category: string }[]) => {
     if (!familyId || isGuest) return 0;
     let added = 0;
     for (const { contact, category } of rows) {
@@ -217,6 +247,8 @@ export default function DirectoryPage() {
         <ContactForm
           key={prefill ? `prefill-${prefill.name ?? ''}-${prefill.phone ?? ''}` : 'blank'}
           prefill={prefill ?? undefined}
+          categories={categories}
+          onAddCategory={handleAddCategory}
           onSave={(d) => saveContact(d)}
           onCancel={() => { setAdding(false); setPrefill(null); }}
         />
@@ -224,7 +256,11 @@ export default function DirectoryPage() {
 
       {/* Import sheet */}
       {importing && (
-        <ImportSheet onImport={importContacts} onClose={() => setImporting(false)} />
+        <ImportSheet
+          categories={categories}
+          onImport={importContacts}
+          onClose={() => setImporting(false)}
+        />
       )}
 
       {/* Search */}
@@ -240,7 +276,7 @@ export default function DirectoryPage() {
         <CatChip active={category === 'all'} onClick={() => setCategory('all')}>
           All · {contacts.length}
         </CatChip>
-        {DIRECTORY_CATEGORIES.map((c) => (
+        {categories.map((c) => (
           <CatChip key={c.id} active={category === c.id} onClick={() => setCategory(c.id)}>
             {c.emoji} {c.label.split(' / ')[0].split(' (')[0]}
             {counts[c.id] ? ` · ${counts[c.id]}` : ''}
@@ -279,6 +315,8 @@ export default function DirectoryPage() {
                     <div key={c.id} className="lg:col-span-2">
                       <ContactForm
                         existing={c}
+                        categories={categories}
+                        onAddCategory={handleAddCategory}
                         onSave={(d) => saveContact(d, c)}
                         onCancel={() => setEditingId(null)}
                         onDelete={() => removeContact(c)}
@@ -288,6 +326,7 @@ export default function DirectoryPage() {
                     <ContactCard
                       key={c.id}
                       contact={c}
+                      categories={categories}
                       familyName={family?.name}
                       familyId={familyId}
                       onEdit={() => { setEditingId(c.id); setAdding(false); setImporting(false); }}
@@ -312,14 +351,15 @@ export default function DirectoryPage() {
 // ── Contact card ──────────────────────────────────────────────────
 
 function ContactCard({
-  contact, familyName, familyId, onEdit,
+  contact, categories, familyName, familyId, onEdit,
 }: {
   contact: Supplier;
+  categories: DirectoryCategoryEntry[];
   familyName?: string;
   familyId: string;
   onEdit: () => void;
 }) {
-  const cat = findDirectoryCategory(contact.directoryCategory);
+  const cat = categories.find((c) => c.id === contact.directoryCategory);
   const waLink = whatsappContactLink(
     contact.phone,
     `Hello${contact.contactName ? ` ${contact.contactName}` : ''}, ${familyName ? `${familyName} family here. ` : ''}`,
@@ -392,14 +432,16 @@ interface ContactFormData {
   phone: string;
   email: string;
   notes: string;
-  category: DirectoryCategory;
+  category: string;
 }
 
 function ContactForm({
-  existing, prefill, onSave, onCancel, onDelete,
+  existing, prefill, categories, onAddCategory, onSave, onCancel, onDelete,
 }: {
   existing?: Supplier;
   prefill?: { name?: string; phone?: string };
+  categories: DirectoryCategoryEntry[];
+  onAddCategory: (input: { label: string; emoji: string }) => Promise<string>;
   onSave: (data: ContactFormData) => void;
   onCancel: () => void;
   onDelete?: () => void;
@@ -409,15 +451,40 @@ function ContactForm({
   const [phone, setPhone] = useState(existing?.phone || prefill?.phone || '');
   const [email, setEmail] = useState(existing?.email || '');
   const [notes, setNotes] = useState(existing?.notes || '');
-  const [category, setCategory] = useState<DirectoryCategory>(
-    (existing?.directoryCategory as DirectoryCategory) || 'supermarket',
+  const [category, setCategory] = useState<string>(
+    existing?.directoryCategory || categories[0]?.id || 'supermarket',
   );
   const [error, setError] = useState('');
+  // Inline "new category" mini-form.
+  const [addingCat, setAddingCat] = useState(false);
+  const [newCatLabel, setNewCatLabel] = useState('');
+  const [newCatEmoji, setNewCatEmoji] = useState('🏷️');
+  const [catBusy, setCatBusy] = useState(false);
 
   const submit = () => {
     if (!name.trim()) { setError('Give the contact a name.'); return; }
     setError('');
     onSave({ name, contactName, phone, email, notes, category });
+  };
+
+  // Create a new universal category, select it, close the mini-form.
+  const submitNewCategory = async () => {
+    const label = newCatLabel.trim();
+    if (!label) { setError('Give the category a name.'); return; }
+    setError('');
+    setCatBusy(true);
+    try {
+      const id = await onAddCategory({ label, emoji: newCatEmoji.trim() || '🏷️' });
+      if (id) setCategory(id);
+      setAddingCat(false);
+      setNewCatLabel('');
+      setNewCatEmoji('🏷️');
+    } catch (e) {
+      console.error('Add category failed', e);
+      setError("Couldn't add the category — check your connection and try again.");
+    } finally {
+      setCatBusy(false);
+    }
   };
 
   return (
@@ -455,7 +522,7 @@ function ContactForm({
 
       <Field label="Service category">
         <div className="flex flex-wrap gap-1.5">
-          {DIRECTORY_CATEGORIES.map((c) => (
+          {categories.map((c) => (
             <button
               key={c.id}
               type="button"
@@ -469,7 +536,48 @@ function ContactForm({
               {c.emoji} {c.label.split(' / ')[0].split(' (')[0]}
             </button>
           ))}
+          {/* Add a new universal category inline. */}
+          <button
+            type="button"
+            onClick={() => { setAddingCat((v) => !v); setError(''); }}
+            className="px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border border-dashed border-pantry-leaf text-pantry-leaf-dk hover:bg-pantry-leaf-soft/40 transition-colors"
+          >
+            {addingCat ? '× Cancel' : '＋ New category'}
+          </button>
         </div>
+
+        {addingCat && (
+          <div className="mt-2 bg-hive-cream rounded-hive p-2.5 space-y-2">
+            <p className="text-[10px] text-hive-muted leading-snug">
+              New categories are shared with every Kaya family.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={newCatEmoji}
+                onChange={(e) => setNewCatEmoji(e.target.value)}
+                maxLength={4}
+                aria-label="Category icon"
+                className="w-12 h-9 px-2 text-center bg-hive-paper rounded-[8px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              />
+              <input
+                value={newCatLabel}
+                onChange={(e) => setNewCatLabel(e.target.value)}
+                placeholder="e.g. Vet, Gym, Laundry"
+                maxLength={32}
+                aria-label="Category name"
+                className="flex-1 h-9 px-3 bg-hive-paper rounded-[8px] text-[13px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={submitNewCategory}
+              disabled={catBusy || !newCatLabel.trim()}
+              className="w-full h-9 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[12px] disabled:opacity-50"
+            >
+              {catBusy ? 'Adding…' : 'Add category'}
+            </button>
+          </div>
+        )}
       </Field>
 
       <div className="grid grid-cols-2 gap-2">
@@ -535,16 +643,17 @@ function ContactForm({
 // ── Import sheet ──────────────────────────────────────────────────
 
 function ImportSheet({
-  onImport, onClose,
+  categories, onImport, onClose,
 }: {
-  onImport: (rows: { contact: ParsedContact; category: DirectoryCategory }[]) => Promise<number>;
+  categories: DirectoryCategoryEntry[];
+  onImport: (rows: { contact: ParsedContact; category: string }[]) => Promise<number>;
   onClose: () => void;
 }) {
   const [raw, setRaw] = useState('');
   const [parsed, setParsed] = useState<ParsedContact[] | null>(null);
   const [format, setFormat] = useState<ImportFormat | null>(null);
-  const [rowCats, setRowCats] = useState<Record<number, DirectoryCategory>>({});
-  const [bulkCat, setBulkCat] = useState<DirectoryCategory>('fundi');
+  const [rowCats, setRowCats] = useState<Record<number, string>>({});
+  const [bulkCat, setBulkCat] = useState<string>('fundi');
   const [busy, setBusy] = useState(false);
   const [phoneBookNotice, setPhoneBookNotice] = useState('');
 
@@ -594,15 +703,15 @@ function ImportSheet({
     setParsed(contacts);
     // Seed each row's category from the parser's guess, else the
     // current bulk default.
-    const seed: Record<number, DirectoryCategory> = {};
+    const seed: Record<number, string> = {};
     contacts.forEach((c, i) => { seed[i] = c.guessedCategory || bulkCat; });
     setRowCats(seed);
   };
 
-  const applyBulk = (cat: DirectoryCategory) => {
+  const applyBulk = (cat: string) => {
     setBulkCat(cat);
     if (!parsed) return;
-    const next: Record<number, DirectoryCategory> = {};
+    const next: Record<number, string> = {};
     parsed.forEach((_, i) => { next[i] = cat; });
     setRowCats(next);
   };
@@ -700,7 +809,7 @@ function ImportSheet({
               Set all to one category (you can still change rows below)
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {DIRECTORY_CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <button
                   key={c.id}
                   type="button"
@@ -729,10 +838,10 @@ function ImportSheet({
                 </div>
                 <select
                   value={rowCats[i] || bulkCat}
-                  onChange={(e) => setRowCats((prev) => ({ ...prev, [i]: e.target.value as DirectoryCategory }))}
+                  onChange={(e) => setRowCats((prev) => ({ ...prev, [i]: e.target.value }))}
                   className="h-8 px-1.5 rounded-[8px] bg-hive-paper border border-hive-line text-[11px] font-nunito font-extrabold shrink-0 max-w-[42%]"
                 >
-                  {DIRECTORY_CATEGORIES.map((cat) => (
+                  {categories.map((cat) => (
                     <option key={cat.id} value={cat.id}>
                       {cat.emoji} {cat.label.split(' / ')[0].split(' (')[0]}
                     </option>

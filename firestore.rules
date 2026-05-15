@@ -217,5 +217,17 @@ service cloud.firestore {
         allow create, update, delete: if isParentOrHelper(familyId);
       }
     }
+
+    // ── Directory categories (universal) ───────────────────────────
+    // User-added Yellow Pages categories, shared across every family
+    // (see lib/directory.ts). Any signed-in user can read + add;
+    // auto-approved for now. No client-side edit/delete — a universal
+    // category one family relies on shouldn't be removable by another.
+    // Backend tooling owns edits / removals / future vetting.
+    match /directoryCategories/{categoryId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if false;
+    }
   }
 }
