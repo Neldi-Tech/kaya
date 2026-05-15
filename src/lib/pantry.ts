@@ -164,11 +164,136 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
   { id: 'other',    emoji: '✨',  label: 'Other' },
 ];
 
-/** Starter packs for the empty Utilities state. Mirrors the staples
- *  Browse "Pick a pack" UX: one pack per household size, each with a
- *  curated bill list and a baseline USD amount that gets converted to
- *  the family's display currency at seed time. Parent tweaks amounts
- *  after seeding. */
+// ── Utility starter packs (one-tap seed, no amounts) ────────────
+// Mirrors the Directory's STARTER_PACKS — a one-tap seed of typical
+// household bills, scaled to household size. Amounts are left at 0 so
+// the parent fills in real figures after the seed; what we contribute
+// is the rows + categories + sensible cadences so the page isn't
+// empty on day one. The seed-wizard packs below cover the "I want to
+// estimate amounts too" path.
+//
+// ⚠ STABILITY CONTRACT — do not remove or rename a pack id without
+// updating both `UtilityStarterPackId` and `REQUIRED_STARTER_PACK_IDS`
+// below. The satisfies-block locks the three packs in place so the
+// build fails the moment one goes missing — the Utilities page would
+// otherwise quietly drop a household-size option and look "empty"
+// again. New packs are welcome: add a literal to `UtilityStarterPackId`
+// and the array, the type-check threads it through.
+
+export interface UtilityStarterItem {
+  /** Display name shown on the row, e.g. "Power · TANESCO". */
+  name: string;
+  category: UtilityCategory;
+  cadence: Cadence;
+}
+
+/** The three pack ids the empty-state UI relies on. Adding a new size
+ *  here is fine; removing one will fail the build via the
+ *  satisfies-block below. */
+export type UtilityStarterPackId = 'solo' | 'family' | 'big';
+
+export interface UtilityStarterPack {
+  id: UtilityStarterPackId;
+  emoji: string;
+  label: string;
+  sizeRange: string;
+  description: string;
+  /** Must be non-empty — asserted at module load (see the guard
+   *  block at the bottom of this section). An empty pack would
+   *  render an unclickable card, so we'd rather fail loudly. */
+  items: UtilityStarterItem[];
+}
+
+// East-Africa-leaning provider hints (TANESCO / DAWASCO / DStv) since
+// the default audience runs on TZS. Generic enough to edit in seconds
+// for other markets — every row's name is editable post-seed.
+//
+// The `as const` is narrowed to just `id` (not the whole array) so
+// the guard at the bottom can detect a missing pack via literal-id
+// inference, while `items.length` etc. stay typed as `number` for
+// downstream consumers. `satisfies` type-checks each entry against
+// `UtilityStarterPack` without widening the inferred id union.
+export const UTILITY_STARTER_PACKS = [
+  {
+    id: 'solo' as const,
+    emoji: '👤',
+    label: 'Small household',
+    sizeRange: '1–2 people',
+    description: 'Single, couple, or small flat. Just the essentials — power, water, internet.',
+    items: [
+      { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
+      { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
+      { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
+    ] as UtilityStarterItem[],
+  },
+  {
+    id: 'family' as const,
+    emoji: '👨‍👩‍👧',
+    label: 'Family',
+    sizeRange: '3–4 people',
+    description: 'Two adults plus 1–2 kids. Adds TV, gas refill and one helper salary.',
+    items: [
+      { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
+      { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
+      { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
+      { name: 'TV · DStv / Azam',    category: 'tv',       cadence: 'monthly' },
+      { name: 'Gas refill · LPG',    category: 'gas',      cadence: 'as-needed' },
+      { name: 'House helper · salary', category: 'salary', cadence: 'monthly' },
+    ] as UtilityStarterItem[],
+  },
+  {
+    id: 'big' as const,
+    emoji: '👨‍👩‍👧‍👦',
+    label: 'Big household',
+    sizeRange: '5+ people',
+    description: 'Larger family or extended household. Adds security, rent, and extra helper salaries.',
+    items: [
+      { name: 'Power · TANESCO',     category: 'power',    cadence: 'monthly' },
+      { name: 'Water · DAWASCO',     category: 'water',    cadence: 'monthly' },
+      { name: 'Internet · home Wi-Fi', category: 'internet', cadence: 'monthly' },
+      { name: 'TV · DStv / Azam',    category: 'tv',       cadence: 'monthly' },
+      { name: 'Security · estate guard', category: 'security', cadence: 'monthly' },
+      { name: 'Gas refill · LPG',    category: 'gas',      cadence: 'as-needed' },
+      { name: 'Rent',                category: 'rent',     cadence: 'monthly' },
+      { name: 'House helper · salary', category: 'salary', cadence: 'monthly' },
+      { name: 'Driver · salary',     category: 'salary',   cadence: 'monthly' },
+      { name: 'Gardener · salary',   category: 'salary',   cadence: 'monthly' },
+    ] as UtilityStarterItem[],
+  },
+] satisfies readonly UtilityStarterPack[];
+
+// ── Build-time + load-time guard: lock the starter pack contract ──
+// Two layers protect "which household sizes the empty state promises":
+//   1. Compile-time: every id in `REQUIRED_STARTER_PACK_IDS` must
+//      appear in `UTILITY_STARTER_PACKS`. The literal-id inference
+//      from the `as const` on each pack's `id` keeps the union
+//      narrow; remove a pack and `_MissingStarterIds` becomes a
+//      non-`never` literal, which fails the `extends never` ternary
+//      and breaks `npm run build` right here.
+//   2. Load-time: each pack must seed at least one bill. Empty
+//      `items: []` would render an unclickable card. We throw early
+//      so a regression surfaces on the very first render, not as a
+//      silent visual bug.
+const REQUIRED_STARTER_PACK_IDS = ['solo', 'family', 'big'] as const;
+type _PresentStarterIds = (typeof UTILITY_STARTER_PACKS)[number]['id'];
+type _MissingStarterIds = Exclude<(typeof REQUIRED_STARTER_PACK_IDS)[number], _PresentStarterIds>;
+const _NO_STARTER_PACKS_MISSING: _MissingStarterIds extends never ? true : never = true;
+void _NO_STARTER_PACKS_MISSING;
+
+for (const pack of UTILITY_STARTER_PACKS) {
+  if (pack.items.length === 0) {
+    throw new Error(
+      `UTILITY_STARTER_PACKS[${pack.id}] has no items — packs must seed at least one bill.`,
+    );
+  }
+}
+
+// ── Utility seed-wizard packs (USD-based, customize amounts) ────
+// Surfaced by the "Set up Utilities" wizard. Each item carries a
+// baseline USD amount that gets converted to the family's display
+// currency via live FX so the seeded figure lands in the right
+// ballpark for any locale. Parent tweaks amounts on the final
+// screen of the wizard before committing.
 export type UtilityPackId = 'small' | 'family' | 'big';
 
 export interface UtilityPackItem {

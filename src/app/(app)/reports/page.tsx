@@ -55,6 +55,13 @@ export default function ReportsPage() {
     };
   });
 
+  // Ratings carrying a note — newest first. Surfaced as the "Notes"
+  // panel so comments from the importer (and future inline notes) are
+  // actually visible to parents.
+  const notedRatings = ratings
+    .filter((r) => (r.comment || '').trim().length > 0)
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
   // Family-level totals.
   const familyTotals = childStats.reduce(
     (acc, s) => ({
@@ -145,6 +152,10 @@ export default function ReportsPage() {
             </div>
           </div>
         ))}
+
+        {notedRatings.length > 0 && (
+          <NotesPanel notedRatings={notedRatings} children={children} />
+        )}
       </div>
 
       {/* ─────────────────────────────────────────────────────────── */}
@@ -282,7 +293,54 @@ export default function ReportsPage() {
             </div>
           ))}
         </div>
+
+        {notedRatings.length > 0 && (
+          <div className="mt-8">
+            <NotesPanel notedRatings={notedRatings} children={children} />
+          </div>
+        )}
       </div>
     </>
+  );
+}
+
+// Recent ratings that carry a free-text comment. Imported rows from
+// historical Google Sheets land here; future inline notes will too.
+function NotesPanel({
+  notedRatings, children,
+}: {
+  notedRatings: DailyRating[];
+  children: ReturnType<typeof useFamily>['children'];
+}) {
+  return (
+    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+      <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">
+        Notes &amp; comments ({notedRatings.length})
+      </p>
+      <div className="space-y-2">
+        {notedRatings.slice(0, 25).map((r) => {
+          const c = children.find((k) => k.id === r.childId);
+          return (
+            <div key={r.id} className="border border-kaya-warm-dark/60 rounded-kaya-sm p-3">
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  {c && <KidAvatar child={c} size="xs" />}
+                  <p className="text-[12px] font-bold truncate">{c?.name || '—'}</p>
+                  <span className="text-[10px] text-kaya-sand">·</span>
+                  <p className="text-[11px] text-kaya-sand capitalize">{r.period}</p>
+                </div>
+                <p className="text-[10px] font-mono text-kaya-sand-light shrink-0">{r.date}</p>
+              </div>
+              <p className="text-[12px] text-kaya-chocolate leading-snug whitespace-pre-wrap">{r.comment}</p>
+            </div>
+          );
+        })}
+      </div>
+      {notedRatings.length > 25 && (
+        <p className="text-[11px] text-kaya-sand-light text-center mt-2">
+          Showing 25 of {notedRatings.length} · widen the date range above to see more.
+        </p>
+      )}
+    </div>
   );
 }

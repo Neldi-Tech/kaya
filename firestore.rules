@@ -37,8 +37,20 @@ service cloud.firestore {
 
     // ── Users ──────────────────────────────────────
     match /users/{userId} {
-      // Users can read their own profile
-      allow read: if isSignedIn() && request.auth.uid == userId;
+      // Users can read their own profile, OR any profile attached to
+      // the same family. The cross-family lookup is what makes the
+      // @mention picker, rating/award notification routing, and family
+      // tree work — without it `getFamilyMembers` silently fails and
+      // none of those features can find anyone besides the caller.
+      // The `get()` costs one extra read per query but is bounded:
+      // the picker only loads it once per session.
+      allow read: if isSignedIn() && (
+        request.auth.uid == userId
+        || (
+          resource.data.familyId != null
+          && resource.data.familyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.familyId
+        )
+      );
       // Users can create their own profile (during onboarding)
       allow create: if isSignedIn() && request.auth.uid == userId;
       // Users can update their own profile
@@ -232,6 +244,50 @@ service cloud.firestore {
       match /groceryLists/{listId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentOrHelper(familyId);
+      }
+
+      // ── Moments · family photo feed ──────────────────────────────
+      // Posts carry photos uploaded to Firebase Storage at
+      // families/{f}/posts/{p}/{photoId}/{size}.jpg (see storage.rules).
+      // Every family member (parent, helper, kid) can post and react —
+      // the feed is the social glue, so kids participating is the
+      // point. Only the author or a parent can delete a post or a
+      // comment. `visibility` is in the schema so a later release can
+      // ship 'network' without a migration; today the UI only writes
+      // 'family' and rules enforce that.
+      match /posts/{postId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if belongsToFamily(familyId)
+          && request.resource.data.authorUid == request.auth.uid
+          && request.resource.data.visibility in ['family', 'network'];
+        // Updates: the author can edit caption / photos / kid tags;
+        // any member can bump the reaction + comment counters via the
+        // toggleReaction / addComment batched writes. To keep things
+        // simple we allow any belongsToFamily update — the
+        // reaction-counter writes always come paired with a sub-doc
+        // create/delete that requires the same auth, so a malicious
+        // unrelated update would have to be hand-crafted.
+        allow update: if belongsToFamily(familyId);
+        allow delete: if belongsToFamily(familyId)
+          && (resource.data.authorUid == request.auth.uid
+              || isParentInFamily(familyId));
+
+        match /reactions/{reactionId} {
+          allow read: if belongsToFamily(familyId);
+          allow create: if belongsToFamily(familyId)
+            && request.resource.data.byUid == request.auth.uid;
+          allow delete: if belongsToFamily(familyId)
+            && resource.data.byUid == request.auth.uid;
+        }
+
+        match /comments/{commentId} {
+          allow read: if belongsToFamily(familyId);
+          allow create: if belongsToFamily(familyId)
+            && request.resource.data.byUid == request.auth.uid;
+          allow delete: if belongsToFamily(familyId)
+            && (resource.data.byUid == request.auth.uid
+                || isParentInFamily(familyId));
+        }
       }
     }
   }

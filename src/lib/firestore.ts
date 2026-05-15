@@ -173,6 +173,9 @@ export interface DailyRating {
   totalPoints: number;
   ratedBy: string;
   ratedByName: string;
+  // Free-text note. Originally added so comments from historical
+  // Google-Sheet logs are preserved on import; surfaced on Reports.
+  comment?: string;
   createdAt: Timestamp;
 }
 
@@ -210,11 +213,24 @@ export interface Reward {
 
 export interface Notification {
   id: string;
-  type: 'points' | 'badge' | 'meeting' | 'reward' | 'streak';
+  type:
+    | 'points'
+    | 'badge'
+    | 'meeting'
+    | 'reward'
+    | 'streak'
+    // Moments events — surfaced in the bell icon dropdown.
+    | 'moment-reaction'
+    | 'moment-comment'
+    | 'moment-mention'
+    | 'moment-new';
   title: string;
   message: string;
   read: boolean;
   forUserId: string;
+  /** Optional link target — when set, tapping the notification opens it.
+   *  For Moments events this is `/moments/{postId}`. */
+  link?: string;
   createdAt: Timestamp;
 }
 
@@ -632,10 +648,10 @@ export function subscribeToFamily(familyId: string, callback: (family: Family | 
 // ── Rating Operations ─────────────────────────────
 export async function submitRating(familyId: string, rating: Omit<DailyRating, 'id'>) {
   if (isGuestActive()) return 'guest-rating';
-  const ref = await addDoc(collection(db, 'families', familyId, 'ratings'), {
-    ...rating,
-    createdAt: serverTimestamp(),
-  });
+  // Strip undefined fields — Firestore rejects them, and `comment` is optional.
+  const payload: Record<string, unknown> = { ...rating, createdAt: serverTimestamp() };
+  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+  const ref = await addDoc(collection(db, 'families', familyId, 'ratings'), payload);
 
   // Update child's total points
   const childRef = doc(db, 'families', familyId, 'children', rating.childId);
@@ -649,6 +665,82 @@ export async function submitRating(familyId: string, rating: Omit<DailyRating, '
   }
 
   return ref.id;
+}
+
+// Historical import path — used by the one-time Google-Sheet importer.
+// Behaviour differs from submitRating in two ways:
+//   1. If a rating doc already exists for (childId, date, period), we
+//      replace it instead of stacking duplicates — re-running the import
+//      is idempotent.
+//   2. We only credit weeklyPoints when the row's `date` falls in the
+//      current ISO week, so importing last month's data doesn't inflate
+//      this week's leaderboard.
+// The function returns { id, action } where action is 'created' or
+// 'replaced' for the caller's preview/summary.
+export async function importRating(
+  familyId: string,
+  rating: Omit<DailyRating, 'id'>,
+): Promise<{ id: string; action: 'created' | 'replaced' }> {
+  if (isGuestActive()) return { id: 'guest-import', action: 'created' };
+  const payload: Record<string, unknown> = { ...rating, createdAt: serverTimestamp() };
+  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
+  // Look for an existing rating with the same key triple.
+  const existingQ = query(
+    collection(db, 'families', familyId, 'ratings'),
+    where('childId', '==', rating.childId),
+    where('date', '==', rating.date),
+    where('period', '==', rating.period),
+  );
+  const existingSnap = await getDocs(existingQ);
+  const prior = existingSnap.empty ? null : existingSnap.docs[0];
+  const priorPoints = prior ? (prior.data() as DailyRating).totalPoints || 0 : 0;
+  const delta = rating.totalPoints - priorPoints;
+
+  let id: string;
+  let action: 'created' | 'replaced';
+  if (prior) {
+    await setDoc(prior.ref, payload, { merge: false });
+    id = prior.id;
+    action = 'replaced';
+  } else {
+    const ref = await addDoc(collection(db, 'families', familyId, 'ratings'), payload);
+    id = ref.id;
+    action = 'created';
+  }
+
+  // Update child running totals by the delta. Weekly only counts if the
+  // date is within the current week.
+  const childRef = doc(db, 'families', familyId, 'children', rating.childId);
+  const childSnap = await getDoc(childRef);
+  if (childSnap.exists()) {
+    const child = childSnap.data() as Child;
+    const inThisWeek = isInCurrentWeek(rating.date);
+    await updateDoc(childRef, {
+      totalPoints: Math.max(0, (child.totalPoints || 0) + delta),
+      ...(inThisWeek ? { weeklyPoints: Math.max(0, (child.weeklyPoints || 0) + delta) } : {}),
+    });
+  }
+  return { id, action };
+}
+
+function isInCurrentWeek(dateStr: string): boolean {
+  // Monday-start ISO week. Returns true if `dateStr` (YYYY-MM-DD) is in
+  // the same week as today, in the local timezone (so it lines up with
+  // the kid-facing week boundary).
+  const d = new Date(dateStr + 'T00:00:00');
+  if (Number.isNaN(d.getTime())) return false;
+  const today = new Date();
+  const startOfWeek = (x: Date) => {
+    const c = new Date(x);
+    const dow = (c.getDay() + 6) % 7; // 0 = Monday
+    c.setHours(0, 0, 0, 0);
+    c.setDate(c.getDate() - dow);
+    return c;
+  };
+  const a = startOfWeek(d).getTime();
+  const b = startOfWeek(today).getTime();
+  return a === b;
 }
 
 export async function getTodayRatings(familyId: string, childId: string, period: string): Promise<DailyRating | null> {

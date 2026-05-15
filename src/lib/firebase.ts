@@ -1,6 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
+import { getStorage } from 'firebase/storage';
 
 // authDomain controls what users see in the Google sign-in popup
 // (e.g. "Sign in to continue to <authDomain>"). Default to the custom
@@ -19,5 +20,9 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
+// Firebase Storage (Blaze plan) — backs the Moments photo feed. Avatars
+// still travel as data: URLs because they're small; full-res photos go
+// here so we don't bloat Firestore docs.
+const storage = getStorage(app);
 
-export { app, auth, db };
+export { app, auth, db, storage };

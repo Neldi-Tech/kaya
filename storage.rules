@@ -1,0 +1,40 @@
+rules_version = '2';
+
+// Firebase Storage rules for Kaya.
+//
+// Scope today: the Moments photo feed. Photos live at
+//   families/{f}/posts/{p}/{photoId}/{size}.jpg
+// with size in { thumb | feed | full } and only family members can
+// read or write within their own family's tree. The Firestore post
+// doc carries the matching download URLs; deleting the post triggers
+// best-effort deletion of these blobs from client code.
+//
+// Image-only upload, 10 MB cap per variant — that's the post-resize
+// budget (the 25 MB raw cap in `photoUpload.ts` is the pre-resize
+// guard, applied client-side before the canvas downscale).
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserProfile() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function belongsToFamily(familyId) {
+      return isSignedIn() && getUserProfile().familyId == familyId;
+    }
+
+    // ── Moments · post photos ──────────────────────────────────
+    match /families/{familyId}/posts/{postId}/{photoId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
+  }
+}

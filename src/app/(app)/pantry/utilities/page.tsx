@@ -16,6 +16,7 @@ import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   UTILITY_CATEGORIES, UtilityCategory, Cadence,
+  UTILITY_STARTER_PACKS, UtilityStarterPack,
   UTILITY_PACKS, UtilityPack, DEFAULT_HELPER_SALARY_USD,
   addUtility, updateUtility, deleteUtility,
   seedFromWizard, recordPayment,
@@ -49,6 +50,11 @@ export default function UtilitiesPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // Quick-start pack panel: collapsed by default once the family has
+  // any bills (no point pushing seed UI when the list is populated).
+  const [packsOpen, setPacksOpen] = useState(utilities.length === 0);
+  const [packBusy, setPackBusy] = useState<string | null>(null);
+  const [packToast, setPackToast] = useState('');
 
   const visible = useMemo(
     () => (filter === 'all' ? utilities : utilities.filter((u) => u.category === filter)),
@@ -61,6 +67,43 @@ export default function UtilitiesPage() {
   const outstanding = Math.max(0, monthlyExpected - paidCents);
 
   const showSeedCard = filter === 'all' && utilities.length === 0 && !adding;
+
+  // Existing names (lower-cased) so a pack doesn't double-add a bill
+  // the family already tracks. Match the Directory's de-dup approach.
+  const ownedNames = useMemo(
+    () => new Set(utilities.map((u) => u.name.toLowerCase())),
+    [utilities],
+  );
+
+  const addStarterPack = async (pack: UtilityStarterPack) => {
+    if (!profile?.familyId || isGuest) return;
+    setPackBusy(pack.id);
+    let added = 0;
+    let skipped = 0;
+    for (const item of pack.items) {
+      if (ownedNames.has(item.name.toLowerCase())) { skipped++; continue; }
+      try {
+        await addUtility(profile.familyId, {
+          name: item.name,
+          category: item.category,
+          amountCents: 0,
+          cadence: item.cadence,
+          dueDay: 0,
+          accountRef: '',
+          preferredSupplierId: '',
+          notes: '',
+        });
+        added++;
+      } catch { skipped++; }
+    }
+    setPackBusy(null);
+    setPackToast(
+      added === 0
+        ? 'All those bills are already on your list.'
+        : `Added ${added} bill${added === 1 ? '' : 's'}${skipped > 0 ? ` · ${skipped} already had` : ''}. Tap any row to fill in the amount.`,
+    );
+    setTimeout(() => setPackToast(''), 4000);
+  };
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -115,6 +158,64 @@ export default function UtilitiesPage() {
           </Chip>
         ))}
       </div>
+
+      {/* Starter packs — one-tap bulk-seed by household size, mirroring
+          the Directory's quick-start. Hidden for guests since the demo
+          family is already populated. */}
+      {!isGuest && (
+        <div className="mb-4 bg-pantry-leaf-soft/50 border border-pantry-leaf/40 rounded-hive-lg p-3 lg:p-4">
+          <button
+            type="button"
+            onClick={() => setPacksOpen((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 text-left"
+          >
+            <div className="min-w-0">
+              <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-pantry-leaf-dk">
+                Quick start · by household size
+              </p>
+              <p className="font-nunito font-extrabold text-[14px] lg:text-[15px] mt-0.5 truncate">
+                Pick a pack — we&apos;ll seed your bills in one tap ✨
+              </p>
+            </div>
+            <span className="text-pantry-leaf-dk font-black text-base shrink-0">{packsOpen ? '−' : '+'}</span>
+          </button>
+
+          {packsOpen && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 mt-3">
+              {UTILITY_STARTER_PACKS.map((pack) => {
+                const busy = packBusy === pack.id;
+                return (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    onClick={() => addStarterPack(pack)}
+                    disabled={isGuest || busy || packBusy !== null}
+                    className="text-left bg-hive-paper border border-hive-line rounded-hive p-3 hover:border-pantry-leaf transition-colors disabled:opacity-50 disabled:cursor-wait"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl leading-none shrink-0">{pack.emoji}</span>
+                      <div className="min-w-0">
+                        <p className="font-nunito font-extrabold text-[13px] truncate">{pack.label}</p>
+                        <p className="text-[10px] text-hive-muted">{pack.sizeRange}</p>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-hive-muted mt-2 leading-snug">{pack.description}</p>
+                    <p className="mt-2 text-[11px] font-nunito font-extrabold text-pantry-leaf-dk">
+                      {busy ? 'Adding…' : `+ Add ${pack.items.length} bill${pack.items.length === 1 ? '' : 's'} →`}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {packToast && (
+            <p className="mt-3 text-[11px] font-nunito font-extrabold text-pantry-leaf-dk bg-hive-paper border border-pantry-leaf/40 rounded-hive px-3 py-2">
+              {packToast}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Add form (collapsible) */}
       {adding && (

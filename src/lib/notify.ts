@@ -82,3 +82,59 @@ export function notifyInvite(args: InviteNotify): Promise<void> {
     },
   });
 }
+
+// ── Moments notifications ────────────────────────────────────────
+
+interface MomentReactionNotify {
+  to: string[];
+  authorName: string;
+  reactorName: string;
+  emoji: string;
+  captionSnippet: string;
+  postUrl: string;
+}
+
+interface MomentCommentNotify {
+  to: string[];
+  authorName: string;
+  commenterName: string;
+  commentSnippet: string;
+  postUrl: string;
+}
+
+interface MomentMentionNotify {
+  to: string[];
+  mentionedName: string;
+  fromName: string;
+  context: 'caption' | 'comment';
+  snippet: string;
+  postUrl: string;
+}
+
+interface MomentNewPostNotify {
+  to: string[];
+  authorName: string;
+  captionSnippet: string;
+  photoCount: number;
+  postUrl: string;
+}
+
+export function notifyMomentReaction(args: MomentReactionNotify): Promise<void> {
+  if (!args.to.length) return Promise.resolve();
+  return post({ type: 'moment-reaction', to: args.to, data: args });
+}
+
+export function notifyMomentComment(args: MomentCommentNotify): Promise<void> {
+  if (!args.to.length) return Promise.resolve();
+  return post({ type: 'moment-comment', to: args.to, data: args });
+}
+
+export function notifyMomentMention(args: MomentMentionNotify): Promise<void> {
+  if (!args.to.length) return Promise.resolve();
+  return post({ type: 'moment-mention', to: args.to, data: args });
+}
+
+export function notifyMomentNewPost(args: MomentNewPostNotify): Promise<void> {
+  if (!args.to.length) return Promise.resolve();
+  return post({ type: 'moment-new', to: args.to, data: args });
+}
