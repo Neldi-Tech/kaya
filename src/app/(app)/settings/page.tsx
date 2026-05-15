@@ -36,6 +36,7 @@ import {
 } from '@/lib/referral';
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
+import RoutinesEditor from '@/components/settings/RoutinesEditor';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -1639,6 +1640,32 @@ export default function SettingsPage() {
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
                 The roadmap items show up here so you know what&apos;s next. We&apos;ll switch them on as they ship.
               </p>
+            </div>
+          )}
+
+          {/* Daily routines editor — the morning / evening checklist
+              that drives the Rate page. */}
+          {isParent && selectedMethods.includes('routines') && (
+            <RoutinesEditor />
+          )}
+
+          {/* One-time historical import (e.g. Google Sheet of past
+              ratings). Surfaced as a link rather than inline so the
+              dense mapping UI lives on its own page. */}
+          {isParent && !isGuest && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">Import past ratings</p>
+              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                Bringing data from a Google Sheet or spreadsheet log? Paste it once, map the columns, and we&apos;ll
+                back-fill the daily ratings (comments included). Re-running is safe — existing rows for the same
+                kid/date/period get replaced.
+              </p>
+              <a
+                href="/settings/import"
+                className="inline-flex items-center gap-1.5 h-10 px-4 bg-kaya-chocolate text-white rounded-kaya-sm text-xs font-bold hover:bg-kaya-chocolate-light transition-colors"
+              >
+                📥 Open importer
+              </a>
             </div>
           )}
 

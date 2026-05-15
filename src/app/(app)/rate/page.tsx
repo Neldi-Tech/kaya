@@ -10,8 +10,8 @@ import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 const RATING_OPTIONS: { value: RatingValue; label: string; emoji: string; color: string }[] = [
-  { value: 'excellent', label: 'Excellent', emoji: '🌟', color: '#D4A017' },
-  { value: 'good',      label: 'Good',      emoji: '👍', color: '#27AE60' },
+  { value: 'excellent', label: 'Excellent', emoji: '🌟', color: '#27AE60' },
+  { value: 'good',      label: 'Good',      emoji: '👍', color: '#D4A017' },
   { value: 'bad',       label: 'Bad',       emoji: '👎', color: '#E74C3C' },
 ];
 
