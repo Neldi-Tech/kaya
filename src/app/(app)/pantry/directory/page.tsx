@@ -13,11 +13,12 @@
 
 import { useMemo, useState } from 'react';
 import BackButton from '@/components/ui/BackButton';
+import NumberInput from '@/components/ui/NumberInput';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import { addStaple } from '@/lib/pantry';
-import { estimateLineCents, usdToTargetRate } from '@/lib/pricing';
+import { estimateLineCents } from '@/lib/pricing';
 import { formatCents } from '@/components/pantry/format';
 import {
   DIRECTORY_STAPLES, DIRECTORY_FOODS,
@@ -43,11 +44,8 @@ const CADENCE_LABELS: Record<string, string> = {
 export default function PantryDirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { staples } = usePantry();
-  const { config, fxUsdToFamily } = useHive();
+  const { config } = useHive();
   const currency = config.currency;
-  // USD → family-currency rate for price estimates. Live rate from
-  // open.er-api.com via HiveContext; static fallback when offline.
-  const usdToTarget = fxUsdToFamily ?? usdToTargetRate(currency);
 
   const [tab, setTab] = useState<Tab>('staples');
   const [surface, setSurface] = useState<Surface>('food');
@@ -62,6 +60,47 @@ export default function PantryDirectoryPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [packsOpen, setPacksOpen] = useState(true);
   const [packBusy, setPackBusy] = useState<string | null>(null);
+  // Per-card price overrides + which card's price input is open.
+  // The shared DIRECTORY_STAPLES catalog never changes — an override
+  // only reshapes the price written into THIS family's staples on
+  // bulk-save. Keyed by the catalog staple's `label`, value is the
+  // price in family-currency cents.
+  const [overrides, setOverrides] = useState<Map<string, number>>(new Map());
+  const [editingLabel, setEditingLabel] = useState<string | null>(null);
+
+  // The price that will actually be saved for a catalog staple — the
+  // parent's override if they tapped the price and changed it,
+  // otherwise the pricing.ts estimate for the catalog default qty.
+  const priceFor = (s: DirectoryStaple) => {
+    const o = overrides.get(s.label);
+    return typeof o === 'number' ? o : estimateLineCents(s, s.defaultQty, currency);
+  };
+
+  // Override one staple's price. Editing a price also selects the
+  // item — if you bothered to set a number you almost certainly want
+  // it on the list.
+  const setPrice = (label: string, cents: number) => {
+    setOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(label, cents);
+      return next;
+    });
+    setSelected((prev) => {
+      if (prev.has(label)) return prev;
+      const next = new Set(prev);
+      next.add(label);
+      return next;
+    });
+  };
+
+  const clearPrice = (label: string) => {
+    setOverrides((prev) => {
+      if (!prev.has(label)) return prev;
+      const next = new Map(prev);
+      next.delete(label);
+      return next;
+    });
+  };
 
   // Already in the family's staples (by lower-cased name) — used to
   // hide the "Add" affordance and skip duplicates on bulk-save.
@@ -123,11 +162,13 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, usdToTarget),
+        lastBoughtCents: priceFor(item),
       });
       added++;
     }
     setSelected(new Set());
+    setOverrides(new Map());
+    setEditingLabel(null);
     setSaving(false);
     flashToast(
       added === 0
@@ -150,7 +191,7 @@ export default function PantryDirectoryPage() {
         defaultQty: qty,
         unit: staple.unit,
         cadence: staple.cadence,
-        lastBoughtCents: estimateLineCents(staple, qty, usdToTarget),
+        lastBoughtCents: estimateLineCents(staple, qty, currency),
       });
       added++;
     }
@@ -175,7 +216,7 @@ export default function PantryDirectoryPage() {
         defaultQty: item.defaultQty,
         unit: item.unit,
         cadence: item.cadence,
-        lastBoughtCents: estimateLineCents(item, item.defaultQty, usdToTarget),
+        lastBoughtCents: estimateLineCents(item, item.defaultQty, currency),
       });
       added++;
     }
@@ -302,7 +343,7 @@ export default function PantryDirectoryPage() {
           {visibleStaples.length === 0 ? (
             <EmptyState message="No staples match these filters." />
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mt-2 items-start">
               {visibleStaples.map((s) => (
                 <StapleCard
                   key={s.label}
@@ -310,8 +351,14 @@ export default function PantryDirectoryPage() {
                   selected={selected.has(s.label)}
                   owned={ownedNames.has(s.label.toLowerCase())}
                   onTap={() => toggleSelect(s.label)}
-                  usdToTarget={usdToTarget}
                   currency={currency}
+                  price={priceFor(s)}
+                  edited={overrides.has(s.label)}
+                  editing={editingLabel === s.label}
+                  onEditPrice={() => setEditingLabel(s.label)}
+                  onClosePrice={() => setEditingLabel(null)}
+                  onSetPrice={(cents) => setPrice(s.label, cents)}
+                  onClearPrice={() => clearPrice(s.label)}
                 />
               ))}
             </div>
@@ -442,55 +489,124 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleCard({
-  staple, selected, owned, onTap, usdToTarget, currency,
+  staple, selected, owned, onTap, currency, price, edited, editing,
+  onEditPrice, onClosePrice, onSetPrice, onClearPrice,
 }: {
   staple: DirectoryStaple;
   selected: boolean;
   owned: boolean;
   onTap: () => void;
-  usdToTarget: number;
   currency: string;
+  /** Effective price — the override if set, else the pricing.ts estimate. */
+  price: number;
+  edited: boolean;
+  editing: boolean;
+  onEditPrice: () => void;
+  onClosePrice: () => void;
+  onSetPrice: (cents: number) => void;
+  onClearPrice: () => void;
 }) {
-  // Estimated price for this row + quantity, shown so parents see the
-  // budget shape before they commit. Saved through to lastBoughtCents
-  // on bulk-add — the staples list inherits the estimate and lets the
-  // parent override it inline later.
-  const estCents = estimateLineCents(staple, staple.defaultQty, usdToTarget);
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
   return (
-    <button
-      onClick={onTap}
-      className={`w-full text-left bg-hive-paper border rounded-hive p-3 flex items-start gap-3 transition-colors ${
+    <div
+      className={`bg-hive-paper border rounded-hive p-3 transition-colors ${
         selected
           ? 'border-pantry-leaf ring-2 ring-pantry-leaf/30 bg-pantry-leaf-soft/40'
           : 'border-hive-line hover:border-pantry-leaf/50'
       }`}
     >
-      <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
-        {staple.emoji}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-nunito font-extrabold text-[14px] truncate">
-          {staple.label}
-          {owned && (
-            <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-pantry-leaf-dk uppercase tracking-wider">
-              · saved
-            </span>
-          )}
-        </p>
-        <p className="text-[11px] text-hive-muted truncate">
-          {staple.defaultQty} {staple.unit} · {CADENCE_LABELS[staple.cadence] || staple.cadence}
-          <span className="ml-1 text-pantry-leaf-dk font-nunito font-extrabold">
-            · ~ {formatCents(estCents, currency)}
-          </span>
-        </p>
-        {staple.note && (
-          <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{staple.note}</p>
+      <div className="flex items-start gap-3">
+        {/* Emoji + text = the select toggle. A div (not a button) so
+            the tappable price can nest inside it. The keydown guard
+            ignores events bubbling up from the price controls. */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={onTap}
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onTap(); }
+          }}
+          className="flex items-start gap-3 flex-1 min-w-0 cursor-pointer text-left"
+        >
+          <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
+            {staple.emoji}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-nunito font-extrabold text-[14px] truncate">
+              {staple.label}
+              {owned && (
+                <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-pantry-leaf-dk uppercase tracking-wider">
+                  · saved
+                </span>
+              )}
+              {edited && (
+                <span className="ml-1.5 text-[10px] font-nunito font-extrabold text-hive-honey-dk uppercase tracking-wider">
+                  · edited
+                </span>
+              )}
+            </p>
+            <div className="text-[11px] text-hive-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span className="truncate">
+                {staple.defaultQty} {staple.unit} · {CADENCE_LABELS[staple.cadence] || staple.cadence} ·
+              </span>
+              {editing ? (
+                <span
+                  className="inline-flex items-center gap-1"
+                  onClick={stop}
+                  onKeyDown={stop}
+                >
+                  <span className="text-[10px] font-nunito font-extrabold text-hive-muted">{currency}</span>
+                  <NumberInput
+                    value={price / 100}
+                    onChange={(n) => (n > 0 ? onSetPrice(Math.round(n * 100)) : onClearPrice())}
+                    allowDecimal
+                    min={0}
+                    ariaLabel={`Price for ${staple.label}`}
+                    placeholder="0"
+                    className="w-20 h-7 px-2 bg-hive-cream rounded-[8px] font-nunito font-black text-[12px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={(e) => { stop(e); onClosePrice(); }}
+                    aria-label="Done editing price"
+                    className="h-7 px-2 rounded-hive-pill bg-pantry-leaf text-white font-nunito font-black text-[11px]"
+                  >
+                    ✓
+                  </button>
+                  {edited && (
+                    <button
+                      type="button"
+                      onClick={(e) => { stop(e); onClearPrice(); }}
+                      aria-label="Reset price to the estimate"
+                      className="h-7 px-2 rounded-hive-pill bg-hive-cream border border-hive-line text-hive-muted font-nunito font-extrabold text-[11px]"
+                    >
+                      ↺
+                    </button>
+                  )}
+                </span>
+              ) : (
+                /* Tappable price — opens the inline price editor. */
+                <button
+                  type="button"
+                  onClick={(e) => { stop(e); onEditPrice(); }}
+                  aria-label={`Edit price for ${staple.label}`}
+                  className="text-pantry-leaf-dk font-nunito font-extrabold underline underline-offset-2 decoration-dotted"
+                >
+                  {edited ? '' : '~ '}{formatCents(price, currency)}
+                </button>
+              )}
+            </div>
+            {staple.note && (
+              <p className="text-[11px] text-hive-muted italic mt-0.5 truncate">{staple.note}</p>
+            )}
+          </div>
+        </div>
+        {selected && (
+          <span className="text-pantry-leaf-dk text-base font-black leading-none shrink-0">✓</span>
         )}
       </div>
-      {selected && (
-        <span className="text-pantry-leaf-dk text-base font-black shrink-0">✓</span>
-      )}
-    </button>
+    </div>
   );
 }
 

@@ -1,258 +1,160 @@
-// Price estimation for /pantry/list smart-start + templates.
+// Price estimation for the Pantry directory + /pantry/list
+// smart-start + templates.
 //
 // We don't carry a per-item price in the directory (would mean
-// hand-tagging 192 items × every locale × occasional inflation
-// updates). Instead this module gives a deterministic "reasonable
-// number" by holding a **global retail USD baseline** per category /
-// per item, and scaling to the family's local currency at the live
-// USD-to-target FX rate.
+// hand-tagging 192 items and re-touching them on every inflation
+// tick). Instead this module gives a deterministic "reasonable
+// number" from the staple's `category` + a small per-item override
+// table — a USD baseline — then converts it into the family's
+// actual display currency using a real exchange rate.
 //
-// The list captures real prices the moment the parent edits a row
-// or closes a list (existing `lastBoughtCents` flow), so the
-// estimates only matter at plan time — they just need to land in
-// the right magnitude so the first list a parent sees feels real.
-//
-// Storage: `estimatedCents` is always in minor units of the
-// **family's display currency** (`hiveConfig.currency`). Display
-// uses `Intl.NumberFormat` via `formatCents(cents, currency)`,
-// which handles the 0-decimal currencies (TZS, JPY, …) correctly.
-//
-// FX is fetched live via `src/lib/fxRates.ts` (open.er-api.com,
-// cached daily per base in localStorage). Callers pass the
-// already-resolved `usdToTarget` rate; this module stays pure.
-// When live FX is unavailable, `usdToTargetRate` falls back to a
-// static table of recent-rate snapshots so the magnitude is still
-// roughly right. The fallback intentionally rounds toward the
-// realistic side — better a slightly stale number than a placeholder.
+// Numbers are intentionally coarse — the goal is "good first
+// estimate", not retail accuracy. The list captures real prices as
+// soon as the parent edits a row or closes a list, so the estimates
+// only matter at plan time. The conversion does respect the
+// family's currency though: a TZS family sees TSh-scale numbers,
+// an INR family sees ₹-scale numbers, a USD family sees dollars —
+// using the FX table below rather than a crude region guess.
 
 import type { DirectoryStaple } from './pantryDirectory';
 import type { Cadence, StapleCategory } from './pantry';
-import type { FxRates } from './fxRates';
-import { suggestedRate } from './fxRates';
 
-// ── USD baseline table ───────────────────────────────────────────
-// Per-unit "typical retail USD" baselines, calibrated against
-// moderate global supermarket prices. Multiplied by the live
-// USD→target rate at call time to produce target-currency cents.
-//
-// All numbers are USD-cents-equivalent (so `200` means USD 2.00 worth).
-// They land somewhere reasonable for both TZ (where 1 USD ≈ TSh 2,600)
-// and US/EU markets (where 1 USD = 1 USD). The estimator is for
-// "first list a parent sees feels real," not retail accuracy.
+// ── Base price table ─────────────────────────────────────────────
+// Per-unit "typical retail" baseline in USD cents. Calibrated for a
+// normal supermarket run, not bulk wholesale. The FX table converts
+// to the family's currency.
 
 interface BaseUnitPrice {
-  /** Per-unit baseline in USD cents (i.e., 150 = USD 1.50). The
-   *  caller multiplies by usdToTarget to convert to local cents. */
-  perUnitUsdCents: number;
+  /** Per-unit baseline price in USD cents. */
+  perUnitCentsUsd: number;
 }
 
 const CATEGORY_DEFAULTS: Record<StapleCategory, BaseUnitPrice> = {
-  produce:  { perUnitUsdCents: 150 },   // ~$1.50 per kg / bunch
-  dairy:    { perUnitUsdCents: 250 },   // milk / yogurt / cheese / eggs (per L or dozen)
-  pantry:   { perUnitUsdCents: 200 },   // grains, flour, oil, spices — avg
-  cleaning: { perUnitUsdCents: 350 },   // soaps, detergents
-  personal: { perUnitUsdCents: 400 },   // hygiene + grooming
-  other:    { perUnitUsdCents: 500 },   // gas, batteries, misc
+  produce:  { perUnitCentsUsd: 200 },   // ~$2 / kg or bunch
+  dairy:    { perUnitCentsUsd: 350 },   // milk / cheese / eggs
+  pantry:   { perUnitCentsUsd: 250 },   // grains, flour, oil, spices
+  cleaning: { perUnitCentsUsd: 400 },   // soaps, detergents
+  personal: { perUnitCentsUsd: 450 },   // hygiene + grooming
+  other:    { perUnitCentsUsd: 600 },   // gas, batteries, misc
 };
 
 // ── Per-unit overrides ───────────────────────────────────────────
-// Items where the category average is wildly off. Keyed by
-// lowercased staple label so adding a new staple doesn't break the
-// table. All values in USD cents (per the unit declared on the
-// directory staple — usually per kg, per L, or per pack).
+// Some items have wildly different price/unit than the category
+// average. USD cents, keyed by lowercased label.
 
 const UNIT_OVERRIDES: Record<string, number> = {
-  // ── Meat / fish (premium) ──
-  'chicken':                 400,   // $4 / kg — TZ ~$3-4, US ~$4-6
-  'beef':                    600,   // $6 / kg
-  'goat meat':               700,
-  'fish (tilapia)':          350,
-  'prawns':                 1500,
+  // Meat / fish (premium)
+  'chicken':                 800,
+  'beef':                   1200,
+  'goat meat':              1500,
+  'fish (tilapia)':          900,
+  'prawns':                 1800,
   'sausages':                500,
-
-  // ── Energy / fuel (one big-ticket item) ──
-  'cooking gas refill':     1500,   // $15 / refill (6kg bottle TZ ≈ TSh 38k)
-  'firewood':                300,
-  'charcoal':                250,
-
-  // ── Baby items (pricier per pack) ──
-  'diapers':                1500,   // pack
-  'baby formula':           2500,
+  // Cooking gas (one big item)
+  'cooking gas refill':     3000,
+  'firewood':                500,
+  'charcoal':                400,
+  // Baby items (pricier per pack)
+  'diapers':                1200,
+  'baby formula':           1500,
   'baby wipes':              400,
-  'baby lotion':             500,
-
-  // ── Long-life staples sold by kg / litre ──
-  'rice (white)':            130,   // ~$1.30 / kg — TZ ~TSh 3.4k, fair
-  'basmati rice':            250,
-  'maize flour (ugali)':      80,   // ~$0.80 / kg
-  'wheat flour':             100,
-  'atta / chapati flour':    120,
-  'cooking oil':             400,   // ~$4 / L
-  'olive oil':               700,
-  'sugar':                   100,
-  'salt':                     50,
-  'tea':                     250,
-  'coffee':                  500,
-
-  // ── Dairy specifics ──
-  'milk':                    200,   // per L
-  'uht milk':                250,
-  'eggs':                    250,   // per dozen
-  'yogurt':                  300,
-  'butter':                  400,
-  'cheese':                  500,
-  'paneer':                  600,
-  'ghee':                    800,
-  'cream':                   400,
-
-  // ── Pantry specifics ──
-  'beans (dry)':             200,
-  'lentils':                 250,
-  'toor dal':                300,
-  'moong dal':               300,
-  'pasta':                   200,
-  'noodles':                 150,
-  'bread':                   200,
-  'tomato paste':            150,
-  'stock cubes':             150,
-  'coconut milk':            200,
-  'pilau masala':            200,
-  'garam masala':            300,
-  'mustard seeds':           200,
-  'coriander (dhania)':      100,
-  'spices · curry powder':   200,
-  'spices · black pepper':   400,
-
-  // ── Produce specifics (per kg unless tiny) ──
-  'tomatoes':                100,
-  'onions':                  100,
-  'potatoes':                100,
-  'garlic':                  200,
-  'lemons':                  150,
-  'carrots':                 100,
-  'cabbage':                  80,
-  'spinach':                 100,
-  'kale (sukuma wiki)':       80,
-  'plantain (matoke)':       100,
-  'bananas':                 100,
-  'apples':                  250,
-  'avocados':                200,
-  'cucumber':                100,
-  'bell peppers':            200,
-  'mangoes':                 150,
-  'oranges':                 150,
-  'watermelon':              100,
-  'passion fruit':           300,
-
-  // ── Cleaning / household ──
-  'dish soap':               300,
-  'laundry detergent':       500,
-  'toilet paper':            350,   // pack
-  'bin liners':              250,
-  'sponges':                 200,
-  'paper towels':            400,
-  'fabric softener':         400,
-  'toilet cleaner':          400,
-  'light bulbs':             300,
-  'batteries (aa)':          400,
-
-  // ── Personal care ──
-  'bar soap':                100,
-  'toothpaste':              300,
-  'toothbrush':              200,
-  'shampoo':                 500,
-  'body lotion':             400,
-  'deodorant':               400,
-  'sanitary pads':           400,
-  'hand sanitiser':          300,
-  'painkillers':             400,
-  'first-aid plasters':      300,
-
-  // ── Other ──
-  'pet food':                500,
-  'cereal':                  400,
-  'oats':                    300,
+  // Long-life staples sold in big bags
+  'rice (white)':            300,
+  'basmati rice':            400,
+  'maize flour (ugali)':     200,
+  'cooking oil':             400,
+  // Premium dairy
+  'paneer':                  500,
+  'ghee':                    700,
 };
 
-// ── Static USD→target snapshot (fallback only) ─────────────────────
-// Used when live FX is unavailable (network blocked, first ever
-// page load offline, etc.). Updated periodically — current as of
-// May 2026. Live `fxRates.ts` lookups always win when available.
-
-const STATIC_USD_TO_TARGET: Record<string, number> = {
+// ── USD → family-currency exchange rates ─────────────────────────
+// Covers every currency in the HiveConfig CURRENCIES catalog. These
+// are coarse, hand-maintained mid-rates — a budget *estimate*, not a
+// forex feed — but they mean a Tanzanian family sees realistic
+// TSh-scale numbers instead of the old "region × 250" guess that
+// ignored which currency the family actually uses.
+//
+// Maintenance note: bump these when a rate drifts a lot. They only
+// affect the *initial* estimate; once a parent edits a price or
+// closes a list, the real number takes over.
+const USD_FX: Record<string, number> = {
   USD: 1,
-  // Europe
-  EUR: 0.93,  GBP: 0.79,  CHF: 0.90,  SEK: 10.5,  NOK: 10.5,  DKK: 6.9,
-  // East / Sub-Saharan Africa
-  TZS: 2600,  KES: 130,   UGX: 3700,  RWF: 1300,  ETB: 56,    ZAR: 18,
-  NGN: 1500,  GHS: 12,    XOF: 605,   XAF: 605,
-  // Middle East / North Africa
-  AED: 3.67,  SAR: 3.75,  EGP: 49,    MAD: 9.8,   QAR: 3.64,  BHD: 0.38,
-  // South / Southeast Asia
-  INR: 83,    PKR: 280,   BDT: 110,   LKR: 305,
-  IDR: 16000, MYR: 4.5,   THB: 35,    PHP: 56,    VND: 25000, SGD: 1.35,
-  // Asia-Pacific
-  JPY: 150,   KRW: 1370,  CNY: 7.2,   HKD: 7.8,   TWD: 32,
-  AUD: 1.5,   NZD: 1.6,   CAD: 1.35,
-  // Latin America
-  MXN: 18,    BRL: 5.1,   ARS: 1000,  COP: 4100,  CLP: 950,   PEN: 3.7,
+  EUR: 0.92,
+  GBP: 0.79,
+  TZS: 2650,
+  KES: 129,
+  UGX: 3700,
+  ZAR: 18.5,
+  NGN: 1550,
+  AED: 3.67,
+  INR: 83,
+  CAD: 1.37,
+  AUD: 1.52,
 };
 
-/** Resolve the live USD→target rate, falling back to the static
- *  snapshot if FX is unavailable. Always returns a positive number;
- *  unknown currencies fall back to 1 (treat as USD). */
-export function usdToTargetRate(
-  targetCurrency: string,
-  liveRates?: FxRates | null,
-): number {
-  if (liveRates) {
-    const live = suggestedRate(liveRates, 'USD', targetCurrency);
-    if (live && live > 0) return live;
-  }
-  return STATIC_USD_TO_TARGET[targetCurrency] ?? 1;
+/** USD → `currency` rate. Unknown / missing codes fall back to 1
+ *  (treat as USD) so a new currency never crashes the estimator. */
+export function usdFxRate(currency: string | undefined): number {
+  if (!currency) return 1;
+  return USD_FX[currency] ?? 1;
+}
+
+/** The minor-unit increment a line estimate is rounded to, derived
+ *  from the currency's OWN scale — no hardcoded per-currency table,
+ *  so it self-adjusts for any currency we add.
+ *
+ *  Logic: take the order of magnitude of the USD→currency rate and
+ *  halve it. A big-denomination currency like TZS (≈2650/USD) lands
+ *  on a 500-major-unit step (so TSh 39,750 reads as TSh 40,000);
+ *  KES (≈129) lands on 50; USD (1) on 0.50; EUR/GBP (<1) on 0.05.
+ *  Same "drop the confusing trailing digits" feel everywhere. */
+function lineRoundStepMinor(currency: string): number {
+  const fx = usdFxRate(currency);
+  const stepMajor = Math.pow(10, Math.floor(Math.log10(fx))) / 2;
+  return Math.max(1, Math.round(stepMajor * 100));
 }
 
 // ── Public API ───────────────────────────────────────────────────
 
-/** Best-effort "what would a parent expect to pay" estimate for
- *  one unit of the staple, in the family's local currency minor
- *  unit. `usdToTarget` is the live USD→family-currency rate from
- *  `fxRates`; pass `1` for USD families. */
-export function estimateUnitPriceCents(
-  staple: DirectoryStaple,
-  usdToTarget = 1,
-): number {
+/** Best-effort "what would a parent expect to pay" estimate for one
+ *  unit of the staple, in the family's currency MINOR units (cents-
+ *  equivalent). Multiply by `qty` at the call site.
+ *
+ *  The math lines up cleanly: a USD-cents baseline × the USD→target
+ *  major-unit rate already lands in target minor units, because
+ *  `USDcents × (targetMajor / USDmajor) = targetMajor × 100 =
+ *  targetMinor`. So 200 USD¢ ($2) at TZS 2650/USD → 530000 (TSh
+ *  5,300). */
+export function estimateUnitPriceCents(staple: DirectoryStaple, currency: string = 'USD'): number {
   const key = staple.label.toLowerCase();
-  const baseUsdCents = UNIT_OVERRIDES[key] ?? CATEGORY_DEFAULTS[staple.category].perUnitUsdCents;
-  return Math.round(baseUsdCents * usdToTarget);
+  const baseUsdCents = UNIT_OVERRIDES[key] ?? CATEGORY_DEFAULTS[staple.category].perUnitCentsUsd;
+  return Math.round(baseUsdCents * usdFxRate(currency));
 }
 
-/** Total line-item estimate = unit price × qty, rounded to keep
- *  the list readable (no "TSh 1,237"). For currencies with high
- *  magnitude (TZS, IDR, VND) we round to the nearest 100;
- *  otherwise to the nearest 10 minor units. */
-export function estimateLineCents(
-  staple: DirectoryStaple,
-  qty: number,
-  usdToTarget = 1,
-): number {
-  const raw = estimateUnitPriceCents(staple, usdToTarget) * Math.max(1, qty);
-  // High-magnitude currencies (rate > 50) get coarser rounding.
-  const roundTo = usdToTarget > 50 ? 100 : 10;
-  return Math.round(raw / roundTo) * roundTo;
+/** Total line-item estimate = unit price × qty, rounded to a clean
+ *  number to keep the list readable (no "TSh 39,750" — reads as
+ *  "TSh 40,000"). The rounding step scales with the currency, see
+ *  `lineRoundStepMinor`. */
+export function estimateLineCents(staple: DirectoryStaple, qty: number, currency: string = 'USD'): number {
+  const raw = estimateUnitPriceCents(staple, currency) * Math.max(1, qty);
+  const step = lineRoundStepMinor(currency);
+  const rounded = Math.round(raw / step) * step;
+  // Never round a real estimate away to zero.
+  return rounded === 0 && raw > 0 ? step : rounded;
 }
 
-/** Lifestyle multipliers — drive the smart-start's "lean /
- *  standard / generous" budget tier. */
+/** Lifestyle multipliers applied on top of the size scaling — drive
+ *  the smart-start's "lean / standard / generous" budget tier. */
 export const BUDGET_MULT: Record<'lean' | 'standard' | 'generous', number> = {
   lean:     0.8,
   standard: 1.0,
   generous: 1.4,
 };
 
-/** Cadence-to-multiplier — if a list represents a month not a
- *  week, the same item needs more qty. Used by the generator when
- *  the parent picks monthly cadence. */
+/** Cadence-to-multiplier — if a list represents a month not a week,
+ *  the same item needs more qty. Used by the generator when the
+ *  parent picks monthly cadence. */
 export const CADENCE_MULT: Record<Cadence, number> = {
   daily:      0.2,
   weekly:     1,

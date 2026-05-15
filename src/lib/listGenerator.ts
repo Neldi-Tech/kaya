@@ -155,12 +155,13 @@ function passesDietFilter(label: string, diet: Lifestyle): boolean {
 
 /** Turn prefs into a final GroceryListItem[] ready to drop into a
  *  GroceryList document. Quantities and prices reflect size +
- *  budget + cadence. `usdToTarget` is the live USD→family-currency
- *  FX rate (from `fxRates.ts`) — pass `1` for USD families. */
-export function generateList(
-  prefs: SmartStartPrefs,
-  usdToTarget = 1,
-): GroceryListItem[] {
+ *  budget + cadence.
+ *
+ *  `currency` is the family's display currency (HiveConfig) — it
+ *  drives the real exchange-rate conversion in pricing.ts so the
+ *  generated estimates land in the family's actual currency, not a
+ *  region guess. Defaults to USD when unknown. */
+export function generateList(prefs: SmartStartPrefs, currency: string = 'USD'): GroceryListItem[] {
   const sizeMult     = SIZE_MULT[prefs.size];
   const budgetMult   = BUDGET_MULT[prefs.budget];
   const cadenceMult  = CADENCE_MULT[prefs.cadence] || 1;
@@ -175,7 +176,7 @@ export function generateList(
     // Final qty: catalog default × size × cadence, rounded up so
     // 1 → 1 (never zero), capped to keep things sensible.
     const qty = Math.max(1, Math.ceil(staple.defaultQty * sizeMult * cadenceMult));
-    const lineCents = Math.round(estimateLineCents(staple, qty, usdToTarget) * budgetMult);
+    const lineCents = Math.round(estimateLineCents(staple, qty, currency) * budgetMult);
 
     rows.push({
       id: crypto.randomUUID(),

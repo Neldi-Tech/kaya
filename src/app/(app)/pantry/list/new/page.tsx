@@ -23,7 +23,6 @@ import {
   type SmartStartPrefs, type HouseholdSize, type HouseholdType,
   type Lifestyle, type Budget, type SpecialNeed,
 } from '@/lib/listGenerator';
-import { usdToTargetRate } from '@/lib/pricing';
 import type { Region } from '@/lib/pantryDirectory';
 import type { Cadence } from '@/lib/pantry';
 
@@ -179,10 +178,9 @@ function SmartStartForm({
   defaultSize: HouseholdSize;
   onCreated: (id: string) => void;
 }) {
-  const { config, fxUsdToFamily } = useHive();
-  // USD → family-currency rate for live price estimates. Live FX
-  // from open.er-api.com; static fallback table when offline.
-  const usdToTarget = fxUsdToFamily ?? usdToTargetRate(config.currency);
+  // The family's display currency drives the exchange-rate
+  // conversion in the generator's price estimates.
+  const { config } = useHive();
   const [size, setSize] = useState<HouseholdSize>(defaultSize);
   const [household, setHousehold] = useState<HouseholdType>('apartment');
   const [region, setRegion] = useState<Region | 'any'>('east-africa');
@@ -210,7 +208,7 @@ function SmartStartForm({
         size, household, region, city: city.trim() || undefined,
         lifestyle, special, budget, cadence,
       };
-      const items = generateList(prefs, usdToTarget);
+      const items = generateList(prefs, config.currency);
       if (items.length === 0) {
         setError('No items match those preferences — try widening one filter.');
         setBusy(false);
