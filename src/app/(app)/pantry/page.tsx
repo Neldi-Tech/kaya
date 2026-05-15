@@ -14,6 +14,7 @@ import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   createListFromStaples, createList, thisWeekKey, thisWeekLabel,
+  sumMonthlyUtilities,
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
@@ -22,9 +23,10 @@ export default function PantryHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { family } = useFamily();
-  const { staples, sokoSuppliers, currentList, loading } = usePantry();
+  const { staples, sokoSuppliers, utilities, currentList, loading } = usePantry();
   const { config } = useHive();
   const currency = config.currency;
+  const utilitiesMonthly = sumMonthlyUtilities(utilities);
 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -134,6 +136,18 @@ export default function PantryHomePage() {
           <span className="text-2xl leading-none">📦</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Staples</span>
           <span className="text-[11px] text-hive-muted">{staples.length} item{staples.length === 1 ? '' : 's'}</span>
+        </Link>
+        <Link
+          href="/pantry/utilities"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🧾</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Utilities</span>
+          <span className="text-[11px] text-hive-muted">
+            {utilities.length > 0
+              ? `${formatCents(utilitiesMonthly, currency)}/mo`
+              : 'Bills & salaries'}
+          </span>
         </Link>
         <Link
           href="/pantry/suppliers"

@@ -144,6 +144,56 @@ export interface Staple {
 /** Maximum brand-preference slots we render on the staple form. */
 export const MAX_PREFERRED_BRANDS = 3;
 
+// ── Utilities (recurring bills + helper salaries) ────────────────
+
+/** Buckets the Utilities surface uses — recurring household billings
+ *  plus helper salaries. Kept short, mirrors STAPLE_CATEGORIES. */
+export type UtilityCategory =
+  | 'power' | 'water' | 'internet' | 'tv' | 'security'
+  | 'gas' | 'rent' | 'salary' | 'other';
+
+export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: string }[] = [
+  { id: 'power',    emoji: '⚡',  label: 'Power' },
+  { id: 'water',    emoji: '💧',  label: 'Water' },
+  { id: 'internet', emoji: '🌐',  label: 'Internet' },
+  { id: 'tv',       emoji: '📺',  label: 'TV' },
+  { id: 'security', emoji: '🛡️',  label: 'Security' },
+  { id: 'gas',      emoji: '🔥',  label: 'Gas' },
+  { id: 'rent',     emoji: '🏠',  label: 'Rent' },
+  { id: 'salary',   emoji: '👤',  label: 'Salary' },
+  { id: 'other',    emoji: '✨',  label: 'Other' },
+];
+
+/** A recurring household bill or a helper's salary. Lives in
+ *  families/{f}/utilities. Designed to roll up — alongside staples —
+ *  into the unified Budget surface. Empty optional fields are stored
+ *  as 0 / '' rather than undefined so client writes never trip the
+ *  Firestore "unsupported value: undefined" guard. */
+export interface Utility {
+  id: string;
+  /** Label — "Power (TANESCO)", "Mama Asha — house help". */
+  name: string;
+  category: UtilityCategory;
+  /** Recurring amount in cents of the family's display currency.
+   *  0 when the parent hasn't filled in a figure yet. */
+  amountCents: number;
+  /** Billing cadence — shared with staples so the Budget roll-up
+   *  speaks one language. Most utilities are 'monthly'. */
+  cadence: Cadence;
+  /** Day of the month the bill is usually due (1–31). 0 = not set. */
+  dueDay: number;
+  /** Account / meter / reference number printed on the bill. */
+  accountRef: string;
+  /** Supplier this bill is paid to — links to the shared suppliers
+   *  collection. '' when none (e.g. a salary row). */
+  preferredSupplierId: string;
+  notes: string;
+  /** False keeps the row but drops it from the Budget roll-up. */
+  active: boolean;
+  createdAt: Timestamp;
+  updatedAt?: Timestamp;
+}
+
 // ── Grocery list (a "run") ───────────────────────────────────────
 
 export interface GroceryListItem {
@@ -199,6 +249,9 @@ const supplierCol = (familyId: string) =>
 const listCol = (familyId: string) =>
   collection(db, 'families', familyId, 'groceryLists');
 
+const utilityCol = (familyId: string) =>
+  collection(db, 'families', familyId, 'utilities');
+
 // ── Staples ──────────────────────────────────────────────────────
 
 export function subscribeToStaples(
@@ -242,6 +295,78 @@ export async function updateStaple(
 export async function deleteStaple(familyId: string, stapleId: string): Promise<void> {
   if (isGuestActive()) return;
   await deleteDoc(doc(stapleCol(familyId), stapleId));
+}
+
+// ── Utilities ────────────────────────────────────────────────────
+
+export function subscribeToUtilities(
+  familyId: string,
+  cb: (utilities: Utility[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    utilityCol(familyId),
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Utility)));
+    },
+    // Permission blip / missing index → render empty rather than hang.
+    () => cb([]),
+  );
+}
+
+export async function addUtility(
+  familyId: string,
+  data: Omit<Utility, 'id' | 'createdAt' | 'active'> & { active?: boolean },
+): Promise<string> {
+  if (isGuestActive()) return 'guest-utility';
+  const ref = await addDoc(utilityCol(familyId), {
+    ...data,
+    active: data.active ?? true,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function updateUtility(
+  familyId: string,
+  utilityId: string,
+  patch: Partial<Utility>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(utilityCol(familyId), utilityId), {
+    ...patch,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function deleteUtility(familyId: string, utilityId: string): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(doc(utilityCol(familyId), utilityId));
+}
+
+/** Normalise any cadence to a per-month figure so bills on different
+ *  cycles can be summed into one Budget number. 'as-needed' rows are
+ *  unpredictable, so they contribute 0. */
+export function monthlyEquivalentCents(amountCents: number, cadence: Cadence): number {
+  switch (cadence) {
+    case 'daily':     return Math.round((amountCents * 365) / 12);
+    case 'weekly':    return Math.round((amountCents * 52) / 12);
+    case 'biweekly':  return Math.round((amountCents * 104) / 12); // 'biweekly' = 2×/week here
+    case 'monthly':   return amountCents;
+    case 'as-needed': return 0;
+    default:          return amountCents;
+  }
+}
+
+/** Total monthly spend across all active utilities. Feeds the Budget
+ *  roll-up and the Pantry Home "Utilities" card. */
+export function sumMonthlyUtilities(utilities: Utility[]): number {
+  return utilities
+    .filter((u) => u.active)
+    .reduce((sum, u) => sum + monthlyEquivalentCents(u.amountCents || 0, u.cadence), 0);
 }
 
 // ── Suppliers ────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 'use client';
 
-// PantryContext — real-time staples, suppliers (Soko-tagged) and active
+// PantryContext — real-time staples, suppliers, utilities and active
 // grocery lists for the family. Sibling of FamilyContext / HiveContext;
 // provides everything the Pantry surfaces need without each page having
 // to wire its own listeners.
@@ -10,16 +10,21 @@ import {
 } from 'react';
 import { useAuth } from './AuthContext';
 import {
-  Staple, Supplier, GroceryList,
+  Staple, Supplier, GroceryList, Utility,
   subscribeToStaples, subscribeToSuppliers, subscribeToActiveLists,
+  subscribeToUtilities,
 } from '@/lib/pantry';
 
 interface PantryContextType {
   /** Master list of recurring household items. */
   staples: Staple[];
-  /** Suppliers tagged with `'soko'` — Pantry's filtered view onto the
-   *  shared `families/{f}/suppliers` collection. */
+  /** Every supplier in the family directory (all categories). */
+  suppliers: Supplier[];
+  /** Suppliers tagged `'soko'` — Pantry's filtered grocery view onto
+   *  the shared `families/{f}/suppliers` collection. */
   sokoSuppliers: Supplier[];
+  /** Recurring household bills + helper salaries. */
+  utilities: Utility[];
   /** All open lists, newest first. The Home + List surfaces use the
    *  most recent one as "this week". */
   activeLists: GroceryList[];
@@ -36,14 +41,16 @@ export function PantryProvider({ children }: { children: ReactNode }) {
   const familyId = profile?.familyId;
 
   const [staples, setStaples] = useState<Staple[]>([]);
-  const [sokoSuppliers, setSokoSuppliers] = useState<Supplier[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [utilities, setUtilities] = useState<Utility[]>([]);
   const [activeLists, setActiveLists] = useState<GroceryList[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!familyId) {
       setStaples([]);
-      setSokoSuppliers([]);
+      setSuppliers([]);
+      setUtilities([]);
       setActiveLists([]);
       setLoading(false);
       return;
@@ -59,7 +66,11 @@ export function PantryProvider({ children }: { children: ReactNode }) {
     const timeout = setTimeout(flip, 1500);
     const unsubs = [
       subscribeToStaples(familyId, (s) => { setStaples(s); flip(); }),
-      subscribeToSuppliers(familyId, 'soko', (s) => { setSokoSuppliers(s); flip(); }),
+      // Pull every supplier once; the Soko view is derived below. This
+      // keeps a single listener on the collection while still letting
+      // the Utilities surface pick from utility / security vendors.
+      subscribeToSuppliers(familyId, 'all', (s) => { setSuppliers(s); flip(); }),
+      subscribeToUtilities(familyId, (u) => { setUtilities(u); flip(); }),
       subscribeToActiveLists(familyId, (l) => { setActiveLists(l); flip(); }),
     ];
     return () => {
@@ -69,13 +80,20 @@ export function PantryProvider({ children }: { children: ReactNode }) {
     };
   }, [familyId]);
 
+  const sokoSuppliers = useMemo(
+    () => suppliers.filter((s) => s.categories?.includes('soko')),
+    [suppliers],
+  );
+
   const currentList = useMemo(
     () => (activeLists.length > 0 ? activeLists[0] : null),
     [activeLists],
   );
 
   return (
-    <PantryContext.Provider value={{ staples, sokoSuppliers, activeLists, currentList, loading }}>
+    <PantryContext.Provider value={{
+      staples, suppliers, sokoSuppliers, utilities, activeLists, currentList, loading,
+    }}>
       {children}
     </PantryContext.Provider>
   );
