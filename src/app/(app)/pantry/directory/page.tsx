@@ -235,44 +235,66 @@ export default function PantryDirectoryPage() {
   };
 
   // ── Catalog editing ───────────────────────────────────────────
+  // Each handler wraps its Firestore write in try/catch/finally: a
+  // failed write (offline, or a permission-denied if the catalogItems
+  // rule isn't deployed) surfaces as a toast, the editor stays open so
+  // the parent can retry, and `itemBusy` always clears.
   const handleSaveEntry = async (entry: CatalogEntry, input: CatalogItemInput) => {
     if (!profile?.familyId || isGuest) return;
     setItemBusy(true);
-    if (entry.isCustom && entry.docId) {
-      await updateCustomItem(profile.familyId, entry.docId, input);
-    } else if (entry.baseLabel) {
-      await saveCatalogOverride(profile.familyId, entry.baseLabel, input, entry.docId, profile.uid);
+    try {
+      if (entry.isCustom && entry.docId) {
+        await updateCustomItem(profile.familyId, entry.docId, input);
+      } else if (entry.baseLabel) {
+        await saveCatalogOverride(profile.familyId, entry.baseLabel, input, entry.docId, profile.uid);
+      }
+      setEditingKey(null);
+      flashToast(`Saved ${input.label.trim()}`);
+    } catch (e) {
+      console.error('Catalog save failed', e);
+      flashToast("Couldn't save — check your connection and try again.");
+    } finally {
+      setItemBusy(false);
     }
-    setItemBusy(false);
-    setEditingKey(null);
-    flashToast(`Saved ${input.label.trim()}`);
   };
 
   const handleRemoveEntry = async (entry: CatalogEntry) => {
     if (!profile?.familyId || isGuest || !entry.docId) return;
     setItemBusy(true);
-    await deleteCatalogItem(profile.familyId, entry.docId);
-    setItemBusy(false);
-    setEditingKey(null);
-    // A deleted custom item's row disappears — drop it from selection.
-    if (entry.isCustom) {
-      setSelected((prev) => {
-        if (!prev.has(entry.key)) return prev;
-        const next = new Set(prev);
-        next.delete(entry.key);
-        return next;
-      });
+    try {
+      await deleteCatalogItem(profile.familyId, entry.docId);
+      setEditingKey(null);
+      // A deleted custom item's row disappears — drop it from selection.
+      if (entry.isCustom) {
+        setSelected((prev) => {
+          if (!prev.has(entry.key)) return prev;
+          const next = new Set(prev);
+          next.delete(entry.key);
+          return next;
+        });
+      }
+      flashToast(entry.isCustom ? `Removed ${entry.label}` : `Reset ${entry.label} to default`);
+    } catch (e) {
+      console.error('Catalog remove failed', e);
+      flashToast("Couldn't update — check your connection and try again.");
+    } finally {
+      setItemBusy(false);
     }
-    flashToast(entry.isCustom ? `Removed ${entry.label}` : `Reset ${entry.label} to default`);
   };
 
   const handleAddItem = async (input: CatalogItemInput) => {
     if (!profile?.familyId || isGuest) return;
     setItemBusy(true);
-    await addCustomItem(profile.familyId, input, profile.uid);
-    setItemBusy(false);
-    setAddingItem(false);
-    flashToast(`Added ${input.label.trim()} to your catalog`);
+    try {
+      await addCustomItem(profile.familyId, input, profile.uid);
+      setAddingItem(false);
+      flashToast(`Added ${input.label.trim()} to your catalog`);
+    } catch (e) {
+      console.error('Catalog add failed', e);
+      flashToast("Couldn't add the item — check your connection and try again.");
+    } finally {
+      setItemBusy(false);
+    }
   };
 
   // Sensible defaults for a brand-new item — seeded from the tab +
