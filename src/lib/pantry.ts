@@ -19,7 +19,7 @@
 import {
   collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot,
+  onSnapshot, writeBatch,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -164,6 +164,23 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
   { id: 'other',    emoji: '✨',  label: 'Other' },
 ];
 
+/** Default starter set seeded on the empty Utilities page. One tap and
+ *  the household's typical recurring bills appear with cadence prefilled
+ *  to monthly — the parent only has to fill in their meter numbers /
+ *  actual amounts. Helpers are appended separately based on a count the
+ *  parent picks at seed time. */
+export const DEFAULT_UTILITY_SEEDS: Array<{
+  name: string;
+  category: UtilityCategory;
+}> = [
+  { name: 'Power',    category: 'power' },
+  { name: 'Water',    category: 'water' },
+  { name: 'Internet', category: 'internet' },
+  { name: 'TV',       category: 'tv' },
+  { name: 'Security', category: 'security' },
+  { name: 'Gas',      category: 'gas' },
+];
+
 /** A recurring household bill or a helper's salary. Lives in
  *  families/{f}/utilities. Designed to roll up — alongside staples —
  *  into the unified Budget surface. Empty optional fields are stored
@@ -190,8 +207,44 @@ export interface Utility {
   notes: string;
   /** False keeps the row but drops it from the Budget roll-up. */
   active: boolean;
+  // ── Denormalised payment status ────────────────────────────────
+  // Mirrors the most recent payment so each utility row can render
+  // its status pill ("Paid · May" / "Overdue 3d") from a single doc
+  // read. The full ledger lives in the `payments` sub-collection.
+  /** Doc id of the payment row reflected in the fields below. Lets
+   *  "mark paid" twice in the same period update one record rather
+   *  than stacking duplicates. */
+  lastPaymentId?: string;
+  /** YYYY-MM bucket the most recent payment satisfied. */
+  lastPaymentPeriodKey?: string;
+  /** Amount of the most recent payment, in cents. */
+  lastPaymentCents?: number;
+  /** When the most recent payment was made. */
+  lastPaymentAt?: Timestamp;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
+}
+
+/** A single payment against a utility — captures what the family
+ *  actually paid (which may differ from the recurring `amountCents`)
+ *  and when. Stored as a sub-collection so the ledger keeps full
+ *  history; the parent doc carries a denormalised pointer to the
+ *  most recent entry for fast row rendering. */
+export interface Payment {
+  id: string;
+  /** Cents in the family's display currency. */
+  amountCents: number;
+  /** When the payment was made (parent-picked; defaults to today). */
+  paidAt: Timestamp;
+  /** uid of the parent / helper who marked it paid. */
+  paidBy: string;
+  /** YYYY-MM bucket this payment satisfies. Derived from `paidAt` at
+   *  write time; lets the row look up "paid this month?" cheaply. */
+  periodKey: string;
+  /** Receipt / transaction reference — '' when none. */
+  reference: string;
+  notes: string;
+  createdAt: Timestamp;
 }
 
 // ── Grocery list (a "run") ───────────────────────────────────────
@@ -251,6 +304,9 @@ const listCol = (familyId: string) =>
 
 const utilityCol = (familyId: string) =>
   collection(db, 'families', familyId, 'utilities');
+
+const paymentCol = (familyId: string, utilityId: string) =>
+  collection(db, 'families', familyId, 'utilities', utilityId, 'payments');
 
 // ── Staples ──────────────────────────────────────────────────────
 
@@ -367,6 +423,174 @@ export function sumMonthlyUtilities(utilities: Utility[]): number {
   return utilities
     .filter((u) => u.active)
     .reduce((sum, u) => sum + monthlyEquivalentCents(u.amountCents || 0, u.cadence), 0);
+}
+
+/** Total of payments captured for the current month, plus the count
+ *  of utilities marked paid. Read from the denormalised lastPayment*
+ *  fields on the utility doc so we don't need to subscribe to every
+ *  payment sub-collection just to render the roll-up. */
+export function sumPaidThisPeriod(
+  utilities: Utility[],
+  now: Date = new Date(),
+): { paidCents: number; paidCount: number } {
+  const key = currentPeriodKey(now);
+  let paidCents = 0;
+  let paidCount = 0;
+  for (const u of utilities) {
+    if (u.active && u.lastPaymentPeriodKey === key) {
+      paidCents += u.lastPaymentCents || 0;
+      paidCount += 1;
+    }
+  }
+  return { paidCents, paidCount };
+}
+
+// ── Default seeds + payments ─────────────────────────────────────
+
+/** Batch-create the default utility set plus N "Helper N — salary"
+ *  placeholder rows. Skips bills the family already has by name so
+ *  repeated taps are idempotent. */
+export async function seedDefaultUtilities(
+  familyId: string,
+  existing: Utility[],
+  helperCount: number,
+): Promise<number> {
+  if (isGuestActive()) return 0;
+  const haveByName = new Set(existing.map((u) => u.name.trim().toLowerCase()));
+  const batch = writeBatch(db);
+  let added = 0;
+  const blank = {
+    amountCents: 0,
+    cadence: 'monthly' as Cadence,
+    dueDay: 0,
+    accountRef: '',
+    preferredSupplierId: '',
+    notes: '',
+    active: true,
+  };
+  for (const seed of DEFAULT_UTILITY_SEEDS) {
+    if (haveByName.has(seed.name.toLowerCase())) continue;
+    const ref = doc(utilityCol(familyId));
+    batch.set(ref, {
+      ...blank,
+      name: seed.name,
+      category: seed.category,
+      createdAt: serverTimestamp(),
+    });
+    added++;
+  }
+  const n = Math.max(0, Math.min(20, Math.round(helperCount || 0)));
+  for (let i = 0; i < n; i++) {
+    const name = n === 1 ? 'Helper — salary' : `Helper ${i + 1} — salary`;
+    if (haveByName.has(name.toLowerCase())) continue;
+    const ref = doc(utilityCol(familyId));
+    batch.set(ref, {
+      ...blank,
+      name,
+      category: 'salary' as UtilityCategory,
+      createdAt: serverTimestamp(),
+    });
+    added++;
+  }
+  if (added > 0) await batch.commit();
+  return added;
+}
+
+export function subscribeToPayments(
+  familyId: string,
+  utilityId: string,
+  cb: (payments: Payment[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    paymentCol(familyId, utilityId),
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Payment)));
+    },
+    () => cb([]),
+  );
+}
+
+/** Record (or overwrite) the payment for the period implied by
+ *  `data.periodKey`. If a payment already exists for that period on
+ *  this utility, update it in place rather than stacking — the
+ *  caller passes the current utility doc so we can spot the case
+ *  without an extra read. Both the payment doc and the denormalised
+ *  last-payment fields on the parent utility are written in one
+ *  batch so the row's status pill flips atomically. */
+export async function recordPayment(
+  familyId: string,
+  utility: Utility,
+  data: Omit<Payment, 'id' | 'createdAt'>,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-payment';
+  const batch = writeBatch(db);
+  let paymentId: string;
+  if (utility.lastPaymentId && utility.lastPaymentPeriodKey === data.periodKey) {
+    paymentId = utility.lastPaymentId;
+    batch.update(doc(paymentCol(familyId, utility.id), paymentId), {
+      amountCents: data.amountCents,
+      paidAt: data.paidAt,
+      paidBy: data.paidBy,
+      reference: data.reference,
+      notes: data.notes,
+    });
+  } else {
+    const ref = doc(paymentCol(familyId, utility.id));
+    paymentId = ref.id;
+    batch.set(ref, { ...data, createdAt: serverTimestamp() });
+  }
+  batch.update(doc(utilityCol(familyId), utility.id), {
+    lastPaymentId: paymentId,
+    lastPaymentPeriodKey: data.periodKey,
+    lastPaymentCents: data.amountCents,
+    lastPaymentAt: data.paidAt,
+    updatedAt: serverTimestamp(),
+  });
+  await batch.commit();
+  return paymentId;
+}
+
+// ── Period + status helpers ──────────────────────────────────────
+
+/** YYYY-MM bucket for the supplied date. */
+export function currentPeriodKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** "May 2026" label for a YYYY-MM key. */
+export function periodLabel(periodKey: string): string {
+  const [y, m] = periodKey.split('-').map(Number);
+  if (!y || !m) return periodKey;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+}
+
+/** Status of a utility for THIS calendar month — drives the row's
+ *  visual pill (paid / due-soon / overdue / unpaid). */
+export type UtilityStatus =
+  | { kind: 'paid'; periodKey: string; amountCents: number }
+  | { kind: 'due-soon'; daysUntil: number; dueDay: number }
+  | { kind: 'overdue'; daysOverdue: number; dueDay: number }
+  | { kind: 'unpaid' };
+
+export function paymentStatus(utility: Utility, now: Date = new Date()): UtilityStatus {
+  const key = currentPeriodKey(now);
+  if (utility.lastPaymentPeriodKey === key) {
+    return { kind: 'paid', periodKey: key, amountCents: utility.lastPaymentCents || 0 };
+  }
+  // Without a due-day the only thing we know is "not paid yet this
+  // month" — keep the pill quiet rather than guessing a date.
+  if (utility.active && utility.dueDay && utility.dueDay > 0) {
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const effectiveDue = Math.min(utility.dueDay, lastDay);
+    const diff = effectiveDue - now.getDate();
+    if (diff < 0) return { kind: 'overdue', daysOverdue: -diff, dueDay: utility.dueDay };
+    if (diff <= 5) return { kind: 'due-soon', daysUntil: diff, dueDay: utility.dueDay };
+  }
+  return { kind: 'unpaid' };
 }
 
 // ── Suppliers ────────────────────────────────────────────────────

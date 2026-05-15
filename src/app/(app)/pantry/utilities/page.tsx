@@ -4,19 +4,24 @@
 // Power, water, internet, TV, security, rent… plus a row per helper
 // salary. Full CRUD: add, edit (inline), delete. Each row carries an
 // amount, a cadence, an optional due-day, account reference and a
-// preferred supplier. The monthly roll-up here is the figure that —
-// alongside staples — feeds the unified Budget surface.
+// preferred supplier. The monthly roll-up here — alongside what's
+// already been paid this month — is the figure that feeds the unified
+// Budget.
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   UTILITY_CATEGORIES, UtilityCategory, Cadence,
+  DEFAULT_UTILITY_SEEDS,
   addUtility, updateUtility, deleteUtility,
-  monthlyEquivalentCents, sumMonthlyUtilities,
-  Utility, Supplier,
+  seedDefaultUtilities, recordPayment,
+  monthlyEquivalentCents, sumMonthlyUtilities, sumPaidThisPeriod,
+  currentPeriodKey, periodLabel, paymentStatus,
+  Utility, Supplier, UtilityStatus,
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
@@ -41,6 +46,7 @@ export default function UtilitiesPage() {
 
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const visible = useMemo(
@@ -48,7 +54,12 @@ export default function UtilitiesPage() {
     [utilities, filter],
   );
 
-  const monthlyTotal = useMemo(() => sumMonthlyUtilities(utilities), [utilities]);
+  const monthlyExpected = useMemo(() => sumMonthlyUtilities(utilities), [utilities]);
+  const { paidCents, paidCount } = useMemo(() => sumPaidThisPeriod(utilities), [utilities]);
+  const activeCount = useMemo(() => utilities.filter((u) => u.active).length, [utilities]);
+  const outstanding = Math.max(0, monthlyExpected - paidCents);
+
+  const showSeedCard = filter === 'all' && utilities.length === 0 && !adding;
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -60,7 +71,7 @@ export default function UtilitiesPage() {
         </div>
         {!isGuest && (
           <button
-            onClick={() => { setAdding((v) => !v); setEditingId(null); }}
+            onClick={() => { setAdding((v) => !v); setEditingId(null); setPayingId(null); }}
             className="h-10 px-4 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
           >
             {adding ? 'Close' : '+ Add'}
@@ -68,19 +79,31 @@ export default function UtilitiesPage() {
         )}
       </div>
 
-      {/* Monthly roll-up — the number that flows into the Budget. */}
-      <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border border-pantry-leaf rounded-hive-lg p-4 mb-4">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
-          Recurring this month
-        </p>
-        <p className="font-nunito font-black text-3xl mt-0.5">
-          {formatCents(monthlyTotal, currency)}
-        </p>
-        <p className="text-[11px] text-hive-muted mt-1">
-          {utilities.length} bill{utilities.length === 1 ? '' : 's'} &amp; salar{utilities.length === 1 ? 'y' : 'ies'} tracked
-          {' '}· non-monthly cadences are normalised to a monthly figure.
-        </p>
-      </div>
+      {/* Monthly roll-up — expected vs paid so far this month. */}
+      {utilities.length > 0 && (
+        <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border border-pantry-leaf rounded-hive-lg p-4 mb-4">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+            Expected this month
+          </p>
+          <p className="font-nunito font-black text-3xl mt-0.5">
+            {formatCents(monthlyExpected, currency)}
+          </p>
+          <div className="flex items-baseline justify-between gap-3 mt-2 text-[11px] font-nunito font-extrabold">
+            <span className="text-pantry-leaf-dk">
+              ✓ Paid {formatCents(paidCents, currency)}
+              <span className="text-hive-muted font-bold"> · {paidCount}/{activeCount} bills</span>
+            </span>
+            <span className={outstanding > 0 ? 'text-hive-rose' : 'text-pantry-leaf-dk'}>
+              {outstanding > 0
+                ? `Outstanding ${formatCents(outstanding, currency)}`
+                : 'All settled 🎉'}
+            </span>
+          </div>
+          <p className="text-[10px] text-hive-muted mt-2 leading-relaxed">
+            Non-monthly cadences are normalised to a monthly figure. Tap a row's <strong>Mark paid</strong> to log the actual amount.
+          </p>
+        </div>
+      )}
 
       {/* Filter chips */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
@@ -102,15 +125,19 @@ export default function UtilitiesPage() {
         />
       )}
 
-      {/* List */}
-      {visible.length === 0 ? (
+      {/* Seed defaults · only on the fully-empty all-filter state. */}
+      {showSeedCard ? (
+        <SeedDefaultsCard
+          familyId={profile?.familyId || ''}
+          isGuest={isGuest}
+          existing={utilities}
+        />
+      ) : visible.length === 0 ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
           <div className="text-4xl mb-2">🧾</div>
           <p className="font-nunito font-extrabold text-[14px]">Nothing here yet</p>
           <p className="text-[12px] text-hive-muted mt-1">
-            {filter === 'all'
-              ? 'Add your recurring bills — power, water, internet, TV, security — and a row per helper salary.'
-              : 'No entries in this category. Tap + Add to add one.'}
+            No entries in this category. Tap + Add to add one.
           </p>
         </div>
       ) : (
@@ -122,9 +149,18 @@ export default function UtilitiesPage() {
               suppliers={suppliers}
               currency={currency}
               editing={editingId === u.id}
-              onEditToggle={() => setEditingId((id) => (id === u.id ? null : u.id))}
+              paying={payingId === u.id}
+              onEditToggle={() => {
+                setEditingId((id) => (id === u.id ? null : u.id));
+                setPayingId(null);
+              }}
+              onPayToggle={() => {
+                setPayingId((id) => (id === u.id ? null : u.id));
+                setEditingId(null);
+              }}
               familyId={profile?.familyId || ''}
               isGuest={isGuest}
+              paidByUid={profile?.uid || ''}
             />
           ))}
         </div>
@@ -136,7 +172,7 @@ export default function UtilitiesPage() {
         <p className="text-[11px] text-hive-muted leading-relaxed mt-1">
           Utilities sit beside <strong>Staples</strong> in the Pantry. When the unified{' '}
           <Link href="/pantry/budget" className="text-pantry-leaf-dk font-bold hover:underline">Budget</Link>{' '}
-          ships, this monthly total joins the weekly grocery spend so the whole household run is one number.
+          ships, this month's <em>paid</em> + <em>outstanding</em> totals join the weekly grocery spend so the whole household run is one number.
         </p>
       </div>
 
@@ -164,16 +200,46 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
   );
 }
 
+function StatusPill({ status, currency }: { status: UtilityStatus; currency: string }) {
+  if (status.kind === 'paid') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-hive-pill bg-pantry-leaf-soft text-pantry-leaf-dk text-[10px] font-nunito font-extrabold">
+        ✓ Paid · {periodLabel(status.periodKey)}
+        {status.amountCents > 0 && <span className="opacity-80">· {formatCents(status.amountCents, currency)}</span>}
+      </span>
+    );
+  }
+  if (status.kind === 'overdue') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-hive-pill bg-[#FCEAEA] text-hive-rose text-[10px] font-nunito font-extrabold">
+        ⚠ Overdue {status.daysOverdue}d
+      </span>
+    );
+  }
+  if (status.kind === 'due-soon') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-hive-pill bg-[#FFF4E0] text-[#A2660B] text-[10px] font-nunito font-extrabold">
+        🔔 Due in {status.daysUntil === 0 ? 'today' : `${status.daysUntil}d`}
+      </span>
+    );
+  }
+  return null;
+}
+
 function UtilityRow({
-  utility, suppliers, currency, editing, onEditToggle, familyId, isGuest,
+  utility, suppliers, currency, editing, paying,
+  onEditToggle, onPayToggle, familyId, isGuest, paidByUid,
 }: {
   utility: Utility;
   suppliers: Supplier[];
   currency: string;
   editing: boolean;
+  paying: boolean;
   onEditToggle: () => void;
+  onPayToggle: () => void;
   familyId: string;
   isGuest: boolean;
+  paidByUid: string;
 }) {
   const supplier = utility.preferredSupplierId
     ? suppliers.find((s) => s.id === utility.preferredSupplierId)
@@ -181,6 +247,8 @@ function UtilityRow({
   const cat = UTILITY_CATEGORIES.find((c) => c.id === utility.category);
   const cadence = CADENCES.find((c) => c.id === utility.cadence);
   const monthly = monthlyEquivalentCents(utility.amountCents || 0, utility.cadence);
+  const status = paymentStatus(utility);
+  const isPaid = status.kind === 'paid';
 
   if (editing) {
     return (
@@ -201,37 +269,252 @@ function UtilityRow({
   }
 
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
-      <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
-        {cat?.emoji || '✨'}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-nunito font-extrabold text-[14px] truncate">{utility.name}</p>
-        <p className="text-[11px] text-hive-muted truncate flex items-baseline gap-1 flex-wrap">
-          <span className="text-pantry-leaf-dk font-nunito font-extrabold">
-            {utility.amountCents > 0 ? formatCents(utility.amountCents, currency) : 'No amount'}
-          </span>
-          <span>· {cadence?.label || utility.cadence}</span>
-          {utility.cadence !== 'monthly' && utility.amountCents > 0 && (
-            <span>· ≈ {formatCents(monthly, currency)}/mo</span>
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 space-y-2">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-[12px] bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-xl shrink-0">
+          {cat?.emoji || '✨'}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <p className="font-nunito font-extrabold text-[14px] truncate">{utility.name}</p>
+            <StatusPill status={status} currency={currency} />
+          </div>
+          <p className="text-[11px] text-hive-muted truncate flex items-baseline gap-1 flex-wrap">
+            <span className="text-pantry-leaf-dk font-nunito font-extrabold">
+              {utility.amountCents > 0 ? formatCents(utility.amountCents, currency) : 'No amount'}
+            </span>
+            <span>· {cadence?.label || utility.cadence}</span>
+            {utility.cadence !== 'monthly' && utility.amountCents > 0 && (
+              <span>· ≈ {formatCents(monthly, currency)}/mo</span>
+            )}
+            {utility.dueDay > 0 && <span>· due {ordinal(utility.dueDay)}</span>}
+          </p>
+          {utility.accountRef && (
+            <p className="text-[10px] text-hive-muted truncate mt-0.5">Ref: {utility.accountRef}</p>
           )}
-          {utility.dueDay > 0 && <span>· due {ordinal(utility.dueDay)}</span>}
-        </p>
-        {utility.accountRef && (
-          <p className="text-[10px] text-hive-muted truncate mt-0.5">Ref: {utility.accountRef}</p>
-        )}
-        {supplier && (
-          <div className="mt-1"><SupplierBadge supplier={supplier} /></div>
+          {supplier && (
+            <div className="mt-1"><SupplierBadge supplier={supplier} /></div>
+          )}
+        </div>
+        {!isGuest && (
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <button
+              onClick={onPayToggle}
+              className={`h-7 px-2.5 rounded-hive-pill text-[10px] font-nunito font-black transition-colors ${
+                isPaid
+                  ? 'bg-pantry-leaf-soft text-pantry-leaf-dk border border-pantry-leaf/40'
+                  : status.kind === 'overdue'
+                    ? 'bg-hive-rose text-white'
+                    : 'bg-pantry-leaf text-white'
+              }`}
+            >
+              {paying ? 'Close' : isPaid ? '✏ Update payment' : '✓ Mark paid'}
+            </button>
+            <button
+              onClick={onEditToggle}
+              className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline"
+            >
+              Edit
+            </button>
+          </div>
         )}
       </div>
-      {!isGuest && (
-        <button
-          onClick={onEditToggle}
-          className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline shrink-0"
-        >
-          Edit
-        </button>
+      {paying && !isGuest && (
+        <PaymentForm
+          familyId={familyId}
+          utility={utility}
+          currency={currency}
+          paidByUid={paidByUid}
+          onDone={onPayToggle}
+        />
       )}
+    </div>
+  );
+}
+
+function SeedDefaultsCard({
+  familyId, isGuest, existing,
+}: {
+  familyId: string;
+  isGuest: boolean;
+  existing: Utility[];
+}) {
+  const [helperCount, setHelperCount] = useState<number>(0);
+  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSeed = async () => {
+    if (isGuest) return;
+    setError('');
+    setSeeding(true);
+    try {
+      await seedDefaultUtilities(familyId, existing, helperCount);
+    } catch (e: any) {
+      setError(e?.message || 'Could not seed defaults.');
+    }
+    setSeeding(false);
+  };
+
+  const billsLabel = `${DEFAULT_UTILITY_SEEDS.length} bills`;
+  const salaryLabel = helperCount > 0
+    ? ` + ${helperCount} salar${helperCount === 1 ? 'y' : 'ies'}`
+    : '';
+
+  return (
+    <div className="bg-gradient-to-br from-pantry-leaf-soft to-white border-2 border-dashed border-pantry-leaf rounded-hive-lg p-5">
+      <div className="text-4xl mb-2 text-center">✨</div>
+      <p className="font-nunito font-black text-[16px] text-center">Kick-start with the basics</p>
+      <p className="text-[12px] text-hive-muted text-center mt-1 leading-relaxed">
+        One tap seeds the typical household bills — power, water, internet, TV, security, gas — plus a placeholder row per helper salary. You only fill in <strong>amount</strong> and <strong>meter / account number</strong> later.
+      </p>
+
+      <div className="mt-4 bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+        <span className="text-[11px] font-nunito font-extrabold text-hive-navy flex-1">
+          Helper salaries to add
+        </span>
+        <NumberInput
+          value={helperCount}
+          onChange={setHelperCount}
+          min={0}
+          max={20}
+          ariaLabel="Helper count"
+          placeholder="0"
+          className="w-20 h-9 px-3 bg-hive-cream rounded-[10px] text-center font-nunito font-black text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+        />
+      </div>
+
+      <button
+        onClick={handleSeed}
+        disabled={seeding || isGuest}
+        className="w-full mt-3 h-11 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px] disabled:opacity-40 transition-colors shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
+      >
+        {seeding ? 'Seeding…' : `✨ Seed ${billsLabel}${salaryLabel}`}
+      </button>
+      {isGuest && (
+        <p className="text-[10px] text-hive-muted text-center mt-2 italic">
+          Sign in to save these to your family.
+        </p>
+      )}
+      {error && <p className="text-hive-rose text-[12px] font-bold mt-2 text-center">{error}</p>}
+    </div>
+  );
+}
+
+function PaymentForm({
+  familyId, utility, currency, paidByUid, onDone,
+}: {
+  familyId: string;
+  utility: Utility;
+  currency: string;
+  paidByUid: string;
+  onDone: () => void;
+}) {
+  // Default the amount to the recurring figure so a one-tap save is
+  // the common case; parents only touch this when the bill came in
+  // higher or lower than expected.
+  const [amountMajor, setAmountMajor] = useState<number>(
+    utility.lastPaymentCents
+      ? utility.lastPaymentCents / 100
+      : (utility.amountCents || 0) / 100,
+  );
+  const [paidAtDate, setPaidAtDate] = useState(todayYmd());
+  const [reference, setReference] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async () => {
+    setError('');
+    if (amountMajor <= 0) { setError('Pick an amount greater than zero.'); return; }
+    if (!paidByUid) { setError('Sign-in required to log a payment.'); return; }
+    setSaving(true);
+    try {
+      const paidAtJs = parseYmdLocal(paidAtDate);
+      await recordPayment(familyId, utility, {
+        amountCents: Math.round(amountMajor * 100),
+        paidAt: Timestamp.fromDate(paidAtJs),
+        paidBy: paidByUid,
+        periodKey: currentPeriodKey(paidAtJs),
+        reference: reference.trim(),
+        notes: notes.trim(),
+      });
+      onDone();
+    } catch (e: any) {
+      setError(e?.message || 'Could not save payment.');
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="bg-pantry-leaf-soft/50 border border-pantry-leaf/40 rounded-hive p-3 space-y-2">
+      <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+        Log payment for {periodLabel(currentPeriodKey(parseYmdLocal(paidAtDate)))}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Amount paid</label>
+          <div className="flex items-baseline gap-1 mt-1">
+            <span className="font-nunito font-black text-sm text-hive-muted">{currency === 'USD' ? '$' : currency}</span>
+            <NumberInput
+              value={amountMajor}
+              onChange={setAmountMajor}
+              allowDecimal
+              min={0}
+              ariaLabel="Amount paid"
+              placeholder="0"
+              className="flex-1 h-9 px-2 bg-hive-paper rounded-[10px] font-nunito font-black text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Paid on</label>
+          <input
+            type="date"
+            value={paidAtDate}
+            onChange={(e) => setPaidAtDate(e.target.value)}
+            className="w-full mt-1 h-9 px-2 bg-hive-paper rounded-[10px] text-[12px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Reference (optional)</label>
+        <input
+          value={reference}
+          onChange={(e) => setReference(e.target.value)}
+          placeholder="receipt or token no."
+          maxLength={60}
+          className="w-full mt-1 h-9 px-2 bg-hive-paper rounded-[10px] text-[12px] font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+        />
+      </div>
+      <div>
+        <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Notes (optional)</label>
+        <input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="e.g. paid in cash"
+          maxLength={120}
+          className="w-full mt-1 h-9 px-2 bg-hive-paper rounded-[10px] text-[12px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+        />
+      </div>
+      {error && <p className="text-hive-rose text-[11px] font-bold">{error}</p>}
+      <div className="flex items-center gap-2 pt-1">
+        <button
+          onClick={submit}
+          disabled={saving}
+          className="flex-1 h-10 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[12px] disabled:opacity-40 transition-colors"
+        >
+          {saving ? 'Saving…' : utility.lastPaymentId && utility.lastPaymentPeriodKey === currentPeriodKey(parseYmdLocal(paidAtDate))
+            ? 'Update payment'
+            : 'Save payment'}
+        </button>
+        <button
+          onClick={onDone}
+          disabled={saving}
+          className="h-10 px-3 rounded-hive-pill bg-hive-line text-hive-muted font-nunito font-extrabold text-[11px]"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }
@@ -462,4 +745,19 @@ function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+/** Today as YYYY-MM-DD in the user's local timezone — the format the
+ *  native <input type="date"> expects. */
+function todayYmd(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Parse a YYYY-MM-DD string in local time. Avoids the timezone shift
+ *  you get from `new Date('2026-05-15')`, which JS treats as UTC midnight
+ *  and may land on the previous day for users east of UTC. */
+function parseYmdLocal(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(y || 2026, (m || 1) - 1, d || 1);
 }
