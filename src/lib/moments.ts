@@ -37,17 +37,17 @@ import { db, storage } from './firebase';
 export type Reaction = '❤️' | '👏' | '😂' | '🎉';
 export const REACTION_EMOJIS: readonly Reaction[] = ['❤️', '👏', '😂', '🎉'];
 
-/** Optional category chip on a post. Lets us filter the feed by
- *  "school" or "birthday" later without a free-text tag soup. */
-export type EventTag =
-  | 'everyday'
-  | 'school'
-  | 'weekend'
-  | 'birthday'
-  | 'milestone'
-  | 'trip';
+/** Category chip on a post. Built-in presets live in EVENT_TAGS below;
+ *  a parent can also type a 1–2 word custom label (e.g. "Sleepover").
+ *  We store the resolved chip on the post — emoji + label — so the feed
+ *  doesn't have to lookup ids and custom chips just work. */
+export interface EventTag {
+  id: string;       // builtin id ('everyday') or 'custom' for free-text
+  emoji: string;
+  label: string;
+}
 
-export const EVENT_TAGS: { id: EventTag; emoji: string; label: string }[] = [
+export const EVENT_TAGS: EventTag[] = [
   { id: 'everyday',  emoji: '🌿', label: 'Everyday' },
   { id: 'school',    emoji: '🎒', label: 'School' },
   { id: 'weekend',   emoji: '🎈', label: 'Weekend' },
@@ -55,6 +55,11 @@ export const EVENT_TAGS: { id: EventTag; emoji: string; label: string }[] = [
   { id: 'milestone', emoji: '🌟', label: 'Milestone' },
   { id: 'trip',      emoji: '✈️', label: 'Trip' },
 ];
+
+/** Default emoji for a custom chip when the parent doesn't pick one. */
+export const CUSTOM_TAG_EMOJI = '✨';
+/** Max characters allowed in a custom chip label — keeps the chip tight. */
+export const CUSTOM_TAG_MAX_LEN = 18;
 
 export type Visibility = 'family' | 'network';
 

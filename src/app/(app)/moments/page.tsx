@@ -18,7 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   subscribeToFeed, toggleReaction, subscribeToMyReactions,
-  Post, REACTION_EMOJIS, Reaction, EVENT_TAGS,
+  Post, REACTION_EMOJIS, Reaction,
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -126,7 +126,7 @@ function PostCard({
   }, [familyId, post.id, myUid]);
 
   const photo = post.photos[photoIdx];
-  const event = EVENT_TAGS.find((t) => t.id === post.eventTag);
+  const event = post.eventTag;
   const date = post.createdAt?.toDate?.() || new Date();
   const dateLabel = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const taggedKids = post.kidTags.map((id) => children.find((c) => c.id === id)).filter(Boolean) as typeof children;

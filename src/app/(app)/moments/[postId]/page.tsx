@@ -14,7 +14,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   getPost, toggleReaction, subscribeToMyReactions, subscribeToComments,
   addComment, deleteComment, deletePost,
-  Post, Comment, Reaction, REACTION_EMOJIS, EVENT_TAGS,
+  Post, Comment, Reaction, REACTION_EMOJIS,
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -83,7 +83,7 @@ export default function PostDetailPage() {
   const isAuthor = post.authorUid === profile?.uid;
   const isParent = profile?.role === 'parent';
   const canDeletePost = isAuthor || isParent;
-  const event = EVENT_TAGS.find((t) => t.id === post.eventTag);
+  const event = post.eventTag;
   const date = post.createdAt?.toDate?.() || new Date();
   const dateLabel = date.toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
