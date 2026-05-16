@@ -10,7 +10,8 @@ import {
   Gender, BirthdayPrivacy, ExternalContact,
   addExternalContact, updateExternalContact, removeExternalContact,
   PointSystemConfig, readPointSystemConfig,
-  ensureInviteCodes,
+  ensureInviteCodes, setInviteCodeActive, regenerateInviteCode,
+  InviteCodeState,
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
@@ -48,11 +49,15 @@ export default function SettingsPage() {
 
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
-  // Per-role invite codes — resolved from family.inviteCodes via
-  // ensureInviteCodes(), which lazily generates any missing ones so
-  // pre-2026-05 families pick them up on first Settings open.
-  const [inviteCodes, setInviteCodes] = useState<{ kid: string; helper: string; guest: string } | null>(null);
+  // Per-role invite codes — full lifecycle state (code + active +
+  // timestamps). Resolved from family.inviteCodes via
+  // ensureInviteCodes(), which lazily generates / migrates older
+  // shapes so pre-lifecycle families pick them up on first Settings
+  // open.
+  const [inviteCodes, setInviteCodes] = useState<{ kid: InviteCodeState; helper: InviteCodeState; guest: InviteCodeState } | null>(null);
   const [copiedCode, setCopiedCode] = useState<'kid' | 'helper' | 'guest' | null>(null);
+  // Per-row "doing something" indicators so multi-tap can't race.
+  const [busyCode, setBusyCode] = useState<{ role: 'kid'|'helper'|'guest'; op: 'toggle'|'regen' } | null>(null);
   const [newChildName, setNewChildName] = useState('');
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
@@ -547,11 +552,81 @@ export default function SettingsPage() {
   }, [family, isGuest]);
 
   const copyRoleCode = (role: 'kid' | 'helper' | 'guest') => {
-    const code = inviteCodes?.[role];
+    const code = inviteCodes?.[role]?.code;
     if (!code) return;
     navigator.clipboard.writeText(code);
     setCopiedCode(role);
     setTimeout(() => setCopiedCode((cur) => (cur === role ? null : cur)), 2000);
+  };
+
+  // Pre-filled invite copy used by the WhatsApp + Email share buttons.
+  // Falls back to a generic origin string when window isn't available
+  // (SSR — though this whole page is 'use client', so it's fine).
+  const buildShareMessage = (role: 'kid' | 'helper' | 'guest', code: string): { subject: string; body: string } => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://ourkaya.com';
+    const familyName = family?.name || 'our family';
+    if (role === 'kid') {
+      return {
+        subject: `Welcome to ${familyName} on Kaya 🎉`,
+        body: `Hi! Welcome to ${familyName} on Kaya 🎉\n\nTap to set up your account: ${origin}/onboarding\n\nUse this invite code: ${code}\n\nThe code is single-use, so don't share it with anyone else.`,
+      };
+    }
+    if (role === 'helper') {
+      return {
+        subject: `Join ${familyName} on Kaya as a helper`,
+        body: `Hi! ${familyName} would like you to join their Kaya family as a helper.\n\nSign in: ${origin}/onboarding\n\nInvite code: ${code}\n\nThanks!`,
+      };
+    }
+    return {
+      subject: `Follow ${familyName} on Kaya`,
+      body: `Hi! ${familyName} would love for you to follow along on Kaya.\n\nSign in here: ${origin}/onboarding\n\nGuest invite code: ${code}`,
+    };
+  };
+
+  const shareViaWhatsApp = (role: 'kid' | 'helper' | 'guest') => {
+    const code = inviteCodes?.[role];
+    if (!code) return;
+    const { body } = buildShareMessage(role, code.code);
+    const url = `https://wa.me/?text=${encodeURIComponent(body)}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const shareViaEmail = (role: 'kid' | 'helper' | 'guest') => {
+    const code = inviteCodes?.[role];
+    if (!code) return;
+    const { subject, body } = buildShareMessage(role, code.code);
+    // mailto: opens the user's default mail client with the message
+    // pre-filled. Works on every device — no backend email plumbing.
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  };
+
+  const toggleCodeActive = async (role: 'kid' | 'helper' | 'guest') => {
+    if (!profile?.familyId || !inviteCodes || busyCode) return;
+    const current = inviteCodes[role];
+    setBusyCode({ role, op: 'toggle' });
+    // Optimistic: flip the local state immediately so the UI feels
+    // instant; the server write follows.
+    setInviteCodes({ ...inviteCodes, [role]: { ...current, active: !current.active } });
+    try {
+      await setInviteCodeActive(profile.familyId, role, !current.active);
+    } catch {
+      // Rollback on failure.
+      setInviteCodes({ ...inviteCodes, [role]: current });
+    }
+    setBusyCode(null);
+  };
+
+  const regenerateCode = async (role: 'kid' | 'helper' | 'guest') => {
+    if (!profile?.familyId || !inviteCodes || busyCode) return;
+    if (!confirm('Regenerate this code? The old code will stop working immediately.')) return;
+    setBusyCode({ role, op: 'regen' });
+    try {
+      const newCode = await regenerateInviteCode(profile.familyId, role);
+      // Server marks the new code inactive — parent must activate
+      // before sharing. Update local state to match.
+      setInviteCodes({ ...inviteCodes, [role]: { code: newCode, active: false } });
+    } catch {}
+    setBusyCode(null);
   };
 
   const handleAddChild = async () => {
@@ -1694,27 +1769,88 @@ export default function SettingsPage() {
                 { key: 'helper' as const, title: 'Helpers', emoji: '🤝', hint: 'For nannies / helpers who rate routines for the kids each day.' },
                 { key: 'guest' as const,  title: 'Guests',  emoji: '👀', hint: 'View-only. Great for grandparents and godparents.' },
               ]).map(({ key, title, emoji, hint }) => {
-                const code = inviteCodes?.[key];
+                const entry = inviteCodes?.[key];
+                const code = entry?.code;
+                const active = !!entry?.active;
+                const toggling = busyCode?.role === key && busyCode?.op === 'toggle';
+                const regening = busyCode?.role === key && busyCode?.op === 'regen';
                 return (
                   <div key={key} className="border-t border-kaya-warm-dark/40 pt-3 mt-3 first:border-t-0 first:pt-0 first:mt-0">
-                    <div className="flex items-baseline justify-between mb-1.5">
+                    {/* Header — name + status pill */}
+                    <div className="flex items-center justify-between mb-1.5">
                       <p className="text-sm font-bold">{emoji} {title}</p>
+                      <span
+                        className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                          active
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-kaya-warm-dark/30 text-kaya-sand'
+                        }`}
+                      >
+                        {active ? '● Active' : '○ Inactive'}
+                      </span>
+                    </div>
+                    {/* The code itself — visually muted when inactive */}
+                    <p className={`text-xl font-mono font-bold tracking-[0.25em] mb-1 ${active ? '' : 'opacity-50'}`}>{code || '…'}</p>
+                    <p className="text-[10px] text-kaya-sand leading-relaxed mb-3">{hint}</p>
+
+                    {/* Action row 1 — Activate toggle */}
+                    <button
+                      onClick={() => toggleCodeActive(key)}
+                      disabled={!entry || toggling || isGuest}
+                      className={`w-full h-9 rounded-kaya-sm text-xs font-bold mb-2 transition-colors ${
+                        active
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          : 'bg-kaya-gold hover:bg-kaya-gold-dark text-white'
+                      } disabled:opacity-50`}
+                    >
+                      {toggling
+                        ? 'Saving…'
+                        : active
+                          ? 'Deactivate now'
+                          : 'Activate · single-use'}
+                    </button>
+
+                    {/* Action row 2 — Copy + Share + Regenerate */}
+                    <div className="grid grid-cols-4 gap-1.5">
                       <button
                         onClick={() => copyRoleCode(key)}
-                        disabled={!code}
-                        className="text-[11px] font-bold text-kaya-gold disabled:opacity-40"
+                        disabled={!code || !active}
+                        title={!active ? 'Activate the code first' : ''}
+                        className="h-9 rounded-kaya-sm text-[11px] font-bold bg-white border border-kaya-warm-dark text-kaya-sand disabled:opacity-40"
                       >
-                        {copiedCode === key ? '✅ Copied' : '📋 Copy'}
+                        {copiedCode === key ? '✅' : '📋 Copy'}
+                      </button>
+                      <button
+                        onClick={() => shareViaWhatsApp(key)}
+                        disabled={!code || !active}
+                        title={!active ? 'Activate the code first' : 'Share via WhatsApp'}
+                        className="h-9 rounded-kaya-sm text-[11px] font-bold bg-white border border-kaya-warm-dark text-kaya-sand disabled:opacity-40"
+                      >
+                        💬 WhatsApp
+                      </button>
+                      <button
+                        onClick={() => shareViaEmail(key)}
+                        disabled={!code || !active}
+                        title={!active ? 'Activate the code first' : 'Share via Email'}
+                        className="h-9 rounded-kaya-sm text-[11px] font-bold bg-white border border-kaya-warm-dark text-kaya-sand disabled:opacity-40"
+                      >
+                        ✉️ Email
+                      </button>
+                      <button
+                        onClick={() => regenerateCode(key)}
+                        disabled={!entry || regening || isGuest}
+                        title="Replace this code (kills any leaked copy)"
+                        className="h-9 rounded-kaya-sm text-[11px] font-bold bg-white border border-kaya-warm-dark text-kaya-sand disabled:opacity-40"
+                      >
+                        {regening ? '…' : '🔄 New'}
                       </button>
                     </div>
-                    <p className="text-xl font-mono font-bold tracking-[0.25em] mb-1">{code || '…'}</p>
-                    <p className="text-[10px] text-kaya-sand leading-relaxed">{hint}</p>
                   </div>
                 );
               })}
 
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
-                Inviting <em>other</em> families to start their own? Use the referral link instead.
+                Codes auto-deactivate after one successful join. Re-activate or regenerate any time. Inviting <em>other</em> families to start their own? Use the referral link instead.
               </p>
             </div>
           )}

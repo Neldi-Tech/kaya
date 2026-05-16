@@ -74,10 +74,22 @@ export interface Family {
   // role a new user joins as when they paste it during onboarding. All
   // generated up-front for new families; lazily backfilled for older
   // families via `ensureInviteCodes()`.
+  //
+  // Each entry carries lifecycle state:
+  //   - `active`     gates joins (rejected when false, with a clear UI msg)
+  //   - `activatedAt`/`usedAt` are display-only audit timestamps
+  //   - Kid + Guest codes start INACTIVE — parent activates right
+  //     before sharing. Helper codes start ACTIVE (long-lived staff
+  //     credential). On successful join the code auto-deactivates so
+  //     a single share can't be replayed.
+  //
+  // The field accepts the legacy string shape too for one-shot
+  // migration; `ensureInviteCodes()` normalises to the object form on
+  // first read after the upgrade. Cast at the boundary.
   inviteCodes?: {
-    kid?: string;
-    helper?: string;
-    guest?: string;
+    kid?:    InviteCodeState | string;
+    helper?: InviteCodeState | string;
+    guest?:  InviteCodeState | string;
   };
   // ── Public identity ──
   handle?: string;                // case-preserved, e.g. "Timotheo"
@@ -153,6 +165,20 @@ export interface Family {
   // added today receives both kinds of email until told otherwise.
   externalContacts?: ExternalContact[];
   createdAt: Timestamp;
+}
+
+// Per-role invite code with lifecycle state. Stored under
+// `Family.inviteCodes.{role}`. See the comment on `Family.inviteCodes`
+// for the activation/expiry policy.
+export interface InviteCodeState {
+  code: string;
+  active: boolean;
+  /** Last time someone flipped `active` on. Display-only. */
+  activatedAt?: Timestamp;
+  /** When the code was consumed by a successful join. After this fires
+   *  the code is auto-flipped to inactive and the parent must re-activate
+   *  (or regenerate) before another join is allowed. */
+  usedAt?: Timestamp;
 }
 
 export interface ExternalContact {
@@ -548,11 +574,13 @@ export async function createFamily(
       createdBy,
       inviteCode: generateInviteCode(),
       // Three role-specific codes generated up-front so parents can
-      // copy-share them from Settings right after onboarding.
+      // copy-share them from Settings right after onboarding. Kid +
+      // Guest start inactive (parent activates right before sharing);
+      // Helper starts active since it's a long-lived staff credential.
       inviteCodes: {
-        kid: generateInviteCode(),
-        helper: generateInviteCode(),
-        guest: generateInviteCode(),
+        kid:    { code: generateInviteCode(), active: false },
+        helper: { code: generateInviteCode(), active: true },
+        guest:  { code: generateInviteCode(), active: false },
       },
       referralCode: generateReferralCode(name),
       referredBy: referrerFamilyId,
@@ -824,22 +852,37 @@ export async function findFamilyByInviteCode(code: string): Promise<Family | nul
   return { id: d.id, ...d.data() } as Family;
 }
 
-// Lazily generate per-role invite codes for a family that pre-dates the
-// 3-codes feature. Safe to call repeatedly; only writes when the field
-// is missing or partial. Returns the resolved triple so callers can
-// display all three immediately without a second fetch.
+// Normalise a stored invite-code entry (which may be the legacy
+// string shape OR the new InviteCodeState object) to the canonical
+// object form. Used everywhere we read codes so the rest of the code
+// only deals with one shape.
+function normalizeInviteCode(
+  raw: InviteCodeState | string | undefined,
+  fallbackActive: boolean,
+): InviteCodeState | null {
+  if (!raw) return null;
+  if (typeof raw === 'string') return { code: raw, active: fallbackActive };
+  return raw;
+}
+
+// Lazily generate per-role invite codes for a family that pre-dates
+// the lifecycle feature. Safe to call repeatedly; only writes when the
+// field is missing, partial, or still in the legacy string shape.
+// Returns the resolved triple of fully-normalised state objects so
+// callers can render immediately without a second fetch.
 export async function ensureInviteCodes(
   family: Family,
-): Promise<{ kid: string; helper: string; guest: string }> {
+): Promise<{ kid: InviteCodeState; helper: InviteCodeState; guest: InviteCodeState }> {
   const stored = family.inviteCodes || {};
-  // The legacy `inviteCode` field was historically labelled "Helper
-  // invite code" in Settings, so map it onto `helper` to preserve any
-  // prior sharing. New codes get generated only where missing.
-  const kid    = stored.kid    || generateInviteCode();
-  const helper = stored.helper || family.inviteCode || generateInviteCode();
-  const guest  = stored.guest  || generateInviteCode();
+  // Defaults: kid + guest start INACTIVE (parent activates right
+  // before sharing — minimises the window a leaked code is useful).
+  // Helper starts ACTIVE since it's a long-lived staff credential.
+  const kid    = normalizeInviteCode(stored.kid,    false) || { code: generateInviteCode(), active: false };
+  const helper = normalizeInviteCode(stored.helper, true)  || { code: family.inviteCode || generateInviteCode(), active: true };
+  const guest  = normalizeInviteCode(stored.guest,  false) || { code: generateInviteCode(), active: false };
   const needsWrite =
-    !stored.kid || !stored.helper || !stored.guest;
+    !stored.kid || !stored.helper || !stored.guest ||
+    typeof stored.kid === 'string' || typeof stored.helper === 'string' || typeof stored.guest === 'string';
   if (needsWrite && !isGuestActive()) {
     await updateDoc(doc(db, 'families', family.id), {
       inviteCodes: { kid, helper, guest },
@@ -848,39 +891,121 @@ export async function ensureInviteCodes(
   return { kid, helper, guest };
 }
 
-// Look up a family by ANY of its invite codes (legacy single code +
-// each per-role code). Returns the family along with the role that
-// matched the code so onboarding can auto-assign without showing a
-// role picker. The legacy `inviteCode` defaults to `helper` to match
-// its historical labelling in Settings.
+// Match a code against any of a family's stored codes (legacy + 3
+// per-role). Returns the matched role along with the (normalised)
+// state so the caller can check `active` before honouring the join.
 export async function findFamilyByAnyInviteCode(
   code: string,
-): Promise<{ family: Family; suggestedRole: Role } | null> {
+): Promise<{ family: Family; suggestedRole: Role; state: InviteCodeState } | { reason: 'inactive'; suggestedRole: Role } | null> {
   if (isGuestActive()) return null;
   const upper = code.toUpperCase();
 
-  // Try the legacy single-code path first since every family has it,
-  // including any created before per-role codes shipped.
+  // Try the legacy single-code path first. Treated as the Helper code
+  // (its original Settings labelling) and assumed active — legacy code
+  // had no lifecycle. New per-role codes take precedence below.
   const legacy = await getDocs(
     query(collection(db, 'families'), where('inviteCode', '==', upper)),
   );
   if (!legacy.empty) {
     const d = legacy.docs[0];
-    return { family: { id: d.id, ...d.data() } as Family, suggestedRole: 'helper' };
-  }
-
-  // Then check each per-role code field in turn. Firestore can't
-  // OR-query across nested fields cheaply, so three small reads.
-  for (const role of ['kid', 'helper', 'guest'] as const) {
-    const snap = await getDocs(
-      query(collection(db, 'families'), where(`inviteCodes.${role}`, '==', upper)),
-    );
-    if (!snap.empty) {
-      const d = snap.docs[0];
-      return { family: { id: d.id, ...d.data() } as Family, suggestedRole: role };
+    const fam = { id: d.id, ...d.data() } as Family;
+    // If the same code is ALSO indexed under `inviteCodes.helper`
+    // (e.g. after ensureInviteCodes migrated it), the per-role path
+    // below will catch it with its real `active` state. Skip falling
+    // through to legacy if so — covered by the for-loop's match.
+    const helperState = normalizeInviteCode(fam.inviteCodes?.helper, true);
+    if (!helperState || helperState.code !== upper) {
+      return { family: fam, suggestedRole: 'helper', state: { code: upper, active: true } };
     }
   }
+
+  // Then check each per-role code field. Firestore queries on nested
+  // fields require either an indexed path or three small reads — three
+  // reads is fine for this rate.
+  for (const role of ['kid', 'helper', 'guest'] as const) {
+    // Stored entries can be a string (legacy) OR { code: '...' };
+    // we query both shapes by hitting the `.code` path AND the bare
+    // field. Most families will be on the new shape after one Settings
+    // open; legacy reads keep working until then.
+    const objectQ = await getDocs(
+      query(collection(db, 'families'), where(`inviteCodes.${role}.code`, '==', upper)),
+    );
+    const stringQ = objectQ.empty
+      ? await getDocs(query(collection(db, 'families'), where(`inviteCodes.${role}`, '==', upper)))
+      : null;
+    const snap = !objectQ.empty ? objectQ : stringQ!;
+    if (snap.empty) continue;
+    const d = snap.docs[0];
+    const fam = { id: d.id, ...d.data() } as Family;
+    const state = normalizeInviteCode(
+      fam.inviteCodes?.[role],
+      role === 'helper',
+    ) || { code: upper, active: false };
+    if (!state.active) {
+      return { reason: 'inactive', suggestedRole: role };
+    }
+    return { family: fam, suggestedRole: role, state };
+  }
   return null;
+}
+
+// Toggle an invite code's `active` flag. Writes `activatedAt` when
+// flipping on so the UI can show "Activated 5 min ago".
+export async function setInviteCodeActive(
+  familyId: string,
+  role: 'kid' | 'helper' | 'guest',
+  active: boolean,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const famSnap = await getDoc(doc(db, 'families', familyId));
+  if (!famSnap.exists()) return;
+  const fam = { id: famSnap.id, ...famSnap.data() } as Family;
+  const codes = await ensureInviteCodes(fam);
+  const next: InviteCodeState = {
+    ...codes[role],
+    active,
+    ...(active ? { activatedAt: Timestamp.now() } : {}),
+  };
+  await updateDoc(doc(db, 'families', familyId), {
+    [`inviteCodes.${role}`]: next,
+  });
+}
+
+// Mint a fresh code for one role + flip it inactive (parent will
+// re-activate before sharing). Use when a code may be leaked, or to
+// rotate routinely.
+export async function regenerateInviteCode(
+  familyId: string,
+  role: 'kid' | 'helper' | 'guest',
+): Promise<string> {
+  if (isGuestActive()) return 'GUEST-NOOP';
+  const newCode = generateInviteCode();
+  await updateDoc(doc(db, 'families', familyId), {
+    [`inviteCodes.${role}`]: { code: newCode, active: false },
+  });
+  return newCode;
+}
+
+// Mark a code as consumed by a successful join: stamps `usedAt` and
+// auto-flips `active` to false (single-use safety). Called from the
+// onboarding success path.
+export async function markInviteCodeUsed(
+  familyId: string,
+  role: 'kid' | 'helper' | 'guest',
+): Promise<void> {
+  if (isGuestActive()) return;
+  const famSnap = await getDoc(doc(db, 'families', familyId));
+  if (!famSnap.exists()) return;
+  const fam = { id: famSnap.id, ...famSnap.data() } as Family;
+  const codes = await ensureInviteCodes(fam);
+  const next: InviteCodeState = {
+    ...codes[role],
+    active: false,
+    usedAt: Timestamp.now(),
+  };
+  await updateDoc(doc(db, 'families', familyId), {
+    [`inviteCodes.${role}`]: next,
+  });
 }
 
 // ── Children Operations ───────────────────────────

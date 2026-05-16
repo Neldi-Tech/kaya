@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Timestamp } from 'firebase/firestore';
 import {
   createUserProfile, createFamily, addChild,
-  findFamilyByAnyInviteCode,
+  findFamilyByAnyInviteCode, markInviteCodeUsed,
   findChildByEmail, getFamily, updateUserProfile, Role, Family, Child,
 } from '@/lib/firestore';
 
@@ -168,7 +168,21 @@ export default function OnboardingPage() {
         // so the code is the source of truth — no role escalation.
         const matched = await findFamilyByAnyInviteCode(inviteCode);
         if (!matched) {
-          setError('Invalid invite code. Please check and try again.');
+          setError('Invalid invite code. Please check the code and try again.');
+          setLoading(false);
+          return;
+        }
+        // Inactive code → tell the user clearly that the parent must
+        // activate it first. Don't reveal whether the code exists vs
+        // is inactive — the only-inactive path implies it exists, but
+        // that's the price of giving a useful error.
+        if ('reason' in matched && matched.reason === 'inactive') {
+          setError("This invite code isn't active right now. Ask the parent who shared it to activate it from their Settings.");
+          setLoading(false);
+          return;
+        }
+        if (!('family' in matched)) {
+          setError('Invalid invite code. Please check the code and try again.');
           setLoading(false);
           return;
         }
@@ -186,6 +200,15 @@ export default function OnboardingPage() {
         familyId,
         createdAt: Timestamp.now(),
       });
+
+      // For joiners: stamp the code as used + auto-deactivate so a
+      // second person can't replay the same shared message. Helper
+      // joins also auto-deactivate by design — parents re-activate when
+      // hiring the next helper. Fire-and-forget; the join itself is
+      // already committed.
+      if (familyMode === 'join' && (finalRole === 'kid' || finalRole === 'helper' || finalRole === 'guest')) {
+        markInviteCodeUsed(familyId, finalRole).catch(() => {});
+      }
 
       await refreshProfile();
       router.push('/');
