@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
@@ -111,6 +112,25 @@ export default function MeetingsPage() {
           className="w-full h-32 px-3 py-2 bg-kaya-cream rounded-kaya-sm text-sm resize-none focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
           placeholder="Meeting notes, votes, decisions…"
         />
+      );
+    }
+    if (currentStep.step === 'Points review') {
+      return (
+        <div className="rounded-kaya bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-white p-5 lg:p-6">
+          <p className="text-[10px] uppercase tracking-[0.2em] text-kaya-gold/80 font-bold mb-1">Presenter mode</p>
+          <h4 className="font-display text-lg lg:text-xl font-black mb-1">Open the Points Review</h4>
+          <p className="text-xs lg:text-sm text-white/70 leading-relaxed mb-4">
+            Full-screen leaderboard plus the <strong>Excellent Belt&reg;</strong> and{' '}
+            <strong>Excellent Ladder&reg;</strong> reveal — perfect for casting to a TV or
+            propping up on the table.
+          </p>
+          <Link
+            href="/meetings/review"
+            className="inline-flex items-center gap-2 h-11 px-5 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate font-bold text-sm hover:bg-kaya-gold-dark transition-colors"
+          >
+            Open presenter <span aria-hidden>→</span>
+          </Link>
+        </div>
       );
     }
     return null;

@@ -1,0 +1,421 @@
+// Pure computation for the Family Meeting "Points Review" presenter view.
+//
+// Two awards are computed per child over a configurable date window:
+//   • Excellent Belt  — a "clean day" where every active routine in both
+//                       morning and evening was rated 'excellent'.
+//   • Excellent Ladder — a routine where every rating in the window was
+//                       'excellent' (days with no rating for that routine
+//                       are ignored, so a missed day doesn't punish anyone).
+//
+// Winners are computed across all children: kid(s) with the highest count
+// of Belt days / Ladder routines. Ties surface every tied kid.
+
+import type { Award, Child, DailyRating, Routine } from './firestore';
+
+// Discriminated window descriptor. Quick-pick chips use the bare kinds
+// (today / lifetime / last7 / …); the dropdown + custom chip carry extra
+// data on the same object so a single state value covers every case.
+export type WindowKey =
+  | { kind: 'today' }
+  | { kind: 'lifetime' }
+  | { kind: 'last7' }
+  | { kind: 'last14' }
+  | { kind: 'mtd' }
+  | { kind: 'month'; year: number; month: number }  // month is 1–12 (UTC)
+  | { kind: 'custom'; from: string; to: string };   // YYYY-MM-DD inclusive
+
+export interface WindowRange {
+  from: string;       // YYYY-MM-DD, inclusive
+  to: string;         // YYYY-MM-DD, inclusive
+  days: string[];     // every date from `from` → `to` inclusive
+  label: string;      // human-friendly summary, e.g. "Last 7 days"
+}
+
+export interface KidReviewStats {
+  childId: string;
+  pointsFromRatings: number;
+  pointsFromAwards: number;
+  totalPoints: number;
+  beltDays: string[];           // YYYY-MM-DD dates that were clean
+  ladderRoutineIds: string[];   // routine ids that stayed Excellent
+}
+
+export interface ReviewResult {
+  range: WindowRange;
+  perKid: Record<string, KidReviewStats>;
+  leaderboard: KidReviewStats[];     // sorted by totalPoints desc
+  beltWinnerIds: string[];           // kids with the most Belt days (≥1)
+  beltWinnerCount: number;           // shared score among the winners
+  ladderWinnerIds: string[];         // kids with the most Ladder routines (≥1)
+  ladderWinnerCount: number;
+}
+
+// ── Date helpers ─────────────────────────────────────────────────────────
+//
+// All math is anchored to UTC. Naive local-time math (e.g.
+//   `new Date('2026-05-10T00:00:00.000')` then `.toISOString()`) round-trips
+// to the *previous* date in any timezone ahead of UTC, which made
+// `enumerateDays` loop forever for users in Dar es Salaam (UTC+3) and
+// wedged the browser tab. UTC-anchored math sidesteps the whole class.
+
+function toDateString(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+function addDays(dateStr: string, delta: number): string {
+  const d = new Date(`${dateStr}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return toDateString(d);
+}
+
+// Safety cap: bumped from 400 to 3 650 (~10 years) so Lifetime windows
+// resolve without truncating. The cap exists only to keep a pathological
+// `addDays` regression from wedging the renderer; 10y is plenty for any
+// realistic family use of Kaya.
+const ENUMERATE_MAX_DAYS = 3650;
+
+function enumerateDays(from: string, to: string): string[] {
+  const out: string[] = [];
+  let cursor = from;
+  let safety = 0;
+  while (cursor <= to && safety < ENUMERATE_MAX_DAYS) {
+    out.push(cursor);
+    cursor = addDays(cursor, 1);
+    safety += 1;
+  }
+  return out;
+}
+
+const SHORT_MONTH = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Resolve a WindowKey to a concrete date range. Periods that look "trailing"
+// (last7 / last14 / mtd) anchor to meeting-day -1 per the original spec —
+// Sunday's meeting reviews up to Saturday. `today` is a one-day window on the
+// actual meeting day. `lifetime` reaches back to a sentinel earliest date.
+export function computeWindowRange(window: WindowKey, meetingDateStr: string): WindowRange {
+  switch (window.kind) {
+    case 'today': {
+      return { from: meetingDateStr, to: meetingDateStr, days: [meetingDateStr], label: 'Today' };
+    }
+    case 'lifetime': {
+      // Sentinel earliest date — early enough to predate any Kaya family.
+      // We don't actually walk every day for display use cases; the consuming
+      // tab decides whether to cap the visual window.
+      const from = '2020-01-01';
+      const to = addDays(meetingDateStr, -1);
+      return { from, to, days: enumerateDays(from, to), label: 'Lifetime' };
+    }
+    case 'last7': {
+      const to = addDays(meetingDateStr, -1);
+      const from = addDays(to, -6);
+      return { from, to, days: enumerateDays(from, to), label: 'Last 7 days' };
+    }
+    case 'last14': {
+      const to = addDays(meetingDateStr, -1);
+      const from = addDays(to, -13);
+      return { from, to, days: enumerateDays(from, to), label: 'Last 14 days' };
+    }
+    case 'mtd': {
+      const to = addDays(meetingDateStr, -1);
+      const toDate = new Date(`${to}T00:00:00.000Z`);
+      const firstOfMonth = new Date(Date.UTC(toDate.getUTCFullYear(), toDate.getUTCMonth(), 1));
+      let from = toDateString(firstOfMonth);
+      if (from > to) from = to;
+      return { from, to, days: enumerateDays(from, to), label: 'Month to date' };
+    }
+    case 'month': {
+      // First → last UTC day of the chosen calendar month.
+      const first = new Date(Date.UTC(window.year, window.month - 1, 1));
+      const lastDay = new Date(Date.UTC(window.year, window.month, 0));
+      const from = toDateString(first);
+      const to = toDateString(lastDay);
+      const label = `${SHORT_MONTH[window.month - 1]} ${window.year}`;
+      return { from, to, days: enumerateDays(from, to), label };
+    }
+    case 'custom': {
+      // Tolerate from > to by swapping — gentler than failing silently.
+      let from = window.from;
+      let to = window.to;
+      if (from > to) [from, to] = [to, from];
+      return { from, to, days: enumerateDays(from, to), label: 'Custom' };
+    }
+  }
+}
+
+// Build the trailing-12-months option list for the "Months" dropdown,
+// most recent first. Each entry is a ready-to-use WindowKey.
+export function recentMonths(meetingDateStr: string, count = 12): { key: WindowKey; label: string }[] {
+  const anchor = new Date(`${meetingDateStr}T00:00:00.000Z`);
+  const list: { key: WindowKey; label: string }[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const d = new Date(Date.UTC(anchor.getUTCFullYear(), anchor.getUTCMonth() - i, 1));
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth() + 1;
+    list.push({
+      key: { kind: 'month', year, month },
+      label: `${SHORT_MONTH[month - 1]} ${year}`,
+    });
+  }
+  return list;
+}
+
+// ── Belt / Ladder computation ───────────────────────────────────────────
+
+// A day is a "Belt day" when:
+//   1. Both morning AND evening DailyRating docs exist for that kid+date.
+//   2. Every routine present in either doc is rated 'excellent'.
+// (Inactive routines that aren't rated don't count against — they simply
+// won't appear in the ratings map. Skip / good / bad all break the Belt.)
+function isCleanDay(ratingsForDay: DailyRating[]): boolean {
+  if (ratingsForDay.length < 2) return false;
+  const periods = new Set(ratingsForDay.map((r) => r.period));
+  if (!periods.has('morning') || !periods.has('evening')) return false;
+  for (const r of ratingsForDay) {
+    const values = Object.values(r.ratings || {});
+    if (values.length === 0) return false;
+    if (values.some((v) => v !== 'excellent')) return false;
+  }
+  return true;
+}
+
+// A routine wins the Ladder when, across all ratings in the window for that
+// kid+period, the routine was always 'excellent'. Days where the routine
+// wasn't rated at all are ignored (missed day ≠ failure). Requires at least
+// one Excellent rating so untouched routines don't auto-win.
+function ladderRoutineIds(child: Child, ratings: DailyRating[], routines: Routine[]): string[] {
+  const active = routines.filter((r) => r.active);
+  const kidRatings = ratings.filter((r) => r.childId === child.id);
+  const won: string[] = [];
+  for (const routine of active) {
+    const relevant = kidRatings.filter((r) => r.period === routine.period);
+    let sawExcellent = false;
+    let broken = false;
+    for (const doc of relevant) {
+      const v = doc.ratings?.[routine.id];
+      if (v === undefined) continue; // not rated that day — skip
+      if (v === 'excellent') sawExcellent = true;
+      else { broken = true; break; }
+    }
+    if (sawExcellent && !broken) won.push(routine.id);
+  }
+  return won;
+}
+
+function beltDays(child: Child, ratings: DailyRating[], days: string[]): string[] {
+  const kidRatings = ratings.filter((r) => r.childId === child.id);
+  const byDate = new Map<string, DailyRating[]>();
+  for (const r of kidRatings) {
+    const bucket = byDate.get(r.date) ?? [];
+    bucket.push(r);
+    byDate.set(r.date, bucket);
+  }
+  return days.filter((d) => isCleanDay(byDate.get(d) ?? []));
+}
+
+// ── Top-level computation ───────────────────────────────────────────────
+
+export function computeReview(
+  children: Child[],
+  routines: Routine[],
+  ratings: DailyRating[],
+  awards: Award[],
+  range: WindowRange,
+): ReviewResult {
+  const perKid: Record<string, KidReviewStats> = {};
+
+  for (const child of children) {
+    const kidRatings = ratings.filter((r) => r.childId === child.id);
+    const kidAwards = awards.filter((a) => a.childId === child.id);
+
+    const pointsFromRatings = kidRatings.reduce((sum, r) => sum + (r.totalPoints || 0), 0);
+    const pointsFromAwards = kidAwards.reduce((sum, a) => sum + (a.points || 0), 0);
+
+    perKid[child.id] = {
+      childId: child.id,
+      pointsFromRatings,
+      pointsFromAwards,
+      totalPoints: pointsFromRatings + pointsFromAwards,
+      beltDays: beltDays(child, ratings, range.days),
+      ladderRoutineIds: ladderRoutineIds(child, ratings, routines),
+    };
+  }
+
+  const leaderboard = Object.values(perKid).sort((a, b) => b.totalPoints - a.totalPoints);
+
+  const beltWinnerCount = Math.max(0, ...Object.values(perKid).map((k) => k.beltDays.length));
+  const beltWinnerIds = beltWinnerCount === 0
+    ? []
+    : Object.values(perKid).filter((k) => k.beltDays.length === beltWinnerCount).map((k) => k.childId);
+
+  const ladderWinnerCount = Math.max(0, ...Object.values(perKid).map((k) => k.ladderRoutineIds.length));
+  const ladderWinnerIds = ladderWinnerCount === 0
+    ? []
+    : Object.values(perKid).filter((k) => k.ladderRoutineIds.length === ladderWinnerCount).map((k) => k.childId);
+
+  return { range, perKid, leaderboard, beltWinnerIds, beltWinnerCount, ladderWinnerIds, ladderWinnerCount };
+}
+
+// ── Belt v2 ─────────────────────────────────────────────────────────────
+//
+// New definition (Elia 2026-05-16): champion = the (kid, day) combination
+// with the most 'excellent' ratings in the window. The Bad toggle mirrors
+// the same logic for 'bad' ratings (worst day). "Reveal Next" cycles the
+// presenter through the next-best (kid, day) tuple so multiple champions
+// can be celebrated in one meeting.
+
+export interface DayScore {
+  childId: string;
+  date: string;                  // YYYY-MM-DD
+  excellentCount: number;
+  badCount: number;
+  excellentRoutineIds: string[]; // routines rated Excellent on that day
+  badRoutineIds: string[];       // routines rated Bad on that day
+  totalRated: number;            // total non-skip ratings on the day
+}
+
+// Build one DayScore per (kid, day) tuple that has at least one rating.
+export function computeDayScores(
+  children: Child[],
+  ratings: DailyRating[],
+  range: WindowRange,
+): DayScore[] {
+  const out: DayScore[] = [];
+  for (const child of children) {
+    const kidRatings = ratings.filter((r) => r.childId === child.id);
+    const byDate = new Map<string, DailyRating[]>();
+    for (const r of kidRatings) {
+      if (!range.days.includes(r.date)) continue;
+      const bucket = byDate.get(r.date) ?? [];
+      bucket.push(r);
+      byDate.set(r.date, bucket);
+    }
+    for (const [date, docs] of byDate.entries()) {
+      const excellent: string[] = [];
+      const bad: string[] = [];
+      let totalRated = 0;
+      for (const doc of docs) {
+        for (const [routineId, value] of Object.entries(doc.ratings || {})) {
+          if (value === 'skip') continue;
+          totalRated += 1;
+          if (value === 'excellent') excellent.push(routineId);
+          else if (value === 'bad') bad.push(routineId);
+        }
+      }
+      if (totalRated === 0) continue;
+      out.push({
+        childId: child.id,
+        date,
+        excellentCount: excellent.length,
+        badCount: bad.length,
+        excellentRoutineIds: excellent,
+        badRoutineIds: bad,
+        totalRated,
+      });
+    }
+  }
+  return out;
+}
+
+// Sort day-scores for Belt presentation. Excellent: count desc, then date desc
+// (more recent days break ties — feels timely in the meeting). Bad: same.
+export function topDays(scores: DayScore[], kind: 'excellent' | 'bad'): DayScore[] {
+  const key = (s: DayScore) => (kind === 'excellent' ? s.excellentCount : s.badCount);
+  return [...scores]
+    .filter((s) => key(s) > 0)
+    .sort((a, b) => {
+      const diff = key(b) - key(a);
+      if (diff !== 0) return diff;
+      return a.date < b.date ? 1 : -1;
+    });
+}
+
+// ── Ladder v2 ───────────────────────────────────────────────────────────
+//
+// Per-kid trophy grid: only the routines a kid completed (Excellent every
+// rated day in the window) are shown, with their day chips. Drives the
+// per-kid columns in the Ladder tab.
+
+export type LadderDayStatus = 'excellent' | 'good' | 'bad' | 'skip' | 'unrated';
+
+export interface LadderDayCell {
+  date: string;
+  status: LadderDayStatus;
+  hasComment: boolean;     // rating doc for this day+period had a comment
+}
+
+export interface LadderRow {
+  routineId: string;
+  label: string;
+  icon: string;
+  period: 'morning' | 'evening';
+  days: LadderDayCell[];   // reverse chronological — most recent first
+  complete: boolean;       // every rated day was Excellent (= ladder rung won)
+}
+
+export function computeLadderRows(
+  child: Child,
+  routines: Routine[],
+  ratings: DailyRating[],
+  range: WindowRange,
+): LadderRow[] {
+  const active = routines.filter((r) => r.active);
+  const kidRatings = ratings.filter((r) => r.childId === child.id);
+
+  // Index by (date, period) → DailyRating for O(1) lookup.
+  const docByDatePeriod = new Map<string, DailyRating>();
+  for (const r of kidRatings) {
+    docByDatePeriod.set(`${r.date}|${r.period}`, r);
+  }
+
+  const rowsReversed = [...range.days].reverse();
+  const rows: LadderRow[] = [];
+  for (const routine of active) {
+    const days: LadderDayCell[] = rowsReversed.map((date) => {
+      const doc = docByDatePeriod.get(`${date}|${routine.period}`);
+      const v = doc?.ratings?.[routine.id];
+      const status: LadderDayStatus = v ?? 'unrated';
+      return { date, status, hasComment: !!doc?.comment };
+    });
+    // Complete: at least one Excellent + zero non-Excellent (skips don't
+    // count against). Mirrors the existing `ladderRoutineIds` rule.
+    const rated = days.filter((d) => d.status !== 'unrated' && d.status !== 'skip');
+    const allExcellent = rated.length > 0 && rated.every((d) => d.status === 'excellent');
+    rows.push({
+      routineId: routine.id,
+      label: routine.label,
+      icon: routine.icon,
+      period: routine.period,
+      days,
+      complete: allExcellent,
+    });
+  }
+  return rows;
+}
+
+// ── Comments ────────────────────────────────────────────────────────────
+//
+// Surfaces helper / parent notes left when ratings were submitted. Drives
+// the Behaviour tab so families can talk about specific moments.
+
+export interface CommentEntry {
+  ratingId: string;
+  childId: string;
+  date: string;
+  period: 'morning' | 'evening';
+  ratedByName: string;
+  comment: string;
+}
+
+export function extractComments(ratings: DailyRating[]): CommentEntry[] {
+  return ratings
+    .filter((r) => r.comment && r.comment.trim().length > 0)
+    .map((r) => ({
+      ratingId: r.id,
+      childId: r.childId,
+      date: r.date,
+      period: r.period,
+      ratedByName: r.ratedByName || 'Unknown',
+      comment: r.comment!.trim(),
+    }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
