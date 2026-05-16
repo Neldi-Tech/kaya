@@ -86,7 +86,7 @@ export default function ComingSoonHero({
           </a>
         )}
         <Link
-          href="/home"
+          href="/dashboard"
           className="flex-1 h-12 lg:h-14 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-sm flex items-center justify-center hover:bg-kaya-warm transition-colors"
         >
           ← Back to home

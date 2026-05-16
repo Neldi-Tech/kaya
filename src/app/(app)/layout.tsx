@@ -1,25 +1,19 @@
 'use client';
 
 import { useEffect } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import AppShell from '@/components/layout/AppShell';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const { user, profile, loading, isGuest } = useAuth();
   const router = useRouter();
-  const pathname = usePathname();
 
   useEffect(() => {
     if (loading || isGuest) return;
-    if (!user) {
-      // Unauthed visitors landing on the root see the marketing page;
-      // hitting a deeper route still goes through /login.
-      router.replace(pathname === '/' ? '/welcome' : '/login');
-    } else if (!profile?.familyId) {
-      router.replace('/onboarding');
-    }
-  }, [user, profile, loading, isGuest, router, pathname]);
+    if (!user) router.replace('/login');
+    else if (!profile?.familyId) router.replace('/onboarding');
+  }, [user, profile, loading, isGuest, router]);
 
   // Guests bypass the auth gate entirely.
   if (!isGuest && (loading || !user || !profile?.familyId)) {
