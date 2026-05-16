@@ -22,6 +22,7 @@ import {
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import MomentsTabs from '@/components/moments/MomentsTabs';
 
 const PAGE_SIZE_STEP = 20;
 
@@ -119,7 +120,7 @@ export default function MomentsFeedPage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-5 lg:mb-7 flex items-end justify-between gap-3">
+      <div className="mb-4 lg:mb-5 flex items-end justify-between gap-3">
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Family · feed</p>
           <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">Moments 📸</h1>
@@ -133,6 +134,10 @@ export default function MomentsFeedPage() {
             + New
           </Link>
         )}
+      </div>
+
+      <div className="mb-4">
+        <MomentsTabs active="feed" feedCount={posts.length} />
       </div>
 
       {!loaded && (

@@ -82,6 +82,12 @@ export interface Family {
     country: string;   // ISO 3166 alpha-2 (e.g., "TZ", "US", "IN")
     city?: string;     // free-text, e.g., "Dar es Salaam"
   };
+  // ── Keepsake subscription plan ────────────────────────────────
+  // Drives gating across Albums (album/photo caps, sub-albums,
+  // custom access, AI features). Defaults to 'free' when missing —
+  // see `lib/keepsakeLimits.ts` for the limit shape.
+  plan?: 'free' | 'family' | 'family_pro';
+
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent

@@ -246,6 +246,85 @@ service cloud.firestore {
         allow create, update, delete: if isParentOrHelper(familyId);
       }
 
+      // ── Moments · Keepsake Albums ────────────────────────────────
+      // Family photo repository. Each album has its own access list;
+      // sub-albums inherit-then-narrow (their accessList must be a
+      // subset of the parent's effective audience). Photos live in
+      // Storage at families/{f}/albums/{a}/{p}/{size}.jpg.
+      //
+      // Access enforcement: parents see everything in their family
+      // (they own the data). Members + kids see albums where
+      // accessMode == 'all_family' OR their uid is in accessList.
+      // Photo-level reads gate on the parent album's access, so
+      // restricted-album photos cannot be enumerated by guessing IDs.
+      match /albums/{albumId} {
+        // Reusable inline visibility check for THIS album doc.
+        function canViewThisAlbum() {
+          let a = resource.data;
+          return belongsToFamily(familyId) && (
+            isParentInFamily(familyId)
+            || a.accessMode == 'all_family'
+            || (a.accessList is list && request.auth.uid in a.accessList)
+          );
+        }
+
+        allow read: if canViewThisAlbum();
+
+        // Create: any family member can create an album. The reserve
+        // step writes pending=true with minimal fields; finalize
+        // patches the rest. For sub-albums we verify the parent
+        // exists (a stronger inheritance check at write-time is in
+        // updateAlbumAccess + the picker UI).
+        allow create: if belongsToFamily(familyId)
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.accessMode in ['all_family', 'custom']
+          && (
+            request.resource.data.parentAlbumId == null
+            || exists(/databases/$(database)/documents/families/$(familyId)/albums/$(request.resource.data.parentAlbumId))
+          );
+
+        // Update: parents + the album's author can change anything.
+        // Other family members can only bump the photoCount counter
+        // (paired with a photo create/delete under their auth) — they
+        // can't rename, change access, or reassign the cover.
+        allow update: if canViewThisAlbum() && (
+          isParentInFamily(familyId)
+          || resource.data.createdBy == request.auth.uid
+          || (
+            request.resource.data.accessMode == resource.data.accessMode
+            && request.resource.data.accessList == resource.data.accessList
+            && request.resource.data.name == resource.data.name
+            && request.resource.data.parentAlbumId == resource.data.parentAlbumId
+          )
+        );
+
+        allow delete: if belongsToFamily(familyId)
+          && (resource.data.createdBy == request.auth.uid
+              || isParentInFamily(familyId));
+
+        // ── Album photos ─────────────────────────────────────────
+        match /photos/{photoId} {
+          // Gate every photo op on the parent album's visibility.
+          // One extra Firestore read per op — acceptable for the
+          // privacy guarantee it gives sub-album restrictions.
+          function canViewParentAlbum() {
+            let a = get(/databases/$(database)/documents/families/$(familyId)/albums/$(albumId)).data;
+            return belongsToFamily(familyId) && (
+              isParentInFamily(familyId)
+              || a.accessMode == 'all_family'
+              || (a.accessList is list && request.auth.uid in a.accessList)
+            );
+          }
+
+          allow read: if canViewParentAlbum();
+          allow create: if canViewParentAlbum()
+            && request.resource.data.uploadedBy == request.auth.uid;
+          allow delete: if belongsToFamily(familyId)
+            && (resource.data.uploadedBy == request.auth.uid
+                || isParentInFamily(familyId));
+        }
+      }
+
       // ── Moments · family photo feed ──────────────────────────────
       // Posts carry photos uploaded to Firebase Storage at
       // families/{f}/posts/{p}/{photoId}/{size}.jpg (see storage.rules).

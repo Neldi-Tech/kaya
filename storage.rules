@@ -36,5 +36,18 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if belongsToFamily(familyId);
     }
+
+    // ── Keepsake · album photos ────────────────────────────────
+    // Per-album visibility (parents-only, custom subset) is enforced
+    // at the Firestore layer when the user reads the photo doc —
+    // without the doc they don't get the download URL, so Storage
+    // can stay family-scoped here without leaking restricted content.
+    match /families/{familyId}/albums/{albumId}/{photoId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
   }
 }
