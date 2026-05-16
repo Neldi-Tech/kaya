@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { submitRating, getTodayRatings, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
 import { notifyRating } from '@/lib/notify';
+import { fmt } from '@/lib/format';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -326,7 +327,7 @@ export default function RatePage() {
           <div className="flex items-center justify-between bg-white border border-kaya-warm-dark rounded-kaya p-4">
             <div>
               <p className="text-xs text-kaya-sand font-medium">Total Points</p>
-              <p className="text-2xl font-display font-black" style={{ color: child?.houseColor }}>{totalPoints}</p>
+              <p className="text-2xl font-display font-black" style={{ color: child?.houseColor }}>{fmt(totalPoints)}</p>
             </div>
             <button
               onClick={handleSubmit}
@@ -468,7 +469,7 @@ export default function RatePage() {
                 <KidAvatar child={child!} size="lg" shape="square" />
                 <div>
                   <p className="text-[11px] text-kaya-sand font-bold uppercase tracking-wider">{child?.name} · {period} total</p>
-                  <p className="font-display font-black text-3xl" style={{ color: child?.houseColor }}>{totalPoints}<span className="text-xs text-kaya-sand font-semibold ml-1.5">pts</span></p>
+                  <p className="font-display font-black text-3xl" style={{ color: child?.houseColor }}>{fmt(totalPoints)}<span className="text-xs text-kaya-sand font-semibold ml-1.5">pts</span></p>
                 </div>
               </div>
               <button

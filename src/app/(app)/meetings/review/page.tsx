@@ -28,6 +28,7 @@ import {
   computeLadderRows, extractComments, recentMonths,
   WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry,
 } from '@/lib/meetingReview';
+import { fmt } from '@/lib/format';
 
 // Quick-pick chips. Months + Custom are not in this list — they're rendered
 // as a dropdown + date-input pair next to the chips so the chip rail stays
@@ -146,12 +147,15 @@ export default function MeetingReviewPage() {
               {range.label} · {formatPretty(range.from)} → {formatPretty(range.to)}
             </p>
           </div>
-          <button
-            onClick={() => router.push('/meetings')}
-            className="shrink-0 h-9 lg:h-10 px-3 lg:px-4 rounded-kaya-sm text-xs lg:text-sm font-semibold bg-white/10 hover:bg-white/15 transition-colors"
-          >
-            ✕ Close
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <FullscreenToggle />
+            <button
+              onClick={() => router.push('/meetings')}
+              className="h-9 lg:h-10 px-3 lg:px-4 rounded-kaya-sm text-xs lg:text-sm font-semibold bg-white/10 hover:bg-white/15 transition-colors"
+            >
+              ✕ Close
+            </button>
+          </div>
         </div>
 
         {/* ── Window picker ────────────────────────────────────────── */}
@@ -221,7 +225,6 @@ export default function MeetingReviewPage() {
         )}
 
         <p className="text-center text-[11px] lg:text-xs text-white/40 mt-8 lg:mt-10">
-          Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white/70">F11</kbd> for true fullscreen ·
           Excellent Belt&reg; and Excellent Ladder&reg; by Diella
         </p>
       </div>
@@ -400,14 +403,14 @@ function PointsTab({ leaderboard, childById }: { leaderboard: KidReviewStats[]; 
               </div>
               <div className="text-right">
                 <p className={`font-display text-2xl lg:text-3xl font-black leading-none ${isTop ? 'text-kaya-gold' : ''}`}>
-                  {s.totalPoints}
+                  {fmt(s.totalPoints)}
                 </p>
                 <p className="text-[10px] text-white/50 mt-0.5">pts</p>
               </div>
             </div>
             <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-white/60">
-              <span>Routines: <span className="text-white font-semibold">{s.pointsFromRatings}</span></span>
-              <span>Awards: <span className="text-white font-semibold">{s.pointsFromAwards}</span></span>
+              <span>Routines: <span className="text-white font-semibold">{fmt(s.pointsFromRatings)}</span></span>
+              <span>Awards: <span className="text-white font-semibold">{fmt(s.pointsFromAwards)}</span></span>
             </div>
           </div>
         );
@@ -986,5 +989,68 @@ function EmptyState({ children }: { children: React.ReactNode }) {
     <div className="rounded-kaya-lg bg-white/5 border border-white/10 p-8 text-center text-sm text-white/60 max-w-2xl mx-auto">
       {children}
     </div>
+  );
+}
+
+// ── Fullscreen toggle ──────────────────────────────────────────────────
+// One-tap browser fullscreen via the Fullscreen API. Works on iPad/iPhone
+// Safari (with vendor prefix), Android Chrome, and desktop browsers —
+// replaces the old "Press F11" hint which didn't help on phones/tablets.
+// Hidden entirely when the API isn't supported (rare; very old browsers).
+function FullscreenToggle() {
+  const [isFs, setIsFs] = useState(false);
+  const [supported, setSupported] = useState(true);
+
+  useEffect(() => {
+    const doc = document as Document & { webkitFullscreenElement?: Element };
+    const root = document.documentElement as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void>;
+    };
+    if (!root.requestFullscreen && !root.webkitRequestFullscreen) {
+      setSupported(false);
+      return;
+    }
+    const onChange = () => setIsFs(!!(document.fullscreenElement || doc.webkitFullscreenElement));
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
+  const toggle = useCallback(async () => {
+    const doc = document as Document & {
+      webkitExitFullscreen?: () => Promise<void>;
+      webkitFullscreenElement?: Element;
+    };
+    const root = document.documentElement as HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void>;
+    };
+    try {
+      if (document.fullscreenElement || doc.webkitFullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (doc.webkitExitFullscreen) await doc.webkitExitFullscreen();
+      } else {
+        if (root.requestFullscreen) await root.requestFullscreen();
+        else if (root.webkitRequestFullscreen) await root.webkitRequestFullscreen();
+      }
+    } catch {
+      // Some browsers reject without a user-gesture chain; silently
+      // ignore — the button's UI state will refresh on the next change
+      // event anyway.
+    }
+  }, []);
+
+  if (!supported) return null;
+  return (
+    <button
+      onClick={toggle}
+      aria-label={isFs ? 'Exit fullscreen' : 'Enter fullscreen'}
+      title={isFs ? 'Exit fullscreen' : 'Enter fullscreen (works on phone, tablet, desktop)'}
+      className="h-9 lg:h-10 px-3 lg:px-4 rounded-kaya-sm text-xs lg:text-sm font-semibold bg-white/10 hover:bg-white/15 transition-colors"
+    >
+      {isFs ? '⛶ Exit' : '⛶ Fullscreen'}
+    </button>
   );
 }

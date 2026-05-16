@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { fmt } from '@/lib/format';
 import {
   getRecentRatings, getRecentAwards, getMeetings,
   Child, Meeting, Role,
@@ -512,12 +513,12 @@ function FamilyScore({
         <div className="font-display font-extrabold text-[9.5px] text-kaya-gold-light uppercase tracking-[0.16em]">
           {ownKid ? 'My points · this week' : 'Family score · this week'}
         </div>
-        <div className="font-display font-black text-[34px] leading-none mt-1">{displayTotal.toLocaleString()}</div>
+        <div className="font-display font-black text-[34px] leading-none mt-1">{fmt(displayTotal)}</div>
         <div className="text-[11px] text-kaya-gold-light/85 mt-1">
           {ownKid
             ? (ownKid.houseName ? `${ownKid.avatarEmoji || '🏆'} ${ownKid.houseName} house` : 'Your week so far')
             : topKid
-              ? `${topKid.avatarEmoji || '🏆'} ${topKid.name} leads · ${topKid.weeklyPoints || 0} pts`
+              ? `${topKid.avatarEmoji || '🏆'} ${topKid.name} leads · ${fmt(topKid.weeklyPoints || 0)} pts`
               : 'No kids yet'}
         </div>
         {kids.length > 0 && (
@@ -537,7 +538,7 @@ function FamilyScore({
                     <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: k.houseColor || '#D4A017' }} />
                   </div>
                   <div className="font-display font-black text-[10px] text-kaya-gold-light w-8 text-right">
-                    {k.weeklyPoints || 0}
+                    {fmt(k.weeklyPoints || 0)}
                   </div>
                 </div>
               );

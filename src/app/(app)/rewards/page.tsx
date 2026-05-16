@@ -23,7 +23,7 @@ export default function RewardsPage() {
   const handleRedeem = async (reward: Reward) => {
     if (!profile?.familyId || !child) return;
     if ((child.totalPoints || 0) < reward.pointsCost) {
-      setMessage(`${child.name} needs ${reward.pointsCost - (child.totalPoints || 0)} more points!`);
+      setMessage(`${child.name} needs ${fmt(reward.pointsCost - (child.totalPoints || 0))} more points!`);
       setTimeout(() => setMessage(''), 3000);
       return;
     }

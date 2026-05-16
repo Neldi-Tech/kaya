@@ -10,6 +10,7 @@ import {
   isHandleAvailable, readPointSystemConfig,
   DailyRating, Award, WishlistItem,
 } from '@/lib/firestore';
+import { fmt } from '@/lib/format';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
 import { HOUSE_LIBRARY, isHouseUnlocked, houseUnlockHint } from '@/lib/referral';
 import {
@@ -587,11 +588,11 @@ export default function ProfilesPage() {
 
         <div className="flex justify-around mt-4 pt-4 border-t border-kaya-warm-dark">
           <div>
-            <p className="text-xl font-black" style={{ color: child.houseColor }}>{child.totalPoints || 0}</p>
+            <p className="text-xl font-black" style={{ color: child.houseColor }}>{fmt(child.totalPoints || 0)}</p>
             <p className="text-[10px] text-kaya-sand font-semibold uppercase">Total</p>
           </div>
           <div>
-            <p className="text-xl font-black">{child.weeklyPoints || 0}</p>
+            <p className="text-xl font-black">{fmt(child.weeklyPoints || 0)}</p>
             <p className="text-[10px] text-kaya-sand font-semibold uppercase">This Week</p>
           </div>
           {(() => {
@@ -603,7 +604,7 @@ export default function ProfilesPage() {
             const rp = child.routinePoints || 0;
             return (
               <div>
-                <p className="text-xl font-black">{rp}<span className="text-[10px] text-kaya-sand">/{ppHP}</span></p>
+                <p className="text-xl font-black">{fmt(rp)}<span className="text-[10px] text-kaya-sand">/{fmt(ppHP)}</span></p>
                 <p className="text-[10px] text-kaya-sand font-semibold uppercase">Routine pts</p>
               </div>
             );
