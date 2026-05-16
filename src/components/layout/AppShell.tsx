@@ -158,12 +158,11 @@ const KID_FUN_NAV: NavItem[] = [
 ];
 
 // ── Sidebars per role ────────────────────────────────────────────────
-// Parents · 13 rows in the design-proposal order (Discover + 12 modules).
-// Container sections (Kaya, Household, Hive, Business, Stats, Fun) are
-// collapsible and auto-open whenever the user is on a route inside them.
+// Parents · 12 rows in the design-proposal order. Container sections
+// (Kaya, Household, Hive, Business, Stats, Fun) are collapsible and
+// auto-open whenever the user is on a route inside them.
 const PARENT_SIDEBAR: SidebarRow[] = [
-  { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
-  { kind: 'link',    id: 'home',      path: '/home',      icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link',    id: 'home',      path: '/dashboard', icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KAYA_NAV },
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
@@ -180,51 +179,50 @@ const PARENT_SIDEBAR: SidebarRow[] = [
 // Helpers and kids — no Soon teasers, no collapsibles (their feature
 // set is small enough to render flat).
 const HELPER_SIDEBAR: SidebarRow[] = [
-  { kind: 'link', id: 'discover', path: '/',         icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/home',     icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'rate',     path: '/rate',     icon: '📋', label: 'Rate' },
-  { kind: 'link', id: 'award',    path: '/award',    icon: '🎖️', label: 'Award' },
-  { kind: 'link', id: 'moments',  path: '/moments',  icon: '📸', label: 'Moments' },
-  { kind: 'link', id: 'pantry',   path: '/pantry',   icon: '🛒', label: 'Pantry' },
-  { kind: 'link', id: 'profiles', path: '/profiles', icon: '👧', label: 'Kids' },
+  { kind: 'link', id: 'home',     path: '/dashboard', icon: '🏠', label: 'Home' },
+  { kind: 'link', id: 'rate',     path: '/rate',      icon: '📋', label: 'Rate' },
+  { kind: 'link', id: 'award',    path: '/award',     icon: '🎖️', label: 'Award' },
+  { kind: 'link', id: 'moments',  path: '/moments',   icon: '📸', label: 'Moments' },
+  { kind: 'link', id: 'pantry',   path: '/pantry',    icon: '🛒', label: 'Pantry' },
+  { kind: 'link', id: 'profiles', path: '/profiles',  icon: '👧', label: 'Kids' },
 ];
 
 const KID_SIDEBAR: SidebarRow[] = [
-  { kind: 'link',    id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
-  { kind: 'link',    id: 'home',     path: '/kid',     icon: '🏠', label: 'Home' },
-  { kind: 'link',    id: 'hive',     path: '/hive',    icon: '🍯', label: 'Hive' },
-  { kind: 'link',    id: 'moments',  path: '/moments', icon: '📸', label: 'Moments' },
-  { kind: 'link',    id: 'badges',   path: '/badges',  icon: '🏆', label: 'Badges' },
-  { kind: 'link',    id: 'rewards',  path: '/rewards', icon: '🎁', label: 'Rewards' },
-  { kind: 'section', id: 'fun',      icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
+  { kind: 'link',    id: 'home',    path: '/kid',     icon: '🏠', label: 'Home' },
+  { kind: 'link',    id: 'hive',    path: '/hive',    icon: '🍯', label: 'Hive' },
+  { kind: 'link',    id: 'moments', path: '/moments', icon: '📸', label: 'Moments' },
+  { kind: 'link',    id: 'badges',  path: '/badges',  icon: '🏆', label: 'Badges' },
+  { kind: 'link',    id: 'rewards', path: '/rewards', icon: '🎁', label: 'Rewards' },
+  { kind: 'section', id: 'fun',     icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
 ];
 
 // ── Mobile bottom-bar groups ─────────────────────────────────────────
-// 5 slots per role — Discover always anchors slot 1. Moments + the rest
-// remain reachable via the More mega-sheet.
 const PARENT_MOBILE_GROUPS: MobileGroup[] = [
-  { kind: 'link', id: 'discover', path: '/',     icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/home', icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link', id: 'home',    path: '/dashboard', icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link', id: 'moments', path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'sheet', id: 'kaya', iconNode: <KayaIcon className="w-5 h-5" />, label: 'Kaya', title: 'Kaya · point system', items: KAYA_NAV },
-  { kind: 'link', id: 'hive',     path: '/hive', icon: '🍯', label: 'Hive', activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
-  { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
+  { kind: 'link', id: 'hive',    path: '/hive',      icon: '🍯', label: 'Hive', activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
+  { kind: 'mega', id: 'more',    icon: '☰', label: 'More', title: 'All modules' },
 ];
 
 const KID_MOBILE_GROUPS: MobileGroup[] = [
-  { kind: 'link', id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/kid',     icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'hive',     path: '/hive',    icon: '🍯', label: 'Hive' },
-  { kind: 'link', id: 'moments',  path: '/moments', icon: '📸', label: 'Moments' },
-  { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
+  { kind: 'link', id: 'home',    path: '/kid',     icon: '🏠', label: 'Home' },
+  { kind: 'link', id: 'hive',    path: '/hive',    icon: '🍯', label: 'Hive' },
+  { kind: 'link', id: 'moments', path: '/moments', icon: '📸', label: 'Moments' },
+  { kind: 'link', id: 'badges',  path: '/badges',  icon: '🏆', label: 'Badges' },
+  { kind: 'link', id: 'rewards', path: '/rewards', icon: '🎁', label: 'Rewards' },
+  { kind: 'sheet', id: 'fun', icon: '🎮', label: 'Fun', title: 'Fun', items: KID_FUN_NAV },
 ];
 
-const HELPER_MOBILE_GROUPS: MobileGroup[] = [
-  { kind: 'link', id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/home',    icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'rate',     path: '/rate',    icon: '📋', label: 'Rate' },
-  { kind: 'link', id: 'pantry',   path: '/pantry',  icon: '🛒', label: 'Pantry' },
-  { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
-];
+const HELPER_MOBILE_GROUPS: MobileGroup[] = HELPER_SIDEBAR
+  .filter((r): r is Extract<SidebarRow, { kind: 'link' }> => r.kind === 'link')
+  .map((r) => ({
+    kind: 'link' as const,
+    id: r.id,
+    path: r.path,
+    icon: r.icon,
+    label: r.label,
+  }));
 
 // localStorage key for the open/closed state of collapsible sections.
 // Stored as { [sectionId]: boolean }. Missing key = closed (unless the
@@ -238,10 +236,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { family, children: kids } = useFamily();
 
   const role = profile?.role || 'parent';
-  const homePath = role === 'kid' ? '/kid' : '/home';
-  // BackBar is suppressed on Discover (`/`) and on the role's Home page —
-  // both are top-level destinations, so a Back affordance would be noise.
-  const isAtHome = pathname === homePath || pathname === '/';
+  const homePath = role === 'kid' ? '/kid' : '/dashboard';
+  const isAtHome = pathname === homePath;
 
   // Inside /hive/* OR /pantry/* the section renders its own bottom tab
   // bar. Suppress AppShell's mobile bottom nav so the two don't stack.
@@ -261,14 +257,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     PARENT_MOBILE_GROUPS;
 
   // ── Path matching ──────────────────────────────────────────────────
-  const isPathActive = (path: string) => {
-    if (pathname === path) return true;
-    // `/` (Discover) and `/home` are top-level destinations — without
-    // this guard a startsWith('/') would mark Discover active on every
-    // page, and startsWith('/home') would catch /home/anything in future.
-    if (path === '/' || path === '/home') return false;
-    return !!pathname?.startsWith(path + '/');
-  };
+  const isPathActive = (path: string) =>
+    pathname === path || (path !== '/dashboard' && pathname?.startsWith(path + '/'));
   const isActive = isPathActive;
 
   const isLinkActive = (g: { path: string; activePrefixes?: string[] }): boolean => {

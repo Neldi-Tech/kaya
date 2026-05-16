@@ -13,13 +13,6 @@ const nextConfig = {
       },
     ];
   },
-  async redirects() {
-    return [
-      // /dashboard → /home. Old route renamed when Discover took the
-      // root slot — the 301 keeps every existing bookmark working.
-      { source: '/dashboard', destination: '/home', permanent: true },
-    ];
-  },
 };
 
 module.exports = nextConfig;

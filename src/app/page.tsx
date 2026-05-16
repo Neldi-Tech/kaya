@@ -47,13 +47,13 @@ export default function LandingPage() {
 
   useEffect(() => {
     if (loading || isGuest) return;
-    if (user && profile?.familyId) router.replace('/');
+    if (user && profile?.familyId) router.replace('/dashboard');
     else if (user && !profile?.familyId) router.replace('/onboarding');
   }, [user, profile, loading, isGuest, router]);
 
   const handleGuest = () => {
     enterGuestMode();
-    router.push('/');
+    router.push('/dashboard');
   };
 
   return (
