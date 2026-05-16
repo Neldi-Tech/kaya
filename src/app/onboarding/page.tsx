@@ -40,6 +40,22 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Kids and guests never create families — they always join with a
+  // code. The Create/Join toggle is hidden for them in step 2, so
+  // `familyMode` would otherwise stay at its default 'create' and the
+  // Continue button's `canAdvance()` check would block them (it
+  // requires a family name they never type). Force `join` for those
+  // roles so the rest of the flow stays consistent.
+  useEffect(() => {
+    if ((role === 'kid' || role === 'guest') && familyMode !== 'join') {
+      setFamilyMode('join');
+    }
+    // Note: we intentionally don't auto-revert to 'create' when role
+    // flips back to parent/helper — the user's last explicit pick wins
+    // for those roles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+
   // Email-match link flow: if this user's email is already on a child profile
   // with loginEnabled=true, skip the whole "create family / join family" wizard
   // and offer a one-click link.
@@ -298,15 +314,15 @@ export default function OnboardingPage() {
         {step === 2 && (
           <div>
             <h2 className="font-display text-2xl font-black mb-1">
-              {role === 'kid' ? 'Join your family' : 'Set up your family'}
+              {role === 'kid' || role === 'guest' ? 'Join your family' : 'Set up your family'}
             </h2>
             <p className="text-kaya-sand text-sm mb-6">
-              {role === 'kid'
-                ? 'Ask your parent for the family invite code'
+              {role === 'kid' ? 'Ask your parent for the family invite code'
+                : role === 'guest' ? 'Ask the family for the Guest invite code'
                 : 'Create a new family or join an existing one'}
             </p>
 
-            {role !== 'kid' && (
+            {role !== 'kid' && role !== 'guest' && (
               <div className="flex gap-2 mb-6">
                 {(['create', 'join'] as const).map((m) => (
                   <button
@@ -324,7 +340,7 @@ export default function OnboardingPage() {
               </div>
             )}
 
-            {familyMode === 'create' && role !== 'kid' ? (
+            {familyMode === 'create' && role !== 'kid' && role !== 'guest' ? (
               <div>
                 <label className="block text-xs font-semibold text-kaya-sand mb-1.5 uppercase tracking-wider">
                   Family Name
@@ -484,8 +500,11 @@ export default function OnboardingPage() {
         {step < 4 ? (
           <button
             onClick={() => {
-              // Skip step 3 for joiners/kids
-              if (step === 2 && (familyMode === 'join' || role === 'kid')) {
+              // Skip step 3 (Add children) for anyone who's joining —
+              // joiners don't own the family setup. The familyMode is
+              // auto-forced to 'join' for kid/guest via the useEffect
+              // above, so checking it alone is enough now.
+              if (step === 2 && familyMode === 'join') {
                 setStep(4);
               } else {
                 setStep(step + 1);
