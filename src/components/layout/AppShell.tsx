@@ -169,7 +169,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV },
-  { kind: 'link',    id: 'pages',     path: '/directory', icon: '📒', label: 'Pages' },
+  { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth',   soon: true },
