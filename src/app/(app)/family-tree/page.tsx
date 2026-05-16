@@ -28,16 +28,30 @@ export default function FamilyTreePage() {
   const parents = members.filter((m) => m.role === 'parent');
   const helpers = members.filter((m) => m.role === 'helper');
   const kidUsers = members.filter((m) => m.role === 'kid');
+  const guests  = members.filter((m) => m.role === 'guest');
   const isParent = profile?.role === 'parent';
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-5xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-6 lg:mb-8">
-        <h1 className="font-display text-2xl lg:text-[34px] font-black lg:font-extrabold tracking-tight">Family tree</h1>
-        <p className="text-sm text-kaya-sand mt-0.5 lg:mt-1">
-          Everyone in {family?.name || 'your family'}{family?.handle ? ` · ${formatFamilyHandle(family.handle)}` : ''}.
-        </p>
+      <div className="mb-6 lg:mb-8 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl lg:text-[34px] font-black lg:font-extrabold tracking-tight">Family tree</h1>
+          <p className="text-sm text-kaya-sand mt-0.5 lg:mt-1">
+            Everyone in {family?.name || 'your family'}{family?.handle ? ` · ${formatFamilyHandle(family.handle)}` : ''}.
+          </p>
+        </div>
+        {/* Quick jump to the new Family members card in Settings —
+            that's where parents add/remove people. The tree view
+            here is read-only by design (visual overview). */}
+        {isParent && (
+          <Link
+            href="/settings"
+            className="shrink-0 h-9 px-3 rounded-kaya-sm text-xs font-bold bg-kaya-warm hover:bg-kaya-warm-dark/40 text-kaya-sand transition-colors no-underline"
+          >
+            Manage →
+          </Link>
+        )}
       </div>
 
       {/* Family root */}
@@ -175,6 +189,19 @@ export default function FamilyTreePage() {
               <Grid>
                 {helpers.map((h) => (
                   <PersonCard key={h.uid} person={h} role="Helper" isMe={h.uid === profile?.uid} />
+                ))}
+              </Grid>
+            </Section>
+          )}
+
+          {/* Guests — view-only role added with the per-role invite
+              codes feature. Only renders the section when at least one
+              guest has joined, to keep the tree tidy. */}
+          {guests.length > 0 && (
+            <Section title="Guests" emoji="👀" count={guests.length}>
+              <Grid>
+                {guests.map((g) => (
+                  <PersonCard key={g.uid} person={g} role="Guest" isMe={g.uid === profile?.uid} />
                 ))}
               </Grid>
             </Section>

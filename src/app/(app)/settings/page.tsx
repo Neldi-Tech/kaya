@@ -12,6 +12,7 @@ import {
   PointSystemConfig, readPointSystemConfig,
   ensureInviteCodes, setInviteCodeActive, regenerateInviteCode,
   InviteCodeState,
+  getFamilyMembers, removeUserFromFamily, UserProfile,
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
@@ -29,6 +30,7 @@ import {
   EARNING_METHODS, DEFAULT_EARNING_METHODS, FREE_EARNING_METHOD_LIMIT,
   isMethodSelectable,
 } from '@/lib/earningMethods';
+import { KID_MODULES, DEFAULT_KID_MODULES } from '@/lib/kidModules';
 import {
   COUNTRIES, COUNTRY_REGION_LABELS, countryToCurrency, currencyMeta,
   type CountryMeta,
@@ -58,6 +60,12 @@ export default function SettingsPage() {
   const [copiedCode, setCopiedCode] = useState<'kid' | 'helper' | 'guest' | null>(null);
   // Per-row "doing something" indicators so multi-tap can't race.
   const [busyCode, setBusyCode] = useState<{ role: 'kid'|'helper'|'guest'; op: 'toggle'|'regen' } | null>(null);
+  // Family members panel — list of every UserProfile attached to this
+  // family. Lets parents audit who has access and remove anyone they
+  // didn't intend (e.g. a stale helper, an unknown joiner). Refreshes
+  // after a removal so the row vanishes without a page reload.
+  const [members, setMembers] = useState<UserProfile[] | null>(null);
+  const [removingMember, setRemovingMember] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState('');
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
@@ -551,6 +559,34 @@ export default function SettingsPage() {
     return () => { cancelled = true; };
   }, [family, isGuest]);
 
+  // Load family members alongside the invite codes — the "who has
+  // access" answer pairs with "how do they get in" on the same screen.
+  // Re-fetches when family.id changes (e.g. user switches families).
+  useEffect(() => {
+    if (!profile?.familyId || isGuest) {
+      setMembers(null);
+      return;
+    }
+    let cancelled = false;
+    getFamilyMembers(profile.familyId)
+      .then((m) => { if (!cancelled) setMembers(m); })
+      .catch(() => { if (!cancelled) setMembers([]); });
+    return () => { cancelled = true; };
+  }, [profile?.familyId, isGuest]);
+
+  const handleRemoveMember = async (m: UserProfile) => {
+    if (!profile || removingMember) return;
+    if (m.uid === profile.uid) return; // can't remove yourself
+    const label = m.displayName || m.email || 'this member';
+    if (!confirm(`Remove ${label} from your family? They keep their account but lose access until you add them back.`)) return;
+    setRemovingMember(m.uid);
+    try {
+      await removeUserFromFamily(m.uid);
+      setMembers((prev) => (prev ? prev.filter((x) => x.uid !== m.uid) : prev));
+    } catch {}
+    setRemovingMember(null);
+  };
+
   const copyRoleCode = (role: 'kid' | 'helper' | 'guest') => {
     const code = inviteCodes?.[role]?.code;
     if (!code) return;
@@ -696,6 +732,24 @@ export default function SettingsPage() {
       await refresh();
     } catch {}
     setSavingLocation(false);
+  };
+
+  // Kid-module picker. Fall back to the slim default set when a family
+  // hasn't customised yet. Home is always granted and not rendered as a
+  // toggle in the UI below.
+  const selectedKidModules = family?.kidModules ?? DEFAULT_KID_MODULES;
+  const [savingKidModule, setSavingKidModule] = useState<string | null>(null);
+  const toggleKidModule = async (id: string) => {
+    if (!profile?.familyId || !family || isGuest || savingKidModule) return;
+    const isOn = selectedKidModules.includes(id);
+    const next = isOn
+      ? selectedKidModules.filter((m) => m !== id)
+      : [...selectedKidModules, id];
+    setSavingKidModule(id);
+    try {
+      await updateFamily(profile.familyId, { kidModules: next } as any);
+    } catch {}
+    setSavingKidModule(null);
   };
 
   // Earning-method picker. Fall back to the Phase-1 default for families that
@@ -1852,6 +1906,158 @@ export default function SettingsPage() {
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
                 Codes auto-deactivate after one successful join. Re-activate or regenerate any time. Inviting <em>other</em> families to start their own? Use the referral link instead.
               </p>
+            </div>
+          )}
+
+          {/* Family members — who has access right now. Pairs with
+              the invite-codes card above ("how do they get in") to
+              give parents a complete control surface. Removing a
+              member detaches them from this family but keeps their
+              account so they can rejoin with a fresh code. */}
+          {isParent && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <div className="flex items-baseline justify-between mb-1">
+                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Family members</p>
+                <span className="text-[10px] text-kaya-sand-light">
+                  {members === null ? '…' : `${members.length} ${members.length === 1 ? 'person' : 'people'}`}
+                </span>
+              </div>
+              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                Everyone with access to your family right now. Remove anyone you didn&apos;t intend to add — they keep their account but lose access until you invite them again.
+              </p>
+
+              {members === null ? (
+                <p className="text-[11px] text-kaya-sand-light italic">Loading…</p>
+              ) : members.length === 0 ? (
+                <p className="text-[11px] text-kaya-sand-light italic">No members yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {/* Sort: parents first, then helpers, kids, guests; self at top of role bucket */}
+                  {[...members]
+                    .sort((a, b) => {
+                      const order: Record<string, number> = { parent: 0, helper: 1, kid: 2, guest: 3 };
+                      const ra = order[a.role] ?? 9;
+                      const rb = order[b.role] ?? 9;
+                      if (ra !== rb) return ra - rb;
+                      if (a.uid === profile?.uid) return -1;
+                      if (b.uid === profile?.uid) return 1;
+                      return (a.displayName || '').localeCompare(b.displayName || '');
+                    })
+                    .map((m) => {
+                      const isSelf = m.uid === profile?.uid;
+                      const roleStyle =
+                        m.role === 'parent' ? 'bg-kaya-gold/15 text-kaya-chocolate'
+                        : m.role === 'helper' ? 'bg-blue-100 text-blue-700'
+                        : m.role === 'kid'    ? 'bg-emerald-100 text-emerald-700'
+                        :                        'bg-kaya-warm-dark/30 text-kaya-sand';
+                      const roleEmoji =
+                        m.role === 'parent' ? '👨‍👩‍👧‍👦'
+                        : m.role === 'helper' ? '🤝'
+                        : m.role === 'kid'    ? '⭐'
+                        :                        '👀';
+                      return (
+                        <div key={m.uid} className="flex items-center gap-3 p-2.5 border border-kaya-warm-dark/40 rounded-kaya-sm">
+                          {m.photoURL || m.avatarPhoto ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={m.avatarPhoto || m.photoURL}
+                              alt=""
+                              className="w-9 h-9 rounded-full object-cover shrink-0"
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-kaya-warm flex items-center justify-center text-base shrink-0">
+                              {roleEmoji}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-1.5">
+                              <p className="text-sm font-bold truncate">{m.displayName || '(no name)'}</p>
+                              {isSelf && <span className="text-[9px] uppercase tracking-wider text-kaya-sand-light">you</span>}
+                            </div>
+                            <p className="text-[11px] text-kaya-sand truncate">{m.email || '—'}</p>
+                          </div>
+                          <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full shrink-0 ${roleStyle}`}>
+                            {roleEmoji} {m.role}
+                          </span>
+                          {!isSelf && (
+                            <button
+                              onClick={() => handleRemoveMember(m)}
+                              disabled={removingMember === m.uid}
+                              className="text-[11px] font-bold text-red-600 hover:text-red-700 disabled:opacity-40 shrink-0"
+                            >
+                              {removingMember === m.uid ? '…' : 'Remove'}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
+              <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
+                Kids&apos; profiles (the children themselves) are managed separately under the section below — these are people with sign-in access.
+              </p>
+            </div>
+          )}
+
+          {/* What kids see — module visibility toggles. Drives the
+              kid sidebar, mobile bottom bar, and the More sheet.
+              Home is always granted and not shown as a toggle. */}
+          {isParent && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <div className="flex items-baseline justify-between mb-1">
+                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">What kids see</p>
+                <span className="text-[10px] text-kaya-sand-light">
+                  {selectedKidModules.filter((id) => id !== 'home').length} on
+                </span>
+              </div>
+              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                Pick which modules show up in your kid&apos;s menu. Home is always there. Anything you turn off is hidden from their sidebar and bounces back to Home if they try the URL directly.
+              </p>
+              <div className="space-y-2">
+                {KID_MODULES.filter((m) => !m.alwaysOn).map((m) => {
+                  const sel = selectedKidModules.includes(m.id);
+                  const disabled = isGuest;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => toggleKidModule(m.id)}
+                      disabled={disabled || savingKidModule === m.id}
+                      className={`w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
+                        sel
+                          ? 'border-kaya-gold bg-kaya-gold/5'
+                          : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
+                      } ${savingKidModule === m.id ? 'opacity-60' : ''} ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      <span className="text-2xl shrink-0 leading-none">{m.icon}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <p className="text-sm font-bold leading-tight">{m.label}</p>
+                          {m.soon && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/40 text-kaya-sand">
+                              Coming soon
+                            </span>
+                          )}
+                          {m.isLegacy && (
+                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/30 text-kaya-sand">
+                              Legacy
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                          sel
+                            ? 'bg-kaya-gold border-kaya-gold text-white'
+                            : 'border-kaya-warm-dark bg-white text-transparent'
+                        }`}
+                      >
+                        {sel ? '✓' : ''}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
 

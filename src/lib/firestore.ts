@@ -131,6 +131,12 @@ export interface Family {
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent
+  // Which modules show up in a kid's nav (sidebar + mobile More sheet)
+  // and which kid-side routes are reachable. Ids from `KID_MODULES` in
+  // `lib/kidModules.ts`. When absent, falls back to `DEFAULT_KID_MODULES`
+  // — Home is always granted regardless. Routes not in the granted set
+  // bounce kids back to /kid via the AppShell route guard.
+  kidModules?: string[];
   routines: Routine[];
   // Family-configurable point system rules (tier caps, reducing on/off,
   // Kudos / Improvement Note thresholds). Optional — `readPointSystemConfig`
@@ -513,6 +519,23 @@ export async function getFamilyMembers(familyId: string): Promise<UserProfile[]>
   const q = query(collection(db, 'users'), where('familyId', '==', familyId));
   const snap = await getDocs(q);
   return snap.docs.map((d) => d.data() as UserProfile);
+}
+
+// Detach a user from their family. Keeps the user account intact (so
+// they can re-join with a fresh invite code or be added to a different
+// family later) — just clears `familyId` and `childId`. Used from the
+// Family members card in Settings when a parent wants to remove a
+// helper, guest, or stale kid login.
+//
+// Safety: this should be gated to the calling parent's UI; the
+// Firestore rules do their own enforcement (`isParentInFamily`) but
+// we don't want the UI to even surface the option for non-parents.
+export async function removeUserFromFamily(uid: string): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(db, 'users', uid), {
+    familyId: '',
+    childId: null,
+  });
 }
 
 // ── Family Operations ─────────────────────────────
