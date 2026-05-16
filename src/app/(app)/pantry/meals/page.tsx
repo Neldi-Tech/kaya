@@ -405,11 +405,11 @@ function SlotPicker({
               )
             ) : (
               <>
-                {/* Yellow Pages category chips. Tagged "from Yellow Pages"
+                {/* Directory category chips. Tagged "from Directory"
                     so users know where the catalog lives once that
                     module ships in full. */}
                 <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-hive-muted px-2 mt-1 mb-2">
-                  Venues · from Yellow Pages
+                  Venues · from Directory
                 </p>
                 <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3 px-2">
                   {DINING_CATEGORIES.map((c) => (

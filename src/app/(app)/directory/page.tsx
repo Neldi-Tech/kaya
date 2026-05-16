@@ -1,6 +1,6 @@
 'use client';
 
-// /directory — Yellow Pages. The family's service directory: the
+// /directory — Family Directory. The family's service directory: the
 // plumber, the pharmacy, the mama wa kazi, the kids' school. Built
 // on the existing families/{f}/suppliers collection (see
 // lib/directory.ts for the architecture note) — this is the full
@@ -129,7 +129,7 @@ export default function DirectoryPage() {
 
   const removeContact = async (c: Supplier) => {
     if (!familyId || isGuest) return;
-    if (!confirm(`Remove "${c.name}" from your Yellow Pages?`)) return;
+    if (!confirm(`Remove "${c.name}" from your Directory?`)) return;
     await deleteSupplier(familyId, c.id);
     setEditingId(null);
     flash(`Removed ${c.name}`);
@@ -167,10 +167,10 @@ export default function DirectoryPage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Directory · Yellow Pages
+          Family · directory
         </p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">
-          Yellow Pages 📒
+          Directory 📞
         </h1>
         <p className="text-[12px] lg:text-[13px] text-hive-muted mt-1">
           Every service the {family?.name || 'family'} household relies on — one tap to WhatsApp or save to your phone.
@@ -511,7 +511,7 @@ function ContactForm({
           onClick={submit}
           className="flex-1 h-11 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-black text-[13px]"
         >
-          {existing ? 'Save changes' : 'Add to Yellow Pages'}
+          {existing ? 'Save changes' : 'Add to Directory'}
         </button>
         <button
           onClick={onCancel}
@@ -795,7 +795,7 @@ function EmptyState({ onAdd, onImport }: { onAdd: () => void; onImport: () => vo
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
       <div className="text-4xl mb-2">📒</div>
-      <p className="font-nunito font-extrabold text-[14px]">Your Yellow Pages is empty</p>
+      <p className="font-nunito font-extrabold text-[14px]">Your Directory is empty</p>
       <p className="text-[12px] text-hive-muted mt-1 mb-4 leading-relaxed">
         Add the plumber, the pharmacy, the kids' school — everyone your household calls on.
         Import your phone contacts to fill it fast.
