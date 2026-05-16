@@ -497,7 +497,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           aria-label="Go to home"
           className="px-5 pt-6 pb-5 flex items-center gap-2.5 hover:opacity-80 transition-opacity"
         >
-          <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light flex items-center justify-center font-display font-bold text-base">K</div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/kaya-icon-k.svg" alt="" width="36" height="36" className="w-9 h-9 shrink-0" />
           <span className="font-display font-bold text-lg tracking-tight">Kaya</span>
         </Link>
 
@@ -552,7 +553,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 aria-label="Go to home"
                 className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
               >
-                <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light flex items-center justify-center text-base shrink-0">🏠</div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/brand/kaya-icon-k.svg" alt="" width="36" height="36" className="w-9 h-9 shrink-0" />
                 <span className="font-display text-lg font-black tracking-tight truncate">Kaya</span>
               </Link>
             </div>

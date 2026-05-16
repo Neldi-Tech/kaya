@@ -1,0 +1,23 @@
+<!-- Kaya · house mark with a compact K letterform inside.
+     Dark theme — chocolate house + gold-light K, matching the current
+     live-site sidebar treatment. Compact K geometry (from variant D —
+     smaller stroke, tighter footprint) so it still reads at favicon
+     sizes (16px). For light backgrounds, see kaya-icon.svg (honey
+     house + heart). -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Chimney -->
+  <path fill="#1E120B" d="M 338 210 L 338 138 Q 338 124 352 124 L 374 124 Q 388 124 388 138 L 388 210 Z"/>
+  <!-- House body (solid chocolate, no heart cutout) -->
+  <path fill="#1E120B" d="M 116 432 Q 96 432 96 412 L 96 246 Q 96 240 102 234 L 244 92 Q 256 80 268 92 L 410 234 Q 416 240 416 246 L 416 412 Q 416 432 396 432 L 116 432 Z"/>
+  <!-- K letterform · gold-light, vertically centred in the house body.
+       Geometry from variant D (stroke 32, compact) — keeps the
+       letterform tight enough to read at 16-24px. -->
+  <g stroke="#F5E6B8" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- vertical bar -->
+    <line x1="220" y1="280" x2="220" y2="375"/>
+    <!-- upper diagonal -->
+    <line x1="220" y1="328" x2="290" y2="280"/>
+    <!-- lower diagonal -->
+    <line x1="220" y1="328" x2="290" y2="375"/>
+  </g>
+</svg>
