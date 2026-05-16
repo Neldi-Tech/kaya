@@ -15,7 +15,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { path: '/dashboard',     icon: '🏠', label: 'Kaya',     external: true },
+  { path: '/home',          icon: '🏠', label: 'Kaya',     external: true },
   { path: '/hive',          icon: '🍯', label: 'Hive' },
   { path: '/hive/quests',   icon: '🏆', label: 'Quests' },
   { path: '/hive/wallet',   icon: '💰', label: 'Wallet' },
