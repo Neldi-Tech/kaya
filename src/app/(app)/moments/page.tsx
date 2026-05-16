@@ -25,6 +25,68 @@ import KidAvatar from '@/components/ui/KidAvatar';
 
 const PAGE_SIZE_STEP = 20;
 
+// ── Feed cache (instant first paint) ────────────────────────────────
+// We persist the last successful feed response in localStorage so the
+// second visit can render the cards immediately while the live
+// Firestore listener catches up. Cache is scoped per-family + per-page-
+// size and bumped via a version suffix so a Post-shape change in
+// `lib/moments.ts` doesn't ship stale-shaped objects to the renderer.
+//
+// Firestore Timestamps don't survive JSON.stringify — they round-trip
+// as plain {seconds, nanoseconds} objects and lose `.toDate()` /
+// `.toMillis()`. The page calls `.toDate()` on `createdAt`, so we
+// re-attach those methods after parsing.
+const MOMENTS_CACHE_KEY_PREFIX = 'kaya:moments:feed:v1';
+const MOMENTS_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 24; // 24h
+
+function cacheKey(familyId: string, pageSize: number) {
+  return `${MOMENTS_CACHE_KEY_PREFIX}:${familyId}:${pageSize}`;
+}
+
+function rehydrateTimestamp(ts: unknown) {
+  if (!ts || typeof ts !== 'object') return ts;
+  // Already a real Firestore Timestamp — leave alone.
+  if (typeof (ts as { toDate?: unknown }).toDate === 'function') return ts;
+  const raw = ts as { seconds?: number; nanoseconds?: number };
+  if (typeof raw.seconds !== 'number') return ts;
+  const ms = raw.seconds * 1000 + Math.floor((raw.nanoseconds || 0) / 1e6);
+  return {
+    seconds: raw.seconds,
+    nanoseconds: raw.nanoseconds || 0,
+    toDate: () => new Date(ms),
+    toMillis: () => ms,
+  };
+}
+
+function readCachedPosts(familyId: string, pageSize: number): Post[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(cacheKey(familyId, pageSize));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { ts: number; posts: Post[] };
+    if (!parsed?.ts || Date.now() - parsed.ts > MOMENTS_CACHE_MAX_AGE_MS) return [];
+    return (parsed.posts || []).map((p) => ({
+      ...p,
+      createdAt: rehydrateTimestamp(p.createdAt) as Post['createdAt'],
+      updatedAt: rehydrateTimestamp(p.updatedAt) as Post['updatedAt'],
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedPosts(familyId: string, pageSize: number, posts: Post[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      cacheKey(familyId, pageSize),
+      JSON.stringify({ ts: Date.now(), posts })
+    );
+  } catch {
+    /* quota exceeded or storage disabled — drop the cache silently */
+  }
+}
+
 export default function MomentsFeedPage() {
   const { profile, isGuest } = useAuth();
   const { children } = useFamily();
@@ -32,11 +94,22 @@ export default function MomentsFeedPage() {
   const [pageSize, setPageSize] = useState(PAGE_SIZE_STEP);
   const [loaded, setLoaded] = useState(false);
 
+  // Paint the cached feed immediately on mount / familyId change, then
+  // let the Firestore listener replace it with fresh data. `loaded`
+  // flips to true as soon as we have *anything* to show (cache or
+  // live) so the "Loading feed…" placeholder doesn't flash on repeat
+  // visits.
   useEffect(() => {
     if (!profile?.familyId) return;
+    const cached = readCachedPosts(profile.familyId, pageSize);
+    if (cached.length > 0) {
+      setPosts(cached);
+      setLoaded(true);
+    }
     const unsub = subscribeToFeed(profile.familyId, pageSize, (p) => {
       setPosts(p);
       setLoaded(true);
+      writeCachedPosts(profile.familyId!, pageSize, p);
     });
     return () => unsub();
   }, [profile?.familyId, pageSize]);
