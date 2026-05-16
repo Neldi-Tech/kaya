@@ -161,7 +161,7 @@ export default function OnboardingPage() {
       });
 
       await refreshProfile();
-      router.push('/dashboard');
+      router.push('/');
     } catch (e: any) {
       setError(e.message || 'Something went wrong');
     }
