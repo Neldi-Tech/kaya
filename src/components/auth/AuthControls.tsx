@@ -32,7 +32,7 @@ export default function AuthControls() {
 
   const handlePostLogin = async (uid: string) => {
     const profile = await getUserProfile(uid);
-    if (profile?.familyId) router.push('/dashboard');
+    if (profile?.familyId) router.push('/');
     else router.push('/onboarding');
   };
 
@@ -106,7 +106,7 @@ export default function AuthControls() {
 
         <button
           type="button"
-          onClick={() => { enterGuestMode(); router.push('/dashboard'); }}
+          onClick={() => { enterGuestMode(); router.push('/'); }}
           className="w-full text-center text-sm font-semibold text-kaya-chocolate underline-offset-4 hover:underline pt-2"
         >
           Or try as a guest →

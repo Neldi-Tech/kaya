@@ -8,7 +8,7 @@ interface BackButtonProps {
   onClick?: () => void;
 }
 
-export default function BackButton({ label = 'Dashboard', href = '/dashboard', onClick }: BackButtonProps) {
+export default function BackButton({ label = 'Home', href = '/home', onClick }: BackButtonProps) {
   const router = useRouter();
 
   const handleClick = () => {

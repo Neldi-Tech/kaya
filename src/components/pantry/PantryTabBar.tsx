@@ -17,7 +17,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const TABS = [
-  { path: '/dashboard',          icon: '🏠', label: 'Kaya',   match: 'kaya' as const },
+  { path: '/home',               icon: '🏠', label: 'Kaya',   match: 'kaya' as const },
   { path: '/pantry',             icon: '🛒', label: 'Home',   match: 'exact' as const },
   { path: '/pantry/list/active', icon: '📝', label: 'List',   match: 'list-prefix' as const },
   { path: '/pantry/directory',   icon: '🧺', label: 'Browse', match: 'prefix' as const },
