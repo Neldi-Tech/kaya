@@ -15,6 +15,15 @@ import { FOUNDING_FAMILY_LIMIT, generateReferralCode } from './referral';
 export type Role = 'parent' | 'helper' | 'kid';
 export type PointsMode = 'full' | 'badges-only' | 'encouragement';
 export type RatingValue = 'excellent' | 'good' | 'bad' | 'skip';
+// The five recognised kinds of award. Drives points math + UI.
+//   regular           +1, +2, +3 (cap from family config)
+//   diamond           +4 and above (parents' big-moment bonus)
+//   reducing          negative (–1 to –reducingMax), only if family enables it
+//   kudos             0 pts — accumulates toward a bonus when the family's
+//                     threshold is reached (e.g. 4 Kudos = +1 bonus point)
+//   improvement_note  0 pts — accumulates toward a deduction when the family's
+//                     threshold is reached (only deducts if reducing is enabled)
+export type AwardKind = 'regular' | 'diamond' | 'reducing' | 'kudos' | 'improvement_note';
 // Used for both parents and kids — same vocabulary so the avatar/Wikipedia
 // hints behave consistently. 'unspecified' means "don't filter".
 export type Gender = 'male' | 'female' | 'other' | 'unspecified';
@@ -92,6 +101,10 @@ export interface Family {
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent
   routines: Routine[];
+  // Family-configurable point system rules (tier caps, reducing on/off,
+  // Kudos / Improvement Note thresholds). Optional — `readPointSystemConfig`
+  // merges with `DEFAULT_POINT_SYSTEM` so older family docs keep working.
+  pointSystem?: PointSystemConfig;
   // ── The Hive ──
   // Parent-controlled rates + policy for the three-layer money module.
   // See `src/lib/hive.ts` for the canonical shape (`HiveConfig`). Persisted
@@ -176,6 +189,19 @@ export interface Child {
   weeklyPoints: number;
   streak: number;
   badges: string[];
+  // Running counters for 0-point award kinds. When either hits its family-
+  // configured threshold, `giveAward` auto-fires a derived bonus/deduction
+  // award and decrements the counter by the threshold (modulo, not reset —
+  // overflow carries to the next cycle).
+  kudosCount?: number;
+  improvementNoteCount?: number;
+  // Routine Points — accumulator for the points earned from rated daily
+  // routines. Held separately from `totalPoints` so each rating contributes
+  // small (0/1/2) increments here, and the configured conversion rate
+  // (default 100 RP → 1 HP) folds them into `totalPoints` once the
+  // threshold is reached. Lets parents see fine-grained routine effort
+  // without ballooning the headline score.
+  routinePoints?: number;
   // ── The Hive · per-child overrides ──
   // Override the family-wide `hiveConfig.spendAutoApproveBelowCents` for
   // this kid. `null` (or absent) → use the family default. `0` → force
@@ -205,21 +231,70 @@ export interface DailyRating {
   totalPoints: number;
   ratedBy: string;
   ratedByName: string;
-  // Free-text note. Originally added so comments from historical
-  // Google-Sheet logs are preserved on import; surfaced on Reports.
+  // Free-text note for the whole period. Originally added so comments
+  // from historical Google-Sheet logs are preserved on import; surfaced
+  // on Reports + family meeting view.
   comment?: string;
+  // Per-routine notes keyed by routine id. Required when a routine is
+  // rated 'bad' (so meetings can address what went wrong); optional but
+  // encouraged when rated 'excellent' (so wins get context). Surfaced in
+  // the Reports notes panel alongside the overall `comment`.
+  ratingNotes?: Record<string, string>;
   createdAt: Timestamp;
 }
 
 export interface Award {
   id: string;
   childId: string;
-  points: number;
+  // The five recognised kinds. Older docs may not have this field — use
+  // `inferAwardKind(award)` to read defensively. New writes always set it.
+  kind?: AwardKind;
+  points: number;          // 0 for kudos/improvement_note, negative for reducing
   reason: string;
   category: string;
   awardedBy: string;
   awardedByName: string;
   createdAt: Timestamp;
+  // Set when this award was auto-fired by the threshold accumulator
+  // (e.g. 4 Kudos → +1 derived award). Lets the UI badge it as automatic
+  // and lets us trace back the source events that triggered it.
+  derivedFrom?: {
+    kind: 'kudos' | 'improvement_note';
+    sourceAwardIds: string[];
+  };
+  // Optional tag used by the historical import script so re-runs are
+  // idempotent and the bulk can be cleaned up if needed. Live UI writes
+  // omit this field.
+  importSource?: string;
+}
+
+// Family-configurable rules for the point system. Persisted partial on the
+// Family doc as `pointSystem`; read via `readPointSystemConfig()` so
+// missing/partial values fall back to `DEFAULT_POINT_SYSTEM`.
+export interface PointSystemConfig {
+  reducing: {
+    enabled: boolean;       // default false — disabled = no negative awards
+    max: number;            // 1–10 — caps the magnitude of a single reducing award
+  };
+  kudos: {
+    enabled: boolean;       // default true
+    label: string;          // renameable, default 'Kudos'
+    threshold: number;      // e.g. 4 → fires a bonus every 4 Kudos
+    bonusPoints: number;    // points granted when threshold is reached (default 1)
+  };
+  improvementNote: {
+    enabled: boolean;       // default true
+    label: string;          // renameable, default 'Improvement Note'
+    threshold: number;      // e.g. 4 → fires a deduction every 4 notes
+    deductionPoints: number; // magnitude of the deduction (default 1)
+  };
+  diamondMinPoints: number; // boundary between regular and diamond (default 4)
+  routines: {
+    // Conversion rate from accumulated routine points to a single house
+    // point. Default 100 keeps headline scores clean — 30 days of
+    // straight-Excellent routines turn into ~3-5 house points per kid.
+    pointsPerHousePoint: number;
+  };
 }
 
 export interface Meeting {
@@ -267,20 +342,76 @@ export interface Notification {
 }
 
 // ── Default Routines ──────────────────────────────
+// Morning (8) + Evening (12) — aligned with the Excel "Form 2" template
+// used by Elia's household for ~6 months. Single source of truth: new
+// families get this whole set; existing families can add/rename/disable
+// via `RoutinesEditor` in Settings.
 export const DEFAULT_ROUTINES: Routine[] = [
-  { id: 'bed', label: 'Making bed', labelSw: 'Kutandika Kitanda', icon: '🛏️', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'teeth', label: 'Brushing teeth', labelSw: 'Kuswaki', icon: '🪥', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'bath', label: 'Taking bath', labelSw: 'Kuoga', icon: '🚿', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'timely', label: 'Timely preparation', labelSw: 'Kujiandaa kwa wakati', icon: '⏰', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'breakfast', label: 'Breakfast', labelSw: 'Chai Asubuhi', icon: '🥣', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'room', label: 'Clean room', labelSw: 'Chumba Safi', icon: '✨', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'prayer', label: 'Morning prayer', labelSw: 'Sala Asubuhi', icon: '🤲', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'behavior', label: 'Good behavior', labelSw: 'Adabu Njema', icon: '⭐', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'homework', label: 'Homework', labelSw: 'Kazi ya Nyumbani', icon: '📚', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'dinner', label: 'Dinner manners', labelSw: 'Adabu za Chakula', icon: '🍽️', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'bedtime', label: 'Bedtime routine', labelSw: 'Maandalizi ya Kulala', icon: '🌙', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
-  { id: 'evening-prayer', label: 'Evening prayer', labelSw: 'Sala Jioni', icon: '🕌', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  // ── Morning (8) ──
+  { id: 'bed',         label: 'Making bed',         labelSw: 'Kutandika Kitanda',    icon: '🛏️', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'teeth',       label: 'Brushing teeth',     labelSw: 'Kuswaki',              icon: '🪥', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'bath',        label: 'Taking bath',        labelSw: 'Kuoga',                icon: '🚿', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'timely',      label: 'Timely preparation', labelSw: 'Kujiandaa kwa wakati', icon: '⏰', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'breakfast',   label: 'Breakfast',          labelSw: 'Chai Asubuhi',         icon: '🥣', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'room',        label: 'Clean room',         labelSw: 'Chumba Safi',          icon: '✨', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'prayer',      label: 'Morning prayer',     labelSw: 'Sala Asubuhi',         icon: '🤲', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'behavior',    label: 'Good behavior',      labelSw: 'Adabu Njema',          icon: '⭐', period: 'morning', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  // ── Evening (12) ──
+  { id: 'homework',          label: 'Homework',         labelSw: 'Kazi za Shule',           icon: '📚', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'playing-outside',   label: 'Playing outside',  labelSw: 'Kucheza Nje',             icon: '🏃', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'reading',           label: 'Reading',          labelSw: 'Kusoma',                  icon: '📖', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'writing',           label: 'Writing',          labelSw: 'Kuandika',                icon: '✍️', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'home-chores',       label: "Daddy's home chores", labelSw: 'Kazi za Baba',         icon: '🧹', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'room-evening',      label: 'Clean room',       labelSw: 'Kupanga Chumba',          icon: '🛋️', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'dinner',            label: 'Dinner',           labelSw: 'Chakula Jioni',           icon: '🍽️', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'evening-prayer',    label: 'Evening prayer',   labelSw: 'Sala ya Jioni',           icon: '🕌', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'sleeping-time',     label: 'Sleeping time',    labelSw: 'Muda wa Kulala',          icon: '🌙', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'tablets',           label: 'Tablets / screens', labelSw: 'Kuangalia Movie or Games', icon: '📱', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'slippers',          label: 'Slippers',         labelSw: 'Malapa',                  icon: '🥿', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
+  { id: 'behavior-evening',  label: 'Good behavior',    labelSw: 'Adabu Njema',             icon: '⭐', period: 'evening', pointsExcellent: 2, pointsGood: 1, pointsBad: 0, active: true },
 ];
+
+// ── Default Point System Config ───────────────────
+// Conservative defaults — Reducing is OFF until a family opts in (matches
+// the encouragement-first philosophy). Kudos / Improvement Note are ON
+// because they're low-stakes recognition that costs nothing if unused.
+export const DEFAULT_POINT_SYSTEM: PointSystemConfig = {
+  reducing: { enabled: false, max: 3 },
+  kudos: { enabled: true, label: 'Kudos', threshold: 4, bonusPoints: 1 },
+  improvementNote: { enabled: true, label: 'Improvement Note', threshold: 4, deductionPoints: 1 },
+  diamondMinPoints: 4,
+  routines: { pointsPerHousePoint: 100 },
+};
+
+// Merge a family's stored partial config with the defaults. Always safe
+// to call — handles missing `family`, missing `pointSystem`, partial sub-
+// objects. Read-path only; writes should `updateDoc` a partial.
+export function readPointSystemConfig(family: Family | null | undefined): PointSystemConfig {
+  const stored = family?.pointSystem;
+  if (!stored) return DEFAULT_POINT_SYSTEM;
+  return {
+    reducing: { ...DEFAULT_POINT_SYSTEM.reducing, ...(stored.reducing || {}) },
+    kudos: { ...DEFAULT_POINT_SYSTEM.kudos, ...(stored.kudos || {}) },
+    improvementNote: { ...DEFAULT_POINT_SYSTEM.improvementNote, ...(stored.improvementNote || {}) },
+    diamondMinPoints: stored.diamondMinPoints ?? DEFAULT_POINT_SYSTEM.diamondMinPoints,
+    routines: { ...DEFAULT_POINT_SYSTEM.routines, ...(stored.routines || {}) },
+  };
+}
+
+// Resolve the AwardKind for legacy docs missing the `kind` field. Order:
+//   1. explicit `kind` if set
+//   2. `category` prefixed with 'diamond-' → diamond (pre-AwardKind convention)
+//   3. negative points → reducing
+//   4. fallback regular
+// Zero-point legacy docs cannot be distinguished between kudos and
+// improvement_note without context, so default to regular — those legacy
+// rows will simply show as 0-point regular awards, which is harmless.
+export function inferAwardKind(award: Pick<Award, 'kind' | 'category' | 'points'>): AwardKind {
+  if (award.kind) return award.kind;
+  if (award.category?.startsWith('diamond-')) return 'diamond';
+  if ((award.points ?? 0) < 0) return 'reducing';
+  return 'regular';
+}
 
 // ── Default Rewards ──────────────────────────────
 export const DEFAULT_REWARDS: Omit<Reward, 'id'>[] = [
@@ -755,6 +886,40 @@ export function subscribeToFamily(familyId: string, callback: (family: Family | 
 }
 
 // ── Rating Operations ─────────────────────────────
+// Routine ratings credit `routinePoints` (a fine-grained accumulator)
+// rather than `totalPoints` directly. The family-configured conversion
+// rate (default 100 RP → 1 HP) folds them into house points once the
+// threshold is reached. Mirrors the kudos / improvement-note pattern.
+//
+// Pre-2026-05-16 behaviour credited `totalPoints` directly — that's fine
+// for legacy data; new writes go through the accumulator.
+
+// Shared helper — given a child's pre-update state and the routine points
+// from this rating, returns the updates to apply (routinePoints,
+// totalPoints, weeklyPoints) such that every full block of
+// `pointsPerHousePoint` routine points converts to 1 house point.
+// `creditWeekly` controls whether the converted house points should also
+// hit weeklyPoints (true for live ratings; false for historical imports
+// dated outside the current week).
+function computeRoutineRatingUpdates(
+  child: Child,
+  earned: number,
+  pointsPerHousePoint: number,
+  creditWeekly: boolean,
+): Record<string, unknown> {
+  const ppHP = Math.max(1, pointsPerHousePoint);
+  const current = child.routinePoints || 0;
+  const next = current + earned;
+  const housePointsGained = Math.floor(next / ppHP);
+  const carryover = next - housePointsGained * ppHP;
+  const updates: Record<string, unknown> = { routinePoints: carryover };
+  if (housePointsGained > 0) {
+    updates.totalPoints = (child.totalPoints || 0) + housePointsGained;
+    if (creditWeekly) updates.weeklyPoints = (child.weeklyPoints || 0) + housePointsGained;
+  }
+  return updates;
+}
+
 export async function submitRating(familyId: string, rating: Omit<DailyRating, 'id'>) {
   if (isGuestActive()) return 'guest-rating';
   // Strip undefined fields — Firestore rejects them, and `comment` is optional.
@@ -762,15 +927,21 @@ export async function submitRating(familyId: string, rating: Omit<DailyRating, '
   Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
   const ref = await addDoc(collection(db, 'families', familyId, 'ratings'), payload);
 
-  // Update child's total points
+  // Credit routinePoints; the conversion rule folds them into totalPoints
+  // every `pointsPerHousePoint` worth of routine points.
+  const family = await getFamily(familyId);
+  const cfg = readPointSystemConfig(family);
   const childRef = doc(db, 'families', familyId, 'children', rating.childId);
   const childSnap = await getDoc(childRef);
   if (childSnap.exists()) {
     const child = childSnap.data() as Child;
-    await updateDoc(childRef, {
-      totalPoints: (child.totalPoints || 0) + rating.totalPoints,
-      weeklyPoints: (child.weeklyPoints || 0) + rating.totalPoints,
-    });
+    const updates = computeRoutineRatingUpdates(
+      child,
+      rating.totalPoints,
+      cfg.routines.pointsPerHousePoint,
+      true,
+    );
+    await updateDoc(childRef, updates);
   }
 
   return ref.id;
@@ -818,17 +989,26 @@ export async function importRating(
     action = 'created';
   }
 
-  // Update child running totals by the delta. Weekly only counts if the
-  // date is within the current week.
+  // Apply the delta through the routine-points accumulator so historical
+  // imports respect the same conversion rate. Weekly only credits if the
+  // date is within the current week (a 6-month backfill shouldn't inflate
+  // this week's leaderboard).
   const childRef = doc(db, 'families', familyId, 'children', rating.childId);
   const childSnap = await getDoc(childRef);
   if (childSnap.exists()) {
     const child = childSnap.data() as Child;
+    const family = await getFamily(familyId);
+    const cfg = readPointSystemConfig(family);
     const inThisWeek = isInCurrentWeek(rating.date);
-    await updateDoc(childRef, {
-      totalPoints: Math.max(0, (child.totalPoints || 0) + delta),
-      ...(inThisWeek ? { weeklyPoints: Math.max(0, (child.weeklyPoints || 0) + delta) } : {}),
-    });
+    if (delta !== 0) {
+      const updates = computeRoutineRatingUpdates(
+        child,
+        delta,
+        cfg.routines.pointsPerHousePoint,
+        inThisWeek,
+      );
+      await updateDoc(childRef, updates);
+    }
   }
   return { id, action };
 }
@@ -882,34 +1062,267 @@ export async function getRecentRatings(familyId: string, days: number = 7): Prom
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DailyRating));
 }
 
-// ── Award Operations ──────────────────────────────
-export async function giveAward(familyId: string, award: Omit<Award, 'id'>) {
-  if (isGuestActive()) return 'guest-award';
-  const ref = await addDoc(collection(db, 'families', familyId, 'awards'), {
-    ...award,
-    createdAt: serverTimestamp(),
-  });
+// Inclusive YYYY-MM-DD range query for DailyRating docs. Used by the
+// Family Meeting presenter to fetch every rating between two dates.
+export async function getRatingsInDateRange(
+  familyId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<DailyRating[]> {
+  if (isGuestActive()) {
+    return MOCK_RATINGS.filter((r) => r.date >= fromDate && r.date <= toDate);
+  }
+  const q = query(
+    collection(db, 'families', familyId, 'ratings'),
+    where('date', '>=', fromDate),
+    where('date', '<=', toDate),
+    orderBy('date', 'desc'),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DailyRating));
+}
 
-  // Update child points
+// ── Award Operations ──────────────────────────────
+// Result shape — when the threshold accumulator fires a derived bonus or
+// deduction, the caller learns the derived award's id so the UI can
+// reference both ("You earned a +1 from 4 Kudos!" toast, etc.).
+export interface GiveAwardResult {
+  id: string;
+  derivedAwardId?: string;
+  derivedKind?: AwardKind;
+  derivedPoints?: number;
+}
+
+export async function giveAward(
+  familyId: string,
+  award: Omit<Award, 'id' | 'createdAt'>,
+): Promise<GiveAwardResult> {
+  if (isGuestActive()) return { id: 'guest-award' };
+
+  // Strip undefined optional fields — Firestore rejects them.
+  const payload: Record<string, unknown> = { ...award, createdAt: serverTimestamp() };
+  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+
+  const ref = await addDoc(collection(db, 'families', familyId, 'awards'), payload);
+
   const childRef = doc(db, 'families', familyId, 'children', award.childId);
   const childSnap = await getDoc(childRef);
-  if (childSnap.exists()) {
-    const child = childSnap.data() as Child;
+  if (!childSnap.exists()) return { id: ref.id };
+  const child = childSnap.data() as Child;
+
+  // Point-bearing kinds update running totals directly. Negative `points`
+  // for `reducing` just flows through the same math.
+  if (award.kind === 'regular' || award.kind === 'diamond' || award.kind === 'reducing') {
     await updateDoc(childRef, {
       totalPoints: (child.totalPoints || 0) + award.points,
       weeklyPoints: (child.weeklyPoints || 0) + award.points,
     });
+    return { id: ref.id };
   }
 
-  return ref.id;
+  // Zero-point kinds: increment the accumulator, and if the threshold is
+  // reached, fire a derived award + decrement the counter by the threshold.
+  if (award.kind === 'kudos' || award.kind === 'improvement_note') {
+    const family = await getFamily(familyId);
+    const config = readPointSystemConfig(family);
+    const isKudos = award.kind === 'kudos';
+    const counterField = isKudos ? 'kudosCount' : 'improvementNoteCount';
+    const setting = isKudos ? config.kudos : config.improvementNote;
+    const currentCount = ((child as unknown as Record<string, unknown>)[counterField] as number) || 0;
+    const newCount = currentCount + 1;
+
+    // If the family has disabled this kind, just store the event silently —
+    // no counter advance, no derived award. The raw award stays in history
+    // so re-enabling later doesn't lose the record.
+    if (!setting.enabled) {
+      return { id: ref.id };
+    }
+
+    // Threshold not yet reached — just bump the counter.
+    if (newCount < setting.threshold) {
+      await updateDoc(childRef, { [counterField]: newCount });
+      return { id: ref.id };
+    }
+
+    // Threshold reached. Compute the derived award.
+    //   Kudos      → +bonusPoints as a 'regular' award.
+    //   Improvement → −deductionPoints as a 'reducing' award, but only
+    //                 if reducing is enabled family-wide. If reducing is
+    //                 off, the counter still advances (so parents can see
+    //                 it in setup), but no point penalty is applied.
+    const willFireDerived = isKudos || (config.reducing.enabled && !isKudos);
+    if (!willFireDerived) {
+      // Counter rolled over but reducing is off — reset modulo, no points.
+      await updateDoc(childRef, { [counterField]: newCount - setting.threshold });
+      return { id: ref.id };
+    }
+
+    const derivedKind: AwardKind = isKudos ? 'regular' : 'reducing';
+    const derivedPoints = isKudos
+      ? config.kudos.bonusPoints
+      : -config.improvementNote.deductionPoints;
+
+    const derivedRef = await addDoc(collection(db, 'families', familyId, 'awards'), {
+      childId: award.childId,
+      kind: derivedKind,
+      points: derivedPoints,
+      reason: `Auto: ${setting.threshold}× ${setting.label} reached`,
+      category: 'other',
+      awardedBy: 'system',
+      awardedByName: 'Kaya',
+      derivedFrom: { kind: award.kind, sourceAwardIds: [ref.id] },
+      createdAt: serverTimestamp(),
+    });
+
+    await updateDoc(childRef, {
+      [counterField]: newCount - setting.threshold,
+      totalPoints: (child.totalPoints || 0) + derivedPoints,
+      weeklyPoints: (child.weeklyPoints || 0) + derivedPoints,
+    });
+
+    return {
+      id: ref.id,
+      derivedAwardId: derivedRef.id,
+      derivedKind,
+      derivedPoints,
+    };
+  }
+
+  // Unknown kind — write but don't touch counters. Defensive.
+  return { id: ref.id };
+}
+
+// Historical import path — used by the one-time Excel/Sheet importer in
+// Phase 2. Differs from `giveAward` in two ways:
+//   1. Caller supplies an explicit `createdAt` (so awards land at the
+//      event's actual date, not `now()`).
+//   2. `weeklyPoints` is only credited when `createdAt` falls in the
+//      current ISO week — back-filling six months of history shouldn't
+//      inflate this week's leaderboard.
+// The threshold accumulator still runs (chronological replay matches the
+// design intent), so importing 8 Kudos with threshold=4 fires 2 derived
+// bonuses backdated to the relevant source events. Callers must import in
+// chronological order for the replay to be accurate.
+export async function importAward(
+  familyId: string,
+  award: Omit<Award, 'id'> & { createdAt: Timestamp },
+): Promise<GiveAwardResult> {
+  if (isGuestActive()) return { id: 'guest-import-award' };
+
+  const payload: Record<string, unknown> = { ...award };
+  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+  const ref = await addDoc(collection(db, 'families', familyId, 'awards'), payload);
+
+  const childRef = doc(db, 'families', familyId, 'children', award.childId);
+  const childSnap = await getDoc(childRef);
+  if (!childSnap.exists()) return { id: ref.id };
+  const child = childSnap.data() as Child;
+
+  const eventDateStr = award.createdAt.toDate().toISOString().slice(0, 10);
+  const creditWeekly = isInCurrentWeek(eventDateStr);
+
+  if (award.kind === 'regular' || award.kind === 'diamond' || award.kind === 'reducing') {
+    await updateDoc(childRef, {
+      totalPoints: (child.totalPoints || 0) + award.points,
+      ...(creditWeekly ? { weeklyPoints: (child.weeklyPoints || 0) + award.points } : {}),
+    });
+    return { id: ref.id };
+  }
+
+  if (award.kind === 'kudos' || award.kind === 'improvement_note') {
+    const family = await getFamily(familyId);
+    const config = readPointSystemConfig(family);
+    const isKudos = award.kind === 'kudos';
+    const counterField = isKudos ? 'kudosCount' : 'improvementNoteCount';
+    const setting = isKudos ? config.kudos : config.improvementNote;
+    const currentCount = ((child as unknown as Record<string, unknown>)[counterField] as number) || 0;
+    const newCount = currentCount + 1;
+
+    if (!setting.enabled) return { id: ref.id };
+
+    if (newCount < setting.threshold) {
+      await updateDoc(childRef, { [counterField]: newCount });
+      return { id: ref.id };
+    }
+
+    const willFireDerived = isKudos || (config.reducing.enabled && !isKudos);
+    if (!willFireDerived) {
+      await updateDoc(childRef, { [counterField]: newCount - setting.threshold });
+      return { id: ref.id };
+    }
+
+    const derivedKind: AwardKind = isKudos ? 'regular' : 'reducing';
+    const derivedPoints = isKudos
+      ? config.kudos.bonusPoints
+      : -config.improvementNote.deductionPoints;
+
+    const derivedRef = await addDoc(collection(db, 'families', familyId, 'awards'), {
+      childId: award.childId,
+      kind: derivedKind,
+      points: derivedPoints,
+      reason: `Auto: ${setting.threshold}× ${setting.label} reached`,
+      category: 'other',
+      awardedBy: 'system',
+      awardedByName: 'Kaya',
+      derivedFrom: { kind: award.kind, sourceAwardIds: [ref.id] },
+      importSource: award.importSource,
+      // Backdate the derived award to the source's date so the timeline
+      // reads correctly when scrolled.
+      createdAt: award.createdAt,
+    });
+
+    await updateDoc(childRef, {
+      [counterField]: newCount - setting.threshold,
+      totalPoints: (child.totalPoints || 0) + derivedPoints,
+      ...(creditWeekly ? { weeklyPoints: (child.weeklyPoints || 0) + derivedPoints } : {}),
+    });
+
+    return { id: ref.id, derivedAwardId: derivedRef.id, derivedKind, derivedPoints };
+  }
+
+  return { id: ref.id };
 }
 
 export async function getRecentAwards(familyId: string, days: number = 7): Promise<Award[]> {
   if (isGuestActive()) return MOCK_AWARDS;
+  // Filter by `createdAt >= (today - days)` so callers asking for the
+  // last 30 days see the full set, not just the freshest 20. For
+  // "lifetime" callers pass a very large number (e.g. 9999) — there's
+  // no special-case path because Firestore's `>=` against an old date
+  // returns everything cheaply.
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceTs = Timestamp.fromDate(since);
   const q = query(
     collection(db, 'families', familyId, 'awards'),
+    where('createdAt', '>=', sinceTs),
     orderBy('createdAt', 'desc'),
-    limit(20)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Award));
+}
+
+// Inclusive YYYY-MM-DD range query over `createdAt` for Award docs.
+// Used by the Family Meeting presenter to sum award points in a window.
+export async function getAwardsInDateRange(
+  familyId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<Award[]> {
+  const fromTs = Timestamp.fromDate(new Date(`${fromDate}T00:00:00.000Z`));
+  const toTs = Timestamp.fromDate(new Date(`${toDate}T23:59:59.999Z`));
+  if (isGuestActive()) {
+    return MOCK_AWARDS.filter((a) => {
+      const ms = a.createdAt?.toMillis?.();
+      if (typeof ms !== 'number') return false;
+      return ms >= fromTs.toMillis() && ms <= toTs.toMillis();
+    });
+  }
+  const q = query(
+    collection(db, 'families', familyId, 'awards'),
+    where('createdAt', '>=', fromTs),
+    where('createdAt', '<=', toTs),
+    orderBy('createdAt', 'desc'),
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Award));

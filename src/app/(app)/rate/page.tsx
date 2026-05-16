@@ -25,6 +25,13 @@ export default function RatePage() {
     (searchParams.get('period') as 'morning' | 'evening') || 'morning'
   );
   const [ratings, setRatings] = useState<Record<string, RatingValue>>({});
+  // Per-item notes — required on 'bad' (so meetings can address what went
+  // wrong), optional on 'excellent' (so wins get context). Keyed by
+  // routine id. Cleared when the child/period switches.
+  const [ratingNotes, setRatingNotes] = useState<Record<string, string>>({});
+  // Overall comment for this (child, period). Free text — surfaced in
+  // the Reports Notes panel for the Sunday meeting.
+  const [overallComment, setOverallComment] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [alreadyRated, setAlreadyRated] = useState(false);
@@ -42,9 +49,13 @@ export default function RatePage() {
       const existing = await getTodayRatings(profile.familyId, child.id, period);
       if (existing) {
         setRatings(existing.ratings);
+        setRatingNotes(existing.ratingNotes || {});
+        setOverallComment(existing.comment || '');
         setAlreadyRated(true);
       } else {
         setRatings({});
+        setRatingNotes({});
+        setOverallComment('');
         setAlreadyRated(false);
       }
     })();
@@ -70,7 +81,28 @@ export default function RatePage() {
   const setRating = (routineId: string, value: RatingValue) => {
     if (alreadyRated) return;
     setRatings((prev) => ({ ...prev, [routineId]: value }));
+    // Clear stale note when rating drops to 'good' — only 'bad' /
+    // 'excellent' surface the note input, so a leftover note would just
+    // sit invisibly in state.
+    if (value === 'good') {
+      setRatingNotes((prev) => {
+        if (!prev[routineId]) return prev;
+        const { [routineId]: _, ...rest } = prev;
+        return rest;
+      });
+    }
   };
+  const setNote = (routineId: string, text: string) => {
+    if (alreadyRated) return;
+    setRatingNotes((prev) => ({ ...prev, [routineId]: text }));
+  };
+
+  // Bad ratings must carry a reason — flag any that don't, so the
+  // submit button can soft-block until the parent adds context.
+  const badRoutinesMissingNotes = routines.filter(
+    (r) => ratings[r.id] === 'bad' && !(ratingNotes[r.id] || '').trim(),
+  );
+  const submitBlockedByNotes = !alreadyRated && badRoutinesMissingNotes.length > 0;
 
   const totalPoints = routines.reduce((sum, r) => {
     const val = ratings[r.id];
@@ -81,9 +113,51 @@ export default function RatePage() {
 
   const allRated = routines.every((r) => ratings[r.id]);
 
+  // ── Note input shown conditionally below each routine ─────
+  // Renders only when the current rating is 'bad' (required, red) or
+  // 'excellent' (optional, green). Stays mounted across re-renders so
+  // the cursor doesn't jump while typing.
+  const noteInputFor = (routineId: string) => {
+    const r = ratings[routineId];
+    if (r !== 'bad' && r !== 'excellent') return null;
+    const isBad = r === 'bad';
+    const text = ratingNotes[routineId] || '';
+    const missing = isBad && !text.trim();
+    return (
+      <div className="mt-2">
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setNote(routineId, e.target.value)}
+          disabled={alreadyRated}
+          placeholder={isBad ? 'What went wrong? (required)' : 'Add detail (optional) — what made it stand out?'}
+          className={`w-full h-9 px-3 text-xs rounded-kaya-sm border bg-white focus:outline-none focus:ring-2 ${
+            isBad
+              ? (missing
+                  ? 'border-red-400 focus:ring-red-300'
+                  : 'border-red-300 focus:ring-red-200')
+              : 'border-emerald-300 focus:ring-emerald-200'
+          } ${alreadyRated ? 'opacity-60' : ''}`}
+        />
+        {missing && (
+          <p className="text-[10px] text-red-600 mt-1">Tell us why — needed for the family meeting review.</p>
+        )}
+      </div>
+    );
+  };
+
   const handleSubmit = async () => {
     if (!profile?.familyId || !child || !allRated || alreadyRated) return;
+    if (submitBlockedByNotes) return;
     setSaving(true);
+    // Only include `ratingNotes` / `comment` when non-empty — keeps
+    // legacy rating docs clean and avoids storing empty strings.
+    const cleanedNotes: Record<string, string> = {};
+    for (const [id, text] of Object.entries(ratingNotes)) {
+      const t = text.trim();
+      if (t) cleanedNotes[id] = t;
+    }
+    const trimmedComment = overallComment.trim();
     await submitRating(profile.familyId, {
       childId: child.id,
       date: todayString(),
@@ -92,6 +166,8 @@ export default function RatePage() {
       totalPoints,
       ratedBy: profile.uid,
       ratedByName: profile.displayName,
+      ...(Object.keys(cleanedNotes).length > 0 ? { ratingNotes: cleanedNotes } : {}),
+      ...(trimmedComment ? { comment: trimmedComment } : {}),
     } as any);
     setSaved(true);
     setAlreadyRated(true);
@@ -135,7 +211,15 @@ export default function RatePage() {
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
   });
-  const submitLabel = saving ? 'Saving…' : saved ? '✅ Saved' : alreadyRated ? 'Already rated' : 'Submit';
+  const submitLabel = saving
+    ? 'Saving…'
+    : saved
+      ? '✅ Saved'
+      : alreadyRated
+        ? 'Already rated'
+        : submitBlockedByNotes
+          ? `Add reason for ${badRoutinesMissingNotes.length} bad ${badRoutinesMissingNotes.length === 1 ? 'rating' : 'ratings'}`
+          : 'Submit';
 
   // ── Period toggle (shared markup) ─────────────────────────────
   const periodToggle = (size: 'sm' | 'lg' = 'sm') => (
@@ -218,9 +302,24 @@ export default function RatePage() {
                     </button>
                   ))}
                 </div>
+                {noteInputFor(routine.id)}
               </div>
             );
           })}
+        </div>
+
+        {/* Overall comment for this (child, period). Surfaces in the
+            Reports Notes panel for family-meeting review. */}
+        <div className="mb-6">
+          <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Overall note (optional)</label>
+          <textarea
+            value={overallComment}
+            onChange={(e) => setOverallComment(e.target.value)}
+            disabled={alreadyRated}
+            placeholder="Anything else worth flagging for the family meeting?"
+            rows={3}
+            className="w-full px-3 py-2 text-sm bg-white border border-kaya-warm-dark rounded-kaya-sm resize-none focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 disabled:opacity-60"
+          />
         </div>
 
         <div className="sticky bottom-24 bg-kaya-cream/95 backdrop-blur-sm pt-3 pb-2">
@@ -231,7 +330,7 @@ export default function RatePage() {
             </div>
             <button
               onClick={handleSubmit}
-              disabled={!allRated || saving || alreadyRated}
+              disabled={!allRated || saving || alreadyRated || submitBlockedByNotes}
               className="h-11 px-6 bg-kaya-gold text-white rounded-kaya-sm font-bold text-sm disabled:opacity-40 hover:bg-kaya-gold-dark transition-colors"
             >
               {submitLabel}
@@ -342,11 +441,26 @@ export default function RatePage() {
                           </button>
                         ))}
                       </div>
+                      {noteInputFor(routine.id)}
                     </div>
                   );
                 })}
               </div>
             )}
+
+            {/* Overall comment — surfaces in the Reports Notes panel
+                for the Sunday family meeting. */}
+            <div className="mt-4 bg-white border border-kaya-warm-dark/70 rounded-kaya p-4">
+              <label className="block text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand mb-2">Overall note (optional)</label>
+              <textarea
+                value={overallComment}
+                onChange={(e) => setOverallComment(e.target.value)}
+                disabled={alreadyRated}
+                placeholder="Anything else worth flagging for the family meeting?"
+                rows={3}
+                className="w-full px-3 py-2 text-sm bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm resize-none focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 disabled:opacity-60"
+              />
+            </div>
 
             {/* Sticky footer: total + submit */}
             <div className="mt-6 flex items-center justify-between bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 sticky bottom-4 backdrop-blur">
@@ -359,7 +473,7 @@ export default function RatePage() {
               </div>
               <button
                 onClick={handleSubmit}
-                disabled={!allRated || saving || alreadyRated}
+                disabled={!allRated || saving || alreadyRated || submitBlockedByNotes}
                 className="h-12 px-6 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40 hover:bg-kaya-gold-dark transition-colors"
               >
                 {submitLabel}

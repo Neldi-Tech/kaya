@@ -57,14 +57,15 @@ export const MOCK_REWARDS: Reward[] = [
 export const MOCK_RATINGS: DailyRating[] = [
   { id: 'rt-1', childId: 'c-amani', date: today(0), period: 'morning', ratings: { 'r-wake':'excellent','r-bed':'good','r-brush':'excellent' }, totalPoints: 25, ratedBy: GUEST_UID, ratedByName: 'Mum (demo)', createdAt: ts(0) },
   { id: 'rt-2', childId: 'c-zuri',  date: today(0), period: 'morning', ratings: { 'r-wake':'good','r-bed':'excellent','r-brush':'good' }, totalPoints: 20, ratedBy: GUEST_UID, ratedByName: 'Mum (demo)', createdAt: ts(0) },
-  { id: 'rt-3', childId: 'c-kito',  date: today(1), period: 'evening', ratings: { 'r-read':'excellent','r-tidy':'good' }, totalPoints: 20, ratedBy: GUEST_UID, ratedByName: 'Dad (demo)', createdAt: ts(1) },
-  { id: 'rt-4', childId: 'c-amani', date: today(1), period: 'evening', ratings: { 'r-read':'good','r-tidy':'excellent' }, totalPoints: 18, ratedBy: GUEST_UID, ratedByName: 'Dad (demo)', createdAt: ts(1) },
+  { id: 'rt-3', childId: 'c-kito',  date: today(1), period: 'evening', ratings: { 'r-read':'excellent','r-tidy':'good' }, totalPoints: 20, ratedBy: GUEST_UID, ratedByName: 'Dad (demo)', createdAt: ts(1), comment: 'Read a whole chapter without prompting — really proud.' },
+  { id: 'rt-4', childId: 'c-amani', date: today(1), period: 'evening', ratings: { 'r-read':'good','r-tidy':'excellent' }, totalPoints: 18, ratedBy: GUEST_UID, ratedByName: 'Dad (demo)', createdAt: ts(1), comment: 'Tidied without being asked. Big win.' },
+  { id: 'rt-5', childId: 'c-zuri',  date: today(2), period: 'evening', ratings: { 'r-read':'bad','r-tidy':'bad' }, totalPoints: 0, ratedBy: GUEST_UID, ratedByName: 'Helper (demo)', createdAt: ts(2), comment: 'Tough evening — overtired from the long day.' },
 ];
 
 export const MOCK_AWARDS: Award[] = [
-  { id: 'aw-1', childId: 'c-amani', points: 20, reason: 'Helped sister with homework', category: 'kindness', awardedBy: GUEST_UID, awardedByName: 'Mum (demo)', createdAt: ts(0) },
-  { id: 'aw-2', childId: 'c-zuri',  points: 15, reason: 'Cleared the table without being asked', category: 'initiative', awardedBy: GUEST_UID, awardedByName: 'Dad (demo)', createdAt: ts(1) },
-  { id: 'aw-3', childId: 'c-kito',  points: 10, reason: 'Said sorry properly', category: 'character', awardedBy: GUEST_UID, awardedByName: 'Mum (demo)', createdAt: ts(2) },
+  { id: 'aw-1', childId: 'c-amani', kind: 'diamond', points: 20, reason: 'Helped sister with homework', category: 'kindness', awardedBy: GUEST_UID, awardedByName: 'Mum (demo)', createdAt: ts(0) },
+  { id: 'aw-2', childId: 'c-zuri',  kind: 'diamond', points: 15, reason: 'Cleared the table without being asked', category: 'initiative', awardedBy: GUEST_UID, awardedByName: 'Dad (demo)', createdAt: ts(1) },
+  { id: 'aw-3', childId: 'c-kito',  kind: 'diamond', points: 10, reason: 'Said sorry properly', category: 'character', awardedBy: GUEST_UID, awardedByName: 'Mum (demo)', createdAt: ts(2) },
 ];
 
 export const MOCK_PROFILE: UserProfile = {

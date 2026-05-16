@@ -9,6 +9,7 @@ import {
   getReferredFamilies, isHandleAvailable, Family, PointsMode,
   Gender, BirthdayPrivacy, ExternalContact,
   addExternalContact, updateExternalContact, removeExternalContact,
+  PointSystemConfig, readPointSystemConfig,
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
@@ -51,6 +52,17 @@ export default function SettingsPage() {
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
   const [savingMethod, setSavingMethod] = useState<string | null>(null);
   const [savingGenderOption, setSavingGenderOption] = useState(false);
+  // Point system config — editable from the "Point system rules" card.
+  // Label inputs are debounced via local draft state to avoid hammering
+  // Firestore on every keystroke; numeric pickers and toggles save immediately.
+  const pointSystem = readPointSystemConfig(family);
+  const [kudosLabelDraft, setKudosLabelDraft] = useState(pointSystem.kudos.label);
+  const [improvementLabelDraft, setImprovementLabelDraft] = useState(pointSystem.improvementNote.label);
+  // Local draft for the custom RP→HP rate input. Synced on family load
+  // so external changes propagate, but free to edit independently while
+  // the user is typing.
+  const [rpRateDraft, setRpRateDraft] = useState<string>(String(pointSystem.routines.pointsPerHousePoint));
+  const [savingPointSystem, setSavingPointSystem] = useState<string | null>(null);
 
   // Display name editor
   const [editingName, setEditingName] = useState(false);
@@ -330,6 +342,16 @@ export default function SettingsPage() {
     if (family?.pointsMode) setPointsMode(family.pointsMode);
   }, [family?.pointsMode]);
 
+  // Re-sync the label drafts when the family doc reloads (e.g., after a
+  // remote save by another parent). Skip when the user is mid-edit — the
+  // simplest signal is "draft matches the previous source value".
+  useEffect(() => {
+    setKudosLabelDraft(pointSystem.kudos.label);
+    setImprovementLabelDraft(pointSystem.improvementNote.label);
+    setRpRateDraft(String(pointSystem.routines.pointsPerHousePoint));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [family?.pointSystem?.kudos?.label, family?.pointSystem?.improvementNote?.label, family?.pointSystem?.routines?.pointsPerHousePoint]);
+
   // Load Wikipedia panels for the signed-in user when their birthday is set.
   // Mirrors the kid profile behaviour so parents see the same surfaces.
   useEffect(() => {
@@ -589,6 +611,25 @@ export default function SettingsPage() {
       await updateFamily(profile.familyId, { earningMethods: next } as any);
     } catch {}
     setSavingMethod(null);
+  };
+
+  // Save a partial point-system patch and merge with the existing config.
+  // Caller passes the section it's updating (used as the spinner key + to
+  // ignore stale writes if the user clicks two toggles in quick succession).
+  const savePointSystem = async (key: string, patch: Partial<PointSystemConfig>) => {
+    if (!profile?.familyId || isGuest || savingPointSystem) return;
+    setSavingPointSystem(key);
+    try {
+      const next: PointSystemConfig = {
+        reducing: { ...pointSystem.reducing, ...(patch.reducing || {}) },
+        kudos: { ...pointSystem.kudos, ...(patch.kudos || {}) },
+        improvementNote: { ...pointSystem.improvementNote, ...(patch.improvementNote || {}) },
+        diamondMinPoints: patch.diamondMinPoints ?? pointSystem.diamondMinPoints,
+        routines: { ...pointSystem.routines, ...(patch.routines || {}) },
+      };
+      await updateFamily(profile.familyId, { pointSystem: next } as any);
+    } catch {}
+    setSavingPointSystem(null);
   };
 
   const handleSignOut = async () => {
@@ -1697,6 +1738,307 @@ export default function SettingsPage() {
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
                 The roadmap items show up here so you know what&apos;s next. We&apos;ll switch them on as they ship.
               </p>
+            </div>
+          )}
+
+          {/* Point system rules — tier caps, reducing on/off, Kudos +
+              Improvement Note thresholds. Only relevant when the family
+              uses "Bonus awards" (the awards module). */}
+          {isParent && selectedMethods.includes('awards') && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
+              <div>
+                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Point system rules</p>
+                <p className="text-[11px] text-kaya-sand mt-1 leading-relaxed">
+                  Tune the limits and special award types. Defaults work well — tweak only what your family needs.
+                </p>
+              </div>
+
+              {/* Routine Points → House Points conversion */}
+              <div className="border-t border-kaya-warm-dark/40 pt-3">
+                <div className="flex items-baseline justify-between gap-2 mb-2">
+                  <p className="text-sm font-semibold">📋 Routine → House Points</p>
+                  <span className="text-[10px] text-kaya-sand-light">
+                    {pointSystem.routines.pointsPerHousePoint} RP = 1 HP
+                  </span>
+                </div>
+                <p className="text-[11px] text-kaya-sand mb-2 leading-relaxed">
+                  Rated routines (Excellent / Good / Bad) earn Routine Points. They auto-convert into a House Point once the threshold is met. Lower = faster conversion; higher = routine points stay distinct from headline score.
+                </p>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[10, 25, 50, 100, 200].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => savePointSystem('rp-rate', { routines: { pointsPerHousePoint: n } })}
+                      disabled={isGuest || savingPointSystem === 'rp-rate'}
+                      className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                        pointSystem.routines.pointsPerHousePoint === n
+                          ? 'bg-kaya-gold text-white shadow-sm'
+                          : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                      } disabled:opacity-50`}
+                    >{n}</button>
+                  ))}
+                </div>
+                {/* Custom value — escape hatch when none of the chips fit.
+                    Accepts 1–9999. Save-on-blur so typing doesn't fire a
+                    write per keystroke. */}
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="text-[10px] font-semibold text-kaya-sand uppercase tracking-wider">Custom</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9999}
+                    step={1}
+                    value={rpRateDraft}
+                    onChange={(e) => setRpRateDraft(e.target.value)}
+                    onBlur={() => {
+                      const n = parseInt(rpRateDraft, 10);
+                      if (Number.isFinite(n) && n >= 1 && n <= 9999 && n !== pointSystem.routines.pointsPerHousePoint) {
+                        savePointSystem('rp-rate', { routines: { pointsPerHousePoint: n } });
+                      } else {
+                        setRpRateDraft(String(pointSystem.routines.pointsPerHousePoint));
+                      }
+                    }}
+                    disabled={isGuest}
+                    className="h-9 w-24 px-2 rounded-kaya-sm border border-kaya-warm-dark bg-white text-xs font-bold text-center focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  />
+                  <span className="text-[10px] text-kaya-sand-light">RP per House Point</span>
+                </div>
+              </div>
+
+              {/* Diamond threshold */}
+              <div className="border-t border-kaya-warm-dark/40 pt-3">
+                <div className="flex items-baseline justify-between gap-2 mb-2">
+                  <p className="text-sm font-semibold">💎 Diamond threshold</p>
+                  <span className="text-[10px] text-kaya-sand-light">
+                    Regular ≤ {pointSystem.diamondMinPoints - 1}, Diamond ≥ {pointSystem.diamondMinPoints}
+                  </span>
+                </div>
+                <p className="text-[11px] text-kaya-sand mb-2 leading-relaxed">
+                  Awards at or above this number are flagged as Diamond. Lower values stay Regular.
+                </p>
+                <div className="flex gap-2">
+                  {[3, 4, 5, 6].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => savePointSystem('diamond', { diamondMinPoints: n })}
+                      disabled={isGuest || savingPointSystem === 'diamond'}
+                      className={`flex-1 h-10 rounded-kaya-sm font-bold text-sm transition-all ${
+                        pointSystem.diamondMinPoints === n
+                          ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                          : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                      } disabled:opacity-50`}
+                    >+{n}</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reducing points */}
+              <div className="border-t border-kaya-warm-dark/40 pt-3">
+                <button
+                  onClick={() => savePointSystem('reducing-toggle', { reducing: { ...pointSystem.reducing, enabled: !pointSystem.reducing.enabled } })}
+                  disabled={isGuest || savingPointSystem === 'reducing-toggle'}
+                  className="w-full flex items-start gap-3 text-left disabled:opacity-60"
+                >
+                  <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${pointSystem.reducing.enabled ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                    <div
+                      className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: pointSystem.reducing.enabled ? '18px' : '2px' }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">⚠️ Reducing points</p>
+                    <p className="text-[11px] text-kaya-sand leading-relaxed">
+                      Allow parents to take points away for slips. Off by default — leaving this off keeps the system encouragement-only.
+                    </p>
+                  </div>
+                </button>
+                {pointSystem.reducing.enabled && (
+                  <div className="mt-3 pl-13">
+                    <p className="text-[11px] text-kaya-sand mb-2 leading-relaxed">
+                      Largest deduction allowed per award: <span className="font-bold">−{pointSystem.reducing.max}</span>
+                    </p>
+                    <div className="grid grid-cols-5 gap-1.5">
+                      {[1, 2, 3, 5, 10].map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => savePointSystem('reducing-max', { reducing: { ...pointSystem.reducing, max: n } })}
+                          disabled={isGuest || savingPointSystem === 'reducing-max'}
+                          className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                            pointSystem.reducing.max === n
+                              ? 'bg-red-500 text-white shadow-sm'
+                              : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                          } disabled:opacity-50`}
+                        >−{n}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Kudos */}
+              <div className="border-t border-kaya-warm-dark/40 pt-3">
+                <button
+                  onClick={() => savePointSystem('kudos-toggle', { kudos: { ...pointSystem.kudos, enabled: !pointSystem.kudos.enabled } })}
+                  disabled={isGuest || savingPointSystem === 'kudos-toggle'}
+                  className="w-full flex items-start gap-3 text-left disabled:opacity-60"
+                >
+                  <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${pointSystem.kudos.enabled ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                    <div
+                      className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: pointSystem.kudos.enabled ? '18px' : '2px' }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">👍 {pointSystem.kudos.label}</p>
+                    <p className="text-[11px] text-kaya-sand leading-relaxed">
+                      Zero-point recognition that adds up. Every {pointSystem.kudos.threshold} earns a bonus of +{pointSystem.kudos.bonusPoints}.
+                    </p>
+                  </div>
+                </button>
+                {pointSystem.kudos.enabled && (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Label</label>
+                      <input
+                        value={kudosLabelDraft}
+                        onChange={(e) => setKudosLabelDraft(e.target.value)}
+                        onBlur={() => {
+                          const v = kudosLabelDraft.trim();
+                          if (v && v !== pointSystem.kudos.label) {
+                            savePointSystem('kudos-label', { kudos: { ...pointSystem.kudos, label: v } });
+                          } else if (!v) {
+                            setKudosLabelDraft(pointSystem.kudos.label);
+                          }
+                        }}
+                        disabled={isGuest}
+                        className="w-full h-9 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                        placeholder="Kudos"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Threshold</label>
+                        <div className="grid grid-cols-4 gap-1">
+                          {[3, 4, 5, 6].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => savePointSystem('kudos-threshold', { kudos: { ...pointSystem.kudos, threshold: n } })}
+                              disabled={isGuest || savingPointSystem === 'kudos-threshold'}
+                              className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                                pointSystem.kudos.threshold === n
+                                  ? 'bg-kaya-gold text-white shadow-sm'
+                                  : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                              } disabled:opacity-50`}
+                            >{n}×</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Bonus</label>
+                        <div className="grid grid-cols-3 gap-1">
+                          {[1, 2, 3].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => savePointSystem('kudos-bonus', { kudos: { ...pointSystem.kudos, bonusPoints: n } })}
+                              disabled={isGuest || savingPointSystem === 'kudos-bonus'}
+                              className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                                pointSystem.kudos.bonusPoints === n
+                                  ? 'bg-kaya-gold text-white shadow-sm'
+                                  : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                              } disabled:opacity-50`}
+                            >+{n}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Improvement Note */}
+              <div className="border-t border-kaya-warm-dark/40 pt-3">
+                <button
+                  onClick={() => savePointSystem('imp-toggle', { improvementNote: { ...pointSystem.improvementNote, enabled: !pointSystem.improvementNote.enabled } })}
+                  disabled={isGuest || savingPointSystem === 'imp-toggle'}
+                  className="w-full flex items-start gap-3 text-left disabled:opacity-60"
+                >
+                  <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${pointSystem.improvementNote.enabled ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                    <div
+                      className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                      style={{ left: pointSystem.improvementNote.enabled ? '18px' : '2px' }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold">👉 {pointSystem.improvementNote.label}</p>
+                    <p className="text-[11px] text-kaya-sand leading-relaxed">
+                      Zero-point note that adds up. Every {pointSystem.improvementNote.threshold} {pointSystem.reducing.enabled ? `takes −${pointSystem.improvementNote.deductionPoints}` : 'is tracked (deduction needs Reducing on)'}.
+                    </p>
+                  </div>
+                </button>
+                {pointSystem.improvementNote.enabled && (
+                  <div className="mt-3 space-y-3">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Label</label>
+                      <input
+                        value={improvementLabelDraft}
+                        onChange={(e) => setImprovementLabelDraft(e.target.value)}
+                        onBlur={() => {
+                          const v = improvementLabelDraft.trim();
+                          if (v && v !== pointSystem.improvementNote.label) {
+                            savePointSystem('imp-label', { improvementNote: { ...pointSystem.improvementNote, label: v } });
+                          } else if (!v) {
+                            setImprovementLabelDraft(pointSystem.improvementNote.label);
+                          }
+                        }}
+                        disabled={isGuest}
+                        className="w-full h-9 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                        placeholder="Improvement Note"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Threshold</label>
+                        <div className="grid grid-cols-4 gap-1">
+                          {[3, 4, 5, 6].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => savePointSystem('imp-threshold', { improvementNote: { ...pointSystem.improvementNote, threshold: n } })}
+                              disabled={isGuest || savingPointSystem === 'imp-threshold'}
+                              className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                                pointSystem.improvementNote.threshold === n
+                                  ? 'bg-kaya-gold text-white shadow-sm'
+                                  : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                              } disabled:opacity-50`}
+                            >{n}×</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Deduction</label>
+                        <div className="grid grid-cols-3 gap-1">
+                          {[1, 2, 3].map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => savePointSystem('imp-deduction', { improvementNote: { ...pointSystem.improvementNote, deductionPoints: n } })}
+                              disabled={isGuest || savingPointSystem === 'imp-deduction' || !pointSystem.reducing.enabled}
+                              className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                                pointSystem.improvementNote.deductionPoints === n
+                                  ? 'bg-red-500 text-white shadow-sm'
+                                  : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                              } disabled:opacity-50`}
+                            >−{n}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    {!pointSystem.reducing.enabled && (
+                      <p className="text-[10px] text-kaya-sand-light italic">
+                        Turn on Reducing points above to make deductions take effect.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards, DailyRating, Award } from '@/lib/firestore';
@@ -9,37 +9,121 @@ import KidAvatar from '@/components/ui/KidAvatar';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
+// ── Date filter ────────────────────────────────────────────────────────
+// The reports page anchors family meeting reviews. Default to Lifetime
+// (full balance, matches headline `totalPoints`); presets cover the
+// Sunday-meeting cadence (7/14/30 days); Month + Custom let parents pull
+// any specific window.
+type RangeMode = 'lifetime' | 'preset7' | 'preset14' | 'preset30' | 'month' | 'custom';
+
+function todayStr(): string { return new Date().toISOString().slice(0, 10); }
+function subDays(date: string, n: number): string {
+  const d = new Date(date + 'T00:00:00');
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+function monthEnd(monthKey: string): string {
+  // monthKey 'YYYY-MM' → last day of that month
+  const [y, m] = monthKey.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m, 0));
+  return d.toISOString().slice(0, 10);
+}
+function daysBetween(from: string, to: string): number {
+  const a = new Date(from + 'T00:00:00').getTime();
+  const b = new Date(to   + 'T00:00:00').getTime();
+  return Math.max(0, Math.round((b - a) / 86400_000));
+}
+function monthLabel(monthKey: string): string {
+  const [y, m] = monthKey.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+// Last 12 months as `[{key, label}]`, newest first — backs the month dropdown.
+function lastTwelveMonths(): Array<{ key: string; label: string }> {
+  const now = new Date();
+  const out: Array<{ key: string; label: string }> = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    out.push({ key, label: monthLabel(key) });
+  }
+  return out;
+}
+
 export default function ReportsPage() {
   const { profile } = useAuth();
   const { children } = useFamily();
   const [ratings, setRatings] = useState<DailyRating[]>([]);
   const [awards, setAwards] = useState<Award[]>([]);
-  const [range, setRange] = useState(7);
+  const [mode, setMode] = useState<RangeMode>('lifetime');
+  const [monthKey, setMonthKey] = useState<string>(() => todayStr().slice(0, 7));
+  const [customFrom, setCustomFrom] = useState<string>(subDays(todayStr(), 7));
+  const [customTo, setCustomTo] = useState<string>(todayStr());
+
+  // Compute the active date window + a friendly label from the mode.
+  const { from, to, label } = useMemo(() => {
+    const t = todayStr();
+    switch (mode) {
+      case 'lifetime': return { from: '1970-01-01', to: t, label: 'Lifetime' };
+      case 'preset7':  return { from: subDays(t, 6),  to: t, label: 'Last 7 days' };
+      case 'preset14': return { from: subDays(t, 13), to: t, label: 'Last 14 days' };
+      case 'preset30': return { from: subDays(t, 29), to: t, label: 'Last 30 days' };
+      case 'month':    return { from: monthKey + '-01', to: monthEnd(monthKey), label: monthLabel(monthKey) };
+      case 'custom':   return { from: customFrom || t, to: customTo || t, label: `${customFrom} → ${customTo}` };
+    }
+  }, [mode, monthKey, customFrom, customTo]);
+
+  // How many days back to fetch. For Lifetime we ask for "everything" via
+  // a very large number — Firestore's `where('date','>=','1970-…')`
+  // returns the whole collection at the same cost as a tighter range.
+  const daysToFetch = useMemo(() => {
+    if (mode === 'lifetime') return 99999;
+    return Math.max(7, daysBetween(from, todayStr()) + 1);
+  }, [mode, from]);
 
   useEffect(() => {
     if (!profile?.familyId) return;
     Promise.all([
-      getRecentRatings(profile.familyId, range),
-      getRecentAwards(profile.familyId, range),
+      getRecentRatings(profile.familyId, daysToFetch),
+      getRecentAwards(profile.familyId, daysToFetch),
     ]).then(([r, a]) => { setRatings(r); setAwards(a); });
-  }, [profile?.familyId, range]);
+  }, [profile?.familyId, daysToFetch]);
 
-  // Build a date list for the selected range (oldest → today).
-  const today = new Date();
-  const dateList = Array.from({ length: range }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (range - 1 - i));
-    return d.toISOString().slice(0, 10);
-  });
+  // Filter to the exact [from, to] window. The fetch may have pulled
+  // extra rows (e.g. when the user toggles from Lifetime → 7 days the
+  // fetch shrinks, but on a Month query we may still need a client-side
+  // upper-bound trim).
+  const ratingsInRange = useMemo(
+    () => ratings.filter((r) => r.date >= from && r.date <= to),
+    [ratings, from, to],
+  );
+  const awardsInRange = useMemo(
+    () => awards.filter((a) => {
+      const d = a.createdAt?.toDate?.()?.toISOString?.().slice(0, 10);
+      return !!d && d >= from && d <= to;
+    }),
+    [awards, from, to],
+  );
+
+  // Daily bar chart only makes sense for tight windows. For Lifetime or
+  // long ranges we still compute the totals but skip the bars.
+  const spanDays = daysBetween(from, to) + 1;
+  const showDailyBars = spanDays <= 31;
+  const dateList = useMemo(() => {
+    if (!showDailyBars) return [] as string[];
+    return Array.from({ length: spanDays }, (_, i) => {
+      const d = new Date(to + 'T00:00:00');
+      d.setDate(d.getDate() - (spanDays - 1 - i));
+      return d.toISOString().slice(0, 10);
+    });
+  }, [showDailyBars, spanDays, to]);
 
   const childStats = children.map((child) => {
-    const childRatings = ratings.filter((r) => r.childId === child.id);
-    const childAwards = awards.filter((a) => a.childId === child.id);
+    const childRatings = ratingsInRange.filter((r) => r.childId === child.id);
+    const childAwards = awardsInRange.filter((a) => a.childId === child.id);
     const routinePoints = childRatings.reduce((s, r) => s + r.totalPoints, 0);
     const awardPoints = childAwards.reduce((s, a) => s + a.points, 0);
     const totalDays = new Set(childRatings.map((r) => r.date)).size;
 
-    // Daily totals (routine + award) for the bar chart.
     const dailyTotals = dateList.map((date) => {
       const r = childRatings.filter((x) => x.date === date).reduce((s, x) => s + x.totalPoints, 0);
       const a = childAwards.filter((x) => x.createdAt?.toDate?.()?.toISOString?.()?.slice(0, 10) === date)
@@ -55,11 +139,11 @@ export default function ReportsPage() {
     };
   });
 
-  // Ratings carrying a note — newest first. Surfaced as the "Notes"
-  // panel so comments from the importer (and future inline notes) are
-  // actually visible to parents.
-  const notedRatings = ratings
-    .filter((r) => (r.comment || '').trim().length > 0)
+  // Ratings carrying any note — newest first. Includes both the
+  // overall `comment` and the per-item `ratingNotes` introduced for
+  // family-meeting context.
+  const notedRatings = ratingsInRange
+    .filter((r) => (r.comment || '').trim().length > 0 || hasItemNotes(r))
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 
   // Family-level totals.
@@ -74,22 +158,66 @@ export default function ReportsPage() {
   );
   const top = [...childStats].sort((a, b) => b.total - a.total)[0];
 
-  // ── Range toggle (shared) ─────────────────────────────────
-  const RangeToggle = ({ size = 'sm' }: { size?: 'sm' | 'lg' }) => (
-    <div className={`flex gap-2 ${size === 'lg' ? '' : ''}`}>
-      {[7, 14, 30].map((d) => (
-        <button
-          key={d}
-          onClick={() => setRange(d)}
-          className={`${size === 'lg' ? 'h-10 px-4 text-[13px]' : 'flex-1 h-9 text-xs'} rounded-kaya-sm font-semibold transition-colors ${
-            range === d ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'
-          }`}
-        >
-          {d} days
-        </button>
-      ))}
-    </div>
-  );
+  // ── Range picker (shared) ─────────────────────────────────
+  // Two-row layout: top row mode chips, bottom row reveals dropdown /
+  // date inputs when Month or Custom is active. Keeps mobile + desktop
+  // markup unchanged below.
+  const RangePicker = ({ size = 'sm' }: { size?: 'sm' | 'lg' }) => {
+    const months = useMemo(() => lastTwelveMonths(), []);
+    const baseBtn = size === 'lg' ? 'h-10 px-4 text-[13px]' : 'h-9 px-3 text-xs flex-1';
+    const presets: Array<{ id: RangeMode; label: string }> = [
+      { id: 'lifetime', label: 'Lifetime' },
+      { id: 'preset7',  label: '7d' },
+      { id: 'preset14', label: '14d' },
+      { id: 'preset30', label: '30d' },
+      { id: 'month',    label: 'Month' },
+      { id: 'custom',   label: 'Custom' },
+    ];
+    return (
+      <div className="flex flex-col gap-2 w-full">
+        <div className="flex gap-1.5 flex-wrap">
+          {presets.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setMode(p.id)}
+              className={`${baseBtn} rounded-kaya-sm font-semibold transition-colors ${
+                mode === p.id ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'
+              }`}
+            >{p.label}</button>
+          ))}
+        </div>
+        {mode === 'month' && (
+          <select
+            value={monthKey}
+            onChange={(e) => setMonthKey(e.target.value)}
+            className="h-9 px-2 rounded-kaya-sm border border-kaya-warm-dark bg-white text-xs"
+          >
+            {months.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+          </select>
+        )}
+        {mode === 'custom' && (
+          <div className="flex gap-2 items-center">
+            <input
+              type="date"
+              value={customFrom}
+              max={customTo}
+              onChange={(e) => setCustomFrom(e.target.value)}
+              className="flex-1 h-9 px-2 rounded-kaya-sm border border-kaya-warm-dark bg-white text-xs"
+            />
+            <span className="text-xs text-kaya-sand">→</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              max={todayStr()}
+              onChange={(e) => setCustomTo(e.target.value)}
+              className="flex-1 h-9 px-2 rounded-kaya-sm border border-kaya-warm-dark bg-white text-xs"
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <>
@@ -103,7 +231,8 @@ export default function ReportsPage() {
           <p className="text-kaya-sand text-sm">Performance insights</p>
         </div>
 
-        <div className="mb-5"><RangeToggle /></div>
+        <div className="mb-5"><RangePicker /></div>
+        <p className="text-[11px] text-kaya-sand-light mb-3 -mt-2">Showing: <span className="font-semibold text-kaya-sand">{label}</span></p>
 
         {childStats.map(({ child, routinePoints, awardPoints, totalDays, total }) => (
           <div key={child.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
@@ -165,9 +294,9 @@ export default function ReportsPage() {
         <div className="flex items-end justify-between gap-6 mb-7">
           <div>
             <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Reports</h1>
-            <p className="text-sm text-kaya-sand mt-1">Performance across the last {range} days.</p>
+            <p className="text-sm text-kaya-sand mt-1">Showing: <span className="font-semibold text-kaya-chocolate">{label}</span></p>
           </div>
-          <RangeToggle size="lg" />
+          <div className="w-[440px]"><RangePicker size="lg" /></div>
         </div>
 
         {/* Family summary */}
@@ -198,8 +327,8 @@ export default function ReportsPage() {
           </div>
           <div className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Days rated</p>
-            <p className="font-display font-extrabold text-4xl mt-2">{familyTotals.days}<span className="text-base text-kaya-sand font-semibold ml-1">/ {range}</span></p>
-            <p className="text-[11px] text-kaya-sand mt-2">{Math.round((familyTotals.days / range) * 100)}% coverage</p>
+            <p className="font-display font-extrabold text-4xl mt-2">{familyTotals.days}<span className="text-base text-kaya-sand font-semibold ml-1">/ {spanDays}</span></p>
+            <p className="text-[11px] text-kaya-sand mt-2">{Math.round((familyTotals.days / Math.max(1, spanDays)) * 100)}% coverage</p>
           </div>
         </div>
 
@@ -235,41 +364,46 @@ export default function ReportsPage() {
                 </div>
               </div>
 
-              {/* Daily bars */}
-              <div>
-                <div className="flex items-end justify-between gap-1 h-20">
-                  {dailyTotals.map((d) => {
-                    const h = d.total > 0 ? Math.max(8, Math.round((d.total / peakDay) * 80)) : 2;
-                    const dayLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
-                    return (
-                      <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: ${d.total} pts`}>
-                        <div className="flex-1 w-full flex items-end">
-                          <div
-                            className="w-full rounded-sm transition-all"
-                            style={{
-                              height: `${h}px`,
-                              backgroundColor: d.total > 0 ? child.houseColor : '#E8E0D4',
-                              opacity: d.total > 0 ? 1 : 0.5,
-                            }}
-                          />
+              {/* Daily bars — only meaningful for short windows. For
+                  Lifetime / Month / long Custom ranges the totals + the
+                  Notes panel below carry the signal. */}
+              {showDailyBars ? (
+                <div>
+                  <div className="flex items-end justify-between gap-1 h-20">
+                    {dailyTotals.map((d) => {
+                      const h = d.total > 0 ? Math.max(8, Math.round((d.total / peakDay) * 80)) : 2;
+                      return (
+                        <div key={d.date} className="flex-1 flex flex-col items-center gap-1" title={`${d.date}: ${d.total} pts`}>
+                          <div className="flex-1 w-full flex items-end">
+                            <div
+                              className="w-full rounded-sm transition-all"
+                              style={{
+                                height: `${h}px`,
+                                backgroundColor: d.total > 0 ? child.houseColor : '#E8E0D4',
+                                opacity: d.total > 0 ? 1 : 0.5,
+                              }}
+                            />
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-end justify-between gap-1 mt-1">
+                    {dailyTotals.map((d, i) => {
+                      const showLabel = spanDays <= 7 || i === 0 || i === dailyTotals.length - 1 || i === Math.floor(dailyTotals.length / 2);
+                      const dayLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+                      return (
+                        <div key={d.date} className="flex-1 text-center">
+                          {showLabel && <span className="text-[9px] text-kaya-sand-light font-semibold">{dayLabel.slice(0, 1)}</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-kaya-sand-light mt-2">Daily total · {label}</p>
                 </div>
-                <div className="flex items-end justify-between gap-1 mt-1">
-                  {dailyTotals.map((d, i) => {
-                    const showLabel = range <= 7 || i === 0 || i === dailyTotals.length - 1 || i === Math.floor(dailyTotals.length / 2);
-                    const dayLabel = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
-                    return (
-                      <div key={d.date} className="flex-1 text-center">
-                        {showLabel && <span className="text-[9px] text-kaya-sand-light font-semibold">{dayLabel.slice(0, 1)}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <p className="text-[10px] text-kaya-sand-light mt-2">Daily total · last {range} days</p>
-              </div>
+              ) : (
+                <p className="text-[10px] text-kaya-sand-light italic">Daily chart hidden for ranges over 31 days — switch to 7d / 14d / 30d to see bars.</p>
+              )}
 
               {/* Routine vs award split bar */}
               <div className="mt-3">
@@ -304,8 +438,21 @@ export default function ReportsPage() {
   );
 }
 
-// Recent ratings that carry a free-text comment. Imported rows from
-// historical Google Sheets land here; future inline notes will too.
+// True if the rating carries any per-routine note (Bad reason / Excellent
+// detail). Cheap helper used to decide if the row belongs in the Notes
+// panel even when the overall `comment` is empty.
+function hasItemNotes(r: DailyRating): boolean {
+  if (!r.ratingNotes) return false;
+  for (const v of Object.values(r.ratingNotes)) {
+    if (v && v.trim().length > 0) return true;
+  }
+  return false;
+}
+
+// Recent ratings that carry a comment OR per-item notes. Both kinds are
+// shown side by side so a family meeting can quickly scan for both
+// "what went wrong" (Bad item notes) and "what stood out" (Excellent
+// item notes), plus the overall period comment.
 function NotesPanel({
   notedRatings, children,
 }: {
@@ -320,6 +467,7 @@ function NotesPanel({
       <div className="space-y-2">
         {notedRatings.slice(0, 25).map((r) => {
           const c = children.find((k) => k.id === r.childId);
+          const itemNoteEntries = Object.entries(r.ratingNotes || {}).filter(([, v]) => v && v.trim());
           return (
             <div key={r.id} className="border border-kaya-warm-dark/60 rounded-kaya-sm p-3">
               <div className="flex items-center justify-between gap-2 mb-1">
@@ -331,7 +479,26 @@ function NotesPanel({
                 </div>
                 <p className="text-[10px] font-mono text-kaya-sand-light shrink-0">{r.date}</p>
               </div>
-              <p className="text-[12px] text-kaya-chocolate leading-snug whitespace-pre-wrap">{r.comment}</p>
+              {r.comment && (
+                <p className="text-[12px] text-kaya-chocolate leading-snug whitespace-pre-wrap">{r.comment}</p>
+              )}
+              {itemNoteEntries.length > 0 && (
+                <ul className="mt-2 space-y-1">
+                  {itemNoteEntries.map(([routineId, note]) => {
+                    const rating = r.ratings?.[routineId];
+                    const isBad = rating === 'bad';
+                    const isGreat = rating === 'excellent';
+                    const dot = isBad ? '🔴' : isGreat ? '🟢' : '⚪';
+                    return (
+                      <li key={routineId} className="text-[11px] leading-snug">
+                        <span className="mr-1">{dot}</span>
+                        <span className="font-semibold text-kaya-sand">{routineId}</span>
+                        <span className="text-kaya-chocolate"> — {note}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </div>
           );
         })}

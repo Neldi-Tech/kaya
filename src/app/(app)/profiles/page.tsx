@@ -7,7 +7,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   getRecentRatings, getRecentAwards, updateChild, BADGES,
   getWishlist, addWishlistItem, updateWishlistItem, deleteWishlistItem,
-  isHandleAvailable,
+  isHandleAvailable, readPointSystemConfig,
   DailyRating, Award, WishlistItem,
 } from '@/lib/firestore';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
@@ -594,6 +594,20 @@ export default function ProfilesPage() {
             <p className="text-xl font-black">{child.weeklyPoints || 0}</p>
             <p className="text-[10px] text-kaya-sand font-semibold uppercase">This Week</p>
           </div>
+          {(() => {
+            // Show the routine-points accumulator beside the headline
+            // totals so kids see how much of the next house point they've
+            // earned today. Quiet when the kid has zero accumulated to
+            // avoid noise on fresh profiles.
+            const ppHP = readPointSystemConfig(family).routines.pointsPerHousePoint;
+            const rp = child.routinePoints || 0;
+            return (
+              <div>
+                <p className="text-xl font-black">{rp}<span className="text-[10px] text-kaya-sand">/{ppHP}</span></p>
+                <p className="text-[10px] text-kaya-sand font-semibold uppercase">Routine pts</p>
+              </div>
+            );
+          })()}
           <div>
             <p className="text-xl font-black">{child.streak || 0} 🔥</p>
             <p className="text-[10px] text-kaya-sand font-semibold uppercase">Streak</p>

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { giveAward, getFamilyMembers, getFamily } from '@/lib/firestore';
+import { giveAward, getFamilyMembers, getFamily, readPointSystemConfig, AwardKind } from '@/lib/firestore';
 import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { notifyAward } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
@@ -20,8 +20,7 @@ const CATEGORIES = [
   { id: 'other',          icon: '✨', label: 'Other' },
 ];
 
-const REGULAR_POINTS = [1, 2, 3, 5, 5];
-const DIAMOND_POINTS = [3, 4, 5, 6, 7, 8, 9, 10];
+const DIAMOND_POINTS = [4, 5, 6, 7, 8, 9, 10];
 
 export default function AwardPage() {
   const { profile } = useAuth();
@@ -31,14 +30,27 @@ export default function AwardPage() {
   // Honour that preference here; otherwise fall back to the Phase-1 default.
   const earningMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
   const diamondEnabled = earningMethods.includes('diamond');
+  // Per-family tier limits + Kudos / Improvement Note settings. Read here
+  // so the picker chips honour the parent's setup (e.g., reducing.max
+  // controls how far down the deduction picker goes).
+  const pointSystem = readPointSystemConfig(family);
+  const diamondMin = pointSystem.diamondMinPoints;
+  // Regular awards span +1..(diamondMin − 1). Cap conservatively at +3
+  // even if the family raises diamondMin above 4 — the spec puts regular
+  // at 1–3 and lets diamond start anywhere ≥ 4.
+  const regularPointsRange = Array.from({ length: Math.max(1, diamondMin - 1) }, (_, i) => i + 1);
+  // Reducing chips: −1 down to −reducing.max (cap at 10 to keep the grid sane).
+  const reducingPointsRange = Array.from({ length: Math.min(10, pointSystem.reducing.max) }, (_, i) => i + 1);
 
   // Multi-select: parents often want to award a shared moment ("you all
   // helped grandma carry the groceries") to several kids in one go.
   const [selectedChildren, setSelectedChildren] = useState<string[]>([]);
   const [category, setCategory] = useState('');
-  const [isDiamond, setIsDiamond] = useState(false);
-  const [regularPts, setRegularPts] = useState(3);
-  const [diamondPts, setDiamondPts] = useState(5);
+  // Award kind drives the rest of the form. Default to 'regular'.
+  const [kind, setKind] = useState<AwardKind>('regular');
+  const [regularPts, setRegularPts] = useState(regularPointsRange[regularPointsRange.length - 1] || 3);
+  const [diamondPts, setDiamondPts] = useState(diamondMin + 1);
+  const [reducingPts, setReducingPts] = useState(1);
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -46,11 +58,83 @@ export default function AwardPage() {
   // stays accurate even after the form resets.
   const [awardedNames, setAwardedNames] = useState<string[]>([]);
 
-  // If a family disables Diamond mid-flow, fall back to regular points so we
+  // If a family disables Diamond mid-flow, fall back to regular so we
   // never submit a diamond award the family said they don't use.
-  const diamondActive = isDiamond && diamondEnabled;
-  const finalPoints = diamondActive ? diamondPts : regularPts;
+  const isDiamond = kind === 'diamond' && diamondEnabled;
+  const isReducing = kind === 'reducing' && pointSystem.reducing.enabled;
+  const isKudos = kind === 'kudos' && pointSystem.kudos.enabled;
+  const isImprovement = kind === 'improvement_note' && pointSystem.improvementNote.enabled;
+  const isRegular = kind === 'regular' || (!isDiamond && !isReducing && !isKudos && !isImprovement);
+  // Final signed points value to send to Firestore.
+  let finalPoints = 0;
+  if (isRegular) finalPoints = regularPts;
+  else if (isDiamond) finalPoints = diamondPts;
+  else if (isReducing) finalPoints = -reducingPts;
+  // kudos / improvement_note → 0
   const selectedKidObjs = children.filter((c) => selectedChildren.includes(c.id));
+  // ── Kind-aware presentation helpers ──
+  // Keep accent classes, headings, and the submit verb derived from `kind`
+  // so the visual treatment matches what the user picked (purple for
+  // diamond, red for reducing, emerald for kudos, amber for improvement).
+  const accentGradient = isDiamond
+    ? 'from-purple-600 to-purple-800 shadow-purple-600/20'
+    : isReducing
+      ? 'from-red-500 to-red-700 shadow-red-500/20'
+      : isKudos
+        ? 'from-emerald-600 to-emerald-800 shadow-emerald-600/20'
+        : isImprovement
+          ? 'from-amber-600 to-amber-800 shadow-amber-600/20'
+          : 'from-kaya-chocolate to-kaya-chocolate-light shadow-kaya-chocolate/20';
+  const accentButtonClass = isDiamond
+    ? 'bg-purple-600 hover:bg-purple-700 text-white'
+    : isReducing
+      ? 'bg-red-500 hover:bg-red-600 text-white'
+      : isKudos
+        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+        : isImprovement
+          ? 'bg-amber-600 hover:bg-amber-700 text-white'
+          : 'bg-kaya-gold hover:bg-kaya-gold-dark text-white';
+  const pointsSectionLabel = isKudos
+    ? `${pointSystem.kudos.label} (auto-bonus every ${pointSystem.kudos.threshold})`
+    : isImprovement
+      ? `${pointSystem.improvementNote.label} (auto-deduction every ${pointSystem.improvementNote.threshold})`
+      : isReducing
+        ? `Reducing points (down to −${pointSystem.reducing.max})`
+        : isDiamond
+          ? `Diamond points (${diamondMin}+)`
+          : 'How many points?';
+  // Big preview number — "+3", "−1", or "👍/👉" for 0-point kinds.
+  const previewBigNumber = isKudos
+    ? '👍'
+    : isImprovement
+      ? '👉'
+      : `${finalPoints > 0 ? '+' : ''}${finalPoints}`;
+  const previewUnitLabel = isKudos
+    ? pointSystem.kudos.label
+    : isImprovement
+      ? pointSystem.improvementNote.label
+      : isDiamond
+        ? 'diamond pts'
+        : isReducing
+          ? 'reducing pts'
+          : 'points';
+  const submitLabel = saving
+    ? (isKudos || isImprovement ? 'Logging…' : 'Awarding…')
+    : isKudos
+      ? `Log ${pointSystem.kudos.label}${selectedChildren.length > 1 ? ` for ${selectedChildren.length} kids` : ''} 👍`
+      : isImprovement
+        ? `Log ${pointSystem.improvementNote.label}${selectedChildren.length > 1 ? ` for ${selectedChildren.length} kids` : ''} 👉`
+        : isReducing
+          ? `Deduct ${finalPoints} ${selectedChildren.length > 1 ? `from ${selectedChildren.length} kids` : ''} ⚠️`
+          : `Award ${finalPoints > 0 ? '+' : ''}${finalPoints} ${isDiamond ? 'diamond ' : ''}points${selectedChildren.length > 1 ? ` to ${selectedChildren.length} kids` : ''} ${isDiamond ? '💎' : '🎖️'}`;
+  // Whether to render the Points-type chip row — only useful when more
+  // than one kind is available to the family.
+  const showTypeToggle = (
+    1 + (diamondEnabled ? 1 : 0) +
+    (pointSystem.reducing.enabled ? 1 : 0) +
+    (pointSystem.kudos.enabled ? 1 : 0) +
+    (pointSystem.improvementNote.enabled ? 1 : 0)
+  ) > 1;
   // Preview shows the first selected kid's avatar; if multiple, the title
   // line says "EarlnathanIrisha + 2 others".
   const child = selectedKidObjs[0] || null;
@@ -73,12 +157,16 @@ export default function AwardPage() {
       selectedChildren.map((childId) =>
         giveAward(profile.familyId, {
           childId,
+          kind,
           points: finalPoints,
           reason: reason.trim(),
-          category: diamondActive ? `diamond-${category}` : category,
+          // Preserve the legacy `diamond-` prefix on category so existing
+          // dashboards that read it keep working. `kind` is now the source
+          // of truth — the prefix is purely back-compat.
+          category: isDiamond ? `diamond-${category}` : category,
           awardedBy: profile.uid,
           awardedByName: profile.displayName,
-        } as any),
+        }),
       ),
     );
     setAwardedNames(selectedKidObjs.map((c) => c.name));
@@ -87,38 +175,44 @@ export default function AwardPage() {
 
     // Fire-and-forget email notification per kid (so each kid's parents/helpers
     // see the awardee name in the email subject). Includes external contacts
-    // opted in for award notifications.
-    (async () => {
-      if (selectedKidObjs.length === 0) return;
-      const [members, fam] = await Promise.all([
-        getFamilyMembers(profile.familyId),
-        getFamily(profile.familyId),
-      ]);
-      const familyEmails = members
-        .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
-        .filter((m) => m.notifyOnAward !== false) // default true
-        .map((m) => m.email);
-      const externalEmails = (fam?.externalContacts || [])
-        .filter((c) => c.notifyOnAward !== false)
-        .map((c) => c.email);
-      const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
-      for (const c of selectedKidObjs) {
-        notifyAward({
-          to: recipients,
-          childName: c.name,
-          actorName: profile.displayName,
-          points: finalPoints,
-          reason: reason.trim(),
-          isDiamond: diamondActive,
-        });
-      }
-    })();
+    // opted in for award notifications. Skip for 0-point kinds — those are
+    // low-stakes recognition and don't need an email blast.
+    if (finalPoints !== 0) {
+      (async () => {
+        if (selectedKidObjs.length === 0) return;
+        const [members, fam] = await Promise.all([
+          getFamilyMembers(profile.familyId),
+          getFamily(profile.familyId),
+        ]);
+        const familyEmails = members
+          .filter((m) => m.uid !== profile.uid && m.email && m.role !== 'kid')
+          .filter((m) => m.notifyOnAward !== false) // default true
+          .map((m) => m.email);
+        const externalEmails = (fam?.externalContacts || [])
+          .filter((c) => c.notifyOnAward !== false)
+          .map((c) => c.email);
+        const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
+        for (const c of selectedKidObjs) {
+          notifyAward({
+            to: recipients,
+            childName: c.name,
+            actorName: profile.displayName,
+            points: finalPoints,
+            reason: reason.trim(),
+            isDiamond,
+          });
+        }
+      })();
+    }
 
     setTimeout(() => {
       setSuccess(false);
       setAwardedNames([]);
-      setSelectedChildren([]); setCategory(''); setIsDiamond(false);
-      setRegularPts(3); setDiamondPts(5); setReason('');
+      setSelectedChildren([]); setCategory(''); setKind('regular');
+      setRegularPts(regularPointsRange[regularPointsRange.length - 1] || 3);
+      setDiamondPts(diamondMin + 1);
+      setReducingPts(1);
+      setReason('');
     }, 2500);
   };
 
@@ -131,18 +225,31 @@ export default function AwardPage() {
   };
 
   if (success) {
+    const successEmoji = isDiamond ? '💎' : isReducing ? '⚠️' : isKudos ? '👍' : isImprovement ? '👉' : '🎉';
+    const successHeading = isReducing
+      ? 'Point deducted'
+      : isKudos
+        ? `${pointSystem.kudos.label} logged`
+        : isImprovement
+          ? `${pointSystem.improvementNote.label} logged`
+          : awardedNames.length > 1 ? 'Points Awarded to All!' : 'Points Awarded!';
+    // Body copy varies by kind: numbered amount for regular/diamond/reducing,
+    // descriptive text for the 0-point kinds.
+    const bodyAmount = isKudos
+      ? `a ${pointSystem.kudos.label} (counts toward +${pointSystem.kudos.bonusPoints} every ${pointSystem.kudos.threshold})`
+      : isImprovement
+        ? `an ${pointSystem.improvementNote.label}`
+        : (
+          <span className="text-kaya-gold font-bold">
+            {finalPoints >= 0 ? '+' : ''}{finalPoints} {isDiamond ? 'diamond ' : ''}points{awardedNames.length > 1 ? ' each' : ''}
+          </span>
+        );
     return (
       <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 pt-16 lg:pt-24 text-center animate-slide-up">
-        <div className="text-6xl lg:text-7xl mb-4">{isDiamond ? '💎' : '🎉'}</div>
-        <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">
-          {awardedNames.length > 1 ? 'Points Awarded to All!' : 'Points Awarded!'}
-        </h2>
+        <div className="text-6xl lg:text-7xl mb-4">{successEmoji}</div>
+        <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">{successHeading}</h2>
         <p className="text-kaya-sand text-sm lg:text-base">
-          {formatNames(awardedNames)} received{' '}
-          <span className="text-kaya-gold font-bold">
-            +{finalPoints} {isDiamond ? 'diamond ' : ''}points{awardedNames.length > 1 ? ' each' : ''}
-          </span>{' '}
-          for {reason}
+          {formatNames(awardedNames)} received {bodyAmount} for {reason}
         </p>
       </div>
     );
@@ -219,29 +326,96 @@ export default function AwardPage() {
     </div>
   );
 
+  // All five award kinds — but the family-config gates which appear.
+  // Regular always shows (it's the default). Diamond requires the diamond
+  // earning method. Reducing / Kudos / Improvement each require their
+  // respective family-setting toggle.
+  const kindOptions: Array<{ id: AwardKind; emoji: string; label: string; activeClass: string }> = [
+    { id: 'regular',          emoji: '⭐', label: 'Regular',                        activeClass: 'bg-kaya-chocolate text-white' },
+    ...(diamondEnabled ? [{ id: 'diamond' as AwardKind, emoji: '💎', label: 'Diamond', activeClass: 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' }] : []),
+    ...(pointSystem.reducing.enabled ? [{ id: 'reducing' as AwardKind, emoji: '⚠️', label: 'Reducing', activeClass: 'bg-red-500 text-white shadow-md shadow-red-500/30' }] : []),
+    ...(pointSystem.kudos.enabled ? [{ id: 'kudos' as AwardKind, emoji: '👍', label: pointSystem.kudos.label, activeClass: 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30' }] : []),
+    ...(pointSystem.improvementNote.enabled ? [{ id: 'improvement_note' as AwardKind, emoji: '👉', label: pointSystem.improvementNote.label, activeClass: 'bg-amber-600 text-white shadow-md shadow-amber-600/30' }] : []),
+  ];
   const TypeToggle = () => (
-    <div className="flex gap-2">
-      <button
-        onClick={() => setIsDiamond(false)}
-        className={`flex-1 h-10 rounded-kaya-sm font-bold text-sm flex items-center justify-center gap-1.5 transition-colors ${
-          !isDiamond ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'
-        }`}
-      >⭐ Regular</button>
-      <button
-        onClick={() => setIsDiamond(true)}
-        className={`flex-1 h-10 rounded-kaya-sm font-bold text-sm flex items-center justify-center gap-1.5 transition-all ${
-          isDiamond ? 'bg-purple-600 text-white shadow-lg shadow-purple-600/30' : 'bg-kaya-warm text-kaya-sand'
-        }`}
-      >💎 Diamond</button>
+    <div className={`grid gap-2 ${kindOptions.length > 3 ? 'grid-cols-3' : `grid-cols-${kindOptions.length}`}`}>
+      {kindOptions.map((opt) => {
+        const sel = kind === opt.id;
+        return (
+          <button
+            key={opt.id}
+            onClick={() => setKind(opt.id)}
+            className={`h-10 rounded-kaya-sm font-bold text-[12px] flex items-center justify-center gap-1.5 transition-all ${
+              sel ? opt.activeClass : 'bg-kaya-warm text-kaya-sand'
+            }`}
+          >
+            <span>{opt.emoji}</span>
+            <span className="truncate">{opt.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 
-  const PointsPicker = () => (
-    !isDiamond ? (
+  const PointsPicker = () => {
+    if (isKudos) {
+      return (
+        <p className="text-xs text-emerald-700 font-semibold leading-relaxed">
+          👍 Each {pointSystem.kudos.label} carries no points on its own. Every {pointSystem.kudos.threshold} earns a +{pointSystem.kudos.bonusPoints} bonus automatically.
+        </p>
+      );
+    }
+    if (isImprovement) {
+      return (
+        <p className="text-xs text-amber-700 font-semibold leading-relaxed">
+          👉 Each {pointSystem.improvementNote.label} carries no points on its own. {pointSystem.reducing.enabled
+            ? `Every ${pointSystem.improvementNote.threshold} takes −${pointSystem.improvementNote.deductionPoints} automatically.`
+            : `Tracked only — turn on Reducing in Settings to make deductions take effect.`}
+        </p>
+      );
+    }
+    if (isReducing) {
+      return (
+        <>
+          <div className="grid grid-cols-5 gap-2">
+            {reducingPointsRange.map((p) => (
+              <button
+                key={p}
+                onClick={() => setReducingPts(p)}
+                className={`h-11 rounded-kaya-sm font-bold transition-all ${
+                  reducingPts === p ? 'bg-red-500 text-white shadow-md shadow-red-500/30' : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                }`}
+              >−{p}</button>
+            ))}
+          </div>
+          <p className="text-xs text-red-600 font-semibold mt-2">⚠️ Reducing — points come off the kid&apos;s total.</p>
+        </>
+      );
+    }
+    if (isDiamond) {
+      return (
+        <>
+          <div className="grid grid-cols-4 gap-2">
+            {DIAMOND_POINTS.filter((p) => p >= diamondMin).map((p) => (
+              <button
+                key={p}
+                onClick={() => setDiamondPts(p)}
+                className={`h-11 rounded-kaya-sm font-bold transition-all ${
+                  diamondPts === p ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30' : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                }`}
+              >+{p}</button>
+            ))}
+          </div>
+          <p className="text-xs text-purple-600 font-semibold mt-2">💎 Diamond points — parents decide the bonus for exceptional behavior.</p>
+        </>
+      );
+    }
+    // Regular (default)
+    return (
       <div className="flex gap-2">
-        {REGULAR_POINTS.map((p, i) => (
+        {regularPointsRange.map((p) => (
           <button
-            key={`${p}-${i}`}
+            key={p}
             onClick={() => setRegularPts(p)}
             className={`flex-1 h-12 rounded-kaya-sm font-bold transition-all ${
               regularPts === p ? 'bg-kaya-gold text-white shadow-md shadow-kaya-gold/30' : 'bg-white border border-kaya-warm-dark text-kaya-sand'
@@ -249,23 +423,8 @@ export default function AwardPage() {
           >+{p}</button>
         ))}
       </div>
-    ) : (
-      <>
-        <div className="grid grid-cols-4 gap-2">
-          {DIAMOND_POINTS.map((p) => (
-            <button
-              key={p}
-              onClick={() => setDiamondPts(p)}
-              className={`h-11 rounded-kaya-sm font-bold transition-all ${
-                diamondPts === p ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30' : 'bg-white border border-kaya-warm-dark text-kaya-sand'
-              }`}
-            >+{p}</button>
-          ))}
-        </div>
-        <p className="text-xs text-purple-600 font-semibold mt-2">💎 Diamond points — parents decide the bonus for exceptional behavior.</p>
-      </>
-    )
-  );
+    );
+  };
 
   return (
     <>
@@ -289,7 +448,7 @@ export default function AwardPage() {
           <CategoryGrid />
         </div>
 
-        {diamondEnabled && (
+        {showTypeToggle && (
           <div className="mb-4">
             <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Points type</label>
             <TypeToggle />
@@ -297,7 +456,7 @@ export default function AwardPage() {
         )}
 
         <div className="mb-5">
-          <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">{isDiamond ? 'Diamond points (3–10)' : 'How many points?'}</label>
+          <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">{pointsSectionLabel}</label>
           <PointsPicker />
         </div>
 
@@ -314,13 +473,9 @@ export default function AwardPage() {
         <button
           onClick={handleAward}
           disabled={!canSubmit}
-          className={`w-full h-[52px] rounded-kaya font-bold text-sm disabled:opacity-40 transition-colors ${
-            isDiamond ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-kaya-gold hover:bg-kaya-gold-dark text-white'
-          }`}
+          className={`w-full h-[52px] rounded-kaya font-bold text-sm disabled:opacity-40 transition-colors ${accentButtonClass}`}
         >
-          {saving
-            ? 'Awarding…'
-            : `Award +${finalPoints} Points ${selectedChildren.length > 1 ? `to ${selectedChildren.length} kids ` : ''}${isDiamond ? '💎' : '🎖️'}`}
+          {submitLabel}
         </button>
       </div>
 
@@ -348,8 +503,8 @@ export default function AwardPage() {
               <CategoryGrid cols={8} />
             </div>
 
-            <div className={diamondEnabled ? 'grid grid-cols-2 gap-6' : ''}>
-              {diamondEnabled && (
+            <div className={showTypeToggle ? 'grid grid-cols-2 gap-6' : ''}>
+              {showTypeToggle && (
                 <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-6">
                   <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand mb-3">Points type</p>
                   <TypeToggle />
@@ -357,7 +512,7 @@ export default function AwardPage() {
               )}
               <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-6">
                 <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand mb-3">
-                  {isDiamond ? 'Diamond points (3–10)' : 'How many points?'}
+                  {pointsSectionLabel}
                 </p>
                 <PointsPicker />
               </div>
@@ -381,11 +536,7 @@ export default function AwardPage() {
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand px-1">Preview</p>
 
               <div
-                className={`rounded-kaya-lg p-6 text-white shadow-xl ${
-                  isDiamond
-                    ? 'bg-gradient-to-br from-purple-600 to-purple-800 shadow-purple-600/20'
-                    : 'bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light shadow-kaya-chocolate/20'
-                }`}
+                className={`rounded-kaya-lg p-6 text-white shadow-xl bg-gradient-to-br ${accentGradient}`}
               >
                 <div className="flex items-center gap-3 mb-4">
                   {child ? (
@@ -404,12 +555,13 @@ export default function AwardPage() {
                     </p>
                   </div>
                   {isDiamond && <span className="text-2xl">💎</span>}
+                  {isReducing && <span className="text-2xl">⚠️</span>}
                 </div>
 
                 <div className="flex items-baseline gap-2 mb-4">
-                  <span className="font-display font-black text-6xl">+{finalPoints}</span>
+                  <span className="font-display font-black text-6xl">{previewBigNumber}</span>
                   <span className="text-sm opacity-70">
-                    {isDiamond ? 'diamond pts' : 'points'}{selectedKidObjs.length > 1 ? ' each' : ''}
+                    {previewUnitLabel}{selectedKidObjs.length > 1 && !isKudos && !isImprovement ? ' each' : ''}
                   </span>
                 </div>
 
@@ -428,13 +580,9 @@ export default function AwardPage() {
               <button
                 onClick={handleAward}
                 disabled={!canSubmit}
-                className={`w-full h-[52px] rounded-kaya font-bold text-sm disabled:opacity-40 transition-colors ${
-                  isDiamond ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-kaya-gold hover:bg-kaya-gold-dark text-white'
-                }`}
+                className={`w-full h-[52px] rounded-kaya font-bold text-sm disabled:opacity-40 transition-colors ${accentButtonClass}`}
               >
-                {saving
-                  ? 'Awarding…'
-                  : `Award +${finalPoints} ${isDiamond ? 'diamond ' : ''}points${selectedChildren.length > 1 ? ` to ${selectedChildren.length} kids` : ''}`}
+                {submitLabel}
               </button>
 
               <p className="text-[11px] text-kaya-sand-light px-1 leading-relaxed">
