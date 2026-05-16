@@ -619,6 +619,15 @@ function QuickActions({ role }: { role: Role }) {
       { emoji: '📸', label: 'Photo', href: '/moments/new' },
       { emoji: '💬', label: 'Message', href: '/directory' },
     ],
+    // Guests get the view-only essentials — no Rate / Award / write
+    // actions. Surfacing Home, Badges, Moments, and Directory so they
+    // can keep up with the family without contributing changes.
+    guest: [
+      { emoji: '🏠', label: 'Home',    href: '/' },
+      { emoji: '🏆', label: 'Badges',  href: '/badges' },
+      { emoji: '📸', label: 'Moments', href: '/moments' },
+      { emoji: '💬', label: 'Family',  href: '/directory' },
+    ],
   };
   const actions = sets[role];
   return (

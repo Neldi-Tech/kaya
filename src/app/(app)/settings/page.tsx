@@ -10,6 +10,7 @@ import {
   Gender, BirthdayPrivacy, ExternalContact,
   addExternalContact, updateExternalContact, removeExternalContact,
   PointSystemConfig, readPointSystemConfig,
+  ensureInviteCodes,
 } from '@/lib/firestore';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
@@ -47,6 +48,11 @@ export default function SettingsPage() {
 
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Per-role invite codes — resolved from family.inviteCodes via
+  // ensureInviteCodes(), which lazily generates any missing ones so
+  // pre-2026-05 families pick them up on first Settings open.
+  const [inviteCodes, setInviteCodes] = useState<{ kid: string; helper: string; guest: string } | null>(null);
+  const [copiedCode, setCopiedCode] = useState<'kid' | 'helper' | 'guest' | null>(null);
   const [newChildName, setNewChildName] = useState('');
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
@@ -523,6 +529,29 @@ export default function SettingsPage() {
     navigator.clipboard.writeText(family.inviteCode);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Resolve all three per-role codes once the family doc loads.
+  // ensureInviteCodes writes any missing codes through to Firestore so
+  // the family doc converges on the new shape with zero parent action.
+  useEffect(() => {
+    if (!family || isGuest) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const codes = await ensureInviteCodes(family);
+        if (!cancelled) setInviteCodes(codes);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [family, isGuest]);
+
+  const copyRoleCode = (role: 'kid' | 'helper' | 'guest') => {
+    const code = inviteCodes?.[role];
+    if (!code) return;
+    navigator.clipboard.writeText(code);
+    setCopiedCode(role);
+    setTimeout(() => setCopiedCode((cur) => (cur === role ? null : cur)), 2000);
   };
 
   const handleAddChild = async () => {
@@ -1646,24 +1675,47 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Invite code */}
+          {/* Invite codes — one per role. Whichever code a new user
+              pastes during onboarding determines what role they join
+              as. Always visible (no Show/Hide gate) so parents don't
+              hunt for them when inviting a kid mid-conversation. */}
           {isParent && family && (
             <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Helper invite code</p>
-                <button onClick={() => setShowInvite(!showInvite)} className="text-xs text-kaya-gold font-semibold">
-                  {showInvite ? 'Hide' : 'Show'}
-                </button>
+              <div className="flex items-baseline justify-between mb-1">
+                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Invite codes</p>
+                <span className="text-[10px] text-kaya-sand-light">3 codes · 1 per role</span>
               </div>
-              {showInvite && (
-                <div className="flex items-center gap-3">
-                  <p className="text-2xl font-mono font-bold tracking-[0.3em] flex-1">{family.inviteCode}</p>
-                  <button onClick={copyInviteCode} className="px-4 py-2 bg-kaya-warm rounded-kaya-sm text-xs font-semibold text-kaya-sand">
-                    {copied ? '✅ Copied' : '📋 Copy'}
-                  </button>
-                </div>
-              )}
-              <p className="text-xs text-kaya-sand mt-2">Share with helpers or family members so they can join your family. (For inviting <em>other</em> families to start their own, use the referral link →)</p>
+              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                Share the matching code so each person joins with the right access. The code itself sets the role at sign-up.
+              </p>
+
+              {([
+                { key: 'kid' as const,    title: 'Kids',    emoji: '🧒', hint: 'For your children. Lets them rate their routines and see their points.' },
+                { key: 'helper' as const, title: 'Helpers', emoji: '🤝', hint: 'For nannies / helpers who rate routines for the kids each day.' },
+                { key: 'guest' as const,  title: 'Guests',  emoji: '👀', hint: 'View-only. Great for grandparents and godparents.' },
+              ]).map(({ key, title, emoji, hint }) => {
+                const code = inviteCodes?.[key];
+                return (
+                  <div key={key} className="border-t border-kaya-warm-dark/40 pt-3 mt-3 first:border-t-0 first:pt-0 first:mt-0">
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <p className="text-sm font-bold">{emoji} {title}</p>
+                      <button
+                        onClick={() => copyRoleCode(key)}
+                        disabled={!code}
+                        className="text-[11px] font-bold text-kaya-gold disabled:opacity-40"
+                      >
+                        {copiedCode === key ? '✅ Copied' : '📋 Copy'}
+                      </button>
+                    </div>
+                    <p className="text-xl font-mono font-bold tracking-[0.25em] mb-1">{code || '…'}</p>
+                    <p className="text-[10px] text-kaya-sand leading-relaxed">{hint}</p>
+                  </div>
+                );
+              })}
+
+              <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
+                Inviting <em>other</em> families to start their own? Use the referral link instead.
+              </p>
             </div>
           )}
 

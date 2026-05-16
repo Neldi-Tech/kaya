@@ -12,7 +12,12 @@ import {
 import { FOUNDING_FAMILY_LIMIT, generateReferralCode } from './referral';
 
 // ── Types ──────────────────────────────────────────
-export type Role = 'parent' | 'helper' | 'kid';
+// `guest` is the most restricted role — added so families can hand out
+// a third invite code (e.g. for grandparents, godparents) that gets
+// view-only access without write permissions. Permission enforcement
+// for the guest tier follows in a later pass; for now it behaves like
+// `helper` in Firestore rules but the role distinction is recorded.
+export type Role = 'parent' | 'helper' | 'kid' | 'guest';
 export type PointsMode = 'full' | 'badges-only' | 'encouragement';
 export type RatingValue = 'excellent' | 'good' | 'bad' | 'skip';
 // The five recognised kinds of award. Drives points math + UI.
@@ -59,7 +64,21 @@ export interface Family {
   id: string;
   name: string;
   createdBy: string;
+  // Legacy single invite code. Pre-2026-05 families have only this
+  // field; new families also get `inviteCodes` below with one code per
+  // role. Kept on every doc for backwards compatibility — the legacy
+  // code resolves to the `helper` role since that was its original
+  // labelling in Settings.
   inviteCode: string;
+  // Per-role invite codes. Each one is independent and identifies the
+  // role a new user joins as when they paste it during onboarding. All
+  // generated up-front for new families; lazily backfilled for older
+  // families via `ensureInviteCodes()`.
+  inviteCodes?: {
+    kid?: string;
+    helper?: string;
+    guest?: string;
+  };
   // ── Public identity ──
   handle?: string;                // case-preserved, e.g. "Timotheo"
   handleLower?: string;           // lowercase mirror — used for case-insensitive lookup
@@ -528,6 +547,13 @@ export async function createFamily(
       name,
       createdBy,
       inviteCode: generateInviteCode(),
+      // Three role-specific codes generated up-front so parents can
+      // copy-share them from Settings right after onboarding.
+      inviteCodes: {
+        kid: generateInviteCode(),
+        helper: generateInviteCode(),
+        guest: generateInviteCode(),
+      },
       referralCode: generateReferralCode(name),
       referredBy: referrerFamilyId,
       referralCount: 0,
@@ -796,6 +822,65 @@ export async function findFamilyByInviteCode(code: string): Promise<Family | nul
   if (snap.empty) return null;
   const d = snap.docs[0];
   return { id: d.id, ...d.data() } as Family;
+}
+
+// Lazily generate per-role invite codes for a family that pre-dates the
+// 3-codes feature. Safe to call repeatedly; only writes when the field
+// is missing or partial. Returns the resolved triple so callers can
+// display all three immediately without a second fetch.
+export async function ensureInviteCodes(
+  family: Family,
+): Promise<{ kid: string; helper: string; guest: string }> {
+  const stored = family.inviteCodes || {};
+  // The legacy `inviteCode` field was historically labelled "Helper
+  // invite code" in Settings, so map it onto `helper` to preserve any
+  // prior sharing. New codes get generated only where missing.
+  const kid    = stored.kid    || generateInviteCode();
+  const helper = stored.helper || family.inviteCode || generateInviteCode();
+  const guest  = stored.guest  || generateInviteCode();
+  const needsWrite =
+    !stored.kid || !stored.helper || !stored.guest;
+  if (needsWrite && !isGuestActive()) {
+    await updateDoc(doc(db, 'families', family.id), {
+      inviteCodes: { kid, helper, guest },
+    });
+  }
+  return { kid, helper, guest };
+}
+
+// Look up a family by ANY of its invite codes (legacy single code +
+// each per-role code). Returns the family along with the role that
+// matched the code so onboarding can auto-assign without showing a
+// role picker. The legacy `inviteCode` defaults to `helper` to match
+// its historical labelling in Settings.
+export async function findFamilyByAnyInviteCode(
+  code: string,
+): Promise<{ family: Family; suggestedRole: Role } | null> {
+  if (isGuestActive()) return null;
+  const upper = code.toUpperCase();
+
+  // Try the legacy single-code path first since every family has it,
+  // including any created before per-role codes shipped.
+  const legacy = await getDocs(
+    query(collection(db, 'families'), where('inviteCode', '==', upper)),
+  );
+  if (!legacy.empty) {
+    const d = legacy.docs[0];
+    return { family: { id: d.id, ...d.data() } as Family, suggestedRole: 'helper' };
+  }
+
+  // Then check each per-role code field in turn. Firestore can't
+  // OR-query across nested fields cheaply, so three small reads.
+  for (const role of ['kid', 'helper', 'guest'] as const) {
+    const snap = await getDocs(
+      query(collection(db, 'families'), where(`inviteCodes.${role}`, '==', upper)),
+    );
+    if (!snap.empty) {
+      const d = snap.docs[0];
+      return { family: { id: d.id, ...d.data() } as Family, suggestedRole: role };
+    }
+  }
+  return null;
 }
 
 // ── Children Operations ───────────────────────────

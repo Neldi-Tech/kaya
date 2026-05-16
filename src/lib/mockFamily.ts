@@ -30,6 +30,11 @@ export const MOCK_FAMILY: Family = {
   name: 'The Demo Family',
   createdBy: GUEST_UID,
   inviteCode: 'DEMO-1234',
+  inviteCodes: {
+    kid:    'KID-DEMO',
+    helper: 'HELP-DEMO',
+    guest:  'GUEST-DEMO',
+  },
   referralCode: 'DEMO-2026-XYZ',
   referredBy: null,
   referralCount: 1,

@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Timestamp } from 'firebase/firestore';
 import {
-  createUserProfile, createFamily, addChild, findFamilyByInviteCode,
+  createUserProfile, createFamily, addChild,
+  findFamilyByAnyInviteCode,
   findChildByEmail, getFamily, updateUserProfile, Role, Family, Child,
 } from '@/lib/firestore';
 
@@ -111,6 +112,10 @@ export default function OnboardingPage() {
 
     try {
       let familyId: string;
+      // For "create" mode the user is always a parent (only parents
+      // bootstrap families). For "join" the invite code's role wins;
+      // we resolve it inside the else branch below.
+      let finalRole: Role = familyMode === 'create' ? 'parent' : role;
 
       if (familyMode === 'create') {
         const pendingRef = typeof window !== 'undefined'
@@ -140,13 +145,19 @@ export default function OnboardingPage() {
           } as any);
         }
       } else {
-        const found = await findFamilyByInviteCode(inviteCode);
-        if (!found) {
+        // Per-role invite codes: whichever bucket the code matches
+        // determines the joining role. Legacy single `inviteCode`
+        // resolves as `helper` (its original Settings labelling). The
+        // resolved role overrides whatever the user picked at step 1
+        // so the code is the source of truth — no role escalation.
+        const matched = await findFamilyByAnyInviteCode(inviteCode);
+        if (!matched) {
           setError('Invalid invite code. Please check and try again.');
           setLoading(false);
           return;
         }
-        familyId = found.id;
+        familyId = matched.family.id;
+        finalRole = matched.suggestedRole;
       }
 
       // Create user profile
@@ -155,7 +166,7 @@ export default function OnboardingPage() {
         email: user.email || '',
         displayName: user.displayName || familyName,
         photoURL: user.photoURL || undefined,
-        role,
+        role: finalRole,
         familyId,
         createdAt: Timestamp.now(),
       });
@@ -249,11 +260,16 @@ export default function OnboardingPage() {
             <h2 className="font-display text-2xl font-black mb-1">Welcome to Kaya!</h2>
             <p className="text-kaya-sand text-sm mb-8">What's your role in the family?</p>
 
+            <p className="text-[11px] text-kaya-sand-light mb-3 leading-relaxed bg-kaya-warm/40 border border-kaya-warm-dark/40 rounded-kaya-sm p-2.5">
+              💡 Joining an existing family? Your role will be set automatically by the invite code your parent shares with you — pick the closest match here as a starting point.
+            </p>
+
             <div className="space-y-3">
               {[
                 { value: 'parent' as Role, icon: '👨‍👩‍👧‍👦', label: 'Parent', desc: 'Full access: rate, award, manage family' },
                 { value: 'helper' as Role, icon: '🤝', label: 'Helper', desc: 'Rate daily routines for the children' },
                 { value: 'kid' as Role, icon: '⭐', label: 'Kid', desc: 'View your points, badges & rewards' },
+                { value: 'guest' as Role, icon: '👀', label: 'Guest', desc: 'View-only — grandparents, godparents, etc.' },
               ].map((r) => (
                 <button
                   key={r.value}
