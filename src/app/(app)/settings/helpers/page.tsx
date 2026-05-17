@@ -27,14 +27,29 @@ const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
 ];
 
 type Preset = HelperLink['preset'];
+type Frequency = NonNullable<HelperLink['expectedFrequency']>;
 
-const PRESETS: { id: Preset; label: string; description: string; modules: string[]; canAward: boolean }[] = [
-  { id: 'nanny',       label: 'Nanny',       description: 'Routines, meals, kudos, photos', modules: ['home', 'household', 'moments'], canAward: true },
-  { id: 'tutor',       label: 'Tutor',       description: 'Homework & study routines',      modules: ['home'],                          canAward: false },
-  { id: 'driver',      label: 'Driver',      description: 'Pickup, dropoff, schedule',      modules: ['home'],                          canAward: false },
-  { id: 'grandparent', label: 'Grandparent', description: 'View-only across granted modules', modules: ['home', 'moments'],             canAward: true },
-  { id: 'custom',      label: 'Custom',      description: 'Pick everything by hand',         modules: ['home'],                          canAward: false },
+const PRESETS: { id: Preset; label: string; description: string; modules: string[]; canAward: boolean; frequency: Frequency }[] = [
+  { id: 'nanny',       label: 'Nanny',       description: 'Routines, meals, kudos, photos', modules: ['home', 'household', 'moments'], canAward: true,  frequency: 'both' },
+  { id: 'tutor',       label: 'Tutor',       description: 'Homework & study routines',      modules: ['home'],                          canAward: false, frequency: 'evening' },
+  { id: 'driver',      label: 'Driver',      description: 'Pickup, dropoff, schedule',      modules: ['home'],                          canAward: false, frequency: 'flexible' },
+  { id: 'grandparent', label: 'Grandparent', description: 'View-only across granted modules', modules: ['home', 'moments'],             canAward: true,  frequency: 'flexible' },
+  { id: 'custom',      label: 'Custom',      description: 'Pick everything by hand',         modules: ['home'],                          canAward: false, frequency: 'both' },
 ];
+
+const FREQUENCY_CHOICES: { id: Frequency; label: string; hint: string }[] = [
+  { id: 'morning',  label: 'Morning only',     hint: 'Expected to log the morning rating each day' },
+  { id: 'evening',  label: 'Evening only',     hint: 'Expected to log the evening rating each day' },
+  { id: 'both',     label: 'Morning + Evening', hint: 'Expected to log both ratings each day' },
+  { id: 'flexible', label: 'Flexible',         hint: 'No daily expectation — fills in when relevant' },
+];
+
+const FREQUENCY_LABEL: Record<Frequency, string> = {
+  morning: 'Morning only',
+  evening: 'Evening only',
+  both: 'Morning + Evening',
+  flexible: 'Flexible',
+};
 
 export default function HelpersSettingsPage() {
   const router = useRouter();
@@ -120,6 +135,7 @@ export default function HelpersSettingsPage() {
           <li>The credentials card gives you a <span className="font-bold">login URL + 3 codes</span>. Tap <span className="font-bold">Copy all</span> and paste into WhatsApp / SMS to share with your helper.</li>
           <li>The helper opens the URL, types the 3 codes, and lands on a dashboard showing only the kids you assigned.</li>
           <li>They&apos;ll stay signed in for the session length below before needing to enter codes again.</li>
+          <li>Tap a helper row to <span className="font-bold">edit</span> their name, kids, areas of access, or expected fill frequency. Need an instant lockout? Tap <span className="font-bold">Pause</span> on their row.</li>
         </ol>
       </div>
 
@@ -226,6 +242,7 @@ export default function HelpersSettingsPage() {
             key={h.uid}
             helper={h}
             childOptions={children.map((c) => ({ id: c.id, name: c.name }))}
+            familyModules={family?.kidModules ?? DEFAULT_KID_MODULES}
             busy={busyHelperUid === h.uid}
             onPauseToggle={async () => {
               if (!family) return;
@@ -246,11 +263,11 @@ export default function HelpersSettingsPage() {
                 await reloadHelpers();
               } finally { setBusyHelperUid(null); }
             }}
-            onUpdateKids={async (kidIds) => {
+            onUpdate={async (patch) => {
               if (!family) return;
               setBusyHelperUid(h.uid);
               try {
-                await updateHelperLink(family.id, h.uid, { kidIds });
+                await updateHelperLink(family.id, h.uid, patch);
                 await reloadHelpers();
               } finally { setBusyHelperUid(null); }
             }}
@@ -503,6 +520,7 @@ function AddHelperForm({
               kidIds: selectedKidIds,
               modules: presetCfg.modules.filter((m) => familyModules.includes(m) || m === 'home'),
               canAward: presetCfg.canAward,
+              expectedFrequency: presetCfg.frequency,
               createdBy: parentUid,
             });
             setResult(r);
@@ -543,27 +561,60 @@ function CredRow({ label, value, id, copy, copied, mono }: {
   );
 }
 
-function HelperRow({ helper, childOptions, busy, onPauseToggle, onRemove, onUpdateKids }: {
+function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, onRemove, onUpdate }: {
   helper: HelperLink;
   childOptions: { id: string; name: string }[];
+  familyModules: string[];
   busy: boolean;
   onPauseToggle: () => void;
   onRemove: () => void;
-  onUpdateKids: (kidIds: string[]) => Promise<void>;
+  onUpdate: (patch: Partial<HelperLink>) => Promise<void>;
 }) {
   const childNameById = Object.fromEntries(childOptions.map((c) => [c.id, c.name]));
   const kidNames =
     helper.kidIds.map((id) => childNameById[id]).filter(Boolean).join(', ') || 'No kids assigned';
   const [expanded, setExpanded] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [nameDraft, setNameDraft] = useState(helper.displayName);
+  useEffect(() => { setNameDraft(helper.displayName); }, [helper.displayName]);
+
+  const flash = () => { setJustSaved(true); setTimeout(() => setJustSaved(false), 1200); };
 
   const toggleKid = async (kidId: string) => {
     const has = helper.kidIds.includes(kidId);
     const next = has ? helper.kidIds.filter((id) => id !== kidId) : [...helper.kidIds, kidId];
-    await onUpdateKids(next);
-    setJustSaved(true);
-    setTimeout(() => setJustSaved(false), 1200);
+    await onUpdate({ kidIds: next });
+    flash();
   };
+
+  const toggleModule = async (moduleId: string) => {
+    const has = helper.modules.includes(moduleId);
+    const next = has ? helper.modules.filter((m) => m !== moduleId) : [...helper.modules, moduleId];
+    await onUpdate({ modules: next });
+    flash();
+  };
+
+  const setFrequency = async (f: Frequency) => {
+    if (helper.expectedFrequency === f) return;
+    await onUpdate({ expectedFrequency: f });
+    flash();
+  };
+
+  const saveName = async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === helper.displayName) return;
+    await onUpdate({ displayName: trimmed });
+    flash();
+  };
+
+  // Module options surfaced to the parent — everything the family has
+  // enabled for kids, since helpers act on kid-side modules. Home is
+  // always shown so it can be toggled off intentionally.
+  const moduleOptions = KID_MODULES
+    .filter((m) => familyModules.includes(m.id) || m.id === 'home')
+    .map((m) => ({ id: m.id, label: m.label, icon: m.icon }));
+
+  const currentFrequency: Frequency = helper.expectedFrequency ?? 'flexible';
 
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg overflow-hidden">
@@ -582,7 +633,7 @@ function HelperRow({ helper, childOptions, busy, onPauseToggle, onRemove, onUpda
             )}
           </p>
           <p className="text-xs text-kaya-sand mt-0.5 truncate">
-            <span className="font-bold uppercase">{helper.helperCode}</span> · {helper.preset} · {kidNames}
+            <span className="font-bold uppercase">{helper.helperCode}</span> · {helper.preset} · {kidNames} · {FREQUENCY_LABEL[currentFrequency]}
           </p>
         </button>
         <div className="flex items-center gap-1 flex-shrink-0">
@@ -590,7 +641,7 @@ function HelperRow({ helper, childOptions, busy, onPauseToggle, onRemove, onUpda
             disabled={busy}
             onClick={onPauseToggle}
             className="p-2 text-kaya-sand hover:text-kaya-chocolate disabled:opacity-50"
-            title={helper.status === 'paused' ? 'Resume' : 'Pause'}
+            title={helper.status === 'paused' ? 'Resume' : 'Pause (instant lockout — use if you suspect a problem)'}
           >
             {helper.status === 'paused' ? <Play size={16} /> : <Pause size={16} />}
           </button>
@@ -614,16 +665,38 @@ function HelperRow({ helper, childOptions, busy, onPauseToggle, onRemove, onUpda
       </div>
 
       {expanded && (
-        <div className="border-t border-kaya-warm-dark/40 bg-kaya-cream/50 p-4 space-y-3">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand">Kids this helper can act on</p>
-              {justSaved && (
-                <span className="text-[10px] uppercase tracking-wider text-green-700 font-bold inline-flex items-center gap-1">
-                  <Check size={12} /> Saved
-                </span>
-              )}
+        <div className="border-t border-kaya-warm-dark/40 bg-kaya-cream/50 p-4 space-y-4">
+          {justSaved && (
+            <div className="text-[10px] uppercase tracking-wider text-green-700 font-bold inline-flex items-center gap-1">
+              <Check size={12} /> Saved
             </div>
+          )}
+
+          {/* Display name */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Display name</p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                disabled={busy}
+                className="flex-1 px-3 py-2 bg-white border border-kaya-warm-dark rounded-kaya text-sm focus:outline-none focus:border-kaya-chocolate disabled:opacity-50"
+              />
+              <button
+                type="button"
+                onClick={saveName}
+                disabled={busy || !nameDraft.trim() || nameDraft.trim() === helper.displayName}
+                className="px-3 py-2 text-xs font-bold bg-kaya-chocolate text-white rounded-kaya hover:bg-kaya-chocolate/90 disabled:opacity-30"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+
+          {/* Kids */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Kids this helper can act on</p>
             {childOptions.length === 0 ? (
               <p className="text-xs text-kaya-sand italic">No kids in the family yet.</p>
             ) : (
@@ -647,16 +720,72 @@ function HelperRow({ helper, childOptions, busy, onPauseToggle, onRemove, onUpda
                 })}
               </div>
             )}
+          </div>
+
+          {/* Modules — the "role editor" inline. Today these flags are
+              stored but not yet rule-enforced (per v0 scope decision);
+              parent can pre-set what they want this helper to act on
+              so it's ready when module-level scoping ships. */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Areas they can act on</p>
+            <div className="flex flex-wrap gap-2">
+              {moduleOptions.map((m) => {
+                const on = helper.modules.includes(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => toggleModule(m.id)}
+                    className={`px-3 py-1.5 text-sm rounded-full border disabled:opacity-50 ${on
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                    }`}
+                  >
+                    <span className="mr-1">{m.icon}</span>{m.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Frequency expectation */}
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Expected fill frequency</p>
+            <div className="grid grid-cols-2 gap-2">
+              {FREQUENCY_CHOICES.map((f) => {
+                const on = currentFrequency === f.id;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setFrequency(f.id)}
+                    className={`p-2 text-xs rounded-kaya border text-left disabled:opacity-50 ${on
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                    }`}
+                  >
+                    <p className="font-bold">{f.label}</p>
+                    <p className={`text-[10px] mt-0.5 leading-tight ${on ? 'text-white/80' : 'text-kaya-sand'}`}>
+                      {f.hint}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
             <p className="text-[10px] text-kaya-sand mt-2">
-              Toggle saves instantly. Removing all kids leaves the helper able to sign in but with nothing to do.
+              The helper sees this on their dashboard. Performance % will use this in a future build.
             </p>
           </div>
 
-          {/* Helper code (read-only) — handy reference when the parent
-              needs to remind a helper what to type. */}
+          {/* Login code + tier footer */}
           <div className="text-[11px] text-kaya-sand pt-2 border-t border-kaya-warm-dark/30">
             Login code: <span className="font-mono font-bold text-kaya-chocolate">{helper.helperCode}</span>
             {' '}· Created via Tier {helper.authTier}
+            <span className="block mt-1 text-[10px]">
+              To rotate password or change the helper code, <button className="underline" onClick={onRemove}>remove</button> this helper and add them again. Suspect compromise? Use <span className="font-bold">Pause</span> for instant lockout.
+            </span>
           </div>
         </div>
       )}

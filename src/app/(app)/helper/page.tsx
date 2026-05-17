@@ -21,6 +21,13 @@ const PRESET_LABEL: Record<HelperLink['preset'], string> = {
   custom: 'Custom',
 };
 
+const FREQUENCY_LABEL: Record<NonNullable<HelperLink['expectedFrequency']>, string> = {
+  morning: 'Mornings',
+  evening: 'Evenings',
+  both: 'Morning + Evening',
+  flexible: 'Flexible',
+};
+
 export default function HelperPage() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -94,14 +101,19 @@ export default function HelperPage() {
           summary. Builds trust by making the scope visible at a glance.
        */}
       {link && (
-        <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4 flex items-center gap-3">
-          <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0" />
+        <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4 flex items-start gap-3">
+          <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0 mt-0.5" />
           <div className="min-w-0 flex-1 text-xs lg:text-sm">
-            <span className="text-kaya-sand">Helping with </span>
-            <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
-            <span className="text-kaya-sand"> · </span>
-            <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
-            <span className="text-kaya-sand"> role</span>
+            <div>
+              <span className="text-kaya-sand">Helping with </span>
+              <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
+              <span className="text-kaya-sand"> · </span>
+              <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
+              <span className="text-kaya-sand"> role</span>
+            </div>
+            <div className="mt-1 text-[11px] text-kaya-sand">
+              Expected today: <span className="font-bold text-kaya-chocolate">{FREQUENCY_LABEL[link.expectedFrequency ?? 'flexible']}</span>
+            </div>
           </div>
         </div>
       )}

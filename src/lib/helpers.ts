@@ -187,13 +187,14 @@ export async function removeHelper(familyId: string, uid: string): Promise<void>
 export interface CreateHelperInput {
   familyId: string;
   familyCode: string;          // resolved by ensureFamilyCode beforehand
-  helperCode: string;          // e.g. "AMINA" — parent-pickable
+  helperCode: string;          // e.g. "JANE" — parent-pickable
   displayName: string;
   password: string;            // auto-generated, shown once to parent
   preset: HelperLink['preset'];
   kidIds: string[];
   modules: string[];
   canAward?: boolean;
+  expectedFrequency?: HelperLink['expectedFrequency'];
   createdBy: string;           // parent UID
 }
 
@@ -266,6 +267,8 @@ export async function createHelper(input: CreateHelperInput): Promise<CreateHelp
       attribution: 'generic',
       authTier: 'A',
       status: 'active',
+      expectedFrequency: input.expectedFrequency
+        ?? (input.preset === 'nanny' ? 'both' : 'flexible'),
       createdAt: serverTimestamp(),
       createdBy: input.createdBy,
     };
