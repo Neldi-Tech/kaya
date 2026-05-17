@@ -27,8 +27,19 @@ import {
   startReconcile, closeReconcile, discardDraft,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
 } from '@/lib/purchase';
-import { addStaple, type Staple } from '@/lib/pantry';
+import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
+
+// Per-staple icon for picker + basket rows. Pantry staples surface
+// their category emoji (🥬 🥛 🍚 🧴 ✨); Outdoor + Drivers staples
+// inherit the module emoji (🌿 / 🚗) — their categories aren't stored
+// on the staple yet.
+function stapleEmoji(s: { category?: string; module?: 'pantry' | 'outdoor' | 'drivers' }): string {
+  if (s.module === 'outdoor') return '🌿';
+  if (s.module === 'drivers') return '🚗';
+  const c = STAPLE_CATEGORIES.find((x) => x.id === s.category);
+  return c?.emoji ?? '🧺';
+}
 
 export default function PurchaseDetailPage() {
   const params = useParams();
@@ -303,6 +314,39 @@ export default function PurchaseDetailPage() {
           body={req.rejectionNote || 'No reason given.'} />
       )}
 
+      {/* Module budget banner — kept lightweight (single Family read).
+          Shows the cap + this request's estimated impact so the helper
+          can scale their basket without leaving the page. Skipped if
+          no cap is set or the request is already closed/rejected. */}
+      {(() => {
+        const cap = family?.householdBudgets?.[reqModule] ?? 0;
+        if (cap === 0 || isClosed || isRejected) return null;
+        const est = sumEstimated(req.items);
+        const pct = Math.min(100, Math.round((est / cap) * 100));
+        const over = est > cap;
+        return (
+          <div className={`rounded-hive border p-3 mb-3 ${
+            over ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-pantry-leaf-soft border-pantry-leaf'
+          }`}>
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+                {reqModule === 'pantry' ? '🛒 Pantry' : reqModule === 'outdoor' ? '🌿 Outdoor' : '🚗 Drivers'} cap
+              </p>
+              <p className="text-[11px] font-nunito font-extrabold text-hive-navy">
+                {formatCents(est, currency)}
+                <span className="text-hive-muted font-bold"> of {formatCents(cap, currency)}</span>
+              </p>
+            </div>
+            <div className="mt-2 h-1.5 bg-white/70 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${over ? 'bg-hive-rose' : 'bg-pantry-leaf-dk'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Item list */}
       <div className="flex flex-col gap-2">
         {req.items.length === 0 && (
@@ -314,6 +358,7 @@ export default function PurchaseDetailPage() {
           <ItemRow
             key={it.id}
             item={it}
+            module={reqModule}
             currency={currency}
             editable={editable}
             reconcilable={reconcilable}
@@ -377,7 +422,7 @@ export default function PurchaseDetailPage() {
                       onClick={() => addStapleToBasket(s)}
                       className="w-full flex items-center gap-3 py-2 px-2 hover:bg-hive-cream rounded-lg text-left"
                     >
-                      <div className="w-8 h-8 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-sm">🧺</div>
+                      <div className="w-9 h-9 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-base">{stapleEmoji(s)}</div>
                       <div className="flex-1 min-w-0">
                         <div className="font-nunito font-extrabold text-sm truncate">{s.name}</div>
                         <div className="text-[11px] text-hive-muted">
@@ -578,9 +623,10 @@ function Banner({ tone, title, body }: { tone: 'amber' | 'leaf' | 'rose'; title:
 }
 
 function ItemRow({
-  item, currency, editable, reconcilable, onQty, onActual, onRemove, varianceOnClose,
+  item, module: itemModule, currency, editable, reconcilable, onQty, onActual, onRemove, varianceOnClose,
 }: {
   item: PurchaseRequestItem;
+  module: 'pantry' | 'outdoor' | 'drivers';
   currency: string;
   editable: boolean;
   reconcilable: boolean;
@@ -593,10 +639,11 @@ function ItemRow({
   const act = (item.actualCents ?? 0) * (item.actualQty ?? 0);
   const vDelta = est > 0 ? Math.round(((act - est) / est) * 100) : 0;
   const pending = !!item.pendingPromote;
+  const emoji = stapleEmoji({ category: item.category, module: itemModule });
   return (
     <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 ${pending ? 'opacity-70 bg-[repeating-linear-gradient(135deg,white,white_6px,#FFF8EC_6px,#FFF8EC_12px)]' : ''}`}>
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-sm flex-shrink-0">🛒</div>
+        <div className="w-10 h-10 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-lg flex-shrink-0">{emoji}</div>
         <div className="flex-1 min-w-0">
           <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
             <span className="truncate">{item.name}</span>

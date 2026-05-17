@@ -245,8 +245,10 @@ export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
       // Homework + meetings, no household chores or photos.
       return ['kaya:rate', 'kaya:meetings', 'profiles'];
     case 'driver':
-      // Pickup/dropoff context + Directory contacts only.
-      return ['household:directory', 'profiles'];
+      // Pickup/dropoff context + Directory contacts. Plus the Drivers
+      // request flow — fuel, vehicle service, spare parts — so the
+      // driver can request what they need at the pump or the workshop.
+      return ['household:directory', 'household:drivers', 'profiles'];
     case 'gardener':
       // Outdoor + grounds — household coverage but typically no kid scope.
       // Gets the Outdoor request flow by default (garden / pool / kuku /
