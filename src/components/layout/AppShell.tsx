@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import GuestBanner from './GuestBanner';
 
 // Kaya brand logomark · the house-with-heart from Brand/svg/kaya-icon.svg,
@@ -189,14 +190,27 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'profiles', path: '/profiles', icon: '👧', label: 'Kids' },
 ];
 
+// Full kid menu in canonical order. Filtered at render time through
+// `family.kidModules` (see `resolveKidModules`) — rows whose `id`
+// isn't in the granted set are dropped. Home is always granted.
+// Discover/Badges/Rewards are legacy modules and OFF by default for
+// new families, but kept as toggleable so households who liked the old
+// shape can re-enable them. Wealth/Wellness/Chef render with a SOON
+// pill until their pages ship.
 const KID_SIDEBAR: SidebarRow[] = [
-  { kind: 'link',    id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
-  { kind: 'link',    id: 'home',     path: '/kid',     icon: '🏠', label: 'Home' },
-  { kind: 'link',    id: 'hive',     path: '/hive',    icon: '🍯', label: 'Hive' },
-  { kind: 'link',    id: 'moments',  path: '/moments', icon: '📸', label: 'Moments' },
-  { kind: 'link',    id: 'badges',   path: '/badges',  icon: '🏆', label: 'Badges' },
-  { kind: 'link',    id: 'rewards',  path: '/rewards', icon: '🎁', label: 'Rewards' },
-  { kind: 'section', id: 'fun',      icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
+  { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
+  { kind: 'link',    id: 'home',      path: '/kid',       icon: '🏠', label: 'Home' },
+  { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
+  { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
+  { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
+  { kind: 'link',    id: 'business',  path: '/business',  icon: '💼', label: 'Kaya Business' },
+  { kind: 'link',    id: 'directory', path: '/directory', icon: '📞', label: 'Directory' },
+  { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
+  { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
+  { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness', soon: true },
+  { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
+  { kind: 'link',    id: 'badges',    path: '/badges',    icon: '🏆', label: 'Badges' },
+  { kind: 'link',    id: 'rewards',   path: '/rewards',   icon: '🎁', label: 'Rewards' },
 ];
 
 // ── Mobile bottom-bar groups ─────────────────────────────────────────
@@ -249,16 +263,41 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const inPantrySection = !!pathname?.startsWith('/pantry');
   const inSectionWithOwnTabBar = inHiveSection || inPantrySection;
 
+  // Parent-controlled set of modules a kid is allowed to see. Falls back
+  // to `DEFAULT_KID_MODULES` (slim default) when the family hasn't
+  // customised. Home is always included.
+  const grantedKidModules = useMemo(
+    () => resolveKidModules(family?.kidModules),
+    [family?.kidModules]
+  );
+
   const sidebar: SidebarRow[] = useMemo(() => {
-    if (role === 'kid') return KID_SIDEBAR;
+    if (role === 'kid') return KID_SIDEBAR.filter((row) => grantedKidModules.has(row.id));
     if (role === 'helper') return HELPER_SIDEBAR;
     return PARENT_SIDEBAR;
-  }, [role]);
+  }, [role, grantedKidModules]);
 
-  const mobileGroups: MobileGroup[] =
-    role === 'kid' ? KID_MOBILE_GROUPS :
-    role === 'helper' ? HELPER_MOBILE_GROUPS :
-    PARENT_MOBILE_GROUPS;
+  const mobileGroups: MobileGroup[] = useMemo(() => {
+    if (role === 'kid') {
+      // `more` is a mega-sheet that renders the (already-filtered)
+      // sidebar — keep it regardless of toggles.
+      return KID_MOBILE_GROUPS.filter((g) => g.id === 'more' || grantedKidModules.has(g.id));
+    }
+    if (role === 'helper') return HELPER_MOBILE_GROUPS;
+    return PARENT_MOBILE_GROUPS;
+  }, [role, grantedKidModules]);
+
+  // Route guard for kids — if they land on a path that belongs to a
+  // module their family hasn't granted, bounce them back to Home so the
+  // visibility setting can't be bypassed by typing a URL.
+  useEffect(() => {
+    if (role !== 'kid' || !pathname) return;
+    const moduleId = moduleIdForPath(pathname);
+    if (!moduleId) return; // path isn't gated (e.g. /settings, /notifications)
+    if (!grantedKidModules.has(moduleId)) {
+      router.replace('/kid');
+    }
+  }, [role, pathname, grantedKidModules, router]);
 
   // ── Path matching ──────────────────────────────────────────────────
   const isPathActive = (path: string) => {
