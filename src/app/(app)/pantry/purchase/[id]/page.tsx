@@ -14,7 +14,7 @@
 //   rejected         — read-only with rejection note.
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -205,11 +205,14 @@ export default function PurchaseDetailPage() {
   };
 
   // Staples available to pick — exclude ones already in basket.
+  // Inlined (not useMemo) because this code path runs AFTER the
+  // `if (loading)` / `if (!req)` early returns above — a hook here
+  // would violate Rules of Hooks (different hook count between the
+  // loading and loaded renders → "Rendered more hooks than during
+  // the previous render" → client-side exception). Fixes the
+  // crash users saw on `/pantry/purchase/[id]`.
   const inBasket = new Set(req.items.map((i) => i.stapleId).filter(Boolean) as string[]);
-  const pickable = useMemo(
-    () => staples.filter((s) => !inBasket.has(s.id) && s.status !== 'pending_promote'),
-    [staples, inBasket],
-  );
+  const pickable = staples.filter((s) => !inBasket.has(s.id) && s.status !== 'pending_promote');
 
   const total = reconcilable || isClosed
     ? sumActual(req.items)

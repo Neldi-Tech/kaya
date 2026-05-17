@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
@@ -26,11 +27,21 @@ const monthLabel = (d: Date = new Date()) =>
   d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
 export default function BudgetPage() {
+  const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
   const isParent = profile?.role === 'parent';
+
+  // Budget is parent-only (household money policy). Helpers shouldn't see
+  // spend totals OR the cap. Bounce them back to the Pantry home, and
+  // render a polite blocker below for the brief moment between role
+  // detection and the redirect firing.
+  useEffect(() => {
+    if (!profile) return;
+    if (profile.role !== 'parent') router.replace('/pantry');
+  }, [profile, router]);
 
   const cap = family?.householdBudgets?.pantry ?? 0;
   const [editing, setEditing] = useState(false);
@@ -40,8 +51,24 @@ export default function BudgetPage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
+    if (profile.role !== 'parent') return; // don't subscribe for non-parents
     return subscribeToRecentRequests(profile.familyId, setRecent);
-  }, [profile?.familyId]);
+  }, [profile?.familyId, profile?.role]);
+
+  if (profile && profile.role !== 'parent') {
+    return (
+      <div className="mx-auto max-w-md w-full px-4 pt-16 text-center">
+        <div className="text-3xl mb-2">🔒</div>
+        <h2 className="font-nunito font-black text-lg">Budget is parent-only</h2>
+        <p className="text-hive-muted text-sm mt-2 mb-4">
+          Household budgets are visible to parents in the family. Ask a parent to share what's relevant.
+        </p>
+        <Link href="/pantry" className="text-pantry-leaf-dk font-nunito font-bold text-sm underline">
+          ← Back to Pantry
+        </Link>
+      </div>
+    );
+  }
 
   // Only count CLOSED requests in the current month — rejected requests
   // don't move money, and prior months belong to history.

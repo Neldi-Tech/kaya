@@ -24,6 +24,7 @@ export default function PantryHomePage() {
   const { profile, isGuest } = useAuth();
   const { family } = useFamily();
   const { staples, sokoSuppliers, utilities, currentList, loading } = usePantry();
+  const isParent = profile?.role === 'parent';
   const { config } = useHive();
   const currency = config.currency;
   const utilitiesMonthly = sumMonthlyUtilities(utilities);
@@ -140,14 +141,16 @@ export default function PantryHomePage() {
           <span className="font-nunito font-extrabold text-[15px] mt-1">Purchase</span>
           <span className="text-[11px] text-pantry-leaf-dk font-bold">Request → approve → reconcile</span>
         </Link>
-        <Link
-          href="/pantry/budget"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">💰</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
-          <span className="text-[11px] text-hive-muted">Pantry cap + spend</span>
-        </Link>
+        {isParent && (
+          <Link
+            href="/pantry/budget"
+            className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+          >
+            <span className="text-2xl leading-none">💰</span>
+            <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
+            <span className="text-[11px] text-hive-muted">Pantry cap + spend</span>
+          </Link>
+        )}
         <Link
           href="/pantry/people"
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"

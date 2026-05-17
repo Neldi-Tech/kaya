@@ -104,16 +104,18 @@ export default function PurchaseHomePage() {
         </p>
       </div>
 
-      {/* Approval mode — family setting. Parents see toggle inline;
-          helpers see a read-only chip so they understand the workflow. */}
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Approval mode</p>
-          <p className="font-nunito font-extrabold text-sm text-hive-navy mt-0.5">
-            {approvalMode === 'both' ? 'Both parents must approve' : 'Either parent approves'}
-          </p>
-        </div>
-        {role === 'parent' ? (
+      {/* Approval mode — family setting. PARENT-ONLY card; helpers
+          don't even see the policy exists. Lives here (not in
+          Settings) so parents can flip it in context while running
+          a shop. */}
+      {role === 'parent' && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Approval mode</p>
+            <p className="font-nunito font-extrabold text-sm text-hive-navy mt-0.5">
+              {approvalMode === 'both' ? 'Both parents must approve' : 'Either parent approves'}
+            </p>
+          </div>
           <div className="flex items-center gap-1 bg-hive-cream rounded-full p-0.5 border border-hive-line">
             <button
               type="button"
@@ -132,12 +134,8 @@ export default function PurchaseHomePage() {
               }`}
             >Both</button>
           </div>
-        ) : (
-          <span className="text-[10px] font-nunito font-extrabold uppercase tracking-[1px] bg-hive-cream border border-hive-line text-hive-muted px-2.5 py-1 rounded-full">
-            Family setting
-          </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Parent's actionable pile: pending approval */}
       {role === 'parent' && pending.length > 0 && (
