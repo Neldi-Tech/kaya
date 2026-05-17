@@ -1,0 +1,608 @@
+'use client';
+
+// /pantry/purchase/[id] — Status-aware request detail.
+//
+// One page, six states:
+//   draft            — editable basket, "Send for approval" CTA
+//   pending_approval — read-only basket. Parent sees Approve / Reject;
+//                       helper sees a waiting banner.
+//   approved         — read-only basket. Helper sees "Start reconcile";
+//                       parent sees "Approved, helper is on it."
+//   reconciling      — basket with per-line actual qty + actual price;
+//                       helper sees "Close & post to budget."
+//   closed           — read-only summary with variance chips.
+//   rejected         — read-only with rejection note.
+
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
+import { useHive } from '@/contexts/HiveContext';
+import { usePantry } from '@/contexts/PantryContext';
+import {
+  type PurchaseRequest, type PurchaseRequestItem,
+  subscribeToRequest, updateRequestItems, updateRequestMeta,
+  sendForApproval, approveRequest, rejectRequest,
+  startReconcile, closeReconcile, discardDraft,
+  sumEstimated, sumActual, variancePct, STATUS_LABEL,
+} from '@/lib/purchase';
+import { addStaple, type Staple } from '@/lib/pantry';
+import { formatCents } from '@/components/pantry/format';
+
+export default function PurchaseDetailPage() {
+  const params = useParams();
+  const router = useRouter();
+  const requestId = (params?.id as string) || '';
+  const { profile, isGuest } = useAuth();
+  const { family } = useFamily();
+  const { config } = useHive();
+  const { staples } = usePantry();
+  const currency = config.currency;
+  const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
+  const approvalMode: 'either' | 'both' = family?.approvalMode === 'both' ? 'both' : 'either';
+
+  const [req, setReq] = useState<PurchaseRequest | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [quickAdd, setQuickAdd] = useState<{ name: string; qty: string; cents: string } | null>(null);
+  const [rejectNote, setRejectNote] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!profile?.familyId || !requestId) { setLoading(false); return; }
+    const t = setTimeout(() => setLoading(false), 1500);
+    const unsub = subscribeToRequest(profile.familyId, requestId, (r) => {
+      setReq(r);
+      setLoading(false);
+    });
+    return () => { clearTimeout(t); unsub(); };
+  }, [profile?.familyId, requestId]);
+
+  if (loading) {
+    return <div className="mx-auto max-w-md w-full px-4 pt-16 text-center text-hive-muted text-sm">Loading…</div>;
+  }
+  if (!req) {
+    return (
+      <div className="mx-auto max-w-md w-full px-4 pt-16 text-center">
+        <p className="text-hive-muted text-sm">Request not found.</p>
+        <Link href="/pantry/purchase" className="text-pantry-leaf-dk font-bold text-sm underline">Back to Purchase</Link>
+      </div>
+    );
+  }
+
+  const isDraft = req.status === 'draft';
+  const isPending = req.status === 'pending_approval';
+  const isApproved = req.status === 'approved';
+  const isReconciling = req.status === 'reconciling';
+  const isClosed = req.status === 'closed';
+  const isRejected = req.status === 'rejected';
+  const editable = isDraft;
+  const reconcilable = isReconciling;
+
+  // ── Item mutations ───────────────────────────────────────────
+
+  const patchItems = async (next: PurchaseRequestItem[]) => {
+    if (!profile?.familyId) return;
+    setBusy(true);
+    try {
+      await updateRequestItems(profile.familyId, req.id, next, reconcilable ? 'actual' : 'estimated');
+    } finally { setBusy(false); }
+  };
+
+  const addStapleToBasket = async (s: Staple) => {
+    if (req.items.some((i) => i.stapleId === s.id)) return; // already in basket
+    const next: PurchaseRequestItem[] = [
+      ...req.items,
+      {
+        id: cryptoRandomId(),
+        stapleId: s.id,
+        name: s.name,
+        category: s.category,
+        qty: s.defaultQty || 1,
+        unit: s.unit,
+        estimatedCents: s.lastBoughtCents,
+      },
+    ];
+    await patchItems(next);
+  };
+
+  const setItemQty = (id: string, qty: number) => {
+    const next = req.items.map((i) => i.id === id ? { ...i, qty: Math.max(1, qty) } : i);
+    patchItems(next);
+  };
+  const setItemActual = (id: string, patch: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => {
+    const next = req.items.map((i) => i.id === id ? { ...i, ...patch } : i);
+    patchItems(next);
+  };
+  const removeItem = (id: string) => {
+    patchItems(req.items.filter((i) => i.id !== id));
+  };
+
+  const commitQuickAdd = async () => {
+    if (!quickAdd || !profile?.familyId) return;
+    const name = quickAdd.name.trim();
+    if (!name) { setQuickAdd(null); return; }
+    const qty = Math.max(1, parseInt(quickAdd.qty || '1', 10));
+    const cents = quickAdd.cents ? Math.round(parseFloat(quickAdd.cents) * 100) : undefined;
+    setBusy(true);
+    try {
+      // Create a pending_promote Staple so this item exists in the
+      // catalogue for next time — but greyed until a parent promotes it.
+      const stapleId = await addStaple(profile.familyId, {
+        name,
+        category: 'other',
+        defaultQty: qty,
+        unit: 'x',
+        cadence: 'as-needed',
+        lastBoughtCents: cents,
+        active: true,
+        status: 'pending_promote',
+      } as any);
+      const next: PurchaseRequestItem[] = [
+        ...req.items,
+        {
+          id: cryptoRandomId(),
+          stapleId,
+          name,
+          qty,
+          unit: 'x',
+          estimatedCents: cents,
+          pendingPromote: true,
+        },
+      ];
+      await patchItems(next);
+      setQuickAdd(null);
+    } finally { setBusy(false); }
+  };
+
+  // ── State transitions ────────────────────────────────────────
+
+  const send = async () => {
+    if (!profile?.familyId || req.items.length === 0) return;
+    setBusy(true);
+    try { await sendForApproval(profile.familyId, req.id); } finally { setBusy(false); }
+  };
+  const approve = async () => {
+    if (!profile?.familyId || !profile.uid) return;
+    setBusy(true);
+    try { await approveRequest(profile.familyId, req.id, profile.uid, approvalMode); } finally { setBusy(false); }
+  };
+  const reject = async () => {
+    if (!profile?.familyId || !profile.uid) return;
+    setBusy(true);
+    try {
+      await rejectRequest(profile.familyId, req.id, profile.uid, rejectNote ?? '');
+      setRejectNote(null);
+    } finally { setBusy(false); }
+  };
+  const startRec = async () => {
+    if (!profile?.familyId) return;
+    setBusy(true);
+    // Seed actualQty + actualCents from estimates so the helper can
+    // just confirm the lines that matched.
+    const seeded = req.items.map((i) => ({
+      ...i,
+      actualQty: i.actualQty ?? i.qty,
+      actualCents: i.actualCents ?? i.estimatedCents,
+    }));
+    try {
+      await updateRequestItems(profile.familyId, req.id, seeded, 'actual');
+      await startReconcile(profile.familyId, req.id);
+    } finally { setBusy(false); }
+  };
+  const close = async () => {
+    if (!profile?.familyId) return;
+    setBusy(true);
+    try { await closeReconcile(profile.familyId, req.id, req.items); router.push('/pantry/purchase'); }
+    finally { setBusy(false); }
+  };
+  const discard = async () => {
+    if (!profile?.familyId) return;
+    setBusy(true);
+    try { await discardDraft(profile.familyId, req.id); router.push('/pantry/purchase'); }
+    finally { setBusy(false); }
+  };
+
+  // Staples available to pick — exclude ones already in basket.
+  const inBasket = new Set(req.items.map((i) => i.stapleId).filter(Boolean) as string[]);
+  const pickable = useMemo(
+    () => staples.filter((s) => !inBasket.has(s.id) && s.status !== 'pending_promote'),
+    [staples, inBasket],
+  );
+
+  const total = reconcilable || isClosed
+    ? sumActual(req.items)
+    : sumEstimated(req.items);
+  const vPct = isClosed ? variancePct(req) : 0;
+
+  return (
+    <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-3">
+        <Link href="/pantry/purchase" className="text-hive-muted text-sm no-underline">‹ Purchase</Link>
+        <StatusChip status={req.status} />
+      </div>
+      <div className="mb-4">
+        {editable ? (
+          <input
+            value={req.name}
+            onChange={(e) => updateRequestMeta(profile!.familyId!, req.id, { name: e.target.value })}
+            className="bg-transparent font-nunito font-black text-2xl tracking-tight w-full focus:outline-none"
+          />
+        ) : (
+          <h1 className="font-nunito font-black text-2xl tracking-tight">{req.name}</h1>
+        )}
+        <p className="text-hive-muted text-xs mt-1 font-bold">
+          {req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}
+        </p>
+      </div>
+
+      {/* Banners per status */}
+      {isPending && role === 'helper' && (
+        <Banner
+          tone="amber"
+          title={
+            approvalMode === 'both' && (req.approvedBy?.length ?? 0) === 1
+              ? '1 of 2 parents approved'
+              : approvalMode === 'both'
+                ? 'Awaiting both parents'
+                : 'Awaiting parent approval'
+          }
+          body={
+            approvalMode === 'both'
+              ? "This family requires both parents to approve. You'll be pinged the moment the second one signs off."
+              : "You'll get a ping the moment a parent approves or rejects."
+          }
+        />
+      )}
+      {isPending && role === 'parent' && approvalMode === 'both' && (
+        <Banner
+          tone="amber"
+          title={`${req.approvedBy?.length ?? 0} of 2 parents approved`}
+          body={
+            (req.approvedBy?.length ?? 0) >= 1 && req.approvedBy?.includes(profile?.uid || '')
+              ? 'You already approved. Waiting for the other parent to sign off before the helper can shop.'
+              : 'Your family requires both parents to approve before the helper can shop.'
+          }
+        />
+      )}
+      {isApproved && role === 'parent' && (
+        <Banner tone="leaf" title="Approved · helper can shop now"
+          body="The helper will reconcile after the shop. You'll see actuals here." />
+      )}
+      {isRejected && (
+        <Banner tone="rose" title="Rejected"
+          body={req.rejectionNote || 'No reason given.'} />
+      )}
+
+      {/* Item list */}
+      <div className="flex flex-col gap-2">
+        {req.items.length === 0 && (
+          <div className="text-center text-hive-muted text-sm py-6 border border-dashed border-hive-line rounded-hive">
+            Basket is empty.
+          </div>
+        )}
+        {req.items.map((it) => (
+          <ItemRow
+            key={it.id}
+            item={it}
+            currency={currency}
+            editable={editable}
+            reconcilable={reconcilable}
+            onQty={(q) => setItemQty(it.id, q)}
+            onActual={(p) => setItemActual(it.id, p)}
+            onRemove={() => removeItem(it.id)}
+            varianceOnClose={isClosed}
+          />
+        ))}
+      </div>
+
+      {/* Add-from-Pantry + Quick-add (drafts only) */}
+      {editable && (
+        <div className="mt-3">
+          <button
+            type="button"
+            onClick={() => setShowPicker((v) => !v)}
+            className="w-full bg-hive-paper border border-hive-line rounded-hive py-2.5 font-nunito font-bold text-sm text-pantry-leaf-dk"
+          >
+            {showPicker ? '× Close picker' : '＋ Add from Pantry'}
+          </button>
+          {showPicker && (
+            <div className="mt-2 bg-hive-paper border border-hive-line rounded-hive p-2 max-h-72 overflow-y-auto">
+              {pickable.length === 0 && (
+                <p className="text-hive-muted text-xs text-center py-6">No more staples to add. Quick-add a new one below.</p>
+              )}
+              {pickable.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => addStapleToBasket(s)}
+                  className="w-full flex items-center gap-3 py-2 px-2 hover:bg-hive-cream rounded-lg text-left"
+                >
+                  <div className="w-8 h-8 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-sm">🧺</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-nunito font-extrabold text-sm truncate">{s.name}</div>
+                    <div className="text-[11px] text-hive-muted">
+                      {s.defaultQty} {s.unit}
+                      {s.lastBoughtCents != null && ` · ${formatCents(s.lastBoughtCents, currency)} ea`}
+                    </div>
+                  </div>
+                  <span className="text-pantry-leaf-dk font-nunito font-black">＋</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Quick-add */}
+          {quickAdd === null ? (
+            <button
+              type="button"
+              onClick={() => setQuickAdd({ name: '', qty: '1', cents: '' })}
+              className="w-full mt-2 bg-hive-paper border border-dashed border-hive-line rounded-hive py-2.5 font-nunito font-bold text-sm text-pantry-leaf-dk"
+            >
+              ＋ Quick-add a new item
+            </button>
+          ) : (
+            <div className="mt-2 bg-hive-paper border border-hive-line rounded-hive p-3">
+              <p className="text-[11px] font-bold text-hive-muted uppercase tracking-[1.5px] mb-2">
+                Greyed until a parent promotes it
+              </p>
+              <input
+                autoFocus
+                value={quickAdd.name}
+                onChange={(e) => setQuickAdd({ ...quickAdd, name: e.target.value })}
+                placeholder="Item name (e.g. Fresh tilapia)"
+                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mb-2"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="number" min={1} value={quickAdd.qty}
+                  onChange={(e) => setQuickAdd({ ...quickAdd, qty: e.target.value })}
+                  placeholder="Qty"
+                  className="border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold"
+                />
+                <input
+                  type="number" step="0.01" min={0} value={quickAdd.cents}
+                  onChange={(e) => setQuickAdd({ ...quickAdd, cents: e.target.value })}
+                  placeholder="Est. price"
+                  className="border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button onClick={() => setQuickAdd(null)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
+                <button onClick={commitQuickAdd} disabled={busy} className="bg-pantry-leaf text-white rounded-lg py-2 font-nunito font-black text-sm">Add</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Total card */}
+      {req.items.length > 0 && (
+        <div className={`mt-4 rounded-hive p-4 flex items-center justify-between ${
+          isClosed ? 'bg-pantry-leaf-soft border border-pantry-leaf' : 'bg-pantry-leaf-soft border border-pantry-leaf'
+        }`}>
+          <div>
+            <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+              {reconcilable || isClosed ? 'Actual total' : 'Estimated total'}
+            </div>
+            {isClosed && req.estimatedTotalCents > 0 && (
+              <div className="text-[11px] text-hive-muted font-bold mt-1">
+                est. {formatCents(req.estimatedTotalCents, currency)}
+              </div>
+            )}
+          </div>
+          <div className="text-right">
+            <div className="font-nunito font-black text-2xl text-hive-ink">{formatCents(total, currency)}</div>
+            {isClosed && (
+              <span className={`inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded mt-1 ${
+                vPct > 0 ? 'bg-[#FCEAEA] text-hive-rose' : 'bg-[#E6F7EE] text-hive-green'
+              }`}>
+                {vPct > 0 ? '+' : ''}{Math.round(vPct * 100)}%
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons per status */}
+      <div className="mt-4 flex flex-col gap-2">
+        {isDraft && (
+          <>
+            <button
+              type="button"
+              onClick={send}
+              disabled={busy || req.items.length === 0 || isGuest}
+              className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+            >
+              Send for approval →
+            </button>
+            <button
+              type="button"
+              onClick={discard}
+              disabled={busy}
+              className="text-hive-rose font-nunito font-bold text-xs py-2"
+            >
+              Discard draft
+            </button>
+          </>
+        )}
+        {isPending && role === 'parent' && rejectNote === null && (
+          <>
+            {req.approvedBy?.includes(profile?.uid || '') ? (
+              <button
+                disabled
+                className="bg-pantry-leaf-soft text-pantry-leaf-dk border border-pantry-leaf-soft rounded-hive py-3.5 font-nunito font-black text-sm cursor-default"
+              >
+                ✓ You approved · waiting for second parent
+              </button>
+            ) : (
+              <button
+                onClick={approve}
+                disabled={busy}
+                className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm"
+              >
+                {approvalMode === 'both' && (req.approvedBy?.length ?? 0) === 1
+                  ? 'Add my approval (finalises)'
+                  : approvalMode === 'both'
+                    ? 'Approve · 1 of 2'
+                    : 'Approve ✓'}
+              </button>
+            )}
+            <button onClick={() => setRejectNote('')} disabled={busy} className="text-hive-rose font-nunito font-bold text-xs py-2">Reject with note</button>
+          </>
+        )}
+        {isPending && role === 'parent' && rejectNote !== null && (
+          <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+            <textarea
+              autoFocus
+              value={rejectNote}
+              onChange={(e) => setRejectNote(e.target.value)}
+              placeholder="Why are you rejecting? (helps the helper try again)"
+              className="w-full border border-hive-line rounded-lg p-2 text-sm font-nunito font-bold mb-2"
+              rows={3}
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setRejectNote(null)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
+              <button onClick={reject} disabled={busy} className="bg-hive-rose text-white rounded-lg py-2 font-nunito font-black text-sm">Reject</button>
+            </div>
+          </div>
+        )}
+        {isApproved && role === 'helper' && (
+          <button onClick={startRec} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
+            Start reconcile →
+          </button>
+        )}
+        {isApproved && role === 'parent' && (
+          <button onClick={startRec} disabled={busy} className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm">
+            Start reconcile (on helper's behalf)
+          </button>
+        )}
+        {isReconciling && (
+          <button onClick={close} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
+            Close · post to budget →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Bits ──────────────────────────────────────────────────────
+
+function StatusChip({ status }: { status: PurchaseRequest['status'] }) {
+  const cls =
+    status === 'draft' ? 'bg-hive-cream text-hive-muted border-hive-line'
+    : status === 'pending_approval' ? 'bg-[#FFF3D9] text-hive-honey-dk border-hive-honey'
+    : status === 'approved' || status === 'reconciling' ? 'bg-pantry-leaf-soft text-pantry-leaf-dk border-pantry-leaf'
+    : status === 'closed' ? 'bg-pantry-leaf-soft text-pantry-leaf-dk border-pantry-leaf'
+    : 'bg-[#FCEAEA] text-hive-rose border-[#E8B5B5]';
+  return (
+    <span className={`text-[10px] font-extrabold uppercase tracking-[1.5px] px-2.5 py-1 rounded-full border ${cls}`}>
+      {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+function Banner({ tone, title, body }: { tone: 'amber' | 'leaf' | 'rose'; title: string; body: string }) {
+  const cls =
+    tone === 'amber' ? 'bg-[#FFF3D9] border-hive-honey'
+    : tone === 'leaf' ? 'bg-pantry-leaf-soft border-pantry-leaf'
+    : 'bg-[#FCEAEA] border-[#E8B5B5]';
+  return (
+    <div className={`rounded-hive border p-3 mb-3 ${cls}`}>
+      <div className="font-nunito font-black text-sm text-hive-ink">{title}</div>
+      <div className="text-xs text-hive-ink/80 mt-1">{body}</div>
+    </div>
+  );
+}
+
+function ItemRow({
+  item, currency, editable, reconcilable, onQty, onActual, onRemove, varianceOnClose,
+}: {
+  item: PurchaseRequestItem;
+  currency: string;
+  editable: boolean;
+  reconcilable: boolean;
+  onQty: (q: number) => void;
+  onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
+  onRemove: () => void;
+  varianceOnClose: boolean;
+}) {
+  const est = (item.estimatedCents ?? 0) * item.qty;
+  const act = (item.actualCents ?? 0) * (item.actualQty ?? 0);
+  const vDelta = est > 0 ? Math.round(((act - est) / est) * 100) : 0;
+  const pending = !!item.pendingPromote;
+  return (
+    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 ${pending ? 'opacity-70 bg-[repeating-linear-gradient(135deg,white,white_6px,#FFF8EC_6px,#FFF8EC_12px)]' : ''}`}>
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-sm flex-shrink-0">🛒</div>
+        <div className="flex-1 min-w-0">
+          <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
+            <span className="truncate">{item.name}</span>
+            {pending && (
+              <span className="text-[9px] bg-[#FFF3D9] border border-hive-honey text-hive-honey-dk px-1.5 py-0.5 rounded font-extrabold uppercase tracking-[1px]">
+                Pending
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-hive-muted font-bold">
+            {item.qty} {item.unit}
+            {item.estimatedCents != null && ` · est. ${formatCents(item.estimatedCents, currency)} ea`}
+          </div>
+        </div>
+        {editable ? (
+          <>
+            <div className="flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-1 py-1">
+              <button onClick={() => onQty(item.qty - 1)} className="w-6 h-6 bg-hive-paper rounded font-nunito font-black text-pantry-leaf-dk">−</button>
+              <span className="font-nunito font-black text-sm w-5 text-center">{item.qty}</span>
+              <button onClick={() => onQty(item.qty + 1)} className="w-6 h-6 bg-hive-paper rounded font-nunito font-black text-pantry-leaf-dk">+</button>
+            </div>
+            <button onClick={onRemove} className="text-hive-rose font-nunito font-black px-1">×</button>
+          </>
+        ) : (
+          <div className="text-right">
+            <div className="font-nunito font-black text-sm">
+              {formatCents(reconcilable || (varianceOnClose && item.actualCents != null) ? act : est, currency)}
+            </div>
+            {varianceOnClose && item.actualCents != null && (
+              <span className={`text-[10px] font-extrabold px-1 py-0.5 rounded ${vDelta > 0 ? 'bg-[#FCEAEA] text-hive-rose' : 'bg-[#E6F7EE] text-hive-green'}`}>
+                {vDelta > 0 ? '+' : ''}{vDelta}%
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Reconcile mode: actual qty + actual price */}
+      {reconcilable && (
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Actual qty</span>
+            <input
+              type="number" min={0}
+              value={item.actualQty ?? ''}
+              onChange={(e) => onActual({ actualQty: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Actual price ea</span>
+            <input
+              type="number" step="0.01" min={0}
+              value={item.actualCents != null ? (item.actualCents / 100).toString() : ''}
+              onChange={(e) => onActual({ actualCents: e.target.value === '' ? 0 : Math.round(parseFloat(e.target.value) * 100) })}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function cryptoRandomId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID();
+  return Math.random().toString(36).slice(2, 10);
+}

@@ -247,6 +247,9 @@ export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
     case 'driver':
       // Pickup/dropoff context + Directory contacts only.
       return ['household:directory', 'profiles'];
+    case 'gardener':
+      // Outdoor + grounds — household coverage but typically no kid scope.
+      return ['household:staples', 'household:suppliers', 'household:utilities'];
     case 'grandparent':
       // View-only across the kid-facing surfaces.
       return [

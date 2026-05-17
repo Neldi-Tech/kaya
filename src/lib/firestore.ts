@@ -188,6 +188,27 @@ export interface Family {
   // for already-signed-in helpers — they get bounced on their next
   // page load.
   helperSessionDays?: number;
+  // ── Approval mode (Household requests) ───────────────────────
+  // Controls how many parents must approve a Household purchase /
+  // utility / payroll request before it transitions to `approved`.
+  //   'either' — any one parent (default; fastest path)
+  //   'both'   — at least two distinct parent UIDs in `approvedBy`
+  // Set in the Purchase home settings card. Applies to every request
+  // flow under Household. Single-parent families can pick 'both' too,
+  // but it'll behave like 'either' until a second parent joins.
+  approvalMode?: 'either' | 'both';
+  // ── Household budgets ────────────────────────────────────────
+  // Per-module monthly caps (in cents, family display currency) that
+  // roll up into the Household Finances view. v1 of the Household
+  // Purchase build only writes `pantry`; the other modules slot in
+  // here as they ship (External / Utility / Payroll) without a
+  // schema change. Parent-only writes (gated by the family-doc rule).
+  householdBudgets?: {
+    pantry?: number;
+    external?: number;
+    utility?: number;
+    payroll?: number;
+  };
   // ── Meeting setup ────────────────────────────────────────────
   // Parent-controlled configuration the presenter reads on meeting
   // night. Optional — absent = sensible defaults (every step in the
@@ -249,7 +270,7 @@ export interface HelperLink {
   uid: string;
   helperCode: string;                                        // short handle within the family, e.g. "JANE"
   displayName: string;
-  preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'custom';
+  preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'gardener' | 'custom';
   kidIds: string[];                                          // which kids this helper can act on; [] = none
   // ── Module access (legacy) ───────────────────────────────────
   // Single-tier list of kid-module ids this helper has full access

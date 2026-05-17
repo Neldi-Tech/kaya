@@ -126,6 +126,16 @@ export interface Staple {
   cadence: Cadence;
   /** Last bought price in cents of the family's display currency. */
   lastBoughtCents?: number;
+  /** Timestamp of the last reconciled Purchase that included this staple.
+   *  Powers the Pantry "Last bought Nd ago" stamp + the Wink chip
+   *  ((now − lastBoughtAt) > cadenceDays(cadence)). */
+  lastBoughtAt?: Timestamp;
+  /** Catalogue lifecycle:
+   *    active           — normal, reusable item (default for existing rows)
+   *    pending_promote  — quick-added by a helper at the shop; greyed
+   *                       everywhere until a parent promotes it in
+   *                       Settings → Catalogue. */
+  status?: 'active' | 'pending_promote';
   /** Optional supplier this staple usually comes from — drives the
    *  "group by supplier" UX on the active list. */
   preferredSupplierId?: string;
