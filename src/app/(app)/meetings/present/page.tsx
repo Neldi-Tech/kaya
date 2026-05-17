@@ -32,6 +32,9 @@ import {
 } from '@/lib/firestore';
 
 // ── Agenda definition ──────────────────────────────────────────────
+// Canonical step catalog — the presenter renders the subset that the
+// parent enabled in /settings/meetings (via `family.meetingSetup
+// .agendaSteps`). When no setup exists, every step is on.
 const STEPS = [
   { id: 'attendance',    title: 'Attendance',         emoji: '👋', sub: 'Who is here tonight, and is anyone presenting?' },
   { id: 'gratitude',     title: 'Gratitude Circle',   emoji: '🙏', sub: 'What is each of us thankful for today?' },
@@ -41,7 +44,8 @@ const STEPS = [
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
 ] as const;
 
-type StepId = typeof STEPS[number]['id'];
+type StepDef = typeof STEPS[number];
+type StepId = StepDef['id'];
 
 // How many of the most-recent meetings to surface in the Goals Review
 // step. Older goals beyond this fall off the agenda — they're still
@@ -54,9 +58,44 @@ export default function MeetingPresenterPage() {
   const { family, children } = useFamily();
 
   // ── Stepper state ────────────────────────────────────────────────
+  // Active steps respect the parent's `meetingSetup.agendaSteps` if set,
+  // otherwise default to the full STEPS catalog. We preserve the order
+  // the parent saved (which is the canonical order today but lets a
+  // future drag-to-reorder land without code changes here).
+  const activeSteps: StepDef[] = useMemo(() => {
+    const enabled = family?.meetingSetup?.agendaSteps;
+    if (!enabled || enabled.length === 0) return [...STEPS];
+    const allowed = new Set(enabled);
+    // Keep canonical order — STEPS is the canonical order.
+    return STEPS.filter((s) => allowed.has(s.id));
+  }, [family?.meetingSetup?.agendaSteps]);
+
   const [stepIdx, setStepIdx] = useState(0);
-  const step = STEPS[stepIdx];
-  const isLastStep = stepIdx === STEPS.length - 1;
+  // Clamp stepIdx if a setup change shrinks the agenda mid-render.
+  const safeStepIdx = Math.min(stepIdx, Math.max(0, activeSteps.length - 1));
+  const step = activeSteps[safeStepIdx];
+  const isLastStep = safeStepIdx === activeSteps.length - 1;
+
+  // Closing reflection modes enabled by the parent (defaults to all).
+  const enabledClosingModes: ReflectionMode[] = useMemo(() => {
+    const set = family?.meetingSetup?.closingModesEnabled;
+    if (!set || set.length === 0) return ['story', 'songs', 'prayer'];
+    return set;
+  }, [family?.meetingSetup?.closingModesEnabled]);
+
+  // Prayer library + a "preloaded" random pick — chosen once per
+  // presenter session so opening Prayer doesn't reshuffle the textarea
+  // every render. Parent can still edit or replace it on the night.
+  const prayerLibrary = family?.meetingSetup?.prayers || [];
+  const preloadedPrayer = useMemo(() => {
+    if (prayerLibrary.length === 0) return '';
+    const pick = prayerLibrary[Math.floor(Math.random() * prayerLibrary.length)];
+    return pick.body || '';
+    // Intentionally not depending on prayerLibrary identity — we want
+    // one pick per mount, not per render. The empty-deps form is the
+    // standard "compute once" pattern for that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Captured per step ────────────────────────────────────────────
   // Attendance — initialized to "everyone present" when the kid list
@@ -212,20 +251,20 @@ export default function MeetingPresenterPage() {
       {/* Step progress rail */}
       <div className="px-6 lg:px-12 pb-3 shrink-0">
         <div className="flex gap-1.5">
-          {STEPS.map((s, i) => (
+          {activeSteps.map((s, i) => (
             <button
               type="button"
               key={s.id}
               onClick={() => setStepIdx(i)}
               aria-label={`Jump to ${s.title}`}
               className={`flex-1 h-1.5 rounded-full transition-colors ${
-                i < stepIdx ? 'bg-kaya-gold' : i === stepIdx ? 'bg-kaya-gold-light' : 'bg-white/15'
+                i < safeStepIdx ? 'bg-kaya-gold' : i === safeStepIdx ? 'bg-kaya-gold-light' : 'bg-white/15'
               }`}
             />
           ))}
         </div>
         <div className="flex justify-between mt-2 text-[10px] uppercase tracking-[0.16em] font-bold text-white/50">
-          <span>Step {stepIdx + 1} of {STEPS.length}</span>
+          <span>Step {safeStepIdx + 1} of {activeSteps.length}</span>
           <span>{step.title}</span>
         </div>
       </div>
@@ -304,8 +343,20 @@ export default function MeetingPresenterPage() {
 
               {step.id === 'reflection' && (
                 <ReflectionStep
+                  enabledModes={enabledClosingModes}
                   modes={reflectionModes}
-                  onModesChange={setReflectionModes}
+                  onModesChange={(next) => {
+                    setReflectionModes(next);
+                    // If parent just picked Prayer for the first time AND
+                    // the textarea is empty AND a library prayer is
+                    // available, preload it. Parent can still edit or
+                    // clear; we only auto-fill on the *transition*.
+                    if (next.includes('prayer') && !reflectionModes.includes('prayer')
+                        && !(reflectionContents.prayer || '').trim()
+                        && preloadedPrayer) {
+                      setReflectionContents({ ...reflectionContents, prayer: preloadedPrayer });
+                    }
+                  }}
                   contents={reflectionContents}
                   onContentChange={(m, v) =>
                     setReflectionContents({ ...reflectionContents, [m]: v })
@@ -315,6 +366,7 @@ export default function MeetingPresenterPage() {
                     // doesn't reflow if the textarea changes mid-fall.
                     setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
                   }}
+                  prayerLibraryCount={prayerLibrary.length}
                 />
               )}
             </>
@@ -328,8 +380,8 @@ export default function MeetingPresenterPage() {
           <div className="max-w-3xl mx-auto flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setStepIdx(Math.max(0, stepIdx - 1))}
-              disabled={stepIdx === 0}
+              onClick={() => setStepIdx(Math.max(0, safeStepIdx - 1))}
+              disabled={safeStepIdx === 0}
               className="h-12 lg:h-14 px-5 lg:px-7 rounded-kaya bg-white/10 hover:bg-white/20 text-white font-display font-extrabold text-sm lg:text-base transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             >
               ← Back
@@ -338,7 +390,7 @@ export default function MeetingPresenterPage() {
             {!isLastStep ? (
               <button
                 type="button"
-                onClick={() => setStepIdx(stepIdx + 1)}
+                onClick={() => setStepIdx(safeStepIdx + 1)}
                 className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors"
               >
                 Next →
@@ -707,23 +759,33 @@ function GoalsStep({
 // Prayer keeps its "Say & celebrate" button which triggers the full-
 // screen typeset stage + flowers cascade.
 function ReflectionStep({
+  enabledModes,
   modes,
   onModesChange,
   contents,
   onContentChange,
   onCelebratePrayer,
+  prayerLibraryCount,
 }: {
+  /** Which of the 3 closings the parent enabled in /settings/meetings.
+   *  Disabled modes are filtered out of the chooser entirely. */
+  enabledModes: ReflectionMode[];
   modes: ReflectionMode[];
   onModesChange: (next: ReflectionMode[]) => void;
   contents: Partial<Record<ReflectionMode, string>>;
   onContentChange: (mode: ReflectionMode, value: string) => void;
   onCelebratePrayer: () => void;
+  /** How many prayers live in the family's library — drives the
+   *  "Library preloaded" hint on the Prayer input. */
+  prayerLibraryCount: number;
 }) {
-  const choices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
+  const allChoices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
     { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story or a link to read together.' },
     { id: 'songs',  emoji: '🎵', title: 'Songs',            sub: 'Gospel, family favorites, anything that lifts the room.' },
     { id: 'prayer', emoji: '🙏', title: 'Family Prayer',    sub: 'A short prayer to close the night.' },
   ];
+  // Respect the parent's setup — drop closings they turned off.
+  const choices = allChoices.filter((c) => enabledModes.includes(c.id));
 
   const isPicked = (id: ReflectionMode) => modes.includes(id);
   const toggle = (id: ReflectionMode) => {
@@ -787,11 +849,16 @@ function ReflectionStep({
             const isLink = (c.id === 'story' || c.id === 'songs') && content.trim().startsWith('http');
             return (
               <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-5 lg:p-6">
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center gap-3 mb-3 flex-wrap">
                   <span className="text-2xl lg:text-3xl">{c.emoji}</span>
                   <h4 className="font-display font-black text-lg lg:text-xl text-kaya-gold-light">
                     {c.title}
                   </h4>
+                  {isPrayer && prayerLibraryCount > 0 && (
+                    <span className="text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-kaya-gold/20 text-kaya-gold-light">
+                      Library · {prayerLibraryCount} saved
+                    </span>
+                  )}
                   {isPrayer && (
                     <span className="ml-auto text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
                       AI assist · Soon
