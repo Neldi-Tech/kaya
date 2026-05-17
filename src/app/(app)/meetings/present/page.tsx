@@ -60,7 +60,11 @@ export default function MeetingPresenterPage() {
   const [lastWeekGoalsDone, setLastWeekGoalsDone] = useState<Record<string, boolean>>({});
   const [reflectionMode, setReflectionMode] = useState<ReflectionMode | null>(null);
   const [reflectionContent, setReflectionContent] = useState('');
-  const [celebrating, setCelebrating] = useState(false); // flowers-drop animation
+  // null = idle; non-null = show the full-screen prayer stage with the
+  // text typeset large + flowers cascading on top. Captured at click
+  // time so editing the textarea afterwards doesn't change the on-
+  // screen prayer mid-celebration.
+  const [prayerOnStage, setPrayerOnStage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
@@ -213,7 +217,11 @@ export default function MeetingPresenterPage() {
                   onModeChange={setReflectionMode}
                   content={reflectionContent}
                   onContentChange={setReflectionContent}
-                  onCelebrate={() => setCelebrating(true)}
+                  onCelebrate={() => {
+                    // Snapshot the prayer text so on-stage typography
+                    // doesn't reflow if the textarea changes mid-fall.
+                    setPrayerOnStage((reflectionContent || '').trim() || ' ');
+                  }}
                 />
               )}
             </>
@@ -256,8 +264,16 @@ export default function MeetingPresenterPage() {
         </footer>
       )}
 
-      {/* Flowers-drop celebration overlay (triggered by Prayer "Say & celebrate") */}
-      {celebrating && <FlowersDrop onDone={() => setCelebrating(false)} />}
+      {/* Prayer stage — full-screen typography of the prayer text with
+          the flowers-drop overlay on top. Triggered by the Prayer
+          "Say & celebrate" button. */}
+      {prayerOnStage !== null && (
+        <PrayerStage
+          prayer={prayerOnStage}
+          familyName={family?.name || 'our family'}
+          onClose={() => setPrayerOnStage(null)}
+        />
+      )}
     </div>
   );
 }
@@ -555,6 +571,105 @@ function FinishedSplash({ onClose }: { onClose: () => void }) {
       >
         Back to Meetings →
       </button>
+    </div>
+  );
+}
+
+// ── Prayer stage ───────────────────────────────────────────────────
+// Full-screen typography of the prayer text + flowers cascading on top.
+// The textarea gives us plain text with newlines; we render it as
+// clean HTML by splitting on blank lines into paragraphs and
+// preserving single-line breaks inside each paragraph (whitespace-
+// pre-line). One gold ornament tops the stage, one closes it. Auto-
+// closes after ~9s; "Amen" button lets a parent end early.
+function PrayerStage({
+  prayer,
+  familyName,
+  onClose,
+}: {
+  prayer: string;
+  familyName: string;
+  onClose: () => void;
+}) {
+  // Auto-close so the meeting can move on without manual dismissal.
+  useEffect(() => {
+    const t = setTimeout(onClose, 9000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  // Split into stanzas (blank-line separated). Falls back to the raw
+  // text in a single paragraph if no blank lines are present.
+  const stanzas = useMemo(() => {
+    const trimmed = prayer.trim();
+    if (!trimmed) return ['Amen.'];
+    const blocks = trimmed.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+    return blocks.length > 0 ? blocks : [trimmed];
+  }, [prayer]);
+
+  return (
+    <div className="fixed inset-0 z-[55] flex flex-col bg-gradient-to-br from-kaya-chocolate via-[#2a1810] to-kaya-chocolate text-white">
+      {/* Inline keyframes — kept global (not styled-jsx) so transform
+          animations on child elements resolve correctly. */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes kaya-prayer-fade-in {
+              0%   { opacity: 0; transform: translateY(8px); }
+              100% { opacity: 1; transform: translateY(0); }
+            }
+            .kaya-prayer-fade { animation: kaya-prayer-fade-in 900ms ease-out both; }
+            .kaya-prayer-fade-1 { animation-delay: 200ms; }
+            .kaya-prayer-fade-2 { animation-delay: 600ms; }
+            .kaya-prayer-fade-3 { animation-delay: 1000ms; }
+          `,
+        }}
+      />
+
+      {/* Close affordance */}
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="End prayer"
+        className="absolute top-5 right-5 lg:top-7 lg:right-7 z-[57] h-9 lg:h-10 px-4 lg:px-5 rounded-full bg-white/10 hover:bg-white/20 text-white text-[12px] lg:text-[13px] font-display font-extrabold transition-colors"
+      >
+        Amen ✕
+      </button>
+
+      {/* Centered prayer text */}
+      <main className="relative z-[56] flex-1 flex flex-col items-center justify-center px-6 lg:px-16 py-10 overflow-y-auto">
+        <div className="max-w-3xl w-full text-center">
+          {/* Ornament + heading */}
+          <div className="text-kaya-gold-light text-2xl lg:text-3xl mb-3 kaya-prayer-fade" aria-hidden>✦</div>
+          <p className="text-[11px] lg:text-[12px] uppercase tracking-[0.28em] font-bold text-kaya-gold-light/70 mb-8 lg:mb-10 kaya-prayer-fade">
+            A prayer from {familyName}
+          </p>
+
+          {/* Stanzas — each stanza its own paragraph with whitespace-pre-line
+              so single-line breaks inside the stanza are honored. */}
+          <div className="space-y-6 lg:space-y-8">
+            {stanzas.map((s, i) => (
+              <p
+                key={i}
+                className={`text-white/95 font-display font-semibold leading-[1.45] tracking-tight whitespace-pre-line kaya-prayer-fade ${
+                  i === 0 ? 'kaya-prayer-fade-1' :
+                  i === 1 ? 'kaya-prayer-fade-2' :
+                            'kaya-prayer-fade-3'
+                } ${
+                  stanzas.length === 1 ? 'text-2xl lg:text-4xl' : 'text-xl lg:text-3xl'
+                }`}
+              >
+                {s}
+              </p>
+            ))}
+          </div>
+
+          {/* Closing ornament */}
+          <div className="text-kaya-gold-light text-2xl lg:text-3xl mt-10 lg:mt-14 kaya-prayer-fade kaya-prayer-fade-3" aria-hidden>✦</div>
+        </div>
+      </main>
+
+      {/* Flowers cascade on top — sits at z-[60] so it's above the prayer text. */}
+      <FlowersDrop onDone={() => { /* keep stage open until auto-close or Amen */ }} />
     </div>
   );
 }
