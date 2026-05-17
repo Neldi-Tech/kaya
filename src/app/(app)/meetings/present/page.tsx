@@ -44,8 +44,11 @@ const STEPS = [
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
 ] as const;
 
-type StepDef = typeof STEPS[number];
-type StepId = StepDef['id'];
+// Structural type — looser than `typeof STEPS[number]` (which keeps
+// each entry's literal union shape) so we can build new step objects
+// from the catalog with a parent-customised title without a cast.
+type StepDef = { id: string; title: string; emoji: string; sub: string };
+type StepId = typeof STEPS[number]['id'];
 
 // How many of the most-recent meetings to surface in the Goals Review
 // step. Older goals beyond this fall off the agenda — they're still
@@ -64,11 +67,17 @@ export default function MeetingPresenterPage() {
   // future drag-to-reorder land without code changes here).
   const activeSteps: StepDef[] = useMemo(() => {
     const enabled = family?.meetingSetup?.agendaSteps;
-    if (!enabled || enabled.length === 0) return [...STEPS];
-    const allowed = new Set(enabled);
-    // Keep canonical order — STEPS is the canonical order.
-    return STEPS.filter((s) => allowed.has(s.id));
-  }, [family?.meetingSetup?.agendaSteps]);
+    const labels = family?.meetingSetup?.stepLabels || {};
+    const base = !enabled || enabled.length === 0
+      ? [...STEPS]
+      : STEPS.filter((s) => new Set(enabled).has(s.id));
+    // Apply per-step display-name overrides. `title` falls back to the
+    // canonical default when the parent hasn't customised it.
+    return base.map((s) => {
+      const custom = (labels[s.id] || '').trim();
+      return custom ? { ...s, title: custom } : s;
+    });
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels]);
 
   const [stepIdx, setStepIdx] = useState(0);
   // Clamp stepIdx if a setup change shrinks the agenda mid-render.

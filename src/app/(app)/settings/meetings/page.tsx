@@ -60,6 +60,13 @@ export default function MeetingSetupPage() {
   const [agendaSteps, setAgendaSteps] = useState<string[]>(AGENDA_STEPS.map((s) => s.id));
   const [closingEnabled, setClosingEnabled] = useState<ReflectionMode[]>(['story', 'songs', 'prayer']);
   const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
+  // Per-step display-name override. Empty / missing entry = use the
+  // canonical default title from AGENDA_STEPS.
+  const [stepLabels, setStepLabels] = useState<Record<string, string>>({});
+  // Recurring meeting schedule (day-of-week + 24h time). null = no
+  // schedule set yet — the meetings hub shows no reminder banner.
+  const [scheduleDay, setScheduleDay] = useState<number | null>(null);
+  const [scheduleTime, setScheduleTime] = useState<string>('');
   const [seeded, setSeeded] = useState(false);
 
   // Prayer composer state
@@ -78,6 +85,11 @@ export default function MeetingSetupPage() {
     if (s?.agendaSteps && s.agendaSteps.length > 0) setAgendaSteps(s.agendaSteps);
     if (s?.closingModesEnabled && s.closingModesEnabled.length > 0) setClosingEnabled(s.closingModesEnabled);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
+    if (s?.stepLabels) setStepLabels(s.stepLabels);
+    if (s?.schedule) {
+      setScheduleDay(typeof s.schedule.dayOfWeek === 'number' ? s.schedule.dayOfWeek : null);
+      setScheduleTime(s.schedule.time || '');
+    }
     setSeeded(true);
   }, [family, seeded]);
 
@@ -144,11 +156,23 @@ export default function MeetingSetupPage() {
   const handleSave = async () => {
     if (!profile?.familyId) return;
     setSaving(true);
+    // Trim + drop empty entries so a parent who clears a custom label
+    // falls back to the canonical default cleanly.
+    const cleanedLabels: Record<string, string> = {};
+    for (const [id, v] of Object.entries(stepLabels)) {
+      const t = (v || '').trim();
+      if (t) cleanedLabels[id] = t;
+    }
+    const schedule = (scheduleDay !== null && /^\d{2}:\d{2}$/.test(scheduleTime))
+      ? { dayOfWeek: scheduleDay, time: scheduleTime }
+      : undefined;
     await updateFamily(profile.familyId, {
       meetingSetup: {
         agendaSteps,
         closingModesEnabled: closingEnabled,
         prayers,
+        stepLabels: cleanedLabels,
+        schedule,
       },
     });
     setSaving(false);
@@ -186,38 +210,51 @@ export default function MeetingSetupPage() {
         <div className="space-y-2">
           {AGENDA_STEPS.map((s) => {
             const on = agendaSteps.includes(s.id);
+            const customLabel = stepLabels[s.id] || '';
             return (
-              <button
-                type="button"
+              <div
                 key={s.id}
-                onClick={() => toggleAgendaStep(s.id)}
-                aria-pressed={on}
-                className={`w-full flex items-center gap-3 px-3.5 py-3 rounded-kaya border transition-colors text-left ${
+                className={`flex items-center gap-3 px-3.5 py-3 rounded-kaya border transition-colors ${
                   on
                     ? 'bg-kaya-gold/10 border-kaya-gold/50'
-                    : 'bg-kaya-warm/40 border-kaya-warm-dark hover:bg-kaya-warm'
+                    : 'bg-kaya-warm/40 border-kaya-warm-dark'
                 }`}
               >
                 <span className="text-xl shrink-0">{s.emoji}</span>
-                <span className="flex-1 min-w-0">
-                  <span className={`block font-display font-extrabold text-[14px] lg:text-base ${on ? 'text-kaya-chocolate' : 'text-kaya-sand'}`}>
-                    {s.title}
-                  </span>
+                <div className="flex-1 min-w-0">
+                  {/* Inline editable label — placeholder shows the canonical
+                      default so parents see what they'd revert to by clearing. */}
+                  <input
+                    value={customLabel}
+                    onChange={(e) => setStepLabels({ ...stepLabels, [s.id]: e.target.value })}
+                    placeholder={s.title}
+                    aria-label={`Custom label for ${s.title}`}
+                    className={`w-full bg-transparent border-0 outline-none px-0 py-0 font-display font-extrabold text-[14px] lg:text-base focus:ring-0 ${
+                      on ? 'text-kaya-chocolate placeholder-kaya-chocolate/60' : 'text-kaya-sand placeholder-kaya-sand/60'
+                    }`}
+                  />
                   <span className={`block text-[12px] mt-0.5 ${on ? 'text-kaya-chocolate/70' : 'text-kaya-sand'}`}>
                     {s.desc}
                   </span>
-                </span>
-                <span
-                  className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black ${
-                    on ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-kaya-warm-dark text-kaya-sand'
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleAgendaStep(s.id)}
+                  aria-pressed={on}
+                  aria-label={on ? `Turn ${s.title} off` : `Turn ${s.title} on`}
+                  className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black transition-colors ${
+                    on ? 'bg-kaya-gold text-kaya-chocolate hover:bg-kaya-gold-dark' : 'bg-kaya-warm-dark text-kaya-sand hover:bg-kaya-sand/30'
                   }`}
                 >
                   {on ? '✓' : ' '}
-                </span>
-              </button>
+                </button>
+              </div>
             );
           })}
         </div>
+        <p className="text-[11px] lg:text-[12px] text-kaya-sand mt-3 px-1">
+          Tap the step name to rename it (e.g. "Sunday Circle" instead of "Gratitude Circle"). Leave blank to use the default.
+        </p>
       </section>
 
       {/* ── Closing reflection ──────────────────────────────────── */}
@@ -258,6 +295,76 @@ export default function MeetingSetupPage() {
               </button>
             );
           })}
+        </div>
+      </section>
+
+      {/* ── Schedule ─────────────────────────────────────────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">Meeting day &amp; time ⏰</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {scheduleDay !== null && scheduleTime ? 'Reminder on' : 'Not set'}
+          </span>
+        </div>
+        <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
+          Pick the regular day and time you run the meeting. On that day, the Meetings hub shows a "Meeting tonight at HH:mm" banner so no one forgets.
+        </p>
+
+        <div className="space-y-4">
+          {/* Day chips */}
+          <div>
+            <label className="block text-[12px] lg:text-[13px] font-bold text-kaya-chocolate mb-2">
+              Day of the week
+            </label>
+            <div className="flex flex-wrap gap-1.5">
+              {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((label, idx) => {
+                const picked = scheduleDay === idx;
+                return (
+                  <button
+                    type="button"
+                    key={idx}
+                    onClick={() => setScheduleDay(picked ? null : idx)}
+                    aria-pressed={picked}
+                    className={`h-10 lg:h-11 min-w-[52px] lg:min-w-[60px] px-3 rounded-kaya-sm font-display font-extrabold text-[13px] lg:text-sm transition-colors ${
+                      picked
+                        ? 'bg-kaya-chocolate text-kaya-gold-light'
+                        : 'bg-kaya-warm/60 text-kaya-sand border border-kaya-warm-dark hover:bg-kaya-warm'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Time picker */}
+          <div>
+            <label
+              htmlFor="meeting-time"
+              className="block text-[12px] lg:text-[13px] font-bold text-kaya-chocolate mb-2"
+            >
+              Start time
+            </label>
+            <input
+              id="meeting-time"
+              type="time"
+              value={scheduleTime}
+              onChange={(e) => setScheduleTime(e.target.value)}
+              className="h-11 lg:h-12 w-44 bg-kaya-warm/60 border border-kaya-warm-dark rounded-kaya-sm px-3.5 text-[14px] lg:text-base font-display font-extrabold text-kaya-chocolate focus:outline-none focus:ring-2 focus:ring-kaya-gold/50"
+            />
+          </div>
+
+          {scheduleDay !== null && scheduleTime && (
+            <div className="bg-kaya-gold/10 border border-kaya-gold/40 rounded-kaya p-3 text-[12px] lg:text-[13px] text-kaya-chocolate">
+              ⏰ Reminder will show every <strong>{['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][scheduleDay]}</strong> at <strong>{scheduleTime}</strong>.
+            </div>
+          )}
+          {(scheduleDay === null || !scheduleTime) && (scheduleDay !== null || scheduleTime) && (
+            <p className="text-[11px] text-kaya-sand">
+              Pick both a day and a time — partial selections won't save.
+            </p>
+          )}
         </div>
       </section>
 
