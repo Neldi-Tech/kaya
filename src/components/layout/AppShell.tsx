@@ -7,19 +7,31 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import { getHelperLink } from '@/lib/helpers';
+import { helperModuleKeyForPath } from '@/lib/helperModules';
 import GuestBanner from './GuestBanner';
 
-// Helper-sidebar paths that require a specific kid-module to be granted
-// in the helper's HelperLink. Paths not in this map are always shown to
-// helpers (e.g. /, /home, /profiles — read-only or general). Mirrors
-// the firestore.rules checks; UI gating + rule gating both reference
-// these kid-module ids.
-const HELPER_PATH_REQUIRES_MODULE: Record<string, string> = {
-  '/rate':    'home',       // routine ratings
-  '/award':   'home',       // kudos / improvement notes
-  '/moments': 'moments',    // photo feed + albums
-  '/pantry':  'household',  // meals / staples / suppliers / utilities / grocery
-};
+// Visibility check for a helper navigating to `path`. Walks
+// helperModuleKeyForPath() → gets the required key (e.g. 'kaya:rate',
+// 'household:meals', 'moments'); matches against the helper's granted
+// set with three fallbacks:
+//   1. exact match (composite or bare parent)
+//   2. composite required, parent granted → access (parent grant
+//      covers all subs)
+//   3. kaya:* required, legacy 'home' granted → access (pre-Kaya-split
+//      docs from earlier helper rollout)
+// Returns true when the route isn't helper-module-gated at all.
+function isHelperPathAllowed(pathname: string, granted: Set<string>): boolean {
+  const required = helperModuleKeyForPath(pathname);
+  if (!required) return true;
+  if (granted.has(required)) return true;
+  const colon = required.indexOf(':');
+  if (colon > 0) {
+    const parent = required.slice(0, colon);
+    if (granted.has(parent)) return true;
+    if (parent === 'kaya' && granted.has('home')) return true;  // legacy alias
+  }
+  return false;
+}
 
 // Kaya brand logomark · the house-with-heart from Brand/svg/kaya-icon.svg,
 // inlined so the "Kaya" section ships with the real brand mark instead
@@ -323,15 +335,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [role, profile?.familyId, profile?.uid]);
 
-  // Visibility predicate for a helper sidebar/mobile row. Rows whose
-  // path isn't in HELPER_PATH_REQUIRES_MODULE are always visible.
+  // Visibility predicate for a helper sidebar/mobile row. Walks the
+  // path through helperModuleKeyForPath() and checks the helper's
+  // granted set with the composite/parent/legacy fallback chain.
   const isHelperRowVisible = useMemo(() => {
     return (path: string | undefined) => {
       if (helperModules === 'legacy' || helperModules === null) return true;
       if (!path) return true;
-      const required = HELPER_PATH_REQUIRES_MODULE[path];
-      if (!required) return true;
-      return helperModules.has(required);
+      return isHelperPathAllowed(path, helperModules);
     };
   }, [helperModules]);
 
@@ -367,19 +378,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [role, pathname, grantedKidModules, router]);
 
-  // Route guard for helpers — same idea but keyed on HELPER_PATH_REQUIRES_MODULE
-  // since helper-only routes (/rate, /award) aren't in the kid-modules
-  // KID_MODULES table. Bounces to /helper if a path is gated and not granted.
+  // Route guard for helpers — bounces to /helper when typing a URL
+  // they don't have access to. Uses isHelperPathAllowed which walks
+  // helperModuleKeyForPath and applies composite/parent/legacy
+  // fallbacks. Mirrors the kid guard above.
   useEffect(() => {
     if (role !== 'helper' || !pathname) return;
     if (helperModules === 'legacy' || helperModules === null) return;
-    // Find the most-specific helper path prefix that gates this route.
-    const gatedPath = Object.keys(HELPER_PATH_REQUIRES_MODULE).find(
-      (p) => pathname === p || pathname.startsWith(p + '/'),
-    );
-    if (!gatedPath) return;
-    const required = HELPER_PATH_REQUIRES_MODULE[gatedPath];
-    if (!helperModules.has(required)) {
+    if (!isHelperPathAllowed(pathname, helperModules)) {
       router.replace('/helper');
     }
   }, [role, pathname, helperModules, router]);

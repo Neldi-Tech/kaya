@@ -202,23 +202,62 @@ export interface CreateHelperInput {
   createdBy: string;           // parent UID
 }
 
-/** Build a default `moduleAccess` map from a preset + the set of
- *  modules the parent picked. Grandparent gets view-only across all
- *  modules; everyone else gets view+act. Modules NOT in the picked
- *  list are simply absent from the map (no access). */
+/** Build a default `moduleAccess` map from a preset. Returns
+ *  composite keys (e.g. "kaya:rate", "household:meals") matching the
+ *  HELPER_MODULES structure. Grandparent = view across the granted
+ *  set; everyone else = view+act. Modules NOT in the picked set are
+ *  absent from the map (no access).
+ *
+ *  Each preset specifies BOTH the keys to grant AND whether they're
+ *  view-only. Parents can later flip any individual sub from the
+ *  Settings card UI. */
 export function buildModuleAccessFromPreset(
   preset: HelperLink['preset'],
-  modules: string[],
+  /** Composite or parent keys to grant. If omitted, falls back to a
+   *  preset-specific default set (see `presetDefaultKeys` below). */
+  keys?: string[],
 ): HelperLink['moduleAccess'] {
+  const grantKeys = keys ?? presetDefaultKeys(preset);
+  const viewOnly = preset === 'grandparent';
   const map: NonNullable<HelperLink['moduleAccess']> = {};
-  for (const m of modules) {
-    if (preset === 'grandparent') {
-      map[m] = { view: true, act: false };
-    } else {
-      map[m] = { view: true, act: true };
-    }
+  for (const k of grantKeys) {
+    map[k] = viewOnly ? { view: true, act: false } : { view: true, act: true };
   }
   return map;
+}
+
+/** Default key set per preset. These are starting points — the parent
+ *  can edit any of them in Settings → Helpers after creation. */
+export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
+  switch (preset) {
+    case 'nanny':
+      // Full helper hand — Kaya (rate/award), the household, moments
+      // (photos), and view-only Hive + Profiles for context.
+      return [
+        'kaya:rate', 'kaya:award', 'kaya:meetings',
+        'household:meals', 'household:list', 'household:staples',
+        'household:suppliers', 'household:directory', 'household:utilities',
+        'household:budget',
+        'moments',
+        'profiles',
+      ];
+    case 'tutor':
+      // Homework + meetings, no household chores or photos.
+      return ['kaya:rate', 'kaya:meetings', 'profiles'];
+    case 'driver':
+      // Pickup/dropoff context + Directory contacts only.
+      return ['household:directory', 'profiles'];
+    case 'grandparent':
+      // View-only across the kid-facing surfaces.
+      return [
+        'kaya:rate', 'kaya:meetings',
+        'moments',
+        'profiles',
+      ];
+    case 'custom':
+    default:
+      return [];
+  }
 }
 
 export interface CreateHelperResult {
@@ -280,16 +319,22 @@ export async function createHelper(input: CreateHelperInput): Promise<CreateHelp
     await createUserProfile(profile);
 
     // moduleAccess is the canonical map; modules array stays in sync
-    // as the legacy fallback. canLog/canAward stay populated for any
-    // older readers — they don't gate anything new.
+    // as the legacy fallback (act-granted keys only — old readers
+    // treated the array as full view+act). canLog/canAward stay
+    // populated for any older readers — they don't gate anything new.
     const moduleAccess = input.moduleAccess
-      ?? buildModuleAccessFromPreset(input.preset, input.modules);
+      ?? buildModuleAccessFromPreset(input.preset);
+    const legacyModules = input.modules.length > 0
+      ? input.modules
+      : Object.entries(moduleAccess ?? {})
+          .filter(([, f]) => f.act)
+          .map(([k]) => k);
     const link: Record<string, unknown> = {
       helperCode: hc,
       displayName: input.displayName,
       preset: input.preset,
       kidIds: input.kidIds,
-      modules: input.modules,
+      modules: legacyModules,
       moduleAccess,
       canLog: true,
       canAward: input.canAward ?? (input.preset === 'nanny' || input.preset === 'grandparent'),

@@ -11,10 +11,17 @@ import { signOut } from 'firebase/auth';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { ShieldCheck, Lock } from 'lucide-react';
 import { KID_MODULES } from '@/lib/kidModules';
+import { HELPER_MODULE_KEY_LABEL } from '@/lib/helperModules';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
-const MODULE_BY_ID = Object.fromEntries(KID_MODULES.map((m) => [m.id, m]));
+// Label lookup that prefers the helper-vocabulary (composite keys
+// included), with a kid-module fallback so legacy grants like
+// `home` still render with a sensible label.
+const KID_LABEL = Object.fromEntries(KID_MODULES.map((m) => [m.id, { label: m.label, icon: m.icon }]));
+function labelFor(key: string): { label: string; icon: string } | null {
+  return HELPER_MODULE_KEY_LABEL[key] ?? KID_LABEL[key] ?? null;
+}
 
 const PRESET_LABEL: Record<HelperLink['preset'], string> = {
   nanny: 'Nanny',
@@ -139,7 +146,7 @@ export default function HelperPage() {
                     <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">You can add &amp; edit</p>
                     <div className="flex flex-wrap gap-1.5">
                       {actEntries.map(([id]) => {
-                        const m = MODULE_BY_ID[id]; if (!m) return null;
+                        const m = labelFor(id); if (!m) return null;
                         return (
                           <span key={id} className="px-2 py-1 text-[11px] bg-kaya-chocolate text-white rounded-full font-bold">
                             <span className="mr-1">{m.icon}</span>{m.label}
@@ -154,7 +161,7 @@ export default function HelperPage() {
                     <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">You can view only</p>
                     <div className="flex flex-wrap gap-1.5">
                       {viewOnlyEntries.map(([id]) => {
-                        const m = MODULE_BY_ID[id]; if (!m) return null;
+                        const m = labelFor(id); if (!m) return null;
                         return (
                           <span key={id} className="px-2 py-1 text-[11px] bg-kaya-cream border border-kaya-warm-dark rounded-full">
                             <span className="mr-1">{m.icon}</span>{m.label}
@@ -206,8 +213,14 @@ export default function HelperPage() {
           default — matches the rule fallback. */}
       {(() => {
         if (!link) return true; // legacy helper without link doc
-        if (link.moduleAccess) return link.moduleAccess['home']?.act === true;
-        return link.modules.includes('home');
+        if (link.moduleAccess) {
+          return link.moduleAccess['kaya:rate']?.act === true
+              || link.moduleAccess['kaya']?.act === true
+              || link.moduleAccess['home']?.act === true;  // legacy alias
+        }
+        return link.modules.includes('kaya:rate')
+            || link.modules.includes('kaya')
+            || link.modules.includes('home');
       })() ? (
         <div className="grid grid-cols-2 gap-3 lg:gap-4 lg:max-w-2xl">
           <button
@@ -232,7 +245,7 @@ export default function HelperPage() {
           <Lock size={18} className="text-kaya-sand flex-shrink-0 mt-0.5" />
           <div className="text-xs lg:text-sm text-kaya-sand leading-relaxed">
             <p className="font-bold text-kaya-chocolate">No rating access today</p>
-            <p>You aren&apos;t set up to log routines for this family. Ask the parent to add the <span className="font-bold">Home</span> area to your access in Settings → Helpers.</p>
+            <p>You aren&apos;t set up to log routines for this family. Ask the parent to enable <span className="font-bold">Kaya → Rate routines</span> for you in Settings → Helpers.</p>
           </div>
         </div>
       )}

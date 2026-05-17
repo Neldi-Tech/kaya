@@ -13,11 +13,11 @@ import {
   removeHelper,
   generateShortCode,
   generatePassword,
-  buildModuleAccessFromPreset,
   DEFAULT_HELPER_SESSION_DAYS,
   type CreateHelperResult,
 } from '@/lib/helpers';
 import { KID_MODULES, DEFAULT_KID_MODULES } from '@/lib/kidModules';
+import { HELPER_MODULES } from '@/lib/helperModules';
 import { updateFamily, type HelperLink } from '@/lib/firestore';
 
 const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
@@ -30,12 +30,16 @@ const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
 type Preset = HelperLink['preset'];
 type Frequency = NonNullable<HelperLink['expectedFrequency']>;
 
-const PRESETS: { id: Preset; label: string; description: string; modules: string[]; canAward: boolean; frequency: Frequency }[] = [
-  { id: 'nanny',       label: 'Nanny',       description: 'Routines, meals, kudos, photos', modules: ['home', 'household', 'moments'], canAward: true,  frequency: 'both' },
-  { id: 'tutor',       label: 'Tutor',       description: 'Homework & study routines',      modules: ['home'],                          canAward: false, frequency: 'evening' },
-  { id: 'driver',      label: 'Driver',      description: 'Pickup, dropoff, schedule',      modules: ['home'],                          canAward: false, frequency: 'flexible' },
-  { id: 'grandparent', label: 'Grandparent', description: 'View-only across granted modules', modules: ['home', 'moments'],             canAward: true,  frequency: 'flexible' },
-  { id: 'custom',      label: 'Custom',      description: 'Pick everything by hand',         modules: ['home'],                          canAward: false, frequency: 'both' },
+// Role presets the parent picks at Add Helper time. The actual
+// module grants are derived by `buildModuleAccessFromPreset()` in
+// lib/helpers.ts — these entries carry only the UI shape (label +
+// description + default expected-frequency).
+const PRESETS: { id: Preset; label: string; description: string; frequency: Frequency }[] = [
+  { id: 'nanny',       label: 'Nanny',       description: 'Routines, meals, kudos, photos',     frequency: 'both' },
+  { id: 'tutor',       label: 'Tutor',       description: 'Homework & study routines',          frequency: 'evening' },
+  { id: 'driver',      label: 'Driver',      description: 'Pickup, dropoff, schedule',          frequency: 'flexible' },
+  { id: 'grandparent', label: 'Grandparent', description: 'View-only across granted modules',   frequency: 'flexible' },
+  { id: 'custom',      label: 'Custom',      description: 'Pick everything by hand',            frequency: 'both' },
 ];
 
 const FREQUENCY_CHOICES: { id: Frequency; label: string; hint: string }[] = [
@@ -549,8 +553,9 @@ function AddHelperForm({
               password,
               preset,
               kidIds: selectedKidIds,
-              modules: presetCfg.modules.filter((m) => familyModules.includes(m) || m === 'home'),
-              canAward: presetCfg.canAward,
+              // modules=[] lets createHelper derive from preset
+              // (presetDefaultKeys in lib/helpers.ts).
+              modules: [],
               expectedFrequency: presetCfg.frequency,
               createdBy: parentUid,
             });
@@ -668,19 +673,73 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
     flash();
   };
 
-  // Module options surfaced to the parent — everything in the
-  // canonical KID_MODULES list. Family-disabled modules are shown
-  // grayed out so the parent sees the full vocabulary at a glance
-  // (matches the kid-side "What kids see" pattern). Home is always
-  // shown so it can be toggled off intentionally. Each entry carries
-  // its lifecycle marker (active / soon / legacy) for visual styling.
-  const moduleOptions = KID_MODULES.map((m) => ({
-    id: m.id,
-    label: m.label,
-    icon: m.icon,
-    tier: (m.soon ? 'soon' : m.isLegacy ? 'legacy' : 'active') as 'active' | 'soon' | 'legacy',
-    enabledByFamily: familyModules.includes(m.id) || m.id === 'home',
+  // Helper-side module list — Kaya + Household have nested sub-pages
+  // each toggleable on its own. Modules in this list use the
+  // helper-vocabulary (HELPER_MODULES), not the kid sidebar (which
+  // had "Home" etc. that don't apply to helpers).
+  const moduleOptions = HELPER_MODULES.map((m) => ({
+    ...m,
+    // helperOnly modules (Kaya, Profiles) ignore family.kidModules
+    // since they have no kid-side toggle. Other modules check the
+    // family-enabled set so a disabled parent module shows grayed.
+    enabledByFamily: m.helperOnly || familyModules.includes(m.id),
   }));
+
+  // Bulk-toggle ALL sub keys of a parent module to the same state.
+  // Used when the parent card View/Act is clicked on a module that
+  // has sub-modules — convenience for "grant everything in this
+  // module" with one tap. Writes individual sub keys (no parent key
+  // stored when subs exist).
+  const togglePresetSubs = async (parent: typeof HELPER_MODULES[number], tier: 'view' | 'act', enable: boolean) => {
+    if (!parent.subModules) return;
+    const nextMap: Record<string, { view: boolean; act: boolean }> = { ...moduleAccessNow };
+    for (const sub of parent.subModules) {
+      const key = `${parent.id}:${sub.id}`;
+      const current = nextMap[key] ?? { view: false, act: false };
+      const next = { ...current };
+      if (tier === 'view') {
+        next.view = enable;
+        if (!enable) next.act = false;
+      } else {
+        next.act = enable;
+        if (enable) next.view = true;
+      }
+      if (next.view || next.act) nextMap[key] = next;
+      else delete nextMap[key];
+    }
+    const legacyArr = Object.entries(nextMap)
+      .filter(([, f]) => f.act)
+      .map(([k]) => k);
+    await onUpdate({ moduleAccess: nextMap, modules: legacyArr });
+    flash();
+  };
+
+  // Aggregate state for a parent card: derived from its sub-grants
+  // when subs exist, or its own key otherwise. `none/some/all` for
+  // each tier — used to render parent View/Act in indeterminate
+  // visual states.
+  const parentAggregate = (parent: typeof HELPER_MODULES[number]): {
+    view: 'none' | 'some' | 'all'; act: 'none' | 'some' | 'all';
+  } => {
+    if (!parent.subModules) {
+      const a = moduleAccessNow[parent.id] ?? { view: false, act: false };
+      return {
+        view: a.view ? 'all' : 'none',
+        act:  a.act  ? 'all' : 'none',
+      };
+    }
+    const total = parent.subModules.length;
+    let v = 0, c = 0;
+    for (const sub of parent.subModules) {
+      const a = moduleAccessNow[`${parent.id}:${sub.id}`];
+      if (a?.view) v++;
+      if (a?.act) c++;
+    }
+    return {
+      view: v === 0 ? 'none' : v === total ? 'all' : 'some',
+      act:  c === 0 ? 'none' : c === total ? 'all' : 'some',
+    };
+  };
 
   const currentFrequency: Frequency = helper.expectedFrequency ?? 'flexible';
 
@@ -803,62 +862,90 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
             </p>
             <div className="space-y-2">
               {moduleOptions.map((m) => {
-                const access = moduleAccessNow[m.id] ?? { view: false, act: false };
+                const agg = parentAggregate(m);
+                const hasSubs = !!m.subModules && m.subModules.length > 0;
+                // Parent card visual treatment by module lifecycle +
+                // whether the helper has any grant inside this module.
+                const anyGranted = agg.view !== 'none' || agg.act !== 'none';
                 const borderClass =
                   m.tier === 'soon' ? 'border-kaya-gold/50 bg-kaya-gold-light/10' :
                   m.tier === 'legacy' ? 'border-kaya-warm-dark bg-kaya-cream/60' :
-                  (access.view || access.act) ? 'border-kaya-gold bg-kaya-gold-light/20' :
+                  anyGranted ? 'border-kaya-gold bg-kaya-gold-light/20' :
                   'border-kaya-warm-dark bg-white';
                 return (
-                  <div
-                    key={m.id}
-                    className={`rounded-kaya border-2 p-3 flex items-center gap-3 ${borderClass}`}
-                  >
-                    <span className="text-2xl flex-shrink-0">{m.icon}</span>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-bold text-sm truncate">
-                        {m.label}
-                        {m.tier === 'soon' && (
-                          <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-gold-light/40 text-kaya-chocolate px-1.5 py-0.5 rounded-full font-bold align-middle">Soon</span>
-                        )}
-                        {m.tier === 'legacy' && (
-                          <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-sand/30 text-kaya-sand px-1.5 py-0.5 rounded-full font-bold align-middle">Legacy</span>
-                        )}
-                        {!m.enabledByFamily && (
-                          <span className="ml-2 text-[9px] uppercase tracking-wider text-kaya-sand/70 font-bold align-middle">family disabled</span>
-                        )}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <label className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-kaya border cursor-pointer select-none ${access.view
-                        ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
-                        : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
-                      } ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={access.view}
-                          disabled={busy}
-                          onChange={() => toggleModuleTier(m.id, 'view')}
+                  <div key={m.id} className={`rounded-kaya border-2 ${borderClass} overflow-hidden`}>
+                    {/* Parent row — View/Act here bulk-toggle all subs. */}
+                    <div className="p-3 flex items-center gap-3">
+                      <span className="text-2xl flex-shrink-0">{m.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-sm truncate">
+                          {m.label}
+                          {m.tier === 'soon' && (
+                            <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-gold-light/40 text-kaya-chocolate px-1.5 py-0.5 rounded-full font-bold align-middle">Soon</span>
+                          )}
+                          {m.tier === 'legacy' && (
+                            <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-sand/30 text-kaya-sand px-1.5 py-0.5 rounded-full font-bold align-middle">Legacy</span>
+                          )}
+                          {!m.enabledByFamily && (
+                            <span className="ml-2 text-[9px] uppercase tracking-wider text-kaya-sand/70 font-bold align-middle">family disabled</span>
+                          )}
+                          {hasSubs && agg.view === 'some' && (
+                            <span className="ml-2 text-[9px] uppercase tracking-wider text-kaya-sand/80 font-bold align-middle">partial</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <ParentTierToggle
+                          tier="view"
+                          state={agg.view}
+                          busy={busy}
+                          onToggle={() => hasSubs
+                            ? togglePresetSubs(m, 'view', agg.view !== 'all')
+                            : toggleModuleTier(m.id, 'view')}
                         />
-                        <Eye size={12} />
-                        <span className="font-bold">View</span>
-                      </label>
-                      <label className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-kaya border cursor-pointer select-none ${access.act
-                        ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
-                        : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
-                      } ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                        <input
-                          type="checkbox"
-                          className="sr-only"
-                          checked={access.act}
-                          disabled={busy}
-                          onChange={() => toggleModuleTier(m.id, 'act')}
+                        <ParentTierToggle
+                          tier="act"
+                          state={agg.act}
+                          busy={busy}
+                          onToggle={() => hasSubs
+                            ? togglePresetSubs(m, 'act', agg.act !== 'all')
+                            : toggleModuleTier(m.id, 'act')}
                         />
-                        <Pencil size={12} />
-                        <span className="font-bold">Act</span>
-                      </label>
+                      </div>
                     </div>
+
+                    {/* Sub-rows — indented; each has its own View/Act
+                        toggles. Only render when the parent has subs. */}
+                    {hasSubs && (
+                      <div className="border-t border-kaya-warm-dark/30 bg-white/40 px-3 py-2 space-y-1.5">
+                        {m.subModules!.map((sub) => {
+                          const key = `${m.id}:${sub.id}`;
+                          const a = moduleAccessNow[key] ?? { view: false, act: false };
+                          return (
+                            <div key={sub.id} className="flex items-center gap-2 pl-6">
+                              <span className="text-lg flex-shrink-0">{sub.icon}</span>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-xs font-bold truncate">{sub.label}</p>
+                              </div>
+                              <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <SubTierToggle
+                                  tier="view"
+                                  on={a.view}
+                                  busy={busy}
+                                  onToggle={() => toggleModuleTier(key, 'view')}
+                                />
+                                <SubTierToggle
+                                  tier="act"
+                                  on={a.act}
+                                  busy={busy}
+                                  onToggle={() => toggleModuleTier(key, 'act')}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -909,5 +996,61 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
         </div>
       )}
     </div>
+  );
+}
+
+// ── Tier toggles ───────────────────────────────────
+// Parent-card View/Act with tri-state ('none' | 'some' | 'all').
+// "some" visually = partially-on (cream border with chocolate text).
+function ParentTierToggle({ tier, state, busy, onToggle }: {
+  tier: 'view' | 'act';
+  state: 'none' | 'some' | 'all';
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  const Icon = tier === 'view' ? Eye : Pencil;
+  const label = tier === 'view' ? 'View' : 'Act';
+  const className =
+    state === 'all'  ? 'bg-kaya-chocolate text-white border-kaya-chocolate' :
+    state === 'some' ? 'bg-kaya-gold-light/30 text-kaya-chocolate border-kaya-gold' :
+                       'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate';
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onToggle}
+      className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-kaya border font-bold ${className} ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}
+      aria-pressed={state === 'all'}
+    >
+      <Icon size={12} />
+      {label}
+      {state === 'some' && <span className="text-[9px] ml-1">·</span>}
+    </button>
+  );
+}
+
+// Sub-row View/Act — binary (on/off), smaller chips.
+function SubTierToggle({ tier, on, busy, onToggle }: {
+  tier: 'view' | 'act';
+  on: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  const Icon = tier === 'view' ? Eye : Pencil;
+  const label = tier === 'view' ? 'View' : 'Act';
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onToggle}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded-kaya border ${on
+        ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+        : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+      } ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}
+      aria-pressed={on}
+    >
+      <Icon size={10} />
+      <span className="font-bold">{label}</span>
+    </button>
   );
 }

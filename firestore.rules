@@ -90,6 +90,16 @@ service cloud.firestore {
       return helperCanActOnModule(familyId, moduleId);
     }
 
+    // Convenience: act-tier check for a composite "{parent}:{sub}" key
+    // OR the bare parent grant. The parent grant means "everything in
+    // this module" (e.g. granting `household` covers all the pantry
+    // sub-pages). Used by collection rules like /staples, /suppliers
+    // etc. to gate per-sub without requiring the parent to enumerate.
+    function helperCanActOnSub(familyId, parentKey, subId) {
+      return helperCanActOnModule(familyId, parentKey + ':' + subId)
+          || helperCanActOnModule(familyId, parentKey);
+    }
+
     // Legacy-helper escape hatch: helpers who joined BEFORE the
     // HelperLink rollout have no doc under /families/{f}/helpers/{uid}.
     // We don't want to lock them out, so fall back to the old
@@ -160,13 +170,15 @@ service cloud.firestore {
       match /ratings/{ratingId} {
         allow read: if belongsToFamily(familyId);
         // Parents can rate any kid. Helpers need (a) the kid in their
-        // HelperLink.kidIds AND (b) the `home` module granted (rating
-        // is a Home-module action). Legacy helpers (no HelperLink doc)
-        // keep the old family-wide allowance so existing flows don't
-        // break until the parent re-adds them in Settings → Helpers.
+        // HelperLink.kidIds AND (b) act-tier rating access. Accept
+        // any of: composite `kaya:rate`, parent `kaya`, or the legacy
+        // `home` key from pre-Kaya-split docs (Aug 2026). Legacy
+        // helpers (no HelperLink doc) keep the family-wide allowance
+        // until the parent re-adds them.
         allow create: if isParentInFamily(familyId)
           || (helperCanActOnKid(familyId, request.resource.data.childId)
-              && helperHasModule(familyId, 'home'))
+              && (helperCanActOnSub(familyId, 'kaya', 'rate')
+                  || helperHasModule(familyId, 'home')))
           || isLegacyHelperWithoutLink(familyId);
       }
 
@@ -311,7 +323,7 @@ service cloud.firestore {
       match /staples/{stapleId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentInFamily(familyId)
-          || helperHasModule(familyId, 'household')
+          || helperCanActOnSub(familyId, 'household', 'staples')
           || isLegacyHelperWithoutLink(familyId);
       }
 
@@ -322,7 +334,7 @@ service cloud.firestore {
       match /suppliers/{supplierId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentInFamily(familyId)
-          || helperHasModule(familyId, 'household')
+          || helperCanActOnSub(familyId, 'household', 'suppliers')
           || isLegacyHelperWithoutLink(familyId);
       }
 
@@ -333,16 +345,15 @@ service cloud.firestore {
       match /utilities/{utilityId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentInFamily(familyId)
-          || helperHasModule(familyId, 'household')
+          || helperCanActOnSub(familyId, 'household', 'utilities')
           || isLegacyHelperWithoutLink(familyId);
 
         // Payment ledger — one doc per period the bill was paid.
-        // Parents + helpers (household module) can record payments;
-        // everyone in the family can read the history.
+        // Same Household → Utilities sub-grant covers payments.
         match /payments/{paymentId} {
           allow read: if belongsToFamily(familyId);
           allow create, update, delete: if isParentInFamily(familyId)
-            || helperHasModule(familyId, 'household')
+            || helperCanActOnSub(familyId, 'household', 'utilities')
             || isLegacyHelperWithoutLink(familyId);
         }
       }
@@ -352,8 +363,9 @@ service cloud.firestore {
       // catalog (see lib/pantryCatalog.ts). Gated by `household` module.
       match /catalogItems/{itemId} {
         allow read: if belongsToFamily(familyId);
+        // Catalog items feed the grocery list — gate by the `list` sub.
         allow create, update, delete: if isParentInFamily(familyId)
-          || helperHasModule(familyId, 'household')
+          || helperCanActOnSub(familyId, 'household', 'list')
           || isLegacyHelperWithoutLink(familyId);
       }
 
@@ -362,8 +374,9 @@ service cloud.firestore {
       // (see lib/pantryCatalog.ts). Gated by `household` module.
       match /catalogFoods/{foodId} {
         allow read: if belongsToFamily(familyId);
+        // Custom dishes feed meal planning — gate by the `meals` sub.
         allow create, update, delete: if isParentInFamily(familyId)
-          || helperHasModule(familyId, 'household')
+          || helperCanActOnSub(familyId, 'household', 'meals')
           || isLegacyHelperWithoutLink(familyId);
       }
 
@@ -374,7 +387,7 @@ service cloud.firestore {
       match /groceryLists/{listId} {
         allow read: if belongsToFamily(familyId);
         allow create, update, delete: if isParentInFamily(familyId)
-          || helperHasModule(familyId, 'household')
+          || helperCanActOnSub(familyId, 'household', 'list')
           || isLegacyHelperWithoutLink(familyId);
       }
 
