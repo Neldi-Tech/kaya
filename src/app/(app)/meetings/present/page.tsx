@@ -28,20 +28,25 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  createMeeting, getMeetings, Meeting, todayString,
+  createMeeting, updateMeeting, getMeetings, Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
 
 // ── Agenda definition ──────────────────────────────────────────────
 const STEPS = [
+  { id: 'attendance',    title: 'Attendance',         emoji: '👋', sub: 'Who is here tonight, and is anyone presenting?' },
   { id: 'gratitude',     title: 'Gratitude Circle',   emoji: '🙏', sub: 'What is each of us thankful for today?' },
   { id: 'celebrate',     title: 'Celebrate the Wins', emoji: '🎉', sub: 'Look back at the week — points, badges, moments worth a cheer.' },
   { id: 'appreciations', title: 'Appreciations',      emoji: '💛', sub: 'Something kind, helpful, or brave you noticed this week.' },
-  { id: 'goals',         title: 'Goals Review',       emoji: '🎯', sub: 'Did we hit last week\'s goals? What do we commit to for next week?' },
-  { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'A gentle close — a story, a song, or a family prayer.' },
+  { id: 'goals',         title: 'Goals Review',       emoji: '🎯', sub: 'Mark last week\'s goals done, revisit older outstanding ones, then commit for next week.' },
+  { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
 ] as const;
 
 type StepId = typeof STEPS[number]['id'];
-type ReflectionMode = 'story' | 'songs' | 'prayer';
+
+// How many of the most-recent meetings to surface in the Goals Review
+// step. Older goals beyond this fall off the agenda — they're still
+// in the meeting history, just not nagging on every weekly review.
+const GOALS_REVIEW_WEEKS_BACK = 4;
 
 export default function MeetingPresenterPage() {
   const router = useRouter();
@@ -54,12 +59,30 @@ export default function MeetingPresenterPage() {
   const isLastStep = stepIdx === STEPS.length - 1;
 
   // ── Captured per step ────────────────────────────────────────────
+  // Attendance — initialized to "everyone present" when the kid list
+  // loads (parents tap to mark absent).
+  const [attendees, setAttendees] = useState<Set<string>>(new Set());
+  const [attendanceInit, setAttendanceInit] = useState(false);
+  const [presentBy, setPresentBy] = useState('');
+  const [presentTopic, setPresentTopic] = useState('');
+
   const [gratitude, setGratitude] = useState<Record<string, string>>({});
   const [appreciations, setAppreciations] = useState<Record<string, string>>({});
   const [goals, setGoals] = useState<Record<string, string>>({});           // this week
-  const [lastWeekGoalsDone, setLastWeekGoalsDone] = useState<Record<string, boolean>>({});
-  const [reflectionMode, setReflectionMode] = useState<ReflectionMode | null>(null);
-  const [reflectionContent, setReflectionContent] = useState('');
+
+  // Multi-week Goals Review — per-meeting per-kid done toggles. Keyed
+  // by meeting id → kid id → done. Persisted at finish time by patching
+  // each touched meeting's `goalsDone` map (so a goal set 3 weeks ago
+  // can be marked done tonight without losing context).
+  const [reviewedGoalsDone, setReviewedGoalsDone] =
+    useState<Record<string, Record<string, boolean>>>({});
+
+  // Closing Reflection — multi-select. `modes` is the ordered set of
+  // closings picked tonight; `contents` is per-mode plain text the
+  // parent typed/pasted.
+  const [reflectionModes, setReflectionModes] = useState<ReflectionMode[]>([]);
+  const [reflectionContents, setReflectionContents] =
+    useState<Partial<Record<ReflectionMode, string>>>({});
   // null = idle; non-null = show the full-screen prayer stage with the
   // text typeset large + flowers cascading on top. Captured at click
   // time so editing the textarea afterwards doesn't change the on-
@@ -68,36 +91,79 @@ export default function MeetingPresenterPage() {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
-  // ── Last week's goals (for the Goals Review step) ───────────────
-  const [previousMeeting, setPreviousMeeting] = useState<Meeting | null>(null);
+  // ── Recent meetings (for the Goals Review step) ─────────────────
+  // Last N meetings (DESC by date). Each is rendered in Goals Review
+  // showing its goals + current done state (from each meeting's own
+  // `goalsDone` map, falling back to legacy `lastWeekGoalsDone` of the
+  // NEXT meeting for goals set before the v2 schema).
+  const [recentMeetings, setRecentMeetings] = useState<Meeting[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
     getMeetings(profile.familyId).then((ms) => {
-      // getMeetings returns DESC by date; take the most recent.
-      setPreviousMeeting(ms[0] || null);
+      setRecentMeetings(ms.slice(0, GOALS_REVIEW_WEEKS_BACK));
     });
   }, [profile?.familyId]);
 
-  const lastWeekGoals = previousMeeting?.goals || {};
+  // Default attendance to "all kids present" once the children list
+  // arrives. Only runs once so a manual deselection isn't overwritten
+  // if the children list refreshes.
+  useEffect(() => {
+    if (!attendanceInit && children.length > 0) {
+      setAttendees(new Set(children.map((c) => c.id)));
+      setAttendanceInit(true);
+    }
+  }, [children, attendanceInit]);
 
   // ── Save handler ─────────────────────────────────────────────────
+  // Two writes happen on finish:
+  //   1. Patches to each historical meeting whose `goalsDone` was
+  //      toggled tonight (so old goals stay marked done even when
+  //      reviewed weeks later).
+  //   2. The new meeting record — captures tonight's attendance,
+  //      gratitude, appreciations, new goals, and chosen reflection.
   const handleFinish = async () => {
     if (!profile?.familyId) return;
     setSaving(true);
+
+    // 1. Persist each touched historical meeting's goalsDone.
+    const historicalPatches = Object.entries(reviewedGoalsDone)
+      .filter(([, perKid]) => Object.keys(perKid).length > 0)
+      .map(([meetingId, perKid]) => {
+        // Merge with whatever the meeting already had on Firestore.
+        const existing = recentMeetings.find((m) => m.id === meetingId);
+        const merged = { ...(existing?.goalsDone || {}), ...perKid };
+        return updateMeeting(profile.familyId!, meetingId, { goalsDone: merged });
+      });
+    await Promise.all(historicalPatches);
+
+    // 2. Compose + create tonight's meeting.
+    const reflection = reflectionModes.length > 0
+      ? {
+          modes: reflectionModes,
+          contents: Object.fromEntries(
+            reflectionModes
+              .map((m) => [m, (reflectionContents[m] || '').trim()])
+              .filter(([, v]) => v),
+          ) as Partial<Record<ReflectionMode, string>>,
+        }
+      : undefined;
+
+    const presentation = (presentBy.trim() || presentTopic.trim())
+      ? { by: presentBy.trim() || undefined, topic: presentTopic.trim() || undefined }
+      : undefined;
+
     const payload: Omit<Meeting, 'id' | 'createdAt'> = {
       date: todayString(),
       type: 'weekly',
-      attendees: children.map((c) => c.id),
+      attendees: Array.from(attendees),
       gratitude,
       goals,
       notes: '',
       appreciations,
-      lastWeekGoalsDone,
-      reflection: reflectionMode
-        ? { mode: reflectionMode, content: reflectionContent.trim() || undefined }
-        : undefined,
+      presentation,
+      reflection,
       createdBy: profile.uid,
-    } as Omit<Meeting, 'id' | 'createdAt'>;
+    };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
     setSaving(false);
     setDone(true);
@@ -105,12 +171,20 @@ export default function MeetingPresenterPage() {
 
   // ── Step gating (prevent advance if required input missing) ──────
   // Intentionally lenient — a parent might want to skip a step on a
-  // busy night. Only the reflection step requires a sub-mode selection
-  // before "Finish" so the saved record makes sense.
+  // busy night. Reflection still requires at least one mode picked
+  // before Finish so the saved record makes sense.
   const canAdvance = useMemo(() => {
     if (step.id !== 'reflection') return true;
-    return reflectionMode !== null;
-  }, [step.id, reflectionMode]);
+    return reflectionModes.length > 0;
+  }, [step.id, reflectionModes]);
+
+  // Helper: toggle done state for a specific meeting+kid goal.
+  const toggleHistoricalGoalDone = (meetingId: string, kidId: string, done: boolean) => {
+    setReviewedGoalsDone((prev) => ({
+      ...prev,
+      [meetingId]: { ...(prev[meetingId] || {}), [kidId]: done },
+    }));
+  };
 
   // ── Render ───────────────────────────────────────────────────────
   return (
@@ -175,6 +249,25 @@ export default function MeetingPresenterPage() {
               </div>
 
               {/* Step body */}
+              {step.id === 'attendance' && (
+                <AttendanceStep
+                  childrenList={children}
+                  attendees={attendees}
+                  onToggleAttendee={(kidId) => {
+                    setAttendees((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(kidId)) next.delete(kidId);
+                      else next.add(kidId);
+                      return next;
+                    });
+                  }}
+                  presentBy={presentBy}
+                  presentTopic={presentTopic}
+                  onChangePresentBy={setPresentBy}
+                  onChangePresentTopic={setPresentTopic}
+                />
+              )}
+
               {step.id === 'gratitude' && (
                 <PerKidTextInputs
                   childrenList={children}
@@ -201,11 +294,9 @@ export default function MeetingPresenterPage() {
               {step.id === 'goals' && (
                 <GoalsStep
                   childrenList={children}
-                  lastWeekGoals={lastWeekGoals}
-                  lastWeekGoalsDone={lastWeekGoalsDone}
-                  onToggleLastWeek={(kidId, done) =>
-                    setLastWeekGoalsDone({ ...lastWeekGoalsDone, [kidId]: done })
-                  }
+                  recentMeetings={recentMeetings}
+                  reviewedGoalsDone={reviewedGoalsDone}
+                  onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
                   goals={goals}
                   onChangeGoals={setGoals}
                 />
@@ -213,14 +304,16 @@ export default function MeetingPresenterPage() {
 
               {step.id === 'reflection' && (
                 <ReflectionStep
-                  mode={reflectionMode}
-                  onModeChange={setReflectionMode}
-                  content={reflectionContent}
-                  onContentChange={setReflectionContent}
-                  onCelebrate={() => {
+                  modes={reflectionModes}
+                  onModesChange={setReflectionModes}
+                  contents={reflectionContents}
+                  onContentChange={(m, v) =>
+                    setReflectionContents({ ...reflectionContents, [m]: v })
+                  }
+                  onCelebratePrayer={() => {
                     // Snapshot the prayer text so on-stage typography
                     // doesn't reflow if the textarea changes mid-fall.
-                    setPrayerOnStage((reflectionContent || '').trim() || ' ');
+                    setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
                   }}
                 />
               )}
@@ -360,65 +453,225 @@ function CelebrateStep() {
   );
 }
 
+// ── Attendance step ────────────────────────────────────────────────
+// Two halves: a tap-to-toggle attendee grid (default all-present), and
+// a small optional "anyone presenting tonight?" capture. Both halves
+// are tolerant of being left empty so a family can move on quickly.
+function AttendanceStep({
+  childrenList,
+  attendees,
+  onToggleAttendee,
+  presentBy,
+  presentTopic,
+  onChangePresentBy,
+  onChangePresentTopic,
+}: {
+  childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  attendees: Set<string>;
+  onToggleAttendee: (kidId: string) => void;
+  presentBy: string;
+  presentTopic: string;
+  onChangePresentBy: (s: string) => void;
+  onChangePresentTopic: (s: string) => void;
+}) {
+  return (
+    <div className="space-y-7">
+      <section>
+        <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-3 px-1">
+          👥 Who is here tonight?
+        </h3>
+        {childrenList.length === 0 ? (
+          <div className="bg-white/5 border border-white/10 rounded-kaya p-6 text-center text-white/60 text-sm">
+            Add kids in <Link href="/profiles" className="underline">profiles</Link> to track attendance.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            {childrenList.map((c) => {
+              const here = attendees.has(c.id);
+              return (
+                <button
+                  type="button"
+                  key={c.id}
+                  onClick={() => onToggleAttendee(c.id)}
+                  aria-pressed={here}
+                  className={`flex items-center gap-3 p-4 rounded-kaya border transition-all text-left ${
+                    here
+                      ? 'bg-kaya-gold/15 border-kaya-gold/60 text-white'
+                      : 'bg-white/5 border-white/10 text-white/45 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="text-3xl">{c.avatarEmoji || '👧'}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">
+                      {c.name}
+                    </span>
+                    <span className="block text-[11px] lg:text-[12px] mt-0.5">
+                      {here ? 'Here' : 'Tap if here'}
+                    </span>
+                  </span>
+                  <span
+                    className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black ${
+                      here ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white/10 text-white/40'
+                    }`}
+                  >
+                    {here ? '✓' : ' '}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+        <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
+          Everyone defaults to present — tap to mark absent.
+        </p>
+      </section>
+
+      <section>
+        <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-3 px-1">
+          🎤 Anyone presenting tonight?
+        </h3>
+        <div className="bg-white/5 border border-white/10 rounded-kaya p-4 lg:p-5 space-y-3">
+          <div>
+            <label className="block text-[12px] lg:text-[13px] font-bold text-white/70 mb-1.5">
+              Who is presenting?
+            </label>
+            <input
+              value={presentBy}
+              onChange={(e) => onChangePresentBy(e.target.value)}
+              placeholder="Name (or leave blank if no one)"
+              className="w-full h-11 lg:h-12 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] lg:text-[13px] font-bold text-white/70 mb-1.5">
+              What's the topic?
+            </label>
+            <input
+              value={presentTopic}
+              onChange={(e) => onChangePresentTopic(e.target.value)}
+              placeholder="One line — e.g. 'My school project on bees'"
+              className="w-full h-11 lg:h-12 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+            />
+          </div>
+        </div>
+        <p className="text-[11px] lg:text-[12px] text-white/40 mt-2 px-1">
+          Skip if no presentation tonight — totally optional.
+        </p>
+      </section>
+    </div>
+  );
+}
+
+// ── Goals Review (multi-week) ──────────────────────────────────────
+// Surfaces outstanding goals from up to N recent meetings. Each goal
+// has a ✓ toggle that, on finish, writes back to its source meeting's
+// `goalsDone` map (so a goal set three weeks ago can be reviewed and
+// closed tonight). Once a goal is marked done, it stays done forever
+// — but visible here until the family stops caring (the source meeting
+// drops off the recent-N window).
 function GoalsStep({
   childrenList,
-  lastWeekGoals,
-  lastWeekGoalsDone,
-  onToggleLastWeek,
+  recentMeetings,
+  reviewedGoalsDone,
+  onToggleHistoricalGoalDone,
   goals,
   onChangeGoals,
 }: {
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
-  lastWeekGoals: Record<string, string>;
-  lastWeekGoalsDone: Record<string, boolean>;
-  onToggleLastWeek: (kidId: string, done: boolean) => void;
+  recentMeetings: Meeting[];
+  reviewedGoalsDone: Record<string, Record<string, boolean>>;
+  onToggleHistoricalGoalDone: (meetingId: string, kidId: string, done: boolean) => void;
   goals: Record<string, string>;
   onChangeGoals: (next: Record<string, string>) => void;
 }) {
-  const hasLastWeek = Object.values(lastWeekGoals).some((g) => g && g.trim());
+  // Resolve effective done state — local toggle wins; otherwise fall
+  // back to whatever the meeting already had stored. v2 uses
+  // `goalsDone` on the meeting that holds the goal; v1 stored
+  // `lastWeekGoalsDone` on the *next* meeting — handle both so families
+  // who shipped a v1 meeting still see their progress.
+  const v1NextMeetingDoneFor = (meetingIdx: number, kidId: string): boolean | undefined => {
+    const nextMeeting = recentMeetings[meetingIdx - 1]; // newer
+    return nextMeeting?.lastWeekGoalsDone?.[kidId];
+  };
+  const effectiveDone = (meetingIdx: number, kidId: string): boolean => {
+    const meeting = recentMeetings[meetingIdx];
+    const localToggle = reviewedGoalsDone[meeting.id]?.[kidId];
+    if (typeof localToggle === 'boolean') return localToggle;
+    if (typeof meeting.goalsDone?.[kidId] === 'boolean') return !!meeting.goalsDone[kidId];
+    const v1 = v1NextMeetingDoneFor(meetingIdx, kidId);
+    if (typeof v1 === 'boolean') return v1;
+    return false;
+  };
+
+  // Build the visible list — meetings with at least one outstanding
+  // (or already-done) goal. Order: most-recent first.
+  const goalsByMeeting = recentMeetings
+    .map((m, i) => ({
+      meeting: m,
+      index: i,
+      kids: childrenList
+        .map((c) => ({ child: c, goal: (m.goals?.[c.id] || '').trim() }))
+        .filter((row) => row.goal.length > 0),
+    }))
+    .filter((entry) => entry.kids.length > 0);
+
+  // Label for a meeting block ("Last week", "2 weeks ago", date).
+  const label = (i: number, dateStr: string) => {
+    if (i === 0) return 'Last week';
+    if (i === 1) return '2 weeks ago';
+    if (i === 2) return '3 weeks ago';
+    return dateStr;
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Last week review */}
-      {hasLastWeek && (
+    <div className="space-y-7">
+      {/* Multi-week review */}
+      {goalsByMeeting.length > 0 && (
         <section>
           <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-3 px-1">
-            ✅ Last week — did we do what we agreed?
+            ✅ Outstanding goals — check off what we did
           </h3>
-          <div className="space-y-2">
-            {childrenList.map((c) => {
-              const g = (lastWeekGoals[c.id] || '').trim();
-              if (!g) return null;
-              const done = !!lastWeekGoalsDone[c.id];
-              return (
-                <div
-                  key={c.id}
-                  className="bg-white/5 border border-white/10 rounded-kaya p-4 flex items-start gap-3"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onToggleLastWeek(c.id, !done)}
-                    aria-label={done ? `Mark ${c.name}'s goal not done` : `Mark ${c.name}'s goal done`}
-                    className={`w-9 h-9 lg:w-10 lg:h-10 rounded-full shrink-0 flex items-center justify-center text-base lg:text-lg font-black transition-colors ${
-                      done
-                        ? 'bg-kaya-gold text-kaya-chocolate'
-                        : 'bg-white/10 text-white/40 hover:bg-white/20'
-                    }`}
-                  >
-                    {done ? '✓' : ' '}
-                  </button>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold">
-                      <span className="text-xl">{c.avatarEmoji || '👧'}</span>
-                      <span>{c.name}</span>
-                    </div>
-                    <p className={`mt-1 text-[14px] lg:text-base leading-snug ${done ? 'text-white/50 line-through' : 'text-white/85'}`}>
-                      {g}
-                    </p>
-                  </div>
+          <div className="space-y-5">
+            {goalsByMeeting.map(({ meeting, index, kids }) => (
+              <div key={meeting.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4 lg:p-5">
+                <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.2em] font-bold text-white/50 mb-3">
+                  {label(index, meeting.date)} · {meeting.date}
+                </p>
+                <div className="space-y-2">
+                  {kids.map(({ child, goal }) => {
+                    const done = effectiveDone(index, child.id);
+                    return (
+                      <div
+                        key={child.id}
+                        className="bg-white/5 border border-white/10 rounded-kaya p-3 lg:p-4 flex items-start gap-3"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => onToggleHistoricalGoalDone(meeting.id, child.id, !done)}
+                          aria-label={done ? `Mark ${child.name}'s goal not done` : `Mark ${child.name}'s goal done`}
+                          className={`w-9 h-9 lg:w-10 lg:h-10 rounded-full shrink-0 flex items-center justify-center text-base lg:text-lg font-black transition-colors ${
+                            done
+                              ? 'bg-kaya-gold text-kaya-chocolate'
+                              : 'bg-white/10 text-white/40 hover:bg-white/20'
+                          }`}
+                        >
+                          {done ? '✓' : ' '}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold">
+                            <span className="text-xl">{child.avatarEmoji || '👧'}</span>
+                            <span>{child.name}</span>
+                          </div>
+                          <p className={`mt-1 text-[14px] lg:text-base leading-snug ${done ? 'text-white/50 line-through' : 'text-white/85'}`}>
+                            {goal}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -447,18 +700,24 @@ function GoalsStep({
   );
 }
 
+// ── Closing Reflection (multi-select) ──────────────────────────────
+// Parents pick ONE or ALL of Story / Songs / Prayer. Each picked mode
+// shows its own input on the same screen, so a family who wants both
+// a story and a closing prayer doesn't have to choose between them.
+// Prayer keeps its "Say & celebrate" button which triggers the full-
+// screen typeset stage + flowers cascade.
 function ReflectionStep({
-  mode,
-  onModeChange,
-  content,
+  modes,
+  onModesChange,
+  contents,
   onContentChange,
-  onCelebrate,
+  onCelebratePrayer,
 }: {
-  mode: ReflectionMode | null;
-  onModeChange: (m: ReflectionMode) => void;
-  content: string;
-  onContentChange: (s: string) => void;
-  onCelebrate: () => void;
+  modes: ReflectionMode[];
+  onModesChange: (next: ReflectionMode[]) => void;
+  contents: Partial<Record<ReflectionMode, string>>;
+  onContentChange: (mode: ReflectionMode, value: string) => void;
+  onCelebratePrayer: () => void;
 }) {
   const choices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
     { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story or a link to read together.' },
@@ -466,90 +725,112 @@ function ReflectionStep({
     { id: 'prayer', emoji: '🙏', title: 'Family Prayer',    sub: 'A short prayer to close the night.' },
   ];
 
-  if (mode === null) {
-    return (
-      <div className="grid gap-4 lg:grid-cols-3">
-        {choices.map((c) => (
-          <button
-            type="button"
-            key={c.id}
-            onClick={() => onModeChange(c.id)}
-            className="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-kaya-gold/60 rounded-kaya-lg p-6 text-left transition-all group"
-          >
-            <div className="text-4xl lg:text-5xl mb-3" aria-hidden>{c.emoji}</div>
-            <div className="font-display font-black text-lg lg:text-xl text-kaya-gold-light mb-1">
-              {c.title}
-            </div>
-            <p className="text-[13px] lg:text-sm text-white/65 leading-relaxed">{c.sub}</p>
-            <div className="mt-4 text-[12px] font-bold text-kaya-gold opacity-0 group-hover:opacity-100 transition-opacity">
-              Choose →
-            </div>
-          </button>
-        ))}
-      </div>
-    );
-  }
+  const isPicked = (id: ReflectionMode) => modes.includes(id);
+  const toggle = (id: ReflectionMode) => {
+    onModesChange(isPicked(id) ? modes.filter((m) => m !== id) : [...modes, id]);
+  };
 
-  const placeholder =
-    mode === 'story' ? 'Paste a story, a verse, or a link…' :
-    mode === 'songs' ? 'Paste a YouTube or Spotify link (or just a song title)…' :
-                       'Paste your family prayer here, or write one fresh…';
+  const placeholderFor = (m: ReflectionMode) =>
+    m === 'story' ? 'Paste a story, a verse, or a link…' :
+    m === 'songs' ? 'Paste a YouTube or Spotify link (or just a song title)…' :
+                    'Paste your family prayer here, or write one fresh…';
 
   return (
-    <div>
-      {/* Back-to-chooser strip */}
-      <button
-        type="button"
-        onClick={() => onModeChange(null as any)}
-        className="text-[12px] lg:text-[13px] text-white/60 hover:text-white mb-4 flex items-center gap-1.5"
-      >
-        ← Choose a different closing
-      </button>
-
-      <div className="bg-white/5 border border-white/10 rounded-kaya-lg p-5 lg:p-7">
-        <div className="flex items-center gap-3 mb-4">
-          <span className="text-3xl">
-            {mode === 'story' ? '📖' : mode === 'songs' ? '🎵' : '🙏'}
-          </span>
-          <h3 className="font-display font-black text-xl lg:text-2xl text-kaya-gold-light">
-            {mode === 'story' ? 'Inspiring Story' : mode === 'songs' ? 'Songs' : 'Family Prayer'}
+    <div className="space-y-7">
+      {/* Multi-select chooser */}
+      <section>
+        <div className="flex items-baseline justify-between mb-3 px-1">
+          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light">
+            Pick one — or all
           </h3>
-          {mode === 'prayer' && (
-            <span className="ml-auto text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
-              AI assist · Soon
+          {modes.length > 0 && (
+            <span className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-white/50">
+              {modes.length} selected
             </span>
           )}
         </div>
+        <div className="grid gap-3 lg:grid-cols-3">
+          {choices.map((c) => {
+            const picked = isPicked(c.id);
+            return (
+              <button
+                type="button"
+                key={c.id}
+                onClick={() => toggle(c.id)}
+                aria-pressed={picked}
+                className={`relative rounded-kaya-lg p-5 lg:p-6 text-left transition-all border-2 ${
+                  picked
+                    ? 'bg-kaya-gold/15 border-kaya-gold'
+                    : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/30'
+                }`}
+              >
+                <div className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-sm font-black bg-white/10 text-white/40">
+                  {picked && <span className="w-7 h-7 rounded-full flex items-center justify-center bg-kaya-gold text-kaya-chocolate">✓</span>}
+                </div>
+                <div className="text-3xl lg:text-4xl mb-2" aria-hidden>{c.emoji}</div>
+                <div className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-1">
+                  {c.title}
+                </div>
+                <p className="text-[12px] lg:text-[13px] text-white/65 leading-relaxed">{c.sub}</p>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
-        <textarea
-          value={content}
-          onChange={(e) => onContentChange(e.target.value)}
-          placeholder={placeholder}
-          rows={mode === 'prayer' ? 8 : 6}
-          className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
-        />
+      {/* Per-mode input — only rendered for modes the parent picked. */}
+      {modes.length > 0 && (
+        <section className="space-y-5">
+          {choices.filter((c) => isPicked(c.id)).map((c) => {
+            const content = contents[c.id] || '';
+            const isPrayer = c.id === 'prayer';
+            const isLink = (c.id === 'story' || c.id === 'songs') && content.trim().startsWith('http');
+            return (
+              <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-5 lg:p-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <span className="text-2xl lg:text-3xl">{c.emoji}</span>
+                  <h4 className="font-display font-black text-lg lg:text-xl text-kaya-gold-light">
+                    {c.title}
+                  </h4>
+                  {isPrayer && (
+                    <span className="ml-auto text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
+                      AI assist · Soon
+                    </span>
+                  )}
+                </div>
+                <textarea
+                  value={content}
+                  onChange={(e) => onContentChange(c.id, e.target.value)}
+                  placeholder={placeholderFor(c.id)}
+                  rows={isPrayer ? 7 : 5}
+                  className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
+                />
 
-        {mode === 'prayer' && (
-          <button
-            type="button"
-            onClick={onCelebrate}
-            className="mt-5 w-full h-13 lg:h-14 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all py-3"
-          >
-            🌸 Say &amp; celebrate
-          </button>
-        )}
+                {isPrayer && (
+                  <button
+                    type="button"
+                    onClick={onCelebratePrayer}
+                    className="mt-4 w-full h-12 lg:h-14 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all"
+                  >
+                    🌸 Say &amp; celebrate
+                  </button>
+                )}
 
-        {(mode === 'story' || mode === 'songs') && content.trim().startsWith('http') && (
-          <a
-            href={content.trim()}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="mt-5 inline-flex items-center gap-2 h-12 lg:h-14 px-6 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors"
-          >
-            🔗 Open link
-          </a>
-        )}
-      </div>
+                {isLink && (
+                  <a
+                    href={content.trim()}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="mt-4 inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
+                  >
+                    🔗 Open link
+                  </a>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      )}
     </div>
   );
 }

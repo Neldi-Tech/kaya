@@ -7,13 +7,18 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
+// Quick-log fallback agenda — kept in sync with the new presenter
+// mode's 6-step flow so what families see in the sidebar matches.
+// Some steps that have rich UI in presenter (attendance toggles, multi-
+// week goals review, multi-select reflection) collapse to a simple
+// inline input here — presenter mode is the recommended path.
 const BASE_AGENDA = [
-  { step: 'Gratitude circle',     icon: '🙏', desc: 'Each person shares something thankful',  hasInputs: 'gratitude' as const },
-  { step: 'Celebrate wins',       icon: '🎉', desc: 'Review top scorers and good behaviors',  hasInputs: null },
-  { step: 'Points review',        icon: '📊', desc: 'Go through weekly performance',          hasInputs: null, requiresFullPoints: true },
-  { step: 'Problem solving',      icon: '🤝', desc: 'Discuss challenges together',            hasInputs: null },
-  { step: 'Goals for next week',  icon: '🎯', desc: 'Each child sets one goal',                hasInputs: 'goals' as const },
-  { step: 'Fun activity vote',    icon: '🗳️', desc: 'Vote on a family reward',                hasInputs: 'notes' as const },
+  { step: 'Attendance',           icon: '👋', desc: 'Who is here + any presentations',                hasInputs: null },
+  { step: 'Gratitude circle',     icon: '🙏', desc: 'Each person shares something thankful',          hasInputs: 'gratitude' as const },
+  { step: 'Celebrate the wins',   icon: '🎉', desc: 'Open the Points Review and walk the week',      hasInputs: null },
+  { step: 'Appreciations',        icon: '💛', desc: 'Kind, helpful, or brave things you noticed',     hasInputs: null },
+  { step: 'Goals review',         icon: '🎯', desc: 'Last week done/not + commit for next week',     hasInputs: 'goals' as const },
+  { step: 'Closing reflection',   icon: '✨', desc: 'Story, songs, or a family prayer',              hasInputs: 'notes' as const },
 ];
 
 export default function MeetingsPage() {
@@ -29,12 +34,10 @@ export default function MeetingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const pointsMode = family?.pointsMode || 'full';
-
-  const agenda = useMemo(() => BASE_AGENDA.filter((item) => {
-    if (item.requiresFullPoints && pointsMode !== 'full') return false;
-    return true;
-  }), [pointsMode]);
+  // Points Review used to be its own filtered step here; it's now
+  // merged into "Celebrate the wins" in presenter mode (link to the
+  // existing /meetings/review screen). The agenda below is fixed.
+  const agenda = BASE_AGENDA;
 
   useEffect(() => {
     if (!profile?.familyId) return;
@@ -114,21 +117,20 @@ export default function MeetingsPage() {
         />
       );
     }
-    if (currentStep.step === 'Points review') {
+    if (currentStep.step === 'Celebrate the wins') {
       return (
         <div className="rounded-kaya bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-white p-5 lg:p-6">
-          <p className="text-[10px] uppercase tracking-[0.2em] text-kaya-gold/80 font-bold mb-1">Presenter mode</p>
+          <p className="text-[10px] uppercase tracking-[0.2em] text-kaya-gold/80 font-bold mb-1">Cast it</p>
           <h4 className="font-display text-lg lg:text-xl font-black mb-1">Open the Points Review</h4>
           <p className="text-xs lg:text-sm text-white/70 leading-relaxed mb-4">
             Full-screen leaderboard plus the <strong>Excellent Belt&reg;</strong> and{' '}
-            <strong>Excellent Ladder&reg;</strong> reveal — perfect for casting to a TV or
-            propping up on the table.
+            <strong>Excellent Ladder&reg;</strong> reveal — perfect for casting to a TV.
           </p>
           <Link
             href="/meetings/review"
             className="inline-flex items-center gap-2 h-11 px-5 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate font-bold text-sm hover:bg-kaya-gold-dark transition-colors"
           >
-            Open presenter <span aria-hidden>→</span>
+            Open Points Review <span aria-hidden>→</span>
           </Link>
         </div>
       );
@@ -227,12 +229,6 @@ export default function MeetingsPage() {
               {meetingType === 'kid-led' && (
                 <div className="bg-orange-50 border border-orange-200 rounded-kaya-sm p-3 mb-4 text-xs text-orange-700 leading-relaxed">
                   🧒 <strong>Kid-Led Mode</strong> — The children lead the meeting using the guided structure. Parents observe and support.
-                </div>
-              )}
-
-              {pointsMode !== 'full' && (
-                <div className="bg-kaya-gold/10 border border-kaya-gold/30 rounded-kaya-sm p-3 mb-4 text-xs text-kaya-gold-dark leading-relaxed">
-                  ℹ️ Points review step is hidden because Points Mode is set to <strong>{pointsMode === 'badges-only' ? 'Badges Only' : 'Encouragement'}</strong>
                 </div>
               )}
 
@@ -417,12 +413,6 @@ export default function MeetingsPage() {
                     })}
                   </ol>
                 </nav>
-
-                {pointsMode !== 'full' && (
-                  <div className="bg-kaya-gold/10 border border-kaya-gold/30 rounded-kaya-sm p-3 text-[11px] text-kaya-gold-dark leading-relaxed">
-                    ℹ️ Points review step is hidden because Points Mode is <strong>{pointsMode === 'badges-only' ? 'Badges Only' : 'Encouragement'}</strong>.
-                  </div>
-                )}
               </aside>
 
               {/* Step content (right) */}
