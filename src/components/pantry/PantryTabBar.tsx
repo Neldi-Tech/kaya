@@ -15,25 +15,33 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Tab bar is intentionally tight on slots — the Household design proposal
 // (v1.1, 2026-05-17) calls for Browse/Meals/Soko to collapse under a
 // "More" sheet once the new modules ship. While we coexist with the
 // legacy /pantry/list route, Purchase takes its slot in the bar and
 // List remains reachable via Pantry home + direct URL.
+//
+// `parentOnly: true` filters the tab out for helpers. Budget is the
+// only one today — household money policy (cap + spend) stays on the
+// parent side.
 const TABS = [
-  { path: '/home',               icon: '🏠', label: 'Kaya',     match: 'kaya' as const },
-  { path: '/pantry',             icon: '🛒', label: 'Home',     match: 'exact' as const },
-  { path: '/pantry/people',      icon: '🤝', label: 'People',   match: 'prefix' as const },
-  { path: '/pantry/purchase',    icon: '🧾', label: 'Purchase', match: 'prefix' as const },
-  { path: '/pantry/directory',   icon: '🧺', label: 'Browse',   match: 'prefix' as const },
-  { path: '/pantry/meals',       icon: '🍽️', label: 'Meals',    match: 'prefix' as const },
-  { path: '/pantry/budget',      icon: '💰', label: 'Budget',   match: 'prefix' as const },
-  { path: '/pantry/suppliers',   icon: '🏪', label: 'Soko',     match: 'prefix' as const },
+  { path: '/home',               icon: '🏠', label: 'Kaya',     match: 'kaya' as const,   parentOnly: false },
+  { path: '/pantry',             icon: '🛒', label: 'Home',     match: 'exact' as const,  parentOnly: false },
+  { path: '/pantry/people',      icon: '🤝', label: 'People',   match: 'prefix' as const, parentOnly: false },
+  { path: '/pantry/purchase',    icon: '🧾', label: 'Purchase', match: 'prefix' as const, parentOnly: false },
+  { path: '/pantry/directory',   icon: '🧺', label: 'Browse',   match: 'prefix' as const, parentOnly: false },
+  { path: '/pantry/meals',       icon: '🍽️', label: 'Meals',    match: 'prefix' as const, parentOnly: false },
+  { path: '/pantry/budget',      icon: '💰', label: 'Budget',   match: 'prefix' as const, parentOnly: true  },
+  { path: '/pantry/suppliers',   icon: '🏪', label: 'Soko',     match: 'prefix' as const, parentOnly: false },
 ];
 
 export default function PantryTabBar() {
   const pathname = usePathname() || '';
+  const { profile } = useAuth();
+  const isParent = profile?.role === 'parent';
+  const visibleTabs = TABS.filter((t) => !t.parentOnly || isParent);
   const isActive = (path: string, match: 'exact' | 'prefix' | 'list-prefix' | 'kaya') => {
     // The Kaya tab never lights up inside /pantry — it's the escape
     // hatch back to the global home, not a state of the section.
@@ -45,7 +53,7 @@ export default function PantryTabBar() {
   return (
     <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-hive-paper border-t border-hive-line z-30 lg:hidden safe-bottom">
       <div className="flex items-center px-1.5 pt-2 pb-4">
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const active = isActive(t.path, t.match);
           return (
             <Link
