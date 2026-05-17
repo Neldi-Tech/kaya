@@ -3,7 +3,7 @@
 // Big honey-gradient card for the Hive Home — "🍯 X coins · +N this week"
 // matching the section-2 mockup feel. Used at the top of /hive only.
 
-import { formatHoney, formatCash } from './format';
+import { formatHoney, formatCash, formatCashClean } from './format';
 
 export default function HoneyPotHero({
   honeyCoins,
@@ -31,7 +31,7 @@ export default function HoneyPotHero({
           <span className="text-[13px] text-hive-muted font-bold">coins</span>
         </div>
         <p className="text-[12px] text-hive-muted font-bold mt-2">
-          ≈ {formatCash(cashEquivalentCents, currency)} if cashed out
+          ≈ {formatCashClean(cashEquivalentCents, currency)} if cashed out
         </p>
         <div className="mt-4 flex items-center gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk">

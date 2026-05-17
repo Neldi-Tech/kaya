@@ -130,6 +130,7 @@ export default function ConvertPage() {
             hpToHoneyRate={config.hpToHoneyRate}
             honeyToCashRate={config.honeyToCashRate}
             currency={config.currency}
+            fxUsdToFamily={fxUsdToFamily}
             variant={mode === 'hp_to_honey' ? 'hp-to-honey' : 'honey-to-cash'}
           />
         </div>
