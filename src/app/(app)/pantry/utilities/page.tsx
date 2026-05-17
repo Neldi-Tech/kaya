@@ -41,10 +41,19 @@ const CADENCES: { id: Cadence; label: string }[] = [
 
 export default function UtilitiesPage() {
   const { profile, isGuest } = useAuth();
-  const { utilities, suppliers } = usePantry();
+  const { utilities: rawUtilities, suppliers } = usePantry();
   const { config, fxUsdToFamily } = useHive();
   const currency = config.currency;
   const fxRate = fxUsdToFamily ?? 1;
+
+  // Filter out 'salary' rows everywhere — salaries belong to the
+  // upcoming Payroll module, not Utilities. Existing salary docs stay
+  // in Firestore until the Payroll migration; they're just hidden
+  // from this surface.
+  const utilities = useMemo(
+    () => rawUtilities.filter((u) => u.category !== 'salary'),
+    [rawUtilities],
+  );
 
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -73,6 +82,14 @@ export default function UtilitiesPage() {
   const ownedNames = useMemo(
     () => new Set(utilities.map((u) => u.name.toLowerCase())),
     [utilities],
+  );
+
+  // Categories shown in the filter row + add/edit picker. Salary is
+  // suppressed here too — keeps the picker honest about what Utilities
+  // covers today.
+  const VISIBLE_UTILITY_CATEGORIES = useMemo(
+    () => UTILITY_CATEGORIES.filter((c) => c.id !== 'salary'),
+    [],
   );
 
   const addStarterPack = async (pack: UtilityStarterPack) => {
@@ -111,7 +128,7 @@ export default function UtilitiesPage() {
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Pantry · Utilities</p>
-          <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Bills &amp; salaries 🧾</h1>
+          <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Bills 🧾</h1>
         </div>
         {!isGuest && (
           <button
@@ -152,7 +169,7 @@ export default function UtilitiesPage() {
       {/* Filter chips */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
         <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
-        {UTILITY_CATEGORIES.map((c) => (
+        {VISIBLE_UTILITY_CATEGORIES.map((c) => (
           <Chip key={c.id} active={filter === c.id} onClick={() => setFilter(c.id)}>
             {c.emoji} {c.label}
           </Chip>
@@ -820,7 +837,7 @@ function UtilityForm({
       <div>
         <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">Category</label>
         <div className="flex flex-wrap gap-1.5">
-          {UTILITY_CATEGORIES.map((c) => {
+          {UTILITY_CATEGORIES.filter((c) => c.id !== 'salary').map((c) => {
             const sel = category === c.id;
             return (
               <button

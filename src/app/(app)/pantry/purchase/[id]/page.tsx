@@ -40,7 +40,14 @@ export default function PurchaseDetailPage() {
   const { staples } = usePantry();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
-  const approvalMode: 'either' | 'both' = family?.approvalMode === 'both' ? 'both' : 'either';
+  // Per-category approval policy: try the explicit `pantry` entry first
+  // (set in Settings → Household policies), fall back to the legacy
+  // family-wide `approvalMode`, then to 'either'. Keeps existing
+  // families on whatever they had set before per-category landed.
+  const approvalMode: 'either' | 'both' =
+    family?.approvalModes?.pantry
+    ?? family?.approvalMode
+    ?? 'either';
 
   const [req, setReq] = useState<PurchaseRequest | null>(null);
   const [loading, setLoading] = useState(true);
