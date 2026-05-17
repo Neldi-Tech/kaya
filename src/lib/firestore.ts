@@ -288,6 +288,42 @@ export interface HelperLink {
   createdBy: string;                                         // parent UID who added them
 }
 
+// ── Helper Workplan ──────────────────────────────
+// The helper's own task list — distinct from kid routines. Parent
+// defines recurring items per day-of-week (e.g. "Make beds" on
+// Mon–Sat morning, "Do laundry" on Tue+Thu). Helper sees today's set
+// on /helper as a tap-to-check list, then optionally adds an EoD note.
+//
+// Two collections per helper:
+//   /families/{f}/helpers/{uid}/workplanItems/{itemId}       — definitions
+//   /families/{f}/helpers/{uid}/workplanCompletions/{date}   — per-day state
+//
+// Daily completion is one doc per date keyed by YYYY-MM-DD; it stores
+// the set of completed item ids + the EoD note. This makes "what
+// % of today is done" a single get + array compare.
+
+export type DayOfWeek = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+export type WorkplanPeriod = 'morning' | 'evening' | 'anytime';
+
+export interface WorkplanItem {
+  id: string;
+  label: string;                       // e.g. "Make beds"
+  icon: string;                        // emoji — surfaced as a big tile on the helper view
+  daysOfWeek: DayOfWeek[];             // which days this recurs (empty = never)
+  period: WorkplanPeriod;              // groups tiles on the helper view; 'anytime' is the default
+  active: boolean;                     // soft on/off without deleting (audit)
+  createdAt: Timestamp;
+  createdBy: string;                   // parent UID
+}
+
+export interface WorkplanCompletion {
+  date: string;                        // YYYY-MM-DD, doc id
+  completedItemIds: string[];          // which workplanItems were checked off today
+  eodNote?: string;                    // free-text end-of-day summary
+  updatedAt: Timestamp;
+  updatedBy: string;                   // typically helper UID; parent UID if they corrected
+}
+
 // Per-role invite code with lifecycle state. Stored under
 // `Family.inviteCodes.{role}`. See the comment on `Family.inviteCodes`
 // for the activation/expiry policy.

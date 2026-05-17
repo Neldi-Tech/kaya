@@ -189,6 +189,27 @@ service cloud.firestore {
       match /helpers/{helperUid} {
         allow read: if isParentInFamily(familyId) || request.auth.uid == helperUid;
         allow create, update, delete: if isParentInFamily(familyId);
+
+        // ── Workplan items (parent-defined recurring tasks) ────
+        // Parents author + edit; the helper themselves can read.
+        // Other helpers in the family cannot see another helper's
+        // workplan — gated to this helper's own uid.
+        match /workplanItems/{itemId} {
+          allow read: if isParentInFamily(familyId)
+            || request.auth.uid == helperUid;
+          allow create, update, delete: if isParentInFamily(familyId);
+        }
+
+        // ── Workplan completions (helper-authored per-day state) ─
+        // Helper updates their OWN completions (check off items,
+        // write EoD note). Parent can also write — useful when the
+        // helper forgot or made a mistake. Both can read.
+        match /workplanCompletions/{date} {
+          allow read: if isParentInFamily(familyId)
+            || request.auth.uid == helperUid;
+          allow create, update, delete: if isParentInFamily(familyId)
+            || request.auth.uid == helperUid;
+        }
       }
 
       // ── Awards ───────────────────────────────────
