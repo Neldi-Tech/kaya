@@ -14,6 +14,7 @@ import {
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import KidAvatar from '@/components/ui/KidAvatar';
+import PerformanceCard from '@/components/helpers/PerformanceCard';
 import { ShieldCheck, Lock, Check, ClipboardList } from 'lucide-react';
 import { KID_MODULES } from '@/lib/kidModules';
 import { HELPER_MODULE_KEY_LABEL } from '@/lib/helperModules';
@@ -193,6 +194,19 @@ export default function HelperPage() {
         />
       )}
 
+      {/* The helper's own performance — big face + today % + 7-day
+          avg. Compact so it sits naturally between workplan + kids. */}
+      {link && profile && profile.familyId && (
+        <div className="mb-5 lg:mb-7">
+          <PerformanceCard
+            familyId={profile.familyId}
+            helperUid={profile.uid}
+            compact
+            days={7}
+          />
+        </div>
+      )}
+
       {/* Children overview */}
       {scopeLoaded && visibleChildren.length === 0 && (
         <div className="bg-white border border-dashed border-kaya-warm-dark rounded-kaya-lg p-6 text-center mb-6">
@@ -265,6 +279,23 @@ export default function HelperPage() {
           </div>
         </div>
       )}
+
+      {/* Household · Purchase entry — surfaced unconditionally for v1 so
+          helpers can find the new request → approve → reconcile flow.
+          Firestore rule allows legacy helpers + helpers with the
+          `household/purchase` sub-grant; others see an empty list
+          rather than a permission error. */}
+      <button
+        onClick={() => router.push('/pantry/purchase')}
+        className="mt-3 lg:mt-4 w-full lg:max-w-2xl bg-white border border-kaya-warm-dark rounded-kaya p-4 flex items-center gap-3 hover:shadow-md transition-all text-left"
+      >
+        <span className="text-2xl lg:text-3xl">🧾</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-sm lg:text-base">Pantry · Purchase</p>
+          <p className="text-xs text-kaya-sand">Build a shop request, send for approval, reconcile after.</p>
+        </div>
+        <span className="text-kaya-sand text-xl">›</span>
+      </button>
     </div>
   );
 }

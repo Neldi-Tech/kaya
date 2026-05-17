@@ -412,6 +412,25 @@ service cloud.firestore {
           || isLegacyHelperWithoutLink(familyId);
       }
 
+      // ── Purchase requests (Household → Purchase v1) ──────────────
+      // The request → approve → reconcile loop that actually debits the
+      // Household budget. Coexists with `groceryLists` for now. Gated by
+      // a new `household/purchase` sub-grant so a Gardener can be given
+      // External-only access later without inheriting Pantry Purchase
+      // permission. Parents are always allowed; helpers need the sub.
+      //
+      // v1 keeps the rule simple: any signed-in family member with the
+      // grant can write the whole doc. Approval semantics (status
+      // transitions, "Both parents must approve") are enforced in the
+      // UI for now and will tighten into rule-level validators when
+      // step 2 (Approval mode) lands.
+      match /purchaseRequests/{requestId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperCanActOnSub(familyId, 'household', 'purchase')
+          || isLegacyHelperWithoutLink(familyId);
+      }
+
       // ── Moments · Keepsake Albums ────────────────────────────────
       // Family photo repository. Each album has its own access list;
       // sub-albums inherit-then-narrow (their accessList must be a

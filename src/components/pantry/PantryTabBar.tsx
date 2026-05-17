@@ -16,14 +16,20 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
+// Tab bar is intentionally tight on slots — the Household design proposal
+// (v1.1, 2026-05-17) calls for Browse/Meals/Soko to collapse under a
+// "More" sheet once the new modules ship. While we coexist with the
+// legacy /pantry/list route, Purchase takes its slot in the bar and
+// List remains reachable via Pantry home + direct URL.
 const TABS = [
-  { path: '/home',               icon: '🏠', label: 'Kaya',   match: 'kaya' as const },
-  { path: '/pantry',             icon: '🛒', label: 'Home',   match: 'exact' as const },
-  { path: '/pantry/list/active', icon: '📝', label: 'List',   match: 'list-prefix' as const },
-  { path: '/pantry/directory',   icon: '🧺', label: 'Browse', match: 'prefix' as const },
-  { path: '/pantry/meals',       icon: '🍽️', label: 'Meals',  match: 'prefix' as const },
-  { path: '/pantry/budget',      icon: '💰', label: 'Budget', match: 'prefix' as const },
-  { path: '/pantry/suppliers',   icon: '🏪', label: 'Soko',   match: 'prefix' as const },
+  { path: '/home',               icon: '🏠', label: 'Kaya',     match: 'kaya' as const },
+  { path: '/pantry',             icon: '🛒', label: 'Home',     match: 'exact' as const },
+  { path: '/pantry/people',      icon: '🤝', label: 'People',   match: 'prefix' as const },
+  { path: '/pantry/purchase',    icon: '🧾', label: 'Purchase', match: 'prefix' as const },
+  { path: '/pantry/directory',   icon: '🧺', label: 'Browse',   match: 'prefix' as const },
+  { path: '/pantry/meals',       icon: '🍽️', label: 'Meals',    match: 'prefix' as const },
+  { path: '/pantry/budget',      icon: '💰', label: 'Budget',   match: 'prefix' as const },
+  { path: '/pantry/suppliers',   icon: '🏪', label: 'Soko',     match: 'prefix' as const },
 ];
 
 export default function PantryTabBar() {
