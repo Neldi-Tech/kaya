@@ -289,6 +289,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const inPantrySection = !!pathname?.startsWith('/pantry');
   const inSectionWithOwnTabBar = inHiveSection || inPantrySection;
 
+  // Full-screen routes — the page renders its own chrome edge-to-edge
+  // and the AppShell's sidebar + top header would only steal width.
+  // Today: the Family Meeting presenter (cast-friendly, dark backdrop,
+  // wants the whole window). Add other routes here as they ship.
+  const isFullScreenRoute = !!pathname?.startsWith('/meetings/present');
+
   // Parent-controlled set of modules a kid is allowed to see. Falls back
   // to `DEFAULT_KID_MODULES` (slim default) when the family hasn't
   // customised. Home is always included.
@@ -617,6 +623,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     const _exhaustive: never = row;
     return _exhaustive;
   };
+
+  // Full-screen routes render their own chrome (presenter mode, etc.)
+  // — bypass the whole AppShell wrap so the page gets the full window
+  // with no sidebar / top header / bottom nav stealing space.
+  if (isFullScreenRoute) {
+    return <div className="min-h-screen bg-kaya-cream">{children}</div>;
+  }
 
   return (
     <div className="min-h-screen bg-kaya-cream">
