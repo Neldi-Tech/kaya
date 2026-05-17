@@ -48,6 +48,23 @@ export const KID_MODULES: KidModule[] = [
   { id: 'home',      label: 'Home',           icon: '🏠', path: '/kid', alwaysOn: true },
   { id: 'moments',   label: 'Moments',        icon: '📸', path: '/moments' },
   {
+    // Kaya · the point system. Parent surface lives in /rate /award
+    // /meetings /rewards; the kid surface is a view-only roll-up of
+    // their own scores + badges. Exposing Kaya as a top-level toggle
+    // lets parents (a) hide point-system surface from a kid who
+    // doesn't engage with it, and (b) light up Kaya in the helper
+    // access cards (no more "family disabled" badge there for
+    // families that have Kaya on). Sub-pages mirror the helper-side
+    // map so the two views stay symmetric.
+    id: 'kaya', label: 'Kaya', icon: '🏛️', path: '/kid',
+    subModules: [
+      { id: 'rate',     label: 'Rate routines', icon: '📋', path: '/rate' },
+      { id: 'award',    label: 'Award points',  icon: '🎖️', path: '/award' },
+      { id: 'meetings', label: 'Meetings',      icon: '👨‍👩‍👧‍👦', path: '/meetings' },
+      { id: 'rewards',  label: 'Rewards',       icon: '🎁', path: '/rewards' },
+    ],
+  },
+  {
     id: 'household', label: 'Household', icon: '🏡', path: '/pantry',
     subModules: [
       { id: 'meals',     label: 'Meals',         icon: '🍽️', path: '/pantry/meals' },
@@ -74,7 +91,7 @@ export const KID_MODULES: KidModule[] = [
 
 // Default set granted to kids when `Family.kidModules` is undefined.
 // Slim by design — parents opt their kids into more via Settings.
-export const DEFAULT_KID_MODULES = ['home', 'moments', 'hive', 'fun'];
+export const DEFAULT_KID_MODULES = ['home', 'moments', 'kaya', 'hive', 'fun'];
 
 /** Resolve the granted module-id set for a family. Adds `home`
  *  unconditionally and falls back to {@link DEFAULT_KID_MODULES} when

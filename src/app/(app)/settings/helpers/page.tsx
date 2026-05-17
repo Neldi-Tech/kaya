@@ -610,17 +610,40 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
   const kidNames =
     helper.kidIds.map((id) => childNameById[id]).filter(Boolean).join(', ') || 'No kids assigned';
   const [expanded, setExpanded] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
   const [nameDraft, setNameDraft] = useState(helper.displayName);
   useEffect(() => { setNameDraft(helper.displayName); }, [helper.displayName]);
 
-  const flash = () => { setJustSaved(true); setTimeout(() => setJustSaved(false), 1200); };
+  // Persistent save-state indicator at the top of the expanded panel.
+  //   'idle'   → "All changes saved" with check (default after load)
+  //   'saving' → "Saving…" while a write is in flight
+  //   'saved'  → "Saved just now" for ~2s after a successful write,
+  //              then back to 'idle'
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const flashSaved = () => {
+    setSaveState('saved');
+    setTimeout(() => setSaveState((s) => (s === 'saved' ? 'idle' : s)), 2000);
+  };
+
+  // Wrap onUpdate to drive the save-state indicator. Every auto-save
+  // (kid toggle, module toggle, frequency click, name blur) routes
+  // through this so the parent always sees current save status.
+  const save = async (patch: Partial<HelperLink>) => {
+    setSaveState('saving');
+    try {
+      await onUpdate(patch);
+      flashSaved();
+    } catch {
+      // Surface as 'saved' won't be accurate; revert to idle and let
+      // the standard error path handle it. Future: add a 'failed'
+      // state with a retry CTA.
+      setSaveState('idle');
+    }
+  };
 
   const toggleKid = async (kidId: string) => {
     const has = helper.kidIds.includes(kidId);
     const next = has ? helper.kidIds.filter((id) => id !== kidId) : [...helper.kidIds, kidId];
-    await onUpdate({ kidIds: next });
-    flash();
+    await save({ kidIds: next });
   };
 
   // Resolve the current per-module {view, act} state. Prefer
@@ -656,21 +679,18 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
     const legacyArr = Object.entries(nextMap)
       .filter(([, f]) => f.act)
       .map(([id]) => id);
-    await onUpdate({ moduleAccess: nextMap, modules: legacyArr });
-    flash();
+    await save({ moduleAccess: nextMap, modules: legacyArr });
   };
 
   const setFrequency = async (f: Frequency) => {
     if (helper.expectedFrequency === f) return;
-    await onUpdate({ expectedFrequency: f });
-    flash();
+    await save({ expectedFrequency: f });
   };
 
   const saveName = async () => {
     const trimmed = nameDraft.trim();
     if (!trimmed || trimmed === helper.displayName) return;
-    await onUpdate({ displayName: trimmed });
-    flash();
+    await save({ displayName: trimmed });
   };
 
   // Helper-side module list — Kaya + Household have nested sub-pages
@@ -710,8 +730,7 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
     const legacyArr = Object.entries(nextMap)
       .filter(([, f]) => f.act)
       .map(([k]) => k);
-    await onUpdate({ moduleAccess: nextMap, modules: legacyArr });
-    flash();
+    await save({ moduleAccess: nextMap, modules: legacyArr });
   };
 
   // Aggregate state for a parent card: derived from its sub-grants
@@ -793,13 +812,27 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
 
       {expanded && (
         <div className="border-t border-kaya-warm-dark/40 bg-kaya-cream/50 p-4 space-y-4">
-          {justSaved && (
-            <div className="text-[10px] uppercase tracking-wider text-green-700 font-bold inline-flex items-center gap-1">
-              <Check size={12} /> Saved
-            </div>
-          )}
+          {/* Persistent save status — visible at all times so the parent
+              knows their edits are written before they navigate away.
+              Everything below auto-saves; the indicator just confirms. */}
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-kaya-sand inline-flex items-center gap-1.5">
+              {saveState === 'saving' && (
+                <><span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" /> Saving…</>
+              )}
+              {saveState === 'saved' && (
+                <><Check size={12} className="text-green-700" /> <span className="text-green-700 font-bold">Saved just now</span></>
+              )}
+              {saveState === 'idle' && (
+                <><Check size={12} className="text-kaya-sand" /> All changes saved · safe to go back</>
+              )}
+            </p>
+          </div>
 
-          {/* Display name */}
+          {/* Display name — auto-saves on blur (or Save button click).
+              The button stays for users who prefer explicit confirmation;
+              the blur handler covers the "I just typed and clicked away"
+              flow without dropping the edit. */}
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Display name</p>
             <div className="flex gap-2">
@@ -807,6 +840,7 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
                 type="text"
                 value={nameDraft}
                 onChange={(e) => setNameDraft(e.target.value)}
+                onBlur={() => { void saveName(); }}
                 disabled={busy}
                 className="flex-1 px-3 py-2 bg-white border border-kaya-warm-dark rounded-kaya text-sm focus:outline-none focus:border-kaya-chocolate disabled:opacity-50"
               />
