@@ -485,7 +485,12 @@ function BehaviourTab({
   // Resets to All whenever the window changes so a parent who picked
   // Bad for last week isn't surprised by an empty tab this week.
   const [filter, setFilter] = useState<BehaviourFilter>('all');
-  useEffect(() => { setFilter('all'); }, [comments]);
+  // Per-kid filter — declutters the tab when a family has 3+ kids. The
+  // value 'all' shows every kid stacked; a child id shows just that
+  // kid's section. Reset to 'all' whenever the underlying window
+  // changes so a stale selection doesn't hide everything next week.
+  const [kidFilter, setKidFilter] = useState<string>('all');
+  useEffect(() => { setFilter('all'); setKidFilter('all'); }, [comments]);
   // Aggregate dayScores per kid → routines completed + excellent count +
   // worst (lowest-excellent) day. Build this regardless of whether there
   // are comments — the tab now leads with the count + dip callout and
@@ -580,11 +585,59 @@ function BehaviourTab({
         }}
       />
 
-      {/* Filter chips — All / Excellent / Bad */}
+      {/* Per-kid filter — declutters the tab when there are multiple
+          kids. Only shows when there's more than one kid with
+          activity in the window. */}
+      {kidIds.size > 1 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-white/45 mr-1">
+            Kid:
+          </span>
+          {(() => {
+            const onAll = kidFilter === 'all';
+            return (
+              <button
+                type="button"
+                onClick={() => setKidFilter('all')}
+                aria-pressed={onAll}
+                className={`px-3.5 py-1.5 rounded-full text-[12px] lg:text-[13px] font-display font-extrabold transition-colors ${
+                  onAll ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                All kids <span className="ml-1 opacity-70 font-bold">{kidIds.size}</span>
+              </button>
+            );
+          })()}
+          {Array.from(kidIds).map((childId) => {
+            const child = childById.get(childId);
+            if (!child) return null;
+            const on = kidFilter === childId;
+            return (
+              <button
+                type="button"
+                key={childId}
+                onClick={() => setKidFilter(childId)}
+                aria-pressed={on}
+                className={`px-3 py-1.5 rounded-full text-[12px] lg:text-[13px] font-display font-extrabold transition-colors flex items-center gap-1.5 ${
+                  on ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+              >
+                <span className="text-base leading-none">{child.avatarEmoji || '👧'}</span>
+                {child.name}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Tone filter — All / Excellent / Bad */}
       {comments.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-white/45 mr-1">
+            Notes:
+          </span>
           {([
-            { id: 'all' as const,       label: 'All notes',     count: toneCounts.all,       cls: 'bg-white/10 text-white hover:bg-white/20', active: 'bg-kaya-gold text-kaya-chocolate' },
+            { id: 'all' as const,       label: 'All',           count: toneCounts.all,       cls: 'bg-white/10 text-white hover:bg-white/20', active: 'bg-kaya-gold text-kaya-chocolate' },
             { id: 'excellent' as const, label: '👍 Excellent',  count: toneCounts.excellent, cls: 'bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20', active: 'bg-emerald-500 text-white' },
             { id: 'bad' as const,       label: '👎 Bad',        count: toneCounts.bad,       cls: 'bg-rose-500/10 text-rose-200 hover:bg-rose-500/20', active: 'bg-rose-500 text-white' },
           ]).map((f) => {
@@ -607,13 +660,16 @@ function BehaviourTab({
       {Array.from(kidIds).map((childId) => {
         const child = childById.get(childId);
         if (!child) return null;
+        // Per-kid filter — when a specific kid is selected, hide the
+        // other kids' sections so the parent reads one focused view.
+        if (kidFilter !== 'all' && kidFilter !== childId) return null;
         const stats = perKid.get(childId);
         const entries = commentsByChild.get(childId) ?? [];
         const worst = stats?.worstDay || null;
         const worstReasonRoutines = worst
           ? worst.badRoutineIds.map((id) => routineNameById.get(id) || id).filter(Boolean)
           : [];
-        // If the filter is narrowing, only render kids that still
+        // If the tone filter is narrowing, only render kids that still
         // have anything to show under that filter (otherwise the
         // section is just an empty header).
         if (filter !== 'all' && entries.length === 0) return null;
