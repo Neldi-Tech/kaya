@@ -14,6 +14,7 @@ import {
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import KidAvatar from '@/components/ui/KidAvatar';
+import PerformanceCard from '@/components/helpers/PerformanceCard';
 import { ShieldCheck, Lock, Check, ClipboardList } from 'lucide-react';
 import { KID_MODULES } from '@/lib/kidModules';
 import { HELPER_MODULE_KEY_LABEL } from '@/lib/helperModules';
@@ -32,6 +33,7 @@ const PRESET_LABEL: Record<HelperLink['preset'], string> = {
   nanny: 'Nanny',
   tutor: 'Tutor',
   driver: 'Driver',
+  gardener: 'Gardener',
   grandparent: 'Grandparent',
   custom: 'Custom',
 };
@@ -191,6 +193,19 @@ export default function HelperPage() {
           familyId={profile.familyId}
           helperUid={profile.uid}
         />
+      )}
+
+      {/* The helper's own performance — face emoji + today % + 7-day
+          avg. Compact so it sits naturally between workplan + kids. */}
+      {link && profile && profile.familyId && (
+        <div className="mb-5 lg:mb-7">
+          <PerformanceCard
+            familyId={profile.familyId}
+            helperUid={profile.uid}
+            compact
+            days={7}
+          />
+        </div>
       )}
 
       {/* Children overview */}
