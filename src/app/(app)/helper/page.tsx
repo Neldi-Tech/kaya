@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { todayString, type HelperLink } from '@/lib/firestore';
-import { getHelperLink } from '@/lib/helpers';
+import { getHelperLink, isHelperSessionExpired, clearHelperSession } from '@/lib/helpers';
+import { auth } from '@/lib/firebase';
+import { signOut } from 'firebase/auth';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { ShieldCheck } from 'lucide-react';
 
@@ -22,7 +24,23 @@ const PRESET_LABEL: Record<HelperLink['preset'], string> = {
 export default function HelperPage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { children, family } = useFamily();
+
+  // Session-length enforcement. The family's `helperSessionDays`
+  // (default 30) sets how long a helper stays signed in after their
+  // last sign-in. We compare against the localStorage stamp written
+  // by `signInHelperWithCodes`. Helpers from before the stamp was
+  // introduced just keep going (no stamp = no expiry) until their
+  // next sign-in writes one.
+  useEffect(() => {
+    if (!profile || profile.role !== 'helper' || !family) return;
+    if (!isHelperSessionExpired(family.helperSessionDays)) return;
+    (async () => {
+      clearHelperSession();
+      try { await signOut(auth); } catch { /* noop */ }
+      router.replace('/h/login?expired=1');
+    })();
+  }, [profile, family, router]);
 
   // Per-helper scope. If a HelperLink doc exists for this user we
   // filter the kid list down to its `kidIds` and show their assigned

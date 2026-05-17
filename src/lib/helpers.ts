@@ -32,6 +32,44 @@ import {
 
 const HELPER_EMAIL_DOMAIN = 'helper.kaya.app';
 
+// ── Helper session lifecycle ──────────────────────
+// localStorage key that tracks when the helper most recently signed
+// in. Compared against `Family.helperSessionDays` on each helper page
+// load (see /helper/page.tsx) to auto-expire stale sessions. We use
+// localStorage rather than a Firestore doc because (a) it works
+// offline and (b) it avoids an extra read on every page load.
+export const HELPER_SESSION_STARTED_AT_KEY = 'kaya.helper.sessionStartedAt';
+export const DEFAULT_HELPER_SESSION_DAYS = 30;
+
+export function markHelperSessionStart(): void {
+  try { localStorage.setItem(HELPER_SESSION_STARTED_AT_KEY, String(Date.now())); }
+  catch { /* private mode or quota — non-fatal */ }
+}
+
+export function clearHelperSession(): void {
+  try { localStorage.removeItem(HELPER_SESSION_STARTED_AT_KEY); }
+  catch { /* noop */ }
+}
+
+/** Returns true when the helper's session has outlived the family's
+ *  configured `helperSessionDays`. Helpers signed in before this
+ *  feature shipped have no stamp — we treat them as "fresh" so they
+ *  aren't immediately bounced; the stamp gets written on their next
+ *  sign-in. */
+export function isHelperSessionExpired(helperSessionDays: number | undefined): boolean {
+  try {
+    const raw = localStorage.getItem(HELPER_SESSION_STARTED_AT_KEY);
+    if (!raw) return false;
+    const startedAt = Number(raw);
+    if (!Number.isFinite(startedAt) || startedAt <= 0) return false;
+    const days = helperSessionDays ?? DEFAULT_HELPER_SESSION_DAYS;
+    const ttlMs = Math.max(1, days) * 86_400_000;
+    return Date.now() > startedAt + ttlMs;
+  } catch {
+    return false;
+  }
+}
+
 // ── Code generators ───────────────────────────────
 // 4-char alphanumeric, ambiguity-stripped (no 0/O/1/I/L) per the
 // design decision. Used for both familyCode and (default) helperCode.
@@ -266,6 +304,9 @@ export async function signInHelperWithCodes(
   if (!link || link.status !== 'active') {
     throw new Error('This helper account is not active. Ask your family to re-enable it.');
   }
+  // Stamp the start of this session so the family's helperSessionDays
+  // cap (default 30) can force re-sign-in once expired.
+  markHelperSessionStart();
   return { uid: cred.user.uid, familyId: family.id };
 }
 

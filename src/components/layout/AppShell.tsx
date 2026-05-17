@@ -111,10 +111,11 @@ type MobileGroup =
 // ── Parent nav items ─────────────────────────────────────────────────
 // Kaya · point system. The original parenting loop.
 const KAYA_NAV: NavItem[] = [
-  { path: '/rate',     icon: '📋',           label: 'Rate routines',  mobileLabel: 'Rate' },
-  { path: '/award',    icon: '🎖️',          label: 'Award points',   mobileLabel: 'Award' },
-  { path: '/meetings', icon: '👨‍👩‍👧‍👦', label: 'Family meeting', mobileLabel: 'Meet' },
-  { path: '/rewards',  icon: '🎁',           label: 'Rewards',        mobileLabel: 'Rewards' },
+  { path: '/rate',            icon: '📋',           label: 'Rate routines',   mobileLabel: 'Rate' },
+  { path: '/award',           icon: '🎖️',          label: 'Award points',    mobileLabel: 'Award' },
+  { path: '/meetings',        icon: '👨‍👩‍👧‍👦', label: 'Family meeting',  mobileLabel: 'Meet' },
+  { path: '/rewards',         icon: '🎁',           label: 'Rewards',         mobileLabel: 'Rewards' },
+  { path: '/parent/rewards',  icon: '⚙️',           label: 'Manage rewards',  mobileLabel: 'Manage' },
 ];
 
 // Household · runs the home. Pantry today; shopping list, meal plan,

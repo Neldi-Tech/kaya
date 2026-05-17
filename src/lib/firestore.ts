@@ -178,6 +178,16 @@ export interface Family {
   // populated by `ensureFamilyCode()` on first Settings → Helpers
   // open so legacy families pick it up without a migration.
   familyCode?: string;
+  // ── Helper session length ────────────────────────────────────
+  // How long (in days) a helper stays signed in after their last
+  // sign-in before being asked to re-enter their codes. Family-wide
+  // (applies to every helper). Default 30. Implementation: on
+  // sign-in we stamp localStorage with `Date.now()`; on each helper
+  // page load we compare against `now - days * 86400000` and force
+  // sign-out if past. A shortened value takes effect immediately
+  // for already-signed-in helpers — they get bounced on their next
+  // page load.
+  helperSessionDays?: number;
   createdAt: Timestamp;
 }
 
@@ -426,7 +436,23 @@ export interface Reward {
   pointsCost: number;
   icon: string;
   active: boolean;
+  // Category is free-text so parents can name buckets however they like
+  // (Treats, Privileges, Outings, Family-only…). Optional for backward
+  // compat with rewards seeded before categories existed — those fall
+  // back to DEFAULT_REWARD_CATEGORY on display.
+  category?: string;
 }
+
+// Seed categories shown in the dropdown the first time a parent opens
+// the manage page. Plain English per Kaya naming convention.
+export const DEFAULT_REWARD_CATEGORIES: { name: string; icon: string }[] = [
+  { name: 'Treats',      icon: '🍦' },
+  { name: 'Privileges',  icon: '🌙' },
+  { name: 'Experiences', icon: '🎫' },
+  { name: 'Things',      icon: '🎁' },
+];
+
+export const DEFAULT_REWARD_CATEGORY = 'Treats';
 
 export interface Notification {
   id: string;
@@ -525,12 +551,12 @@ export function inferAwardKind(award: Pick<Award, 'kind' | 'category' | 'points'
 
 // ── Default Rewards ──────────────────────────────
 export const DEFAULT_REWARDS: Omit<Reward, 'id'>[] = [
-  { title: 'Extra screen time (30 min)', description: 'Earn 30 minutes of extra tablet/TV time', pointsCost: 20, icon: '📱', active: true },
-  { title: 'Choose dinner menu', description: 'Pick what the family eats for dinner', pointsCost: 30, icon: '🍕', active: true },
-  { title: 'Stay up 30 min late', description: 'Bedtime pushed back by 30 minutes', pointsCost: 25, icon: '🌙', active: true },
-  { title: 'Ice cream trip', description: 'Family trip to get ice cream', pointsCost: 50, icon: '🍦', active: true },
-  { title: 'New book or toy', description: 'Choose a new book or small toy', pointsCost: 100, icon: '🎁', active: true },
-  { title: 'Friend sleepover', description: 'Have a friend sleep over for one night', pointsCost: 150, icon: '🏠', active: true },
+  { title: 'Extra screen time (30 min)', description: 'Earn 30 minutes of extra tablet/TV time', pointsCost: 20, icon: '📱', active: true, category: 'Privileges' },
+  { title: 'Choose dinner menu', description: 'Pick what the family eats for dinner', pointsCost: 30, icon: '🍕', active: true, category: 'Privileges' },
+  { title: 'Stay up 30 min late', description: 'Bedtime pushed back by 30 minutes', pointsCost: 25, icon: '🌙', active: true, category: 'Privileges' },
+  { title: 'Ice cream trip', description: 'Family trip to get ice cream', pointsCost: 50, icon: '🍦', active: true, category: 'Treats' },
+  { title: 'New book or toy', description: 'Choose a new book or small toy', pointsCost: 100, icon: '🎁', active: true, category: 'Things' },
+  { title: 'Friend sleepover', description: 'Have a friend sleep over for one night', pointsCost: 150, icon: '🏠', active: true, category: 'Experiences' },
 ];
 
 // ── Badge Definitions ─────────────────────────────
@@ -1721,6 +1747,16 @@ export async function getRewards(familyId: string): Promise<Reward[]> {
 export async function addReward(familyId: string, reward: Omit<Reward, 'id'>) {
   if (isGuestActive()) return { id: 'guest-reward' } as any;
   return addDoc(collection(db, 'families', familyId, 'rewards'), reward);
+}
+
+export async function updateReward(familyId: string, rewardId: string, patch: Partial<Omit<Reward, 'id'>>) {
+  if (isGuestActive()) return;
+  await updateDoc(doc(db, 'families', familyId, 'rewards', rewardId), patch);
+}
+
+export async function deleteReward(familyId: string, rewardId: string) {
+  if (isGuestActive()) return;
+  await deleteDoc(doc(db, 'families', familyId, 'rewards', rewardId));
 }
 
 export async function redeemReward(familyId: string, childId: string, reward: Reward) {

@@ -1,13 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { redeemReward, Reward } from '@/lib/firestore';
+import {
+  redeemReward, Reward,
+  DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
+} from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
+
+const iconForCategory = (name: string) =>
+  DEFAULT_REWARD_CATEGORIES.find((c) => c.name === name)?.icon || '🏷️';
 
 export default function RewardsPage() {
   const { profile } = useAuth();
@@ -15,10 +22,36 @@ export default function RewardsPage() {
   const [selectedChild, setSelectedChild] = useState(0);
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
   const child = children[selectedChild];
   const isParent = profile?.role === 'parent';
   const activeRewards = rewards.filter((r) => r.active);
+
+  // Distinct categories present in the active reward set, in alpha order.
+  const categories = useMemo(() => {
+    const set = new Set(activeRewards.map((r) => r.category || DEFAULT_REWARD_CATEGORY));
+    return Array.from(set).sort();
+  }, [activeRewards]);
+
+  // Rewards filtered by the active category pill (null = show all).
+  const visibleRewards = useMemo(() => {
+    if (!activeCategory) return activeRewards;
+    return activeRewards.filter((r) => (r.category || DEFAULT_REWARD_CATEGORY) === activeCategory);
+  }, [activeRewards, activeCategory]);
+
+  // Grouped buckets for the "All" view — rendered as category sections
+  // so kids can scan by type instead of one giant scroll.
+  const groupedRewards = useMemo(() => {
+    const map = new Map<string, Reward[]>();
+    for (const r of visibleRewards) {
+      const key = r.category || DEFAULT_REWARD_CATEGORY;
+      const bucket = map.get(key) || [];
+      bucket.push(r);
+      map.set(key, bucket);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, [visibleRewards]);
 
   const handleRedeem = async (reward: Reward) => {
     if (!profile?.familyId || !child) return;
@@ -82,56 +115,109 @@ export default function RewardsPage() {
           </div>
         )}
 
-        <div className="space-y-3">
-          {activeRewards.map((reward) => {
-            const canAfford = (child?.totalPoints || 0) >= reward.pointsCost;
-            const remaining = reward.pointsCost - (child?.totalPoints || 0);
-            const progress = Math.min(100, ((child?.totalPoints || 0) / reward.pointsCost) * 100);
-            return (
-              <div key={reward.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-12 h-12 rounded-[14px] bg-kaya-warm/60 flex items-center justify-center text-2xl shrink-0">
-                    {reward.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm leading-snug break-words">{reward.title}</p>
-                    <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{reward.description}</p>
-                  </div>
-                  <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
-                    {fmt(reward.pointsCost)} pts
-                  </span>
-                </div>
+        {/* Category filter pills (mobile) */}
+        {categories.length > 1 && (
+          <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
+            <button
+              onClick={() => setActiveCategory(null)}
+              className={`h-8 px-3 rounded-full text-[11px] font-bold whitespace-nowrap border transition-colors ${
+                activeCategory === null
+                  ? 'bg-kaya-chocolate text-white border-transparent'
+                  : 'bg-white text-kaya-sand border-kaya-warm-dark'
+              }`}
+            >
+              All
+            </button>
+            {categories.map((cat) => {
+              const sel = activeCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(sel ? null : cat)}
+                  className={`h-8 px-3 rounded-full text-[11px] font-bold whitespace-nowrap border transition-colors flex items-center gap-1 ${
+                    sel
+                      ? 'bg-kaya-chocolate text-white border-transparent'
+                      : 'bg-white text-kaya-sand border-kaya-warm-dark'
+                  }`}
+                >
+                  <span>{iconForCategory(cat)}</span>{cat}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-                {/* Progress + action: separate row so the title can breathe and
-                    the button never collides with long descriptions. */}
-                <div className="mt-3">
-                  <div className="h-1.5 bg-kaya-warm rounded-full overflow-hidden mb-2">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${progress}%`, backgroundColor: canAfford ? '#D4A017' : (child?.houseColor || '#C4B89A') }}
-                    />
+        {groupedRewards.length === 0 && (
+          <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya p-8 text-center">
+            <p className="text-3xl mb-2">🎁</p>
+            <p className="text-kaya-sand text-sm">
+              No rewards yet.{' '}
+              {isParent && (
+                <Link href="/parent/rewards" className="text-kaya-gold font-bold underline">
+                  Add some here
+                </Link>
+              )}
+            </p>
+          </div>
+        )}
+
+        {groupedRewards.map(([cat, items]) => (
+          <div key={cat} className="mb-5">
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <span className="text-base">{iconForCategory(cat)}</span>
+              <h2 className="font-display font-extrabold text-sm">{cat}</h2>
+              <span className="text-[10px] text-kaya-sand font-semibold">· {items.length}</span>
+            </div>
+            <div className="space-y-3">
+              {items.map((reward) => {
+                const canAfford = (child?.totalPoints || 0) >= reward.pointsCost;
+                const remaining = reward.pointsCost - (child?.totalPoints || 0);
+                const progress = Math.min(100, ((child?.totalPoints || 0) / reward.pointsCost) * 100);
+                return (
+                  <div key={reward.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-[14px] bg-kaya-warm/60 flex items-center justify-center text-2xl shrink-0">
+                        {reward.icon}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm leading-snug break-words">{reward.title}</p>
+                        <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{reward.description}</p>
+                      </div>
+                      <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
+                        {fmt(reward.pointsCost)} pts
+                      </span>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="h-1.5 bg-kaya-warm rounded-full overflow-hidden mb-2">
+                        <div
+                          className="h-full rounded-full transition-all"
+                          style={{ width: `${progress}%`, backgroundColor: canAfford ? '#D4A017' : (child?.houseColor || '#C4B89A') }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-kaya-sand font-semibold">
+                          {canAfford ? 'Ready to redeem' : `${fmt(remaining)} pts to go`}
+                        </span>
+                        {isParent && (
+                          <button
+                            onClick={() => handleRedeem(reward)}
+                            disabled={!canAfford || redeeming === reward.id}
+                            className={`h-9 px-4 rounded-kaya-sm text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
+                              canAfford ? 'bg-kaya-gold text-white hover:bg-kaya-gold-dark' : 'bg-kaya-warm text-kaya-sand'
+                            } disabled:opacity-50`}
+                          >
+                            {redeeming === reward.id ? '…' : canAfford ? 'Redeem' : 'Not yet'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-kaya-sand font-semibold">
-                      {canAfford ? 'Ready to redeem' : `${fmt(remaining)} pts to go`}
-                    </span>
-                    {isParent && (
-                      <button
-                        onClick={() => handleRedeem(reward)}
-                        disabled={!canAfford || redeeming === reward.id}
-                        className={`h-9 px-4 rounded-kaya-sm text-xs font-bold transition-colors whitespace-nowrap shrink-0 ${
-                          canAfford ? 'bg-kaya-gold text-white hover:bg-kaya-gold-dark' : 'bg-kaya-warm text-kaya-sand'
-                        } disabled:opacity-50`}
-                      >
-                        {redeeming === reward.id ? '…' : canAfford ? 'Redeem' : 'Not yet'}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* ─────────────────────────────────────────────────────────── */}
@@ -143,7 +229,15 @@ export default function RewardsPage() {
             <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Rewards store</h1>
             <p className="text-sm text-kaya-sand mt-1">Spend earned points on rewards the family agreed on.</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {isParent && (
+              <Link
+                href="/parent/rewards"
+                className="h-10 px-4 rounded-kaya-sm text-[13px] font-bold border border-kaya-warm-dark bg-white text-kaya-chocolate hover:border-kaya-gold transition-colors flex items-center gap-1.5"
+              >
+                <span>⚙️</span> Manage rewards
+              </Link>
+            )}
             {children.map((c, i) => {
               const sel = selectedChild === i;
               return (
@@ -198,15 +292,57 @@ export default function RewardsPage() {
           </div>
         )}
 
+        {/* Category filter pills (desktop) */}
+        {categories.length > 1 && (
+          <div className="flex flex-wrap gap-2 mb-5">
+            <button
+              onClick={() => setActiveCategory(null)}
+              className={`h-9 px-4 rounded-full text-xs font-bold border transition-colors ${
+                activeCategory === null
+                  ? 'bg-kaya-chocolate text-white border-transparent'
+                  : 'bg-white text-kaya-sand border-kaya-warm-dark hover:border-kaya-sand'
+              }`}
+            >
+              All ({activeRewards.length})
+            </button>
+            {categories.map((cat) => {
+              const count = activeRewards.filter((r) => (r.category || DEFAULT_REWARD_CATEGORY) === cat).length;
+              const sel = activeCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(sel ? null : cat)}
+                  className={`h-9 px-4 rounded-full text-xs font-bold border transition-colors flex items-center gap-1.5 ${
+                    sel
+                      ? 'bg-kaya-chocolate text-white border-transparent'
+                      : 'bg-white text-kaya-sand border-kaya-warm-dark hover:border-kaya-sand'
+                  }`}
+                >
+                  <span>{iconForCategory(cat)}</span>
+                  <span>{cat}</span>
+                  <span className={sel ? 'text-white/70' : 'text-kaya-sand-light'}>({count})</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* Rewards grid */}
         {activeRewards.length === 0 ? (
           <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-12 text-center">
             <p className="text-4xl mb-3">🎁</p>
-            <p className="text-kaya-sand text-sm">No rewards configured. Add some in Settings.</p>
+            <p className="text-kaya-sand text-sm">
+              No rewards configured.{' '}
+              {isParent && (
+                <Link href="/parent/rewards" className="text-kaya-gold font-bold underline">
+                  Add some now
+                </Link>
+              )}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-4">
-            {activeRewards.map((reward) => {
+            {visibleRewards.map((reward) => {
               const canAfford = (child?.totalPoints || 0) >= reward.pointsCost;
               const remaining = reward.pointsCost - (child?.totalPoints || 0);
               const progress = Math.min(100, ((child?.totalPoints || 0) / reward.pointsCost) * 100);

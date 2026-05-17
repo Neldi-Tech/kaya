@@ -175,7 +175,7 @@ service cloud.firestore {
       // ── Rewards ──────────────────────────────────
       match /rewards/{rewardId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update: if isParentInFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
       }
 
       // ── Redemptions ──────────────────────────────

@@ -1,17 +1,32 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useRef, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { signInHelperWithCodes } from '@/lib/helpers';
-import { KeyRound } from 'lucide-react';
+import { KeyRound, Info, Clock } from 'lucide-react';
 
+// Next 14 app-router requires `useSearchParams()` to live inside a
+// <Suspense> boundary, otherwise the whole page bails out of static
+// prerender and the build fails. The actual UI sits in `LoginForm`;
+// this outer component just provides the boundary.
 export default function HelperLoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-kaya-cream" />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const search = useSearchParams();
+  const expired = search?.get('expired') === '1';
   const [familyCode, setFamilyCode] = useState('');
   const [helperCode, setHelperCode] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
 
   // Autofocus the first empty field on mount so a helper landing on the
   // page can start typing without tapping.
@@ -64,6 +79,16 @@ export default function HelperLoginPage() {
           </p>
         </div>
 
+        {expired && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-kaya text-sm text-amber-900 flex items-start gap-2">
+            <Clock size={16} className="flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-bold">Your sign-in expired</p>
+              <p className="text-xs mt-0.5">For safety, please enter your three codes again.</p>
+            </div>
+          </div>
+        )}
+
         <form onSubmit={submit} className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 space-y-4">
           <label className="block">
             <span className="text-xs font-bold uppercase tracking-wider text-kaya-sand">Family code</span>
@@ -91,7 +116,7 @@ export default function HelperLoginPage() {
               inputMode="text"
               value={helperCode}
               onChange={(e) => setHelperCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))}
-              placeholder="AMINA"
+              placeholder="JANE"
               className="mt-1 w-full px-3 py-3 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate font-mono text-lg tracking-widest"
             />
           </label>
@@ -124,10 +149,33 @@ export default function HelperLoginPage() {
           </button>
         </form>
 
-        <p className="text-[11px] text-kaya-sand text-center mt-6 leading-relaxed">
-          Don&apos;t have codes? Ask the parent in your family to add you in
-          Settings → Helpers.
-        </p>
+        {/* Inline guidance — explains where each code comes from
+            without forcing the helper to read a wall of text up-front.
+            Collapsed by default; expands on tap. */}
+        <button
+          type="button"
+          onClick={() => setShowHelp((v) => !v)}
+          className="mt-6 w-full inline-flex items-center justify-center gap-1.5 text-xs text-kaya-sand hover:text-kaya-chocolate"
+        >
+          <Info size={14} />
+          {showHelp ? 'Hide' : 'Where do I get these codes?'}
+        </button>
+        {showHelp && (
+          <div className="mt-3 bg-white border border-kaya-warm-dark rounded-kaya p-4 text-xs leading-relaxed text-kaya-chocolate space-y-2">
+            <p>
+              <span className="font-bold">Family code</span> — 4 letters / numbers (e.g. <span className="font-mono">7K2Q</span>). One per family. The parent shares this with every helper they add.
+            </p>
+            <p>
+              <span className="font-bold">Helper code</span> — your personal handle in this family (e.g. <span className="font-mono">JANE</span>). The parent chooses it when they create your account.
+            </p>
+            <p>
+              <span className="font-bold">Password</span> — 6 characters, generated automatically. The parent sees it once and sends it to you (WhatsApp, in person, written down).
+            </p>
+            <p className="pt-1 border-t border-kaya-warm-dark/30">
+              <span className="font-bold">Don&apos;t have codes yet?</span> Ask the parent in your family to open <span className="font-mono">Settings → Helpers → Add helper</span> in their Kaya app. They&apos;ll send you all three.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -53,10 +53,10 @@ export const MOCK_CHILDREN: Child[] = [
 ];
 
 export const MOCK_REWARDS: Reward[] = [
-  { id: 'rw-icecream', title: 'Ice cream outing',   description: 'Family trip to the ice cream parlour', pointsCost: 100, icon: '🍦', active: true },
-  { id: 'rw-movie',    title: 'Movie night pick',   description: 'Choose the family movie this weekend', pointsCost: 75,  icon: '🎬', active: true },
-  { id: 'rw-screen',   title: '+30 min screen time',description: 'Bonus screen time on Saturday',        pointsCost: 50,  icon: '📱', active: true },
-  { id: 'rw-friend',   title: 'Sleepover with friend', description: 'Invite a friend for a sleepover',  pointsCost: 200, icon: '🛌', active: true },
+  { id: 'rw-icecream', title: 'Ice cream outing',   description: 'Family trip to the ice cream parlour', pointsCost: 100, icon: '🍦', active: true, category: 'Treats' },
+  { id: 'rw-movie',    title: 'Movie night pick',   description: 'Choose the family movie this weekend', pointsCost: 75,  icon: '🎬', active: true, category: 'Privileges' },
+  { id: 'rw-screen',   title: '+30 min screen time',description: 'Bonus screen time on Saturday',        pointsCost: 50,  icon: '📱', active: true, category: 'Privileges' },
+  { id: 'rw-friend',   title: 'Sleepover with friend', description: 'Invite a friend for a sleepover',  pointsCost: 200, icon: '🛌', active: true, category: 'Experiences' },
 ];
 
 export const MOCK_RATINGS: DailyRating[] = [

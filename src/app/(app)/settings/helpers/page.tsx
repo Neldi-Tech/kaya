@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound, ChevronDown, ChevronUp } from 'lucide-react';
+import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound, ChevronDown, ChevronUp, Info, Clock } from 'lucide-react';
 import {
   ensureFamilyCode,
   listHelpers,
@@ -13,10 +13,18 @@ import {
   removeHelper,
   generateShortCode,
   generatePassword,
+  DEFAULT_HELPER_SESSION_DAYS,
   type CreateHelperResult,
 } from '@/lib/helpers';
 import { KID_MODULES, DEFAULT_KID_MODULES } from '@/lib/kidModules';
-import type { HelperLink } from '@/lib/firestore';
+import { updateFamily, type HelperLink } from '@/lib/firestore';
+
+const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
+  { days: 7,   label: '7 days' },
+  { days: 30,  label: '30 days' },
+  { days: 90,  label: '90 days' },
+  { days: 365, label: '1 year' },
+];
 
 type Preset = HelperLink['preset'];
 
@@ -101,6 +109,20 @@ export default function HelpersSettingsPage() {
         Helpers (nannies, tutors, grandparents, drivers) can log routines and feedback for the kids you give them access to.
       </p>
 
+      {/* How it works — quick parent guidance so first-time use is
+          obvious without leaving the page. Plain English, short. */}
+      <div className="mt-4 bg-kaya-cream/70 border border-kaya-warm-dark/60 rounded-kaya p-4 text-xs text-kaya-chocolate leading-relaxed">
+        <p className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-kaya-sand text-[10px] mb-2">
+          <Info size={13} /> How this works
+        </p>
+        <ol className="list-decimal pl-4 space-y-1">
+          <li>Tap <span className="font-bold">Add helper</span> below. Pick which kids they can act on; password is generated for you.</li>
+          <li>The credentials card gives you a <span className="font-bold">login URL + 3 codes</span>. Tap <span className="font-bold">Copy all</span> and paste into WhatsApp / SMS to share with your helper.</li>
+          <li>The helper opens the URL, types the 3 codes, and lands on a dashboard showing only the kids you assigned.</li>
+          <li>They&apos;ll stay signed in for the session length below before needing to enter codes again.</li>
+        </ol>
+      </div>
+
       {/* Family code card */}
       <div className="mt-6 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
         <div className="flex items-center justify-between gap-4">
@@ -118,6 +140,51 @@ export default function HelpersSettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* Session length card — family-wide cap on how long helpers
+          stay signed in. Changing this takes effect on the next page
+          load for currently-signed-in helpers. */}
+      {family && (
+        <div className="mt-4 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-kaya-sand inline-flex items-center gap-1.5">
+                <Clock size={12} /> Helper sign-in length
+              </p>
+              <p className="text-xs text-kaya-sand mt-1 leading-relaxed">
+                How long a helper stays signed in before they need to enter their codes again. Shorter = safer if a helper loses their phone. Default <span className="font-bold">{DEFAULT_HELPER_SESSION_DAYS} days</span>.
+              </p>
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {SESSION_LENGTH_CHOICES.map((choice) => {
+              const current = family.helperSessionDays ?? DEFAULT_HELPER_SESSION_DAYS;
+              const on = current === choice.days;
+              return (
+                <button
+                  key={choice.days}
+                  type="button"
+                  onClick={async () => {
+                    if (on) return;
+                    try {
+                      await updateFamily(family.id, { helperSessionDays: choice.days });
+                      await refresh();
+                    } catch (e) {
+                      console.error('updateFamily(helperSessionDays) failed', e);
+                    }
+                  }}
+                  className={`px-2 py-2 text-sm rounded-kaya border font-bold ${on
+                    ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                    : 'bg-kaya-cream border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Helpers list */}
       <div className="mt-8 flex items-center justify-between">
@@ -313,7 +380,7 @@ function AddHelperForm({
           type="text"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Amina"
+          placeholder="e.g. Jane"
           className="mt-1 w-full px-3 py-2 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate"
         />
       </label>
@@ -327,7 +394,7 @@ function AddHelperForm({
               type="text"
               value={helperCode}
               onChange={(e) => setHelperCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-              placeholder="AMINA"
+              placeholder="JANE"
               className="flex-1 px-3 py-2 bg-kaya-cream border border-kaya-warm-dark rounded-l-kaya focus:outline-none focus:border-kaya-chocolate font-mono"
             />
             <button
