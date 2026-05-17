@@ -169,10 +169,11 @@ const BUSINESS_NAV: NavItem[] = [
 
 // Stats · reports & trends. Collapsed by default to keep the menu calm.
 const STATS_NAV: NavItem[] = [
-  { path: '/reports',     icon: '📊', label: 'Reports' },
-  { path: '/profiles',    icon: '👧', label: 'Kid profiles' },
-  { path: '/badges',      icon: '🏆', label: 'Badges' },
-  { path: '/family-tree', icon: '🌳', label: 'Family tree' },
+  { path: '/reports',       icon: '📊', label: 'Reports' },
+  { path: '/profiles',      icon: '👧', label: 'Kid profiles' },
+  { path: '/pantry/people', icon: '🤝', label: 'Helper performance' },
+  { path: '/badges',        icon: '🏆', label: 'Badges' },
+  { path: '/family-tree',   icon: '🌳', label: 'Family tree' },
 ];
 
 // Fun · games & surprises. Both items "Soon" today.

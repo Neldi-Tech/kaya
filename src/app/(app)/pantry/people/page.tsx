@@ -8,7 +8,11 @@
 // surface for access tiers, frequency, login codes).
 //
 // Helpers can also navigate here and see THEIR OWN row in detail —
-// rules already gate workplan reads to parent OR self.
+// rules already gate the workplan reads to parent OR self.
+//
+// Each row shows an at-a-glance face emoji + headline % on the
+// always-visible header (so a parent can scan "how's everyone doing"
+// without expanding). Tap a row → full PerformanceCard + WorkplanEditor.
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -19,6 +23,7 @@ import BackButton from '@/components/ui/BackButton';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
 import { listHelpers } from '@/lib/helpers';
+import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
 import type { HelperLink } from '@/lib/firestore';
 
 // Emoji map per preset — same vocabulary as the role chips in
@@ -84,7 +89,7 @@ export default function PantryPeoplePage() {
       </div>
 
       <p className="text-[12px] text-hive-muted mb-4">
-        Everyone helping with the household. Tap a person to see their workplan, today&apos;s tasks, and how they&apos;re doing.
+        Everyone helping with the household. Each row shows today&apos;s performance at a glance — tap to see the full workplan + breakdown.
       </p>
 
       {visibleHelpers === null && (
@@ -136,7 +141,7 @@ function PersonCard({ helper, familyId, expanded, onToggle }: {
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg overflow-hidden">
       {/* Row header — always visible. Big emoji + name + role +
-          compact perf summary. */}
+          inline perf indicator (face emoji + headline %). */}
       <button
         onClick={onToggle}
         aria-expanded={expanded}
@@ -157,6 +162,9 @@ function PersonCard({ helper, familyId, expanded, onToggle }: {
           <p className="text-[12px] text-hive-muted mt-0.5 truncate">
             {PRESET_LABEL[helper.preset]} · code <span className="font-mono font-bold">{helper.helperCode}</span>
           </p>
+          {/* Always-visible perf strip — face + headline %. Loads
+              independently per row; falls back gracefully if no data. */}
+          <PerfInline familyId={familyId} helperUid={helper.uid} />
         </div>
         {expanded ? <ChevronUp size={18} className="text-hive-muted flex-shrink-0" /> : <ChevronDown size={18} className="text-hive-muted flex-shrink-0" />}
       </button>
@@ -182,5 +190,51 @@ function PersonCard({ helper, familyId, expanded, onToggle }: {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Inline perf indicator ────────────────────────────
+// Tiny always-visible perf strip on the collapsed PersonCard row.
+// Same data shape as PerformanceCard but renders as a one-liner so
+// parents can scan the team without expanding every row.
+// Color-coded face from `perfFace` keeps the visual fast to parse.
+function PerfInline({ familyId, helperUid }: { familyId: string; helperUid: string }) {
+  const [perf, setPerf] = useState<HelperPerformanceWindow | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const p = await getHelperPerformance(familyId, helperUid, { days: 7 });
+        if (!cancelled) setPerf(p);
+      } catch { /* graceful: render nothing on failure */ }
+    })();
+    return () => { cancelled = true; };
+  }, [familyId, helperUid]);
+
+  if (!perf) return null;
+  const headlinePct = perf.consolidatedPct ?? perf.todayPct;
+  const face = perfFace(headlinePct);
+  const tone =
+    face.tone === 'great' ? 'text-green-700' :
+    face.tone === 'low'   ? 'text-red-700' :
+                            'text-hive-navy';
+
+  // Itemise the inputs the headline is built from.
+  const inputs: string[] = [];
+  if (perf.avgPct !== null) inputs.push(`Workplan ${perf.avgPct}%`);
+  if (perf.budget.scorePct !== null) inputs.push(`Budget ${perf.budget.scorePct}%`);
+
+  return (
+    <p className="mt-1 text-[11px] inline-flex items-center gap-1.5 flex-wrap">
+      <span className="text-base leading-none" aria-hidden>{face.emoji}</span>
+      <span className="font-nunito font-extrabold">
+        {headlinePct === null
+          ? <span className="text-hive-muted">No data yet</span>
+          : <span className={tone}>{headlinePct}% · {face.label}</span>}
+      </span>
+      {inputs.length > 0 && (
+        <span className="text-hive-muted">· {inputs.join(' · ')}</span>
+      )}
+    </p>
   );
 }
