@@ -104,6 +104,7 @@ function LoginForm() {
               placeholder="ABCD"
               className="mt-1 w-full px-3 py-3 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate font-mono text-lg tracking-widest"
             />
+            <p className="text-[11px] text-kaya-sand mt-1">The 4-letter code shared with all helpers of this family.</p>
           </label>
 
           <label className="block">
@@ -119,6 +120,7 @@ function LoginForm() {
               placeholder="JANE"
               className="mt-1 w-full px-3 py-3 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate font-mono text-lg tracking-widest"
             />
+            <p className="text-[11px] text-kaya-sand mt-1">Your personal code in this family (e.g. JANE).</p>
           </label>
 
           <label className="block">
@@ -131,6 +133,7 @@ function LoginForm() {
               placeholder="Your password"
               className="mt-1 w-full px-3 py-3 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate font-mono text-lg tracking-widest"
             />
+            <p className="text-[11px] text-kaya-sand mt-1">6 characters, sent to you by the family parent.</p>
           </label>
 
           {error && (

@@ -62,6 +62,15 @@ export default function HelpersSettingsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [busyHelperUid, setBusyHelperUid] = useState<string | null>(null);
+  // Compose the full login URL client-side so dev/staging/prod each
+  // show their own origin. SSR returns '' for the placeholder render;
+  // hydration replaces it on the client before any user can copy.
+  const [loginUrl, setLoginUrl] = useState('');
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setLoginUrl(`${window.location.origin}/h`);
+    }
+  }, []);
 
   // Lazily backfill familyCode the first time a parent opens this page.
   useEffect(() => {
@@ -139,13 +148,15 @@ export default function HelpersSettingsPage() {
         </ol>
       </div>
 
-      {/* Family code card */}
-      <div className="mt-6 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+      {/* Family code + login URL card — both pieces a helper needs are
+          here, big and copyable. The full URL is built from the current
+          origin so dev/staging/prod always show the right value. */}
+      <div className="mt-6 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 space-y-4">
+        {/* Family code */}
         <div className="flex items-center justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-kaya-sand">Your family code</p>
             <p className="font-display font-black text-3xl tracking-tight mt-1">{familyCode || '••••'}</p>
-            <p className="text-xs text-kaya-sand mt-1">Helpers use this + their helper code + password to log in at <span className="font-bold">/h</span>.</p>
           </div>
           <button
             onClick={() => familyCode && copy(familyCode, 'familyCode')}
@@ -155,6 +166,25 @@ export default function HelpersSettingsPage() {
             {copiedField === 'familyCode' ? <><Check size={16} /> Copied</> : <><Copy size={16} /> Copy</>}
           </button>
         </div>
+
+        {/* Login URL */}
+        <div className="pt-4 border-t border-kaya-warm-dark/40 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.14em] font-bold text-kaya-sand">Login URL for helpers</p>
+            <p className="font-mono font-bold text-sm lg:text-base mt-1 truncate">{loginUrl}</p>
+          </div>
+          <button
+            onClick={() => loginUrl && copy(loginUrl, 'loginUrl')}
+            disabled={!loginUrl}
+            className="px-3 py-2 text-sm bg-kaya-cream border border-kaya-warm-dark rounded-kaya hover:bg-white inline-flex items-center gap-2 disabled:opacity-50"
+          >
+            {copiedField === 'loginUrl' ? <><Check size={16} /> Copied</> : <><Copy size={16} /> Copy link</>}
+          </button>
+        </div>
+
+        <p className="text-xs text-kaya-sand">
+          Helpers open the URL above, then enter the <span className="font-bold">family code</span> + their <span className="font-bold">helper code</span> + their <span className="font-bold">password</span> to sign in.
+        </p>
       </div>
 
       {/* Session length card — family-wide cap on how long helpers
