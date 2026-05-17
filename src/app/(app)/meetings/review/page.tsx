@@ -194,7 +194,7 @@ export default function MeetingReviewPage() {
         {loading && <LoadingState />}
 
         {!loading && tab === 'points' && (
-          <PointsTab leaderboard={result!.leaderboard} childById={childById} />
+          <PointsTab leaderboard={result!.leaderboard} childById={childById} pointSystem={pointSystem} />
         )}
 
         {!loading && tab === 'behaviour' && (
@@ -380,50 +380,74 @@ const formatShort = formatPretty;
 // POINTS TAB
 // ─────────────────────────────────────────────────────────────────────────
 
-function PointsTab({ leaderboard, childById }: { leaderboard: KidReviewStats[]; childById: Map<string, Child> }) {
+function PointsTab({
+  leaderboard,
+  childById,
+  pointSystem,
+}: {
+  leaderboard: KidReviewStats[];
+  childById: Map<string, Child>;
+  pointSystem: PointSystemConfig;
+}) {
   if (leaderboard.length === 0) {
     return <EmptyState>No kids on this family yet.</EmptyState>;
   }
-  const top = leaderboard[0]?.totalPoints ?? 0;
+  // Compute true House Points per kid:
+  //   HP = floor(routine_pts / pointsPerHousePoint) + bonus_pts
+  // The naive `totalPoints` (routine + bonus) was a raw-points sum,
+  // which inflated the headline number (e.g. 2,116 routine + 162 bonus
+  // = 2,278 instead of the actual ~183 HP a family talks about).
+  const ppHP = Math.max(1, pointSystem.routines.pointsPerHousePoint);
+  const housePointsOf = (s: KidReviewStats) =>
+    Math.floor(s.pointsFromRatings / ppHP) + s.pointsFromAwards;
+
+  const ranked = [...leaderboard].sort((a, b) => housePointsOf(b) - housePointsOf(a));
+  const topHP = ranked[0] ? housePointsOf(ranked[0]) : 0;
+
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
-      {leaderboard.map((s, i) => {
+      {ranked.map((s, i) => {
         const child = childById.get(s.childId);
         if (!child) return null;
-        const isTop = s.totalPoints > 0 && s.totalPoints === top;
-        // Permanent commentary line — explains where the headline HP
-        // number came from without forcing the parent to mentally split
-        // routine vs award. Empty values fall away so the line stays
-        // tidy (e.g. no bonus yet → no "+ N bonus" fragment).
+        const hp = housePointsOf(s);
+        const hpFromRoutine = Math.floor(s.pointsFromRatings / ppHP);
+        const isTop = hp > 0 && hp === topHP;
+
+        // Permanent commentary — explains where HP came from. Lists
+        // the converted routine HP first (the dominant component for
+        // most families), then bonus HP, then qualitative counts.
         const bits: string[] = [];
-        if (s.pointsFromRatings) bits.push(`${fmt(s.pointsFromRatings)} routine`);
+        if (hpFromRoutine) bits.push(`${fmt(hpFromRoutine)} from routines`);
         if (s.pointsFromAwards) bits.push(`${fmt(s.pointsFromAwards)} bonus`);
         if (s.ladderRoutineIds.length) bits.push(`${s.ladderRoutineIds.length} kept Excellent`);
         if (s.beltDays.length) bits.push(`${s.beltDays.length} Excellent day${s.beltDays.length === 1 ? '' : 's'}`);
         const commentary = bits.join(' · ') || 'no points this window yet';
+
         return (
           <div
             key={s.childId}
-            className={`relative rounded-kaya-lg p-5 lg:p-6 border text-center ${
+            className={`relative rounded-kaya-lg p-4 sm:p-5 lg:p-6 border text-center ${
               isTop
                 ? 'bg-gradient-to-br from-kaya-gold/25 via-kaya-gold/10 to-transparent border-kaya-gold/60'
                 : 'bg-white/5 border-white/10'
             }`}
           >
             {/* Top strip: rank + avatar + name */}
-            <div className="flex items-center justify-center gap-2 mb-3">
+            <div className="flex items-center justify-center gap-2 mb-3 flex-wrap">
               <span className={`text-[10px] lg:text-[11px] uppercase tracking-wider font-bold ${isTop ? 'text-kaya-gold-light' : 'text-white/50'}`}>
                 #{i + 1}
               </span>
-              <span className="text-2xl lg:text-3xl">{child.avatarEmoji}</span>
-              <span className="text-sm lg:text-base font-display font-extrabold truncate">{child.name}</span>
+              <span className="text-xl sm:text-2xl lg:text-3xl">{child.avatarEmoji}</span>
+              <span className="text-[13px] sm:text-sm lg:text-base font-display font-extrabold truncate max-w-[120px] sm:max-w-none">{child.name}</span>
             </div>
-            {/* HERO — House Points, the headline number */}
+            {/* HERO — House Points, the headline. Scaled so the number
+                stays comfortable from phone (~44px) to laptop (~72px)
+                to TV cast (~96px). */}
             <p
               className={`font-display font-black leading-none tracking-[-0.04em] ${isTop ? 'text-kaya-gold' : 'text-white'}`}
-              style={{ fontSize: 'clamp(48px, 8vw, 76px)' }}
+              style={{ fontSize: 'clamp(38px, 5.5vw, 72px)' }}
             >
-              {fmt(s.totalPoints)}
+              {fmt(hp)}
             </p>
             <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-bold text-white/55 mt-1">
               House Points
