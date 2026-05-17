@@ -147,7 +147,10 @@ const KAYA_NAV: NavItem[] = [
 // household routines follow. (Renamed from "Pantry" — the section name
 // now describes the surface, not one feature inside it.)
 const HOUSEHOLD_NAV: NavItem[] = [
-  { path: '/pantry', icon: '🛒', label: 'The Pantry' },
+  { path: '/pantry',          icon: '🛒', label: 'The Pantry' },
+  { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
+  { path: '/pantry/people',   icon: '🤝', label: 'People' },
+  { path: '/pantry/budget',   icon: '💰', label: 'Budget' },
 ];
 
 // The Hive · kid's three-layer wallet plus parent controls.

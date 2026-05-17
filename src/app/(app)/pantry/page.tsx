@@ -127,8 +127,43 @@ export default function PantryHomePage() {
         </div>
       )}
 
-      {/* Quick actions */}
+      {/* Quick actions. Daily-use surfaces (Purchase + Budget) lead so
+          parents land on the new request → approve → reconcile loop
+          first; People + Soko cover the humans; Staples + Utilities are
+          the catalogues; Browse + Meals close it out. */}
       <div className="grid grid-cols-2 gap-3 mb-5">
+        <Link
+          href="/pantry/purchase"
+          className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🧾</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Purchase</span>
+          <span className="text-[11px] text-pantry-leaf-dk font-bold">Request → approve → reconcile</span>
+        </Link>
+        <Link
+          href="/pantry/budget"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">💰</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
+          <span className="text-[11px] text-hive-muted">Pantry cap + spend</span>
+        </Link>
+        <Link
+          href="/pantry/people"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🤝</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">People</span>
+          <span className="text-[11px] text-hive-muted">Helpers + workplans</span>
+        </Link>
+        <Link
+          href="/pantry/suppliers"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🏪</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Soko</span>
+          <span className="text-[11px] text-hive-muted">{sokoSuppliers.length} supplier{sokoSuppliers.length === 1 ? '' : 's'}</span>
+        </Link>
         <Link
           href="/pantry/staples"
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
@@ -141,21 +176,13 @@ export default function PantryHomePage() {
           href="/pantry/utilities"
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
         >
-          <span className="text-2xl leading-none">🧾</span>
+          <span className="text-2xl leading-none">⚡</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Utilities</span>
           <span className="text-[11px] text-hive-muted">
             {utilities.length > 0
               ? `${formatCents(utilitiesMonthly, currency)}/mo`
               : 'Bills & salaries'}
           </span>
-        </Link>
-        <Link
-          href="/pantry/suppliers"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">🏪</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Soko</span>
-          <span className="text-[11px] text-hive-muted">{sokoSuppliers.length} supplier{sokoSuppliers.length === 1 ? '' : 's'}</span>
         </Link>
         <Link
           href="/pantry/directory"
@@ -172,14 +199,6 @@ export default function PantryHomePage() {
           <span className="text-2xl leading-none">🍽️</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Meals</span>
           <span className="text-[11px] text-hive-muted">7-day timetable</span>
-        </Link>
-        <Link
-          href="/pantry/budget"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">💰</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
-          <span className="text-[11px] text-hive-muted">Coming next</span>
         </Link>
       </div>
 
