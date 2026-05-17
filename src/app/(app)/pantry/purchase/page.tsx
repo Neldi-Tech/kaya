@@ -16,10 +16,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
-import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest,
@@ -38,19 +35,9 @@ const todayDraftName = () => {
 export default function PurchaseHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
-  const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
-  const approvalMode: 'either' | 'both' = family?.approvalMode === 'both' ? 'both' : 'either';
-  const [savingMode, setSavingMode] = useState(false);
-  const setApprovalMode = async (next: 'either' | 'both') => {
-    if (!profile?.familyId || isGuest || savingMode) return;
-    setSavingMode(true);
-    try {
-      await updateDoc(doc(db, 'families', profile.familyId), { approvalMode: next });
-    } finally { setSavingMode(false); }
-  };
 
   const [open, setOpen] = useState<PurchaseRequest[]>([]);
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
@@ -103,39 +90,6 @@ export default function PurchaseHomePage() {
             : 'Build a request, send for the nod, then reconcile after the shop.'}
         </p>
       </div>
-
-      {/* Approval mode — family setting. PARENT-ONLY card; helpers
-          don't even see the policy exists. Lives here (not in
-          Settings) so parents can flip it in context while running
-          a shop. */}
-      {role === 'parent' && (
-        <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center justify-between gap-3 mb-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Approval mode</p>
-            <p className="font-nunito font-extrabold text-sm text-hive-navy mt-0.5">
-              {approvalMode === 'both' ? 'Both parents must approve' : 'Either parent approves'}
-            </p>
-          </div>
-          <div className="flex items-center gap-1 bg-hive-cream rounded-full p-0.5 border border-hive-line">
-            <button
-              type="button"
-              disabled={savingMode || isGuest}
-              onClick={() => setApprovalMode('either')}
-              className={`text-[11px] font-nunito font-extrabold px-3 py-1.5 rounded-full transition-colors ${
-                approvalMode === 'either' ? 'bg-pantry-leaf text-white shadow-sm' : 'text-hive-muted'
-              }`}
-            >Either</button>
-            <button
-              type="button"
-              disabled={savingMode || isGuest}
-              onClick={() => setApprovalMode('both')}
-              className={`text-[11px] font-nunito font-extrabold px-3 py-1.5 rounded-full transition-colors ${
-                approvalMode === 'both' ? 'bg-pantry-leaf text-white shadow-sm' : 'text-hive-muted'
-              }`}
-            >Both</button>
-          </div>
-        </div>
-      )}
 
       {/* Parent's actionable pile: pending approval */}
       {role === 'parent' && pending.length > 0 && (

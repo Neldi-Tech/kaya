@@ -188,15 +188,25 @@ export interface Family {
   // for already-signed-in helpers — they get bounced on their next
   // page load.
   helperSessionDays?: number;
-  // ── Approval mode (Household requests) ───────────────────────
-  // Controls how many parents must approve a Household purchase /
-  // utility / payroll request before it transitions to `approved`.
-  //   'either' — any one parent (default; fastest path)
-  //   'both'   — at least two distinct parent UIDs in `approvedBy`
-  // Set in the Purchase home settings card. Applies to every request
-  // flow under Household. Single-parent families can pick 'both' too,
-  // but it'll behave like 'either' until a second parent joins.
+  // ── Approval mode (Household requests) — LEGACY ──────────────
+  // Family-wide default that pre-dates per-category modes
+  // (introduced 2026-05-17). Still respected as the fallback when a
+  // specific category isn't set in `approvalModes` below. New writes
+  // should target `approvalModes.<category>` instead.
   approvalMode?: 'either' | 'both';
+  // ── Approval modes — per-category (Household requests) ───────
+  // Lets a family say "Pantry: either parent, but Payroll advances:
+  // both parents." Categories follow the Household module plan; only
+  // `pantry` is wired in Purchase v1, the rest take effect as those
+  // modules ship. Missing entries fall back to the legacy
+  // `approvalMode` above, then to 'either'.
+  approvalModes?: {
+    pantry?: 'either' | 'both';
+    external?: 'either' | 'both';
+    utility?: 'either' | 'both';
+    payrollAdvance?: 'either' | 'both';
+    payrollLoan?: 'either' | 'both';
+  };
   // ── Household budgets ────────────────────────────────────────
   // Per-module monthly caps (in cents, family display currency) that
   // roll up into the Household Finances view. v1 of the Household

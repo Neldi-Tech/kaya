@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
@@ -1930,6 +1932,13 @@ export default function SettingsPage() {
             </button>
           )}
 
+          {/* Household → Approval policies. Per-category choice between
+              "Either parent approves" and "Both parents must approve"
+              for every Household request flow. Pantry is the only
+              category wired in Purchase v1; the rest take effect as
+              the External / Utility / Payroll modules ship. */}
+          {isParent && <ApprovalPoliciesCard familyId={profile?.familyId} family={family} />}
+
           {/* Family members — who has access right now. Pairs with
               the invite-codes card above ("how do they get in") to
               give parents a complete control surface. Removing a
@@ -2792,6 +2801,97 @@ export default function SettingsPage() {
             {ReferralPanel}
           </aside>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Household → Approval policies ─────────────────────────────
+// Per-category Either/Both approval toggle. One row per request type.
+// Pantry is the only one Purchase v1 reads today; the rest live here
+// already so families can set their preferences before the modules
+// land, and so the External/Utility/Payroll surfaces can read from
+// `family.approvalModes` on day one.
+type ApprovalCategoryKey = 'pantry' | 'external' | 'utility' | 'payrollAdvance' | 'payrollLoan';
+const APPROVAL_CATEGORIES: Array<{
+  key: ApprovalCategoryKey;
+  emoji: string;
+  label: string;
+  hint: string;
+  live: boolean;
+}> = [
+  { key: 'pantry',         emoji: '🛒', label: 'Pantry purchases',   hint: 'Groceries, household staples.',                                      live: true  },
+  { key: 'external',       emoji: '🌿', label: 'External purchases', hint: 'Garden, pool, kuku, cat — items outside the main pantry.',          live: false },
+  { key: 'utility',        emoji: '⚡', label: 'Utility top-ups',    hint: 'Electricity, water, internet, gas refills.',                        live: false },
+  { key: 'payrollAdvance', emoji: '💵', label: 'Payroll advances',   hint: 'Helpers requesting an advance on next pay.',                        live: false },
+  { key: 'payrollLoan',    emoji: '🏦', label: 'Payroll loans',      hint: 'Helpers requesting a loan with a repayment schedule.',              live: false },
+];
+
+function ApprovalPoliciesCard({ familyId, family }: {
+  familyId?: string;
+  family: { approvalMode?: 'either' | 'both'; approvalModes?: Partial<Record<ApprovalCategoryKey, 'either' | 'both'>> } | null;
+}) {
+  const legacy = family?.approvalMode;
+  const modes = family?.approvalModes ?? {};
+  const [saving, setSaving] = useState<ApprovalCategoryKey | null>(null);
+
+  const setMode = async (key: ApprovalCategoryKey, next: 'either' | 'both') => {
+    if (!familyId) return;
+    setSaving(key);
+    try {
+      await updateDoc(doc(db, 'families', familyId), { [`approvalModes.${key}`]: next });
+    } finally { setSaving(null); }
+  };
+
+  const resolved = (k: ApprovalCategoryKey): 'either' | 'both' =>
+    modes[k] ?? legacy ?? 'either';
+
+  return (
+    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+      <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Approval policies</p>
+      <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+        Choose whether each Household request type needs one parent or both. Defaults to "Either"; the legacy family-wide setting still applies to anything not explicitly set here.
+      </p>
+      <div className="space-y-2">
+        {APPROVAL_CATEGORIES.map((cat) => {
+          const value = resolved(cat.key);
+          const isSaving = saving === cat.key;
+          return (
+            <div
+              key={cat.key}
+              className={`flex items-center justify-between gap-3 rounded-kaya border border-kaya-warm-dark/60 bg-kaya-cream/40 p-3 ${cat.live ? '' : 'opacity-80'}`}
+            >
+              <div className="min-w-0 flex items-start gap-2">
+                <span className="text-lg leading-none flex-shrink-0 mt-0.5">{cat.emoji}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold leading-tight">
+                    {cat.label}
+                    {!cat.live && <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-warm-dark/40 text-kaya-chocolate px-1.5 py-0.5 rounded-full font-bold">Soon</span>}
+                  </p>
+                  <p className="text-[11px] text-kaya-sand mt-0.5 leading-tight">{cat.hint}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-0.5 bg-white rounded-full p-0.5 border border-kaya-warm-dark flex-shrink-0">
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setMode(cat.key, 'either')}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${
+                    value === 'either' ? 'bg-kaya-chocolate text-white' : 'text-kaya-sand'
+                  }`}
+                >Either</button>
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setMode(cat.key, 'both')}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors ${
+                    value === 'both' ? 'bg-kaya-chocolate text-white' : 'text-kaya-sand'
+                  }`}
+                >Both</button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
