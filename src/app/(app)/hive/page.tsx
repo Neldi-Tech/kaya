@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import HoneyPotHero from '@/components/hive/HoneyPotHero';
+import HpValueCommentary from '@/components/hive/HpValueCommentary';
 import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
 import KidSwitcher from '@/components/hive/KidSwitcher';
@@ -72,7 +73,7 @@ export default function HiveHomePage() {
       </div>
 
       {/* Rate hint — reminds the kid what their family's rates are. */}
-      <div className="mb-5 flex justify-center">
+      <div className="mb-4 flex justify-center">
         <RatePill
           hpToHoneyRate={config.hpToHoneyRate}
           honeyToCashRate={config.honeyToCashRate}
@@ -81,6 +82,18 @@ export default function HiveHomePage() {
           variant="both"
         />
       </div>
+
+      {/* "What your HP is worth" — translates the abstract HP number into
+          a concrete cash estimate at today's rates. Keeps points feeling
+          valuable, not abstract. */}
+      <HpValueCommentary
+        housePoints={wallet.housePoints}
+        hpToHoneyRate={config.hpToHoneyRate}
+        honeyToCashRate={config.honeyToCashRate}
+        minHpReserve={config.minHpReserve}
+        fxUsdToFamily={fxUsdToFamily ?? 1}
+        currency={config.currency}
+      />
 
       {/* This-month spending plan summary (or "+ Set up a plan" prompt). */}
       <PlanSummaryCard />
