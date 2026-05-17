@@ -6,13 +6,15 @@
 // family has already typed. The kid-side /rewards page renders the same
 // list grouped by category.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  addReward, updateReward, deleteReward,
+  addReward, updateReward, deleteReward, addRewardsBatch,
+  getRedemptions,
   DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
-  Reward,
+  REWARD_LIBRARY, REWARD_LIBRARY_CATEGORIES,
+  Reward, LibraryReward, Redemption,
 } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
@@ -31,7 +33,18 @@ const blankDraft = (): Draft => ({
 
 export default function ParentRewardsPage() {
   const { profile, isGuest } = useAuth();
-  const { rewards, refresh } = useFamily();
+  const { rewards, children, refresh } = useFamily();
+
+  // Recent redemptions — fetched once when the page mounts and after
+  // any operation that might have logged a new one. Limited to 25 so
+  // the section stays compact; "View all" can come later if needed.
+  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
+  const loadRedemptions = useCallback(async () => {
+    if (!profile?.familyId) return;
+    const list = await getRedemptions(profile.familyId, 25);
+    setRedemptions(list);
+  }, [profile?.familyId]);
+  useEffect(() => { loadRedemptions(); }, [loadRedemptions]);
 
   // Inline edit state — one reward at a time.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,6 +58,64 @@ export default function ParentRewardsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [filterCategory, setFilterCategory] = useState<string | null>(null);
+
+  // Library picker — collapsed by default. Selection state is keyed by
+  // library item title (titles in the library are stable + unique).
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [librarySelected, setLibrarySelected] = useState<Set<string>>(new Set());
+  const [libraryCategory, setLibraryCategory] = useState<string | null>(null);
+  const [libraryQuery, setLibraryQuery] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  // Titles the family already has — used to mark library items as
+  // "already in your list" so parents don't double-import.
+  const existingTitles = useMemo(
+    () => new Set(rewards.map((r) => r.title.trim().toLowerCase())),
+    [rewards]
+  );
+
+  const visibleLibrary = useMemo(() => {
+    const q = libraryQuery.trim().toLowerCase();
+    return REWARD_LIBRARY.filter((r) => {
+      if (libraryCategory && (r.category || DEFAULT_REWARD_CATEGORY) !== libraryCategory) return false;
+      if (q && !r.title.toLowerCase().includes(q) && !r.description.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [libraryQuery, libraryCategory]);
+
+  const toggleLibrarySelect = (title: string) => {
+    setLibrarySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(title)) next.delete(title);
+      else next.add(title);
+      return next;
+    });
+  };
+
+  const importSelected = async () => {
+    if (isGuest || !profile?.familyId) return;
+    const picks: LibraryReward[] = REWARD_LIBRARY.filter((r) => librarySelected.has(r.title));
+    if (picks.length === 0) { flash('Tick some library items first.'); return; }
+    setImporting(true);
+    try {
+      const skipped = picks.filter((r) => existingTitles.has(r.title.trim().toLowerCase())).length;
+      const fresh = picks.filter((r) => !existingTitles.has(r.title.trim().toLowerCase()));
+      const added = await addRewardsBatch(
+        profile.familyId,
+        fresh.map((r) => ({ ...r, active: true })),
+      );
+      await refresh();
+      setLibrarySelected(new Set());
+      if (skipped > 0) {
+        flash(`Added ${added} reward${added === 1 ? '' : 's'} (skipped ${skipped} already in your list).`);
+      } else {
+        flash(`Added ${added} reward${added === 1 ? '' : 's'} from the library.`);
+      }
+    } catch (e: any) {
+      flash(e?.message || 'Import failed.');
+    }
+    setImporting(false);
+  };
 
   // Union of seed categories + anything already used. Keeps the dropdown
   // useful before any reward exists and growing as parents type new ones.
@@ -242,16 +313,154 @@ export default function ParentRewardsPage() {
         </p>
       </div>
 
-      {/* Add new reward */}
-      {!adding ? (
-        <button
-          onClick={() => { setAdding(true); setAddDraft(blankDraft()); }}
-          disabled={isGuest}
-          className="w-full mb-5 h-12 rounded-kaya bg-kaya-gold text-white font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
-        >
-          + Add a new reward
-        </button>
-      ) : (
+      {/* Add new reward / Browse library buttons */}
+      {!adding && !libraryOpen && (
+        <div className="grid grid-cols-2 gap-2 mb-5">
+          <button
+            onClick={() => { setAdding(true); setAddDraft(blankDraft()); }}
+            disabled={isGuest}
+            className="h-12 rounded-kaya bg-kaya-gold text-white font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+          >
+            + Add a new reward
+          </button>
+          <button
+            onClick={() => { setLibraryOpen(true); setLibrarySelected(new Set()); setLibraryCategory(null); setLibraryQuery(''); }}
+            disabled={isGuest}
+            className="h-12 rounded-kaya bg-white border-2 border-kaya-gold text-kaya-chocolate font-bold text-sm hover:bg-kaya-gold/10 transition-colors disabled:opacity-50"
+          >
+            📚 Browse library
+          </button>
+        </div>
+      )}
+
+      {/* Browse-library picker — collapsed unless opened. */}
+      {libraryOpen && (
+        <div className="bg-white border-2 border-kaya-gold rounded-kaya-lg p-4 lg:p-5 mb-5">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-gold">Reward library</p>
+              <p className="text-xs text-kaya-sand mt-1">
+                {REWARD_LIBRARY.length} ready-made rewards across {REWARD_LIBRARY_CATEGORIES.length} categories.
+                Tick what you like, hit import. Everything stays editable after.
+              </p>
+            </div>
+            <button
+              onClick={() => { setLibraryOpen(false); setLibrarySelected(new Set()); }}
+              className="text-kaya-sand hover:text-kaya-chocolate text-2xl leading-none px-2"
+              aria-label="Close library"
+            >
+              ×
+            </button>
+          </div>
+
+          {/* Search + category filter */}
+          <div className="flex flex-col lg:flex-row gap-2 mb-3">
+            <input
+              type="text"
+              value={libraryQuery}
+              onChange={(e) => setLibraryQuery(e.target.value)}
+              placeholder="Search rewards…"
+              className="flex-1 h-10 px-3 bg-kaya-warm/30 border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2 mb-3">
+            <button
+              onClick={() => setLibraryCategory(null)}
+              className={`h-7 px-3 rounded-full text-[11px] font-bold border transition-colors ${
+                libraryCategory === null
+                  ? 'bg-kaya-chocolate text-white border-transparent'
+                  : 'bg-white text-kaya-sand border-kaya-warm-dark hover:border-kaya-sand'
+              }`}
+            >
+              All
+            </button>
+            {REWARD_LIBRARY_CATEGORIES.map((cat) => {
+              const sel = libraryCategory === cat;
+              const total = REWARD_LIBRARY.filter((r) => (r.category || DEFAULT_REWARD_CATEGORY) === cat).length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setLibraryCategory(sel ? null : cat)}
+                  className={`h-7 px-3 rounded-full text-[11px] font-bold border transition-colors flex items-center gap-1 ${
+                    sel
+                      ? 'bg-kaya-chocolate text-white border-transparent'
+                      : 'bg-white text-kaya-sand border-kaya-warm-dark hover:border-kaya-sand'
+                  }`}
+                >
+                  <span>{iconFor(cat)}</span>{cat}<span className={sel ? 'text-white/70' : 'text-kaya-sand-light'}>({total})</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Library item list — scrollable, capped height so the page
+              never explodes into a wall of 60 cards. */}
+          <div className="max-h-[480px] overflow-y-auto border border-kaya-warm-dark/60 rounded-kaya-sm divide-y divide-kaya-warm-dark/40">
+            {visibleLibrary.length === 0 ? (
+              <p className="p-5 text-center text-sm text-kaya-sand">No matches. Try clearing the search.</p>
+            ) : (
+              visibleLibrary.map((item) => {
+                const already = existingTitles.has(item.title.trim().toLowerCase());
+                const checked = librarySelected.has(item.title);
+                return (
+                  <label
+                    key={item.title}
+                    className={`flex items-center gap-3 p-3 transition-colors cursor-pointer ${
+                      already ? 'opacity-50' : 'hover:bg-kaya-warm/20'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={already}
+                      onChange={() => toggleLibrarySelect(item.title)}
+                      className="w-5 h-5 accent-kaya-gold shrink-0"
+                    />
+                    <div className="w-10 h-10 rounded-[12px] bg-kaya-warm/60 flex items-center justify-center text-xl shrink-0">
+                      {item.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <p className="font-bold text-sm leading-snug truncate">{item.title}</p>
+                        {already && <span className="text-[10px] font-bold text-kaya-sand whitespace-nowrap">ALREADY ADDED</span>}
+                      </div>
+                      <p className="text-[11px] text-kaya-sand leading-snug">{item.description}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] font-bold text-kaya-gold">{fmt(item.pointsCost)} pts</span>
+                        <span className="text-[10px] text-kaya-sand">· {item.category}</span>
+                      </div>
+                    </div>
+                  </label>
+                );
+              })
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 mt-4">
+            <p className="text-xs text-kaya-sand flex-1">
+              {librarySelected.size > 0
+                ? `${librarySelected.size} selected`
+                : 'Nothing selected yet'}
+            </p>
+            <button
+              onClick={() => { setLibraryOpen(false); setLibrarySelected(new Set()); }}
+              className="h-10 px-4 rounded-kaya-sm bg-kaya-warm text-kaya-sand text-sm font-bold hover:bg-kaya-warm-dark"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={importSelected}
+              disabled={importing || librarySelected.size === 0}
+              className="h-10 px-4 rounded-kaya-sm bg-kaya-gold text-white text-sm font-bold hover:bg-kaya-gold-dark disabled:opacity-50"
+            >
+              {importing ? 'Importing…' : `Import ${librarySelected.size || ''}`.trim()}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Add-new inline form (shown when "Add a new reward" is clicked) */}
+      {adding && (
         <div className="bg-white border-2 border-kaya-gold rounded-kaya-lg p-4 lg:p-5 mb-5">
           <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-gold mb-3">New reward</p>
           <RewardForm
@@ -377,6 +586,64 @@ export default function ParentRewardsPage() {
           ))}
         </div>
       )}
+
+      {/* Recent redemptions — denormalised title so this still reads
+          correctly after a parent renames or deletes the underlying
+          reward. Limited to 25 most-recent to keep the section calm. */}
+      <div className="mt-8 mb-4">
+        <div className="flex items-baseline justify-between mb-3 px-1">
+          <h2 className="font-display font-extrabold text-lg">Recent redemptions</h2>
+          <button
+            onClick={loadRedemptions}
+            className="text-[11px] font-bold text-kaya-gold hover:text-kaya-gold-dark"
+          >
+            Refresh
+          </button>
+        </div>
+        {redemptions.length === 0 ? (
+          <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya p-6 text-center">
+            <p className="text-2xl mb-2">📜</p>
+            <p className="text-xs text-kaya-sand">
+              No redemptions yet. They&apos;ll show up here as kids spend points.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya divide-y divide-kaya-warm-dark/40">
+            {redemptions.map((r) => {
+              const child = children.find((c) => c.id === r.childId);
+              const when = r.createdAt?.toDate
+                ? r.createdAt.toDate().toLocaleString(undefined, {
+                    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+                  })
+                : '';
+              return (
+                <div key={r.id} className="flex items-center gap-3 p-3">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-base shrink-0"
+                    style={{ backgroundColor: (child?.houseColor || '#C4B89A') + '33' }}
+                  >
+                    {child?.avatarEmoji || '👤'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm leading-snug">
+                      <span className="font-bold">{child?.name || 'Someone'}</span>
+                      <span className="text-kaya-sand"> redeemed </span>
+                      <span className="font-semibold">{r.rewardTitle}</span>
+                    </p>
+                    <p className="text-[11px] text-kaya-sand mt-0.5">{when}</p>
+                  </div>
+                  <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
+                    −{fmt(r.pointsSpent)} pts
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {redemptions.length === 25 && (
+          <p className="text-[11px] text-kaya-sand mt-2 text-center">Showing the 25 most recent.</p>
+        )}
+      </div>
     </div>
   );
 }

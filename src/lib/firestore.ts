@@ -427,6 +427,19 @@ export interface Meeting {
   notes: string;
   createdBy: string;
   createdAt: Timestamp;
+  /** Per-kid appreciation captured in the new presenter-mode flow.
+   *  Optional so historical meetings keep working unchanged. */
+  appreciations?: Record<string, string>;
+  /** Per-kid done/not-done flag for the goal set in the *previous*
+   *  meeting. Captured during Goals Review. */
+  lastWeekGoalsDone?: Record<string, boolean>;
+  /** What the family did to close the meeting — story, songs, or a
+   *  family prayer. `content` is plain text the parent paste/typed
+   *  (no backend upload); for `songs` and `story` it's typically a URL. */
+  reflection?: {
+    mode: 'story' | 'songs' | 'prayer';
+    content?: string;
+  };
 }
 
 export interface Reward {
@@ -443,6 +456,18 @@ export interface Reward {
   category?: string;
 }
 
+// Logged once per `redeemReward()` call. `rewardTitle` is denormalised
+// so the history view still works after the underlying Reward doc is
+// edited or deleted by a parent.
+export interface Redemption {
+  id: string;
+  childId: string;
+  rewardId: string;
+  rewardTitle: string;
+  pointsSpent: number;
+  createdAt: Timestamp;
+}
+
 // Seed categories shown in the dropdown the first time a parent opens
 // the manage page. Plain English per Kaya naming convention.
 export const DEFAULT_REWARD_CATEGORIES: { name: string; icon: string }[] = [
@@ -453,6 +478,170 @@ export const DEFAULT_REWARD_CATEGORIES: { name: string; icon: string }[] = [
 ];
 
 export const DEFAULT_REWARD_CATEGORY = 'Treats';
+
+// ── Reward Library ─────────────────────────────────
+// Curated catalog parents browse to seed their family's rewards list
+// without having to invent everything from scratch. Defined in code
+// (no Firestore reads) — the parent picks items, we batch-copy the
+// chosen ones into `families/{id}/rewards`. From there they're
+// editable / deletable like any other reward.
+//
+// Keep entries culturally neutral (Kaya runs UAE + USA + TZ households)
+// and avoid anything that assumes a religion, gender role, or local
+// currency. Pocket-money rewards live in The Hive, not here.
+export type LibraryReward = Omit<Reward, 'id' | 'active'>;
+
+export const REWARD_LIBRARY: LibraryReward[] = [
+  // ── Treats ──────────────────────────────────────
+  { title: 'Ice cream outing',              description: 'Family trip to the ice cream parlour',                pointsCost: 50,  icon: '🍦', category: 'Treats' },
+  { title: 'Pick the family dessert',       description: 'You choose what everyone has after dinner',           pointsCost: 20,  icon: '🍨', category: 'Treats' },
+  { title: 'Hot chocolate with marshmallows', description: 'A proper mug, your way',                            pointsCost: 15,  icon: '☕', category: 'Treats' },
+  { title: 'Bake cookies with a parent',    description: 'Choose the recipe, do the mixing',                    pointsCost: 30,  icon: '🍪', category: 'Treats' },
+  { title: 'Smoothie of your choice',       description: 'Any combo you can imagine',                           pointsCost: 15,  icon: '🥤', category: 'Treats' },
+  { title: 'Pizza night (you pick toppings)', description: 'You design the whole pizza',                        pointsCost: 40,  icon: '🍕', category: 'Treats' },
+  { title: 'Frozen yogurt trip',            description: 'Outing to the fro-yo place',                          pointsCost: 50,  icon: '🍧', category: 'Treats' },
+  { title: 'Pancake breakfast',             description: 'Pancakes made just how you like them',                pointsCost: 25,  icon: '🥞', category: 'Treats' },
+  { title: 'Order takeaway favourite',      description: 'Choose where the family orders from',                 pointsCost: 60,  icon: '🥡', category: 'Treats' },
+  { title: 'Pick a snack at the shop',      description: 'One snack of your choice on the next shop',           pointsCost: 20,  icon: '🍭', category: 'Treats' },
+  { title: 'Cupcake decorating',            description: 'Bake and decorate cupcakes, your design',             pointsCost: 35,  icon: '🧁', category: 'Treats' },
+  { title: 'Make your own milkshake',       description: 'Any flavour combo you can dream up',                  pointsCost: 20,  icon: '🍫', category: 'Treats' },
+  { title: 'Donut run',                     description: 'Pick the donut shop, pick the donut',                 pointsCost: 30,  icon: '🍩', category: 'Treats' },
+  { title: 'Build-your-own sundae',         description: 'A bowl of toppings, no limits',                       pointsCost: 30,  icon: '🍒', category: 'Treats' },
+  { title: 'Lemonade stand kit',            description: 'Set up a stand, keep the takings',                    pointsCost: 50,  icon: '🍋', category: 'Treats' },
+  { title: 'Popcorn movie snack',           description: 'Fresh popcorn for tonight\'s movie',                  pointsCost: 10,  icon: '🍿', category: 'Treats' },
+  { title: 'Build your own burger',         description: 'You pick every topping',                              pointsCost: 30,  icon: '🍔', category: 'Treats' },
+  { title: 'Cotton candy at a fair',        description: 'Or anywhere they sell it',                            pointsCost: 25,  icon: '🍡', category: 'Treats' },
+
+  // ── Privileges ──────────────────────────────────
+  { title: 'Extra screen time (30 min)',    description: 'A bonus half hour today',                             pointsCost: 20,  icon: '📱', category: 'Privileges' },
+  { title: 'Extra screen time (1 hr)',      description: 'A bonus full hour today',                             pointsCost: 35,  icon: '⏰', category: 'Privileges' },
+  { title: 'Stay up 30 min late',           description: 'Bedtime pushed back tonight',                         pointsCost: 25,  icon: '🌙', category: 'Privileges' },
+  { title: 'Stay up an hour late',          description: 'Bedtime pushed back tonight by a whole hour',         pointsCost: 50,  icon: '🌜', category: 'Privileges' },
+  { title: 'Choose the family movie',       description: 'You pick what we all watch',                          pointsCost: 30,  icon: '🎬', category: 'Privileges' },
+  { title: 'Pick the dinner menu',          description: 'Choose what the family eats tonight',                 pointsCost: 30,  icon: '🍽️', category: 'Privileges' },
+  { title: 'Be the family DJ',              description: 'Control the music for the whole car ride',            pointsCost: 15,  icon: '🎶', category: 'Privileges' },
+  { title: 'Front seat in the car',         description: 'Ride shotgun on the next trip',                       pointsCost: 20,  icon: '🚗', category: 'Privileges' },
+  { title: 'Skip one chore today',          description: 'One chore of your choice — gone',                     pointsCost: 35,  icon: '✋', category: 'Privileges' },
+  { title: 'Skip the dishes for a week',    description: 'A whole week off dish duty',                          pointsCost: 100, icon: '🧽', category: 'Privileges' },
+  { title: 'Choose tomorrow\'s outfit',     description: 'Including a parent\'s outfit if you dare',            pointsCost: 25,  icon: '👕', category: 'Privileges' },
+  { title: 'First in the bathroom',         description: 'Skip the morning queue tomorrow',                     pointsCost: 10,  icon: '🚿', category: 'Privileges' },
+  { title: 'Stay up for the big match',     description: 'Watch the late game with the family',                 pointsCost: 40,  icon: '⚽', category: 'Privileges' },
+  { title: 'Decide what we play',           description: 'Pick the next family game night activity',            pointsCost: 20,  icon: '🎲', category: 'Privileges' },
+  { title: 'Lead the family meeting',       description: 'You run the weekly catch-up this week',               pointsCost: 35,  icon: '🗣️', category: 'Privileges' },
+  { title: 'Pyjama day at home',            description: 'One Saturday — no getting dressed',                   pointsCost: 30,  icon: '🛌', category: 'Privileges' },
+  { title: 'Breakfast in bed',              description: 'A parent brings breakfast to you',                    pointsCost: 40,  icon: '🛎️', category: 'Privileges' },
+  { title: 'Choose Sunday lunch spot',      description: 'Pick where the family eats Sunday',                   pointsCost: 50,  icon: '🍱', category: 'Privileges' },
+  { title: 'Phone time (15 min)',           description: 'Extra phone time today',                              pointsCost: 15,  icon: '📲', category: 'Privileges' },
+  { title: 'Tablet game time (30 min)',     description: 'Bonus tablet game session',                           pointsCost: 25,  icon: '🎮', category: 'Privileges' },
+  { title: 'Choose the radio station',      description: 'You own the airwaves on the next drive',              pointsCost: 10,  icon: '📻', category: 'Privileges' },
+  { title: 'Choose the bedtime story',      description: 'You pick what we read tonight',                       pointsCost: 10,  icon: '📕', category: 'Privileges' },
+
+  // ── Experiences ─────────────────────────────────
+  { title: 'Friend sleepover',              description: 'Invite a friend to stay the night',                   pointsCost: 150, icon: '🏠', category: 'Experiences' },
+  { title: 'Cinema outing',                 description: 'Trip to the cinema, ticket on the family',            pointsCost: 120, icon: '🎟️', category: 'Experiences' },
+  { title: 'Trip to the park',              description: 'Special trip to your favourite park',                 pointsCost: 40,  icon: '🌳', category: 'Experiences' },
+  { title: 'Bowling night',                 description: 'Family bowling trip',                                 pointsCost: 100, icon: '🎳', category: 'Experiences' },
+  { title: 'Trampoline park',               description: 'An hour of jumping',                                  pointsCost: 120, icon: '🤸', category: 'Experiences' },
+  { title: 'Beach day',                     description: 'Half-day at the beach',                               pointsCost: 100, icon: '🏖️', category: 'Experiences' },
+  { title: 'Museum trip',                   description: 'Pick the museum, we go',                              pointsCost: 80,  icon: '🏛️', category: 'Experiences' },
+  { title: 'Cooking class with a parent',   description: '1-on-1 in the kitchen, you choose the dish',          pointsCost: 80,  icon: '👨‍🍳', category: 'Experiences' },
+  { title: 'Build a fort in the lounge',    description: 'Pillow fort takes over the living room',              pointsCost: 30,  icon: '🛖', category: 'Experiences' },
+  { title: 'Camp in the garden',            description: 'Tent in the back yard for the night',                 pointsCost: 60,  icon: '⛺', category: 'Experiences' },
+  { title: 'Solo time with a parent',       description: '2 hours, just you and a parent, your plan',           pointsCost: 80,  icon: '💞', category: 'Experiences' },
+  { title: 'Visit grandparents',            description: 'A special trip to see grandparents',                  pointsCost: 60,  icon: '👴', category: 'Experiences' },
+  { title: 'Zoo trip',                      description: 'Day out at the zoo',                                  pointsCost: 150, icon: '🦒', category: 'Experiences' },
+  { title: 'Aquarium trip',                 description: 'Day out at the aquarium',                             pointsCost: 150, icon: '🐠', category: 'Experiences' },
+  { title: 'Family bike ride',              description: 'Long ride to a place you choose',                     pointsCost: 50,  icon: '🚴', category: 'Experiences' },
+  { title: 'Picnic of your choice',         description: 'Pack the basket, pick the spot',                      pointsCost: 50,  icon: '🧺', category: 'Experiences' },
+  { title: 'Mini golf outing',              description: 'Family round of mini golf',                           pointsCost: 100, icon: '⛳', category: 'Experiences' },
+  { title: 'Roller skating trip',           description: 'An hour at the rink',                                 pointsCost: 100, icon: '🛼', category: 'Experiences' },
+  { title: 'Ice skating trip',              description: 'An hour on the ice',                                  pointsCost: 100, icon: '⛸️', category: 'Experiences' },
+  { title: 'Arcade outing',                 description: 'A round of tokens at the arcade',                     pointsCost: 100, icon: '🕹️', category: 'Experiences' },
+  { title: 'Theme park day',                description: 'A whole day at a theme park',                         pointsCost: 400, icon: '🎢', category: 'Experiences' },
+  { title: 'Water park outing',             description: 'Day at the water park',                               pointsCost: 300, icon: '🏊', category: 'Experiences' },
+  { title: 'Stadium match ticket',          description: 'See a live sports match',                             pointsCost: 350, icon: '🏟️', category: 'Experiences' },
+  { title: 'Concert ticket',                description: 'See a kid-friendly live show',                        pointsCost: 350, icon: '🎤', category: 'Experiences' },
+  { title: 'Pottery class',                 description: 'A pottery or clay session',                           pointsCost: 200, icon: '🏺', category: 'Experiences' },
+  { title: 'Escape room',                   description: 'Family escape-room session',                          pointsCost: 250, icon: '🗝️', category: 'Experiences' },
+
+  // ── Things ──────────────────────────────────────
+  { title: 'New book',                      description: 'A book of your choice',                               pointsCost: 80,  icon: '📖', category: 'Things' },
+  { title: 'New small toy',                 description: 'A small toy on the next shop',                        pointsCost: 100, icon: '🧸', category: 'Things' },
+  { title: 'New art supplies',              description: 'Pens, paints or paper of your choice',                pointsCost: 70,  icon: '🎨', category: 'Things' },
+  { title: 'Sticker pack',                  description: 'A new pack of stickers',                              pointsCost: 30,  icon: '✨', category: 'Things' },
+  { title: 'Lego set (small)',              description: 'A small Lego or building set',                        pointsCost: 150, icon: '🧱', category: 'Things' },
+  { title: 'Lego set (medium)',             description: 'A medium Lego or building set',                       pointsCost: 300, icon: '🏗️', category: 'Things' },
+  { title: 'New game for the tablet',       description: 'One paid app or game',                                pointsCost: 100, icon: '🎮', category: 'Things' },
+  { title: 'Sports gear',                   description: 'A small piece of kit you choose',                     pointsCost: 120, icon: '⚽', category: 'Things' },
+  { title: 'Plant for your room',           description: 'Pick a houseplant — you care for it',                 pointsCost: 60,  icon: '🪴', category: 'Things' },
+  { title: 'Decoration for your room',      description: 'A poster, fairy lights, something you love',          pointsCost: 80,  icon: '🖼️', category: 'Things' },
+  { title: 'New stationery',                description: 'Notebook, pens, the lot',                             pointsCost: 50,  icon: '📒', category: 'Things' },
+  { title: 'Puzzle (500–1000 pcs)',         description: 'A new jigsaw puzzle',                                 pointsCost: 100, icon: '🧩', category: 'Things' },
+  { title: 'Board game of your choice',     description: 'A new board game for the family',                     pointsCost: 200, icon: '♟️', category: 'Things' },
+  { title: 'Card pack',                     description: 'Trading cards or a card-game booster',                pointsCost: 60,  icon: '🃏', category: 'Things' },
+  { title: 'New piece of clothing',         description: 'You pick the shirt / dress / hoodie',                 pointsCost: 200, icon: '👚', category: 'Things' },
+  { title: 'New shoes',                     description: 'You choose, within reason',                           pointsCost: 350, icon: '👟', category: 'Things' },
+  { title: 'Headphones',                    description: 'A set of kid-friendly headphones',                    pointsCost: 250, icon: '🎧', category: 'Things' },
+  { title: 'Backpack',                      description: 'A new backpack you pick',                             pointsCost: 200, icon: '🎒', category: 'Things' },
+  { title: 'Water bottle',                  description: 'A new bottle you love',                               pointsCost: 60,  icon: '🧴', category: 'Things' },
+  { title: 'Hair accessory',                description: 'Clips, bands, scrunchies — your call',                pointsCost: 30,  icon: '🎀', category: 'Things' },
+
+  // ── Learning ─────────────────────────────────────
+  { title: 'Documentary night',             description: 'Pick a documentary, the family watches',              pointsCost: 25,  icon: '📺', category: 'Learning' },
+  { title: 'Online course of your choice',  description: 'A short course on something you love',                pointsCost: 200, icon: '💻', category: 'Learning' },
+  { title: 'Magazine subscription',         description: 'A monthly magazine just for you',                     pointsCost: 180, icon: '📰', category: 'Learning' },
+  { title: 'Library trip',                  description: 'Pick out 5 books to take home',                       pointsCost: 30,  icon: '🏫', category: 'Learning' },
+  { title: 'Science experiment kit',        description: 'A small kit to try at home',                          pointsCost: 150, icon: '🔬', category: 'Learning' },
+  { title: 'Coding game subscription',      description: 'A month of a kid-coding platform',                    pointsCost: 250, icon: '⌨️', category: 'Learning' },
+  { title: 'Music lesson',                  description: 'One lesson on the instrument of your choice',         pointsCost: 200, icon: '🎹', category: 'Learning' },
+  { title: 'Art class',                     description: 'A one-off art class',                                 pointsCost: 200, icon: '🖌️', category: 'Learning' },
+  { title: 'Pick the next non-fiction book', description: 'Choose what the family reads aloud next',            pointsCost: 30,  icon: '📚', category: 'Learning' },
+  { title: 'Globe / atlas',                 description: 'A globe or kid atlas for your room',                  pointsCost: 200, icon: '🌍', category: 'Learning' },
+  { title: 'Telescope time',                description: 'A clear night, a telescope, a parent',                pointsCost: 60,  icon: '🔭', category: 'Learning' },
+  { title: 'Visit a planetarium',           description: 'Half-day at the planetarium',                         pointsCost: 200, icon: '🪐', category: 'Learning' },
+
+  // ── Connection ───────────────────────────────────
+  { title: 'Video call with cousin',        description: 'Set up a long catch-up call',                         pointsCost: 15,  icon: '📞', category: 'Connection' },
+  { title: 'Write a letter together',       description: 'Letter to a family member, stamp included',           pointsCost: 20,  icon: '✉️', category: 'Connection' },
+  { title: 'Family game night',             description: 'You pick the game, everyone plays',                   pointsCost: 30,  icon: '🎲', category: 'Connection' },
+  { title: 'Story time (you read)',         description: 'You read the bedtime story tonight',                  pointsCost: 15,  icon: '📚', category: 'Connection' },
+  { title: 'One-on-one walk',               description: '30 min walk with a parent, you talk',                 pointsCost: 25,  icon: '🚶', category: 'Connection' },
+  { title: 'Cook dinner with a parent',     description: 'Plan it, shop it, cook it together',                  pointsCost: 60,  icon: '🍳', category: 'Connection' },
+  { title: 'Photo album afternoon',         description: 'Go through old family photos together',               pointsCost: 30,  icon: '🖼️', category: 'Connection' },
+  { title: 'Phone a grandparent',           description: 'A real, long catch-up call',                          pointsCost: 15,  icon: '☎️', category: 'Connection' },
+  { title: 'Sibling team-up time',          description: 'Pick something to do with a sibling — together',      pointsCost: 20,  icon: '👫', category: 'Connection' },
+  { title: 'Family karaoke',                description: 'Pick the playlist, everyone sings',                   pointsCost: 30,  icon: '🎤', category: 'Connection' },
+  { title: 'Send a postcard',               description: 'Write and post a card to someone you love',           pointsCost: 20,  icon: '📮', category: 'Connection' },
+  { title: 'Family talent show',            description: 'You host the family talent show',                     pointsCost: 50,  icon: '🎭', category: 'Connection' },
+
+  // ── Skills ──────────────────────────────────────
+  { title: 'Learn to ride a bike',          description: 'A focused parent-led session',                        pointsCost: 80,  icon: '🚲', category: 'Skills' },
+  { title: 'Learn a new card trick',        description: 'A parent teaches you a magic trick',                  pointsCost: 30,  icon: '🪄', category: 'Skills' },
+  { title: 'Sewing a button',               description: 'Real needle, real thread, real shirt',                pointsCost: 40,  icon: '🧵', category: 'Skills' },
+  { title: 'Knot-tying session',            description: 'Learn five useful knots',                             pointsCost: 30,  icon: '🪢', category: 'Skills' },
+  { title: 'Learn to whistle a tune',       description: 'A parent teaches you',                                pointsCost: 20,  icon: '🎼', category: 'Skills' },
+  { title: 'Learn to make pasta',           description: 'From scratch, with a parent',                         pointsCost: 80,  icon: '🍝', category: 'Skills' },
+  { title: 'Learn a chess opening',         description: 'Master one named opening',                            pointsCost: 50,  icon: '♟️', category: 'Skills' },
+  { title: 'Origami session',               description: 'Fold 5 new things',                                   pointsCost: 30,  icon: '🦢', category: 'Skills' },
+  { title: 'Learn a juggling trick',        description: 'Three balls, real progress',                          pointsCost: 50,  icon: '🤹', category: 'Skills' },
+  { title: 'Tie your own shoelaces',        description: 'Master the bow, get the badge',                       pointsCost: 30,  icon: '👞', category: 'Skills' },
+
+  // ── Adventure ───────────────────────────────────
+  { title: 'Family hike',                   description: 'A new trail of your choice',                          pointsCost: 100, icon: '🥾', category: 'Adventure' },
+  { title: 'Geocaching afternoon',          description: 'Hunt down two caches together',                       pointsCost: 80,  icon: '🧭', category: 'Adventure' },
+  { title: 'Tide-pool exploring',           description: 'Half-day at the rock pools',                          pointsCost: 100, icon: '🦀', category: 'Adventure' },
+  { title: 'Forest scavenger hunt',         description: 'You make the list, family hunts',                     pointsCost: 60,  icon: '🍃', category: 'Adventure' },
+  { title: 'Sunrise breakfast outing',      description: 'Up early, breakfast somewhere new',                   pointsCost: 80,  icon: '🌅', category: 'Adventure' },
+  { title: 'Bird-watching morning',         description: 'Binoculars, list, quiet patience',                    pointsCost: 50,  icon: '🐦', category: 'Adventure' },
+  { title: 'Star-gazing night',             description: 'Drive somewhere dark, stay up late',                  pointsCost: 100, icon: '✨', category: 'Adventure' },
+  { title: 'Try a new sport',               description: 'A single trial session of something new',             pointsCost: 150, icon: '🥅', category: 'Adventure' },
+  { title: 'Treasure hunt at home',         description: 'A parent sets one up — clues and all',                pointsCost: 40,  icon: '🗺️', category: 'Adventure' },
+  { title: 'Kayak / canoe trip',            description: 'A guided paddle outing',                              pointsCost: 250, icon: '🛶', category: 'Adventure' },
+];
+
+export const REWARD_LIBRARY_CATEGORIES = Array.from(
+  new Set(REWARD_LIBRARY.map((r) => r.category || DEFAULT_REWARD_CATEGORY))
+);
 
 export interface Notification {
   id: string;
@@ -1757,6 +1946,35 @@ export async function updateReward(familyId: string, rewardId: string, patch: Pa
 export async function deleteReward(familyId: string, rewardId: string) {
   if (isGuestActive()) return;
   await deleteDoc(doc(db, 'families', familyId, 'rewards', rewardId));
+}
+
+// Batch-add multiple rewards in one Firestore round-trip. Used by the
+// library picker so importing 30 items doesn't take 30 separate writes.
+// Each item is added active=true unless the caller overrides.
+export async function addRewardsBatch(familyId: string, rewards: Omit<Reward, 'id'>[]) {
+  if (isGuestActive()) return 0;
+  if (rewards.length === 0) return 0;
+  const batch = writeBatch(db);
+  const col = collection(db, 'families', familyId, 'rewards');
+  for (const r of rewards) {
+    batch.set(doc(col), r);
+  }
+  await batch.commit();
+  return rewards.length;
+}
+
+// Recent redemptions for the family, newest first. `limitCount` caps the
+// pull so the parent rewards page can show a compact history without
+// dragging the whole subcollection over the wire.
+export async function getRedemptions(familyId: string, limitCount = 25): Promise<Redemption[]> {
+  if (isGuestActive()) return [];
+  const q = query(
+    collection(db, 'families', familyId, 'redemptions'),
+    orderBy('createdAt', 'desc'),
+    limit(limitCount),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Redemption));
 }
 
 export async function redeemReward(familyId: string, childId: string, reward: Reward) {
