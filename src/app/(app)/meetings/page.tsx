@@ -165,6 +165,28 @@ export default function MeetingsPage() {
           <p className="text-kaya-sand text-sm">Weekly check-ins to grow together</p>
         </div>
 
+        {/* Presenter Mode CTA — the recommended way to run the meeting,
+            cast-friendly with the new 5-step Gratitude → Celebrate →
+            Appreciations → Goals → Closing Reflection flow. */}
+        <Link
+          href="/meetings/present"
+          className="mb-5 block bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-5 hover:brightness-110 transition-all"
+        >
+          <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
+            Start the meeting
+          </p>
+          <h2 className="font-display font-black text-xl leading-tight mb-1">
+            🎬 Presenter Mode
+          </h2>
+          <p className="text-[12px] opacity-75 leading-relaxed">
+            Full-screen, one step at a time — cast to a TV or prop up the phone.
+            Gratitude → Celebrate → Appreciations → Goals → Closing Reflection.
+          </p>
+          <span className="inline-flex items-center gap-1 mt-3 text-[12px] font-bold">
+            Open presenter →
+          </span>
+        </Link>
+
         <div className="mb-5"><Tabs /></div>
 
         {tab === 'new' ? (
@@ -284,13 +306,35 @@ export default function MeetingsPage() {
       {/* DESKTOP (lg+) — vertical stepper + main pane                 */}
       {/* ─────────────────────────────────────────────────────────── */}
       <div className="hidden lg:block max-w-[1400px] w-full px-8 py-8">
-        <div className="flex items-end justify-between gap-6 mb-7">
+        <div className="flex items-end justify-between gap-6 mb-6">
           <div>
             <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Family meetings</h1>
-            <p className="text-sm text-kaya-sand mt-1">A 6-step weekly rhythm: gratitude, wins, problems, goals.</p>
+            <p className="text-sm text-kaya-sand mt-1">A 5-step weekly rhythm: gratitude, celebration, appreciations, goals, closing reflection.</p>
           </div>
           <Tabs />
         </div>
+
+        {/* Presenter Mode CTA — desktop. Same destination as the mobile
+            banner above; this is the recommended way to run the meeting. */}
+        <Link
+          href="/meetings/present"
+          className="mb-7 flex items-center gap-5 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-6 hover:brightness-110 transition-all"
+        >
+          <div className="text-4xl shrink-0" aria-hidden>🎬</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
+              Recommended · Start the meeting
+            </p>
+            <h2 className="font-display font-black text-2xl leading-tight mb-1">
+              Open Presenter Mode
+            </h2>
+            <p className="text-[13px] opacity-75 leading-relaxed">
+              Full-screen, one step at a time — cast to a TV or prop the laptop on the table.
+              Gratitude → Celebrate the Wins → Appreciations → Goals Review → Closing Reflection.
+            </p>
+          </div>
+          <span className="shrink-0 text-sm font-extrabold opacity-80">→</span>
+        </Link>
 
         {tab === 'new' ? (
           saved ? (
