@@ -38,14 +38,26 @@ service cloud.firestore {
     // ── Helper scope (per-family HelperLink) ──────────────────────
     // True when the caller is a helper in `familyId` AND their
     // HelperLink doc lists `kidId` in its `kidIds` array AND status is
-    // active. V0 scope is per-kid only — module flags are stored on
-    // the HelperLink doc for future tightening but not enforced here.
+    // active. Per-kid scope only — combine with `helperHasModule()` to
+    // also require a specific module flag.
     function helperCanActOnKid(familyId, kidId) {
       return belongsToFamily(familyId)
         && getUserProfile().role == 'helper'
         && exists(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid))
         && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.status == 'active'
         && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.kidIds.hasAny([kidId]);
+    }
+
+    // True when the caller is a helper in `familyId` AND their
+    // HelperLink doc grants `moduleId` (kid-module id from
+    // lib/kidModules.ts). Stand-alone module check — for kid-scoped
+    // writes combine with `helperCanActOnKid()`.
+    function helperHasModule(familyId, moduleId) {
+      return belongsToFamily(familyId)
+        && getUserProfile().role == 'helper'
+        && exists(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.status == 'active'
+        && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.modules.hasAny([moduleId]);
     }
 
     // Legacy-helper escape hatch: helpers who joined BEFORE the
@@ -117,14 +129,14 @@ service cloud.firestore {
       // ── Ratings ──────────────────────────────────
       match /ratings/{ratingId} {
         allow read: if belongsToFamily(familyId);
-        // Parents can rate any kid. Helpers with a HelperLink doc
-        // can rate only the kids listed in their kidIds. Helpers
-        // who joined BEFORE the HelperLink rollout still get the old
-        // family-wide allowance (see `isLegacyHelperWithoutLink`) so
-        // we don't break existing flows until the parent re-adds
-        // them through Settings → Helpers.
+        // Parents can rate any kid. Helpers need (a) the kid in their
+        // HelperLink.kidIds AND (b) the `home` module granted (rating
+        // is a Home-module action). Legacy helpers (no HelperLink doc)
+        // keep the old family-wide allowance so existing flows don't
+        // break until the parent re-adds them in Settings → Helpers.
         allow create: if isParentInFamily(familyId)
-          || helperCanActOnKid(familyId, request.resource.data.childId)
+          || (helperCanActOnKid(familyId, request.resource.data.childId)
+              && helperHasModule(familyId, 'home'))
           || isLegacyHelperWithoutLink(familyId);
       }
 
@@ -263,63 +275,77 @@ service cloud.firestore {
 
       // ── The Pantry · staples ─────────────────────────────────────
       // Master list of recurring household items. Parents + helpers
-      // edit; kids read only (suggest mode arrives in Phase 1B).
+      // (with the `household` module) edit; kids read only (suggest
+      // mode arrives in Phase 1B). Legacy helpers without a HelperLink
+      // doc keep the old family-wide allowance.
       match /staples/{stapleId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update, delete: if isParentOrHelper(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperHasModule(familyId, 'household')
+          || isLegacyHelperWithoutLink(familyId);
       }
 
       // ── Suppliers (Soko + future Roster) ──────────────────────────
       // Single source of truth shared with The Roster directory. The
       // Pantry view filters by `categories` array-contains 'soko'; the
-      // Roster shows all entries.
+      // Roster shows all entries. Gated by `household` module.
       match /suppliers/{supplierId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update, delete: if isParentOrHelper(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperHasModule(familyId, 'household')
+          || isLegacyHelperWithoutLink(familyId);
       }
 
       // ── The Pantry · utilities ───────────────────────────────────
       // Recurring household bills + helper salaries (power, water,
-      // internet, TV, security, rent…). Parents + helpers edit; kids
-      // read only. Rolls up — alongside staples — into the Budget.
+      // internet, TV, security, rent…). Gated by `household` module.
+      // Rolls up — alongside staples — into the Budget.
       match /utilities/{utilityId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update, delete: if isParentOrHelper(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperHasModule(familyId, 'household')
+          || isLegacyHelperWithoutLink(familyId);
 
         // Payment ledger — one doc per period the bill was paid.
-        // Parents + helpers can record payments; everyone in the
-        // family can read the history.
+        // Parents + helpers (household module) can record payments;
+        // everyone in the family can read the history.
         match /payments/{paymentId} {
           allow read: if belongsToFamily(familyId);
-          allow create, update, delete: if isParentOrHelper(familyId);
+          allow create, update, delete: if isParentInFamily(familyId)
+            || helperHasModule(familyId, 'household')
+            || isLegacyHelperWithoutLink(familyId);
         }
       }
 
       // ── Catalog overlay ──────────────────────────────────────────
       // Per-family edits + additions layered on the built-in product
-      // catalog (see lib/pantryCatalog.ts). Parents + helpers edit;
-      // kids read only.
+      // catalog (see lib/pantryCatalog.ts). Gated by `household` module.
       match /catalogItems/{itemId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update, delete: if isParentOrHelper(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperHasModule(familyId, 'household')
+          || isLegacyHelperWithoutLink(familyId);
       }
 
       // ── Custom dishes ────────────────────────────────────────────
       // Per-family custom dishes layered on the built-in foods catalog
-      // (see lib/pantryCatalog.ts). Parents + helpers edit; kids read.
+      // (see lib/pantryCatalog.ts). Gated by `household` module.
       match /catalogFoods/{foodId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update, delete: if isParentOrHelper(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperHasModule(familyId, 'household')
+          || isLegacyHelperWithoutLink(familyId);
       }
 
       // ── Grocery lists ────────────────────────────────────────────
-      // Active runs (one per week, by convention). Parents + helpers
-      // edit; kids read only. Phase 1B will let kids suggest items via
-      // a separate `suggestions` subcollection that doesn't touch the
-      // list directly.
+      // Active runs (one per week, by convention). Gated by `household`
+      // module. Phase 1B will let kids suggest items via a separate
+      // `suggestions` subcollection that doesn't touch the list directly.
       match /groceryLists/{listId} {
         allow read: if belongsToFamily(familyId);
-        allow create, update, delete: if isParentOrHelper(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperHasModule(familyId, 'household')
+          || isLegacyHelperWithoutLink(familyId);
       }
 
       // ── Moments · Keepsake Albums ────────────────────────────────
@@ -350,10 +376,14 @@ service cloud.firestore {
         // step writes pending=true with minimal fields; finalize
         // patches the rest. For sub-albums we verify the parent
         // exists (a stronger inheritance check at write-time is in
-        // updateAlbumAccess + the picker UI).
+        // updateAlbumAccess + the picker UI). Helpers additionally
+        // need the `moments` module granted on their HelperLink.
         allow create: if belongsToFamily(familyId)
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.accessMode in ['all_family', 'custom']
+          && (getUserProfile().role != 'helper'
+              || helperHasModule(familyId, 'moments')
+              || isLegacyHelperWithoutLink(familyId))
           && (
             request.resource.data.parentAlbumId == null
             || exists(/databases/$(database)/documents/families/$(familyId)/albums/$(request.resource.data.parentAlbumId))
@@ -394,7 +424,10 @@ service cloud.firestore {
 
           allow read: if canViewParentAlbum();
           allow create: if canViewParentAlbum()
-            && request.resource.data.uploadedBy == request.auth.uid;
+            && request.resource.data.uploadedBy == request.auth.uid
+            && (getUserProfile().role != 'helper'
+                || helperHasModule(familyId, 'moments')
+                || isLegacyHelperWithoutLink(familyId));
           allow delete: if belongsToFamily(familyId)
             && (resource.data.uploadedBy == request.auth.uid
                 || isParentInFamily(familyId));
@@ -414,7 +447,10 @@ service cloud.firestore {
         allow read: if belongsToFamily(familyId);
         allow create: if belongsToFamily(familyId)
           && request.resource.data.authorUid == request.auth.uid
-          && request.resource.data.visibility in ['family', 'network'];
+          && request.resource.data.visibility in ['family', 'network']
+          && (getUserProfile().role != 'helper'
+              || helperHasModule(familyId, 'moments')
+              || isLegacyHelperWithoutLink(familyId));
         // Updates: the author can edit caption / photos / kid tags;
         // any member can bump the reaction + comment counters via the
         // toggleReaction / addComment batched writes. To keep things

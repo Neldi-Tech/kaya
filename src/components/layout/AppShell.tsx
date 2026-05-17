@@ -6,7 +6,20 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
+import { getHelperLink } from '@/lib/helpers';
 import GuestBanner from './GuestBanner';
+
+// Helper-sidebar paths that require a specific kid-module to be granted
+// in the helper's HelperLink. Paths not in this map are always shown to
+// helpers (e.g. /, /home, /profiles — read-only or general). Mirrors
+// the firestore.rules checks; UI gating + rule gating both reference
+// these kid-module ids.
+const HELPER_PATH_REQUIRES_MODULE: Record<string, string> = {
+  '/rate':    'home',       // routine ratings
+  '/award':   'home',       // kudos / improvement notes
+  '/moments': 'moments',    // photo feed + albums
+  '/pantry':  'household',  // meals / staples / suppliers / utilities / grocery
+};
 
 // Kaya brand logomark · the house-with-heart from Brand/svg/kaya-icon.svg,
 // inlined so the "Kaya" section ships with the real brand mark instead
@@ -272,11 +285,49 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     [family?.kidModules]
   );
 
+  // Per-helper module scope. Fetched from the HelperLink doc once per
+  // session. `null` initial = "not loaded yet"; `'legacy'` = "no
+  // HelperLink doc, fall back to full helper sidebar" (matches the
+  // firestore.rules `isLegacyHelperWithoutLink` carve-out). A real Set
+  // means we filter strictly.
+  const [helperModules, setHelperModules] = useState<Set<string> | 'legacy' | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (role !== 'helper' || !profile?.familyId || !profile.uid) {
+      setHelperModules(null);
+      return;
+    }
+    (async () => {
+      try {
+        const link = await getHelperLink(profile.familyId, profile.uid);
+        if (cancelled) return;
+        setHelperModules(link ? new Set(link.modules) : 'legacy');
+      } catch {
+        if (!cancelled) setHelperModules('legacy');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [role, profile?.familyId, profile?.uid]);
+
+  // Visibility predicate for a helper sidebar/mobile row. Rows whose
+  // path isn't in HELPER_PATH_REQUIRES_MODULE are always visible.
+  const isHelperRowVisible = useMemo(() => {
+    return (path: string | undefined) => {
+      if (helperModules === 'legacy' || helperModules === null) return true;
+      if (!path) return true;
+      const required = HELPER_PATH_REQUIRES_MODULE[path];
+      if (!required) return true;
+      return helperModules.has(required);
+    };
+  }, [helperModules]);
+
   const sidebar: SidebarRow[] = useMemo(() => {
     if (role === 'kid') return KID_SIDEBAR.filter((row) => grantedKidModules.has(row.id));
-    if (role === 'helper') return HELPER_SIDEBAR;
+    if (role === 'helper') {
+      return HELPER_SIDEBAR.filter((row) => row.kind !== 'link' || isHelperRowVisible(row.path));
+    }
     return PARENT_SIDEBAR;
-  }, [role, grantedKidModules]);
+  }, [role, grantedKidModules, isHelperRowVisible]);
 
   const mobileGroups: MobileGroup[] = useMemo(() => {
     if (role === 'kid') {
@@ -284,9 +335,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       // sidebar — keep it regardless of toggles.
       return KID_MOBILE_GROUPS.filter((g) => g.id === 'more' || grantedKidModules.has(g.id));
     }
-    if (role === 'helper') return HELPER_MOBILE_GROUPS;
+    if (role === 'helper') {
+      return HELPER_MOBILE_GROUPS.filter((g) => g.kind !== 'link' || isHelperRowVisible(g.path));
+    }
     return PARENT_MOBILE_GROUPS;
-  }, [role, grantedKidModules]);
+  }, [role, grantedKidModules, isHelperRowVisible]);
 
   // Route guard for kids — if they land on a path that belongs to a
   // module their family hasn't granted, bounce them back to Home so the
@@ -299,6 +352,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       router.replace('/kid');
     }
   }, [role, pathname, grantedKidModules, router]);
+
+  // Route guard for helpers — same idea but keyed on HELPER_PATH_REQUIRES_MODULE
+  // since helper-only routes (/rate, /award) aren't in the kid-modules
+  // KID_MODULES table. Bounces to /helper if a path is gated and not granted.
+  useEffect(() => {
+    if (role !== 'helper' || !pathname) return;
+    if (helperModules === 'legacy' || helperModules === null) return;
+    // Find the most-specific helper path prefix that gates this route.
+    const gatedPath = Object.keys(HELPER_PATH_REQUIRES_MODULE).find(
+      (p) => pathname === p || pathname.startsWith(p + '/'),
+    );
+    if (!gatedPath) return;
+    const required = HELPER_PATH_REQUIRES_MODULE[gatedPath];
+    if (!helperModules.has(required)) {
+      router.replace('/helper');
+    }
+  }, [role, pathname, helperModules, router]);
 
   // ── Path matching ──────────────────────────────────────────────────
   const isPathActive = (path: string) => {

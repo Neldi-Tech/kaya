@@ -9,9 +9,12 @@ import { getHelperLink, isHelperSessionExpired, clearHelperSession } from '@/lib
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import KidAvatar from '@/components/ui/KidAvatar';
-import { ShieldCheck } from 'lucide-react';
+import { ShieldCheck, Lock } from 'lucide-react';
+import { KID_MODULES } from '@/lib/kidModules';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
+
+const MODULE_BY_ID = Object.fromEntries(KID_MODULES.map((m) => [m.id, m]));
 
 const PRESET_LABEL: Record<HelperLink['preset'], string> = {
   nanny: 'Nanny',
@@ -98,23 +101,42 @@ export default function HelperPage() {
 
       {/* "Your access" panel — only when a HelperLink doc exists, so
           legacy helpers (full-family access) don't see a misleading
-          summary. Builds trust by making the scope visible at a glance.
-       */}
+          summary. Lists the assigned kids, role, expected frequency,
+          and the granted areas (chips) so the helper sees their exact
+          scope at a glance. */}
       {link && (
-        <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4 flex items-start gap-3">
-          <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0 mt-0.5" />
-          <div className="min-w-0 flex-1 text-xs lg:text-sm">
-            <div>
-              <span className="text-kaya-sand">Helping with </span>
-              <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
-              <span className="text-kaya-sand"> · </span>
-              <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
-              <span className="text-kaya-sand"> role</span>
-            </div>
-            <div className="mt-1 text-[11px] text-kaya-sand">
-              Expected today: <span className="font-bold text-kaya-chocolate">{FREQUENCY_LABEL[link.expectedFrequency ?? 'flexible']}</span>
+        <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4">
+          <div className="flex items-start gap-3">
+            <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1 text-xs lg:text-sm">
+              <div>
+                <span className="text-kaya-sand">Helping with </span>
+                <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
+                <span className="text-kaya-sand"> · </span>
+                <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
+                <span className="text-kaya-sand"> role</span>
+              </div>
+              <div className="mt-1 text-[11px] text-kaya-sand">
+                Expected today: <span className="font-bold text-kaya-chocolate">{FREQUENCY_LABEL[link.expectedFrequency ?? 'flexible']}</span>
+              </div>
             </div>
           </div>
+          {link.modules.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-kaya-warm-dark/40">
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-2">Areas you can act on</p>
+              <div className="flex flex-wrap gap-1.5">
+                {link.modules.map((id) => {
+                  const m = MODULE_BY_ID[id];
+                  if (!m) return null;
+                  return (
+                    <span key={id} className="px-2 py-1 text-[11px] bg-kaya-cream border border-kaya-warm-dark rounded-full">
+                      <span className="mr-1">{m.icon}</span>{m.label}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -146,25 +168,39 @@ export default function HelperPage() {
         ))}
       </div>
 
-      {/* Quick actions */}
-      <div className="grid grid-cols-2 gap-3 lg:gap-4 lg:max-w-2xl">
-        <button
-          onClick={() => router.push('/rate?period=morning')}
-          className="flex flex-col items-center gap-2 lg:gap-3 p-5 lg:p-8 bg-white border border-kaya-warm-dark rounded-kaya lg:rounded-kaya-lg hover:shadow-md hover:-translate-y-0.5 transition-all"
-        >
-          <span className="text-3xl lg:text-5xl">☀️</span>
-          <span className="text-sm lg:text-base font-bold">Morning rating</span>
-          <span className="hidden lg:block text-[12px] text-kaya-sand">Rate today&apos;s wake-up routines</span>
-        </button>
-        <button
-          onClick={() => router.push('/rate?period=evening')}
-          className="flex flex-col items-center gap-2 lg:gap-3 p-5 lg:p-8 bg-white border border-kaya-warm-dark rounded-kaya lg:rounded-kaya-lg hover:shadow-md hover:-translate-y-0.5 transition-all"
-        >
-          <span className="text-3xl lg:text-5xl">🌙</span>
-          <span className="text-sm lg:text-base font-bold">Evening rating</span>
-          <span className="hidden lg:block text-[12px] text-kaya-sand">Rate today&apos;s wind-down routines</span>
-        </button>
-      </div>
+      {/* Quick actions — only shown when the helper has the `home`
+          module (which is what routine ratings live under). Helpers
+          without `home` see a small "no access" hint so they understand
+          why no rating buttons appear. Legacy helpers (no link doc) get
+          the buttons by default — matches the rule fallback. */}
+      {(!link || link.modules.includes('home')) ? (
+        <div className="grid grid-cols-2 gap-3 lg:gap-4 lg:max-w-2xl">
+          <button
+            onClick={() => router.push('/rate?period=morning')}
+            className="flex flex-col items-center gap-2 lg:gap-3 p-5 lg:p-8 bg-white border border-kaya-warm-dark rounded-kaya lg:rounded-kaya-lg hover:shadow-md hover:-translate-y-0.5 transition-all"
+          >
+            <span className="text-3xl lg:text-5xl">☀️</span>
+            <span className="text-sm lg:text-base font-bold">Morning rating</span>
+            <span className="hidden lg:block text-[12px] text-kaya-sand">Rate today&apos;s wake-up routines</span>
+          </button>
+          <button
+            onClick={() => router.push('/rate?period=evening')}
+            className="flex flex-col items-center gap-2 lg:gap-3 p-5 lg:p-8 bg-white border border-kaya-warm-dark rounded-kaya lg:rounded-kaya-lg hover:shadow-md hover:-translate-y-0.5 transition-all"
+          >
+            <span className="text-3xl lg:text-5xl">🌙</span>
+            <span className="text-sm lg:text-base font-bold">Evening rating</span>
+            <span className="hidden lg:block text-[12px] text-kaya-sand">Rate today&apos;s wind-down routines</span>
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white border border-dashed border-kaya-warm-dark rounded-kaya-lg p-5 flex items-start gap-3">
+          <Lock size={18} className="text-kaya-sand flex-shrink-0 mt-0.5" />
+          <div className="text-xs lg:text-sm text-kaya-sand leading-relaxed">
+            <p className="font-bold text-kaya-chocolate">No rating access today</p>
+            <p>You aren&apos;t set up to log routines for this family. Ask the parent to add the <span className="font-bold">Home</span> area to your access in Settings → Helpers.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
