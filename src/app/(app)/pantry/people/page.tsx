@@ -50,7 +50,11 @@ export default function PantryPeoplePage() {
   const { profile } = useAuth();
   const { family } = useFamily();
   const [helpers, setHelpers] = useState<HelperLink[] | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  // Tracks rows the user has explicitly COLLAPSED. Default behaviour
+  // is everything open — the page is a scan-at-a-glance scoreboard,
+  // not a hierarchy. Chevron toggles add/remove from this set so a
+  // parent can hide a row that's getting in the way.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
   const reload = useCallback(async () => {
     if (!family) return;
@@ -89,7 +93,7 @@ export default function PantryPeoplePage() {
       </div>
 
       <p className="text-[12px] text-hive-muted mb-4">
-        Everyone helping with the household. Each row shows today&apos;s performance at a glance — tap to see the full workplan + breakdown.
+        Everyone helping with the household. Each row shows performance + today&apos;s workplan inline — tap a name to collapse it if you need more room.
       </p>
 
       {visibleHelpers === null && (
@@ -122,8 +126,13 @@ export default function PantryPeoplePage() {
             key={h.uid}
             helper={h}
             familyId={family.id}
-            expanded={expanded === h.uid}
-            onToggle={() => setExpanded((v) => (v === h.uid ? null : h.uid))}
+            expanded={!collapsedIds.has(h.uid)}
+            onToggle={() => setCollapsedIds((prev) => {
+              const next = new Set(prev);
+              if (next.has(h.uid)) next.delete(h.uid);
+              else next.add(h.uid);
+              return next;
+            })}
           />
         ))}
       </div>
