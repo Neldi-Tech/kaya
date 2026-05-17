@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound } from 'lucide-react';
+import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   ensureFamilyCode,
   listHelpers,
@@ -158,7 +158,7 @@ export default function HelpersSettingsPage() {
           <HelperRow
             key={h.uid}
             helper={h}
-            childNameById={Object.fromEntries(children.map((c) => [c.id, c.name]))}
+            childOptions={children.map((c) => ({ id: c.id, name: c.name }))}
             busy={busyHelperUid === h.uid}
             onPauseToggle={async () => {
               if (!family) return;
@@ -176,6 +176,14 @@ export default function HelpersSettingsPage() {
               setBusyHelperUid(h.uid);
               try {
                 await removeHelper(family.id, h.uid);
+                await reloadHelpers();
+              } finally { setBusyHelperUid(null); }
+            }}
+            onUpdateKids={async (kidIds) => {
+              if (!family) return;
+              setBusyHelperUid(h.uid);
+              try {
+                await updateHelperLink(family.id, h.uid, { kidIds });
                 await reloadHelpers();
               } finally { setBusyHelperUid(null); }
             }}
@@ -249,25 +257,36 @@ function AddHelperForm({
   // After creation: render the credentials card and a "Done" button.
   if (result) {
     const { familyCode: fc, helperCode: hc, password: pw } = result.loginInstructions;
-    const oneLine = `Family code: ${fc}\nHelper code: ${hc}\nPassword: ${pw}\nLogin: /h`;
+    // Full shareable URL — built client-side from the current origin so
+    // it's always correct in dev (localhost), staging, and production.
+    // `window` is only touched inside the component body which runs
+    // client-only ('use client' at the top), so SSR is safe.
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const loginUrl = `${origin}/h`;
+    const oneLine =
+      `Kaya helper sign-in:\n` +
+      `${loginUrl}\n\n` +
+      `Family code: ${fc}\n` +
+      `Helper code: ${hc}\n` +
+      `Password: ${pw}`;
     return (
       <div className="mt-4 bg-kaya-gold-light/20 border-2 border-kaya-gold rounded-kaya-lg p-5">
-        <p className="font-display font-bold text-lg">Helper added — share these 3 things</p>
+        <p className="font-display font-bold text-lg">Helper added — share these with them</p>
         <p className="text-xs text-kaya-sand mt-1">
-          The password is shown ONCE. Copy it now and share with the helper via WhatsApp / in person.
+          The password is shown ONCE. Copy it now and send via WhatsApp / in person.
         </p>
         <div className="mt-4 space-y-2">
-          <CredRow label="Family code" value={fc} id="fc"  copy={copy} copied={copiedField === 'fc'} />
-          <CredRow label="Helper code" value={hc} id="hc"  copy={copy} copied={copiedField === 'hc'} />
-          <CredRow label="Password"    value={pw} id="pw"  copy={copy} copied={copiedField === 'pw'} mono />
-          <CredRow label="Login URL"   value="/h" id="url" copy={copy} copied={copiedField === 'url'} />
+          <CredRow label="Login URL"   value={loginUrl} id="url" copy={copy} copied={copiedField === 'url'} />
+          <CredRow label="Family code" value={fc}       id="fc"  copy={copy} copied={copiedField === 'fc'} />
+          <CredRow label="Helper code" value={hc}       id="hc"  copy={copy} copied={copiedField === 'hc'} />
+          <CredRow label="Password"    value={pw}       id="pw"  copy={copy} copied={copiedField === 'pw'} mono />
         </div>
         <div className="mt-4 flex items-center gap-2">
           <button
             onClick={() => copy(oneLine, 'all')}
             className="flex-1 px-3 py-2 text-sm bg-white border border-kaya-warm-dark rounded-kaya hover:bg-kaya-cream inline-flex items-center justify-center gap-2"
           >
-            {copiedField === 'all' ? <><Check size={16} /> Copied all</> : <><Copy size={16} /> Copy all 4</>}
+            {copiedField === 'all' ? <><Check size={16} /> Copied (paste in WhatsApp)</> : <><Copy size={16} /> Copy all 4 (WhatsApp-ready)</>}
           </button>
           <button
             onClick={() => { setResult(null); onClose(); onCreated(); }}
@@ -457,18 +476,36 @@ function CredRow({ label, value, id, copy, copied, mono }: {
   );
 }
 
-function HelperRow({ helper, childNameById, busy, onPauseToggle, onRemove }: {
+function HelperRow({ helper, childOptions, busy, onPauseToggle, onRemove, onUpdateKids }: {
   helper: HelperLink;
-  childNameById: Record<string, string>;
+  childOptions: { id: string; name: string }[];
   busy: boolean;
   onPauseToggle: () => void;
   onRemove: () => void;
+  onUpdateKids: (kidIds: string[]) => Promise<void>;
 }) {
-  const kidNames = helper.kidIds.map((id) => childNameById[id]).filter(Boolean).join(', ') || 'No kids assigned';
+  const childNameById = Object.fromEntries(childOptions.map((c) => [c.id, c.name]));
+  const kidNames =
+    helper.kidIds.map((id) => childNameById[id]).filter(Boolean).join(', ') || 'No kids assigned';
+  const [expanded, setExpanded] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const toggleKid = async (kidId: string) => {
+    const has = helper.kidIds.includes(kidId);
+    const next = has ? helper.kidIds.filter((id) => id !== kidId) : [...helper.kidIds, kidId];
+    await onUpdateKids(next);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 1200);
+  };
+
   return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+    <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg overflow-hidden">
+      <div className="p-4 flex items-start justify-between gap-3">
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="flex-1 min-w-0 text-left"
+          aria-expanded={expanded}
+        >
           <p className="font-display font-bold text-base truncate">
             {helper.displayName}
             {helper.status === 'paused' && (
@@ -477,10 +514,10 @@ function HelperRow({ helper, childNameById, busy, onPauseToggle, onRemove }: {
               </span>
             )}
           </p>
-          <p className="text-xs text-kaya-sand mt-0.5">
+          <p className="text-xs text-kaya-sand mt-0.5 truncate">
             <span className="font-bold uppercase">{helper.helperCode}</span> · {helper.preset} · {kidNames}
           </p>
-        </div>
+        </button>
         <div className="flex items-center gap-1 flex-shrink-0">
           <button
             disabled={busy}
@@ -498,8 +535,64 @@ function HelperRow({ helper, childNameById, busy, onPauseToggle, onRemove }: {
           >
             <Trash2 size={16} />
           </button>
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="p-2 text-kaya-sand hover:text-kaya-chocolate"
+            title={expanded ? 'Collapse' : 'Edit access'}
+            aria-expanded={expanded}
+          >
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
         </div>
       </div>
+
+      {expanded && (
+        <div className="border-t border-kaya-warm-dark/40 bg-kaya-cream/50 p-4 space-y-3">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand">Kids this helper can act on</p>
+              {justSaved && (
+                <span className="text-[10px] uppercase tracking-wider text-green-700 font-bold inline-flex items-center gap-1">
+                  <Check size={12} /> Saved
+                </span>
+              )}
+            </div>
+            {childOptions.length === 0 ? (
+              <p className="text-xs text-kaya-sand italic">No kids in the family yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {childOptions.map((c) => {
+                  const on = helper.kidIds.includes(c.id);
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => toggleKid(c.id)}
+                      className={`px-3 py-1.5 text-sm rounded-full border disabled:opacity-50 ${on
+                        ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                        : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                      }`}
+                    >
+                      {on ? '✓ ' : ''}{c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="text-[10px] text-kaya-sand mt-2">
+              Toggle saves instantly. Removing all kids leaves the helper able to sign in but with nothing to do.
+            </p>
+          </div>
+
+          {/* Helper code (read-only) — handy reference when the parent
+              needs to remind a helper what to type. */}
+          <div className="text-[11px] text-kaya-sand pt-2 border-t border-kaya-warm-dark/30">
+            Login code: <span className="font-mono font-bold text-kaya-chocolate">{helper.helperCode}</span>
+            {' '}· Created via Tier {helper.authTier}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

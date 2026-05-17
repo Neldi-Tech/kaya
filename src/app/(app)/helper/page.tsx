@@ -4,22 +4,32 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { todayString } from '@/lib/firestore';
+import { todayString, type HelperLink } from '@/lib/firestore';
 import { getHelperLink } from '@/lib/helpers';
 import KidAvatar from '@/components/ui/KidAvatar';
+import { ShieldCheck } from 'lucide-react';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
+
+const PRESET_LABEL: Record<HelperLink['preset'], string> = {
+  nanny: 'Nanny',
+  tutor: 'Tutor',
+  driver: 'Driver',
+  grandparent: 'Grandparent',
+  custom: 'Custom',
+};
 
 export default function HelperPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { children } = useFamily();
 
-  // Per-helper kid scope. If a HelperLink doc exists for this user we
-  // filter the kid list down to its `kidIds`. Helpers without a
-  // HelperLink (legacy joiners pre-rollout) see the full family list —
-  // matches the firestore.rules `isLegacyHelperWithoutLink` fallback.
-  const [scopedKidIds, setScopedKidIds] = useState<string[] | null>(null);
+  // Per-helper scope. If a HelperLink doc exists for this user we
+  // filter the kid list down to its `kidIds` and show their assigned
+  // role on the dashboard. Helpers without a HelperLink (legacy
+  // joiners pre-rollout) see the full family list — matches the
+  // firestore.rules `isLegacyHelperWithoutLink` fallback.
+  const [link, setLink] = useState<HelperLink | null>(null);
   const [scopeLoaded, setScopeLoaded] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -29,9 +39,9 @@ export default function HelperPage() {
         return;
       }
       try {
-        const link = await getHelperLink(profile.familyId, profile.uid);
+        const l = await getHelperLink(profile.familyId, profile.uid);
         if (!cancelled) {
-          setScopedKidIds(link ? link.kidIds : null);
+          setLink(l);
           setScopeLoaded(true);
         }
       } catch {
@@ -41,9 +51,10 @@ export default function HelperPage() {
     return () => { cancelled = true; };
   }, [profile]);
 
-  const visibleChildren = scopedKidIds
-    ? children.filter((c) => scopedKidIds.includes(c.id))
+  const visibleChildren = link
+    ? children.filter((c) => link.kidIds.includes(c.id))
     : children;
+  const assignedKidNames = visibleChildren.map((c) => c.name).join(', ');
 
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
@@ -59,6 +70,23 @@ export default function HelperPage() {
         </h1>
         <p className="text-kaya-sand text-sm mt-1 lg:mt-2">Ready to rate the children&apos;s routines.</p>
       </div>
+
+      {/* "Your access" panel — only when a HelperLink doc exists, so
+          legacy helpers (full-family access) don't see a misleading
+          summary. Builds trust by making the scope visible at a glance.
+       */}
+      {link && (
+        <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4 flex items-center gap-3">
+          <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0" />
+          <div className="min-w-0 flex-1 text-xs lg:text-sm">
+            <span className="text-kaya-sand">Helping with </span>
+            <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
+            <span className="text-kaya-sand"> · </span>
+            <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
+            <span className="text-kaya-sand"> role</span>
+          </div>
+        </div>
+      )}
 
       {/* Children overview */}
       {scopeLoaded && visibleChildren.length === 0 && (

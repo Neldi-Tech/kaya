@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import AuthControls from '@/components/auth/AuthControls';
 
 export default function LoginPage() {
@@ -56,6 +57,19 @@ export default function LoginPage() {
             <p className="text-sm text-kaya-sand">Sign in to start tracking your family&apos;s week.</p>
           </div>
           <AuthControls />
+
+          {/* Helper sign-in entry point. A helper landing on this page
+              has no email/password account — they sign in with the 3
+              codes their family gave them. Small link, kept out of the
+              way so it doesn't compete with the parent/kid auth flow. */}
+          <div className="mt-8 pt-5 border-t border-kaya-warm-dark/40 text-center">
+            <p className="text-xs text-kaya-sand">
+              Helping a family with their kids?{' '}
+              <Link href="/h/login" className="font-bold text-kaya-chocolate hover:underline">
+                Helper sign-in →
+              </Link>
+            </p>
+          </div>
         </div>
       </main>
     </div>
