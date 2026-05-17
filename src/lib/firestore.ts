@@ -426,6 +426,8 @@ export interface PointSystemConfig {
   };
 }
 
+export type ReflectionMode = 'story' | 'songs' | 'prayer';
+
 export interface Meeting {
   id: string;
   date: string;
@@ -439,15 +441,36 @@ export interface Meeting {
   /** Per-kid appreciation captured in the new presenter-mode flow.
    *  Optional so historical meetings keep working unchanged. */
   appreciations?: Record<string, string>;
-  /** Per-kid done/not-done flag for the goal set in the *previous*
-   *  meeting. Captured during Goals Review. */
+  /** v1 — per-kid done/not-done flag for the goal set in the *previous*
+   *  meeting (stored on the *reviewing* meeting). Kept for backward
+   *  compatibility with the first presenter-mode release; new code uses
+   *  `goalsDone` on the meeting where the goal was actually set. */
   lastWeekGoalsDone?: Record<string, boolean>;
+  /** v2 — per-kid done flag for the goals SET in this meeting.
+   *  Mutated retrospectively by a later meeting's Goals Review step
+   *  via `updateMeeting()`, so a goal can be reviewed and marked done
+   *  even weeks later (not just the immediate next week). */
+  goalsDone?: Record<string, boolean>;
+  /** Optional "anyone presenting tonight?" capture during the new
+   *  attendance step. */
+  presentation?: {
+    by?: string;
+    topic?: string;
+  };
   /** What the family did to close the meeting — story, songs, or a
-   *  family prayer. `content` is plain text the parent paste/typed
-   *  (no backend upload); for `songs` and `story` it's typically a URL. */
+   *  family prayer. v1 was single-mode (mode + content). v2 supports
+   *  multi-select (modes[]) so a family can do a story AND a prayer
+   *  on the same night. Readers should prefer `modes`/`contents` and
+   *  fall back to `mode`/`content` for older saved meetings. */
   reflection?: {
-    mode: 'story' | 'songs' | 'prayer';
+    /** v1 single-mode (kept for backward compat). */
+    mode?: ReflectionMode;
+    /** v1 single-mode content. */
     content?: string;
+    /** v2 multi-mode — which modes were chosen this meeting. */
+    modes?: ReflectionMode[];
+    /** v2 per-mode content. Missing entries = mode picked but blank. */
+    contents?: Partial<Record<ReflectionMode, string>>;
   };
 }
 
@@ -1922,6 +1945,18 @@ export async function createMeeting(familyId: string, meeting: Omit<Meeting, 'id
     ...meeting,
     createdAt: serverTimestamp(),
   });
+}
+
+/** Patch fields on an existing meeting. Used by the presenter's Goals
+ *  Review step to retroactively mark older meetings' goals as done
+ *  (writing back to each meeting's `goalsDone` map). Guest is a no-op. */
+export async function updateMeeting(
+  familyId: string,
+  meetingId: string,
+  updates: Partial<Omit<Meeting, 'id' | 'createdAt'>>,
+) {
+  if (isGuestActive()) return;
+  await updateDoc(doc(db, 'families', familyId, 'meetings', meetingId), updates as any);
 }
 
 export async function getMeetings(familyId: string): Promise<Meeting[]> {
