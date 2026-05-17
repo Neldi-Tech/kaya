@@ -168,11 +168,11 @@ export default function MeetingsPage() {
         </div>
 
         {/* Presenter Mode CTA — the recommended way to run the meeting,
-            cast-friendly with the new 5-step Gratitude → Celebrate →
-            Appreciations → Goals → Closing Reflection flow. */}
+            cast-friendly with the new 6-step Attendance → Gratitude →
+            Celebrate → Appreciations → Goals → Closing Reflection flow. */}
         <Link
           href="/meetings/present"
-          className="mb-5 block bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-5 hover:brightness-110 transition-all"
+          className="mb-3 block bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-5 hover:brightness-110 transition-all"
         >
           <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
             Start the meeting
@@ -182,11 +182,16 @@ export default function MeetingsPage() {
           </h2>
           <p className="text-[12px] opacity-75 leading-relaxed">
             Full-screen, one step at a time — cast to a TV or prop up the phone.
-            Gratitude → Celebrate → Appreciations → Goals → Closing Reflection.
           </p>
           <span className="inline-flex items-center gap-1 mt-3 text-[12px] font-bold">
             Open presenter →
           </span>
+        </Link>
+        <Link
+          href="/settings/meetings"
+          className="mb-5 block text-[12px] text-kaya-sand hover:text-kaya-chocolate text-center font-bold"
+        >
+          ⚙️ Customize agenda + prayer library
         </Link>
 
         <div className="mb-5"><Tabs /></div>
@@ -312,25 +317,34 @@ export default function MeetingsPage() {
 
         {/* Presenter Mode CTA — desktop. Same destination as the mobile
             banner above; this is the recommended way to run the meeting. */}
-        <Link
-          href="/meetings/present"
-          className="mb-7 flex items-center gap-5 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-6 hover:brightness-110 transition-all"
-        >
-          <div className="text-4xl shrink-0" aria-hidden>🎬</div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
-              Recommended · Start the meeting
-            </p>
-            <h2 className="font-display font-black text-2xl leading-tight mb-1">
-              Open Presenter Mode
-            </h2>
-            <p className="text-[13px] opacity-75 leading-relaxed">
-              Full-screen, one step at a time — cast to a TV or prop the laptop on the table.
-              Gratitude → Celebrate the Wins → Appreciations → Goals Review → Closing Reflection.
-            </p>
-          </div>
-          <span className="shrink-0 text-sm font-extrabold opacity-80">→</span>
-        </Link>
+        <div className="mb-7 flex items-stretch gap-3">
+          <Link
+            href="/meetings/present"
+            className="flex-1 flex items-center gap-5 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-6 hover:brightness-110 transition-all"
+          >
+            <div className="text-4xl shrink-0" aria-hidden>🎬</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
+                Recommended · Start the meeting
+              </p>
+              <h2 className="font-display font-black text-2xl leading-tight mb-1">
+                Open Presenter Mode
+              </h2>
+              <p className="text-[13px] opacity-75 leading-relaxed">
+                Full-screen, one step at a time — cast to a TV or prop the laptop on the table.
+              </p>
+            </div>
+            <span className="shrink-0 text-sm font-extrabold opacity-80">→</span>
+          </Link>
+          <Link
+            href="/settings/meetings"
+            className="shrink-0 w-44 flex flex-col items-center justify-center bg-white border border-kaya-warm-dark text-kaya-chocolate rounded-kaya-lg p-5 hover:border-kaya-chocolate hover:bg-kaya-warm transition-colors text-center"
+          >
+            <div className="text-2xl mb-1" aria-hidden>⚙️</div>
+            <div className="font-display font-extrabold text-[13px] leading-tight">Meeting setup</div>
+            <div className="text-[11px] text-kaya-sand mt-0.5">Agenda + prayers</div>
+          </Link>
+        </div>
 
         {tab === 'new' ? (
           saved ? (
