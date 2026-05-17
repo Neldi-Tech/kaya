@@ -935,18 +935,21 @@ function BeltTab({
   onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
   rangeLabel: string;
 }) {
-  const [kind, setKind] = useState<'excellent' | 'bad'>('excellent');
+  // Belt is purely about excellence now. The "Bad days" view that used
+  // to live as a toggle on this tab was redundant once the Behaviour
+  // tab gained per-kid + tone filters — that's where the family talks
+  // about tough days. Belt stays a pure celebration.
   const [index, setIndex] = useState(0);
   const [bonus, setBonus] = useState(5);
   const [awardedKeys, setAwardedKeys] = useState<Set<string>>(new Set());
   const [awardingKey, setAwardingKey] = useState<string | null>(null);
 
-  const ranked = useMemo(() => topDays(dayScores, kind), [dayScores, kind]);
+  const ranked = useMemo(() => topDays(dayScores, 'excellent'), [dayScores]);
 
   // Reset the cycle when the underlying ranking changes.
   const rankKey = useMemo(
-    () => `${kind}|${ranked.map((r) => `${r.childId}:${r.date}:${r.excellentCount}:${r.badCount}`).join(',')}`,
-    [kind, ranked],
+    () => ranked.map((r) => `${r.childId}:${r.date}:${r.excellentCount}`).join(','),
+    [ranked],
   );
   useEffect(() => {
     setIndex(0);
@@ -968,154 +971,60 @@ function BeltTab({
           <span aria-hidden>🏆</span> Excellent Belt
         </h2>
         <p className="text-xs lg:text-sm text-white/60 mt-1">
-          {kind === 'excellent' ? (
-            <>
-              Most <span className="font-semibold text-white">&ldquo;Excellent&rdquo;</span> in a day wins
-              {' · '}<span className="italic">by Diella ✨</span>
-            </>
-          ) : (
-            // Per Elia 2026-05-16: Bad has no Champion framing. Plain
-            // descriptive subtitle, no celebration language.
-            <>Days with the most <span className="font-semibold text-white">&ldquo;Bad&rdquo;</span> ratings, listed straight.</>
-          )}
+          Most <span className="font-semibold text-white">&ldquo;Excellent&rdquo;</span> in a day wins
+          {' · '}<span className="italic">by Diella ✨</span>
         </p>
       </div>
 
-      {/* Excellent / Bad toggle */}
-      <div className="flex justify-center gap-2">
-        {(['excellent', 'bad'] as const).map((k) => {
-          const active = kind === k;
-          return (
+      <Reveal dataKey={rankKey} hiddenLabel="Tap to reveal the Belt champion">
+        {ranked.length === 0 ? (
+          <EmptyState>No Excellent ratings recorded this window.</EmptyState>
+        ) : champion ? (
+          <ChampionCard
+            score={champion.excellentCount}
+            scoreLabel="Excellents"
+            child={childById.get(champion.childId)}
+            date={champion.date}
+            routineIds={champion.excellentRoutineIds}
+            routineById={routineById}
+            rank={index + 1}
+            totalRanked={ranked.length}
+            kind="excellent"
+            bonus={bonus}
+            onBonusChange={setBonus}
+            awarded={awardedKeys.has(`${champion.childId}|${champion.date}`)}
+            awarding={awardingKey === `${champion.childId}|${champion.date}`}
+            onAward={async () => {
+              const child = childById.get(champion.childId);
+              if (!child) return;
+              const key = `${champion.childId}|${champion.date}`;
+              setAwardingKey(key);
+              try {
+                await onAwardBonus(child, bonus, `Excellent Belt — ${formatShort(champion.date)} · ${rangeLabel}`);
+                setAwardedKeys((prev) => new Set(prev).add(key));
+              } finally {
+                setAwardingKey(null);
+              }
+            }}
+            allowBonus
+            diamondMinPoints={pointSystem.diamondMinPoints}
+          />
+        ) : null}
+
+        {ranked.length > 1 && (
+          <div className="flex justify-center mt-5 lg:mt-6">
             <button
-              key={k}
-              onClick={() => setKind(k)}
-              className={`h-10 lg:h-11 px-5 rounded-kaya-sm text-xs lg:text-sm font-bold transition-colors ${
-                active
-                  ? k === 'excellent'
-                    ? 'bg-kaya-gold text-kaya-chocolate'
-                    : 'bg-rose-500 text-white'
-                  : 'bg-white/8 text-white/70 hover:bg-white/15'
-              }`}
+              onClick={() => setIndex((i) => (i + 1) % ranked.length)}
+              className="inline-flex items-center gap-2 h-11 lg:h-12 px-6 rounded-kaya-sm border-2 border-kaya-gold/70 text-kaya-gold font-bold text-sm lg:text-base hover:bg-kaya-gold/10 transition-colors"
             >
-              {k === 'excellent' ? '🥇 Excellent' : '⚠️ Bad'}
+              <span aria-hidden>✨</span>
+              <span>Reveal Next</span>
+              <span aria-hidden>✨</span>
             </button>
-          );
-        })}
-      </div>
-
-      {kind === 'excellent' ? (
-        // Excellent side — keep the suspense + champion + pagination.
-        <Reveal dataKey={rankKey} hiddenLabel="Tap to reveal the Belt champion">
-          {ranked.length === 0 ? (
-            <EmptyState>No Excellent ratings recorded this window.</EmptyState>
-          ) : champion ? (
-            <ChampionCard
-              score={champion.excellentCount}
-              scoreLabel="Excellents"
-              child={childById.get(champion.childId)}
-              date={champion.date}
-              routineIds={champion.excellentRoutineIds}
-              routineById={routineById}
-              rank={index + 1}
-              totalRanked={ranked.length}
-              kind="excellent"
-              bonus={bonus}
-              onBonusChange={setBonus}
-              awarded={awardedKeys.has(`${champion.childId}|${champion.date}`)}
-              awarding={awardingKey === `${champion.childId}|${champion.date}`}
-              onAward={async () => {
-                const child = childById.get(champion.childId);
-                if (!child) return;
-                const key = `${champion.childId}|${champion.date}`;
-                setAwardingKey(key);
-                try {
-                  await onAwardBonus(child, bonus, `Excellent Belt — ${formatShort(champion.date)} · ${rangeLabel}`);
-                  setAwardedKeys((prev) => new Set(prev).add(key));
-                } finally {
-                  setAwardingKey(null);
-                }
-              }}
-              allowBonus
-              diamondMinPoints={pointSystem.diamondMinPoints}
-            />
-          ) : null}
-
-          {ranked.length > 1 && (
-            <div className="flex justify-center mt-5 lg:mt-6">
-              <button
-                onClick={() => setIndex((i) => (i + 1) % ranked.length)}
-                className="inline-flex items-center gap-2 h-11 lg:h-12 px-6 rounded-kaya-sm border-2 border-kaya-gold/70 text-kaya-gold font-bold text-sm lg:text-base hover:bg-kaya-gold/10 transition-colors"
-              >
-                <span aria-hidden>✨</span>
-                <span>Reveal Next</span>
-                <span aria-hidden>✨</span>
-              </button>
-            </div>
-          )}
-        </Reveal>
-      ) : (
-        // Bad side — plain list, no countdown / champion / Reveal Next.
-        <BadDaysList ranked={ranked} childById={childById} routineById={routineById} />
-      )}
+          </div>
+        )}
+      </Reveal>
     </div>
-  );
-}
-
-// Plain list of bad days. No reveal, no champion framing, no bonus. Just
-// the data so the family can talk about each tough day together.
-function BadDaysList({
-  ranked, childById, routineById,
-}: {
-  ranked: DayScore[];
-  childById: Map<string, Child>;
-  routineById: Map<string, Routine>;
-}) {
-  if (ranked.length === 0) {
-    return <EmptyState>No Bad ratings recorded this window — nice.</EmptyState>;
-  }
-  return (
-    <ul className="space-y-2.5">
-      {ranked.map((day) => {
-        const child = childById.get(day.childId);
-        if (!child) return null;
-        return (
-          <li
-            key={`${day.childId}|${day.date}`}
-            className="rounded-kaya-sm bg-black/25 border-l-2 border-rose-400/60 border border-white/10 p-3 lg:p-4"
-          >
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-2xl lg:text-3xl shrink-0">{child.avatarEmoji}</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-bold text-sm lg:text-base truncate">{child.name}</p>
-                <p className="text-[11px] tracking-wider text-white/50 font-semibold">
-                  {formatShort(day.date)}
-                </p>
-              </div>
-              <p className="font-display text-xl lg:text-2xl font-black text-rose-300 leading-none shrink-0">
-                {day.badCount}
-                <span className="text-xs text-white/50 font-bold ml-1">bad</span>
-              </p>
-            </div>
-            {day.badRoutineIds.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {day.badRoutineIds.map((id) => {
-                  const r = routineById.get(id);
-                  return (
-                    <span
-                      key={id}
-                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border border-rose-400/30 bg-rose-500/15 text-rose-100"
-                    >
-                      {r?.icon && <span aria-hidden>{r.icon}</span>}
-                      <span>{r?.label ?? id}</span>
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
