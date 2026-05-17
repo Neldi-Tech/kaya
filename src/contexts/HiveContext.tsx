@@ -154,16 +154,32 @@ export function HiveProvider({ children }: { children: ReactNode }) {
   }, [familyId, profile?.role]);
 
   // ── Derived values ──────────────────────────────────────────────
+
+  // Reconcile wallet.housePoints with the kid's child-doc totalPoints —
+  // the child doc is the source of truth for HP (it's updated by every
+  // rating, award, AND HP→Honey conversion). wallet.housePoints is meant
+  // to mirror it but can drift stale: admin/import paths (importRating,
+  // bonus-awards importer, helper-fallback script, …) only touch
+  // child.totalPoints, so a kid with 181 HP on their child doc can show
+  // 0 in the wallet until they trigger a transaction. We take the max
+  // because (a) child.totalPoints is never behind, (b) in-app HP→Honey
+  // decrements both atomically so they stay equal during normal use.
+  const effectiveWallet = useMemo<Wallet>(() => {
+    const activeChild = kids.find((c) => c.id === activeKidId);
+    const correctedHp = Math.max(wallet.housePoints, activeChild?.totalPoints ?? 0);
+    return { ...wallet, housePoints: correctedHp };
+  }, [wallet, kids, activeKidId]);
+
   const totalNetWorthCents = useMemo(() => {
     // HP → Honey → USD → family-currency. Honey is USD-benchmarked, so the
     // FX rate (USD → family currency) lands the value in the right
     // currency for the user's wallet display.
     const fx = fxUsdToFamily ?? 1;
-    const hpAsHoney = config.hpToHoneyRate > 0 ? wallet.housePoints / config.hpToHoneyRate : 0;
+    const hpAsHoney = config.hpToHoneyRate > 0 ? effectiveWallet.housePoints / config.hpToHoneyRate : 0;
     const honeyAsFamilyCents =
-      (wallet.honeyCoins + hpAsHoney) * config.honeyToCashRate * fx * 100;
-    return Math.round(honeyAsFamilyCents + wallet.cashCents);
-  }, [wallet, config, fxUsdToFamily]);
+      (effectiveWallet.honeyCoins + hpAsHoney) * config.honeyToCashRate * fx * 100;
+    return Math.round(honeyAsFamilyCents + effectiveWallet.cashCents);
+  }, [effectiveWallet, config, fxUsdToFamily]);
 
   const saveRate = useMemo(() => {
     if (transactions.length === 0) return null;
@@ -204,7 +220,7 @@ export function HiveProvider({ children }: { children: ReactNode }) {
     <HiveContext.Provider
       value={{
         activeKidId, setActiveKidId,
-        config, wallet, transactions, goals,
+        config, wallet: effectiveWallet, transactions, goals,
         myRequests, pendingApprovals,
         totalNetWorthCents, saveRate, weeklyEarningsCents,
         monthlyPlan, monthKey, monthSpending,
