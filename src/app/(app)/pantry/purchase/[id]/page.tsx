@@ -53,6 +53,7 @@ export default function PurchaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState('');
   const [quickAdd, setQuickAdd] = useState<{ name: string; qty: string; cents: string } | null>(null);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
 
@@ -220,6 +221,10 @@ export default function PurchaseDetailPage() {
   // crash users saw on `/pantry/purchase/[id]`.
   const inBasket = new Set(req.items.map((i) => i.stapleId).filter(Boolean) as string[]);
   const pickable = staples.filter((s) => !inBasket.has(s.id) && s.status !== 'pending_promote');
+  const q = pickerQuery.trim().toLowerCase();
+  const filteredPickable = q
+    ? pickable.filter((s) => s.name.toLowerCase().includes(q))
+    : pickable;
 
   const total = reconcilable || isClosed
     ? sumActual(req.items)
@@ -313,34 +318,66 @@ export default function PurchaseDetailPage() {
         <div className="mt-3">
           <button
             type="button"
-            onClick={() => setShowPicker((v) => !v)}
+            onClick={() => { setShowPicker((v) => !v); setPickerQuery(''); }}
             className="w-full bg-hive-paper border border-hive-line rounded-hive py-2.5 font-nunito font-bold text-sm text-pantry-leaf-dk"
           >
-            {showPicker ? '× Close picker' : '＋ Add from Pantry'}
+            {showPicker ? '× Close picker' : `＋ Add from Pantry${pickable.length > 0 ? ` (${pickable.length})` : ''}`}
           </button>
           {showPicker && (
-            <div className="mt-2 bg-hive-paper border border-hive-line rounded-hive p-2 max-h-72 overflow-y-auto">
-              {pickable.length === 0 && (
-                <p className="text-hive-muted text-xs text-center py-6">No more staples to add. Quick-add a new one below.</p>
-              )}
-              {pickable.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => addStapleToBasket(s)}
-                  className="w-full flex items-center gap-3 py-2 px-2 hover:bg-hive-cream rounded-lg text-left"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-sm">🧺</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-nunito font-extrabold text-sm truncate">{s.name}</div>
-                    <div className="text-[11px] text-hive-muted">
-                      {s.defaultQty} {s.unit}
-                      {s.lastBoughtCents != null && ` · ${formatCents(s.lastBoughtCents, currency)} ea`}
-                    </div>
-                  </div>
-                  <span className="text-pantry-leaf-dk font-nunito font-black">＋</span>
-                </button>
-              ))}
+            <div className="mt-2 bg-hive-paper border border-hive-line rounded-hive p-2">
+              {/* Search — sticky at the top of the scrollable list. Filters
+                  the staples below by name (case-insensitive). Cheap
+                  client-side filter; staples are already in memory. */}
+              <div className="sticky top-0 bg-hive-paper z-10 pb-2 pt-1 px-1">
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-hive-muted text-sm pointer-events-none">🔍</span>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={pickerQuery}
+                    onChange={(e) => setPickerQuery(e.target.value)}
+                    placeholder={`Search ${pickable.length} staple${pickable.length === 1 ? '' : 's'}…`}
+                    className="w-full bg-hive-cream border border-hive-line rounded-lg pl-9 pr-9 py-2 text-sm font-nunito font-bold placeholder:text-hive-muted placeholder:font-normal focus:outline-none focus:border-pantry-leaf"
+                  />
+                  {pickerQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setPickerQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-hive-line text-hive-muted text-xs font-black"
+                      aria-label="Clear search"
+                    >×</button>
+                  )}
+                </div>
+              </div>
+
+              <div className="max-h-72 overflow-y-auto">
+                {pickable.length === 0 ? (
+                  <p className="text-hive-muted text-xs text-center py-6">No more staples to add. Quick-add a new one below.</p>
+                ) : filteredPickable.length === 0 ? (
+                  <p className="text-hive-muted text-xs text-center py-6">
+                    No staples match "<span className="font-bold">{pickerQuery}</span>". Quick-add a new one below.
+                  </p>
+                ) : (
+                  filteredPickable.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => addStapleToBasket(s)}
+                      className="w-full flex items-center gap-3 py-2 px-2 hover:bg-hive-cream rounded-lg text-left"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-sm">🧺</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-nunito font-extrabold text-sm truncate">{s.name}</div>
+                        <div className="text-[11px] text-hive-muted">
+                          {s.defaultQty} {s.unit}
+                          {s.lastBoughtCents != null && ` · ${formatCents(s.lastBoughtCents, currency)} ea`}
+                        </div>
+                      </div>
+                      <span className="text-pantry-leaf-dk font-nunito font-black">＋</span>
+                    </button>
+                  ))
+                )}
+              </div>
             </div>
           )}
 
