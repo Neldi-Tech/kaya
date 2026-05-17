@@ -52,10 +52,16 @@ export default function HpValueCommentary({
 
   if (housePoints === 0) {
     tone = 'empty';
+    // Show concrete per-HP value + first-Honey milestone so the kid sees
+    // what they're earning toward, not just a generic "go earn" nudge.
+    // perHpCents = oneHoneyCashCents / hpToHoneyRate, used to render the
+    // "Every HP ≈ TZS X" line. Falls back gracefully if either rate is 0.
+    const perHpCents = Math.round(oneHoneyCashCents / ppHP);
     body = (
       <>
-        🌱 <strong>Earn House Points</strong> by doing your routines — they turn into 🍯,
-        which turn into real money.
+        💡 Every HP you earn ≈ <strong>{formatCashClean(perHpCents, currency)}</strong>.{' '}
+        Earn <strong>{formatHp(ppHP)} HP</strong> for your first 🍯 worth{' '}
+        <strong>{formatCashClean(oneHoneyCashCents, currency)}</strong>.
       </>
     );
   } else if (usableHp === 0 && minHpReserve > 0) {
@@ -87,12 +93,14 @@ export default function HpValueCommentary({
     );
   }
 
-  // Visual tone per state — empty + locked stay muted; has + sub get a
-  // warm honey-tinted border to feel like a small celebration / nudge.
+  // Visual tone per state — the locked state stays muted (it's a
+  // constraint message); empty / sub / has all get the warm honey-tint
+  // because they're all "here's what value looks like" content and
+  // should feel inviting, not bureaucratic.
   const bgClass =
-    tone === 'has' || tone === 'sub'
-      ? 'bg-gradient-to-br from-hive-honey-soft/60 to-hive-cream border-hive-honey/40'
-      : 'bg-hive-paper border-hive-line';
+    tone === 'locked'
+      ? 'bg-hive-paper border-hive-line'
+      : 'bg-gradient-to-br from-hive-honey-soft/60 to-hive-cream border-hive-honey/40';
 
   return (
     <div className={`rounded-hive border px-4 py-3 mb-4 ${bgClass}`}>
