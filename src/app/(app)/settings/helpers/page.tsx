@@ -812,47 +812,57 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
 
       {expanded && (
         <div className="border-t border-kaya-warm-dark/40 bg-kaya-cream/50 p-4 space-y-4">
-          {/* Persistent save status — visible at all times so the parent
-              knows their edits are written before they navigate away.
-              Everything below auto-saves; the indicator just confirms. */}
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-[11px] text-kaya-sand inline-flex items-center gap-1.5">
-              {saveState === 'saving' && (
-                <><span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" /> Saving…</>
-              )}
-              {saveState === 'saved' && (
-                <><Check size={12} className="text-green-700" /> <span className="text-green-700 font-bold">Saved just now</span></>
-              )}
-              {saveState === 'idle' && (
-                <><Check size={12} className="text-kaya-sand" /> All changes saved · safe to go back</>
-              )}
-            </p>
+          {/* Persistent save status — high-contrast pill so the parent
+              can't miss it. Color flips per state:
+                idle   → green (everything is saved)
+                saving → amber pulsing
+                saved  → green (same as idle but with explicit confirmation)
+              Sits at the top of the panel + visible at all times. */}
+          <div
+            className={`rounded-kaya px-3 py-2 text-xs font-bold inline-flex items-center gap-2 border-2 ${
+              saveState === 'saving'
+                ? 'bg-amber-50 border-amber-300 text-amber-900'
+                : 'bg-green-50 border-green-300 text-green-800'
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {saveState === 'saving' && (
+              <>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                Saving your changes…
+              </>
+            )}
+            {saveState === 'saved' && (
+              <>
+                <Check size={14} />
+                Saved just now · safe to go back
+              </>
+            )}
+            {saveState === 'idle' && (
+              <>
+                <Check size={14} />
+                All changes saved · safe to go back
+              </>
+            )}
           </div>
 
-          {/* Display name — auto-saves on blur (or Save button click).
-              The button stays for users who prefer explicit confirmation;
-              the blur handler covers the "I just typed and clicked away"
-              flow without dropping the edit. */}
+          {/* Display name — auto-saves on blur. No explicit Save button
+              (it was a disabled gray nub that visually contradicted the
+              "everything auto-saves" status pill above). Tab-out or
+              click-away writes the new name immediately. */}
           <div>
             <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Display name</p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={nameDraft}
-                onChange={(e) => setNameDraft(e.target.value)}
-                onBlur={() => { void saveName(); }}
-                disabled={busy}
-                className="flex-1 px-3 py-2 bg-white border border-kaya-warm-dark rounded-kaya text-sm focus:outline-none focus:border-kaya-chocolate disabled:opacity-50"
-              />
-              <button
-                type="button"
-                onClick={saveName}
-                disabled={busy || !nameDraft.trim() || nameDraft.trim() === helper.displayName}
-                className="px-3 py-2 text-xs font-bold bg-kaya-chocolate text-white rounded-kaya hover:bg-kaya-chocolate/90 disabled:opacity-30"
-              >
-                Save
-              </button>
-            </div>
+            <input
+              type="text"
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              onBlur={() => { void saveName(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+              disabled={busy}
+              className="w-full px-3 py-2 bg-white border border-kaya-warm-dark rounded-kaya text-sm focus:outline-none focus:border-kaya-chocolate disabled:opacity-50"
+            />
+            <p className="text-[10px] text-kaya-sand mt-1">Saves automatically when you click out of the field.</p>
           </div>
 
           {/* Kids */}
