@@ -150,6 +150,7 @@ const HOUSEHOLD_NAV: NavItem[] = [
   { path: '/pantry',          icon: '🛒', label: 'The Pantry' },
   { path: '/pantry/people',   icon: '🤝', label: 'People' },
   { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
+  { path: '/pantry/outdoor',  icon: '🌿', label: 'Outdoor' },
   { path: '/pantry/budget',   icon: '💰', label: 'Budget' },
 ];
 

@@ -1,17 +1,13 @@
 'use client';
 
-// /pantry/purchase — Household → Purchase home.
+// /pantry/outdoor — Household → Outdoor home.
 //
-// Step 1 of the Household v1 build (see Kaya-Household_Design-Proposal
-// 2026-05-17 v1.1). Coexists with the legacy /pantry/list flow — this
-// is the new request → approve → reconcile surface that actually debits
-// the Pantry Budget.
+// Same request → approve → reconcile loop as Pantry Purchase, scoped to
+// the Outdoor module — garden, pool, kuku, pets, repairs, vehicle. Built
+// for Gardener-style helpers who shouldn't see the Pantry catalogue.
 //
-// Role-aware:
-//   • Parent sees "Awaiting your nod" at the top (the actionable bucket),
-//     then their family's active drafts + in-progress + recent.
-//   • Helper sees the same shape but the framing is reversed — drafts and
-//     approved-ready-to-shop come first; pending approval is informational.
+// Detail page is shared with Pantry Purchase (/pantry/purchase/[id]) —
+// the request doc's `module` field steers the picker + Quick-add.
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
@@ -29,10 +25,10 @@ import { formatCents } from '@/components/pantry/format';
 
 const todayDraftName = () => {
   const d = new Date();
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} shop`;
+  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} outdoor`;
 };
 
-export default function PurchaseHomePage() {
+export default function OutdoorHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { config } = useHive();
@@ -44,22 +40,17 @@ export default function PurchaseHomePage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
 
-  // Subscribe to both buckets in parallel; flip loading off as soon as
-  // the first listener returns so the empty state lands fast.
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
     let flipped = false;
     const flip = () => { if (!flipped) { flipped = true; setLoading(false); } };
     const t = setTimeout(flip, 1500);
-    // Pantry list only — Outdoor requests live in their own page so
-    // helper-side scoping stays clean. Treat missing `module` as 'pantry'
-    // for back-compat with docs written before Outdoor shipped.
     const a = subscribeToOpenRequests(profile.familyId, (r) => {
-      setOpen(r.filter((x) => (x.module ?? 'pantry') === 'pantry'));
+      setOpen(r.filter((x) => x.module === 'outdoor'));
       flip();
     });
     const b = subscribeToRecentRequests(profile.familyId, (r) => {
-      setRecent(r.filter((x) => (x.module ?? 'pantry') === 'pantry'));
+      setRecent(r.filter((x) => x.module === 'outdoor'));
       flip();
     });
     return () => { clearTimeout(t); a(); b(); };
@@ -77,6 +68,7 @@ export default function PurchaseHomePage() {
         name: todayDraftName(),
         createdBy: profile.uid,
         createdByRole: role,
+        module: 'outdoor',
       });
       router.push(`/pantry/purchase/${id}`);
     } catch {
@@ -88,29 +80,24 @@ export default function PurchaseHomePage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Household · Purchase
+          Household · Outdoor
         </p>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {role === 'parent' ? 'Requests' : 'Shop runs'}
+          {role === 'parent' ? 'Outdoor requests' : 'Outdoor runs'}
         </h1>
         <p className="text-hive-muted text-sm mt-1">
           {role === 'parent'
-            ? 'Approve, reject, or watch a shop close out.'
-            : 'Build a request, send for the nod, then reconcile after the shop.'}
+            ? 'Garden, pool, kuku, pets, repairs, vehicle — everything outside the kitchen.'
+            : 'Build a request for outdoor items, send for the nod, then reconcile after.'}
         </p>
       </div>
 
-      {/* Parent's actionable pile: pending approval */}
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
-          {pending.map((r) => (
-            <RequestRow key={r.id} req={r} currency={currency} />
-          ))}
+          {pending.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
         </Section>
       )}
 
-      {/* Helper's actionable pile: their drafts + anything approved
-          (ready to shop) or reconciling. */}
       {role === 'helper' && (drafts.length > 0 || inProgress.length > 0) && (
         <>
           {drafts.length > 0 && (
@@ -126,7 +113,6 @@ export default function PurchaseHomePage() {
         </>
       )}
 
-      {/* Parent: drafts + in-progress shown after pending */}
       {role === 'parent' && drafts.length > 0 && (
         <Section title="Drafts" tone="neutral" count={drafts.length}>
           {drafts.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
@@ -138,25 +124,22 @@ export default function PurchaseHomePage() {
         </Section>
       )}
 
-      {/* Helper: pending approval (informational) */}
       {role === 'helper' && pending.length > 0 && (
         <Section title="Awaiting parent approval" tone="amber" count={pending.length}>
           {pending.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
         </Section>
       )}
 
-      {/* Empty state */}
       {!loading && open.length === 0 && recent.length === 0 && (
         <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center mt-3">
-          <div className="text-3xl mb-2">🧾</div>
-          <h3 className="font-nunito font-black text-lg">No requests yet</h3>
+          <div className="text-3xl mb-2">🌿</div>
+          <h3 className="font-nunito font-black text-lg">No outdoor requests yet</h3>
           <p className="text-hive-muted text-sm mt-1">
-            Start the first shop run — pick items from the Pantry, send for approval, then reconcile after.
+            Start the first one — quick-add a garden / pool / kuku / pets / repairs / vehicle item, send for approval, then reconcile after.
           </p>
         </div>
       )}
 
-      {/* Recently closed */}
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
           {recent.slice(0, 5).map((r) => (
@@ -165,7 +148,6 @@ export default function PurchaseHomePage() {
         </Section>
       )}
 
-      {/* New request CTA (sticky-ish above the tab bar) */}
       <div className="mt-4 mb-32">
         <button
           type="button"
@@ -173,7 +155,7 @@ export default function PurchaseHomePage() {
           disabled={creating || isGuest}
           className="w-full bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
         >
-          {creating ? 'Starting…' : '＋ New request'}
+          {creating ? 'Starting…' : '＋ New outdoor request'}
         </button>
         {isGuest && (
           <p className="text-center text-xs text-hive-muted mt-2">
@@ -185,7 +167,9 @@ export default function PurchaseHomePage() {
   );
 }
 
-// ── Bits ───────────────────────────────────────────────────────
+// ── Bits (copies of /pantry/purchase's helpers; intentionally not
+//   extracted yet to keep both surfaces independently tweakable while
+//   the Outdoor flow is settling in) ─────────────────────────────────
 
 function Section({
   title, tone, count, children,
@@ -225,7 +209,7 @@ function RequestRow({
       className={`bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline ${dimmed ? 'opacity-70' : ''}`}
     >
       <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">
-        🧾
+        🌿
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">

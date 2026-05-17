@@ -136,6 +136,12 @@ export interface Staple {
    *                       everywhere until a parent promotes it in
    *                       Settings → Catalogue. */
   status?: 'active' | 'pending_promote';
+  /** Which Household module this staple belongs to. Default 'pantry'
+   *  for any staple that doesn't set it (so existing data behaves as
+   *  before). 'outdoor' staples surface in the Outdoor picker (garden,
+   *  pool, kuku, pets, repairs, vehicle, etc.) and are hidden from
+   *  the Pantry picker. */
+  module?: 'pantry' | 'outdoor';
   /** Optional supplier this staple usually comes from — drives the
    *  "group by supplier" UX on the active list. */
   preferredSupplierId?: string;

@@ -146,6 +146,10 @@ export default function PurchaseDetailPage() {
         lastBoughtCents: cents,
         active: true,
         status: 'pending_promote',
+        // Tag the new catalogue item so it appears in the right picker
+        // next time. Quick-add inside an Outdoor request creates an
+        // Outdoor staple; same for Pantry.
+        module: req.module ?? 'pantry',
       } as any);
       const next: PurchaseRequestItem[] = [
         ...req.items,
@@ -220,7 +224,15 @@ export default function PurchaseDetailPage() {
   // the previous render" → client-side exception). Fixes the
   // crash users saw on `/pantry/purchase/[id]`.
   const inBasket = new Set(req.items.map((i) => i.stapleId).filter(Boolean) as string[]);
-  const pickable = staples.filter((s) => !inBasket.has(s.id) && s.status !== 'pending_promote');
+  // Module-scoped picker: Pantry requests see only pantry staples,
+  // Outdoor requests see only outdoor staples. Missing `module` on
+  // legacy staples defaults to 'pantry'.
+  const reqModule = req.module ?? 'pantry';
+  const pickable = staples.filter((s) =>
+    !inBasket.has(s.id)
+    && s.status !== 'pending_promote'
+    && (s.module ?? 'pantry') === reqModule,
+  );
   const q = pickerQuery.trim().toLowerCase();
   const filteredPickable = q
     ? pickable.filter((s) => s.name.toLowerCase().includes(q))

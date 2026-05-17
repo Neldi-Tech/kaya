@@ -249,7 +249,10 @@ export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
       return ['household:directory', 'profiles'];
     case 'gardener':
       // Outdoor + grounds — household coverage but typically no kid scope.
-      return ['household:staples', 'household:suppliers', 'household:utilities'];
+      // Gets the Outdoor request flow by default (garden / pool / kuku /
+      // pets / repairs / vehicle), plus the supplier + staples context
+      // it needs to know what's in stock.
+      return ['household:outdoor', 'household:staples', 'household:suppliers', 'household:utilities'];
     case 'grandparent':
       // View-only across the kid-facing surfaces.
       return [

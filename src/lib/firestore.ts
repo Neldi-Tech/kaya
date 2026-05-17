@@ -202,7 +202,7 @@ export interface Family {
   // `approvalMode` above, then to 'either'.
   approvalModes?: {
     pantry?: 'either' | 'both';
-    external?: 'either' | 'both';
+    outdoor?: 'either' | 'both';
     utility?: 'either' | 'both';
     payrollAdvance?: 'either' | 'both';
     payrollLoan?: 'either' | 'both';
@@ -211,11 +211,11 @@ export interface Family {
   // Per-module monthly caps (in cents, family display currency) that
   // roll up into the Household Finances view. v1 of the Household
   // Purchase build only writes `pantry`; the other modules slot in
-  // here as they ship (External / Utility / Payroll) without a
+  // here as they ship (Outdoor / Utility / Payroll) without a
   // schema change. Parent-only writes (gated by the family-doc rule).
   householdBudgets?: {
     pantry?: number;
-    external?: number;
+    outdoor?: number;
     utility?: number;
     payroll?: number;
   };

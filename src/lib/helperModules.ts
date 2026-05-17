@@ -65,6 +65,10 @@ export const HELPER_MODULES: HelperModule[] = [
       { id: 'directory', label: 'Contacts',      icon: '📞', paths: ['/pantry/directory'] },
       { id: 'utilities', label: 'Utilities',     icon: '💡', paths: ['/pantry/utilities'] },
       { id: 'budget',    label: 'Budget',        icon: '💰', paths: ['/pantry/budget'] },
+      // Purchase v1 — the request → approve → reconcile loop on Pantry.
+      { id: 'purchase',  label: 'Purchase',      icon: '🧾', paths: ['/pantry/purchase'] },
+      // Outdoor — same loop on garden / pool / kuku / pets / repairs / vehicle.
+      { id: 'outdoor',   label: 'Outdoor',       icon: '🌿', paths: ['/pantry/outdoor'] },
     ],
   },
   { id: 'moments',  label: 'Moments',        icon: '📸', tier: 'active' },

@@ -43,9 +43,28 @@ export type PurchaseRequestStatus =
   | 'reconciling'
   | 'closed';
 
-/** Which Household module the request belongs to. Step 1 is pantry only;
- *  external + utilities land later and will write into the same shape. */
-export type PurchaseModule = 'pantry';
+/** Which Household module the request belongs to. Pantry covers the
+ *  groceries / staples loop; Outdoor covers everything around the
+ *  home that isn't kitchen-bound — garden, pool, kuku, pets, repairs,
+ *  vehicle, etc. (Utility top-ups + Payroll requests land in their own
+ *  collections when those modules ship.) */
+export type PurchaseModule = 'pantry' | 'outdoor';
+
+/** Categories specific to the Outdoor module. Used in the catalogue
+ *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
+ *  Staple doc so the picker can filter cleanly. */
+export type OutdoorCategory =
+  | 'garden' | 'pool' | 'kuku' | 'pets' | 'repairs' | 'vehicle' | 'other';
+
+export const OUTDOOR_CATEGORIES: { id: OutdoorCategory; emoji: string; label: string }[] = [
+  { id: 'garden',  emoji: '🌿', label: 'Garden' },
+  { id: 'pool',    emoji: '🏊', label: 'Pool' },
+  { id: 'kuku',    emoji: '🐔', label: 'Kuku' },
+  { id: 'pets',    emoji: '🐱', label: 'Pets' },
+  { id: 'repairs', emoji: '🔧', label: 'Repairs' },
+  { id: 'vehicle', emoji: '🚗', label: 'Vehicle' },
+  { id: 'other',   emoji: '📦', label: 'Other' },
+];
 
 export interface PurchaseRequestItem {
   /** Stable client-assigned id within the request (crypto.randomUUID). */
@@ -169,13 +188,15 @@ export function subscribeToRequest(
 
 // ── Write ────────────────────────────────────────────────────────
 
-/** Create a draft request. Returns the new id. */
+/** Create a draft request. Returns the new id. Module defaults to
+ *  'pantry' so existing callers don't need to pass it. */
 export async function createDraftRequest(
   familyId: string,
   args: {
     name: string;
     createdBy: string;
     createdByRole: 'parent' | 'helper';
+    module?: PurchaseModule;
     items?: PurchaseRequestItem[];
   },
 ): Promise<string> {
@@ -184,7 +205,7 @@ export async function createDraftRequest(
   const ref = await addDoc(requestCol(familyId), {
     name: args.name,
     status: 'draft' as PurchaseRequestStatus,
-    module: 'pantry' as PurchaseModule,
+    module: (args.module ?? 'pantry') as PurchaseModule,
     items,
     estimatedTotalCents: sumEstimated(items),
     createdAt: serverTimestamp(),

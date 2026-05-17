@@ -141,6 +141,14 @@ export default function PantryHomePage() {
           <span className="font-nunito font-extrabold text-[15px] mt-1">Purchase</span>
           <span className="text-[11px] text-pantry-leaf-dk font-bold">Request → approve → reconcile</span>
         </Link>
+        <Link
+          href="/pantry/outdoor"
+          className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🌿</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Outdoor</span>
+          <span className="text-[11px] text-pantry-leaf-dk font-bold">Garden · pool · kuku · pets</span>
+        </Link>
         {isParent && (
           <Link
             href="/pantry/budget"

@@ -426,8 +426,16 @@ service cloud.firestore {
       // step 2 (Approval mode) lands.
       match /purchaseRequests/{requestId} {
         allow read: if belongsToFamily(familyId);
+        // Pantry purchase requests gate on `household/purchase`; Outdoor
+        // requests on `household/outdoor` (Gardener-style helpers). v1
+        // keeps the rule permissive between the two — either grant
+        // permits writes against either request type. The UI surfaces
+        // them as separate routes so per-helper scoping still feels
+        // clean; we'll tighten to strict per-module rule checks if a
+        // family asks for it.
         allow create, update, delete: if isParentInFamily(familyId)
           || helperCanActOnSub(familyId, 'household', 'purchase')
+          || helperCanActOnSub(familyId, 'household', 'outdoor')
           || isLegacyHelperWithoutLink(familyId);
       }
 
