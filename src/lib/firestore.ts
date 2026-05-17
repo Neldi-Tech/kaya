@@ -514,6 +514,21 @@ export interface Meeting {
     by?: string;
     topic?: string;
   };
+  /** v2 attendees — captures parent UIDs alongside kid IDs (the v1
+   *  `attendees` array was kids-only). Optional + additive so older
+   *  records continue to load. */
+  parentAttendees?: string[];
+  /** Free-form guests present at the meeting. Each guest is captured
+   *  with a display name + optional relationship label so the saved
+   *  record reads naturally ("Bibi Asha · Grandma") for future review. */
+  guestAttendees?: Array<{
+    /** Stable id so toggling/editing works during the meeting. Not a
+     *  Firebase UID — these are session-scoped. */
+    id: string;
+    name: string;
+    /** e.g. "Grandma", "Family Friend", "Cousin", "Nanny", "Other". */
+    relationship?: string;
+  }>;
   /** What the family did to close the meeting — story, songs, or a
    *  family prayer. v1 was single-mode (mode + content). v2 supports
    *  multi-select (modes[]) so a family can do a story AND a prayer

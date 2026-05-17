@@ -28,7 +28,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  createMeeting, updateMeeting, getMeetings, Meeting, ReflectionMode, todayString,
+  createMeeting, updateMeeting, getMeetings, getFamilyMembers,
+  Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
 
 // ── Agenda definition ──────────────────────────────────────────────
@@ -107,10 +108,14 @@ export default function MeetingPresenterPage() {
   }, []);
 
   // ── Captured per step ────────────────────────────────────────────
-  // Attendance — initialized to "everyone present" when the kid list
-  // loads (parents tap to mark absent).
+  // Attendance — initialized to "everyone present" when the household
+  // list loads (parents + kids default in; tap to toggle). Guests are
+  // captured separately as free-form rows with a relationship label.
   const [attendees, setAttendees] = useState<Set<string>>(new Set());
+  const [parentAttendees, setParentAttendees] = useState<Set<string>>(new Set());
+  const [guestAttendees, setGuestAttendees] = useState<Array<{ id: string; name: string; relationship?: string }>>([]);
   const [attendanceInit, setAttendanceInit] = useState(false);
+  const [householdParents, setHouseholdParents] = useState<Array<{ uid: string; name: string; avatarEmoji?: string }>>([]);
   const [presentBy, setPresentBy] = useState('');
   const [presentTopic, setPresentTopic] = useState('');
 
@@ -125,12 +130,14 @@ export default function MeetingPresenterPage() {
   const [reviewedGoalsDone, setReviewedGoalsDone] =
     useState<Record<string, Record<string, boolean>>>({});
 
-  // Closing Reflection — multi-select. `modes` is the ordered set of
-  // closings picked tonight; `contents` is per-mode plain text the
-  // parent typed/pasted.
+  // Closing Reflection — execute mode. Modes that the parent enabled
+  // in /settings/meetings auto-run here (no chooser). `reflectionModes`
+  // is what we persist with the saved meeting — derived once from the
+  // setup so the meeting record reflects what actually played.
   const [reflectionModes, setReflectionModes] = useState<ReflectionMode[]>([]);
   const [reflectionContents, setReflectionContents] =
     useState<Partial<Record<ReflectionMode, string>>>({});
+  const [reflectionSeeded, setReflectionSeeded] = useState(false);
   // null = idle; non-null = show the full-screen prayer stage with the
   // text typeset large + flowers cascading on top. Captured at click
   // time so editing the textarea afterwards doesn't change the on-
@@ -152,15 +159,61 @@ export default function MeetingPresenterPage() {
     });
   }, [profile?.familyId]);
 
-  // Default attendance to "all kids present" once the children list
-  // arrives. Only runs once so a manual deselection isn't overwritten
-  // if the children list refreshes.
+  // Fetch parent profiles for the household so attendance lists adults
+  // alongside kids. Falls back to just the signed-in profile if the
+  // family-members query is empty (e.g. guest mode).
   useEffect(() => {
-    if (!attendanceInit && children.length > 0) {
-      setAttendees(new Set(children.map((c) => c.id)));
-      setAttendanceInit(true);
+    if (!profile?.familyId) return;
+    let cancelled = false;
+    getFamilyMembers(profile.familyId).then((members) => {
+      if (cancelled) return;
+      const parents = members.filter((m) => m.role === 'parent');
+      const fallback = parents.length > 0
+        ? parents
+        : (profile.role === 'parent' ? [profile] : []);
+      setHouseholdParents(
+        fallback.map((p) => ({
+          uid: p.uid,
+          name: p.displayName || 'Parent',
+          avatarEmoji: (p as { avatarEmoji?: string }).avatarEmoji,
+        }))
+      );
+    });
+    return () => { cancelled = true; };
+  }, [profile?.familyId, profile]);
+
+  // Default attendance to "everyone in the household present" once
+  // the kid + parent lists arrive. Only runs once so a manual
+  // deselection isn't overwritten if a list refreshes.
+  useEffect(() => {
+    if (attendanceInit) return;
+    if (children.length === 0 && householdParents.length === 0) return;
+    setAttendees(new Set(children.map((c) => c.id)));
+    setParentAttendees(new Set(householdParents.map((p) => p.uid)));
+    setAttendanceInit(true);
+  }, [children, householdParents, attendanceInit]);
+
+  // Seed Closing Reflection from setup the first time the family doc
+  // arrives — execute mode means the meeting record auto-tracks the
+  // enabled modes, and the prayer textarea preloads from the library.
+  useEffect(() => {
+    if (reflectionSeeded || !family) return;
+    const enabled = family.meetingSetup?.closingModesEnabled;
+    if (enabled && enabled.length > 0) {
+      setReflectionModes(enabled);
+      if (enabled.includes('prayer') && preloadedPrayer) {
+        setReflectionContents((prev) => ({ ...prev, prayer: prev.prayer || preloadedPrayer }));
+      }
+    } else {
+      // No setup yet — default to all three available (matches the
+      // pre-setup default behaviour from earlier ships).
+      setReflectionModes(['story', 'songs', 'prayer']);
+      if (preloadedPrayer) {
+        setReflectionContents((prev) => ({ ...prev, prayer: prev.prayer || preloadedPrayer }));
+      }
     }
-  }, [children, attendanceInit]);
+    setReflectionSeeded(true);
+  }, [family, preloadedPrayer, reflectionSeeded]);
 
   // ── Save handler ─────────────────────────────────────────────────
   // Two writes happen on finish:
@@ -204,6 +257,10 @@ export default function MeetingPresenterPage() {
       date: todayString(),
       type: 'weekly',
       attendees: Array.from(attendees),
+      parentAttendees: Array.from(parentAttendees),
+      guestAttendees: guestAttendees
+        .filter((g) => g.name.trim().length > 0)
+        .map((g) => ({ id: g.id, name: g.name.trim(), relationship: g.relationship || undefined })),
       gratitude,
       goals,
       notes: '',
@@ -300,7 +357,10 @@ export default function MeetingPresenterPage() {
               {step.id === 'attendance' && (
                 <AttendanceStep
                   childrenList={children}
+                  parentsList={householdParents}
                   attendees={attendees}
+                  parentAttendees={parentAttendees}
+                  guests={guestAttendees}
                   onToggleAttendee={(kidId) => {
                     setAttendees((prev) => {
                       const next = new Set(prev);
@@ -309,6 +369,21 @@ export default function MeetingPresenterPage() {
                       return next;
                     });
                   }}
+                  onToggleParent={(uid) => {
+                    setParentAttendees((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(uid)) next.delete(uid);
+                      else next.add(uid);
+                      return next;
+                    });
+                  }}
+                  onAddGuest={(name, relationship) => {
+                    setGuestAttendees((prev) => [
+                      ...prev,
+                      { id: `g_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,6)}`, name, relationship },
+                    ]);
+                  }}
+                  onRemoveGuest={(id) => setGuestAttendees((prev) => prev.filter((g) => g.id !== id))}
                   presentBy={presentBy}
                   presentTopic={presentTopic}
                   onChangePresentBy={setPresentBy}
@@ -353,19 +428,6 @@ export default function MeetingPresenterPage() {
               {step.id === 'reflection' && (
                 <ReflectionStep
                   enabledModes={enabledClosingModes}
-                  modes={reflectionModes}
-                  onModesChange={(next) => {
-                    setReflectionModes(next);
-                    // If parent just picked Prayer for the first time AND
-                    // the textarea is empty AND a library prayer is
-                    // available, preload it. Parent can still edit or
-                    // clear; we only auto-fill on the *transition*.
-                    if (next.includes('prayer') && !reflectionModes.includes('prayer')
-                        && !(reflectionContents.prayer || '').trim()
-                        && preloadedPrayer) {
-                      setReflectionContents({ ...reflectionContents, prayer: preloadedPrayer });
-                    }
-                  }}
                   contents={reflectionContents}
                   onContentChange={(m, v) =>
                     setReflectionContents({ ...reflectionContents, [m]: v })
@@ -518,35 +580,99 @@ function CelebrateStep() {
 // Two halves: a tap-to-toggle attendee grid (default all-present), and
 // a small optional "anyone presenting tonight?" capture. Both halves
 // are tolerant of being left empty so a family can move on quickly.
+// Relationship chip palette for the "+ Add guest" dialog. Plain English,
+// covers the common household guests; "Other…" surfaces a free-text input.
+const GUEST_RELATIONSHIPS = [
+  'Family Friend', 'Grandpa', 'Grandma', 'Uncle', 'Aunt', 'Cousin',
+  'Nanny', 'Tutor', 'Helper', 'Neighbour', 'Other',
+] as const;
+
 function AttendanceStep({
   childrenList,
+  parentsList,
   attendees,
+  parentAttendees,
+  guests,
   onToggleAttendee,
+  onToggleParent,
+  onAddGuest,
+  onRemoveGuest,
   presentBy,
   presentTopic,
   onChangePresentBy,
   onChangePresentTopic,
 }: {
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  parentsList: Array<{ uid: string; name: string; avatarEmoji?: string }>;
   attendees: Set<string>;
+  parentAttendees: Set<string>;
+  guests: Array<{ id: string; name: string; relationship?: string }>;
   onToggleAttendee: (kidId: string) => void;
+  onToggleParent: (uid: string) => void;
+  onAddGuest: (name: string, relationship?: string) => void;
+  onRemoveGuest: (id: string) => void;
   presentBy: string;
   presentTopic: string;
   onChangePresentBy: (s: string) => void;
   onChangePresentTopic: (s: string) => void;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [guestName, setGuestName] = useState('');
+  const [guestRel, setGuestRel] = useState<string>('Family Friend');
+  const [otherRel, setOtherRel] = useState('');
+
+  const commitGuest = () => {
+    const name = guestName.trim();
+    if (!name) return;
+    const rel = guestRel === 'Other' ? (otherRel.trim() || 'Guest') : guestRel;
+    onAddGuest(name, rel);
+    setGuestName('');
+    setOtherRel('');
+    setGuestRel('Family Friend');
+    setAdding(false);
+  };
+
+  const empty = childrenList.length === 0 && parentsList.length === 0;
+
   return (
     <div className="space-y-7">
       <section>
         <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-3 px-1">
           👥 Who is here tonight?
         </h3>
-        {childrenList.length === 0 ? (
+        {empty ? (
           <div className="bg-white/5 border border-white/10 rounded-kaya p-6 text-center text-white/60 text-sm">
-            Add kids in <Link href="/profiles" className="underline">profiles</Link> to track attendance.
+            Add family members in <Link href="/profiles" className="underline">profiles</Link> to track attendance.
           </div>
         ) : (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* Parents first */}
+            {parentsList.map((p) => {
+              const here = parentAttendees.has(p.uid);
+              return (
+                <button
+                  type="button"
+                  key={p.uid}
+                  onClick={() => onToggleParent(p.uid)}
+                  aria-pressed={here}
+                  className={`flex items-center gap-3 p-4 rounded-kaya border transition-all text-left ${
+                    here
+                      ? 'bg-kaya-gold/15 border-kaya-gold/60 text-white'
+                      : 'bg-white/5 border-white/10 text-white/45 hover:bg-white/10'
+                  }`}
+                >
+                  <span className="text-3xl">{p.avatarEmoji || '👤'}</span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{p.name}</span>
+                    <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold opacity-70">Parent</span>
+                  </span>
+                  <span className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black ${
+                    here ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white/10 text-white/40'
+                  }`}>{here ? '✓' : ' '}</span>
+                </button>
+              );
+            })}
+            {/* Kids */}
             {childrenList.map((c) => {
               const here = attendees.has(c.id);
               return (
@@ -563,27 +689,96 @@ function AttendanceStep({
                 >
                   <span className="text-3xl">{c.avatarEmoji || '👧'}</span>
                   <span className="flex-1 min-w-0">
-                    <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">
-                      {c.name}
-                    </span>
-                    <span className="block text-[11px] lg:text-[12px] mt-0.5">
-                      {here ? 'Here' : 'Tap if here'}
-                    </span>
+                    <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{c.name}</span>
+                    <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold opacity-70">Kid</span>
                   </span>
-                  <span
-                    className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black ${
-                      here ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white/10 text-white/40'
-                    }`}
-                  >
-                    {here ? '✓' : ' '}
-                  </span>
+                  <span className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black ${
+                    here ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white/10 text-white/40'
+                  }`}>{here ? '✓' : ' '}</span>
                 </button>
               );
             })}
+            {/* Guests (already added) */}
+            {guests.map((g) => (
+              <div
+                key={g.id}
+                className="flex items-center gap-3 p-4 rounded-kaya border bg-kaya-chocolate-light/40 border-kaya-gold/40 text-white text-left"
+              >
+                <span className="text-3xl">🧑</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{g.name}</span>
+                  <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold opacity-70">
+                    {g.relationship || 'Guest'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveGuest(g.id)}
+                  aria-label={`Remove ${g.name}`}
+                  className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black bg-white/10 text-white/60 hover:bg-rose-500/30"
+                >✕</button>
+              </div>
+            ))}
+            {/* Add guest tile */}
+            {!adding ? (
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="flex items-center justify-center gap-2 p-4 rounded-kaya border-2 border-dashed border-white/20 text-white/55 hover:text-white hover:border-white/40 transition-all font-display font-extrabold text-[14px] lg:text-base"
+              >
+                ＋ Add attendee
+              </button>
+            ) : (
+              <div className="col-span-2 lg:col-span-3 bg-white/5 border border-white/10 rounded-kaya p-4 lg:p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-display font-extrabold text-[14px] text-kaya-gold-light">Add a guest</p>
+                  <button type="button" onClick={() => setAdding(false)} className="text-[11px] font-bold text-white/55 hover:text-white">Cancel</button>
+                </div>
+                <input
+                  value={guestName}
+                  onChange={(e) => setGuestName(e.target.value)}
+                  placeholder="Name — e.g. Bibi Asha"
+                  autoFocus
+                  className="w-full h-11 lg:h-12 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+                />
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-white/55 mb-2">Relationship</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GUEST_RELATIONSHIPS.map((r) => (
+                      <button
+                        type="button"
+                        key={r}
+                        onClick={() => setGuestRel(r)}
+                        aria-pressed={guestRel === r}
+                        className={`px-3 py-1.5 rounded-kaya-sm font-display font-extrabold text-[11.5px] lg:text-[12px] transition-colors ${
+                          guestRel === r
+                            ? 'bg-kaya-gold text-kaya-chocolate'
+                            : 'bg-white/5 text-white/60 hover:bg-white/15'
+                        }`}
+                      >{r}</button>
+                    ))}
+                  </div>
+                  {guestRel === 'Other' && (
+                    <input
+                      value={otherRel}
+                      onChange={(e) => setOtherRel(e.target.value)}
+                      placeholder="Describe — e.g. Family pastor"
+                      className="mt-2 w-full h-10 bg-white/10 border border-white/10 rounded-kaya-sm px-3 text-[13px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+                    />
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={commitGuest}
+                  disabled={!guestName.trim()}
+                  className="w-full h-11 lg:h-12 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors hover:bg-kaya-gold-dark disabled:opacity-40"
+                >＋ Add to tonight's meeting</button>
+              </div>
+            )}
           </div>
         )}
         <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
-          Everyone defaults to present — tap to mark absent.
+          Household defaults to present — tap to mark absent. Add anyone else with “＋ Add attendee”.
         </p>
       </section>
 
@@ -767,20 +962,23 @@ function GoalsStep({
 // a story and a closing prayer doesn't have to choose between them.
 // Prayer keeps its "Say & celebrate" button which triggers the full-
 // screen typeset stage + flowers cascade.
+// Closing Reflection — execute mode.
+//
+// What parents enabled in /settings/meetings runs automatically here.
+// No chooser, no "pick on the night" UX — every enabled closing renders
+// its own card stacked vertically, primed with the saved content
+// (prayer from library, song link, story text from setup) so the
+// meeting just flows.
 function ReflectionStep({
   enabledModes,
-  modes,
-  onModesChange,
   contents,
   onContentChange,
   onCelebratePrayer,
   prayerLibraryCount,
 }: {
   /** Which of the 3 closings the parent enabled in /settings/meetings.
-   *  Disabled modes are filtered out of the chooser entirely. */
+   *  Disabled modes simply don't render. */
   enabledModes: ReflectionMode[];
-  modes: ReflectionMode[];
-  onModesChange: (next: ReflectionMode[]) => void;
   contents: Partial<Record<ReflectionMode, string>>;
   onContentChange: (mode: ReflectionMode, value: string) => void;
   onCelebratePrayer: () => void;
@@ -789,145 +987,202 @@ function ReflectionStep({
   prayerLibraryCount: number;
 }) {
   const allChoices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
-    { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story or a link to read together.' },
-    { id: 'songs',  emoji: '🎵', title: 'Songs',            sub: 'Gospel, family favorites, anything that lifts the room.' },
-    { id: 'prayer', emoji: '🙏', title: 'Family Prayer',    sub: 'A short prayer to close the night.' },
+    { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story, a verse, or a link to read together.' },
+    { id: 'songs',  emoji: '🎵', title: 'Songs',            sub: 'Paste a YouTube / Spotify link to open in a new tab.' },
+    { id: 'prayer', emoji: '🙏', title: 'Family Prayer',    sub: 'Pre-loaded from your library — edit freely.' },
   ];
-  // Respect the parent's setup — drop closings they turned off.
   const choices = allChoices.filter((c) => enabledModes.includes(c.id));
 
-  const isPicked = (id: ReflectionMode) => modes.includes(id);
-  const toggle = (id: ReflectionMode) => {
-    onModesChange(isPicked(id) ? modes.filter((m) => m !== id) : [...modes, id]);
-  };
+  if (choices.length === 0) {
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-kaya-lg p-8 text-center text-white/70">
+        <div className="text-4xl mb-3">✨</div>
+        <p className="font-display font-extrabold text-lg mb-2">No closings enabled</p>
+        <p className="text-[13px] text-white/55 mb-4">Pick at least one closing in <Link href="/settings/meetings" className="underline">Meeting Setup</Link> — Story, Songs, or Family Prayer.</p>
+      </div>
+    );
+  }
 
   const placeholderFor = (m: ReflectionMode) =>
     m === 'story' ? 'Paste a story, a verse, or a link…' :
-    m === 'songs' ? 'Paste a YouTube or Spotify link (or just a song title)…' :
-                    'Paste your family prayer here, or write one fresh…';
+    m === 'songs' ? 'Paste a YouTube or Spotify link…' :
+                    'Pre-loaded from your library. Edit, or paste a different prayer.';
 
   return (
-    <div className="space-y-7">
-      {/* Multi-select chooser */}
-      <section>
-        <div className="flex items-baseline justify-between mb-3 px-1">
-          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light">
-            Pick one — or all
-          </h3>
-          {modes.length > 0 && (
-            <span className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-white/50">
-              {modes.length} selected
-            </span>
-          )}
-        </div>
-        <div className="grid gap-3 lg:grid-cols-3">
-          {choices.map((c) => {
-            const picked = isPicked(c.id);
-            return (
+    <div className="space-y-5">
+      <div className="text-center mb-2">
+        <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.2em] font-bold text-kaya-gold-light/80">
+          Tonight's closing · {choices.length === 1 ? choices[0].title : `${choices.length} reflections`}
+        </p>
+      </div>
+      {choices.map((c) => {
+        const content = contents[c.id] || '';
+        const isPrayer = c.id === 'prayer';
+        const isSongs = c.id === 'songs';
+        const isStory = c.id === 'story';
+        const isLink = (isSongs || isStory) && content.trim().startsWith('http');
+        const ctaLabel = isSongs ? '▶ Play in new tab' : '🔗 Open link';
+        return (
+          <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-5 lg:p-6">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
+              <span className="text-2xl lg:text-3xl">{c.emoji}</span>
+              <h4 className="font-display font-black text-lg lg:text-xl text-kaya-gold-light">
+                {c.title}
+              </h4>
+              {isPrayer && prayerLibraryCount > 0 && (
+                <span className="text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-kaya-gold/20 text-kaya-gold-light">
+                  Library · {prayerLibraryCount} saved
+                </span>
+              )}
+              {isPrayer && (
+                <span className="ml-auto text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
+                  AI assist · Soon
+                </span>
+              )}
+            </div>
+            <textarea
+              value={content}
+              onChange={(e) => onContentChange(c.id, e.target.value)}
+              placeholder={placeholderFor(c.id)}
+              rows={isPrayer ? 7 : 4}
+              className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
+            />
+
+            {isPrayer && (
               <button
                 type="button"
-                key={c.id}
-                onClick={() => toggle(c.id)}
-                aria-pressed={picked}
-                className={`relative rounded-kaya-lg p-5 lg:p-6 text-left transition-all border-2 ${
-                  picked
-                    ? 'bg-kaya-gold/15 border-kaya-gold'
-                    : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/30'
-                }`}
+                onClick={onCelebratePrayer}
+                disabled={!content.trim()}
+                className="mt-4 w-full h-12 lg:h-14 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                <div className="absolute top-3 right-3 w-7 h-7 rounded-full flex items-center justify-center text-sm font-black bg-white/10 text-white/40">
-                  {picked && <span className="w-7 h-7 rounded-full flex items-center justify-center bg-kaya-gold text-kaya-chocolate">✓</span>}
-                </div>
-                <div className="text-3xl lg:text-4xl mb-2" aria-hidden>{c.emoji}</div>
-                <div className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-1">
-                  {c.title}
-                </div>
-                <p className="text-[12px] lg:text-[13px] text-white/65 leading-relaxed">{c.sub}</p>
+                🌸 Say &amp; celebrate
               </button>
-            );
-          })}
-        </div>
-      </section>
+            )}
 
-      {/* Per-mode input — only rendered for modes the parent picked. */}
-      {modes.length > 0 && (
-        <section className="space-y-5">
-          {choices.filter((c) => isPicked(c.id)).map((c) => {
-            const content = contents[c.id] || '';
-            const isPrayer = c.id === 'prayer';
-            const isLink = (c.id === 'story' || c.id === 'songs') && content.trim().startsWith('http');
-            return (
-              <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-5 lg:p-6">
-                <div className="flex items-center gap-3 mb-3 flex-wrap">
-                  <span className="text-2xl lg:text-3xl">{c.emoji}</span>
-                  <h4 className="font-display font-black text-lg lg:text-xl text-kaya-gold-light">
-                    {c.title}
-                  </h4>
-                  {isPrayer && prayerLibraryCount > 0 && (
-                    <span className="text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-kaya-gold/20 text-kaya-gold-light">
-                      Library · {prayerLibraryCount} saved
-                    </span>
-                  )}
-                  {isPrayer && (
-                    <span className="ml-auto text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
-                      AI assist · Soon
-                    </span>
-                  )}
-                </div>
-                <textarea
-                  value={content}
-                  onChange={(e) => onContentChange(c.id, e.target.value)}
-                  placeholder={placeholderFor(c.id)}
-                  rows={isPrayer ? 7 : 5}
-                  className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
-                />
-
-                {isPrayer && (
-                  <button
-                    type="button"
-                    onClick={onCelebratePrayer}
-                    className="mt-4 w-full h-12 lg:h-14 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all"
-                  >
-                    🌸 Say &amp; celebrate
-                  </button>
-                )}
-
-                {isLink && (
-                  <a
-                    href={content.trim()}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="mt-4 inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
-                  >
-                    🔗 Open link
-                  </a>
-                )}
-              </div>
-            );
-          })}
-        </section>
-      )}
+            {(isSongs || isStory) && (
+              isLink ? (
+                <a
+                  href={content.trim()}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="mt-4 inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
+                >
+                  {ctaLabel}
+                </a>
+              ) : (
+                <p className="mt-3 text-[11px] lg:text-[12px] text-white/40">
+                  {isSongs
+                    ? 'Paste a YouTube or Spotify URL to enable the play button.'
+                    : 'Paste a link to open it in a new tab, or just read the text together.'}
+                </p>
+              )
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
+// "Kaya Kaya!" celebration — replaces the flat ✅ splash with a
+// proper send-off for a weekly ritual. Layered effects:
+//   - radial gold glow background
+//   - 36 falling flowers (reuses FlowersDrop)
+//   - scale-up + soft pulse on the wordmark
+//   - emoji sparkles dotted around the canvas with a twinkle animation
+//   - "Back to home" CTA visible from the start; ESC / tap exits early
 function FinishedSplash({ onClose }: { onClose: () => void }) {
+  // Auto-cleanup after ~6s if the parent doesn't tap — long enough to
+  // soak it in, short enough not to over-stay.
+  useEffect(() => {
+    const t = setTimeout(onClose, 6000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
   return (
-    <div className="text-center py-12 lg:py-20">
-      <div className="text-7xl lg:text-8xl mb-6">✅</div>
-      <h1 className="font-display font-black text-3xl lg:text-5xl mb-3">
-        Meeting saved
-      </h1>
-      <p className="text-white/70 text-base lg:text-lg max-w-md mx-auto mb-8">
-        Beautiful. Same time next week — we'll see how those goals went.
-      </p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="h-12 lg:h-14 px-7 lg:px-9 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors"
-      >
-        Back to Meetings →
-      </button>
+    <div className="relative flex flex-col items-center justify-center py-10 lg:py-14 overflow-visible">
+      {/* Layered keyframes for the wordmark + twinkles. Plain <style>
+          so the keyframe identifiers survive (same trick as flowers). */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `
+            @keyframes kaya-pop-in {
+              0%   { opacity:0; transform:scale(.6) translateY(20px); }
+              60%  { opacity:1; transform:scale(1.06) translateY(-4px); }
+              100% { opacity:1; transform:scale(1) translateY(0); }
+            }
+            @keyframes kaya-glow {
+              0%,100% { opacity:.55; transform:scale(1); }
+              50%     { opacity:.9;  transform:scale(1.06); }
+            }
+            @keyframes kaya-twinkle {
+              0%,100% { opacity:0; transform:scale(.5) rotate(0deg); }
+              50%     { opacity:1; transform:scale(1.2) rotate(180deg); }
+            }
+            .kaya-pop { animation: kaya-pop-in 700ms cubic-bezier(.2,1.2,.4,1) both; }
+            .kaya-pop-delay-1 { animation-delay: 250ms; }
+            .kaya-pop-delay-2 { animation-delay: 600ms; }
+            .kaya-glow { animation: kaya-glow 2400ms ease-in-out infinite; }
+            .kaya-twinkle { animation: kaya-twinkle 2200ms ease-in-out infinite; }
+          `,
+        }}
+      />
+
+      {/* Radial gold glow behind the wordmark. */}
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none kaya-glow"
+        style={{
+          background: 'radial-gradient(circle at center, rgba(212,160,23,.45) 0%, rgba(212,160,23,.15) 30%, transparent 60%)',
+        }}
+      />
+
+      {/* Twinkling sparkles dotted around the canvas. */}
+      <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+        {[
+          { glyph: '✨', t: '8%',  l: '12%', d: '0ms',   s: 28 },
+          { glyph: '🎊', t: '18%', l: '78%', d: '400ms', s: 30 },
+          { glyph: '⭐', t: '34%', l: '8%',  d: '800ms', s: 24 },
+          { glyph: '🌟', t: '48%', l: '88%', d: '300ms', s: 28 },
+          { glyph: '✨', t: '70%', l: '14%', d: '900ms', s: 22 },
+          { glyph: '🎉', t: '76%', l: '82%', d: '550ms', s: 32 },
+        ].map((s, i) => (
+          <span
+            key={i}
+            className="absolute kaya-twinkle"
+            style={{
+              top: s.t, left: s.l, fontSize: `${s.s}px`,
+              animationDelay: s.d, opacity: 0,
+            }}
+          >
+            {s.glyph}
+          </span>
+        ))}
+      </div>
+
+      {/* Foreground content */}
+      <div className="relative text-center px-6">
+        <div className="text-7xl lg:text-8xl mb-3 kaya-pop">🎉</div>
+        <h1 className="font-display font-black text-5xl lg:text-7xl tracking-tight kaya-pop kaya-pop-delay-1"
+            style={{ color: 'var(--tw-text-opacity, white)', WebkitTextFillColor: 'transparent', backgroundImage: 'linear-gradient(135deg, #F5E6B8, #D4A017)', WebkitBackgroundClip: 'text', backgroundClip: 'text' }}
+        >
+          Kaya Kaya!
+        </h1>
+        <p className="text-white/80 text-base lg:text-xl max-w-md mx-auto mt-4 mb-8 kaya-pop kaya-pop-delay-2">
+          Beautiful meeting. See you next week.
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="kaya-pop kaya-pop-delay-2 h-12 lg:h-14 px-7 lg:px-9 rounded-kaya bg-white text-kaya-chocolate font-display font-extrabold text-sm lg:text-base hover:bg-kaya-gold-light transition-colors shadow-2xl"
+        >
+          Back to Meetings →
+        </button>
+      </div>
+
+      {/* Flowers cascade layered on top — same component used by the
+          prayer stage so the closing rituals share a visual language. */}
+      <FlowersDrop onDone={() => { /* keep the splash up until auto-close */ }} />
     </div>
   );
 }

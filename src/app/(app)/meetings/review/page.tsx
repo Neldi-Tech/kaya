@@ -198,7 +198,12 @@ export default function MeetingReviewPage() {
         )}
 
         {!loading && tab === 'behaviour' && (
-          <BehaviourTab comments={comments!} childById={childById} />
+          <BehaviourTab
+            comments={comments!}
+            dayScores={dayScores!}
+            routines={routines}
+            childById={childById}
+          />
         )}
 
         {!loading && tab === 'ladder' && (
@@ -386,32 +391,47 @@ function PointsTab({ leaderboard, childById }: { leaderboard: KidReviewStats[]; 
         const child = childById.get(s.childId);
         if (!child) return null;
         const isTop = s.totalPoints > 0 && s.totalPoints === top;
+        // Permanent commentary line — explains where the headline HP
+        // number came from without forcing the parent to mentally split
+        // routine vs award. Empty values fall away so the line stays
+        // tidy (e.g. no bonus yet → no "+ N bonus" fragment).
+        const bits: string[] = [];
+        if (s.pointsFromRatings) bits.push(`${fmt(s.pointsFromRatings)} routine`);
+        if (s.pointsFromAwards) bits.push(`${fmt(s.pointsFromAwards)} bonus`);
+        if (s.ladderRoutineIds.length) bits.push(`${s.ladderRoutineIds.length} kept Excellent`);
+        if (s.beltDays.length) bits.push(`${s.beltDays.length} Excellent day${s.beltDays.length === 1 ? '' : 's'}`);
+        const commentary = bits.join(' · ') || 'no points this window yet';
         return (
           <div
             key={s.childId}
-            className={`relative rounded-kaya-lg p-4 lg:p-5 border ${
-              isTop ? 'bg-kaya-gold/15 border-kaya-gold/50' : 'bg-white/5 border-white/10'
+            className={`relative rounded-kaya-lg p-5 lg:p-6 border text-center ${
+              isTop
+                ? 'bg-gradient-to-br from-kaya-gold/25 via-kaya-gold/10 to-transparent border-kaya-gold/60'
+                : 'bg-white/5 border-white/10'
             }`}
           >
-            <div className="flex items-start gap-3">
-              <div className="text-3xl lg:text-4xl shrink-0">{child.avatarEmoji}</div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm lg:text-base font-bold truncate">{child.name}</p>
-                <p className="text-[10px] lg:text-[11px] uppercase tracking-wider text-white/50 font-semibold">
-                  #{i + 1}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className={`font-display text-2xl lg:text-3xl font-black leading-none ${isTop ? 'text-kaya-gold' : ''}`}>
-                  {fmt(s.totalPoints)}
-                </p>
-                <p className="text-[10px] text-white/50 mt-0.5">pts</p>
-              </div>
+            {/* Top strip: rank + avatar + name */}
+            <div className="flex items-center justify-center gap-2 mb-3">
+              <span className={`text-[10px] lg:text-[11px] uppercase tracking-wider font-bold ${isTop ? 'text-kaya-gold-light' : 'text-white/50'}`}>
+                #{i + 1}
+              </span>
+              <span className="text-2xl lg:text-3xl">{child.avatarEmoji}</span>
+              <span className="text-sm lg:text-base font-display font-extrabold truncate">{child.name}</span>
             </div>
-            <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-[11px] text-white/60">
-              <span>Routines: <span className="text-white font-semibold">{fmt(s.pointsFromRatings)}</span></span>
-              <span>Awards: <span className="text-white font-semibold">{fmt(s.pointsFromAwards)}</span></span>
-            </div>
+            {/* HERO — House Points, the headline number */}
+            <p
+              className={`font-display font-black leading-none tracking-[-0.04em] ${isTop ? 'text-kaya-gold' : 'text-white'}`}
+              style={{ fontSize: 'clamp(48px, 8vw, 76px)' }}
+            >
+              {fmt(s.totalPoints)}
+            </p>
+            <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-bold text-white/55 mt-1">
+              House Points
+            </p>
+            {/* Always-on commentary — what makes up the headline */}
+            <p className="mt-3 text-[11.5px] lg:text-[12.5px] text-white/65 leading-snug">
+              {commentary}
+            </p>
           </div>
         );
       })}
@@ -423,54 +443,140 @@ function PointsTab({ leaderboard, childById }: { leaderboard: KidReviewStats[]; 
 // BEHAVIOUR TAB — comments left when ratings were submitted
 // ─────────────────────────────────────────────────────────────────────────
 
-function BehaviourTab({ comments, childById }: { comments: CommentEntry[]; childById: Map<string, Child> }) {
-  if (comments.length === 0) {
+function BehaviourTab({
+  comments,
+  dayScores,
+  routines,
+  childById,
+}: {
+  comments: CommentEntry[];
+  dayScores: DayScore[];
+  routines: Routine[];
+  childById: Map<string, Child>;
+}) {
+  // Aggregate dayScores per kid → routines completed + excellent count +
+  // worst (lowest-excellent) day. Build this regardless of whether there
+  // are comments — the tab now leads with the count + dip callout and
+  // comments slot in below.
+  const routineNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of routines) m.set(r.id, r.label);
+    return m;
+  }, [routines]);
+
+  const perKid = useMemo(() => {
+    const m = new Map<string, {
+      totalRated: number;
+      excellentCount: number;
+      badCount: number;
+      worstDay: DayScore | null;
+    }>();
+    for (const ds of dayScores) {
+      const cur = m.get(ds.childId) ?? { totalRated: 0, excellentCount: 0, badCount: 0, worstDay: null };
+      cur.totalRated += ds.totalRated;
+      cur.excellentCount += ds.excellentCount;
+      cur.badCount += ds.badCount;
+      // "Worst" = highest bad count; tiebreak by lowest excellent count.
+      const isWorse = !cur.worstDay
+        || ds.badCount > cur.worstDay.badCount
+        || (ds.badCount === cur.worstDay.badCount && ds.excellentCount < cur.worstDay.excellentCount);
+      if ((ds.badCount > 0 || ds.totalRated > 0) && isWorse) cur.worstDay = ds;
+      m.set(ds.childId, cur);
+    }
+    return m;
+  }, [dayScores]);
+
+  const commentsByChild = useMemo(() => {
+    const m = new Map<string, CommentEntry[]>();
+    for (const c of comments) {
+      const bucket = m.get(c.childId) ?? [];
+      bucket.push(c);
+      m.set(c.childId, bucket);
+    }
+    return m;
+  }, [comments]);
+
+  // Render one section per kid that has either stats or comments.
+  const kidIds = new Set<string>([
+    ...Array.from(perKid.keys()),
+    ...Array.from(commentsByChild.keys()),
+  ]);
+
+  if (kidIds.size === 0) {
     return (
       <EmptyState>
-        No notes left this window. When a parent or helper writes a comment while
-        rating a routine, it shows up here for the family to discuss.
+        No routine activity yet this window. Once kids start getting rated, behaviour stats and notes will land here.
       </EmptyState>
     );
   }
 
-  // Group comments by child for the per-kid section layout.
-  const byChild = new Map<string, CommentEntry[]>();
-  for (const c of comments) {
-    const bucket = byChild.get(c.childId) ?? [];
-    bucket.push(c);
-    byChild.set(c.childId, bucket);
-  }
-
   return (
     <div className="space-y-5 lg:space-y-6">
-      {[...byChild.entries()].map(([childId, entries]) => {
+      {Array.from(kidIds).map((childId) => {
         const child = childById.get(childId);
         if (!child) return null;
+        const stats = perKid.get(childId);
+        const entries = commentsByChild.get(childId) ?? [];
+        const worst = stats?.worstDay || null;
+        const worstReasonRoutines = worst
+          ? worst.badRoutineIds.map((id) => routineNameById.get(id) || id).filter(Boolean)
+          : [];
         return (
           <section key={childId} className="rounded-kaya-lg bg-white/5 border border-white/10 p-4 lg:p-5">
-            <div className="flex items-center gap-3 mb-3">
+            {/* Header — name + headline routine count */}
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
               <span className="text-3xl">{child.avatarEmoji}</span>
               <h3 className="font-display text-lg lg:text-xl font-black">{child.name}</h3>
-              <span className="text-[11px] text-white/50">
-                {entries.length} note{entries.length === 1 ? '' : 's'}
-              </span>
+              {stats && stats.totalRated > 0 && (
+                <span className="text-[11px] lg:text-[12px] font-display font-extrabold px-2.5 py-1 rounded-full bg-kaya-gold/20 text-kaya-gold-light uppercase tracking-wider">
+                  {stats.totalRated} routines · {stats.excellentCount} Excellent
+                </span>
+              )}
+              {entries.length > 0 && (
+                <span className="text-[10px] lg:text-[11px] text-white/45 uppercase tracking-wider font-semibold ml-auto">
+                  {entries.length} note{entries.length === 1 ? '' : 's'}
+                </span>
+              )}
             </div>
-            <ul className="space-y-3">
-              {entries.map((e) => (
-                <li key={e.ratingId} className="bg-black/20 rounded-kaya-sm p-3 lg:p-4 border-l-2 border-kaya-gold/60">
-                  <div className="flex items-center gap-2 mb-1.5 text-[10px] lg:text-[11px] uppercase tracking-wider text-white/50 font-semibold">
-                    <span className="normal-case">{formatShort(e.date)}</span>
-                    <span aria-hidden>·</span>
-                    <span>{e.period === 'morning' ? '☀️ Morning' : '🌙 Evening'}</span>
-                    <span aria-hidden>·</span>
-                    <span className="text-white/70">{e.ratedByName}</span>
-                  </div>
-                  <p className="text-sm lg:text-base leading-relaxed text-white/90">
-                    &ldquo;{e.comment}&rdquo;
-                  </p>
-                </li>
-              ))}
-            </ul>
+
+            {/* Worst day callout — only if there's a meaningful dip */}
+            {worst && worst.badCount > 0 && (
+              <div className="bg-rose-500/10 border-l-2 border-rose-400/70 rounded-kaya-sm p-3 lg:p-4 mb-3">
+                <div className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-rose-300 mb-1">
+                  Lowest day · {formatShort(worst.date)}
+                </div>
+                <p className="text-[13px] lg:text-sm text-white/85 leading-snug">
+                  {worst.badCount} "Bad" rating{worst.badCount === 1 ? '' : 's'}
+                  {worst.excellentCount > 0 && ` · still ${worst.excellentCount} Excellent`}
+                  {worstReasonRoutines.length > 0 && (
+                    <> on <span className="text-rose-200 font-semibold">{worstReasonRoutines.slice(0, 3).join(', ')}</span></>
+                  )}
+                  .
+                </p>
+              </div>
+            )}
+
+            {/* Comments — context for what the rater observed */}
+            {entries.length > 0 ? (
+              <ul className="space-y-3">
+                {entries.map((e) => (
+                  <li key={e.ratingId} className="bg-black/20 rounded-kaya-sm p-3 lg:p-4 border-l-2 border-kaya-gold/60">
+                    <div className="flex items-center gap-2 mb-1.5 text-[10px] lg:text-[11px] uppercase tracking-wider text-white/50 font-semibold">
+                      <span className="normal-case">{formatShort(e.date)}</span>
+                      <span aria-hidden>·</span>
+                      <span>{e.period === 'morning' ? '☀️ Morning' : '🌙 Evening'}</span>
+                      <span aria-hidden>·</span>
+                      <span className="text-white/70">{e.ratedByName}</span>
+                    </div>
+                    <p className="text-sm lg:text-base leading-relaxed text-white/90">
+                      &ldquo;{e.comment}&rdquo;
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[12px] text-white/40 italic">No notes left this window.</p>
+            )}
           </section>
         );
       })}
