@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound, ChevronDown, ChevronUp, Info, Clock } from 'lucide-react';
+import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound, ChevronDown, ChevronUp, Info, Clock, Eye, Pencil } from 'lucide-react';
 import {
   ensureFamilyCode,
   listHelpers,
@@ -13,6 +13,7 @@ import {
   removeHelper,
   generateShortCode,
   generatePassword,
+  buildModuleAccessFromPreset,
   DEFAULT_HELPER_SESSION_DAYS,
   type CreateHelperResult,
 } from '@/lib/helpers';
@@ -617,10 +618,40 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
     flash();
   };
 
-  const toggleModule = async (moduleId: string) => {
-    const has = helper.modules.includes(moduleId);
-    const next = has ? helper.modules.filter((m) => m !== moduleId) : [...helper.modules, moduleId];
-    await onUpdate({ modules: next });
+  // Resolve the current per-module {view, act} state. Prefer
+  // moduleAccess (canonical); fall back to legacy `modules` array
+  // treated as view+act.
+  const moduleAccessNow: Record<string, { view: boolean; act: boolean }> = {};
+  if (helper.moduleAccess) {
+    Object.assign(moduleAccessNow, helper.moduleAccess);
+  } else {
+    for (const id of helper.modules) moduleAccessNow[id] = { view: true, act: true };
+  }
+
+  // Toggle one tier (view or act) for one module. Enforces the
+  // invariant act ⊆ view: turning view off also turns act off;
+  // turning act on also turns view on. Keeps `modules` (legacy
+  // array) in sync — entries with act:true count as legacy-granted.
+  const toggleModuleTier = async (moduleId: string, tier: 'view' | 'act') => {
+    const current = moduleAccessNow[moduleId] ?? { view: false, act: false };
+    let next = { ...current };
+    if (tier === 'view') {
+      next.view = !current.view;
+      if (!next.view) next.act = false;
+    } else {
+      next.act = !current.act;
+      if (next.act) next.view = true;
+    }
+    const nextMap: Record<string, { view: boolean; act: boolean }> = { ...moduleAccessNow };
+    if (next.view || next.act) nextMap[moduleId] = next;
+    else delete nextMap[moduleId];
+    // Legacy `modules` array tracks the act-granted set so older
+    // readers (and any rule still using the array fallback) see the
+    // intended scope.
+    const legacyArr = Object.entries(nextMap)
+      .filter(([, f]) => f.act)
+      .map(([id]) => id);
+    await onUpdate({ moduleAccess: nextMap, modules: legacyArr });
     flash();
   };
 
@@ -637,12 +668,19 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
     flash();
   };
 
-  // Module options surfaced to the parent — everything the family has
-  // enabled for kids, since helpers act on kid-side modules. Home is
-  // always shown so it can be toggled off intentionally.
-  const moduleOptions = KID_MODULES
-    .filter((m) => familyModules.includes(m.id) || m.id === 'home')
-    .map((m) => ({ id: m.id, label: m.label, icon: m.icon }));
+  // Module options surfaced to the parent — everything in the
+  // canonical KID_MODULES list. Family-disabled modules are shown
+  // grayed out so the parent sees the full vocabulary at a glance
+  // (matches the kid-side "What kids see" pattern). Home is always
+  // shown so it can be toggled off intentionally. Each entry carries
+  // its lifecycle marker (active / soon / legacy) for visual styling.
+  const moduleOptions = KID_MODULES.map((m) => ({
+    id: m.id,
+    label: m.label,
+    icon: m.icon,
+    tier: (m.soon ? 'soon' : m.isLegacy ? 'legacy' : 'active') as 'active' | 'soon' | 'legacy',
+    enabledByFamily: familyModules.includes(m.id) || m.id === 'home',
+  }));
 
   const currentFrequency: Frequency = helper.expectedFrequency ?? 'flexible';
 
@@ -752,31 +790,82 @@ function HelperRow({ helper, childOptions, familyModules, busy, onPauseToggle, o
             )}
           </div>
 
-          {/* Modules — the "role editor" inline. Today these flags are
-              stored but not yet rule-enforced (per v0 scope decision);
-              parent can pre-set what they want this helper to act on
-              so it's ready when module-level scoping ships. */}
+          {/* Areas — stacked-card "role editor" matching the kid-side
+              "What kids see" pattern. Each card carries two checkboxes:
+              View (read access) and Act (write access). Invariant:
+              act implies view. Cards rule-enforced through
+              firestore.rules' helperCanViewModule / helperCanActOnModule. */}
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Areas they can act on</p>
-            <div className="flex flex-wrap gap-2">
+            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Areas this helper can access</p>
+            <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+              <span className="inline-flex items-center gap-1 mr-2"><Eye size={11} /> <span className="font-bold">View</span> = can see the data</span>
+              <span className="inline-flex items-center gap-1"><Pencil size={11} /> <span className="font-bold">Act</span> = can add / edit / delete</span>
+            </p>
+            <div className="space-y-2">
               {moduleOptions.map((m) => {
-                const on = helper.modules.includes(m.id);
+                const access = moduleAccessNow[m.id] ?? { view: false, act: false };
+                const borderClass =
+                  m.tier === 'soon' ? 'border-kaya-gold/50 bg-kaya-gold-light/10' :
+                  m.tier === 'legacy' ? 'border-kaya-warm-dark bg-kaya-cream/60' :
+                  (access.view || access.act) ? 'border-kaya-gold bg-kaya-gold-light/20' :
+                  'border-kaya-warm-dark bg-white';
                 return (
-                  <button
+                  <div
                     key={m.id}
-                    type="button"
-                    disabled={busy}
-                    onClick={() => toggleModule(m.id)}
-                    className={`px-3 py-1.5 text-sm rounded-full border disabled:opacity-50 ${on
-                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
-                      : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
-                    }`}
+                    className={`rounded-kaya border-2 p-3 flex items-center gap-3 ${borderClass}`}
                   >
-                    <span className="mr-1">{m.icon}</span>{m.label}
-                  </button>
+                    <span className="text-2xl flex-shrink-0">{m.icon}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-bold text-sm truncate">
+                        {m.label}
+                        {m.tier === 'soon' && (
+                          <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-gold-light/40 text-kaya-chocolate px-1.5 py-0.5 rounded-full font-bold align-middle">Soon</span>
+                        )}
+                        {m.tier === 'legacy' && (
+                          <span className="ml-2 text-[9px] uppercase tracking-wider bg-kaya-sand/30 text-kaya-sand px-1.5 py-0.5 rounded-full font-bold align-middle">Legacy</span>
+                        )}
+                        {!m.enabledByFamily && (
+                          <span className="ml-2 text-[9px] uppercase tracking-wider text-kaya-sand/70 font-bold align-middle">family disabled</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <label className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-kaya border cursor-pointer select-none ${access.view
+                        ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                        : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                      } ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={access.view}
+                          disabled={busy}
+                          onChange={() => toggleModuleTier(m.id, 'view')}
+                        />
+                        <Eye size={12} />
+                        <span className="font-bold">View</span>
+                      </label>
+                      <label className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-kaya border cursor-pointer select-none ${access.act
+                        ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                        : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                      } ${busy ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={access.act}
+                          disabled={busy}
+                          onChange={() => toggleModuleTier(m.id, 'act')}
+                        />
+                        <Pencil size={12} />
+                        <span className="font-bold">Act</span>
+                      </label>
+                    </div>
+                  </div>
                 );
               })}
             </div>
+            <p className="text-[10px] text-kaya-sand mt-2">
+              Turning <span className="font-bold">Act</span> on auto-enables <span className="font-bold">View</span>. Turning View off auto-disables Act. Grandparents default to View-only across everything.
+            </p>
           </div>
 
           {/* Frequency expectation */}

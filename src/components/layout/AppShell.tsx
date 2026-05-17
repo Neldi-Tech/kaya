@@ -301,7 +301,21 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       try {
         const link = await getHelperLink(profile.familyId, profile.uid);
         if (cancelled) return;
-        setHelperModules(link ? new Set(link.modules) : 'legacy');
+        if (!link) { setHelperModules('legacy'); return; }
+        // Prefer `moduleAccess` (view tier) when present — that's the
+        // canonical source post-rollout. Sidebar visibility = "can
+        // they navigate to it" = view-tier. Act-tier checks happen
+        // on writes inside each screen. Legacy docs (only `modules`
+        // array, no moduleAccess) get treated as view+act.
+        const ids = new Set<string>();
+        if (link.moduleAccess) {
+          for (const [id, flags] of Object.entries(link.moduleAccess)) {
+            if (flags.view) ids.add(id);
+          }
+        } else {
+          for (const id of link.modules) ids.add(id);
+        }
+        setHelperModules(ids);
       } catch {
         if (!cancelled) setHelperModules('legacy');
       }

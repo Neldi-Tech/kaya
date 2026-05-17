@@ -102,43 +102,73 @@ export default function HelperPage() {
       {/* "Your access" panel — only when a HelperLink doc exists, so
           legacy helpers (full-family access) don't see a misleading
           summary. Lists the assigned kids, role, expected frequency,
-          and the granted areas (chips) so the helper sees their exact
-          scope at a glance. */}
-      {link && (
-        <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4">
-          <div className="flex items-start gap-3">
-            <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0 mt-0.5" />
-            <div className="min-w-0 flex-1 text-xs lg:text-sm">
-              <div>
-                <span className="text-kaya-sand">Helping with </span>
-                <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
-                <span className="text-kaya-sand"> · </span>
-                <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
-                <span className="text-kaya-sand"> role</span>
-              </div>
-              <div className="mt-1 text-[11px] text-kaya-sand">
-                Expected today: <span className="font-bold text-kaya-chocolate">{FREQUENCY_LABEL[link.expectedFrequency ?? 'flexible']}</span>
+          and groups granted areas by access tier (Add+Edit vs View
+          only) so the helper sees exactly what they can and can't do. */}
+      {link && (() => {
+        // Resolve current per-module access. Prefer moduleAccess
+        // (canonical); fall back to legacy `modules` array as view+act.
+        const access: Record<string, { view: boolean; act: boolean }> = {};
+        if (link.moduleAccess) {
+          Object.assign(access, link.moduleAccess);
+        } else {
+          for (const id of link.modules) access[id] = { view: true, act: true };
+        }
+        const actEntries = Object.entries(access).filter(([, f]) => f.act);
+        const viewOnlyEntries = Object.entries(access).filter(([, f]) => f.view && !f.act);
+        return (
+          <div className="mb-5 lg:mb-7 bg-white border border-kaya-warm-dark rounded-kaya p-3 lg:p-4">
+            <div className="flex items-start gap-3">
+              <ShieldCheck size={18} className="text-kaya-chocolate flex-shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1 text-xs lg:text-sm">
+                <div>
+                  <span className="text-kaya-sand">Helping with </span>
+                  <span className="font-bold">{assignedKidNames || 'no kids yet'}</span>
+                  <span className="text-kaya-sand"> · </span>
+                  <span className="font-bold">{PRESET_LABEL[link.preset]}</span>
+                  <span className="text-kaya-sand"> role</span>
+                </div>
+                <div className="mt-1 text-[11px] text-kaya-sand">
+                  Expected today: <span className="font-bold text-kaya-chocolate">{FREQUENCY_LABEL[link.expectedFrequency ?? 'flexible']}</span>
+                </div>
               </div>
             </div>
+            {(actEntries.length > 0 || viewOnlyEntries.length > 0) && (
+              <div className="mt-3 pt-3 border-t border-kaya-warm-dark/40 space-y-2">
+                {actEntries.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">You can add &amp; edit</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {actEntries.map(([id]) => {
+                        const m = MODULE_BY_ID[id]; if (!m) return null;
+                        return (
+                          <span key={id} className="px-2 py-1 text-[11px] bg-kaya-chocolate text-white rounded-full font-bold">
+                            <span className="mr-1">{m.icon}</span>{m.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {viewOnlyEntries.length > 0 && (
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">You can view only</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {viewOnlyEntries.map(([id]) => {
+                        const m = MODULE_BY_ID[id]; if (!m) return null;
+                        return (
+                          <span key={id} className="px-2 py-1 text-[11px] bg-kaya-cream border border-kaya-warm-dark rounded-full">
+                            <span className="mr-1">{m.icon}</span>{m.label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-          {link.modules.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-kaya-warm-dark/40">
-              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-2">Areas you can act on</p>
-              <div className="flex flex-wrap gap-1.5">
-                {link.modules.map((id) => {
-                  const m = MODULE_BY_ID[id];
-                  if (!m) return null;
-                  return (
-                    <span key={id} className="px-2 py-1 text-[11px] bg-kaya-cream border border-kaya-warm-dark rounded-full">
-                      <span className="mr-1">{m.icon}</span>{m.label}
-                    </span>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Children overview */}
       {scopeLoaded && visibleChildren.length === 0 && (
@@ -168,12 +198,17 @@ export default function HelperPage() {
         ))}
       </div>
 
-      {/* Quick actions — only shown when the helper has the `home`
-          module (which is what routine ratings live under). Helpers
-          without `home` see a small "no access" hint so they understand
-          why no rating buttons appear. Legacy helpers (no link doc) get
-          the buttons by default — matches the rule fallback. */}
-      {(!link || link.modules.includes('home')) ? (
+      {/* Quick actions — only shown when the helper can ACT on the
+          `home` module (rating is a write). Prefer moduleAccess (canonical);
+          fall back to legacy `modules` array. Helpers without home-act
+          see a small "no access" hint so they understand why no rating
+          buttons appear. Legacy helpers (no link doc) get the buttons by
+          default — matches the rule fallback. */}
+      {(() => {
+        if (!link) return true; // legacy helper without link doc
+        if (link.moduleAccess) return link.moduleAccess['home']?.act === true;
+        return link.modules.includes('home');
+      })() ? (
         <div className="grid grid-cols-2 gap-3 lg:gap-4 lg:max-w-2xl">
           <button
             onClick={() => router.push('/rate?period=morning')}

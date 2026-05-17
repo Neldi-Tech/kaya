@@ -188,6 +188,33 @@ export interface Family {
   // for already-signed-in helpers — they get bounced on their next
   // page load.
   helperSessionDays?: number;
+  // ── Meeting setup ────────────────────────────────────────────
+  // Parent-controlled configuration the presenter reads on meeting
+  // night. Optional — absent = sensible defaults (every step in the
+  // agenda, every closing mode available, no prayer library).
+  meetingSetup?: {
+    /** Which steps are part of the agenda, in the order shown. When
+     *  absent, presenter renders the full 6-step default. Step ids:
+     *  'attendance' | 'gratitude' | 'celebrate' | 'appreciations' |
+     *  'goals' | 'reflection'. */
+    agendaSteps?: string[];
+    /** Which closing reflection modes are surfaced to the parent
+     *  during the meeting. When absent, all three (story / songs /
+     *  prayer) are shown. */
+    closingModesEnabled?: ReflectionMode[];
+    /** Prayer library — multiple saved prayers parents can rotate
+     *  through. The presenter preloads a random one when the Prayer
+     *  closing is picked (parent can still edit or paste a different
+     *  prayer on the night). Stored on the family doc; no Storage
+     *  involved. */
+    prayers?: Array<{
+      id: string;
+      title: string;
+      body: string;
+      /** Epoch millis — order, audit, "added this week" badges. */
+      createdAt: number;
+    }>;
+  };
   createdAt: Timestamp;
 }
 
@@ -209,12 +236,27 @@ export interface HelperLink {
   displayName: string;
   preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'custom';
   kidIds: string[];                                          // which kids this helper can act on; [] = none
-  // Module flags from `lib/kidModules.ts`. Stored today, not yet
-  // enforced in rules (per the v0 scope decision — per-kid only is the
-  // current grain). Future tightening will not require a migration.
+  // ── Module access (legacy) ───────────────────────────────────
+  // Single-tier list of kid-module ids this helper has full access
+  // to (implicit view + act). Kept for backwards compat — older
+  // HelperLink docs have only this field. New writes also populate
+  // `moduleAccess` below; rules prefer `moduleAccess` when present,
+  // fall back to `modules` when absent.
   modules: string[];
-  canLog: boolean;                                           // tap-checklist + capture writes (default true)
-  canAward: boolean;                                         // kudos / improvement_note only; defaults false
+  // ── Module access (canonical, view vs act) ───────────────────
+  // Per-module view + act flags. Source of truth on docs that have
+  // it. Rules use `moduleAccess[m].act` for writes and
+  // `moduleAccess[m].view` for reads. A module missing from this map
+  // means "no access" — UI should only show modules the helper has
+  // at least view rights on.
+  //
+  // Why two fields: rolling this out without breaking existing
+  // helpers required keeping `modules` as the legacy fallback. Once
+  // every active doc has `moduleAccess`, the legacy field can be
+  // archived; until then both stay in sync on every write.
+  moduleAccess?: Record<string, { view: boolean; act: boolean }>;
+  canLog: boolean;                                           // tap-checklist + capture writes (default true) — legacy
+  canAward: boolean;                                         // kudos / improvement_note only; defaults false — legacy
   attribution: 'named' | 'generic' | 'hidden';               // for the future performance page
   authTier: 'A' | 'B' | 'C';
   status: 'active' | 'paused' | 'removed';

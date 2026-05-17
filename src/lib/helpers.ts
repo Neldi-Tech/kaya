@@ -192,10 +192,33 @@ export interface CreateHelperInput {
   password: string;            // auto-generated, shown once to parent
   preset: HelperLink['preset'];
   kidIds: string[];
+  /** Legacy: modules with full view+act. Kept on the doc for
+   *  backwards-compat reads; the canonical source is `moduleAccess`. */
   modules: string[];
+  /** Per-module view/act flags. Set from the preset when omitted. */
+  moduleAccess?: HelperLink['moduleAccess'];
   canAward?: boolean;
   expectedFrequency?: HelperLink['expectedFrequency'];
   createdBy: string;           // parent UID
+}
+
+/** Build a default `moduleAccess` map from a preset + the set of
+ *  modules the parent picked. Grandparent gets view-only across all
+ *  modules; everyone else gets view+act. Modules NOT in the picked
+ *  list are simply absent from the map (no access). */
+export function buildModuleAccessFromPreset(
+  preset: HelperLink['preset'],
+  modules: string[],
+): HelperLink['moduleAccess'] {
+  const map: NonNullable<HelperLink['moduleAccess']> = {};
+  for (const m of modules) {
+    if (preset === 'grandparent') {
+      map[m] = { view: true, act: false };
+    } else {
+      map[m] = { view: true, act: true };
+    }
+  }
+  return map;
 }
 
 export interface CreateHelperResult {
@@ -256,12 +279,18 @@ export async function createHelper(input: CreateHelperInput): Promise<CreateHelp
     };
     await createUserProfile(profile);
 
+    // moduleAccess is the canonical map; modules array stays in sync
+    // as the legacy fallback. canLog/canAward stay populated for any
+    // older readers — they don't gate anything new.
+    const moduleAccess = input.moduleAccess
+      ?? buildModuleAccessFromPreset(input.preset, input.modules);
     const link: Record<string, unknown> = {
       helperCode: hc,
       displayName: input.displayName,
       preset: input.preset,
       kidIds: input.kidIds,
       modules: input.modules,
+      moduleAccess,
       canLog: true,
       canAward: input.canAward ?? (input.preset === 'nanny' || input.preset === 'grandparent'),
       attribution: 'generic',

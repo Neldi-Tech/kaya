@@ -48,16 +48,46 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.kidIds.hasAny([kidId]);
     }
 
-    // True when the caller is a helper in `familyId` AND their
-    // HelperLink doc grants `moduleId` (kid-module id from
-    // lib/kidModules.ts). Stand-alone module check — for kid-scoped
-    // writes combine with `helperCanActOnKid()`.
-    function helperHasModule(familyId, moduleId) {
+    // Module access — two tiers (view vs act). Canonical source is
+    // `HelperLink.moduleAccess` (map keyed by kid-module id, each
+    // value `{view, act}`). Docs written before the moduleAccess
+    // field existed have only the legacy `modules` array — those
+    // entries are treated as full view+act. Either function returns
+    // false for non-helpers, paused helpers, and helpers with no
+    // link doc (legacy-helper escape hatch handles those separately).
+    function _helperLink(familyId) {
+      return get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data;
+    }
+    function _helperHasModuleTier(familyId, moduleId, tier) {
       return belongsToFamily(familyId)
         && getUserProfile().role == 'helper'
         && exists(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid))
-        && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.status == 'active'
-        && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.modules.hasAny([moduleId]);
+        && _helperLink(familyId).status == 'active'
+        && (
+          // New shape: moduleAccess map + the tier flag is true.
+          (
+            'moduleAccess' in _helperLink(familyId)
+            && moduleId in _helperLink(familyId).moduleAccess
+            && _helperLink(familyId).moduleAccess[moduleId][tier] == true
+          )
+          // Legacy shape: only `modules` array — treat as view+act.
+          || (
+            !('moduleAccess' in _helperLink(familyId))
+            && _helperLink(familyId).modules.hasAny([moduleId])
+          )
+        );
+    }
+    function helperCanViewModule(familyId, moduleId) {
+      return _helperHasModuleTier(familyId, moduleId, 'view');
+    }
+    function helperCanActOnModule(familyId, moduleId) {
+      return _helperHasModuleTier(familyId, moduleId, 'act');
+    }
+    // Back-compat alias for older call sites still in this file —
+    // both are write-tier checks. New code should call
+    // `helperCanActOnModule` directly.
+    function helperHasModule(familyId, moduleId) {
+      return helperCanActOnModule(familyId, moduleId);
     }
 
     // Legacy-helper escape hatch: helpers who joined BEFORE the
