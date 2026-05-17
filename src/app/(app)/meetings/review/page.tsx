@@ -229,8 +229,8 @@ export default function MeetingReviewPage() {
           />
         )}
 
-        <p className="text-center text-[11px] lg:text-xs text-white/40 mt-8 lg:mt-10">
-          Excellent Belt&reg; and Excellent Ladder&reg; by Diella
+        <p className="text-center text-[11px] lg:text-xs text-white/45 mt-8 lg:mt-10">
+          Excellent Belt&reg; and Excellent Ladder&reg; · <span className="text-kaya-gold-light/80 font-display font-extrabold tracking-wider">Designed by Diella ✨</span>
         </p>
       </div>
     </div>
@@ -413,12 +413,13 @@ function PointsTab({
         const hpFromRoutine = Math.floor(s.pointsFromRatings / ppHP);
         const isTop = hp > 0 && hp === topHP;
 
-        // Permanent commentary — explains where HP came from. Lists
-        // the converted routine HP first (the dominant component for
-        // most families), then bonus HP, then qualitative counts.
+        // Permanent commentary — explains where the HP headline came
+        // from. Leads with the raw routine total (the number kids see
+        // accumulating day-to-day), then how that converts to HP, then
+        // bonus HP, then qualitative counts.
         const bits: string[] = [];
-        if (hpFromRoutine) bits.push(`${fmt(hpFromRoutine)} from routines`);
-        if (s.pointsFromAwards) bits.push(`${fmt(s.pointsFromAwards)} bonus`);
+        if (s.pointsFromRatings) bits.push(`${fmt(s.pointsFromRatings)} routine pts → ${fmt(hpFromRoutine)} HP`);
+        if (s.pointsFromAwards) bits.push(`${fmt(s.pointsFromAwards)} bonus HP`);
         if (s.ladderRoutineIds.length) bits.push(`${s.ladderRoutineIds.length} kept Excellent`);
         if (s.beltDays.length) bits.push(`${s.beltDays.length} Excellent day${s.beltDays.length === 1 ? '' : 's'}`);
         const commentary = bits.join(' · ') || 'no points this window yet';
@@ -467,6 +468,8 @@ function PointsTab({
 // BEHAVIOUR TAB — comments left when ratings were submitted
 // ─────────────────────────────────────────────────────────────────────────
 
+type BehaviourFilter = 'all' | 'excellent' | 'bad';
+
 function BehaviourTab({
   comments,
   dayScores,
@@ -478,6 +481,11 @@ function BehaviourTab({
   routines: Routine[];
   childById: Map<string, Child>;
 }) {
+  // Filter chip — All / Excellent comments only / Bad comments only.
+  // Resets to All whenever the window changes so a parent who picked
+  // Bad for last week isn't surprised by an empty tab this week.
+  const [filter, setFilter] = useState<BehaviourFilter>('all');
+  useEffect(() => { setFilter('all'); }, [comments]);
   // Aggregate dayScores per kid → routines completed + excellent count +
   // worst (lowest-excellent) day. Build this regardless of whether there
   // are comments — the tab now leads with the count + dip callout and
@@ -510,14 +518,32 @@ function BehaviourTab({
     return m;
   }, [dayScores]);
 
+  // Filter comments by tone first, THEN bucket by kid — so the
+  // per-kid sections show only the comments matching the active chip.
+  const filteredComments = useMemo(() => {
+    if (filter === 'all') return comments;
+    return comments.filter((c) => c.tone === filter);
+  }, [comments, filter]);
+
   const commentsByChild = useMemo(() => {
     const m = new Map<string, CommentEntry[]>();
-    for (const c of comments) {
+    for (const c of filteredComments) {
       const bucket = m.get(c.childId) ?? [];
       bucket.push(c);
       m.set(c.childId, bucket);
     }
     return m;
+  }, [filteredComments]);
+
+  // Per-tone counts for the filter chip badges.
+  const toneCounts = useMemo(() => {
+    let excellent = 0; let bad = 0; let neutral = 0;
+    for (const c of comments) {
+      if (c.tone === 'excellent') excellent++;
+      else if (c.tone === 'bad') bad++;
+      else neutral++;
+    }
+    return { excellent, bad, neutral, all: comments.length };
   }, [comments]);
 
   // Render one section per kid that has either stats or comments.
@@ -536,6 +562,48 @@ function BehaviourTab({
 
   return (
     <div className="space-y-5 lg:space-y-6">
+      {/* Subtle bobbing animation for the kid avatars — playful but
+          quiet enough not to compete with the content. */}
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `@keyframes kaya-kid-bob {
+            0%,100% { transform: translateY(0) rotate(0deg); }
+            50%     { transform: translateY(-4px) rotate(-3deg); }
+          }
+          .kaya-kid-bob { animation: kaya-kid-bob 2400ms ease-in-out infinite; transform-origin: 50% 70%; }
+          @keyframes kaya-tag-pop {
+            0%   { transform: scale(.4); opacity: 0; }
+            70%  { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+          }
+          .kaya-tag-pop { animation: kaya-tag-pop 500ms ease-out both; }`,
+        }}
+      />
+
+      {/* Filter chips — All / Excellent / Bad */}
+      {comments.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          {([
+            { id: 'all' as const,       label: 'All notes',     count: toneCounts.all,       cls: 'bg-white/10 text-white hover:bg-white/20', active: 'bg-kaya-gold text-kaya-chocolate' },
+            { id: 'excellent' as const, label: '👍 Excellent',  count: toneCounts.excellent, cls: 'bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20', active: 'bg-emerald-500 text-white' },
+            { id: 'bad' as const,       label: '👎 Bad',        count: toneCounts.bad,       cls: 'bg-rose-500/10 text-rose-200 hover:bg-rose-500/20', active: 'bg-rose-500 text-white' },
+          ]).map((f) => {
+            const on = filter === f.id;
+            return (
+              <button
+                type="button"
+                key={f.id}
+                onClick={() => setFilter(f.id)}
+                aria-pressed={on}
+                className={`px-3.5 py-1.5 rounded-full text-[12px] lg:text-[13px] font-display font-extrabold transition-colors ${on ? f.active : f.cls}`}
+              >
+                {f.label} <span className="ml-1 opacity-70 font-bold">{f.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {Array.from(kidIds).map((childId) => {
         const child = childById.get(childId);
         if (!child) return null;
@@ -545,11 +613,15 @@ function BehaviourTab({
         const worstReasonRoutines = worst
           ? worst.badRoutineIds.map((id) => routineNameById.get(id) || id).filter(Boolean)
           : [];
+        // If the filter is narrowing, only render kids that still
+        // have anything to show under that filter (otherwise the
+        // section is just an empty header).
+        if (filter !== 'all' && entries.length === 0) return null;
         return (
           <section key={childId} className="rounded-kaya-lg bg-white/5 border border-white/10 p-4 lg:p-5">
             {/* Header — name + headline routine count */}
             <div className="flex items-center gap-3 mb-3 flex-wrap">
-              <span className="text-3xl">{child.avatarEmoji}</span>
+              <span className="text-3xl inline-block kaya-kid-bob">{child.avatarEmoji}</span>
               <h3 className="font-display text-lg lg:text-xl font-black">{child.name}</h3>
               {stats && stats.totalRated > 0 && (
                 <span className="text-[11px] lg:text-[12px] font-display font-extrabold px-2.5 py-1 rounded-full bg-kaya-gold/20 text-kaya-gold-light uppercase tracking-wider">
@@ -558,13 +630,14 @@ function BehaviourTab({
               )}
               {entries.length > 0 && (
                 <span className="text-[10px] lg:text-[11px] text-white/45 uppercase tracking-wider font-semibold ml-auto">
-                  {entries.length} note{entries.length === 1 ? '' : 's'}
+                  {entries.length} {filter === 'all' ? 'note' : `${filter}`}{entries.length === 1 ? '' : 's'}
                 </span>
               )}
             </div>
 
-            {/* Worst day callout — only if there's a meaningful dip */}
-            {worst && worst.badCount > 0 && (
+            {/* Worst day callout — only when viewing All or Bad, since
+                it's about Bad ratings. Hide on the Excellent filter. */}
+            {filter !== 'excellent' && worst && worst.badCount > 0 && (
               <div className="bg-rose-500/10 border-l-2 border-rose-400/70 rounded-kaya-sm p-3 lg:p-4 mb-3">
                 <div className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-rose-300 mb-1">
                   Lowest day · {formatShort(worst.date)}
@@ -580,26 +653,53 @@ function BehaviourTab({
               </div>
             )}
 
-            {/* Comments — context for what the rater observed */}
+            {/* Comments — each tagged with its tone so a parent can
+                spot Excellent moments and dips at a glance. */}
             {entries.length > 0 ? (
               <ul className="space-y-3">
-                {entries.map((e) => (
-                  <li key={e.ratingId} className="bg-black/20 rounded-kaya-sm p-3 lg:p-4 border-l-2 border-kaya-gold/60">
-                    <div className="flex items-center gap-2 mb-1.5 text-[10px] lg:text-[11px] uppercase tracking-wider text-white/50 font-semibold">
-                      <span className="normal-case">{formatShort(e.date)}</span>
-                      <span aria-hidden>·</span>
-                      <span>{e.period === 'morning' ? '☀️ Morning' : '🌙 Evening'}</span>
-                      <span aria-hidden>·</span>
-                      <span className="text-white/70">{e.ratedByName}</span>
-                    </div>
-                    <p className="text-sm lg:text-base leading-relaxed text-white/90">
-                      &ldquo;{e.comment}&rdquo;
-                    </p>
-                  </li>
-                ))}
+                {entries.map((e) => {
+                  const isExcellent = e.tone === 'excellent';
+                  const isBad = e.tone === 'bad';
+                  return (
+                    <li
+                      key={e.ratingId}
+                      className={`rounded-kaya-sm p-3 lg:p-4 border-l-2 ${
+                        isExcellent
+                          ? 'bg-emerald-500/8 border-emerald-400/70'
+                          : isBad
+                          ? 'bg-rose-500/8 border-rose-400/70'
+                          : 'bg-black/20 border-kaya-gold/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1.5 text-[10px] lg:text-[11px] uppercase tracking-wider text-white/50 font-semibold flex-wrap">
+                        <span className={`kaya-tag-pop normal-case px-2 py-0.5 rounded-full font-display font-extrabold text-[10px] tracking-wider ${
+                          isExcellent
+                            ? 'bg-emerald-500/30 text-emerald-100'
+                            : isBad
+                            ? 'bg-rose-500/30 text-rose-100'
+                            : 'bg-white/10 text-white/65'
+                        }`}>
+                          {isExcellent ? '👍 Excellent' : isBad ? '👎 Bad' : '· Neutral'}
+                        </span>
+                        <span className="normal-case">{formatShort(e.date)}</span>
+                        <span aria-hidden>·</span>
+                        <span>{e.period === 'morning' ? '☀️ Morning' : '🌙 Evening'}</span>
+                        <span aria-hidden>·</span>
+                        <span className="text-white/70">{e.ratedByName}</span>
+                      </div>
+                      <p className="text-sm lg:text-base leading-relaxed text-white/90">
+                        &ldquo;{e.comment}&rdquo;
+                      </p>
+                    </li>
+                  );
+                })}
               </ul>
             ) : (
-              <p className="text-[12px] text-white/40 italic">No notes left this window.</p>
+              <p className="text-[12px] text-white/40 italic">
+                {filter === 'all'
+                  ? 'No notes left this window.'
+                  : `No ${filter} notes this window.`}
+              </p>
             )}
           </section>
         );
@@ -700,10 +800,23 @@ function LadderTab({
 const LADDER_DAYS_DISPLAY_LIMIT = 30;
 
 function LadderCard({ row, lastDate }: { row: LadderRow; lastDate: string }) {
-  const overflow = Math.max(0, row.days.length - LADDER_DAYS_DISPLAY_LIMIT);
-  const visible = row.days.slice(0, LADDER_DAYS_DISPLAY_LIMIT);
+  // Exclude the meeting day from the streak rendering — Sunday isn't
+  // rated yet, so the "streak" we celebrate is everything BEFORE it.
+  // If the family pulls a 7-day window, the streak is 6 days.
+  const streakDays = row.days.filter((d) => d.date !== lastDate);
+  const overflow = Math.max(0, streakDays.length - LADDER_DAYS_DISPLAY_LIMIT);
+  const visible = streakDays.slice(0, LADDER_DAYS_DISPLAY_LIMIT);
+
+  // A row is a "true" streak only when every visible (non-meeting) day
+  // is Excellent. `row.complete` already encodes this for the full
+  // window — we re-state it explicitly here to highlight the whole
+  // streak in gold instead of just one cell.
+  const fullStreak = visible.length > 0 && visible.every((d) => d.status === 'excellent');
+
   return (
-    <div className="rounded-kaya-sm bg-black/25 border border-white/10 p-3">
+    <div className={`rounded-kaya-sm border p-3 ${
+      fullStreak ? 'bg-gradient-to-br from-kaya-gold/15 via-emerald-500/10 to-transparent border-kaya-gold/50' : 'bg-black/25 border-white/10'
+    }`}>
       <div className="text-center mb-2">
         <p className="text-xs lg:text-sm font-bold flex items-center justify-center gap-1.5">
           <span aria-hidden>{row.icon}</span>
@@ -711,17 +824,22 @@ function LadderCard({ row, lastDate }: { row: LadderRow; lastDate: string }) {
         </p>
         <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
           {row.period === 'morning' ? '☀️ Morning' : '🌙 Evening'}
+          {fullStreak && (
+            <span className="ml-2 text-kaya-gold">· {visible.length}-day streak</span>
+          )}
         </p>
       </div>
       <div className="space-y-1">
         {visible.map((d) => {
-          const isLast = d.date === lastDate;
           const isExcellent = d.status === 'excellent';
+          // Full-streak rows paint EVERY excellent day in gold so the
+          // whole streak reads as one continuous celebration instead
+          // of just the last cell being yellow.
           return (
             <div
               key={d.date}
               className={`text-center text-[11px] font-bold py-1 px-2 rounded-full ${
-                isLast
+                fullStreak && isExcellent
                   ? 'bg-kaya-gold text-kaya-chocolate'
                   : isExcellent
                   ? 'bg-emerald-500/80 text-emerald-50'
@@ -1058,16 +1176,25 @@ function Reveal({ children, dataKey, hiddenLabel }: {
 }) {
   const [state, setState] = useState<'hidden' | 'countdown' | 'revealed'>('hidden');
   const [count, setCount] = useState(COUNTDOWN_START);
+  // When the countdown lands on 0 → reveal, mount a short celebration
+  // overlay (sparkles + flowers cascade) so the reveal lands with a
+  // pop. Auto-clears after ~3s — the underlying content stays visible.
+  const [celebrating, setCelebrating] = useState(false);
 
   useEffect(() => {
     setState('hidden');
     setCount(COUNTDOWN_START);
+    setCelebrating(false);
   }, [dataKey]);
 
   useEffect(() => {
     if (state !== 'countdown') return;
     if (count <= 1) {
-      const t = setTimeout(() => setState('revealed'), COUNTDOWN_TICK_MS);
+      const t = setTimeout(() => {
+        setState('revealed');
+        setCelebrating(true);
+        setTimeout(() => setCelebrating(false), 3500);
+      }, COUNTDOWN_TICK_MS);
       return () => clearTimeout(t);
     }
     const t = setTimeout(() => setCount((c) => c - 1), COUNTDOWN_TICK_MS);
@@ -1099,7 +1226,8 @@ function Reveal({ children, dataKey, hiddenLabel }: {
   }
 
   return (
-    <div className="animate-slide-up space-y-4">
+    <div className="animate-slide-up space-y-4 relative">
+      {celebrating && <RevealCelebration />}
       {children}
       <div className="flex justify-center">
         <button
@@ -1109,6 +1237,50 @@ function Reveal({ children, dataKey, hiddenLabel }: {
           Hide again
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RevealCelebration — fires once when the countdown lands on the
+// Ladder / Belt reveal. Flowers cascade down + sparkles twinkle.
+// Self-cleaning via the parent's `celebrating` timer.
+// ─────────────────────────────────────────────────────────────────────────
+function RevealCelebration() {
+  const flowers = useMemo(() => {
+    const glyphs = ['🌸', '🌼', '🌷', '🌹', '💐', '🌺', '✨', '⭐', '🎉'];
+    return Array.from({ length: 28 }, (_, i) => ({
+      glyph: glyphs[i % glyphs.length],
+      left: Math.random() * 100,
+      delay: Math.random() * 0.8,
+      duration: 2.4 + Math.random() * 1.4,
+      size: 24 + Math.random() * 24,
+    }));
+  }, []);
+  return (
+    <div className="fixed inset-0 z-[60] pointer-events-none overflow-hidden">
+      <style
+        dangerouslySetInnerHTML={{
+          __html: `@keyframes kaya-reveal-flower-fall {
+            0%   { transform: translateY(-15vh) rotate(0deg);   opacity: 0; }
+            10%  { opacity: 1; }
+            100% { transform: translateY(115vh) rotate(720deg); opacity: 1; }
+          }`,
+        }}
+      />
+      {flowers.map((f, i) => (
+        <span
+          key={i}
+          className="absolute top-0 select-none"
+          style={{
+            left: `${f.left}%`,
+            fontSize: `${f.size}px`,
+            animation: `kaya-reveal-flower-fall ${f.duration}s linear ${f.delay}s forwards`,
+          }}
+        >
+          {f.glyph}
+        </span>
+      ))}
     </div>
   );
 }

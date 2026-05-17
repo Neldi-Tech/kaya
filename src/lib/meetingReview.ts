@@ -404,6 +404,18 @@ export interface CommentEntry {
   period: 'morning' | 'evening';
   ratedByName: string;
   comment: string;
+  /** Tone of the underlying day-period's ratings. 'bad' if anything
+   *  was rated Bad; else 'excellent' if anything was Excellent; else
+   *  'neutral'. Drives the Behaviour tab's Excellent/Bad filter and
+   *  the per-comment tag chip. */
+  tone: 'bad' | 'excellent' | 'neutral';
+}
+
+function deriveTone(r: DailyRating): CommentEntry['tone'] {
+  const vals = Object.values(r.ratings || {});
+  if (vals.includes('bad')) return 'bad';
+  if (vals.includes('excellent')) return 'excellent';
+  return 'neutral';
 }
 
 export function extractComments(ratings: DailyRating[]): CommentEntry[] {
@@ -416,6 +428,7 @@ export function extractComments(ratings: DailyRating[]): CommentEntry[] {
       period: r.period,
       ratedByName: r.ratedByName || 'Unknown',
       comment: r.comment!.trim(),
+      tone: deriveTone(r),
     }))
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }

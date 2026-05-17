@@ -80,7 +80,21 @@ export default function MeetingPresenterPage() {
     });
   }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels]);
 
-  const [stepIdx, setStepIdx] = useState(0);
+  // Step index — persisted in sessionStorage so navigating away (e.g.
+  // "Open Points Review" → /meetings/review → browser Back) returns
+  // the parent to the step they left, not all the way back to step 1.
+  // Cleared when the meeting is finished (handleFinish) so the next
+  // weekly meeting starts fresh.
+  const [stepIdx, setStepIdx] = useState(() => {
+    if (typeof window === 'undefined') return 0;
+    const raw = window.sessionStorage.getItem('kaya:meeting-presenter:stepIdx');
+    const n = raw ? parseInt(raw, 10) : 0;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.sessionStorage.setItem('kaya:meeting-presenter:stepIdx', String(stepIdx));
+  }, [stepIdx]);
   // Clamp stepIdx if a setup change shrinks the agenda mid-render.
   const safeStepIdx = Math.min(stepIdx, Math.max(0, activeSteps.length - 1));
   const step = activeSteps[safeStepIdx];
@@ -152,6 +166,30 @@ export default function MeetingPresenterPage() {
   // `goalsDone` map, falling back to legacy `lastWeekGoalsDone` of the
   // NEXT meeting for goals set before the v2 schema).
   const [recentMeetings, setRecentMeetings] = useState<Meeting[]>([]);
+
+  // Guest suggestions — unique (name, relationship) pairs pulled from
+  // recent meetings' guestAttendees. One-tap re-add so a parent doesn't
+  // have to retype "Bibi Asha · Grandma" every week. Filters out anyone
+  // already on tonight's guest list to avoid duplicates.
+  const guestSuggestions = useMemo(() => {
+    const seen = new Map<string, { name: string; relationship?: string; lastSeen: string }>();
+    for (const m of recentMeetings) {
+      for (const g of (m.guestAttendees || [])) {
+        const key = `${(g.name || '').trim().toLowerCase()}|${(g.relationship || '').toLowerCase()}`;
+        if (!seen.has(key) || (seen.get(key)?.lastSeen || '') < m.date) {
+          seen.set(key, { name: g.name, relationship: g.relationship, lastSeen: m.date });
+        }
+      }
+    }
+    // Exclude anyone already added to tonight's list.
+    const tonightKeys = new Set(
+      guestAttendees.map((g) => `${g.name.trim().toLowerCase()}|${(g.relationship || '').toLowerCase()}`)
+    );
+    return Array.from(seen.values())
+      .filter((s) => !tonightKeys.has(`${s.name.trim().toLowerCase()}|${(s.relationship || '').toLowerCase()}`))
+      .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
+      .slice(0, 6);
+  }, [recentMeetings, guestAttendees]);
   useEffect(() => {
     if (!profile?.familyId) return;
     getMeetings(profile.familyId).then((ms) => {
@@ -272,6 +310,10 @@ export default function MeetingPresenterPage() {
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
     setSaving(false);
     setDone(true);
+    // Clear the persisted step so next week's meeting starts at step 1.
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('kaya:meeting-presenter:stepIdx');
+    }
   };
 
   // ── Step gating (prevent advance if required input missing) ──────
@@ -361,6 +403,7 @@ export default function MeetingPresenterPage() {
                   attendees={attendees}
                   parentAttendees={parentAttendees}
                   guests={guestAttendees}
+                  guestSuggestions={guestSuggestions}
                   onToggleAttendee={(kidId) => {
                     setAttendees((prev) => {
                       const next = new Set(prev);
@@ -600,6 +643,7 @@ function AttendanceStep({
   attendees,
   parentAttendees,
   guests,
+  guestSuggestions,
   onToggleAttendee,
   onToggleParent,
   onAddGuest,
@@ -614,6 +658,9 @@ function AttendanceStep({
   attendees: Set<string>;
   parentAttendees: Set<string>;
   guests: Array<{ id: string; name: string; relationship?: string }>;
+  /** People the family has had at past meetings — surfaced as one-tap
+   *  chips so the parent doesn't have to retype Grandma every week. */
+  guestSuggestions: Array<{ name: string; relationship?: string }>;
   onToggleAttendee: (kidId: string) => void;
   onToggleParent: (uid: string) => void;
   onAddGuest: (name: string, relationship?: string) => void;
@@ -726,6 +773,24 @@ function AttendanceStep({
                 >✕</button>
               </div>
             ))}
+            {/* Suggestion tiles — past guests, one-tap re-add. */}
+            {!adding && guestSuggestions.map((g) => (
+              <button
+                type="button"
+                key={`sugg-${g.name}-${g.relationship || ''}`}
+                onClick={() => onAddGuest(g.name, g.relationship)}
+                className="flex items-center gap-3 p-4 rounded-kaya border border-dashed border-kaya-gold/40 bg-kaya-gold/5 text-white/85 hover:bg-kaya-gold/15 hover:border-kaya-gold/70 transition-all text-left"
+              >
+                <span className="text-3xl">🧑</span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{g.name}</span>
+                  <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold text-kaya-gold-light/80">
+                    {g.relationship || 'Guest'} · re-add
+                  </span>
+                </span>
+                <span className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black bg-kaya-gold/30 text-kaya-gold-light">＋</span>
+              </button>
+            ))}
             {/* Add guest tile */}
             {!adding ? (
               <button
@@ -733,7 +798,7 @@ function AttendanceStep({
                 onClick={() => setAdding(true)}
                 className="flex items-center justify-center gap-2 p-4 rounded-kaya border-2 border-dashed border-white/20 text-white/55 hover:text-white hover:border-white/40 transition-all font-display font-extrabold text-[14px] lg:text-base"
               >
-                ＋ Add attendee
+                ＋ Add someone new
               </button>
             ) : (
               <div className="col-span-2 lg:col-span-3 bg-white/5 border border-white/10 rounded-kaya p-4 lg:p-5 space-y-3">
@@ -1266,6 +1331,9 @@ function FinishedSplash({ onClose }: { onClose: () => void }) {
         >
           Back to Meetings →
         </button>
+        <p className="kaya-pop kaya-pop-delay-2 text-[11px] lg:text-[12px] text-kaya-gold-light/70 font-display font-extrabold tracking-wider mt-6">
+          Designed by Diella ✨
+        </p>
       </div>
 
       {/* Flowers cascade layered on top — shared visual language with
