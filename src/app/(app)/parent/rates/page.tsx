@@ -24,6 +24,7 @@ export default function ParentRatesPage() {
   const [hpToHoney, setHpToHoney] = useState(config.hpToHoneyRate);
   const [honeyToCash, setHoneyToCash] = useState(config.honeyToCashRate);
   const [minCashOut, setMinCashOut] = useState(config.minCashOut);
+  const [minHpReserve, setMinHpReserve] = useState(config.minHpReserve);
   const [requireHpToHoney, setRequireHpToHoney] = useState(config.requireApprovalForHpToHoney);
   const [spendApproval, setSpendApproval] = useState(config.spendRequiresApproval);
   const [cashOutApproval, setCashOutApproval] = useState(config.cashOutRequiresApproval);
@@ -40,6 +41,7 @@ export default function ParentRatesPage() {
     setHpToHoney(config.hpToHoneyRate);
     setHoneyToCash(config.honeyToCashRate);
     setMinCashOut(config.minCashOut);
+    setMinHpReserve(config.minHpReserve);
     setRequireHpToHoney(config.requireApprovalForHpToHoney);
     setSpendApproval(config.spendRequiresApproval);
     setCashOutApproval(config.cashOutRequiresApproval);
@@ -53,6 +55,7 @@ export default function ParentRatesPage() {
     hpToHoney !== config.hpToHoneyRate ||
     honeyToCash !== config.honeyToCashRate ||
     minCashOut !== config.minCashOut ||
+    minHpReserve !== config.minHpReserve ||
     requireHpToHoney !== config.requireApprovalForHpToHoney ||
     spendApproval !== config.spendRequiresApproval ||
     cashOutApproval !== config.cashOutRequiresApproval ||
@@ -62,7 +65,7 @@ export default function ParentRatesPage() {
   const save = async () => {
     if (isGuest || !profile?.familyId) return;
     setError('');
-    if (hpToHoney <= 0 || honeyToCash <= 0 || minCashOut < 0) {
+    if (hpToHoney <= 0 || honeyToCash <= 0 || minCashOut < 0 || minHpReserve < 0) {
       setError('Rates must be positive.');
       return;
     }
@@ -72,6 +75,7 @@ export default function ParentRatesPage() {
         hpToHoneyRate: Math.round(hpToHoney),
         honeyToCashRate: Math.round(honeyToCash * 100) / 100,
         minCashOut: Math.round(minCashOut),
+        minHpReserve: Math.round(minHpReserve),
         requireApprovalForHpToHoney: requireHpToHoney,
         spendRequiresApproval: spendApproval,
         cashOutRequiresApproval: cashOutApproval,
@@ -90,6 +94,7 @@ export default function ParentRatesPage() {
     setHpToHoney(config.hpToHoneyRate);
     setHoneyToCash(config.honeyToCashRate);
     setMinCashOut(config.minCashOut);
+    setMinHpReserve(config.minHpReserve);
     setRequireHpToHoney(config.requireApprovalForHpToHoney);
     setSpendApproval(config.spendRequiresApproval);
     setCashOutApproval(config.cashOutRequiresApproval);
@@ -223,6 +228,43 @@ export default function ParentRatesPage() {
             <span className="font-nunito font-extrabold text-sm">🍯 minimum to cash out</span>
           </div>
           <p className="text-[12px] text-hive-muted mt-2">Stops kids from cashing out tiny amounts.</p>
+        </div>
+
+        {/* HP reserve floor — kids must keep this many HP at all times.
+            HP→Honey conversions can't drain below this. Default 0 = off. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk mb-3">House Points reserve</p>
+          <div className="flex items-baseline gap-3">
+            <NumberInput
+              value={minHpReserve}
+              onChange={(n) => setMinHpReserve(Math.max(0, Math.round(n)))}
+              min={0}
+              max={10000}
+              ariaLabel="Minimum HP reserve"
+              className="w-24 h-11 px-3 bg-hive-cream rounded-hive-pill text-center font-nunito font-black text-lg border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+            />
+            <span className="font-nunito font-extrabold text-sm">HP must stay in the pot</span>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {[0, 50, 100, 200, 500].map((v) => (
+              <button
+                key={v}
+                onClick={() => setMinHpReserve(v)}
+                className={`px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                  minHpReserve === v
+                    ? 'bg-hive-honey text-white border-transparent'
+                    : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
+                }`}
+              >
+                {v === 0 ? 'Off' : `${v} HP`}
+              </button>
+            ))}
+          </div>
+          <p className="text-[12px] text-hive-muted mt-3 leading-relaxed">
+            {minHpReserve > 0
+              ? `Kids can't convert HP → 🍯 if it'd drop their pot below ${minHpReserve} HP. Teaches a "savings buffer" mindset and softens streak resets.`
+              : 'Off — kids can convert every HP they earn straight into Honey.'}
+          </p>
         </div>
 
         {/* Currency. Family picks once; everything in the Hive renders

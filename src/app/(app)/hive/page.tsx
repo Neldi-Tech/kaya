@@ -17,11 +17,12 @@ import PlanSummaryCard from '@/components/hive/PlanSummaryCard';
 import { honeyToCashCents } from '@/components/hive/format';
 
 const ACTIONS = [
-  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🍯',   href: '/hive/convert'  },
-  { id: 'spend',    icon: '🛒', label: 'Spend',    desc: 'Request a spend',   href: '/hive/cash-out' },
-  { id: 'plan',     icon: '🗓️', label: 'Plan',     desc: 'Budget the month',  href: '/hive/plan'     },
-  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward',       href: '/hive/goals'    },
-  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?',   href: '/hive/insights' },
+  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🍯',     href: '/hive/convert'  },
+  { id: 'spend',    icon: '🛒', label: 'Spend',    desc: 'Request a spend',     href: '/hive/cash-out' },
+  { id: 'plan',     icon: '🗓️', label: 'Plan',     desc: 'Budget the month',    href: '/hive/plan'     },
+  { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward',         href: '/hive/goals'    },
+  { id: 'insights', icon: '📊', label: 'Insights', desc: 'How am I doing?',     href: '/hive/insights' },
+  { id: 'guide',    icon: '📚', label: 'Guide',    desc: 'How it all works',    href: '/hive/guide'    },
 ];
 
 export default function HiveHomePage() {
@@ -50,11 +51,24 @@ export default function HiveHomePage() {
       <div className="mb-5">
         <HoneyPotHero
           honeyCoins={wallet.honeyCoins}
+          housePoints={wallet.housePoints}
+          minHpReserve={config.minHpReserve}
           cashCents={wallet.cashCents}
           weeklyEarningsCents={weeklyEarningsCents}
           cashEquivalentCents={cashEquivalent}
           currency={config.currency}
         />
+      </div>
+
+      {/* Quick commentary — tells the kid in one line what they're
+          looking at. The Guide page has the full story. */}
+      <div className="mb-4 text-center">
+        <p className="text-[11px] text-hive-muted leading-relaxed">
+          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> are how you <em>earn</em>.{' '}
+          <span className="font-nunito font-extrabold text-hive-honey-dk">🍯 Honey</span> is what you <em>save</em>.{' '}
+          Only Honey turns into <span className="font-nunito font-extrabold text-hive-honey-dk">💵 cash</span>.{' '}
+          <Link href="/hive/guide" className="font-nunito font-extrabold text-hive-honey-dk hover:underline whitespace-nowrap">Read the Guide →</Link>
+        </p>
       </div>
 
       {/* Rate hint — reminds the kid what their family's rates are. */}
@@ -71,7 +85,8 @@ export default function HiveHomePage() {
       {/* This-month spending plan summary (or "+ Set up a plan" prompt). */}
       <PlanSummaryCard />
 
-      {/* Action grid (5 items in a 2-col layout — last row spans alone). */}
+      {/* Action grid — 6 items in a 2x3 layout. Guide sits last so kids
+          who already know the system don't have to scan past it. */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         {ACTIONS.map((a) => (
           <Link

@@ -42,6 +42,13 @@ export default function ConvertPage() {
   const fromHoneyToCashCents = honeyToCashCents(numAmount, config.honeyToCashRate, fxRate);
   const fromHpToHoney = config.hpToHoneyRate > 0 ? Math.floor(numAmount / config.hpToHoneyRate) : 0;
 
+  // Reserve-floor check for HP→Honey: would this conversion drain the pot
+  // below the family's minHpReserve? Drives the inline warning + disables
+  // submit. Only relevant when mode is hp_to_honey and reserve > 0.
+  const hpAfter = wallet.housePoints - numAmount;
+  const wouldBreachReserve =
+    mode === 'hp_to_honey' && config.minHpReserve > 0 && numAmount > 0 && hpAfter < config.minHpReserve;
+
   const submit = async () => {
     if (!profile?.familyId || !activeKidId || isGuest) return;
     setError('');
@@ -51,7 +58,7 @@ export default function ConvertPage() {
     try {
       if (mode === 'hp_to_honey') {
         if (numAmount > wallet.housePoints) throw new Error(`You only have ${formatHp(wallet.housePoints)} HP.`);
-        await requestHpToHoney(profile.familyId, activeKidId, numAmount, config, profile.uid);
+        await requestHpToHoney(profile.familyId, activeKidId, numAmount, config, profile.uid, wallet.housePoints);
       } else {
         if (numAmount > wallet.honeyCoins) throw new Error(`You only have ${formatHoney(wallet.honeyCoins)} 🍯.`);
         await requestCashOut(
@@ -109,7 +116,9 @@ export default function ConvertPage() {
             {mode === 'hp_to_honey' ? 'FROM ⭐ House Points' : 'FROM 🍯 Honey Coins'}
           </p>
           <p className="text-[11px] text-hive-muted font-bold">
-            Available: {mode === 'hp_to_honey' ? formatHp(wallet.housePoints) : formatHoney(wallet.honeyCoins)}
+            Available: {mode === 'hp_to_honey'
+              ? `${formatHp(Math.max(0, wallet.housePoints - config.minHpReserve))} HP${config.minHpReserve > 0 ? ` (of ${formatHp(wallet.housePoints)})` : ''}`
+              : formatHoney(wallet.honeyCoins)}
           </p>
         </div>
         <div className="flex items-baseline gap-2">
@@ -169,13 +178,30 @@ export default function ConvertPage() {
         </p>
       </div>
 
+      {/* Reserve-floor warning — appears live as the kid types past the
+          allowed amount. We block submit too; the message tells them
+          exactly how much they'd be left with vs. the family's floor. */}
+      {wouldBreachReserve && (
+        <div className="bg-hive-rose/10 border border-hive-rose/40 rounded-hive p-3 mb-3 flex items-start gap-2">
+          <span className="text-base leading-none mt-0.5">🛟</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[12px] font-nunito font-extrabold text-hive-rose leading-snug">
+              You need to keep at least {formatHp(config.minHpReserve)} HP in your pot.
+            </p>
+            <p className="text-[11px] text-hive-muted mt-0.5">
+              Pick at most {formatHp(Math.max(0, wallet.housePoints - config.minHpReserve))} HP to convert today.
+            </p>
+          </div>
+        </div>
+      )}
+
       {error && (
         <p className="text-hive-rose text-sm font-bold text-center mb-3">{error}</p>
       )}
 
       <button
         onClick={submit}
-        disabled={submitting || numAmount <= 0 || isGuest || !activeKidId}
+        disabled={submitting || numAmount <= 0 || isGuest || !activeKidId || wouldBreachReserve}
         className={`w-full h-12 rounded-hive font-nunito font-black text-[14px] text-white transition disabled:opacity-40 ${
           mode === 'hp_to_honey'
             ? 'bg-hive-honey hover:bg-hive-honey-dk shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]'
@@ -193,9 +219,13 @@ export default function ConvertPage() {
         ⚠️ Needs parent approval · usually within 1 day. You&apos;ll see it in your wallet&apos;s pending list.
       </p>
 
-      <div className="mt-6 text-center">
+      <div className="mt-6 flex items-center justify-center gap-4">
         <Link href="/hive/wallet" className="text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
           ← Back to wallet
+        </Link>
+        <span className="text-hive-line">·</span>
+        <Link href="/hive/guide" className="text-[12px] font-nunito font-extrabold text-hive-muted hover:text-hive-honey-dk hover:underline">
+          📚 First time? Read the Guide
         </Link>
       </div>
     </div>

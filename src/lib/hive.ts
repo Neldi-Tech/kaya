@@ -80,6 +80,13 @@ export interface HiveConfig {
    *  kids buy a candy bar without making the parent tap a button.
    *  Per-child overrides live on `Child.spendAutoApproveBelowCents`. */
   spendAutoApproveBelowCents: number;
+  /** Minimum HP a kid must keep in their pot at all times — HP→Honey
+   *  conversions can't drain below this floor. Default 0 means "no floor"
+   *  (kids can convert everything). A non-zero value teaches savings
+   *  discipline: e.g. 100 HP reserve = always keep a buffer so a streak
+   *  reset doesn't drop them to zero. Cash redemptions are unaffected
+   *  (only Honey converts to cash; HP never converts directly). */
+  minHpReserve: number;
   autoAllowance?: {
     enabled: boolean;
     kidId?: string;
@@ -98,6 +105,7 @@ export const DEFAULT_HIVE_CONFIG: HiveConfig = {
   cashOutRequiresApproval: true,
   requireApprovalForHpToHoney: true,
   spendAutoApproveBelowCents: 0,
+  minHpReserve: 0,
 };
 
 /**
@@ -604,18 +612,31 @@ export function readHiveConfig(family: { hiveConfig?: Partial<HiveConfig> } | nu
 // ── Approval request creation (kid-side) ──────────────────────────
 
 /** Create a HP→Honey request. The actual balance move happens on parent
- *  approval. Returns the new request id. */
+ *  approval. Returns the new request id.
+ *
+ *  `currentHp` is the kid's HP balance at request time. It's used to
+ *  enforce the family's `minHpReserve` floor — if a conversion would
+ *  drain the pot below the reserve, we block it here so the kid sees a
+ *  clear error before submitting. (The convert UI also blocks the button,
+ *  but this is the defensive backstop.) Pass `undefined` to skip the
+ *  reserve check — e.g. from admin scripts.
+ */
 export async function requestHpToHoney(
   familyId: string,
   kidId: string,
   hpAmount: number,
   cfg: HiveConfig,
   createdBy: string,
+  currentHp?: number,
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   if (!Number.isInteger(hpAmount) || hpAmount <= 0) throw new Error('Pick a positive HP amount.');
   const honeyAmount = Math.floor(hpAmount / cfg.hpToHoneyRate);
   if (honeyAmount <= 0) throw new Error(`You need at least ${cfg.hpToHoneyRate} HP to make 1 🍯.`);
+  // Reserve floor: never let HP→Honey drain below the family minimum.
+  if (typeof currentHp === 'number' && cfg.minHpReserve > 0 && currentHp - hpAmount < cfg.minHpReserve) {
+    throw new Error(`You need to keep at least ${cfg.minHpReserve} HP in your pot. You'd have ${Math.max(0, currentHp - hpAmount)} left.`);
+  }
 
   const ref = await addDoc(requestCol(familyId), {
     kidId,
