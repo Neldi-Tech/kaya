@@ -101,6 +101,7 @@ export default function WalletPage() {
           hpToHoneyRate={config.hpToHoneyRate}
           honeyToCashRate={config.honeyToCashRate}
           currency={config.currency}
+          fxUsdToFamily={fxUsdToFamily}
           variant="both"
         />
       </div>

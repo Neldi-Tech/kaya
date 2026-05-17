@@ -39,3 +39,48 @@ export function honeyToCashCents(
 ): number {
   return Math.round(honey * rateUsdPerHoney * (fxUsdToFamily || 1) * 100);
 }
+
+/**
+ * Round an FX-converted display value to a clean bucket scaled to the
+ * currency's magnitude vs USD. Per the team rule: USD is the base,
+ * converted prices snap to buckets of 0.5 / 5 / 10 / 100 / 1000.
+ *
+ * Picks the largest bucket that keeps the rounding error ≤ 5%. So $1
+ * worth of Honey in TZS (~2,605) lands at "TSh 2,600" not the raw
+ * "TSh 2,605", and in KES (~128) it lands at "KSh 130". Sub-1 values
+ * keep two decimals so cents stay readable.
+ *
+ * Used for *display-only* values — wallet balances and settlement
+ * amounts must keep their exact cents.
+ */
+export function roundForDisplay(value: number): number {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (value < 1) return Math.round(value * 100) / 100;
+  const buckets = [0.5, 5, 10, 100, 1000];
+  const target = value / 20; // 5% error tolerance
+  let chosen = buckets[0];
+  for (const b of buckets) {
+    if (b <= target) chosen = b;
+  }
+  return Math.round(value / chosen) * chosen;
+}
+
+/**
+ * Cents → family-currency string with `roundForDisplay` applied. Use
+ * for FX-converted hints ("≈ TSh 2,600 if cashed out", "1 🍯 = TSh
+ * 2,600"). For exact balances, settlement amounts, or anything the
+ * kid will actually receive, keep using `formatCash()` so the displayed
+ * number matches the underlying value to the cent.
+ */
+export function formatCashClean(cents: number, currency = 'USD'): string {
+  const amount = cents / 100;
+  const rounded = roundForDisplay(amount);
+  const showDecimals = rounded > 0 && rounded < 1;
+  const fmt = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: showDecimals ? 2 : 0,
+    maximumFractionDigits: showDecimals ? 2 : 0,
+  });
+  return fmt.format(rounded);
+}
