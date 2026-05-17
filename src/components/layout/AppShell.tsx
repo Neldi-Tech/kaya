@@ -292,8 +292,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // Full-screen routes — the page renders its own chrome edge-to-edge
   // and the AppShell's sidebar + top header would only steal width.
   // Today: the Family Meeting presenter (cast-friendly, dark backdrop,
-  // wants the whole window). Add other routes here as they ship.
-  const isFullScreenRoute = !!pathname?.startsWith('/meetings/present');
+  // wants the whole window) and the Points Review presenter (Belt /
+  // Ladder reveal designed to fill a TV). Add other routes here as
+  // they ship.
+  const isFullScreenRoute =
+    !!pathname?.startsWith('/meetings/present') ||
+    !!pathname?.startsWith('/meetings/review');
 
   // Parent-controlled set of modules a kid is allowed to see. Falls back
   // to `DEFAULT_KID_MODULES` (slim default) when the family hasn't

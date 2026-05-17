@@ -488,6 +488,13 @@ export default function MeetingPresenterPage() {
           prayer={prayerOnStage}
           familyName={family?.name || 'our family'}
           onClose={() => setPrayerOnStage(null)}
+          onCelebrateAndFinish={() => {
+            // Celebrate (flowers ran on stage), then close the stage
+            // and finish the meeting — flow lands on the Kaya Kaya
+            // celebration screen with fireworks + flowers + sparkles.
+            setPrayerOnStage(null);
+            handleFinish();
+          }}
         />
       )}
     </div>
@@ -1055,7 +1062,7 @@ function ReflectionStep({
                 disabled={!content.trim()}
                 className="mt-4 w-full h-12 lg:h-14 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
-                🌸 Say &amp; celebrate
+                🙏 Say the prayer
               </button>
             )}
 
@@ -1091,53 +1098,95 @@ function ReflectionStep({
 //   - scale-up + soft pulse on the wordmark
 //   - emoji sparkles dotted around the canvas with a twinkle animation
 //   - "Back to home" CTA visible from the start; ESC / tap exits early
+// Kid-pleasing send-off. Multiple layers fire at once:
+//   - radial gold glow that pulses behind the wordmark
+//   - twinkling sparkles dotted around the canvas
+//   - 6 CSS firework bursts (concentric particle radials, no canvas)
+//   - the existing flowers cascade
+//   - "Kaya Kaya!" wordmark pop-in
+// Auto-closes after 7s so the family can soak it in but doesn't get
+// stuck on the splash; "Back to Meetings" CTA always visible.
 function FinishedSplash({ onClose }: { onClose: () => void }) {
-  // Auto-cleanup after ~6s if the parent doesn't tap — long enough to
-  // soak it in, short enough not to over-stay.
   useEffect(() => {
-    const t = setTimeout(onClose, 6000);
+    const t = setTimeout(onClose, 7000);
     return () => clearTimeout(t);
   }, [onClose]);
 
+  // Firework burst positions + colors + timings. Each burst renders 12
+  // particles radiating outward from its centre. Random-ish but laid
+  // out to feel balanced across the canvas.
+  const fireworks = useMemo(() => ([
+    { id: 'fw1', cx: '18%', cy: '24%', color: '#F5E6B8', delay: '0ms'    },
+    { id: 'fw2', cx: '82%', cy: '18%', color: '#F39C2F', delay: '450ms'  },
+    { id: 'fw3', cx: '30%', cy: '70%', color: '#FF6B9D', delay: '900ms'  },
+    { id: 'fw4', cx: '74%', cy: '64%', color: '#5BA88C', delay: '1350ms' },
+    { id: 'fw5', cx: '50%', cy: '12%', color: '#D4A017', delay: '1800ms' },
+    { id: 'fw6', cx: '50%', cy: '82%', color: '#FCD9A0', delay: '2250ms' },
+  ]), []);
+
   return (
-    <div className="relative flex flex-col items-center justify-center py-10 lg:py-14 overflow-visible">
-      {/* Layered keyframes for the wordmark + twinkles. Plain <style>
-          so the keyframe identifiers survive (same trick as flowers). */}
+    <div className="relative flex flex-col items-center justify-center py-10 lg:py-14 overflow-visible min-h-[60vh]">
       <style
         dangerouslySetInnerHTML={{
           __html: `
             @keyframes kaya-pop-in {
               0%   { opacity:0; transform:scale(.6) translateY(20px); }
-              60%  { opacity:1; transform:scale(1.06) translateY(-4px); }
+              60%  { opacity:1; transform:scale(1.08) translateY(-4px); }
               100% { opacity:1; transform:scale(1) translateY(0); }
             }
             @keyframes kaya-glow {
               0%,100% { opacity:.55; transform:scale(1); }
-              50%     { opacity:.9;  transform:scale(1.06); }
+              50%     { opacity:.95; transform:scale(1.08); }
             }
             @keyframes kaya-twinkle {
               0%,100% { opacity:0; transform:scale(.5) rotate(0deg); }
-              50%     { opacity:1; transform:scale(1.2) rotate(180deg); }
+              50%     { opacity:1; transform:scale(1.3) rotate(180deg); }
+            }
+            @keyframes kaya-wordmark-pulse {
+              0%,100% { transform:scale(1); }
+              50%     { transform:scale(1.04); }
+            }
+            /* Firework — each particle starts at centre and translates
+               outward to (--dx, --dy) while fading. Reused for all 12
+               particles per burst with --i = 0..11 driving the angle. */
+            @keyframes kaya-firework {
+              0%   { opacity:0;  transform:translate(0,0) scale(.4); }
+              15%  { opacity:1;  }
+              100% { opacity:0;  transform:translate(var(--dx), var(--dy)) scale(1); }
             }
             .kaya-pop { animation: kaya-pop-in 700ms cubic-bezier(.2,1.2,.4,1) both; }
             .kaya-pop-delay-1 { animation-delay: 250ms; }
             .kaya-pop-delay-2 { animation-delay: 600ms; }
             .kaya-glow { animation: kaya-glow 2400ms ease-in-out infinite; }
             .kaya-twinkle { animation: kaya-twinkle 2200ms ease-in-out infinite; }
+            .kaya-wordmark { animation: kaya-pop-in 700ms cubic-bezier(.2,1.2,.4,1) both, kaya-wordmark-pulse 2200ms ease-in-out 800ms infinite; }
+            .kaya-firework-burst {
+              position: absolute;
+              width: 0; height: 0;
+              pointer-events: none;
+            }
+            .kaya-firework-particle {
+              position: absolute;
+              top: 0; left: 0;
+              width: 8px; height: 8px;
+              border-radius: 50%;
+              animation: kaya-firework 1500ms ease-out forwards;
+              box-shadow: 0 0 8px currentColor;
+            }
           `,
         }}
       />
 
-      {/* Radial gold glow behind the wordmark. */}
+      {/* Radial gold glow */}
       <div
         aria-hidden="true"
         className="absolute inset-0 pointer-events-none kaya-glow"
         style={{
-          background: 'radial-gradient(circle at center, rgba(212,160,23,.45) 0%, rgba(212,160,23,.15) 30%, transparent 60%)',
+          background: 'radial-gradient(circle at center, rgba(212,160,23,.5) 0%, rgba(212,160,23,.18) 30%, transparent 60%)',
         }}
       />
 
-      {/* Twinkling sparkles dotted around the canvas. */}
+      {/* Twinkling sparkles dotted around the canvas */}
       <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
         {[
           { glyph: '✨', t: '8%',  l: '12%', d: '0ms',   s: 28 },
@@ -1160,15 +1209,54 @@ function FinishedSplash({ onClose }: { onClose: () => void }) {
         ))}
       </div>
 
+      {/* Fireworks — 6 staggered bursts. Each burst spawns 12 particles
+          radiating outward (every 30°). Pure CSS, no canvas. */}
+      <div aria-hidden="true" className="absolute inset-0 pointer-events-none">
+        {fireworks.map((b) => (
+          <div
+            key={b.id}
+            className="kaya-firework-burst"
+            style={{ left: b.cx, top: b.cy }}
+          >
+            {Array.from({ length: 12 }).map((_, i) => {
+              const angle = (i * 30) * (Math.PI / 180);
+              const dist = 90; // px outward
+              const dx = Math.cos(angle) * dist;
+              const dy = Math.sin(angle) * dist;
+              return (
+                <span
+                  key={i}
+                  className="kaya-firework-particle"
+                  style={{
+                    color: b.color,
+                    backgroundColor: b.color,
+                    animationDelay: b.delay,
+                    // CSS custom properties consumed by the keyframe.
+                    ['--dx' as never]: `${dx}px`,
+                    ['--dy' as never]: `${dy}px`,
+                  } as React.CSSProperties}
+                />
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
       {/* Foreground content */}
-      <div className="relative text-center px-6">
+      <div className="relative text-center px-6 z-10">
         <div className="text-7xl lg:text-8xl mb-3 kaya-pop">🎉</div>
-        <h1 className="font-display font-black text-5xl lg:text-7xl tracking-tight kaya-pop kaya-pop-delay-1"
-            style={{ color: 'var(--tw-text-opacity, white)', WebkitTextFillColor: 'transparent', backgroundImage: 'linear-gradient(135deg, #F5E6B8, #D4A017)', WebkitBackgroundClip: 'text', backgroundClip: 'text' }}
+        <h1
+          className="font-display font-black text-5xl sm:text-6xl lg:text-7xl tracking-tight kaya-wordmark"
+          style={{
+            WebkitTextFillColor: 'transparent',
+            backgroundImage: 'linear-gradient(135deg, #F5E6B8, #D4A017)',
+            WebkitBackgroundClip: 'text',
+            backgroundClip: 'text',
+          }}
         >
           Kaya Kaya!
         </h1>
-        <p className="text-white/80 text-base lg:text-xl max-w-md mx-auto mt-4 mb-8 kaya-pop kaya-pop-delay-2">
+        <p className="text-white/85 text-base lg:text-xl max-w-md mx-auto mt-4 mb-8 kaya-pop kaya-pop-delay-2">
           Beautiful meeting. See you next week.
         </p>
         <button
@@ -1180,34 +1268,35 @@ function FinishedSplash({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* Flowers cascade layered on top — same component used by the
-          prayer stage so the closing rituals share a visual language. */}
+      {/* Flowers cascade layered on top — shared visual language with
+          the prayer stage's celebration. */}
       <FlowersDrop onDone={() => { /* keep the splash up until auto-close */ }} />
     </div>
   );
 }
 
 // ── Prayer stage ───────────────────────────────────────────────────
-// Full-screen typography of the prayer text + flowers cascading on top.
-// The textarea gives us plain text with newlines; we render it as
-// clean HTML by splitting on blank lines into paragraphs and
-// preserving single-line breaks inside each paragraph (whitespace-
-// pre-line). One gold ornament tops the stage, one closes it. Auto-
-// closes after ~9s; "Amen" button lets a parent end early.
+// Two-step: SAY first (typeset stage, no flowers, no auto-close), then
+// CELEBRATE (flowers cascade + signals the presenter to finish the
+// meeting). Splits what was a single "Say & celebrate" because the
+// celebration shouldn't happen mid-prayer — the family says the words
+// together, then taps Celebrate when they're ready to close the night.
 function PrayerStage({
   prayer,
   familyName,
   onClose,
+  onCelebrateAndFinish,
 }: {
   prayer: string;
   familyName: string;
+  /** Dismiss without celebrating (the "Amen ✕" out). */
   onClose: () => void;
+  /** Celebrate the prayer (flowers cascade) AND advance the meeting
+   *  to the finish splash. Fires once the user taps "Celebrate". */
+  onCelebrateAndFinish: () => void;
 }) {
-  // Auto-close so the meeting can move on without manual dismissal.
-  useEffect(() => {
-    const t = setTimeout(onClose, 9000);
-    return () => clearTimeout(t);
-  }, [onClose]);
+  // Two-phase state — saying first, then celebrating.
+  const [celebrating, setCelebrating] = useState(false);
 
   // Split into stanzas (blank-line separated). Falls back to the raw
   // text in a single paragraph if no blank lines are present.
@@ -1218,10 +1307,19 @@ function PrayerStage({
     return blocks.length > 0 ? blocks : [trimmed];
   }, [prayer]);
 
+  // When the parent taps Celebrate, run flowers for ~3.5s, then
+  // signal the presenter to advance to the finish splash. The stage
+  // closes itself as part of that transition.
+  const handleCelebrate = () => {
+    if (celebrating) return;
+    setCelebrating(true);
+    setTimeout(() => {
+      onCelebrateAndFinish();
+    }, 3500);
+  };
+
   return (
     <div className="fixed inset-0 z-[55] flex flex-col bg-gradient-to-br from-kaya-chocolate via-[#2a1810] to-kaya-chocolate text-white">
-      {/* Inline keyframes — kept global (not styled-jsx) so transform
-          animations on child elements resolve correctly. */}
       <style
         dangerouslySetInnerHTML={{
           __html: `
@@ -1237,11 +1335,11 @@ function PrayerStage({
         }}
       />
 
-      {/* Close affordance */}
+      {/* Amen / dismiss — for early exit without celebrating. */}
       <button
         type="button"
         onClick={onClose}
-        aria-label="End prayer"
+        aria-label="End prayer without celebrating"
         className="absolute top-5 right-5 lg:top-7 lg:right-7 z-[57] h-9 lg:h-10 px-4 lg:px-5 rounded-full bg-white/10 hover:bg-white/20 text-white text-[12px] lg:text-[13px] font-display font-extrabold transition-colors"
       >
         Amen ✕
@@ -1250,14 +1348,11 @@ function PrayerStage({
       {/* Centered prayer text */}
       <main className="relative z-[56] flex-1 flex flex-col items-center justify-center px-6 lg:px-16 py-10 overflow-y-auto">
         <div className="max-w-3xl w-full text-center">
-          {/* Ornament + heading */}
           <div className="text-kaya-gold-light text-2xl lg:text-3xl mb-3 kaya-prayer-fade" aria-hidden>✦</div>
           <p className="text-[11px] lg:text-[12px] uppercase tracking-[0.28em] font-bold text-kaya-gold-light/70 mb-8 lg:mb-10 kaya-prayer-fade">
             A prayer from {familyName}
           </p>
 
-          {/* Stanzas — each stanza its own paragraph with whitespace-pre-line
-              so single-line breaks inside the stanza are honored. */}
           <div className="space-y-6 lg:space-y-8">
             {stanzas.map((s, i) => (
               <p
@@ -1275,13 +1370,28 @@ function PrayerStage({
             ))}
           </div>
 
-          {/* Closing ornament */}
           <div className="text-kaya-gold-light text-2xl lg:text-3xl mt-10 lg:mt-14 kaya-prayer-fade kaya-prayer-fade-3" aria-hidden>✦</div>
+
+          {/* Celebrate CTA — only visible while NOT celebrating. Once
+              tapped, the button disappears, flowers cascade, and the
+              presenter advances to the Kaya Kaya finish. */}
+          {!celebrating && (
+            <button
+              type="button"
+              onClick={handleCelebrate}
+              className="kaya-prayer-fade kaya-prayer-fade-3 mt-10 lg:mt-14 inline-flex items-center gap-2 h-12 lg:h-14 px-8 lg:px-10 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all shadow-2xl"
+            >
+              ✨ Celebrate &amp; finish
+            </button>
+          )}
         </div>
       </main>
 
-      {/* Flowers cascade on top — sits at z-[60] so it's above the prayer text. */}
-      <FlowersDrop onDone={() => { /* keep stage open until auto-close or Amen */ }} />
+      {/* Flowers cascade — only mounts AFTER the parent taps Celebrate
+          so the flowers don't fall during the actual prayer reading. */}
+      {celebrating && (
+        <FlowersDrop onDone={() => { /* finish signal happens via timeout above */ }} />
+      )}
     </div>
   );
 }
