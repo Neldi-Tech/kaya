@@ -205,7 +205,7 @@ export interface Family {
 // all HelperLink history is preserved automatically.
 export interface HelperLink {
   uid: string;
-  helperCode: string;                                        // short handle within the family, e.g. "AMINA"
+  helperCode: string;                                        // short handle within the family, e.g. "JANE"
   displayName: string;
   preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'custom';
   kidIds: string[];                                          // which kids this helper can act on; [] = none
@@ -218,6 +218,15 @@ export interface HelperLink {
   attribution: 'named' | 'generic' | 'hidden';               // for the future performance page
   authTier: 'A' | 'B' | 'C';
   status: 'active' | 'paused' | 'removed';
+  // What the family expects this helper to fill in each day. Drives
+  // the helper-side "Today" panel and (later) the performance %
+  // calculation. Default treated as 'both' when missing so existing
+  // HelperLinks don't need a migration.
+  //   morning  → just the morning rating
+  //   evening  → just the evening rating
+  //   both     → both morning AND evening expected
+  //   flexible → no specific cadence; helper fills when relevant
+  expectedFrequency?: 'morning' | 'evening' | 'both' | 'flexible';
   createdAt: Timestamp;
   createdBy: string;                                         // parent UID who added them
 }
