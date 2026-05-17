@@ -148,8 +148,8 @@ const KAYA_NAV: NavItem[] = [
 // now describes the surface, not one feature inside it.)
 const HOUSEHOLD_NAV: NavItem[] = [
   { path: '/pantry',          icon: '🛒', label: 'The Pantry' },
-  { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
   { path: '/pantry/people',   icon: '🤝', label: 'People' },
+  { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
   { path: '/pantry/budget',   icon: '💰', label: 'Budget' },
 ];
 
