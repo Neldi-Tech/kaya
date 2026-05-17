@@ -35,6 +35,31 @@ service cloud.firestore {
         && profile.childId == kidId;
     }
 
+    // ── Helper scope (per-family HelperLink) ──────────────────────
+    // True when the caller is a helper in `familyId` AND their
+    // HelperLink doc lists `kidId` in its `kidIds` array AND status is
+    // active. V0 scope is per-kid only — module flags are stored on
+    // the HelperLink doc for future tightening but not enforced here.
+    function helperCanActOnKid(familyId, kidId) {
+      return belongsToFamily(familyId)
+        && getUserProfile().role == 'helper'
+        && exists(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.status == 'active'
+        && get(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid)).data.kidIds.hasAny([kidId]);
+    }
+
+    // Legacy-helper escape hatch: helpers who joined BEFORE the
+    // HelperLink rollout have no doc under /families/{f}/helpers/{uid}.
+    // We don't want to lock them out, so fall back to the old
+    // family-wide helper permission until the parent re-adds them
+    // through Settings → Helpers (which writes a HelperLink and flips
+    // them onto the scoped path). True ONLY when no HelperLink exists.
+    function isLegacyHelperWithoutLink(familyId) {
+      return belongsToFamily(familyId)
+        && getUserProfile().role == 'helper'
+        && !exists(/databases/$(database)/documents/families/$(familyId)/helpers/$(request.auth.uid));
+    }
+
     // ── Users ──────────────────────────────────────
     match /users/{userId} {
       // Users can read their own profile, OR any profile attached to
@@ -51,8 +76,21 @@ service cloud.firestore {
           && resource.data.familyId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.familyId
         )
       );
-      // Users can create their own profile (during onboarding)
-      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Users can create their own profile (during onboarding).
+      // Parents can additionally create a helper UserProfile in
+      // THEIR family — this is what the "Add helper" flow in Settings
+      // does after spinning up the helper's auth user via the
+      // secondary-app pattern (the parent's session is the only auth
+      // context still alive at write-time).
+      allow create: if isSignedIn() && (
+        request.auth.uid == userId
+        || (
+          request.resource.data.role == 'helper'
+          && request.resource.data.familyId ==
+               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.familyId
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent'
+        )
+      );
       // Users can update their own profile
       allow update: if isSignedIn() && request.auth.uid == userId;
     }
@@ -79,15 +117,53 @@ service cloud.firestore {
       // ── Ratings ──────────────────────────────────
       match /ratings/{ratingId} {
         allow read: if belongsToFamily(familyId);
-        // Parents and helpers can rate
-        allow create: if isParentOrHelper(familyId);
+        // Parents can rate any kid. Helpers with a HelperLink doc
+        // can rate only the kids listed in their kidIds. Helpers
+        // who joined BEFORE the HelperLink rollout still get the old
+        // family-wide allowance (see `isLegacyHelperWithoutLink`) so
+        // we don't break existing flows until the parent re-adds
+        // them through Settings → Helpers.
+        allow create: if isParentInFamily(familyId)
+          || helperCanActOnKid(familyId, request.resource.data.childId)
+          || isLegacyHelperWithoutLink(familyId);
+      }
+
+      // ── Helpers (per-family scoped credential) ───────────────────
+      // One doc per helper at /helpers/{uid}. Parents manage; the
+      // helper themselves can read their own doc so the UI can show
+      // their scope on the dashboard.
+      match /helpers/{helperUid} {
+        allow read: if isParentInFamily(familyId) || request.auth.uid == helperUid;
+        allow create, update, delete: if isParentInFamily(familyId);
       }
 
       // ── Awards ───────────────────────────────────
       match /awards/{awardId} {
         allow read: if belongsToFamily(familyId);
-        // Only parents can award points
-        allow create: if isParentInFamily(familyId);
+        // Parents can create any award. Kids can additionally create
+        // 0-point `kudos` awards to a SIBLING (the kid-to-kid
+        // appreciation note feature) — only when the family has the
+        // feature switched on. The daily-cap throttle is enforced at
+        // the app layer in `sendKidKudos` (would otherwise require a
+        // counter doc + composite index just for rate-limiting).
+        allow create: if isParentInFamily(familyId)
+          || (
+            // Authed user is a kid in this family.
+            getUserProfile().role == 'kid'
+            && getUserProfile().familyId == familyId
+            // Payload is a kid-authored kudos with the expected shape.
+            && request.resource.data.kind == 'kudos'
+            && request.resource.data.points == 0
+            && request.resource.data.senderRole == 'kid'
+            && request.resource.data.awardedBy == request.auth.uid
+            // Recipient is some OTHER child in this family (no self-kudos).
+            && request.resource.data.childId != getUserProfile().childId
+            && exists(/databases/$(database)/documents/families/$(familyId)/children/$(request.resource.data.childId))
+            // Family setting must be on. Default false when the field
+            // is missing, so families auto-keep the parent-only behaviour
+            // until a parent opts in.
+            && get(/databases/$(database)/documents/families/$(familyId)).data.pointSystem.kudos.kidToKidEnabled == true
+          );
       }
 
       // ── Meetings ─────────────────────────────────

@@ -4,18 +4,175 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { BADGES, getWishlist, WishlistItem } from '@/lib/firestore';
+import {
+  BADGES, getWishlist, WishlistItem,
+  readPointSystemConfig, sendKidKudos, Child,
+} from '@/lib/firestore';
 import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 
+// Quick-pick reason chips for the appreciation form. Plain English so a
+// 6-year-old can tap without typing — they can still type a custom note.
+const APPRECIATION_PRESETS = [
+  'for sharing',
+  'for helping me',
+  'for being kind',
+  'for making me laugh',
+  'for cheering me up',
+];
+
 const fmt = (n: number) => n.toLocaleString('en-US');
+
+// Compact card that lets a kid send a 0-point "Kudos" to a sibling.
+// Renders only when the family has opted in (`kudos.kidToKidEnabled`)
+// AND the kid has at least one sibling. Mirrors the daily-cap behaviour
+// in `sendKidKudos`: counter resets per calendar day.
+function AppreciationCard({
+  familyId,
+  me,
+  siblings,
+  senderUid,
+  senderName,
+  dailyCap,
+}: {
+  familyId: string;
+  me: Child;
+  siblings: Child[];
+  senderUid: string;
+  senderName: string;
+  dailyCap: number;
+}) {
+  const [selectedSibling, setSelectedSibling] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justSentTo, setJustSentTo] = useState<string | null>(null);
+
+  // Mirror the sender's own counter so the "X / cap sent today" indicator
+  // updates immediately on send. Initialised from the live Child doc.
+  const today = new Date().toISOString().slice(0, 10);
+  const initialCount = me.dailyKudosSentDate === today ? (me.dailyKudosSentCount ?? 0) : 0;
+  const [sentToday, setSentToday] = useState(initialCount);
+  const atCap = sentToday >= dailyCap;
+
+  const handleSend = async () => {
+    if (!selectedSibling || !reason.trim() || sending || atCap) return;
+    setSending(true);
+    setError(null);
+    try {
+      await sendKidKudos(
+        familyId,
+        me.id,
+        senderUid,
+        senderName,
+        selectedSibling,
+        reason.trim(),
+        'kindness',
+      );
+      const recipient = siblings.find((s) => s.id === selectedSibling);
+      setJustSentTo(recipient?.name ?? 'them');
+      setSentToday((n) => n + 1);
+      setSelectedSibling(null);
+      setReason('');
+      // Auto-clear the success banner after a few seconds so the form
+      // is ready for the next send (assuming the kid is under the cap).
+      setTimeout(() => setJustSentTo(null), 3500);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
+    }
+    setSending(false);
+  };
+
+  return (
+    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5">
+      <div className="flex items-baseline justify-between mb-1">
+        <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand">💛 Send appreciation</p>
+        <span className="text-[10px] text-kaya-sand-light">{sentToday} / {dailyCap} today</span>
+      </div>
+      {justSentTo && (
+        <div className="mt-2 mb-2 bg-kaya-gold/10 border border-kaya-gold/40 rounded-kaya-sm p-2 text-[12px] text-kaya-chocolate">
+          💛 Sent to <span className="font-bold">{justSentTo}</span>!
+        </div>
+      )}
+      {atCap ? (
+        <p className="text-[11px] text-kaya-sand leading-snug mt-1">
+          You&apos;ve sent {dailyCap} appreciations today. Come back tomorrow!
+        </p>
+      ) : (
+        <>
+          <p className="text-[11px] text-kaya-sand leading-snug mb-2">Tell a sibling something nice.</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {siblings.map((s) => {
+              const sel = selectedSibling === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => setSelectedSibling(sel ? null : s.id)}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded-full border text-[11px] font-bold transition-all ${
+                    sel
+                      ? 'border-kaya-gold bg-kaya-gold/10 text-kaya-chocolate'
+                      : 'border-kaya-warm-dark bg-white text-kaya-sand'
+                  }`}
+                >
+                  <KidAvatar child={s} size="xs" />
+                  <span>{s.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          {selectedSibling && (
+            <>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {APPRECIATION_PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setReason(p)}
+                    className="px-2 py-0.5 rounded-full border border-kaya-warm-dark bg-kaya-warm/40 text-[10px] text-kaya-chocolate hover:bg-kaya-warm"
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="…or write your own"
+                maxLength={140}
+                className="w-full px-3 py-2 rounded-kaya-sm border border-kaya-warm-dark text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/50 focus:border-kaya-gold"
+              />
+              {error && <p className="text-[11px] text-red-600 mt-1">{error}</p>}
+              <button
+                onClick={handleSend}
+                disabled={!reason.trim() || sending}
+                className="w-full mt-2 py-2 rounded-kaya-sm bg-kaya-gold text-white font-bold text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {sending ? 'Sending…' : 'Send 💛'}
+              </button>
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function KidPage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { children, family } = useFamily();
 
   const myChild = children.find((c) => c.id === profile?.childId) || children[0];
+  const pointSystem = readPointSystemConfig(family);
+  const siblings = myChild ? children.filter((c) => c.id !== myChild.id) : [];
+  const canSendAppreciation = !!(
+    profile?.role === 'kid'
+    && profile.uid
+    && profile.familyId
+    && myChild
+    && siblings.length > 0
+    && pointSystem.kudos.kidToKidEnabled
+  );
 
   const [wishlist, setWishlist] = useState<WishlistItem[]>([]);
   useEffect(() => {
@@ -129,6 +286,19 @@ export default function KidPage() {
               <span className="text-xs lg:text-sm font-bold">Rewards store</span>
             </button>
           </div>
+
+          {/* Kid → kid appreciation note. Opt-in by parents via Settings,
+              hidden for only-children. */}
+          {canSendAppreciation && profile && myChild && (
+            <AppreciationCard
+              familyId={profile.familyId!}
+              me={myChild}
+              siblings={siblings}
+              senderUid={profile.uid}
+              senderName={profile.displayName || myChild.name}
+              dailyCap={pointSystem.kudos.kidDailyCap ?? 3}
+            />
+          )}
 
           {/* My wishlist (read-only for kids — parents add items in Profiles) */}
           {activeWishes.length > 0 && (

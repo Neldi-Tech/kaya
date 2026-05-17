@@ -1,9 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { todayString } from '@/lib/firestore';
+import { getHelperLink } from '@/lib/helpers';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -12,6 +14,36 @@ export default function HelperPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { children } = useFamily();
+
+  // Per-helper kid scope. If a HelperLink doc exists for this user we
+  // filter the kid list down to its `kidIds`. Helpers without a
+  // HelperLink (legacy joiners pre-rollout) see the full family list —
+  // matches the firestore.rules `isLegacyHelperWithoutLink` fallback.
+  const [scopedKidIds, setScopedKidIds] = useState<string[] | null>(null);
+  const [scopeLoaded, setScopeLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!profile || profile.role !== 'helper' || !profile.familyId) {
+        if (!cancelled) { setScopeLoaded(true); }
+        return;
+      }
+      try {
+        const link = await getHelperLink(profile.familyId, profile.uid);
+        if (!cancelled) {
+          setScopedKidIds(link ? link.kidIds : null);
+          setScopeLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setScopeLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [profile]);
+
+  const visibleChildren = scopedKidIds
+    ? children.filter((c) => scopedKidIds.includes(c.id))
+    : children;
 
   const today = new Date().toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric',
@@ -29,8 +61,15 @@ export default function HelperPage() {
       </div>
 
       {/* Children overview */}
+      {scopeLoaded && visibleChildren.length === 0 && (
+        <div className="bg-white border border-dashed border-kaya-warm-dark rounded-kaya-lg p-6 text-center mb-6">
+          <p className="text-sm text-kaya-sand">
+            No kids are assigned to you yet. Ask the parent in your family to give you access in Settings → Helpers.
+          </p>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 lg:gap-4 mb-6 lg:mb-8">
-        {children.map((child) => (
+        {visibleChildren.map((child) => (
           <div
             key={child.id}
             className="bg-white border border-kaya-warm-dark rounded-kaya lg:rounded-kaya-lg p-4 lg:p-5 flex items-center gap-3 lg:gap-4"

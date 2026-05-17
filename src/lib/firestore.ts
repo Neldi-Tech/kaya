@@ -170,7 +170,46 @@ export interface Family {
   // in Settings. Per-event toggles default to true so a contact
   // added today receives both kinds of email until told otherwise.
   externalContacts?: ExternalContact[];
+  // ── Helper login code ────────────────────────────────────────
+  // Stable, displayable family identifier used by helpers to sign in
+  // via Tier A (family code + helper code + password). Distinct from
+  // `inviteCodes.helper`, which gates JOIN; this gates ongoing LOGIN.
+  // 4-char alphanumeric, ambiguity-stripped (no 0/O/1/I/L). Lazily
+  // populated by `ensureFamilyCode()` on first Settings → Helpers
+  // open so legacy families pick it up without a migration.
+  familyCode?: string;
   createdAt: Timestamp;
+}
+
+// ── Helper (per-family scoped credential) ────────────────────
+// One doc per helper per family. Lives at
+// `families/{familyId}/helpers/{uid}`. The Firebase Auth user backing
+// this helper is created via the secondary-app pattern in
+// `lib/helpers.ts` (no admin SDK required).
+//
+// Tier A (today): synthetic email of the form
+// `h.{familyCode}.{helperCode}@helper.kaya.app` + password. The helper
+// never sees or uses the email — they enter the 3 codes at /h/login.
+// Tier B (Neldi-driven OTP) + Tier C (real email) come later; they
+// link a real phone/email onto the same UID via account linking so
+// all HelperLink history is preserved automatically.
+export interface HelperLink {
+  uid: string;
+  helperCode: string;                                        // short handle within the family, e.g. "AMINA"
+  displayName: string;
+  preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'custom';
+  kidIds: string[];                                          // which kids this helper can act on; [] = none
+  // Module flags from `lib/kidModules.ts`. Stored today, not yet
+  // enforced in rules (per the v0 scope decision — per-kid only is the
+  // current grain). Future tightening will not require a migration.
+  modules: string[];
+  canLog: boolean;                                           // tap-checklist + capture writes (default true)
+  canAward: boolean;                                         // kudos / improvement_note only; defaults false
+  attribution: 'named' | 'generic' | 'hidden';               // for the future performance page
+  authTier: 'A' | 'B' | 'C';
+  status: 'active' | 'paused' | 'removed';
+  createdAt: Timestamp;
+  createdBy: string;                                         // parent UID who added them
 }
 
 // Per-role invite code with lifecycle state. Stored under
@@ -246,6 +285,12 @@ export interface Child {
   // overflow carries to the next cycle).
   kudosCount?: number;
   improvementNoteCount?: number;
+  // Sender-side rate limit for kid → kid appreciation notes. Tracks
+  // how many kudos this kid has SENT today (not received). Reset
+  // implicitly when the date string no longer matches today's
+  // YYYY-MM-DD. Read + bumped in `sendKidKudos`.
+  dailyKudosSentDate?: string;
+  dailyKudosSentCount?: number;
   // Routine Points — accumulator for the points earned from rated daily
   // routines. Held separately from `totalPoints` so each rating contributes
   // small (0/1/2) increments here, and the configured conversion rate
@@ -305,6 +350,10 @@ export interface Award {
   category: string;
   awardedBy: string;
   awardedByName: string;
+  // Role of the awarder at the time of creation. Defaults to 'parent'
+  // for legacy docs. Kid-authored kudos (the appreciation-note feature)
+  // always carry 'kid'; helper-authored awards carry 'helper'.
+  senderRole?: 'parent' | 'helper' | 'kid';
   createdAt: Timestamp;
   // Set when this award was auto-fired by the threshold accumulator
   // (e.g. 4 Kudos → +1 derived award). Lets the UI badge it as automatic
@@ -332,6 +381,16 @@ export interface PointSystemConfig {
     label: string;          // renameable, default 'Kudos'
     threshold: number;      // e.g. 4 → fires a bonus every 4 Kudos
     bonusPoints: number;    // points granted when threshold is reached (default 1)
+    // ── Kid → kid appreciation note (opt-in) ─────────────────────
+    // When true, kids can send each other 0-point kudos via the
+    // "Send appreciation" UI on their home page. Received kudos still
+    // run through the same threshold accumulator so a sibling-issued
+    // kudos contributes toward the recipient's bonus the same way a
+    // parent-issued kudos would. Off by default.
+    kidToKidEnabled?: boolean;
+    // Max appreciations a single kid can send per day. Enforced at
+    // the app layer via a per-sender counter on the Child doc. Default 3.
+    kidDailyCap?: number;
   };
   improvementNote: {
     enabled: boolean;       // default true
@@ -428,7 +487,7 @@ export const DEFAULT_ROUTINES: Routine[] = [
 // because they're low-stakes recognition that costs nothing if unused.
 export const DEFAULT_POINT_SYSTEM: PointSystemConfig = {
   reducing: { enabled: false, max: 3 },
-  kudos: { enabled: true, label: 'Kudos', threshold: 4, bonusPoints: 1 },
+  kudos: { enabled: true, label: 'Kudos', threshold: 4, bonusPoints: 1, kidToKidEnabled: false, kidDailyCap: 3 },
   improvementNote: { enabled: true, label: 'Improvement Note', threshold: 4, deductionPoints: 1 },
   diamondMinPoints: 4,
   routines: { pointsPerHousePoint: 100 },
@@ -1423,6 +1482,77 @@ export async function giveAward(
 
   // Unknown kind — write but don't touch counters. Defensive.
   return { id: ref.id };
+}
+
+// Kid → kid appreciation note. Wraps `giveAward` with a kudos payload
+// and an app-layer rate-limit so a kid can't spam siblings. The Firestore
+// rule allows the underlying create as long as senderRole === 'kid' and
+// the family has `kudos.kidToKidEnabled` on — but the rule doesn't enforce
+// the daily cap (would require a counter doc + composite index just for
+// rate-limiting). Trust-but-check here is fine: a kid client tampering
+// past the cap would still be visible to parents in the activity feed.
+//
+// Throws on:
+//   - Feature disabled at the family level
+//   - Daily cap reached
+//   - Self-kudos (recipient == sender)
+//   - Missing sender child doc
+export async function sendKidKudos(
+  familyId: string,
+  senderChildId: string,
+  senderUid: string,
+  senderName: string,
+  recipientChildId: string,
+  reason: string,
+  category: string,
+): Promise<GiveAwardResult> {
+  if (senderChildId === recipientChildId) {
+    throw new Error("You can't send appreciation to yourself.");
+  }
+
+  const family = await getFamily(familyId);
+  const config = readPointSystemConfig(family);
+  if (!config.kudos.kidToKidEnabled) {
+    throw new Error('Kid appreciation notes are not enabled for this family.');
+  }
+  const cap = config.kudos.kidDailyCap ?? 3;
+
+  const senderRef = doc(db, 'families', familyId, 'children', senderChildId);
+  const senderSnap = await getDoc(senderRef);
+  if (!senderSnap.exists()) {
+    throw new Error('Sender profile not found.');
+  }
+  const sender = senderSnap.data() as Child;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const sameDay = sender.dailyKudosSentDate === today;
+  const todayCount = sameDay ? (sender.dailyKudosSentCount ?? 0) : 0;
+  if (todayCount >= cap) {
+    throw new Error(
+      `You've already sent ${cap} appreciation${cap === 1 ? '' : 's'} today. Try again tomorrow!`
+    );
+  }
+
+  const result = await giveAward(familyId, {
+    childId: recipientChildId,
+    kind: 'kudos',
+    points: 0,
+    reason,
+    category,
+    awardedBy: senderUid,
+    awardedByName: senderName,
+    senderRole: 'kid',
+  });
+
+  // Bump the sender's per-day counter. Reset implicitly: writing today's
+  // date overwrites yesterday's, and the count starts at todayCount + 1
+  // (which is 1 on the first send of a new day).
+  await updateDoc(senderRef, {
+    dailyKudosSentDate: today,
+    dailyKudosSentCount: todayCount + 1,
+  });
+
+  return result;
 }
 
 // Historical import path — used by the one-time Excel/Sheet importer in

@@ -1909,6 +1909,27 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {/* Helpers — Tier A login + per-kid scope. Separate page so
+              we can iterate on the form without weighing down this
+              monster file further. */}
+          {isParent && (
+            <button
+              onClick={() => router.push('/settings/helpers')}
+              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-4 text-left hover:border-kaya-chocolate transition-colors"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Helpers</p>
+                  <p className="font-bold text-sm">Manage helpers + their login codes</p>
+                  <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                    Add nannies, tutors, grandparents with a family-code login. Pick which kids each helper can act on.
+                  </p>
+                </div>
+                <span className="text-kaya-sand text-xl flex-shrink-0">→</span>
+              </div>
+            </button>
+          )}
+
           {/* Family members — who has access right now. Pairs with
               the invite-codes card above ("how do they get in") to
               give parents a complete control surface. Removing a
@@ -2019,42 +2040,90 @@ export default function SettingsPage() {
                   const sel = selectedKidModules.includes(m.id);
                   const disabled = isGuest;
                   return (
-                    <button
-                      key={m.id}
-                      onClick={() => toggleKidModule(m.id)}
-                      disabled={disabled || savingKidModule === m.id}
-                      className={`w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
-                        sel
-                          ? 'border-kaya-gold bg-kaya-gold/5'
-                          : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
-                      } ${savingKidModule === m.id ? 'opacity-60' : ''} ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
-                    >
-                      <span className="text-2xl shrink-0 leading-none">{m.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline gap-2 flex-wrap">
-                          <p className="text-sm font-bold leading-tight">{m.label}</p>
-                          {m.soon && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/40 text-kaya-sand">
-                              Coming soon
-                            </span>
-                          )}
-                          {m.isLegacy && (
-                            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/30 text-kaya-sand">
-                              Legacy
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <span
-                        className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                    <div key={m.id}>
+                      {/* Parent module row */}
+                      <button
+                        onClick={() => toggleKidModule(m.id)}
+                        disabled={disabled || savingKidModule === m.id}
+                        className={`w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
                           sel
-                            ? 'bg-kaya-gold border-kaya-gold text-white'
-                            : 'border-kaya-warm-dark bg-white text-transparent'
-                        }`}
+                            ? 'border-kaya-gold bg-kaya-gold/5'
+                            : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
+                        } ${savingKidModule === m.id ? 'opacity-60' : ''} ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
                       >
-                        {sel ? '✓' : ''}
-                      </span>
-                    </button>
+                        <span className="text-2xl shrink-0 leading-none">{m.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <p className="text-sm font-bold leading-tight">{m.label}</p>
+                            {m.soon && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/40 text-kaya-sand">
+                                Coming soon
+                              </span>
+                            )}
+                            {m.isLegacy && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/30 text-kaya-sand">
+                                Legacy
+                              </span>
+                            )}
+                            {m.subModules && sel && (
+                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-gold/20 text-kaya-chocolate">
+                                {selectedKidModules.filter((id) => id.startsWith(`${m.id}:`)).length}/{m.subModules.length} sub-pages
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                            sel
+                              ? 'bg-kaya-gold border-kaya-gold text-white'
+                              : 'border-kaya-warm-dark bg-white text-transparent'
+                          }`}
+                        >
+                          {sel ? '✓' : ''}
+                        </span>
+                      </button>
+
+                      {/* Sub-modules — only when parent is on. Each
+                          sub uses the composite id "{parent}:{sub}" so
+                          the existing toggleKidModule handler works
+                          unchanged. Indented + smaller to visually
+                          group them under their parent. */}
+                      {m.subModules && sel && (
+                        <div className="mt-2 ml-6 pl-3 border-l-2 border-kaya-warm-dark/40 space-y-1.5">
+                          <p className="text-[10px] text-kaya-sand-light leading-relaxed mb-1">
+                            Sub-pages your kid can open inside {m.label}. Off by default — turn on the ones you want them to access.
+                          </p>
+                          {m.subModules.map((sub) => {
+                            const subCompositeId = `${m.id}:${sub.id}`;
+                            const subSel = selectedKidModules.includes(subCompositeId);
+                            return (
+                              <button
+                                key={sub.id}
+                                onClick={() => toggleKidModule(subCompositeId)}
+                                disabled={disabled || savingKidModule === subCompositeId}
+                                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-kaya-sm border text-left transition-all ${
+                                  subSel
+                                    ? 'border-kaya-gold bg-kaya-gold/5'
+                                    : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
+                                } ${savingKidModule === subCompositeId ? 'opacity-60' : ''}`}
+                              >
+                                <span className="text-base shrink-0">{sub.icon}</span>
+                                <p className="text-xs font-semibold flex-1">{sub.label}</p>
+                                <span
+                                  className={`shrink-0 w-4 h-4 rounded-md border-2 flex items-center justify-center text-[9px] font-bold ${
+                                    subSel
+                                      ? 'bg-kaya-gold border-kaya-gold text-white'
+                                      : 'border-kaya-warm-dark bg-white text-transparent'
+                                  }`}
+                                >
+                                  {subSel ? '✓' : ''}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -2344,6 +2413,49 @@ export default function SettingsPage() {
                           ))}
                         </div>
                       </div>
+                    </div>
+                    {/* Kid → kid appreciation note. Opt-in: when ON,
+                        siblings can send each other 0-point kudos that
+                        feed the same threshold accumulator. Daily cap
+                        prevents spam. */}
+                    <div className="mt-3 pt-3 border-t border-kaya-warm-dark/30">
+                      <button
+                        onClick={() => savePointSystem('kudos-k2k', { kudos: { ...pointSystem.kudos, kidToKidEnabled: !pointSystem.kudos.kidToKidEnabled } })}
+                        disabled={isGuest || savingPointSystem === 'kudos-k2k'}
+                        className="w-full flex items-start gap-3 text-left disabled:opacity-60"
+                      >
+                        <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${pointSystem.kudos.kidToKidEnabled ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                          <div
+                            className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all"
+                            style={{ left: pointSystem.kudos.kidToKidEnabled ? '18px' : '2px' }}
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold">💛 Kid → kid appreciation</p>
+                          <p className="text-[11px] text-kaya-sand leading-relaxed">
+                            Let siblings send each other a {pointSystem.kudos.label}. Counts toward the same bonus threshold.
+                          </p>
+                        </div>
+                      </button>
+                      {pointSystem.kudos.kidToKidEnabled && (
+                        <div className="mt-3">
+                          <label className="block text-[10px] font-semibold text-kaya-sand uppercase tracking-wider mb-1">Daily limit per kid</label>
+                          <div className="grid grid-cols-5 gap-1">
+                            {[1, 2, 3, 5, 10].map((n) => (
+                              <button
+                                key={n}
+                                onClick={() => savePointSystem('kudos-k2k-cap', { kudos: { ...pointSystem.kudos, kidDailyCap: n } })}
+                                disabled={isGuest || savingPointSystem === 'kudos-k2k-cap'}
+                                className={`h-9 rounded-kaya-sm font-bold text-xs transition-all ${
+                                  (pointSystem.kudos.kidDailyCap ?? 3) === n
+                                    ? 'bg-kaya-gold text-white shadow-sm'
+                                    : 'bg-white border border-kaya-warm-dark text-kaya-sand'
+                                } disabled:opacity-50`}
+                              >{n}</button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
