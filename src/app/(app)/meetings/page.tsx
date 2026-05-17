@@ -39,6 +39,21 @@ export default function MeetingsPage() {
   // existing /meetings/review screen). The agenda below is fixed.
   const agenda = BASE_AGENDA;
 
+  // Meeting day reminder — when the family has saved a schedule in
+  // /settings/meetings and today is that day, surface a "Meeting
+  // tonight at HH:mm" banner above the Presenter CTA. Pure client-
+  // side check; no cron / push infrastructure yet.
+  const scheduleReminder = useMemo(() => {
+    const sch = family?.meetingSetup?.schedule;
+    if (!sch || typeof sch.dayOfWeek !== 'number' || !sch.time) return null;
+    const now = new Date();
+    if (now.getDay() !== sch.dayOfWeek) return null;
+    return {
+      time: sch.time,
+      dayName: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][sch.dayOfWeek],
+    };
+  }, [family?.meetingSetup?.schedule]);
+
   useEffect(() => {
     if (!profile?.familyId) return;
     getMeetings(profile.familyId).then(setMeetings);
@@ -166,6 +181,27 @@ export default function MeetingsPage() {
           <h1 className="font-display text-2xl font-black">Family Meetings</h1>
           <p className="text-kaya-sand text-sm">Weekly check-ins to grow together</p>
         </div>
+
+        {/* Schedule reminder banner — only on the family's meeting day. */}
+        {scheduleReminder && (
+          <Link
+            href="/meetings/present"
+            className="mb-3 block bg-kaya-gold/15 border-2 border-kaya-gold rounded-kaya-lg p-4 hover:bg-kaya-gold/25 transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="text-2xl shrink-0" aria-hidden>⏰</div>
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-extrabold text-[13px] text-kaya-chocolate leading-tight">
+                  Meeting tonight at {scheduleReminder.time}
+                </div>
+                <div className="text-[11px] text-kaya-chocolate/70 mt-0.5">
+                  Your usual {scheduleReminder.dayName} family meeting. Tap to start.
+                </div>
+              </div>
+              <span className="shrink-0 text-kaya-chocolate font-extrabold text-sm">→</span>
+            </div>
+          </Link>
+        )}
 
         {/* Presenter Mode CTA — the recommended way to run the meeting,
             cast-friendly with the new 6-step Attendance → Gratitude →
@@ -314,6 +350,25 @@ export default function MeetingsPage() {
           </div>
           <Tabs />
         </div>
+
+        {/* Schedule reminder banner — desktop, only on meeting day. */}
+        {scheduleReminder && (
+          <Link
+            href="/meetings/present"
+            className="mb-3 flex items-center gap-4 bg-kaya-gold/15 border-2 border-kaya-gold rounded-kaya-lg px-6 py-4 hover:bg-kaya-gold/25 transition-colors"
+          >
+            <div className="text-3xl shrink-0" aria-hidden>⏰</div>
+            <div className="flex-1 min-w-0">
+              <div className="font-display font-extrabold text-base text-kaya-chocolate leading-tight">
+                Meeting tonight at {scheduleReminder.time}
+              </div>
+              <div className="text-[12px] text-kaya-chocolate/70 mt-0.5">
+                Your usual {scheduleReminder.dayName} family meeting. Tap to start in Presenter Mode.
+              </div>
+            </div>
+            <span className="shrink-0 text-kaya-chocolate font-extrabold text-base">→</span>
+          </Link>
+        )}
 
         {/* Presenter Mode CTA — desktop. Same destination as the mobile
             banner above; this is the recommended way to run the meeting. */}

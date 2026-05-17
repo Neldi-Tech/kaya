@@ -214,6 +214,21 @@ export interface Family {
       /** Epoch millis — order, audit, "added this week" badges. */
       createdAt: number;
     }>;
+    /** Per-step display-name overrides. Keys are canonical step ids
+     *  (`attendance` / `gratitude` / `celebrate` / `appreciations` /
+     *  `goals` / `reflection`); value is the parent's preferred label
+     *  for that step. Empty / missing = use the default title. The
+     *  presenter and setup page both honor these. */
+    stepLabels?: Record<string, string>;
+    /** Recurring meeting time. When set, the meetings hub shows a
+     *  "Meeting tonight at HH:mm" banner on the scheduled day. Pure
+     *  client-side check today — no push / cron infrastructure yet.
+     *  dayOfWeek follows the JS convention: 0 = Sunday … 6 = Saturday.
+     *  time is "HH:mm" 24h. */
+    schedule?: {
+      dayOfWeek: number;
+      time: string;
+    };
   };
   createdAt: Timestamp;
 }
