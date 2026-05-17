@@ -203,19 +203,19 @@ export interface Family {
   approvalModes?: {
     pantry?: 'either' | 'both';
     outdoor?: 'either' | 'both';
+    drivers?: 'either' | 'both';
     utility?: 'either' | 'both';
     payrollAdvance?: 'either' | 'both';
     payrollLoan?: 'either' | 'both';
   };
   // ── Household budgets ────────────────────────────────────────
   // Per-module monthly caps (in cents, family display currency) that
-  // roll up into the Household Finances view. v1 of the Household
-  // Purchase build only writes `pantry`; the other modules slot in
-  // here as they ship (Outdoor / Utility / Payroll) without a
-  // schema change. Parent-only writes (gated by the family-doc rule).
+  // roll up into the Household Finances view. Each Household module
+  // gets its own cap; Finances reads them all and sums to a total.
   householdBudgets?: {
     pantry?: number;
     outdoor?: number;
+    drivers?: number;
     utility?: number;
     payroll?: number;
   };

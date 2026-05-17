@@ -32,9 +32,11 @@ const TABS = [
   { path: '/pantry/people',      icon: '🤝', label: 'People',   match: 'prefix' as const, parentOnly: false },
   { path: '/pantry/purchase',    icon: '🧾', label: 'Purchase', match: 'prefix' as const, parentOnly: false },
   { path: '/pantry/outdoor',     icon: '🌿', label: 'Outdoor',  match: 'prefix' as const, parentOnly: false },
+  { path: '/pantry/drivers',     icon: '🚗', label: 'Drivers',  match: 'prefix' as const, parentOnly: false },
+  { path: '/pantry/finances',    icon: '💰', label: 'Finances', match: 'prefix' as const, parentOnly: true  },
   { path: '/pantry/directory',   icon: '🧺', label: 'Browse',   match: 'prefix' as const, parentOnly: false },
   { path: '/pantry/meals',       icon: '🍽️', label: 'Meals',    match: 'prefix' as const, parentOnly: false },
-  { path: '/pantry/budget',      icon: '💰', label: 'Budget',   match: 'prefix' as const, parentOnly: true  },
+  { path: '/pantry/budget',      icon: '⚙️', label: 'Budget',   match: 'prefix' as const, parentOnly: true  },
   { path: '/pantry/suppliers',   icon: '🏪', label: 'Soko',     match: 'prefix' as const, parentOnly: false },
 ];
 

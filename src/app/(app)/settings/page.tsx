@@ -2812,7 +2812,7 @@ export default function SettingsPage() {
 // already so families can set their preferences before the modules
 // land, and so the External/Utility/Payroll surfaces can read from
 // `family.approvalModes` on day one.
-type ApprovalCategoryKey = 'pantry' | 'outdoor' | 'utility' | 'payrollAdvance' | 'payrollLoan';
+type ApprovalCategoryKey = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payrollAdvance' | 'payrollLoan';
 const APPROVAL_CATEGORIES: Array<{
   key: ApprovalCategoryKey;
   emoji: string;
@@ -2821,7 +2821,8 @@ const APPROVAL_CATEGORIES: Array<{
   live: boolean;
 }> = [
   { key: 'pantry',         emoji: '🛒', label: 'Pantry purchases',   hint: 'Groceries, household staples.',                                      live: true  },
-  { key: 'outdoor',        emoji: '🌿', label: 'Outdoor purchases',  hint: 'Garden, pool, kuku, pets, repairs, vehicle — everything outside the kitchen.', live: true  },
+  { key: 'outdoor',        emoji: '🌿', label: 'Outdoor purchases',  hint: 'Garden, pool, kuku, pets, repairs — everything outside the kitchen.', live: true  },
+  { key: 'drivers',        emoji: '🚗', label: 'Drivers purchases',  hint: 'Fuel, vehicle service, spare parts, car wash, tolls / parking.',     live: true  },
   { key: 'utility',        emoji: '⚡', label: 'Utility top-ups',    hint: 'Electricity, water, internet, gas refills.',                        live: false },
   { key: 'payrollAdvance', emoji: '💵', label: 'Payroll advances',   hint: 'Helpers requesting an advance on next pay.',                        live: false },
   { key: 'payrollLoan',    emoji: '🏦', label: 'Payroll loans',      hint: 'Helpers requesting a loan with a repayment schedule.',              live: false },

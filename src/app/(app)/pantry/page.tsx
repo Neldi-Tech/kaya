@@ -149,14 +149,32 @@ export default function PantryHomePage() {
           <span className="font-nunito font-extrabold text-[15px] mt-1">Outdoor</span>
           <span className="text-[11px] text-pantry-leaf-dk font-bold">Garden · pool · kuku · pets</span>
         </Link>
+        <Link
+          href="/pantry/drivers"
+          className="bg-[#E5EFF8] border border-[#B5CFE5] rounded-hive p-4 flex flex-col gap-1 hover:border-hive-blue transition-colors no-underline text-inherit"
+        >
+          <span className="text-2xl leading-none">🚗</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Drivers</span>
+          <span className="text-[11px] text-hive-blue font-bold">Fuel · service · spare parts</span>
+        </Link>
+        {isParent && (
+          <Link
+            href="/pantry/finances"
+            className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey-dk transition-colors no-underline text-inherit"
+          >
+            <span className="text-2xl leading-none">💰</span>
+            <span className="font-nunito font-extrabold text-[15px] mt-1">Finances</span>
+            <span className="text-[11px] text-hive-honey-dk font-bold">All-household money roll-up</span>
+          </Link>
+        )}
         {isParent && (
           <Link
             href="/pantry/budget"
             className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
           >
-            <span className="text-2xl leading-none">💰</span>
+            <span className="text-2xl leading-none">⚙️</span>
             <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
-            <span className="text-[11px] text-hive-muted">Pantry cap + spend</span>
+            <span className="text-[11px] text-hive-muted">Per-module caps + settings</span>
           </Link>
         )}
         <Link

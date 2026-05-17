@@ -151,7 +151,9 @@ const HOUSEHOLD_NAV: NavItem[] = [
   { path: '/pantry/people',   icon: '🤝', label: 'People' },
   { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
   { path: '/pantry/outdoor',  icon: '🌿', label: 'Outdoor' },
-  { path: '/pantry/budget',   icon: '💰', label: 'Budget' },
+  { path: '/pantry/drivers',  icon: '🚗', label: 'Drivers' },
+  { path: '/pantry/finances', icon: '💰', label: 'Finances' },
+  { path: '/pantry/budget',   icon: '⚙️', label: 'Budget' },
 ];
 
 // The Hive · kid's three-layer wallet plus parent controls.

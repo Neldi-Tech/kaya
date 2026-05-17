@@ -67,8 +67,13 @@ export const HELPER_MODULES: HelperModule[] = [
       { id: 'budget',    label: 'Budget',        icon: '💰', paths: ['/pantry/budget'] },
       // Purchase v1 — the request → approve → reconcile loop on Pantry.
       { id: 'purchase',  label: 'Purchase',      icon: '🧾', paths: ['/pantry/purchase'] },
-      // Outdoor — same loop on garden / pool / kuku / pets / repairs / vehicle.
+      // Outdoor — same loop on garden / pool / kuku / pets / repairs.
       { id: 'outdoor',   label: 'Outdoor',       icon: '🌿', paths: ['/pantry/outdoor'] },
+      // Drivers — same loop on fuel / service / parts / wash / tolls.
+      { id: 'drivers',   label: 'Drivers',       icon: '🚗', paths: ['/pantry/drivers'] },
+      // Finances — read-only household money roll-up (parent surface,
+      // gated separately in the page itself).
+      { id: 'finances',  label: 'Finances',      icon: '💰', paths: ['/pantry/finances'] },
     ],
   },
   { id: 'moments',  label: 'Moments',        icon: '📸', tier: 'active' },

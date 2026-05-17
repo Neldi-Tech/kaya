@@ -43,18 +43,20 @@ export type PurchaseRequestStatus =
   | 'reconciling'
   | 'closed';
 
-/** Which Household module the request belongs to. Pantry covers the
- *  groceries / staples loop; Outdoor covers everything around the
- *  home that isn't kitchen-bound — garden, pool, kuku, pets, repairs,
- *  vehicle, etc. (Utility top-ups + Payroll requests land in their own
- *  collections when those modules ship.) */
-export type PurchaseModule = 'pantry' | 'outdoor';
+/** Which Household module the request belongs to.
+ *    pantry  — groceries / staples
+ *    outdoor — garden, pool, kuku, pets, repairs (Gardener-scoped)
+ *    drivers — vehicle fuel + service + spare parts (Driver-scoped)
+ *  Utility top-ups + Payroll requests live in their own collections
+ *  when those modules ship. */
+export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers';
 
 /** Categories specific to the Outdoor module. Used in the catalogue
  *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
- *  Staple doc so the picker can filter cleanly. */
+ *  Staple doc so the picker can filter cleanly. (Vehicle moved to the
+ *  new Drivers module — it's a Driver's day-to-day, not a Gardener's.) */
 export type OutdoorCategory =
-  | 'garden' | 'pool' | 'kuku' | 'pets' | 'repairs' | 'vehicle' | 'other';
+  | 'garden' | 'pool' | 'kuku' | 'pets' | 'repairs' | 'other';
 
 export const OUTDOOR_CATEGORIES: { id: OutdoorCategory; emoji: string; label: string }[] = [
   { id: 'garden',  emoji: '🌿', label: 'Garden' },
@@ -62,9 +64,35 @@ export const OUTDOOR_CATEGORIES: { id: OutdoorCategory; emoji: string; label: st
   { id: 'kuku',    emoji: '🐔', label: 'Kuku' },
   { id: 'pets',    emoji: '🐱', label: 'Pets' },
   { id: 'repairs', emoji: '🔧', label: 'Repairs' },
-  { id: 'vehicle', emoji: '🚗', label: 'Vehicle' },
   { id: 'other',   emoji: '📦', label: 'Other' },
 ];
+
+/** Categories specific to the Drivers module. */
+export type DriversCategory =
+  | 'fuel' | 'service' | 'parts' | 'wash' | 'tolls' | 'other';
+
+export const DRIVERS_CATEGORIES: { id: DriversCategory; emoji: string; label: string }[] = [
+  { id: 'fuel',    emoji: '⛽',  label: 'Fuel' },
+  { id: 'service', emoji: '🛠️',  label: 'Service' },
+  { id: 'parts',   emoji: '🔩',  label: 'Spare parts' },
+  { id: 'wash',    emoji: '🧽',  label: 'Car wash' },
+  { id: 'tolls',   emoji: '🛣️',  label: 'Tolls / parking' },
+  { id: 'other',   emoji: '📦',  label: 'Other' },
+];
+
+/** Module → emoji + label shortcuts for consistent branding across
+ *  pickers, tab bars, Finances roll-up, etc. */
+export const MODULE_EMOJI: Record<PurchaseModule, string> = {
+  pantry:  '🛒',
+  outdoor: '🌿',
+  drivers: '🚗',
+};
+
+export const MODULE_LABEL: Record<PurchaseModule, string> = {
+  pantry:  'Pantry',
+  outdoor: 'Outdoor',
+  drivers: 'Drivers',
+};
 
 export interface PurchaseRequestItem {
   /** Stable client-assigned id within the request (crypto.randomUUID). */
