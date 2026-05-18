@@ -21,6 +21,9 @@ import {
   subscribeToRecentRequests,
   createDraftRequest,
 } from '@/lib/purchase';
+import {
+  type UtilityMeter, subscribeToMeters, meterEmoji,
+} from '@/lib/utilityMeters';
 import { formatCents } from '@/components/pantry/format';
 
 const todayDraftName = () => {
@@ -37,8 +40,10 @@ export default function UtilityHomePage() {
 
   const [open, setOpen] = useState<PurchaseRequest[]>([]);
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
+  const [meters, setMeters] = useState<UtilityMeter[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
@@ -53,27 +58,38 @@ export default function UtilityHomePage() {
       setRecent(r.filter((x) => x.module === 'utility'));
       flip();
     });
-    return () => { clearTimeout(t); a(); b(); };
+    const c = subscribeToMeters(profile.familyId, (m) => { setMeters(m.filter((x) => x.active)); flip(); });
+    return () => { clearTimeout(t); a(); b(); c(); };
   }, [profile?.familyId]);
 
   const pending = open.filter((r) => r.status === 'pending_approval');
   const drafts = open.filter((r) => r.status === 'draft');
   const inProgress = open.filter((r) => r.status === 'approved' || r.status === 'reconciling');
 
-  const startDraft = async () => {
+  const startDraftWithMeter = async (meter: UtilityMeter | null) => {
     if (!profile?.familyId || !profile.uid || isGuest) return;
     setCreating(true);
+    setShowPicker(false);
     try {
       const id = await createDraftRequest(profile.familyId, {
-        name: todayDraftName(),
+        name: meter ? `${meter.label} top-up` : todayDraftName(),
         createdBy: profile.uid,
         createdByRole: role,
         module: 'utility',
+        meterId: meter?.id,
       });
       router.push(`/pantry/purchase/${id}`);
     } catch {
       setCreating(false);
     }
+  };
+
+  // If the family has zero meters set up, "+ New utility request"
+  // goes straight to a no-meter draft (so the flow isn't gated on
+  // meter setup). Otherwise it opens the meter picker.
+  const startDraft = () => {
+    if (meters.length === 0) startDraftWithMeter(null);
+    else setShowPicker(true);
   };
 
   return (
@@ -91,8 +107,16 @@ export default function UtilityHomePage() {
             : 'Request a top-up or bill payment, send for the nod, then reconcile after.'}
         </p>
         <p className="text-[11px] text-hive-muted mt-2 font-bold">
-          Recurring bills live in <Link href="/pantry/utilities" className="text-hive-honey-dk underline">/pantry/utilities</Link> (the catalogue) — this is the transactional surface.
+          Recurring bills live in <Link href="/pantry/utilities" className="text-hive-honey-dk underline">/pantry/utilities</Link>.
+          {role === 'parent' && (
+            <> Per-meter setup in <Link href="/pantry/utility-meters" className="text-hive-honey-dk underline">/utility-meters</Link>.</>
+          )}
         </p>
+        {role === 'parent' && meters.length > 0 && (
+          <p className="text-[11px] text-hive-honey-dk mt-1 font-bold">
+            🔌 {meters.length} meter{meters.length === 1 ? '' : 's'} registered.
+          </p>
+        )}
       </div>
 
       {role === 'parent' && pending.length > 0 && (
@@ -158,7 +182,7 @@ export default function UtilityHomePage() {
           disabled={creating || isGuest}
           className="w-full bg-hive-honey text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-hive-honey/30 disabled:opacity-60"
         >
-          {creating ? 'Starting…' : '＋ New utility request'}
+          {creating ? 'Starting…' : meters.length === 0 ? '＋ New utility request' : '＋ New utility request · pick a meter'}
         </button>
         {isGuest && (
           <p className="text-center text-xs text-hive-muted mt-2">
@@ -166,6 +190,58 @@ export default function UtilityHomePage() {
           </p>
         )}
       </div>
+
+      {/* Meter picker sheet */}
+      {showPicker && (
+        <>
+          <div className="fixed inset-0 bg-hive-navy/40 z-40" onClick={() => setShowPicker(false)} />
+          <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-hive-paper rounded-t-3xl shadow-2xl z-50 pb-6 pt-2 max-h-[80vh] overflow-y-auto">
+            <div className="flex justify-center pt-1 pb-2">
+              <div className="w-12 h-1 rounded-full bg-hive-line"></div>
+            </div>
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk text-center mb-3">
+              Pick a meter
+            </p>
+            <div className="px-3 pb-3">
+              {meters.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => startDraftWithMeter(m)}
+                  className="w-full flex items-center gap-3 p-3 rounded-2xl hover:bg-hive-cream text-left mb-1"
+                >
+                  <span className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">
+                    {meterEmoji(m.type)}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{m.label}</div>
+                    <div className="text-[11px] text-hive-muted font-bold mt-0.5">
+                      {m.providerRef ? `# ${m.providerRef}` : ''}
+                      {m.providerRef && m.cadenceDays != null && ' · '}
+                      {m.cadenceDays != null && `~${m.cadenceDays}d cycle`}
+                    </div>
+                  </div>
+                  <span className="text-hive-muted">›</span>
+                </button>
+              ))}
+              <button
+                onClick={() => startDraftWithMeter(null)}
+                className="w-full mt-3 border border-dashed border-hive-line rounded-2xl py-3 text-hive-muted text-sm font-nunito font-bold"
+              >
+                Skip meter · free-form request
+              </button>
+              {role === 'parent' && (
+                <Link
+                  href="/pantry/utility-meters"
+                  onClick={() => setShowPicker(false)}
+                  className="block text-center mt-2 text-[11px] font-nunito font-bold text-hive-honey-dk hover:underline"
+                >
+                  ＋ Add a new meter
+                </Link>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

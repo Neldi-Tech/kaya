@@ -28,6 +28,7 @@ import {
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
 } from '@/lib/purchase';
 import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
+import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { formatCents } from '@/components/pantry/format';
 
 // Per-staple icon for picker + basket rows. Pantry staples surface
@@ -314,6 +315,14 @@ export default function PurchaseDetailPage() {
       {isRejected && (
         <Banner tone="rose" title="Rejected"
           body={req.rejectionNote || 'No reason given.'} />
+      )}
+
+      {/* Utility meter context — shown only when the request is
+          pinned to a meter via /pantry/utility's picker. Banner sits
+          above the basket so the helper sees what they're paying
+          for without scrolling. */}
+      {req.module === 'utility' && req.meterId && (
+        <UtilityMeterBanner familyId={profile!.familyId!} meterId={req.meterId} />
       )}
 
       {/* Module budget banner — kept lightweight (single Family read).
@@ -706,6 +715,40 @@ function ItemRow({
           </label>
         </div>
       )}
+    </div>
+  );
+}
+
+// Inline meter context for Utility requests. Subscribes to the
+// single meter doc; renders a chip-style banner above the basket so
+// the helper always sees which meter the request is for. Kept here
+// (vs imported as a shared component) to avoid creating one-off
+// shared modules.
+function UtilityMeterBanner({ familyId, meterId }: { familyId: string; meterId: string }) {
+  const [meter, setMeter] = useState<UtilityMeter | null>(null);
+  useEffect(() => {
+    // We don't have a single-doc subscribe helper for meters; cheap
+    // enough to subscribe the whole list (typical < 10 meters) and
+    // pluck. If a family scales to dozens of meters we'd add a
+    // dedicated subscribeToMeter(id) helper.
+    return subscribeToMeters(familyId, (list) => {
+      setMeter(list.find((m) => m.id === meterId) ?? null);
+    });
+  }, [familyId, meterId]);
+  if (!meter) return null;
+  return (
+    <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3 mb-3 flex items-center gap-3">
+      <div className="w-10 h-10 rounded-xl bg-white/70 flex items-center justify-center text-lg flex-shrink-0">
+        {meterEmoji(meter.type)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk">For meter</p>
+        <p className="font-nunito font-extrabold text-sm text-hive-ink truncate">{meter.label}</p>
+        <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+          {meter.providerRef ? `# ${meter.providerRef}` : meterLabel(meter.type)}
+          {meter.cadenceDays != null && ` · ~${meter.cadenceDays}d cycle`}
+        </p>
+      </div>
     </div>
   );
 }
