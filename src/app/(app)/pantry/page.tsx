@@ -172,7 +172,7 @@ export default function PantryHomePage() {
         <Tile href="/pantry/browse" emoji="🧺" label="Browse Catalogue" sub="Pantry · Foods + Household"
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
           tooltip="The full Pantry library — Foods + Household tabs. Add to your Staples." />
-        <Tile href="/pantry/browse/others" emoji="📂" label="Other Catalogue" sub="Outdoor · Utility · Drivers · Payroll"
+        <Tile href="/pantry/browse/other" emoji="📂" label="Other Catalogue" sub="Outdoor · Utility · Drivers · Payroll"
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
           tooltip="Outdoor · Utility · Drivers · Payroll catalogues, by module." />
         <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
