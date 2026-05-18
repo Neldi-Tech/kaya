@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards, DailyRating, Award } from '@/lib/firestore';
@@ -234,8 +235,44 @@ export default function ReportsPage() {
         <div className="mb-5"><RangePicker /></div>
         <p className="text-[11px] text-kaya-sand-light mb-3 -mt-2">Showing: <span className="font-semibold text-kaya-sand">{label}</span></p>
 
+        {/* Hero — House points (Meeting-style, mobile compact) */}
+        <div className="mb-5 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-4 relative overflow-hidden">
+          <div className="absolute -top-10 -right-10 w-32 h-32 rounded-full bg-kaya-gold/15 blur-2xl pointer-events-none" />
+          <div className="relative flex items-center gap-3">
+            <div className="text-3xl shrink-0" aria-hidden>🏆</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[9px] uppercase tracking-[0.16em] font-bold opacity-80">House points · {label}</p>
+              <p className="font-display font-black text-4xl leading-none mt-1">{fmt(familyTotals.total)}</p>
+            </div>
+          </div>
+          <div className="relative mt-3 pt-3 border-t border-white/15 grid grid-cols-3 gap-2 text-center">
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Routine</p>
+              <p className="font-display font-extrabold text-base mt-0.5">{fmt(familyTotals.routine)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Awards</p>
+              <p className="font-display font-extrabold text-base mt-0.5">{fmt(familyTotals.award)}</p>
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Days</p>
+              <p className="font-display font-extrabold text-base mt-0.5">{familyTotals.days}<span className="text-[10px] opacity-70 ml-0.5">/{spanDays}</span></p>
+            </div>
+          </div>
+          {top && top.total > 0 && (
+            <p className="relative mt-3 text-[11px] opacity-85">
+              <span className="opacity-70">Top this period: </span>
+              <span className="font-bold">{top.child.avatarEmoji} {top.child.name} · {fmt(top.total)}</span>
+            </p>
+          )}
+        </div>
+
         {childStats.map(({ child, routinePoints, awardPoints, totalDays, total }) => (
-          <div key={child.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
+          <Link
+            key={child.id}
+            href={`/profiles?child=${child.id}`}
+            className="block bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4 hover:border-kaya-chocolate active:bg-kaya-warm/30 transition-colors"
+          >
             <div className="flex items-center gap-3 mb-3">
               <KidAvatar child={child} size="md" bgOpacity="20" />
               <div className="flex-1">
@@ -246,6 +283,7 @@ export default function ReportsPage() {
                 <p className="text-lg font-display font-black" style={{ color: child.houseColor }}>{fmt(total)}</p>
                 <p className="text-[10px] text-kaya-sand">points earned</p>
               </div>
+              <span className="text-kaya-sand-light text-lg shrink-0" aria-hidden>›</span>
             </div>
 
             <div className="grid grid-cols-3 gap-2 mb-3">
@@ -279,7 +317,7 @@ export default function ReportsPage() {
                 <span className="w-2 h-2 rounded-full bg-kaya-gold" /> Awards
               </span>
             </div>
-          </div>
+          </Link>
         ))}
 
         {notedRatings.length > 0 && (
@@ -299,44 +337,62 @@ export default function ReportsPage() {
           <div className="w-[440px]"><RangePicker size="lg" /></div>
         </div>
 
-        {/* Family summary */}
-        <div className="grid grid-cols-12 gap-4 mb-8">
-          <div className="col-span-3 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light rounded-kaya-lg p-5 text-white relative overflow-hidden">
+        {/* Hero — House points (Meeting-style: gradient primary + white companion) */}
+        <div className="mb-8 flex items-stretch gap-3">
+          <div className="flex-1 flex items-center gap-5 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-6 relative overflow-hidden">
             <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-kaya-gold/15 blur-2xl pointer-events-none" />
-            <div className="relative">
-              <p className="text-kaya-gold text-[11px] font-bold uppercase tracking-[0.14em]">Family total</p>
-              <p className="font-display font-black text-5xl mt-2">{fmt(familyTotals.total)}</p>
-              {top && top.total > 0 && (
-                <div className="mt-4 pt-4 border-t border-white/10">
-                  <p className="text-white/60 text-[11px]">Top this period</p>
-                  <p className="font-bold text-sm mt-1">{top.child.avatarEmoji} {top.child.name} · {fmt(top.total)}</p>
+            <div className="text-4xl shrink-0 relative" aria-hidden>🏆</div>
+            <div className="flex-1 min-w-0 relative">
+              <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
+                House points · {label}
+              </p>
+              <p className="font-display font-black text-5xl leading-none tracking-tight">{fmt(familyTotals.total)}</p>
+
+              {/* Commentary — routine / awards / days as supporting stats */}
+              <div className="mt-4 pt-4 border-t border-white/15 flex gap-8">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Routine</p>
+                  <p className="font-display font-extrabold text-xl mt-0.5">{fmt(familyTotals.routine)}</p>
                 </div>
-              )}
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Awards</p>
+                  <p className="font-display font-extrabold text-xl mt-0.5">{fmt(familyTotals.award)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Days rated</p>
+                  <p className="font-display font-extrabold text-xl mt-0.5">
+                    {familyTotals.days}<span className="text-sm opacity-70 font-semibold ml-1">/ {spanDays}</span>
+                  </p>
+                  <p className="text-[10px] opacity-70 mt-0.5">{Math.round((familyTotals.days / Math.max(1, spanDays)) * 100)}% coverage</p>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Routine points</p>
-            <p className="font-display font-extrabold text-4xl mt-2">{fmt(familyTotals.routine)}</p>
-            <p className="text-[11px] text-kaya-sand mt-2">From morning + evening ratings</p>
-          </div>
-          <div className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Award points</p>
-            <p className="font-display font-extrabold text-4xl mt-2">{fmt(familyTotals.award)}</p>
-            <p className="text-[11px] text-kaya-sand mt-2">Bonuses for kindness, effort, etc.</p>
-          </div>
-          <div className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
-            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Days rated</p>
-            <p className="font-display font-extrabold text-4xl mt-2">{familyTotals.days}<span className="text-base text-kaya-sand font-semibold ml-1">/ {spanDays}</span></p>
-            <p className="text-[11px] text-kaya-sand mt-2">{Math.round((familyTotals.days / Math.max(1, spanDays)) * 100)}% coverage</p>
-          </div>
+          {top && top.total > 0 && (
+            <Link
+              href={`/profiles?child=${top.child.id}`}
+              className="shrink-0 w-56 flex flex-col items-center justify-center bg-white border border-kaya-warm-dark text-kaya-chocolate rounded-kaya-lg p-5 hover:border-kaya-chocolate hover:bg-kaya-warm transition-colors text-center"
+            >
+              <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-kaya-sand mb-2">Top this period</p>
+              <div className="text-3xl mb-1" aria-hidden>{top.child.avatarEmoji}</div>
+              <div className="font-display font-extrabold text-[15px] leading-tight">{top.child.name}</div>
+              <div className="text-[11px] text-kaya-sand mt-0.5">{top.child.houseName} House</div>
+              <div className="font-display font-black text-2xl mt-2" style={{ color: top.child.houseColor }}>{fmt(top.total)}</div>
+              <div className="text-[10px] text-kaya-sand">points</div>
+            </Link>
+          )}
         </div>
 
         {/* Per-child cards with daily bars */}
-        <h2 className="font-display text-base font-bold mb-3">Per child</h2>
+        <h2 className="font-display text-base font-bold mb-3">Per child <span className="text-[11px] text-kaya-sand font-normal ml-1">· click for full profile</span></h2>
         <div className="grid grid-cols-3 gap-4 mb-8">
           {childStats.map(({ child, routinePoints, awardPoints, totalDays, total, dailyTotals, peakDay }) => (
-            <div key={child.id} className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
+            <Link
+              key={child.id}
+              href={`/profiles?child=${child.id}`}
+              className="block bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 hover:border-kaya-chocolate hover:shadow-sm transition-all"
+            >
               <div className="flex items-center gap-3 mb-4">
                 <KidAvatar child={child} size="lg" shape="square" />
                 <div className="flex-1 min-w-0">
@@ -424,7 +480,7 @@ export default function ReportsPage() {
                   </span>
                 </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
 
@@ -459,53 +515,146 @@ function NotesPanel({
   notedRatings: DailyRating[];
   children: ReturnType<typeof useFamily>['children'];
 }) {
+  const [childFilter, setChildFilter] = useState<string>('all');
+  const [periodFilter, setPeriodFilter] = useState<'all' | 'morning' | 'evening'>('all');
+  const [toneFilter, setToneFilter] = useState<'all' | 'concern' | 'celebrate'>('all');
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return notedRatings.filter((r) => {
+      if (childFilter !== 'all' && r.childId !== childFilter) return false;
+      if (periodFilter !== 'all' && r.period !== periodFilter) return false;
+      if (toneFilter !== 'all') {
+        const wantBad = toneFilter === 'concern';
+        const hasMatch = Object.entries(r.ratingNotes || {}).some(([routineId, note]) => {
+          if (!note || !note.trim()) return false;
+          const rating = r.ratings?.[routineId];
+          return wantBad ? rating === 'bad' : rating === 'excellent';
+        });
+        if (!hasMatch) return false;
+      }
+      if (q) {
+        const inComment = (r.comment || '').toLowerCase().includes(q);
+        const inNotes = Object.values(r.ratingNotes || {}).some((v) => (v || '').toLowerCase().includes(q));
+        const childName = children.find((c) => c.id === r.childId)?.name?.toLowerCase() || '';
+        if (!inComment && !inNotes && !childName.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [notedRatings, childFilter, periodFilter, toneFilter, query, children]);
+
+  const clearFilters = () => { setChildFilter('all'); setPeriodFilter('all'); setToneFilter('all'); setQuery(''); };
+  const activeFilters = (childFilter !== 'all' ? 1 : 0) + (periodFilter !== 'all' ? 1 : 0) + (toneFilter !== 'all' ? 1 : 0) + (query ? 1 : 0);
+
+  const chip = (active: boolean) =>
+    `h-7 px-2.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap ${
+      active ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand hover:bg-kaya-warm-dark'
+    }`;
+
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-      <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">
-        Notes &amp; comments ({notedRatings.length})
-      </p>
-      <div className="space-y-2">
-        {notedRatings.slice(0, 25).map((r) => {
-          const c = children.find((k) => k.id === r.childId);
-          const itemNoteEntries = Object.entries(r.ratingNotes || {}).filter(([, v]) => v && v.trim());
-          return (
-            <div key={r.id} className="border border-kaya-warm-dark/60 rounded-kaya-sm p-3">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <div className="flex items-center gap-2 min-w-0">
-                  {c && <KidAvatar child={c} size="xs" />}
-                  <p className="text-[12px] font-bold truncate">{c?.name || '—'}</p>
-                  <span className="text-[10px] text-kaya-sand">·</span>
-                  <p className="text-[11px] text-kaya-sand capitalize">{r.period}</p>
-                </div>
-                <p className="text-[10px] font-mono text-kaya-sand-light shrink-0">{r.date}</p>
-              </div>
-              {r.comment && (
-                <p className="text-[12px] text-kaya-chocolate leading-snug whitespace-pre-wrap">{r.comment}</p>
-              )}
-              {itemNoteEntries.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {itemNoteEntries.map(([routineId, note]) => {
-                    const rating = r.ratings?.[routineId];
-                    const isBad = rating === 'bad';
-                    const isGreat = rating === 'excellent';
-                    const dot = isBad ? '🔴' : isGreat ? '🟢' : '⚪';
-                    return (
-                      <li key={routineId} className="text-[11px] leading-snug">
-                        <span className="mr-1">{dot}</span>
-                        <span className="font-semibold text-kaya-sand">{routineId}</span>
-                        <span className="text-kaya-chocolate"> — {note}</span>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          );
-        })}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">
+          Notes &amp; comments <span className="text-kaya-sand-light">({filtered.length}{filtered.length !== notedRatings.length ? ` of ${notedRatings.length}` : ''})</span>
+        </p>
+        {activeFilters > 0 && (
+          <button
+            onClick={clearFilters}
+            className="text-[11px] font-semibold text-kaya-sand hover:text-kaya-chocolate transition-colors"
+          >Clear filters</button>
+        )}
       </div>
-      {notedRatings.length > 25 && (
+
+      {/* Filter chips */}
+      <div className="space-y-2 mb-3">
+        {/* Child filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand-light shrink-0">Kid</span>
+          <button onClick={() => setChildFilter('all')} className={chip(childFilter === 'all')}>All</button>
+          {children.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setChildFilter(c.id)}
+              className={`${chip(childFilter === c.id)} flex items-center gap-1`}
+            >
+              <span aria-hidden>{c.avatarEmoji}</span>
+              <span>{c.name}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Period + tone filter on one row */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand-light shrink-0">Period</span>
+          <button onClick={() => setPeriodFilter('all')} className={chip(periodFilter === 'all')}>All</button>
+          <button onClick={() => setPeriodFilter('morning')} className={chip(periodFilter === 'morning')}>Morning</button>
+          <button onClick={() => setPeriodFilter('evening')} className={chip(periodFilter === 'evening')}>Evening</button>
+
+          <span className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand-light shrink-0 ml-2">Tone</span>
+          <button onClick={() => setToneFilter('all')} className={chip(toneFilter === 'all')}>All</button>
+          <button onClick={() => setToneFilter('concern')} className={chip(toneFilter === 'concern')}>🔴 Concerns</button>
+          <button onClick={() => setToneFilter('celebrate')} className={chip(toneFilter === 'celebrate')}>🟢 Wins</button>
+        </div>
+
+        {/* Search */}
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search notes…"
+          className="w-full h-9 px-3 rounded-kaya-sm border border-kaya-warm-dark bg-white text-xs placeholder:text-kaya-sand-light focus:outline-none focus:border-kaya-chocolate"
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="text-center py-8 text-[12px] text-kaya-sand-light">
+          No notes match these filters.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {filtered.slice(0, 25).map((r) => {
+            const c = children.find((k) => k.id === r.childId);
+            const itemNoteEntries = Object.entries(r.ratingNotes || {}).filter(([, v]) => v && v.trim());
+            return (
+              <div key={r.id} className="border border-kaya-warm-dark/60 rounded-kaya-sm p-3">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {c && <KidAvatar child={c} size="xs" />}
+                    <p className="text-[12px] font-bold truncate">{c?.name || '—'}</p>
+                    <span className="text-[10px] text-kaya-sand">·</span>
+                    <p className="text-[11px] text-kaya-sand capitalize">{r.period}</p>
+                  </div>
+                  <p className="text-[10px] font-mono text-kaya-sand-light shrink-0">{r.date}</p>
+                </div>
+                {r.comment && (
+                  <p className="text-[12px] text-kaya-chocolate leading-snug whitespace-pre-wrap">{r.comment}</p>
+                )}
+                {itemNoteEntries.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {itemNoteEntries.map(([routineId, note]) => {
+                      const rating = r.ratings?.[routineId];
+                      const isBad = rating === 'bad';
+                      const isGreat = rating === 'excellent';
+                      const dot = isBad ? '🔴' : isGreat ? '🟢' : '⚪';
+                      return (
+                        <li key={routineId} className="text-[11px] leading-snug">
+                          <span className="mr-1">{dot}</span>
+                          <span className="font-semibold text-kaya-sand">{routineId}</span>
+                          <span className="text-kaya-chocolate"> — {note}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {filtered.length > 25 && (
         <p className="text-[11px] text-kaya-sand-light text-center mt-2">
-          Showing 25 of {notedRatings.length} · widen the date range above to see more.
+          Showing 25 of {filtered.length} · narrow the filters above or widen the date range to refine.
         </p>
       )}
     </div>
