@@ -17,6 +17,7 @@ import {
   listWorkplanItems, addWorkplanItem, updateWorkplanItem, deleteWorkplanItem,
   todayDayOfWeek, upcomingAdhoc, NANNY_STARTER_ITEMS,
 } from '@/lib/workplan';
+import { toDisplayDate } from '@/lib/dates';
 import type { HelperLink, WorkplanItem, WorkplanPeriod, DayOfWeek } from '@/lib/firestore';
 
 export default function WorkplanEditor({
@@ -131,7 +132,12 @@ export default function WorkplanEditor({
               <ul className="space-y-1">
                 {adhocUpcoming.map((a) => {
                   const dates = (a.scheduledDates ?? []).slice().sort();
-                  const summary = dates.length === 1 ? dates[0] : `${dates[0]} +${dates.length - 1}`;
+                  // 2026-05-18 — render dates as DD-Mmm-YYYY (toDisplayDate)
+                  // instead of raw ISO. "18-May-2026 +1 more" reads cleanly;
+                  // "2026-05-18 +1" is ambiguous (US/EU order) and ugly.
+                  const summary = dates.length === 1
+                    ? toDisplayDate(dates[0])
+                    : `${toDisplayDate(dates[0])} +${dates.length - 1} more`;
                   return (
                     <li key={a.id} className="text-[11px] flex items-center gap-2">
                       <span className="text-base flex-shrink-0">{a.icon}</span>

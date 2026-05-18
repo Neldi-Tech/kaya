@@ -27,6 +27,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { listHelpers } from '@/lib/helpers';
 import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
 import { notifyAdhocAssigned } from '@/lib/notify';
+import { toDisplayDate } from '@/lib/dates';
 import type { HelperLink, WorkplanPeriod } from '@/lib/firestore';
 
 // Emoji palette for the "What" picker. Curated to common helper-task
@@ -59,7 +60,8 @@ const PRESET_EMOJI: Record<HelperLink['preset'], string> = {
 
 // Build the next 7 days as { iso, label } so the date chips give a
 // human-friendly weekday (parents shouldn't have to think "is the
-// 21st a Thursday?").
+// 21st a Thursday?"). Date labels use DD-Mmm format (e.g. "20-May")
+// to match the universal date-planning style (toDisplayDate).
 function nextSevenDays(): { iso: string; label: string; weekday: string }[] {
   const out: { iso: string; label: string; weekday: string }[] = [];
   for (let i = 0; i < 7; i++) {
@@ -67,8 +69,11 @@ function nextSevenDays(): { iso: string; label: string; weekday: string }[] {
     d.setDate(d.getDate() + i);
     const iso = todayDateString(d);
     const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const md = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : md;
+    // "20-May" — strip the year for compactness in the chip (year is
+    // implied as "next 7 days from now"); the full date is in the
+    // hover/screen-reader path via the iso.
+    const dd = toDisplayDate(iso).slice(0, 6); // "20-May"
+    const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : dd;
     out.push({ iso, label, weekday });
   }
   return out;
@@ -142,13 +147,16 @@ export default function AssignWorkPage() {
       const todayIso = todayDateString();
       const hasToday = selectedDates.includes(todayIso);
       const extraDays = selectedDates.length - (hasToday ? 1 : 0);
+      // 2026-05-18 — notification copy uses DD-Mmm-YYYY (toDisplayDate)
+      // instead of raw ISO. "18-May-2026" is unambiguous; "2026-05-18"
+      // depends on the reader's mental locale.
       const scheduledLabel = hasToday
         ? extraDays > 0
           ? `today + ${extraDays} more day${extraDays === 1 ? '' : 's'}`
           : 'today'
         : selectedDates.length === 1
-          ? selectedDates[0]
-          : `${selectedDates[0]} + ${selectedDates.length - 1} more day${selectedDates.length - 1 === 1 ? '' : 's'}`;
+          ? toDisplayDate(selectedDates[0])
+          : `${toDisplayDate(selectedDates[0])} + ${selectedDates.length - 1} more day${selectedDates.length - 1 === 1 ? '' : 's'}`;
       notifyAdhocAssigned({
         familyId: family.id,
         helperUid: selectedHelperUid,
