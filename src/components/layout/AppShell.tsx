@@ -195,7 +195,7 @@ const HOUSEHOLD_NAV: NavItem[] = [
 
   { path: '/pantry/browse',          icon: '🧺', label: 'Browse Catalogue', groupStart: 'Browse & suppliers',
     tooltip: 'The full Pantry library — Foods + Household tabs. Add to your Staples.' },
-  { path: '/pantry/browse/others',   icon: '📂', label: 'Other Catalogue',
+  { path: '/pantry/browse/other',    icon: '📂', label: 'Other Catalogue',
     tooltip: 'Outdoor · Utility · Drivers · Payroll catalogues, by module.' },
   { path: '/pantry/suppliers',       icon: '🏪', label: 'Soko',
     tooltip: 'Family supplier directory + WhatsApp shortcuts.' },
