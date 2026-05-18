@@ -7,9 +7,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { todayString, type HelperLink, type WorkplanItem, type WorkplanCompletion, type WorkplanPeriod } from '@/lib/firestore';
 import { getHelperLink, isHelperSessionExpired, clearHelperSession } from '@/lib/helpers';
 import {
-  listWorkplanItems, itemsScheduledOn, groupItemsByPeriod,
+  listWorkplanItems, itemsScheduledOn, groupItemsByPeriod, partitionByKind,
   getCompletion, toggleItemCompletion, setEodNote, dailyCompletionPct,
-  todayDateString,
 } from '@/lib/workplan';
 import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -319,8 +318,15 @@ function TodaysWorkplanCard({ familyId, helperUid }: {
   const scheduled = itemsScheduledOn(items);
   if (scheduled.length === 0) return null; // nothing on today's plan
 
-  const grouped = groupItemsByPeriod(scheduled);
+  // v4-final §04 Step 7 — partition adhoc one-offs out of the regular
+  // morning/anytime/evening grid. Ad-hoc items render in their own
+  // honey-tinted strip above the recurring sections so the helper
+  // can't miss "the new thing the parent assigned today".
+  const { adhoc: adhocToday, recurring: recurringToday } = partitionByKind(scheduled);
+  const grouped = groupItemsByPeriod(recurringToday);
   const done = completion?.completedItemIds ?? [];
+  // Percent + count include adhoc + recurring — they're equally weighted
+  // since the helper has to do both.
   const pct = dailyCompletionPct(scheduled, completion);
   const doneCount = scheduled.filter((i) => done.includes(i.id)).length;
 
@@ -365,6 +371,54 @@ function TodaysWorkplanCard({ familyId, helperUid }: {
           {pct}%
         </div>
       </div>
+
+      {/* ── Ad-hoc one-offs ── parent-assigned tasks just for today,
+          honey-tinted strip so the helper notices them. Each tile
+          shows the optional note under the label. */}
+      {adhocToday.length > 0 && (
+        <div className="mb-3 -mx-1 px-3 py-2.5 bg-[#FFF3D9] border-2 border-hive-honey rounded-kaya">
+          <p className="text-[10px] uppercase tracking-wider text-hive-honey-dk font-bold mb-2 inline-flex items-center gap-1.5">
+            <span>✨ Ad-hoc · just for today</span>
+            <span className="text-[9px] text-hive-muted normal-case font-normal">({adhocToday.length} one-off{adhocToday.length === 1 ? '' : 's'})</span>
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {adhocToday.map((item) => {
+              const isDone = done.includes(item.id);
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={busyItem === item.id}
+                  onClick={() => toggle(item.id)}
+                  className={`relative aspect-square flex flex-col items-center justify-center gap-0.5 p-2 rounded-kaya border-2 transition-all ${isDone
+                    ? 'bg-green-50 border-green-400 hover:bg-green-100'
+                    : 'bg-white border-hive-honey-dk hover:shadow-sm'
+                  } ${busyItem === item.id ? 'opacity-50' : ''}`}
+                  aria-pressed={isDone}
+                >
+                  <span className="absolute top-1 left-1 text-[8px] uppercase tracking-wider font-black bg-hive-honey-dk text-white px-1 rounded">
+                    Ad-hoc
+                  </span>
+                  <span className="text-3xl lg:text-4xl mt-2">{item.icon}</span>
+                  <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight line-clamp-2 px-1 ${isDone ? 'text-green-800' : 'text-kaya-chocolate'}`}>
+                    {item.label}
+                  </span>
+                  {item.note && (
+                    <span className="text-[9px] italic text-kaya-sand text-center leading-tight line-clamp-2 px-1">
+                      &ldquo;{item.note}&rdquo;
+                    </span>
+                  )}
+                  {isDone && (
+                    <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center">
+                      <Check size={12} strokeWidth={3} />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {(['morning', 'anytime', 'evening'] as WorkplanPeriod[]).map((period) => (
         grouped[period].length > 0 && (

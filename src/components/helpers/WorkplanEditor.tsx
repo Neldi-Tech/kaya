@@ -11,9 +11,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Check, ChevronDown, ChevronUp, Pause, Play, Trash2, ClipboardList, Plus } from 'lucide-react';
+import Link from 'next/link';
 import {
   listWorkplanItems, addWorkplanItem, updateWorkplanItem, deleteWorkplanItem,
-  todayDayOfWeek, NANNY_STARTER_ITEMS,
+  todayDayOfWeek, upcomingAdhoc, NANNY_STARTER_ITEMS,
 } from '@/lib/workplan';
 import type { HelperLink, WorkplanItem, WorkplanPeriod, DayOfWeek } from '@/lib/firestore';
 
@@ -43,14 +44,35 @@ export default function WorkplanEditor({
   }, [familyId, helperUid]);
   useEffect(() => { reload(); }, [reload]);
 
+  // v4-final §04 Step 7 — keep the recurring/adhoc lists separate. The
+  // per-day matrix below only makes sense for recurring items; ad-hoc
+  // one-offs render in a small read-only preview at the top of the
+  // editor so the parent sees "what I assigned + when" without having
+  // to look on the helper's home.
+  const recurringItems = (items ?? []).filter((i) => (i.kind ?? 'recurring') === 'recurring');
+  const adhocUpcoming = upcomingAdhoc(items ?? []);
   const grouped: Record<WorkplanPeriod, WorkplanItem[]> = {
     morning: [],
     anytime: [],
     evening: [],
   };
-  for (const i of items ?? []) grouped[i.period].push(i);
+  for (const i of recurringItems) grouped[i.period].push(i);
 
-  const todaysCount = (items ?? []).filter((i) => i.active && i.daysOfWeek.includes(todayDayOfWeek())).length;
+  // Today's count includes both flavours so the eyebrow accurately
+  // reflects what the helper will see on /helper today.
+  const dow = todayDayOfWeek();
+  const todayIso = (() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  })();
+  const todaysCount = (items ?? []).filter((i) => {
+    if (!i.active) return false;
+    if ((i.kind ?? 'recurring') === 'adhoc') return (i.scheduledDates ?? []).includes(todayIso);
+    return i.daysOfWeek.includes(dow);
+  }).length;
   const totalActive = (items ?? []).filter((i) => i.active).length;
 
   const seedStarter = async () => {
@@ -93,7 +115,44 @@ export default function WorkplanEditor({
             </div>
           )}
 
-          {items !== null && items.length === 0 && presetHint === 'nanny' && (
+          {/* Upcoming ad-hoc preview (v4-final §04 Step 7) — read-only
+              list of one-offs the parent has already assigned. Lets
+              them eyeball "did I already ask for this?" before opening
+              the Assign form. Edits land on /pantry/workplan/assign or
+              by deleting the item from the recurring matrix below if
+              kind===adhoc shows up there. */}
+          {adhocUpcoming.length > 0 && (
+            <div className="bg-[#FFF3D9] border border-hive-honey rounded-kaya p-2.5">
+              <p className="text-[10px] uppercase tracking-wider text-hive-honey-dk font-bold mb-1.5 inline-flex items-center gap-1.5">
+                ✨ Upcoming one-offs <span className="text-[9px] text-kaya-sand normal-case font-normal">({adhocUpcoming.length})</span>
+              </p>
+              <ul className="space-y-1">
+                {adhocUpcoming.map((a) => {
+                  const dates = (a.scheduledDates ?? []).slice().sort();
+                  const summary = dates.length === 1 ? dates[0] : `${dates[0]} +${dates.length - 1}`;
+                  return (
+                    <li key={a.id} className="text-[11px] flex items-center gap-2">
+                      <span className="text-base flex-shrink-0">{a.icon}</span>
+                      <span className="font-bold truncate flex-1">{a.label}</span>
+                      <span className="text-[10px] text-kaya-sand uppercase tracking-wider flex-shrink-0">
+                        {a.period === 'morning' ? '☀️' : a.period === 'evening' ? '🌙' : '⏱️'} · {summary}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <Link
+                href="/pantry/workplan/assign"
+                className="mt-1.5 inline-block text-[10px] font-bold text-hive-honey-dk underline"
+              >
+                + Assign another →
+              </Link>
+            </div>
+          )}
+
+          {/* Empty-state copy keys off the RECURRING list — an ad-hoc-only
+              workplan is still "no regular workplan set up yet". */}
+          {items !== null && recurringItems.length === 0 && presetHint === 'nanny' && (
             <button
               type="button"
               onClick={seedStarter}
@@ -103,8 +162,8 @@ export default function WorkplanEditor({
               ✨ Start with a Nanny starter pack (8 typical tasks)
             </button>
           )}
-          {items !== null && items.length === 0 && presetHint !== 'nanny' && (
-            <p className="text-[11px] text-kaya-sand italic">No tasks yet. Use <span className="font-bold">Add task</span> to give {helperName} their daily responsibilities.</p>
+          {items !== null && recurringItems.length === 0 && presetHint !== 'nanny' && (
+            <p className="text-[11px] text-kaya-sand italic">No recurring tasks yet. Use <span className="font-bold">Add task</span> to give {helperName} their daily responsibilities.</p>
           )}
 
           {(['morning', 'anytime', 'evening'] as WorkplanPeriod[]).map((period) => (
