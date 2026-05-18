@@ -182,6 +182,12 @@ export interface PurchaseRequest {
    *  for non-utility modules. */
   meterId?: string;
 
+  /** For Drivers requests — which vehicle this request is for
+   *  (2026-05-18). Pinned at draft creation via the vehicle picker
+   *  on /pantry/drivers. Finances rolls up per-vehicle spend via
+   *  this field. Unused for non-drivers modules. */
+  vehicleId?: string;
+
   sentAt?: Timestamp;
   /** Array so the upcoming "Both parents must approve" mode (step 2 of
    *  the build) can require length === 2 without a schema change. */
@@ -300,9 +306,10 @@ export function subscribeToRequest(
 // ── Write ────────────────────────────────────────────────────────
 
 /** Create a draft request. Returns the new id. Module defaults to
- *  'pantry' so existing callers don't need to pass it. For Payroll,
- *  pass `helperUid` (scoping + rule); for Utility, pass `meterId`
- *  (which meter the request is for). */
+ *  'pantry' so existing callers don't need to pass it.
+ *  For Payroll, pass `helperUid` (scoping + rule). For Utility, pass
+ *  `meterId` (which meter the request is for). For Drivers, pass
+ *  `vehicleId` (which vehicle the request is for — 2026-05-18). */
 export async function createDraftRequest(
   familyId: string,
   args: {
@@ -313,6 +320,7 @@ export async function createDraftRequest(
     items?: PurchaseRequestItem[];
     helperUid?: string;
     meterId?: string;
+    vehicleId?: string;
   },
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
@@ -329,6 +337,7 @@ export async function createDraftRequest(
   };
   if (args.helperUid) payload.helperUid = args.helperUid;
   if (args.meterId) payload.meterId = args.meterId;
+  if (args.vehicleId) payload.vehicleId = args.vehicleId;
   const ref = await addDoc(requestCol(familyId), payload);
   return ref.id;
 }

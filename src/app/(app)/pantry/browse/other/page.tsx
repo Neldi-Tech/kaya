@@ -16,53 +16,104 @@
 // module's request flow.
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
+import { useAuth } from '@/contexts/AuthContext';
 import {
-  OUTDOOR_CATEGORIES, DRIVERS_CATEGORIES, UTILITY_REQUEST_CATEGORIES, PAYROLL_CATEGORIES,
+  OUTDOOR_CATEGORIES, UTILITY_REQUEST_CATEGORIES, PAYROLL_CATEGORIES,
   MODULE_EMOJI, MODULE_LABEL,
   type PurchaseModule,
 } from '@/lib/purchase';
+import { DIRECTORY_OUTDOOR } from '@/lib/pantryDirectory';
+import {
+  type Vehicle, VEHICLE_TYPES, subscribeToVehicles, vehicleEmoji, vehicleTypeLabel,
+} from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
 
 type OtherModule = Exclude<PurchaseModule, 'pantry'>;
 const TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll'];
 
 export default function OtherCataloguePage() {
-  const { staples, utilities } = usePantry();
+  const { utilities } = usePantry();
   const { config } = useHive();
+  const { profile } = useAuth();
   const currency = config.currency;
   const [tab, setTab] = useState<OtherModule>('outdoor');
   const [cat, setCat] = useState<string | 'all'>('all');
   const [q, setQ] = useState('');
   const query = q.trim().toLowerCase();
 
+  // 2026-05-18 — Drivers tab now renders the family's VEHICLES
+  // instead of generic items. Vehicles are the source of truth for
+  // what a driver request is "for". Items belong on the request
+  // itself (free-text — fuel, brake pads, oil) and don't need a
+  // catalogue.
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    return subscribeToVehicles(profile.familyId, setVehicles);
+  }, [profile?.familyId]);
+
   // Switch tabs → reset chip filter so a stale selection doesn't
   // collapse the new tab's content.
   const switchTab = (t: OtherModule) => { setTab(t); setCat('all'); };
 
-  // Which chip set applies to the active tab.
+  // Which chip set applies to the active tab. Drivers chips are now
+  // vehicle types (mirror VEHICLE_TYPES) — pick a type to filter the
+  // garage view (sedans-only, bikes-only, etc.).
   const chips = useMemo(() => {
     if (tab === 'outdoor') return OUTDOOR_CATEGORIES;
-    if (tab === 'drivers') return DRIVERS_CATEGORIES;
+    if (tab === 'drivers') return VEHICLE_TYPES.map((t) => ({ id: t.id, emoji: t.emoji, label: t.label }));
     if (tab === 'utility') return UTILITY_REQUEST_CATEGORIES;
     return PAYROLL_CATEGORIES;
   }, [tab]);
 
   // Item shape varies per tab — render adapters keep the UI uniform.
   const rows = useMemo(() => {
-    if (tab === 'outdoor' || tab === 'drivers') {
-      return staples
-        .filter((s) => s.module === tab && s.status !== 'pending_promote')
+    if (tab === 'outdoor') {
+      // 2026-05-18 — render the curated DIRECTORY_OUTDOOR catalogue
+      // instead of family-only staples. The previous version only
+      // showed items the family had ALREADY bought, which made the
+      // tab feel empty for new households. Curated list shows what
+      // they could be tracking; family-side promote-to-Staples lands
+      // in a follow-up iter.
+      return DIRECTORY_OUTDOOR
         .filter((s) => cat === 'all' || s.category === cat)
-        .filter((s) => !query || s.name.toLowerCase().includes(query))
+        .filter((s) => !query
+          || s.label.toLowerCase().includes(query)
+          || s.match.some((m) => m.includes(query)))
         .map((s) => ({
-          key: s.id,
-          emoji: tab === 'outdoor' ? '🌿' : '🚗',
-          name: s.name,
-          meta: `${s.defaultQty} ${s.unit}`,
-          right: s.lastBoughtCents != null ? formatCents(s.lastBoughtCents, currency) : '',
+          key: `${s.category}:${s.label}`,
+          emoji: s.emoji,
+          name: s.label,
+          meta: `${s.defaultQty} ${s.unit} · ${s.cadence}${s.note ? ` · ${s.note}` : ''}`,
+          right: '',
+        }));
+    }
+    if (tab === 'drivers') {
+      // Vehicles registry (2026-05-18). Each row = one car the family
+      // operates. Inactive vehicles are surfaced too (with an opacity
+      // hint via meta) so parents can see "paused" registry entries.
+      return vehicles
+        .filter((v) => cat === 'all' || v.type === cat)
+        .filter((v) => !query
+          || v.label.toLowerCase().includes(query)
+          || (v.plate ?? '').toLowerCase().includes(query)
+          || (v.makeModel ?? '').toLowerCase().includes(query))
+        .map((v) => ({
+          key: v.id,
+          emoji: vehicleEmoji(v.type),
+          name: v.label,
+          meta: [
+            vehicleTypeLabel(v.type),
+            v.plate ? `# ${v.plate}` : null,
+            v.makeModel,
+            v.year ? String(v.year) : null,
+            v.color,
+            !v.active ? '(paused)' : null,
+          ].filter(Boolean).join(' · '),
+          right: '',
         }));
     }
     if (tab === 'utility') {
@@ -91,7 +142,7 @@ export default function OtherCataloguePage() {
         meta: 'Pay-related request type',
         right: '',
       }));
-  }, [tab, cat, query, staples, utilities, currency]);
+  }, [tab, cat, query, vehicles, utilities, currency]);
 
   // Per-chip counts (live, ignoring the chip itself).
   const chipCounts = useMemo(() => {
@@ -99,10 +150,11 @@ export default function OtherCataloguePage() {
     out.set('all', 0);
     for (const c of chips) out.set(c.id, 0);
     const source: { category?: string; name?: string; label?: string }[] = (() => {
-      if (tab === 'outdoor' || tab === 'drivers') {
-        return staples
-          .filter((s) => s.module === tab && s.status !== 'pending_promote')
-          .map((s) => ({ category: s.category, name: s.name }));
+      if (tab === 'outdoor') {
+        return DIRECTORY_OUTDOOR.map((s) => ({ category: s.category, name: s.label }));
+      }
+      if (tab === 'drivers') {
+        return vehicles.map((v) => ({ category: v.type, name: v.label }));
       }
       if (tab === 'utility') {
         return utilities
@@ -120,7 +172,7 @@ export default function OtherCataloguePage() {
       if (s.category) out.set(s.category, (out.get(s.category) ?? 0) + 1);
     }
     return out;
-  }, [tab, query, staples, utilities, chips]);
+  }, [tab, query, vehicles, utilities, chips]);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -217,7 +269,9 @@ export default function OtherCataloguePage() {
               ? <>Add bills in <Link href="/pantry/utilities" className="text-hive-honey-dk underline">/pantry/utilities</Link>.</>
               : tab === 'payroll'
                 ? <>Payroll is request-driven — see <Link href="/pantry/payroll" className="text-pantry-leaf-dk underline">/pantry/payroll</Link>.</>
-                : <>Items appear here when helpers quick-add them in the {MODULE_LABEL[tab]} request flow.</>}
+                : tab === 'drivers'
+                  ? <>Register your family's cars in <Link href="/pantry/drivers/vehicles" className="text-pantry-leaf-dk underline">Manage vehicles</Link> — driver requests can then pin to the specific car.</>
+                  : <>Items appear here when helpers quick-add them in the {MODULE_LABEL[tab]} request flow.</>}
             {(q || cat !== 'all') && (
               <>
                 {' '}

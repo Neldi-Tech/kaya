@@ -29,6 +29,7 @@ import {
 } from '@/lib/purchase';
 import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
+import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
 
 // Per-staple icon for picker + basket rows. Pantry staples surface
@@ -344,6 +345,13 @@ export default function PurchaseDetailPage() {
           for without scrolling. */}
       {req.module === 'utility' && req.meterId && (
         <UtilityMeterBanner familyId={profile!.familyId!} meterId={req.meterId} />
+      )}
+      {/* Drivers requests pin to a vehicle (2026-05-18). Same idea
+          as the meter banner — surface what the request is FOR so
+          everyone (driver, parent reviewing, future Finances reader)
+          knows which car the spend attributes to. */}
+      {req.module === 'drivers' && req.vehicleId && (
+        <VehicleBanner familyId={profile!.familyId!} vehicleId={req.vehicleId} />
       )}
 
       {/* Module budget banner — kept lightweight (single Family read).
@@ -828,6 +836,33 @@ function UtilityMeterBanner({ familyId, meterId }: { familyId: string; meterId: 
         <p className="text-[11px] text-hive-muted font-bold mt-0.5">
           {meter.providerRef ? `# ${meter.providerRef}` : meterLabel(meter.type)}
           {meter.cadenceDays != null && ` · ~${meter.cadenceDays}d cycle`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Drivers vehicle banner — mirror of UtilityMeterBanner, surfaces
+// which vehicle a Drivers request is pinned to. New 2026-05-18.
+function VehicleBanner({ familyId, vehicleId }: { familyId: string; vehicleId: string }) {
+  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  useEffect(() => {
+    return subscribeToVehicles(familyId, (list) => {
+      setVehicle(list.find((v) => v.id === vehicleId) ?? null);
+    });
+  }, [familyId, vehicleId]);
+  if (!vehicle) return null;
+  const sub = [vehicle.makeModel, vehicle.plate, vehicle.color].filter(Boolean).join(' · ');
+  return (
+    <div className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-3 mb-3 flex items-center gap-3">
+      <div className="w-10 h-10 rounded-xl bg-white/70 flex items-center justify-center text-lg flex-shrink-0">
+        {vehicleEmoji(vehicle.type)}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">For vehicle</p>
+        <p className="font-nunito font-extrabold text-sm text-hive-ink truncate">{vehicle.label}</p>
+        <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+          {sub || vehicleTypeLabel(vehicle.type)}
         </p>
       </div>
     </div>
