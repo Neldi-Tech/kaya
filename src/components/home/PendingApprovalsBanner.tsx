@@ -25,6 +25,7 @@ import {
   subscribeToOpenRequests, MODULE_EMOJI, MODULE_LABEL,
   type PurchaseRequest,
 } from '@/lib/purchase';
+import { formatCents } from '@/components/pantry/format';
 import type { ApprovalRequest } from '@/lib/hive';
 
 const MAX_VISIBLE = 5;
@@ -61,19 +62,17 @@ function timeAgo(ms: number): string {
   return `${Math.floor(diff / 86_400_000)}d`;
 }
 
-/** Format cents → display string. Lightweight — uses Intl.NumberFormat
- *  with USD as the placeholder currency since this is a banner and the
- *  caller's currency context isn't passed in. Good enough for the
- *  glance; the detail page renders proper currency. */
-function fmtCents(cents: number | undefined): string | null {
-  if (cents == null) return null;
-  return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
-
 export default function PendingApprovalsBanner() {
   const router = useRouter();
   const { family, children } = useFamily();
-  const { pendingApprovals: hivePending } = useHive();
+  const { pendingApprovals: hivePending, config } = useHive();
+  // 2026-05-18 — banner now uses the family's currency (TZS for Dar
+  // families etc.) instead of hardcoded USD. formatCents is the same
+  // helper every other Pantry surface uses; consistency matters when
+  // parents glance from the banner to the detail page.
+  const currency = config.currency;
+  const fmt = (cents: number | undefined): string | null =>
+    cents == null ? null : formatCents(cents, currency);
 
   const [purchaseOpen, setPurchaseOpen] = useState<PurchaseRequest[]>([]);
 
@@ -97,7 +96,7 @@ export default function PendingApprovalsBanner() {
     for (const r of purchaseOpen) {
       if (r.status !== 'pending_approval') continue;
       const itemCount = r.items?.length ?? 0;
-      const amount = fmtCents(r.estimatedTotalCents);
+      const amount = fmt(r.estimatedTotalCents);
       const itemLabel = itemCount > 0 ? `${itemCount} item${itemCount === 1 ? '' : 's'}` : null;
       const subtitle = [amount, itemLabel].filter(Boolean).join(' · ');
       out.push({
@@ -117,7 +116,7 @@ export default function PendingApprovalsBanner() {
       const kid = children.find((c) => c.id === a.kidId);
       const kidName = kid?.name ?? 'Kid';
       const typeLabel = HIVE_TYPE_LABEL[a.type] ?? a.type;
-      const amount = fmtCents(a.amountCents);
+      const amount = fmt(a.amountCents);
       const subtitle = amount
         ? `${kidName} · ${amount}`
         : kidName;
@@ -135,7 +134,7 @@ export default function PendingApprovalsBanner() {
 
     out.sort((a, b) => b.createdAtMs - a.createdAtMs);
     return out;
-  }, [purchaseOpen, hivePending, children]);
+  }, [purchaseOpen, hivePending, children, currency]);
 
   // Nothing pending — render nothing. Keeps the home clean in the
   // common case; the parent only sees the banner when there's work.
