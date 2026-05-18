@@ -16,7 +16,7 @@
 // so a parent can review + promote it from Settings → Catalogue later.
 
 import {
-  collection, doc, addDoc, updateDoc, getDoc,
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc,
   query, where, orderBy, Timestamp, serverTimestamp,
   onSnapshot, writeBatch,
 } from 'firebase/firestore';
@@ -485,22 +485,35 @@ export async function closeReconcile(
   await batch.commit();
 }
 
-/** Discard a draft (creator-only in v1; rule will gate). */
-export async function discardDraft(
+/** Hard-delete a request the CREATOR no longer wants (2026-05-18 fix).
+ *
+ *  Prior behaviour set status='rejected' with note "Discarded by
+ *  creator" — that conflated two semantically different actions:
+ *    • Delete  — author taking back their own mistake (no audit value)
+ *    • Reject  — parent declining someone else's request (audit-worthy)
+ *  The rejected list ended up polluted with the author's "oops"
+ *  drafts. This now hard-deletes the doc, leaving the rejected list
+ *  for actual parent-rejections only.
+ *
+ *  Allowed for status: 'draft' (always) or 'pending_approval' (only
+ *  the creator may delete their own un-reviewed request). Anything
+ *  past that needs a parent reject. */
+export async function deleteRequest(
   familyId: string,
   requestId: string,
 ): Promise<void> {
   if (isGuestActive()) return;
   const snap = await getDoc(requestDoc(familyId, requestId));
   if (!snap.exists()) return;
-  if ((snap.data().status as PurchaseRequestStatus) !== 'draft') return;
-  await updateDoc(requestDoc(familyId, requestId), {
-    status: 'rejected' as PurchaseRequestStatus,
-    rejectionNote: 'Discarded by creator',
-    closedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  const status = snap.data().status as PurchaseRequestStatus;
+  if (status !== 'draft' && status !== 'pending_approval') return;
+  await deleteDoc(requestDoc(familyId, requestId));
 }
+
+/** @deprecated since 2026-05-18 — use deleteRequest. Kept temporarily
+ *  in case anything outside the repo imports it; can be removed in a
+ *  follow-up sweep. */
+export const discardDraft = deleteRequest;
 
 // ── Pure helpers ─────────────────────────────────────────────────
 

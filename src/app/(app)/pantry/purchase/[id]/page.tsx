@@ -24,7 +24,7 @@ import {
   type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
   sendForApproval, approveRequest, rejectRequest,
-  startReconcile, closeReconcile, discardDraft,
+  startReconcile, closeReconcile, deleteRequest,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
 } from '@/lib/purchase';
 import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
@@ -99,7 +99,15 @@ export default function PurchaseDetailPage() {
   const isReconciling = req.status === 'reconciling';
   const isClosed = req.status === 'closed';
   const isRejected = req.status === 'rejected';
-  const editable = isDraft;
+  // Creator (anyone who built this request) may DELETE their own
+  // draft or pending request — distinct from parent REJECT during
+  // approval review. See deleteRequest in lib/purchase.ts.
+  const isCreator = !!profile?.uid && req.createdBy === profile.uid;
+  // Items editable in two cases:
+  //   • draft — author building it (qty + price)
+  //   • pending_approval AND parent reviewer — last-minute corrections
+  //     (e.g. helper typed wrong price; parent fixes before approving)
+  const editable = isDraft || (isPending && role === 'parent');
   const reconcilable = isReconciling;
 
   // ── Item mutations ───────────────────────────────────────────
@@ -131,6 +139,14 @@ export default function PurchaseDetailPage() {
 
   const setItemQty = (id: string, qty: number) => {
     const next = req.items.map((i) => i.id === id ? { ...i, qty: Math.max(1, qty) } : i);
+    patchItems(next);
+  };
+  // 2026-05-18 — let the helper edit estimated price during draft,
+  // and parents edit both qty + price during approval review.
+  const setItemPrice = (id: string, cents: number | undefined) => {
+    const next = req.items.map((i) =>
+      i.id === id ? { ...i, estimatedCents: cents == null || isNaN(cents) ? undefined : Math.max(0, Math.round(cents)) } : i
+    );
     patchItems(next);
   };
   const setItemActual = (id: string, patch: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => {
@@ -223,10 +239,15 @@ export default function PurchaseDetailPage() {
     try { await closeReconcile(profile.familyId, req.id, req.items); router.push('/pantry/purchase'); }
     finally { setBusy(false); }
   };
-  const discard = async () => {
+  // Hard-delete the creator's own request (draft or pending-approval).
+  // Distinct from reject — see comment in lib/purchase.ts. Confirms
+  // first because the doc goes away for good.
+  const deleteOwn = async () => {
     if (!profile?.familyId) return;
+    const noun = req.status === 'draft' ? 'draft' : 'request';
+    if (!confirm(`Delete this ${noun}? This can't be undone.`)) return;
     setBusy(true);
-    try { await discardDraft(profile.familyId, req.id); router.push('/pantry/purchase'); }
+    try { await deleteRequest(profile.familyId, req.id); router.push(`/pantry/${req.module === 'pantry' ? 'purchase' : req.module}`); }
     finally { setBusy(false); }
   };
 
@@ -358,6 +379,15 @@ export default function PurchaseDetailPage() {
         );
       })()}
 
+      {/* Parent · pending hint — let the parent know they can correct
+          qty or price right here before approving. New 2026-05-18. */}
+      {isPending && role === 'parent' && (
+        <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-2.5 mb-3 text-[11px] text-hive-ink leading-relaxed">
+          <span className="font-nunito font-extrabold text-hive-honey-dk">✏️ Fix before you approve.</span>
+          {' '}Edit any qty or price below — the helper sees the corrected numbers.
+        </div>
+      )}
+
       {/* Item list */}
       <div className="flex flex-col gap-2">
         {req.items.length === 0 && (
@@ -374,6 +404,7 @@ export default function PurchaseDetailPage() {
             editable={editable}
             reconcilable={reconcilable}
             onQty={(q) => setItemQty(it.id, q)}
+            onPrice={(cents) => setItemPrice(it.id, cents)}
             onActual={(p) => setItemActual(it.id, p)}
             onRemove={() => removeItem(it.id)}
             varianceOnClose={isClosed}
@@ -381,8 +412,11 @@ export default function PurchaseDetailPage() {
         ))}
       </div>
 
-      {/* Add-from-Pantry + Quick-add (drafts only) */}
-      {editable && (
+      {/* Add-from-Pantry + Quick-add — drafts only. Editable is now
+          broader (also lets parents fix qty/price on pending), but
+          adding NEW items to a pending request would change its
+          shape mid-approval — that's a redraft. */}
+      {isDraft && (
         <div className="mt-3">
           <button
             type="button"
@@ -533,14 +567,16 @@ export default function PurchaseDetailPage() {
             >
               Send for approval →
             </button>
-            <button
-              type="button"
-              onClick={discard}
-              disabled={busy}
-              className="text-hive-rose font-nunito font-bold text-xs py-2"
-            >
-              Discard draft
-            </button>
+            {isCreator && (
+              <button
+                type="button"
+                onClick={deleteOwn}
+                disabled={busy}
+                className="text-hive-rose font-nunito font-bold text-xs py-2"
+              >
+                Delete draft
+              </button>
+            )}
           </>
         )}
         {isPending && role === 'parent' && rejectNote === null && (
@@ -565,8 +601,27 @@ export default function PurchaseDetailPage() {
                     : 'Approve ✓'}
               </button>
             )}
+            {/* Reject is the parent-only action during approval review.
+                Creators get a separate "Delete request" button below
+                (renders even when the parent is the creator — they can
+                still self-delete what they wrongly created). */}
             <button onClick={() => setRejectNote('')} disabled={busy} className="text-hive-rose font-nunito font-bold text-xs py-2">Reject with note</button>
           </>
+        )}
+        {/* Creator-self-delete for a pending request — the helper
+            (or parent) realised they sent the wrong thing and wants
+            to take it back before anyone acts on it. Independent
+            from parent Reject (which is for declining someone else's
+            request and keeps an audit trail + rejection note). */}
+        {isPending && isCreator && rejectNote === null && (
+          <button
+            type="button"
+            onClick={deleteOwn}
+            disabled={busy}
+            className="text-hive-rose font-nunito font-bold text-xs py-2"
+          >
+            Delete request (took it back)
+          </button>
         )}
         {isPending && role === 'parent' && rejectNote !== null && (
           <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
@@ -634,7 +689,7 @@ function Banner({ tone, title, body }: { tone: 'amber' | 'leaf' | 'rose'; title:
 }
 
 function ItemRow({
-  item, module: itemModule, currency, editable, reconcilable, onQty, onActual, onRemove, varianceOnClose,
+  item, module: itemModule, currency, editable, reconcilable, onQty, onPrice, onActual, onRemove, varianceOnClose,
 }: {
   item: PurchaseRequestItem;
   module: PurchaseModule;
@@ -642,6 +697,10 @@ function ItemRow({
   editable: boolean;
   reconcilable: boolean;
   onQty: (q: number) => void;
+  /** Set the per-unit estimated price (cents). Available during draft
+   *  (helper sets the initial estimate) and pending_approval (parent
+   *  may correct it before approving). 2026-05-18. */
+  onPrice: (cents: number | undefined) => void;
   onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
   onRemove: () => void;
   varianceOnClose: boolean;
@@ -666,18 +725,11 @@ function ItemRow({
           </div>
           <div className="text-[11px] text-hive-muted font-bold">
             {item.qty} {item.unit}
-            {item.estimatedCents != null && ` · est. ${formatCents(item.estimatedCents, currency)} ea`}
+            {item.estimatedCents != null && ` · est. ${formatCents(item.estimatedCents, currency)} ea · total ${formatCents(est, currency)}`}
           </div>
         </div>
         {editable ? (
-          <>
-            <div className="flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-1 py-1">
-              <button onClick={() => onQty(item.qty - 1)} className="w-6 h-6 bg-hive-paper rounded font-nunito font-black text-pantry-leaf-dk">−</button>
-              <span className="font-nunito font-black text-sm w-5 text-center">{item.qty}</span>
-              <button onClick={() => onQty(item.qty + 1)} className="w-6 h-6 bg-hive-paper rounded font-nunito font-black text-pantry-leaf-dk">+</button>
-            </div>
-            <button onClick={onRemove} className="text-hive-rose font-nunito font-black px-1">×</button>
-          </>
+          <button onClick={onRemove} className="text-hive-rose font-nunito font-black px-1 flex-shrink-0" aria-label="Remove item">×</button>
         ) : (
           <div className="text-right">
             <div className="font-nunito font-black text-sm">
@@ -691,6 +743,35 @@ function ItemRow({
           </div>
         )}
       </div>
+
+      {/* Edit mode: qty + estimated price (draft helper + pending parent).
+          Same 2-col grid as reconcile below — keeps the visual rhythm
+          consistent so helpers immediately recognise "edit the numbers
+          here". Step away from the inline +/- spinner because the
+          number input gives a working keyboard on phones for both. */}
+      {editable && (
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Qty ({item.unit})</span>
+            <input
+              type="number" min={1}
+              value={item.qty}
+              onChange={(e) => onQty(e.target.value === '' ? 1 : parseInt(e.target.value, 10))}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Est. price ea</span>
+            <input
+              type="number" step="0.01" min={0}
+              value={item.estimatedCents != null ? (item.estimatedCents / 100).toString() : ''}
+              onChange={(e) => onPrice(e.target.value === '' ? undefined : Math.round(parseFloat(e.target.value) * 100))}
+              placeholder="0.00"
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            />
+          </label>
+        </div>
+      )}
 
       {/* Reconcile mode: actual qty + actual price */}
       {reconcilable && (
