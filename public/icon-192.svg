@@ -1,4 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192">
-  <rect width="192" height="192" rx="40" fill="#1E120B"/>
-  <text x="96" y="115" text-anchor="middle" font-size="90">🏠</text>
+<!-- PWA app icon · composed from public/brand/kaya-icon-k.svg.
+     Cream background + brand mark scaled to 80% so the whole house
+     stays inside the Android maskable safe zone (central 80% radius)
+     and reads cleanly on iOS Home Screen tiles. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#FDFBF7"/>
+  <g transform="translate(51.2, 51.2) scale(0.8)">
+    <path fill="#1E120B" d="M 338 210 L 338 138 Q 338 124 352 124 L 374 124 Q 388 124 388 138 L 388 210 Z"/>
+    <path fill="#1E120B" d="M 116 432 Q 96 432 96 412 L 96 246 Q 96 240 102 234 L 244 92 Q 256 80 268 92 L 410 234 Q 416 240 416 246 L 416 412 Q 416 432 396 432 L 116 432 Z"/>
+    <g stroke="#F5E6B8" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <line x1="220" y1="280" x2="220" y2="375"/>
+      <line x1="220" y1="328" x2="290" y2="280"/>
+      <line x1="220" y1="328" x2="290" y2="375"/>
+    </g>
+  </g>
 </svg>

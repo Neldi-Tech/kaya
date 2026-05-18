@@ -145,6 +145,14 @@ service cloud.firestore {
       );
       // Users can update their own profile
       allow update: if isSignedIn() && request.auth.uid == userId;
+
+      // FCM registration tokens — one doc per device/browser, keyed by
+      // the token string. Only the owner can read/write their own
+      // tokens; the server (admin SDK) bypasses these rules when
+      // sending pushes.
+      match /fcmTokens/{token} {
+        allow read, write, delete: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // ── Families ───────────────────────────────────

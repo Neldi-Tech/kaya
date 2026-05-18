@@ -2,7 +2,7 @@
   "name": "Kaya — Where Families Grow",
   "short_name": "Kaya",
   "description": "Family house points system for daily routines, awards & rewards",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#FDFBF7",
   "theme_color": "#1E120B",

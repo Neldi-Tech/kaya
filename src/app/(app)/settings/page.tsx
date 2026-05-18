@@ -45,6 +45,7 @@ import {
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
+import NotificationSettings from '@/components/settings/NotificationSettings';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -2607,6 +2608,11 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+
+          {/* Device push notifications (FCM). Sits above the email
+              notifications card because push is the primary channel
+              once a user has installed the PWA. */}
+          {!isGuest && <NotificationSettings />}
 
           {/* Notifications */}
           {!isGuest && (
