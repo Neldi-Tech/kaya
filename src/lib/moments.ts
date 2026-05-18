@@ -20,7 +20,7 @@
 // field explicitly.
 
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs,
+  addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs,
   onSnapshot, orderBy, query, serverTimestamp, Timestamp,
   updateDoc, where, writeBatch, increment, limit,
 } from 'firebase/firestore';
@@ -226,6 +226,56 @@ export async function finalizePost(
     },
     data.mentionedUids || [],
   );
+}
+
+/** Editable fields on a published post. */
+export interface PostEdits {
+  caption: string;
+  kidTags: string[];
+  eventTag?: EventTag;
+  mentionedUids?: string[];
+  /** Final ordered photo list AFTER edits — caller is responsible for
+   *  uploading any new entries (via `uploadProcessedPhoto`) and for
+   *  excluding any photos the author removed. The deleted photos
+   *  themselves are cleaned out of Storage by `deleteRemovedPhotos`
+   *  below, which the edit page calls separately so the doc write
+   *  isn't blocked on Storage round-trips. */
+  photos?: PhotoRef[];
+}
+
+export async function updatePost(
+  familyId: string,
+  postId: string,
+  edits: PostEdits,
+): Promise<void> {
+  // `eventTag: undefined` won't actually clear the field — Firestore
+  // ignores undefined keys. Use deleteField() when the parent
+  // deselected the chip so the post stops showing an old tag.
+  const patch: Record<string, unknown> = {
+    caption: edits.caption,
+    kidTags: edits.kidTags,
+    eventTag: edits.eventTag ?? deleteField(),
+    mentionedUids: edits.mentionedUids ?? [],
+    updatedAt: serverTimestamp(),
+  };
+  if (edits.photos) patch.photos = edits.photos;
+  await updateDoc(postDoc(familyId, postId), patch);
+}
+
+/** Best-effort Storage cleanup for photos the author removed during
+ *  an edit. Fire-and-forget — orphaned blobs cost cents, but a failed
+ *  delete shouldn't block the doc save. Mirrors the cleanup in
+ *  `deletePost`. */
+export function deleteRemovedPhotos(
+  familyId: string,
+  postId: string,
+  removed: PhotoRef[],
+): void {
+  for (const photo of removed) {
+    void deleteObject(storageRef(storage, photoStoragePath(familyId, postId, photo.id, 'thumb'))).catch(() => {});
+    void deleteObject(storageRef(storage, photoStoragePath(familyId, postId, photo.id, 'feed'))).catch(() => {});
+    void deleteObject(storageRef(storage, photoStoragePath(familyId, postId, photo.id, 'full'))).catch(() => {});
+  }
 }
 
 export async function getPost(familyId: string, postId: string): Promise<Post | null> {

@@ -8,6 +8,7 @@
 // author and any parent can delete the post or any comment.
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -83,11 +84,13 @@ export default function PostDetailPage() {
   const isAuthor = post.authorUid === profile?.uid;
   const isParent = profile?.role === 'parent';
   const canDeletePost = isAuthor || isParent;
+  const canEditPost = isAuthor;
   const event = post.eventTag;
   const date = post.createdAt?.toDate?.() || new Date();
   const dateLabel = date.toLocaleDateString('en-US', {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
+  const wasEdited = !!post.updatedAt && post.updatedAt.toMillis() > post.createdAt.toMillis() + 1000;
   const taggedKids = post.kidTags.map((id) => children.find((c) => c.id === id)).filter(Boolean) as typeof children;
 
   const onReact = async (emoji: Reaction) => {
@@ -156,8 +159,17 @@ export default function PostDetailPage() {
           <p className="text-sm font-bold">{post.authorName}</p>
           <p className="text-[11px] text-kaya-sand">
             {dateLabel}{event && <> · {event.emoji} {event.label}</>}
+            {wasEdited && <span className="ml-1 italic text-kaya-sand-light">· edited</span>}
           </p>
         </div>
+        {canEditPost && (
+          <Link
+            href={`/moments/${post.id}/edit`}
+            className="text-[11px] font-bold text-kaya-chocolate hover:underline"
+          >
+            Edit
+          </Link>
+        )}
         {canDeletePost && (
           <button
             onClick={onDeletePost}
