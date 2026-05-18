@@ -20,7 +20,7 @@
 // field explicitly.
 
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs,
+  addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs,
   onSnapshot, orderBy, query, serverTimestamp, Timestamp,
   updateDoc, where, writeBatch, increment, limit,
 } from 'firebase/firestore';
@@ -226,6 +226,33 @@ export async function finalizePost(
     },
     data.mentionedUids || [],
   );
+}
+
+/** Editable fields on a published post. Photos are intentionally
+ *  excluded — adding / removing photos after publish has to push and
+ *  reclaim Storage paths, which V1 doesn't tackle. */
+export interface PostEdits {
+  caption: string;
+  kidTags: string[];
+  eventTag?: EventTag;
+  mentionedUids?: string[];
+}
+
+export async function updatePost(
+  familyId: string,
+  postId: string,
+  edits: PostEdits,
+): Promise<void> {
+  // `eventTag: undefined` won't actually clear the field — Firestore
+  // ignores undefined keys. Use deleteField() when the parent
+  // deselected the chip so the post stops showing an old tag.
+  await updateDoc(postDoc(familyId, postId), {
+    caption: edits.caption,
+    kidTags: edits.kidTags,
+    eventTag: edits.eventTag ?? deleteField(),
+    mentionedUids: edits.mentionedUids ?? [],
+    updatedAt: serverTimestamp(),
+  });
 }
 
 export async function getPost(familyId: string, postId: string): Promise<Post | null> {
