@@ -462,6 +462,28 @@ service cloud.firestore {
           || isLegacyHelperWithoutLink(familyId);
       }
 
+      // ── Counters (2026-05-18) ──────────────────────────────────
+      // Per-family monotonic counters for things like the
+      // per-module request sequence (`PNT-0042`). One doc per
+      // counter; doc ids follow the pattern `purchaseRequests-{module}`.
+      // Anyone who can create a request needs to read+increment the
+      // matching counter doc atomically, so the write scope mirrors
+      // the purchaseRequests create scope (parents + any module-
+      // grant helper + payroll-self via the relevant module rules).
+      // Reads are open to the whole family — counters are
+      // non-sensitive ("we've made N requests this year") + the
+      // detail page may want to display the rendered serial pill.
+      match /counters/{counterId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId)
+          || helperCanActOnSub(familyId, 'household', 'purchase')
+          || helperCanActOnSub(familyId, 'household', 'outdoor')
+          || helperCanActOnSub(familyId, 'household', 'drivers')
+          || helperCanActOnSub(familyId, 'household', 'utility')
+          || isLegacyHelperWithoutLink(familyId);
+        // No delete — counters should never be reset by users.
+      }
+
       match /purchaseRequests/{requestId} {
         // ── Read ──
         // Non-payroll requests: any family member (today's behaviour).

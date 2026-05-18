@@ -25,10 +25,8 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 
-const todayDraftName = () => {
-  const d = new Date();
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} outdoor`;
-};
+// Auto-name now comes from createDraftRequest (`OUT-NNNN · DDMMYY`);
+// no module-specific context for Outdoor.
 
 export default function OutdoorHomePage() {
   const router = useRouter();
@@ -67,7 +65,6 @@ export default function OutdoorHomePage() {
     setCreating(true);
     try {
       const id = await createDraftRequest(profile.familyId, {
-        name: todayDraftName(),
         createdBy: profile.uid,
         createdByRole: role,
         module: 'outdoor',

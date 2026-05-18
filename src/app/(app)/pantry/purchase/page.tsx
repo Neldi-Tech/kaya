@@ -29,10 +29,9 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 
-const todayDraftName = () => {
-  const d = new Date();
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} shop`;
-};
+// Auto-name now comes from createDraftRequest itself (MOD-NNNN ·
+// DDMMYY + optional context). Pantry has no module-specific context,
+// so we pass nothing — the helper composes `PNT-0042 · 180526`.
 
 export default function PurchaseHomePage() {
   const router = useRouter();
@@ -76,7 +75,8 @@ export default function PurchaseHomePage() {
     setCreating(true);
     try {
       const id = await createDraftRequest(profile.familyId, {
-        name: todayDraftName(),
+        // Module is the default ('pantry'); no context — auto-name
+        // resolves to `PNT-NNNN · DDMMYY`.
         createdBy: profile.uid,
         createdByRole: role,
       });

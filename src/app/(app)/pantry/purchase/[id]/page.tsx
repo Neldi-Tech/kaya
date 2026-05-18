@@ -28,6 +28,7 @@ import {
   startReconcile, closeReconcile, deleteRequest,
   promotePendingStaple, keepAsOneOff,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
+  formatRequestSeq,
 } from '@/lib/purchase';
 import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
@@ -308,8 +309,16 @@ export default function PurchaseDetailPage() {
         ) : (
           <h1 className="font-nunito font-black text-2xl tracking-tight">{req.name}</h1>
         )}
-        <p className="text-hive-muted text-xs mt-1 font-bold">
-          {req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}
+        <p className="text-hive-muted text-xs mt-1 font-bold flex items-center gap-1.5 flex-wrap">
+          {/* Serial pill — stays visible even after a parent renames
+              the request, so the audit ID (e.g. PNT-0042) is always
+              one glance away. 2026-05-18 (structured naming). */}
+          {typeof req.seq === 'number' && (
+            <span className="text-[10px] font-extrabold uppercase tracking-[1px] bg-hive-cream border border-hive-line text-hive-ink px-1.5 py-0.5 rounded">
+              {formatRequestSeq(reqModule, req.seq)}
+            </span>
+          )}
+          <span>{req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}</span>
         </p>
       </div>
 

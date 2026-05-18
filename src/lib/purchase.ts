@@ -18,7 +18,7 @@
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc,
   query, where, orderBy, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch, increment,
+  onSnapshot, writeBatch, increment, runTransaction,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -127,6 +127,52 @@ export const MODULE_LABEL: Record<PurchaseModule, string> = {
   payroll: 'Payroll',
 };
 
+/** Short module code used in the auto-generated request name +
+ *  serial pill. 2026-05-18 (Elia: structured naming proposal).
+ *  Format: `{MODULE_CODE}-{0042} · {DDMMYY}( · {context})?`
+ *  e.g. `PNT-0042 · 180526 · Diana's RAV4` for a Drivers request
+ *  pinned to a vehicle. Three letters chosen for compact scanning
+ *  on mobile + so the pill stays under ~10 chars. */
+export const MODULE_CODE: Record<PurchaseModule, string> = {
+  pantry:  'PNT',
+  outdoor: 'OUT',
+  drivers: 'CAR',
+  utility: 'UTL',
+  payroll: 'PAY',
+};
+
+/** Compact date for request names: 18-May-2026 → `180526` (DDMMYY).
+ *  Date-with-separators lives in toDisplayDate (universal planning);
+ *  this stripped form keeps the request name short on a mobile chip. */
+export function formatCompactDate(d: Date = new Date()): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear() % 100).padStart(2, '0');
+  return `${dd}${mm}${yy}`;
+}
+
+/** Render the serial portion alone: `PNT-0042`. Used by the detail-
+ *  page pill so the audit reference stays visible even after a
+ *  parent renames the request. */
+export function formatRequestSeq(module: PurchaseModule, seq: number): string {
+  return `${MODULE_CODE[module]}-${String(seq).padStart(4, '0')}`;
+}
+
+/** Compose the full auto-name: serial · compact-date (· context).
+ *  Context = the module-specific pin: vehicle label / meter label /
+ *  helper name / (none for Pantry + Outdoor). */
+export function buildAutoRequestName(
+  module: PurchaseModule,
+  seq: number,
+  date: Date,
+  context?: string,
+): string {
+  const parts = [formatRequestSeq(module, seq), formatCompactDate(date)];
+  const ctx = context?.trim();
+  if (ctx) parts.push(ctx);
+  return parts.join(' · ');
+}
+
 export interface PurchaseRequestItem {
   /** Stable client-assigned id within the request (crypto.randomUUID). */
   id: string;
@@ -188,6 +234,12 @@ export interface PurchaseRequest {
    *  this field. Unused for non-drivers modules. */
   vehicleId?: string;
 
+  /** Per-family, per-module sequence number (1, 2, 3, ...).
+   *  Combined with MODULE_CODE renders as `PNT-0042`. Never resets.
+   *  Survives rename — even if the parent edits the name, the seq
+   *  stays for audit. Added 2026-05-18 (Elia's naming proposal). */
+  seq?: number;
+
   sentAt?: Timestamp;
   /** Array so the upcoming "Both parents must approve" mode (step 2 of
    *  the build) can require length === 2 without a schema change. */
@@ -246,10 +298,35 @@ const templateCol = (familyId: string) =>
 const templateDoc = (familyId: string, id: string) =>
   doc(db, 'families', familyId, 'purchaseTemplates', id);
 
-/** Deterministic doc id so (module, lowercased name) upserts. Avoids
- *  having to query before write. Same input → same id every time. */
-function templateKey(module: PurchaseModule, name: string): string {
-  const slug = name.trim().toLowerCase()
+/** True when `name` matches the auto-generated request-name pattern
+ *  for `module` (e.g. "PNT-0042 · 180526" or "CAR-0008 · 180526 ·
+ *  Diana's RAV4"). We treat anything starting with `{CODE}-{digits}`
+ *  as auto-named for template-canonicalisation purposes — even if
+ *  the parent appended a small note after, it's still recognisably
+ *  derived from the auto-name. */
+export function isAutoRequestName(name: string, module: PurchaseModule): boolean {
+  return new RegExp(`^${MODULE_CODE[module]}-\\d{1,6}\\b`).test(name.trim());
+}
+
+/** Canonical template name for a request — used so multiple requests
+ *  that share the same auto-name pattern (PNT-0042, PNT-0043, …)
+ *  collapse into ONE template per module, while parent-renamed
+ *  baskets get their own template per rename. 2026-05-18. */
+export function canonicalTemplateName(module: PurchaseModule, requestName: string): string {
+  if (isAutoRequestName(requestName, module)) {
+    // "Standard Pantry basket" / "Standard Outdoor basket" / etc.
+    return `Standard ${MODULE_LABEL[module]} basket`;
+  }
+  return requestName.trim();
+}
+
+/** Deterministic doc id so (module, canonical-name) upserts. Avoids
+ *  having to query before write. Same input → same id every time.
+ *  Canonical name strips the auto-name serial so weekly auto-named
+ *  requests share one template (see canonicalTemplateName). */
+function templateKey(module: PurchaseModule, requestName: string): string {
+  const canonical = canonicalTemplateName(module, requestName);
+  const slug = canonical.toLowerCase()
     .replace(/[^\w\s-]/g, '')   // strip punctuation
     .replace(/\s+/g, '-')        // collapse whitespace
     .replace(/-+/g, '-')         // collapse dashes
@@ -358,15 +435,53 @@ export function subscribeToRequest(
 
 // ── Write ────────────────────────────────────────────────────────
 
+/** Atomically allocate the next per-module sequence number for a
+ *  family. Lives at families/{f}/counters/purchaseRequests-{module}
+ *  with a single `nextSeq` field. Transactional so two concurrent
+ *  createDraftRequest calls (e.g. parent + helper at the same time)
+ *  can't collide. Returns the seq just allocated. */
+async function nextRequestSeq(familyId: string, module: PurchaseModule): Promise<number> {
+  if (isGuestActive()) return 1;
+  const counterRef = doc(
+    db, 'families', familyId, 'counters', `purchaseRequests-${module}`,
+  );
+  const seq = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const current = snap.exists() ? Number((snap.data() as { nextSeq?: number }).nextSeq ?? 0) : 0;
+    const next = current + 1;
+    if (snap.exists()) {
+      tx.update(counterRef, { nextSeq: next, updatedAt: serverTimestamp() });
+    } else {
+      tx.set(counterRef, { nextSeq: next, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    }
+    return next;
+  });
+  return seq;
+}
+
 /** Create a draft request. Returns the new id. Module defaults to
  *  'pantry' so existing callers don't need to pass it.
+ *
+ *  Naming (2026-05-18 — Elia's structured-naming proposal): callers
+ *  can either pass `name` explicitly (e.g. when cloning from a
+ *  template, the template's name is reused) OR pass `context` and
+ *  let the system compose `MOD-NNNN · DDMMYY · {context}` from the
+ *  next allocated seq + today's date + the context string. Context
+ *  is the module-specific pin (vehicle / meter / helper) and is
+ *  omitted from the name when absent.
+ *
  *  For Payroll, pass `helperUid` (scoping + rule). For Utility, pass
- *  `meterId` (which meter the request is for). For Drivers, pass
- *  `vehicleId` (which vehicle the request is for — 2026-05-18). */
+ *  `meterId`. For Drivers, pass `vehicleId`. */
 export async function createDraftRequest(
   familyId: string,
   args: {
-    name: string;
+    /** Explicit name override. If omitted, an auto-name is built
+     *  from MODULE_CODE + seq + DDMMYY + context. */
+    name?: string;
+    /** Module-specific pin label appended to the auto-name (vehicle
+     *  label / meter label / helper name). Ignored when `name` is
+     *  given explicitly. */
+    context?: string;
     createdBy: string;
     createdByRole: 'parent' | 'helper';
     module?: PurchaseModule;
@@ -377,11 +492,20 @@ export async function createDraftRequest(
   },
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
+  const module = (args.module ?? 'pantry') as PurchaseModule;
   const items = args.items ?? [];
+  // Allocate seq first so we have it for the auto-name. If the
+  // caller passed an explicit name, we still allocate + store seq
+  // so the audit pill renders consistently across renamed requests.
+  const seq = await nextRequestSeq(familyId, module);
+  const finalName = (args.name && args.name.trim())
+    ? args.name.trim()
+    : buildAutoRequestName(module, seq, new Date(), args.context);
   const payload: Record<string, unknown> = {
-    name: args.name,
+    name: finalName,
+    seq,
     status: 'draft' as PurchaseRequestStatus,
-    module: (args.module ?? 'pantry') as PurchaseModule,
+    module,
     items,
     estimatedTotalCents: sumEstimated(items),
     createdAt: serverTimestamp(),
@@ -465,9 +589,14 @@ export async function saveTemplateFromRequest(
       actualCents: undefined,
       pendingPromote: undefined,
     } as PurchaseRequestItem));
+    // Display name on the template = canonical name. For auto-named
+    // requests this collapses to "Standard {Module} basket" so the
+    // picker shows one stable entry per module instead of dozens of
+    // "PNT-0042 · 180526" / "PNT-0043 · 180526" entries.
+    const displayName = canonicalTemplateName(request.module, request.name);
     await setDoc(templateDoc(familyId, id), {
       module: request.module,
-      name: request.name,
+      name: displayName,
       items,
       sourceRequestId: request.id,
       sourceStatus,
@@ -514,8 +643,14 @@ export async function createDraftFromTemplate(
   args: {
     createdBy: string;
     createdByRole: 'parent' | 'helper';
-    /** Optional override — defaults to the template's name. */
+    /** Optional override — when omitted, the new draft gets a fresh
+     *  auto-name (`MOD-NNNN · DDMMYY · context`) instead of inheriting
+     *  the template's display name (which would clobber the next
+     *  request's name with "Standard Pantry basket"). 2026-05-18. */
     nameOverride?: string;
+    /** Module-specific pin label appended to the auto-name (vehicle /
+     *  meter / helper). Same semantics as createDraftRequest. */
+    context?: string;
     /** Drivers / Utility: pass the vehicle / meter to pin. */
     vehicleId?: string;
     meterId?: string;
@@ -535,7 +670,11 @@ export async function createDraftFromTemplate(
       : Math.random().toString(36).slice(2, 10),
   }));
   const draftId = await createDraftRequest(familyId, {
-    name: args.nameOverride ?? tpl.name,
+    // Pass `name` only when the caller explicitly overrode it.
+    // Otherwise let createDraftRequest auto-build the new name from
+    // the template's module + a fresh seq + DDMMYY + context.
+    name: args.nameOverride,
+    context: args.context,
     createdBy: args.createdBy,
     createdByRole: args.createdByRole,
     module: tpl.module,
