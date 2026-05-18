@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   STAPLE_CATEGORIES, StapleCategory, Cadence,
   STAPLE_UNITS, MAX_PREFERRED_BRANDS,
@@ -36,6 +37,7 @@ export default function StaplesPage() {
   const { staples, sokoSuppliers } = usePantry();
   const { config } = useHive();
   const currency = config.currency;
+  const confirmAction = useConfirm();
 
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -74,7 +76,12 @@ export default function StaplesPage() {
   const bulkDelete = async () => {
     if (!profile?.familyId || isGuest || selectedIds.size === 0) return;
     const n = selectedIds.size;
-    if (!confirm(`Delete ${n} staple${n === 1 ? '' : 's'} from your master list?`)) return;
+    const ok = await confirmAction({
+      title: `Delete ${n} staple${n === 1 ? '' : 's'} from your master list?`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBulkBusy(true);
     // Sequential delete keeps the snapshot quiet — if one fails the
     // rest still run, and the subscription will reflect the partial
@@ -263,6 +270,7 @@ function StapleRow({
   selected: boolean;
   onToggleSelect: () => void;
 }) {
+  const confirmAction = useConfirm();
   const supplier = staple.preferredSupplierId
     ? suppliers.find((s) => s.id === staple.preferredSupplierId)
     : undefined;
@@ -305,7 +313,12 @@ function StapleRow({
         onDone={onEditToggle}
         onDelete={async () => {
           if (isGuest) return;
-          if (!confirm(`Delete "${staple.name}" from staples?`)) return;
+          const ok = await confirmAction({
+            title: `Delete "${staple.name}" from staples?`,
+            confirmLabel: 'Delete',
+            tone: 'danger',
+          });
+          if (!ok) return;
           await deleteStaple(familyId, staple.id);
           onEditToggle();
         }}

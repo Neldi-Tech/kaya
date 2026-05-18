@@ -6,6 +6,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   updateFamily, updateUserProfile, addChild, ensureReferralCode,
   getReferredFamilies, isHandleAvailable, Family, PointsMode,
@@ -51,6 +52,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const { user, profile, signOut, refreshProfile, isGuest } = useAuth();
   const { family, children, refresh } = useFamily();
+  const confirmAction = useConfirm();
 
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -212,7 +214,13 @@ export default function SettingsPage() {
 
   const deleteContact = async (contact: ExternalContact) => {
     if (!profile?.familyId) return;
-    if (!window.confirm(`Remove ${contact.name} (${contact.email}) from notification contacts?`)) return;
+    const ok = await confirmAction({
+      title: `Remove ${contact.name}?`,
+      message: `${contact.email} will be removed from notification contacts.`,
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setContactBusy(contact.id);
     try {
       await removeExternalContact(profile.familyId, contact.id);
@@ -581,7 +589,13 @@ export default function SettingsPage() {
     if (!profile || removingMember) return;
     if (m.uid === profile.uid) return; // can't remove yourself
     const label = m.displayName || m.email || 'this member';
-    if (!confirm(`Remove ${label} from your family? They keep their account but lose access until you add them back.`)) return;
+    const ok = await confirmAction({
+      title: `Remove ${label} from your family?`,
+      message: 'They keep their account but lose access until you add them back.',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setRemovingMember(m.uid);
     try {
       await removeUserFromFamily(m.uid);
@@ -657,7 +671,13 @@ export default function SettingsPage() {
 
   const regenerateCode = async (role: 'kid' | 'helper' | 'guest') => {
     if (!profile?.familyId || !inviteCodes || busyCode) return;
-    if (!confirm('Regenerate this code? The old code will stop working immediately.')) return;
+    const ok = await confirmAction({
+      title: 'Regenerate this code?',
+      message: 'The old code will stop working immediately.',
+      confirmLabel: 'Regenerate',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyCode({ role, op: 'regen' });
     try {
       const newCode = await regenerateInviteCode(profile.familyId, role);

@@ -14,6 +14,7 @@ import { Timestamp } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   UTILITY_CATEGORIES, UtilityCategory, Cadence,
   UTILITY_STARTER_PACKS, UtilityStarterPack,
@@ -362,6 +363,7 @@ function UtilityRow({
   isGuest: boolean;
   paidByUid: string;
 }) {
+  const confirmAction = useConfirm();
   const supplier = utility.preferredSupplierId
     ? suppliers.find((s) => s.id === utility.preferredSupplierId)
     : undefined;
@@ -381,7 +383,12 @@ function UtilityRow({
         onDone={onEditToggle}
         onDelete={async () => {
           if (isGuest) return;
-          if (!confirm(`Delete "${utility.name}" from utilities?`)) return;
+          const ok = await confirmAction({
+            title: `Delete "${utility.name}" from utilities?`,
+            confirmLabel: 'Delete',
+            tone: 'danger',
+          });
+          if (!ok) return;
           await deleteUtility(familyId, utility.id);
           onEditToggle();
         }}

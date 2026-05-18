@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   getPost, updatePost, uploadProcessedPhoto, deleteRemovedPhotos, deletePost,
   EVENT_TAGS, EventTag, Post, PhotoRef,
@@ -57,6 +58,7 @@ export default function EditMomentPage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { children } = useFamily();
+  const confirmAction = useConfirm();
 
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
@@ -360,7 +362,13 @@ export default function EditMomentPage() {
 
   const onDelete = async () => {
     if (!profile?.familyId || !post) return;
-    if (!window.confirm('Delete this moment? Photos and comments will be removed.')) return;
+    const ok = await confirmAction({
+      title: 'Delete this moment?',
+      message: 'Photos and comments will be removed.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setError('');
     setDeleting(true);
     try {

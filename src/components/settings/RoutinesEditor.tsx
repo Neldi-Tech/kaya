@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { updateFamily, Routine } from '@/lib/firestore';
 
 type Period = 'morning' | 'evening';
@@ -204,6 +205,7 @@ function RoutineRow({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
 }) {
+  const confirmAction = useConfirm();
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   return (
     <div className={`border rounded-kaya-sm p-3 transition-colors ${
@@ -305,8 +307,14 @@ function RoutineRow({
         {/* Delete */}
         <button
           type="button"
-          onClick={() => {
-            if (window.confirm(`Delete "${routine.label}"? Past ratings keep their data but this row stops appearing on Rate.`)) {
+          onClick={async () => {
+            const ok = await confirmAction({
+              title: `Delete "${routine.label}"?`,
+              message: 'Past ratings keep their data but this row stops appearing on Rate.',
+              confirmLabel: 'Delete',
+              tone: 'danger',
+            });
+            if (ok) {
               onRemove();
             }
           }}

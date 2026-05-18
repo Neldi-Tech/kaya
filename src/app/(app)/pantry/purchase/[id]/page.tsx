@@ -20,6 +20,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { usePantry } from '@/contexts/PantryContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
@@ -53,6 +54,7 @@ export default function PurchaseDetailPage() {
   const { family } = useFamily();
   const { config } = useHive();
   const { staples } = usePantry();
+  const confirmAction = useConfirm();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
   // Per-category approval policy: try the explicit `pantry` entry first
@@ -246,7 +248,13 @@ export default function PurchaseDetailPage() {
   const deleteOwn = async () => {
     if (!profile?.familyId) return;
     const noun = req.status === 'draft' ? 'draft' : 'request';
-    if (!confirm(`Delete this ${noun}? This can't be undone.`)) return;
+    const ok = await confirmAction({
+      title: `Delete this ${noun}?`,
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     try { await deleteRequest(profile.familyId, req.id); router.push(`/pantry/${req.module === 'pantry' ? 'purchase' : req.module}`); }
     finally { setBusy(false); }

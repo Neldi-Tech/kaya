@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   type Vehicle, type VehicleType,
   VEHICLE_TYPES, vehicleEmoji,
@@ -236,6 +237,7 @@ export default function VehiclesPage() {
 }
 
 function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string }) {
+  const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(vehicle.label);
@@ -257,7 +259,13 @@ function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string 
   };
 
   const remove = async () => {
-    if (!confirm(`Remove "${vehicle.label}"? Past requests stay; new requests can't pick it.`)) return;
+    const ok = await confirmAction({
+      title: `Remove "${vehicle.label}"?`,
+      message: "Past requests stay; new requests can't pick it.",
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     try { await removeVehicle(familyId, vehicle.id); } finally { setBusy(false); }
   };

@@ -17,6 +17,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   newWeekPlan, loadWeekPlan, saveWeekPlan,
   autoFillWeek, clearWeek, setSlot, foodsForSlot, slotVenueLabel,
@@ -31,6 +32,7 @@ import {
 export default function MealsPage() {
   const { profile, isGuest } = useAuth();
   const { children: kids } = useFamily();
+  const confirmAction = useConfirm();
 
   const [plan, setPlan] = useState<WeekPlan>(() => newWeekPlan());
   const [region, setRegion] = useState<Region | 'any'>('any');
@@ -61,8 +63,13 @@ export default function MealsPage() {
     flash('Week filled — tweak any slot you don\'t like');
   };
 
-  const onClear = () => {
-    if (!confirm('Clear every slot for this week?')) return;
+  const onClear = async () => {
+    const ok = await confirmAction({
+      title: 'Clear every slot for this week?',
+      confirmLabel: 'Clear',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setPlan((p) => clearWeek(p));
     flash('Week cleared');
   };

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   type UtilityMeter, type UtilityMeterType,
   METER_TYPES, meterEmoji,
@@ -195,6 +196,7 @@ export default function UtilityMetersPage() {
 }
 
 function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }) {
+  const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(meter.label);
@@ -212,7 +214,13 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
   };
 
   const remove = async () => {
-    if (!confirm(`Remove meter "${meter.label}"? Past requests stay; new requests can't pick it.`)) return;
+    const ok = await confirmAction({
+      title: `Remove meter "${meter.label}"?`,
+      message: "Past requests stay; new requests can't pick it.",
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusy(true);
     try { await removeMeter(familyId, meter.id); } finally { setBusy(false); }
   };
