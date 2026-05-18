@@ -190,7 +190,7 @@ const HOUSEHOLD_NAV: NavItem[] = [
     tooltip: "Your family's curated regulars. Picked from Browse to your list." },
   { path: '/pantry/meals',           icon: '📅', label: 'Meal Planner',
     tooltip: 'Weekly meal timetable. Bigger redesign incoming.' },
-  { path: '/pantry/people',          icon: '📋', label: 'Workplan',
+  { path: '/pantry/workplan',        icon: '📋', label: 'Workplan',
     tooltip: 'Helper roster + each helper\'s daily task list. Add ad-hoc work.' },
 
   { path: '/pantry/browse',          icon: '🧺', label: 'Browse Catalogue', groupStart: 'Browse & suppliers',
@@ -224,7 +224,7 @@ const BUSINESS_NAV: NavItem[] = [
 const STATS_NAV: NavItem[] = [
   { path: '/reports',       icon: '📊', label: 'Reports' },
   { path: '/profiles',      icon: '👧', label: 'Kid profiles' },
-  { path: '/pantry/people', icon: '🤝', label: 'Helper performance' },
+  { path: '/pantry/workplan', icon: '🤝', label: 'Helper performance' },
   { path: '/badges',        icon: '🏆', label: 'Badges' },
   { path: '/family-tree',   icon: '🌳', label: 'Family tree' },
 ];

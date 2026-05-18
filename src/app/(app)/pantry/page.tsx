@@ -161,7 +161,7 @@ export default function PantryHomePage() {
         <Tile href="/pantry/meals" emoji="📅" label="Meal Planner" sub="7-day timetable"
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
           tooltip="Weekly meal timetable. Bigger redesign incoming." />
-        <Tile href="/pantry/people" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
+        <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf col-span-2" subColor="text-hive-muted"
           tooltip="Helper roster + each helper's daily task list. Add ad-hoc work." />
       </div>
