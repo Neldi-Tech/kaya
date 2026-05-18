@@ -225,6 +225,8 @@ const STATS_NAV: NavItem[] = [
   { path: '/reports',       icon: '📊', label: 'Reports' },
   { path: '/profiles',      icon: '👧', label: 'Kid profiles' },
   { path: '/pantry/workplan', icon: '🤝', label: 'Helper performance' },
+  { path: '/settings/performance', icon: '⚖️', label: 'Performance policy',
+    tooltip: 'Tune the 4 metric weights, face thresholds + window for helper scoring.' },
   { path: '/badges',        icon: '🏆', label: 'Badges' },
   { path: '/family-tree',   icon: '🌳', label: 'Family tree' },
 ];

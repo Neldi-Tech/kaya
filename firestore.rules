@@ -218,6 +218,28 @@ service cloud.firestore {
           allow create, update, delete: if isParentInFamily(familyId)
             || request.auth.uid == helperUid;
         }
+
+        // ── Parent feedback notes on this helper (v3 — 2026-05-18)
+        // One doc per day. Parents write to leave 👍/😐/👎 + optional
+        // note; the helper themselves can READ their own feedback
+        // (transparency), but can't write — they shouldn't be able
+        // to self-pat. Doc id = YYYY-MM-DD; upserted on each tap.
+        match /feedbackNotes/{date} {
+          allow read: if isParentInFamily(familyId)
+            || request.auth.uid == helperUid;
+          allow create, update, delete: if isParentInFamily(familyId);
+        }
+      }
+
+      // ── Performance policy (v3 — 2026-05-18) ──────────────
+      // Single config doc per family at /performancePolicy/default
+      // holding metric weights + face thresholds + window length +
+      // per-helper overrides. Whole family can read (a helper can
+      // see how their score is being computed). Parent-only write
+      // — only parents tune the rules.
+      match /performancePolicy/{policyId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
       }
 
       // ── Awards ───────────────────────────────────
