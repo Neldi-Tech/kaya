@@ -24,8 +24,10 @@ import {
   subscribeToOpenRequests,
   subscribeToRecentRequests,
   createDraftRequest,
+  createDraftFromTemplate,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
+import TemplatePicker from '@/components/pantry/TemplatePicker';
 
 const todayDraftName = () => {
   const d = new Date();
@@ -165,8 +167,24 @@ export default function PurchaseHomePage() {
         </Section>
       )}
 
-      {/* New request CTA (sticky-ish above the tab bar) */}
+      {/* New request CTA (sticky-ish above the tab bar). Auto-saved
+          templates from past approvals/rejections appear above. */}
       <div className="mt-4 mb-32">
+        {profile?.familyId && !isGuest && (
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="pantry"
+            currency={currency}
+            onPick={async (tpl) => {
+              if (!profile.uid) return;
+              const id = await createDraftFromTemplate(profile.familyId!, tpl.id, {
+                createdBy: profile.uid,
+                createdByRole: role,
+              });
+              router.push(`/pantry/purchase/${id}`);
+            }}
+          />
+        )}
         <button
           type="button"
           onClick={startDraft}

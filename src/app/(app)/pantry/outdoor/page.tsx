@@ -20,8 +20,10 @@ import {
   subscribeToOpenRequests,
   subscribeToRecentRequests,
   createDraftRequest,
+  createDraftFromTemplate,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
+import TemplatePicker from '@/components/pantry/TemplatePicker';
 
 const todayDraftName = () => {
   const d = new Date();
@@ -149,6 +151,21 @@ export default function OutdoorHomePage() {
       )}
 
       <div className="mt-4 mb-32">
+        {profile?.familyId && !isGuest && (
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="outdoor"
+            currency={currency}
+            onPick={async (tpl) => {
+              if (!profile.uid) return;
+              const id = await createDraftFromTemplate(profile.familyId!, tpl.id, {
+                createdBy: profile.uid,
+                createdByRole: role,
+              });
+              router.push(`/pantry/purchase/${id}`);
+            }}
+          />
+        )}
         <button
           type="button"
           onClick={startDraft}

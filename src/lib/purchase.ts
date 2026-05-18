@@ -16,9 +16,9 @@
 // so a parent can review + promote it from Settings → Catalogue later.
 
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, getDoc,
+  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc,
   query, where, orderBy, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch,
+  onSnapshot, writeBatch, increment,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -199,10 +199,63 @@ export interface PurchaseRequest {
   closedAt?: Timestamp;
 }
 
+/** Reusable basket template (2026-05-18). Auto-saved on every
+ *  approve/reject so parents can quickly re-issue a similar basket
+ *  next week without re-typing every line. Upserted by (module,
+ *  lowercased name) so "Monday shop" always points to the most
+ *  recent Monday shop's basket — using it again loads what you last
+ *  approved, not a forgotten version from three months ago.
+ *
+ *  Items snapshot: the basket exactly as it was at resolve time
+ *  (post any parent qty/price fix during approval), with the same
+ *  PurchaseRequestItem shape. When loaded into a new draft, items
+ *  are deep-cloned with fresh client-side ids; actualQty/actualCents
+ *  are stripped (they belong to the original purchase, not the new
+ *  one). */
+export interface PurchaseTemplate {
+  id: string;
+  module: PurchaseModule;
+  /** Display name — defaults to the source request's name. Parent
+   *  can rename later if we ship a Templates management page. */
+  name: string;
+  items: PurchaseRequestItem[];
+  /** The request this snapshot was taken from. Useful for
+   *  "open the original" deep-link in a future iteration. */
+  sourceRequestId: string;
+  /** Whether the source was approved or rejected. Approved templates
+   *  are the typical reuse case; rejected ones are still useful to
+   *  the helper for a quick "fix the issue + resend" workflow. */
+  sourceStatus: 'approved' | 'rejected';
+  /** Sum of qty × estimatedCents at template creation — saved so
+   *  the picker can preview "~ TZS 95,000" without re-summing. */
+  estimatedTotalCents: number;
+  createdAt: Timestamp;
+  createdBy: string;
+  useCount: number;
+  lastUsedAt?: Timestamp;
+}
+
 // ── Path helpers ─────────────────────────────────────────────────
 
 const requestCol = (familyId: string) =>
   collection(db, 'families', familyId, 'purchaseRequests');
+
+const templateCol = (familyId: string) =>
+  collection(db, 'families', familyId, 'purchaseTemplates');
+
+const templateDoc = (familyId: string, id: string) =>
+  doc(db, 'families', familyId, 'purchaseTemplates', id);
+
+/** Deterministic doc id so (module, lowercased name) upserts. Avoids
+ *  having to query before write. Same input → same id every time. */
+function templateKey(module: PurchaseModule, name: string): string {
+  const slug = name.trim().toLowerCase()
+    .replace(/[^\w\s-]/g, '')   // strip punctuation
+    .replace(/\s+/g, '-')        // collapse whitespace
+    .replace(/-+/g, '-')         // collapse dashes
+    .slice(0, 60);
+  return `${module}--${slug || 'untitled'}`;
+}
 
 const requestDoc = (familyId: string, id: string) =>
   doc(db, 'families', familyId, 'purchaseRequests', id);
@@ -387,6 +440,130 @@ export async function sendForApproval(
   });
 }
 
+// ── Templates ────────────────────────────────────────────────────
+
+/** Snapshot a resolved request into the family's template library so
+ *  a similar basket can be re-created in one tap next time. Upserts
+ *  by (module, name) — running "Monday shop" 50 weeks in a row keeps
+ *  the templates list to one row that always reflects the latest
+ *  approved basket. Best-effort: returns silently on any failure so
+ *  it never breaks the user-visible approve/reject path. */
+export async function saveTemplateFromRequest(
+  familyId: string,
+  request: PurchaseRequest,
+  byUid: string,
+  sourceStatus: 'approved' | 'rejected',
+): Promise<void> {
+  if (isGuestActive()) return;
+  try {
+    const id = templateKey(request.module, request.name);
+    const items = (request.items ?? []).map((i) => ({
+      ...i,
+      // Drop reconcile-time fields — they belong to the original
+      // shop, not a future reuse.
+      actualQty: undefined,
+      actualCents: undefined,
+      pendingPromote: undefined,
+    } as PurchaseRequestItem));
+    await setDoc(templateDoc(familyId, id), {
+      module: request.module,
+      name: request.name,
+      items,
+      sourceRequestId: request.id,
+      sourceStatus,
+      estimatedTotalCents: sumEstimated(items),
+      createdAt: serverTimestamp(),
+      createdBy: byUid,
+      useCount: 0,
+    }, { merge: false });  // upsert: latest snapshot wins
+  } catch {
+    // Swallow. Template auto-save is a nice-to-have; it must never
+    // bubble up and fail the parent's approve/reject click.
+  }
+}
+
+/** Subscribe to all templates for a family, scoped to one module.
+ *  Newest first by createdAt — picker shows "most recent shops" up
+ *  top, which is usually what users want. */
+export function subscribeToTemplates(
+  familyId: string,
+  module: PurchaseModule,
+  cb: (templates: PurchaseTemplate[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(
+    templateCol(familyId),
+    where('module', '==', module),
+    orderBy('createdAt', 'desc'),
+  );
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PurchaseTemplate)));
+  });
+}
+
+/** Create a fresh draft from a template snapshot. Increments the
+ *  template's useCount + lastUsedAt so the picker can sort by
+ *  popularity later. Items are deep-cloned with fresh ids so the
+ *  new draft can be edited freely without mutating the template. */
+export async function createDraftFromTemplate(
+  familyId: string,
+  templateId: string,
+  args: {
+    createdBy: string;
+    createdByRole: 'parent' | 'helper';
+    /** Optional override — defaults to the template's name. */
+    nameOverride?: string;
+    /** Drivers / Utility: pass the vehicle / meter to pin. */
+    vehicleId?: string;
+    meterId?: string;
+    helperUid?: string;
+  },
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const snap = await getDoc(templateDoc(familyId, templateId));
+  if (!snap.exists()) throw new Error('Template not found');
+  const tpl = { id: snap.id, ...snap.data() } as PurchaseTemplate;
+  // Clone items with fresh ids so edits to the draft don't touch
+  // the template + so the cloned items are independent entities.
+  const items: PurchaseRequestItem[] = tpl.items.map((it) => ({
+    ...it,
+    id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? (crypto as Crypto).randomUUID()
+      : Math.random().toString(36).slice(2, 10),
+  }));
+  const draftId = await createDraftRequest(familyId, {
+    name: args.nameOverride ?? tpl.name,
+    createdBy: args.createdBy,
+    createdByRole: args.createdByRole,
+    module: tpl.module,
+    items,
+    helperUid: args.helperUid,
+    meterId: args.meterId,
+    vehicleId: args.vehicleId,
+  });
+  // Best-effort usage stamp — failure here is fine, the draft is
+  // already created and the user can proceed.
+  try {
+    await updateDoc(templateDoc(familyId, templateId), {
+      useCount: increment(1),
+      lastUsedAt: serverTimestamp(),
+    });
+  } catch { /* noop */ }
+  return draftId;
+}
+
+/** Remove a template — used by a future Templates management UI. */
+export async function deleteTemplate(
+  familyId: string,
+  templateId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(templateDoc(familyId, templateId));
+}
+
 /** Append `approverUid` to `approvedBy` and conditionally flip status
  *  to `approved` based on the family's approval mode.
  *
@@ -422,11 +599,20 @@ export async function approveRequest(
   };
   if (meetsThreshold) patch.approvedAt = serverTimestamp();
   await updateDoc(requestDoc(familyId, requestId), patch);
+  // 2026-05-18 — every full approval auto-saves the basket as a
+  // reusable template (upserted by name + module). Fire-and-forget;
+  // any failure is swallowed inside saveTemplateFromRequest so this
+  // never breaks the user-visible approve action.
+  if (meetsThreshold) {
+    const finalReq = { ...data, id: requestId, items: data.items ?? [] } as PurchaseRequest;
+    saveTemplateFromRequest(familyId, finalReq, approverUid, 'approved').catch(() => undefined);
+  }
   return { status: nextStatus, approvers: approvers.length };
 }
 
 /** Parent rejects with an optional note. Terminal — no resubmit in v1
- *  (the helper just creates a new draft). */
+ *  (the helper just creates a new draft, or loads the auto-saved
+ *  template, fixes the issue, and resends). */
 export async function rejectRequest(
   familyId: string,
   requestId: string,
@@ -434,6 +620,9 @@ export async function rejectRequest(
   note?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
+  // Snapshot for the template auto-save BEFORE the status update —
+  // we want the basket as the parent saw + edited it.
+  const snap = await getDoc(requestDoc(familyId, requestId));
   await updateDoc(requestDoc(familyId, requestId), {
     status: 'rejected' as PurchaseRequestStatus,
     rejectedBy: rejecterUid,
@@ -442,6 +631,10 @@ export async function rejectRequest(
     closedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  if (snap.exists()) {
+    const data = { id: requestId, ...snap.data() } as PurchaseRequest;
+    saveTemplateFromRequest(familyId, data, rejecterUid, 'rejected').catch(() => undefined);
+  }
 }
 
 /** Helper flips the approved request into reconcile mode. */
