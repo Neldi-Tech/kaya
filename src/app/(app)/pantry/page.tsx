@@ -210,7 +210,7 @@ export default function PantryHomePage() {
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
         >
           <span className="text-2xl leading-none">🍽️</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Meals</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Meal Planner</span>
           <span className="text-[11px] text-hive-muted">7-day timetable</span>
         </Link>
       </div>

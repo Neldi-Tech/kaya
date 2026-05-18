@@ -48,7 +48,7 @@ const MORE_TABS: TabDef[] = [
   { path: '/pantry/payroll',   icon: '🤝', label: 'Payroll',          match: 'prefix', sub: 'Self · advances & loans' },
   { path: '/pantry/people',    icon: '🤝', label: 'People',           match: 'prefix', sub: 'Helpers + workplans' },
   { path: '/pantry/browse',    icon: '🧺', label: 'Browse Catalogue', match: 'prefix', sub: 'Pantry + Others' },
-  { path: '/pantry/meals',     icon: '🍽️', label: 'Meals',            match: 'prefix', sub: '7-day timetable' },
+  { path: '/pantry/meals',     icon: '🍽️', label: 'Meal Planner',     match: 'prefix', sub: '7-day timetable' },
   { path: '/pantry/suppliers', icon: '🏪', label: 'Soko',             match: 'prefix', sub: 'Suppliers' },
   { path: '/pantry/finances',  icon: '💰', label: 'Finances',         match: 'prefix', parentOnly: true, sub: 'Money roll-up' },
   { path: '/pantry/budget',    icon: '⚙️', label: 'Budget',           match: 'prefix', parentOnly: true, sub: 'Per-module caps' },

@@ -98,7 +98,7 @@ export default function MealsPage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Pantry · Meals
+          Pantry · Meal Planner
         </p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1 leading-tight">
           {plan.weekLabel} 🍽️
