@@ -66,6 +66,22 @@ export default function BrowseCataloguePage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      {/* Browse ↔ Staples explainer banner (v4-final §05) — pairs
+          with the one on /pantry/staples to make the difference
+          unmistakable: Browse is the LIBRARY; Staples is your
+          curated subset. */}
+      <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3 mb-4 flex items-start gap-3">
+        <span className="text-xl leading-none">🧺</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-nunito font-extrabold text-sm text-hive-honey-dk">The full library to pick from</p>
+          <p className="text-[11px] text-hive-ink mt-0.5 leading-relaxed">
+            Hundreds of items across Foods + Household. Promote to your
+            {' '}
+            <Link href="/pantry/staples" className="text-hive-honey-dk font-bold underline">Staples →</Link>
+            {' '}so they show up in the next shop request.
+          </p>
+        </div>
+      </div>
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
           Household · Browse Catalogue

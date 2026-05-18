@@ -90,6 +90,22 @@ export default function StaplesPage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+      {/* Staples ↔ Browse explainer banner (v4-final §05) — clarifies
+          the distinction Elia called out: Staples is the family's
+          CURATED list; Browse Catalogue is the full LIBRARY to pick
+          from. Banner sits at the top of /staples so the difference
+          is unmistakable. */}
+      <div className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-3 mb-4 flex items-start gap-3">
+        <span className="text-xl leading-none">📦</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-nunito font-extrabold text-sm text-pantry-leaf-dk">Your family's curated regulars</p>
+          <p className="text-[11px] text-hive-ink mt-0.5 leading-relaxed">
+            Items you actually buy week after week. Drives the Pantry Purchase basket.
+            {' '}
+            <Link href="/pantry/browse" className="text-pantry-leaf-dk font-bold underline">Pick more from Browse →</Link>
+          </p>
+        </div>
+      </div>
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Pantry · Staples</p>
