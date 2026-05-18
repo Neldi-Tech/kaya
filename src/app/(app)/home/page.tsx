@@ -7,6 +7,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { getRecentRatings, getRecentAwards } from '@/lib/firestore';
 import { daysToNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
+import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -104,6 +105,11 @@ export default function DashboardPage() {
           <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{today}</p>
           <h1 className="font-display text-2xl font-black mt-0.5">Hello, {firstName} 👋</h1>
         </div>
+
+        {/* v4-final §02 Step 9 — aggregator banner across all 5
+            household purchase modules + Hive. Renders nothing if
+            nothing is pending; parent-only via role check. */}
+        {profile?.role === 'parent' && <PendingApprovalsBanner />}
 
         <div className="bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light rounded-kaya-lg p-5 mb-5 shadow-lg">
           <div className="flex items-center justify-between mb-4">
@@ -247,6 +253,9 @@ export default function DashboardPage() {
           </h1>
           <p className="text-sm text-kaya-sand mt-1">Here’s how the family is tracking this week.</p>
         </div>
+
+        {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
+        {profile?.role === 'parent' && <PendingApprovalsBanner />}
 
         {/* Hero strip: family score + kid cards */}
         <div className="grid grid-cols-12 gap-4 mb-8">
