@@ -26,6 +26,7 @@ import {
   subscribeToRequest, updateRequestItems, updateRequestMeta,
   sendForApproval, approveRequest, rejectRequest,
   startReconcile, closeReconcile, deleteRequest,
+  promotePendingStaple, keepAsOneOff,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
 } from '@/lib/purchase';
 import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
@@ -406,6 +407,23 @@ export default function PurchaseDetailPage() {
         </div>
       )}
 
+      {/* New-items count — 2026-05-18 (verification v3). Surface a
+          parent-visible cue at the top of the basket whenever the
+          helper has quick-added new items. Tapping each pending row
+          reveals the inline Promote / Keep-as-one-off choice. */}
+      {(() => {
+        const pendingCount = req.items.filter((i) => i.pendingPromote).length;
+        if (pendingCount === 0 || role !== 'parent' || (!isPending && !isDraft)) return null;
+        return (
+          <div className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-2.5 mb-3 text-[11px] text-hive-ink leading-relaxed">
+            <span className="font-nunito font-extrabold text-pantry-leaf-dk">
+              ✨ {pendingCount} new item{pendingCount === 1 ? '' : 's'} to decide.
+            </span>
+            {' '}Tap each striped row → <strong>Add to Staples</strong> (keep forever) or <strong>Keep one-off</strong> (this shop only).
+          </div>
+        );
+      })()}
+
       {/* Item list */}
       <div className="flex flex-col gap-2">
         {req.items.length === 0 && (
@@ -425,6 +443,19 @@ export default function PurchaseDetailPage() {
             onPrice={(cents) => setItemPrice(it.id, cents)}
             onActual={(p) => setItemActual(it.id, p)}
             onRemove={() => removeItem(it.id)}
+            canPromote={role === 'parent'}
+            onPromote={async () => {
+              if (!profile?.familyId || !it.stapleId) return;
+              setBusy(true);
+              try { await promotePendingStaple(profile.familyId, { requestId: req.id, itemId: it.id, stapleId: it.stapleId }); }
+              finally { setBusy(false); }
+            }}
+            onKeepOneOff={async () => {
+              if (!profile?.familyId || !it.stapleId) return;
+              setBusy(true);
+              try { await keepAsOneOff(profile.familyId, { requestId: req.id, itemId: it.id, stapleId: it.stapleId }); }
+              finally { setBusy(false); }
+            }}
             varianceOnClose={isClosed}
           />
         ))}
@@ -709,7 +740,10 @@ function Banner({ tone, title, body }: { tone: 'amber' | 'leaf' | 'rose'; title:
 }
 
 function ItemRow({
-  item, module: itemModule, currency, editable, reconcilable, onQty, onPrice, onActual, onRemove, varianceOnClose,
+  item, module: itemModule, currency, editable, reconcilable,
+  onQty, onPrice, onActual, onRemove,
+  onPromote, onKeepOneOff, canPromote,
+  varianceOnClose,
 }: {
   item: PurchaseRequestItem;
   module: PurchaseModule;
@@ -723,6 +757,15 @@ function ItemRow({
   onPrice: (cents: number | undefined) => void;
   onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
   onRemove: () => void;
+  /** Promote this item's pending staple into the family's catalogue
+   *  (only meaningful when item.pendingPromote && canPromote). */
+  onPromote: () => void;
+  /** Keep this item as a one-off — delete the placeholder staple
+   *  but leave the item in this basket. */
+  onKeepOneOff: () => void;
+  /** Whether the viewer is allowed to promote/keep this pending
+   *  item. Parents only — helpers can't write to the catalogue. */
+  canPromote: boolean;
   varianceOnClose: boolean;
 }) {
   // 2026-05-18 (verification pass v2) — collapse-by-default. Default
@@ -789,7 +832,40 @@ function ItemRow({
           rhythm is consistent. Remove (×) moves into the expanded
           section so the collapsed row stays clean. */}
       {open && canExpandEdit && (
-        <div className="border-t border-hive-line/60 p-3 grid grid-cols-2 gap-2">
+        <div className="border-t border-hive-line/60 p-3 space-y-3">
+          {/* PENDING decision strip (parent only) — added 2026-05-18
+              per Elia's verification ask: close the loop on new items
+              right here in the request flow, no separate review screen
+              needed. Helpers see the badge but the action is gated to
+              parents (they own the catalogue). */}
+          {pending && canPromote && item.stapleId && (
+            <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3">
+              <p className="text-[11px] font-nunito font-extrabold text-hive-honey-dk leading-snug">
+                ✨ New item — should this become a regular Staple?
+              </p>
+              <p className="text-[10px] text-hive-ink/80 mt-1 leading-relaxed">
+                Promote it and helpers can pick it from the Pantry next time.
+                Keep one-off and it stays in this basket only.
+              </p>
+              <div className="grid grid-cols-2 gap-2 mt-2.5">
+                <button
+                  type="button"
+                  onClick={onPromote}
+                  className="bg-pantry-leaf hover:bg-pantry-leaf-dk text-white rounded-lg py-2 font-nunito font-black text-xs"
+                >
+                  ＋ Add to Staples
+                </button>
+                <button
+                  type="button"
+                  onClick={onKeepOneOff}
+                  className="bg-hive-paper border border-hive-line text-hive-ink hover:bg-hive-cream rounded-lg py-2 font-nunito font-bold text-xs"
+                >
+                  Keep one-off
+                </button>
+              </div>
+            </div>
+          )}
+        <div className="grid grid-cols-2 gap-2">
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Qty ({item.unit})</span>
             <input
@@ -825,6 +901,7 @@ function ItemRow({
               Done
             </button>
           </div>
+        </div>
         </div>
       )}
 

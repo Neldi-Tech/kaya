@@ -687,6 +687,90 @@ export async function closeReconcile(
   await batch.commit();
 }
 
+// ── Pending-promote workflow (2026-05-18 verification fix) ───────
+//
+// When a helper quick-adds an item in the basket, two things happen:
+//   1. A Staple doc is created with `status: 'pending_promote'` —
+//      kept out of the main pickers so half-formed items don't
+//      pollute the catalogue.
+//   2. The basket line gets `pendingPromote: true` — drives the
+//      striped UI + "PENDING" badge.
+//
+// What was missing until now: a way for the parent to RESOLVE that
+// pending state. The intent in the original design was a separate
+// "Settings → Catalogue" review screen ("a parent promotes them in
+// Settings → Catalogue", per the comment in pantry.ts). Elia's
+// verification ask is to close the loop INLINE in the request flow
+// — fast + easy, decide while you're approving.
+//
+// Two resolutions:
+//   • promotePendingStaple — staple becomes a real catalogue entry;
+//     the basket line stops being pending (no more stripes / badge).
+//     Future requests can pick it from the standard picker.
+//   • keepAsOneOff — staple doc is deleted (it was a placeholder),
+//     the basket line keeps the item as a free-text purchase but no
+//     longer carries the pending badge. Nothing pollutes the catalogue.
+// Both are batched so the request item update + staple-side change
+// stay in sync.
+
+/** Parent says yes — make this a real Staple. The doc's
+ *  `pending_promote` status flips to 'active'; the current basket
+ *  line's `pendingPromote` flag is removed. The line KEEPS its
+ *  stapleId so future basket picks find this staple. */
+export async function promotePendingStaple(
+  familyId: string,
+  args: {
+    requestId: string;
+    itemId: string;
+    stapleId: string;
+  },
+): Promise<void> {
+  if (isGuestActive()) return;
+  const reqRef = requestDoc(familyId, args.requestId);
+  const stapleRef = doc(db, 'families', familyId, 'staples', args.stapleId);
+  // Read current items so we can patch just the one row without
+  // racing other concurrent edits.
+  const snap = await getDoc(reqRef);
+  if (!snap.exists()) return;
+  const items = ((snap.data().items as PurchaseRequestItem[]) ?? []).map((i) =>
+    i.id === args.itemId
+      ? { ...i, pendingPromote: false }
+      : i,
+  );
+  const batch = writeBatch(db);
+  batch.update(reqRef, { items, updatedAt: serverTimestamp() });
+  batch.update(stapleRef, { status: 'active', updatedAt: serverTimestamp() });
+  await batch.commit();
+}
+
+/** Parent says no — this is a one-off, not a regular Staple. The
+ *  placeholder Staple doc is deleted; the basket line keeps the
+ *  item (helper still buys it) but loses its stapleId + pending flag
+ *  so it renders as a normal free-text row. */
+export async function keepAsOneOff(
+  familyId: string,
+  args: {
+    requestId: string;
+    itemId: string;
+    stapleId: string;
+  },
+): Promise<void> {
+  if (isGuestActive()) return;
+  const reqRef = requestDoc(familyId, args.requestId);
+  const stapleRef = doc(db, 'families', familyId, 'staples', args.stapleId);
+  const snap = await getDoc(reqRef);
+  if (!snap.exists()) return;
+  const items = ((snap.data().items as PurchaseRequestItem[]) ?? []).map((i) =>
+    i.id === args.itemId
+      ? { ...i, pendingPromote: false, stapleId: undefined }
+      : i,
+  );
+  const batch = writeBatch(db);
+  batch.update(reqRef, { items, updatedAt: serverTimestamp() });
+  batch.delete(stapleRef);
+  await batch.commit();
+}
+
 /** Hard-delete a request the CREATOR no longer wants (2026-05-18 fix).
  *
  *  Prior behaviour set status='rejected' with note "Discarded by

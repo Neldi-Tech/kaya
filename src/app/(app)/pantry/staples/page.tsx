@@ -395,6 +395,15 @@ function StapleRow({
       <div className="flex-1 min-w-0">
         <p className="font-nunito font-extrabold text-[14px] truncate">
           {staple.name}
+          {/* 2026-05-18 — surface the pending-promote state on the
+              Staples page too. Until now these rows blended in with
+              real Staples; now they're flagged so a parent who didn't
+              promote during the request flow can see the backlog. */}
+          {staple.status === 'pending_promote' && (
+            <span className="ml-1.5 text-[9px] bg-[#FFF3D9] border border-hive-honey text-hive-honey-dk px-1.5 py-0.5 rounded font-extrabold uppercase tracking-[1px] align-middle">
+              Pending
+            </span>
+          )}
           {staple.preferredBrands && staple.preferredBrands.length > 0 && (
             <span className="ml-1.5 text-[11px] font-bold text-pantry-leaf-dk">
               · {staple.preferredBrands.slice(0, 2).join(' · ')}
@@ -468,6 +477,23 @@ function StapleRow({
           <div className="mt-1"><SupplierBadge supplier={supplier} /></div>
         )}
       </div>
+      {/* Promote inline — only renders for pending staples. Lets a
+          parent clear the backlog without opening the full Edit form.
+          The primary resolution path is in the request detail page
+          (faster + lets you choose Keep one-off too); this is the
+          safety net for stragglers. 2026-05-18. */}
+      {!isGuest && !selectMode && staple.status === 'pending_promote' && (
+        <button
+          type="button"
+          onClick={async (e) => {
+            e.stopPropagation();
+            await updateStaple(familyId, staple.id, { status: 'active' });
+          }}
+          className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline shrink-0 mr-1"
+        >
+          ＋ Promote
+        </button>
+      )}
       {!isGuest && !selectMode && (
         <button
           onClick={onEditToggle}
