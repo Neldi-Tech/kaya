@@ -45,23 +45,45 @@ export const STAPLE_CATEGORIES: { id: StapleCategory; emoji: string; label: stri
  *  household items. The form has an "Other" escape hatch that opens a
  *  free-text input for anything not in the list. */
 export const STAPLE_UNITS = [
-  { id: 'kg',     label: 'kg' },
-  { id: 'g',      label: 'g' },
-  { id: 'L',      label: 'L' },
-  { id: 'ml',     label: 'ml' },
-  { id: 'x',      label: 'x (count)' },
-  { id: 'pack',   label: 'pack' },
-  { id: 'pkt',    label: 'packet' },
-  { id: 'dozen',  label: 'dozen' },
-  { id: 'bunch',  label: 'bunch' },
-  { id: 'bag',    label: 'bag' },
-  { id: 'bottle', label: 'bottle' },
-  { id: 'can',    label: 'can' },
-  { id: 'jar',    label: 'jar' },
-  { id: 'tin',    label: 'tin' },
-  { id: 'bar',    label: 'bar' },
-  { id: 'roll',   label: 'roll' },
-  { id: 'box',    label: 'box' },
+  // ── Standard / metric ──
+  { id: 'kg',          label: 'kg' },
+  { id: 'g',           label: 'g' },
+  { id: 'L',           label: 'L' },
+  { id: 'ml',          label: 'ml' },
+  { id: 'x',           label: 'x (count)' },
+  { id: 'pack',        label: 'pack' },
+  { id: 'pkt',         label: 'packet' },
+  { id: 'dozen',       label: 'dozen' },
+  { id: 'bunch',       label: 'bunch' },
+  { id: 'bag',         label: 'bag' },
+  { id: 'bottle',      label: 'bottle' },
+  { id: 'can',         label: 'can' },
+  { id: 'jar',         label: 'jar' },
+  { id: 'tin',         label: 'tin' },
+  { id: 'bar',         label: 'bar' },
+  { id: 'roll',        label: 'roll' },
+  { id: 'box',         label: 'box' },
+  // ── East-African local measures (2026-05-18) ──
+  // Buckets are commonly used for staples sold at duka/sokoni. Full
+  // vs half buckets are distinct units because vendors price them
+  // differently — keeping them separate avoids the 0.5 hack and
+  // reads naturally on the request.
+  { id: 'bucket',      label: 'bucket (full)' },
+  { id: 'bucket-half', label: 'bucket (half)' },
+  // "Debe" — large square 20L tin, traditional for grains, cooking
+  // oil, charcoal. Common Tanzania / Kenya.
+  { id: 'debe',        label: 'debe (20L)' },
+  // "Sado" — small can/measure (~½kg), used for sugar, rice, beans
+  // by retail shop weight.
+  { id: 'can-sado',    label: 'can (sado)' },
+  // "Gunia" — sack (usually 50–100kg). Bulk grain/rice purchases.
+  { id: 'gunia',       label: 'gunia (sack)' },
+  // "Bidoo" / jerry-can — for cooking oil, paraffin, water.
+  { id: 'jerrycan',    label: 'jerrycan' },
+  // Crate — soda / eggs (usually 24 or 30 ct).
+  { id: 'crate',       label: 'crate' },
+  // Tray — eggs (30 ct).
+  { id: 'tray',        label: 'tray' },
 ] as const;
 
 // ── Recurrence cadence ───────────────────────────────────────────
@@ -124,8 +146,14 @@ export interface Staple {
   /** Unit string (e.g. 'kg', 'L', 'x') — kept simple in Phase 1A. */
   unit: string;
   cadence: Cadence;
-  /** Last bought price in cents of the family's display currency. */
+  /** Last bought price PER UNIT in cents of the family's display
+   *  currency (derived from actualCents / actualQty on close-reconcile). */
   lastBoughtCents?: number;
+  /** Last bought QUANTITY (the actualQty from the most recent
+   *  reconcile). Lets the Staples page show truthful commentary
+   *  ("Last: 5 kg × TZS 1,000 = TZS 5,000") instead of guessing
+   *  from defaultQty. Added 2026-05-18. */
+  lastBoughtQty?: number;
   /** Timestamp of the last reconciled Purchase that included this staple.
    *  Powers the Pantry "Last bought Nd ago" stamp + the Wink chip
    *  ((now − lastBoughtAt) > cadenceDays(cadence)). */

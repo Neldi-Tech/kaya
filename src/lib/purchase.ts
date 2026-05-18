@@ -681,7 +681,15 @@ export async function closeReconcile(
     const perUnit = Math.round(item.actualCents / item.actualQty);
     batch.update(
       doc(db, 'families', familyId, 'staples', item.stapleId),
-      { lastBoughtCents: perUnit, lastBoughtAt: now, updatedAt: now },
+      {
+        lastBoughtCents: perUnit,
+        // 2026-05-18 — also capture the actual qty so the Staples
+        // commentary can show real "Last: 5 kg × TZS 1,000 = TZS 5,000"
+        // instead of guessing from defaultQty.
+        lastBoughtQty: item.actualQty,
+        lastBoughtAt: now,
+        updatedAt: now,
+      },
     );
   }
   await batch.commit();
