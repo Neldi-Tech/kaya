@@ -30,6 +30,7 @@ export default function PantryCataloguePage() {
   const isParent = profile?.role === 'parent';
 
   const [q, setQ] = useState('');
+  const [activeCat, setActiveCat] = useState<StapleCategory | null>(null);
   const query = q.trim().toLowerCase();
 
   // Pantry-scoped staples only — Outdoor / Drivers items have their
@@ -42,10 +43,26 @@ export default function PantryCataloguePage() {
     ),
     [staples],
   );
-  const matches = useMemo(
-    () => query ? pantryStaples.filter((s) => s.name.toLowerCase().includes(query)) : pantryStaples,
-    [pantryStaples, query],
-  );
+  // Two filters compose: name search + active category chip.
+  const matches = useMemo(() => {
+    let list = pantryStaples;
+    if (activeCat) list = list.filter((s) => (s.category ?? 'other') === activeCat);
+    if (query)    list = list.filter((s) => s.name.toLowerCase().includes(query));
+    return list;
+  }, [pantryStaples, query, activeCat]);
+
+  // Counts per category (across the whole pantry, not filtered) for
+  // the chip badges. Helps the user pick the chip that has stuff
+  // without trial-and-error.
+  const catCounts = useMemo(() => {
+    const out = new Map<StapleCategory, number>();
+    for (const c of STAPLE_CATEGORIES) out.set(c.id, 0);
+    for (const s of pantryStaples) {
+      const cat = (s.category ?? 'other') as StapleCategory;
+      out.set(cat, (out.get(cat) ?? 0) + 1);
+    }
+    return out;
+  }, [pantryStaples]);
 
   // Group by category. Empty groups are hidden when the user searches
   // (avoids "Dairy (0)" noise during a query); shown when idle so the
@@ -86,7 +103,7 @@ export default function PantryCataloguePage() {
         </Link>
       </div>
 
-      {/* Sticky search */}
+      {/* Sticky search + per-category filter chips */}
       <div className="sticky top-0 bg-hive-cream z-10 pt-2 pb-3 -mx-4 px-4 lg:-mx-8 lg:px-8">
         <div className="relative">
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-hive-muted text-sm pointer-events-none">🔍</span>
@@ -105,6 +122,37 @@ export default function PantryCataloguePage() {
               aria-label="Clear search"
             >×</button>
           )}
+        </div>
+        {/* Category chips — horizontal scroll on mobile, wraps on desktop. */}
+        <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 -mx-1 px-1">
+          <button
+            onClick={() => setActiveCat(null)}
+            className={`flex-shrink-0 text-[11px] font-nunito font-extrabold px-3 py-1.5 rounded-full border whitespace-nowrap ${
+              activeCat === null
+                ? 'bg-pantry-leaf text-white border-pantry-leaf-dk'
+                : 'bg-hive-paper border-hive-line text-hive-muted'
+            }`}
+          >
+            All <span className="opacity-70">· {pantryStaples.length}</span>
+          </button>
+          {STAPLE_CATEGORIES.map((c) => {
+            const n = catCounts.get(c.id) ?? 0;
+            const active = activeCat === c.id;
+            return (
+              <button
+                key={c.id}
+                onClick={() => setActiveCat(active ? null : c.id)}
+                disabled={n === 0}
+                className={`flex-shrink-0 text-[11px] font-nunito font-extrabold px-3 py-1.5 rounded-full border whitespace-nowrap disabled:opacity-40 ${
+                  active
+                    ? 'bg-pantry-leaf text-white border-pantry-leaf-dk'
+                    : 'bg-hive-paper border-hive-line text-hive-muted'
+                }`}
+              >
+                {c.emoji} {c.label} <span className="opacity-70">· {n}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -125,7 +173,13 @@ export default function PantryCataloguePage() {
           <div className="text-3xl mb-2">🔍</div>
           <h3 className="font-nunito font-black text-lg">No matches</h3>
           <p className="text-hive-muted text-sm mt-1">
-            No pantry items match "<span className="font-bold">{q}</span>". Clear the search or add the item to your Staples.
+            {q && activeCat
+              ? <>No <strong>{STAPLE_CATEGORIES.find((c) => c.id === activeCat)?.label}</strong> items match "<span className="font-bold">{q}</span>".</>
+              : q
+                ? <>No pantry items match "<span className="font-bold">{q}</span>".</>
+                : <>No items in <strong>{STAPLE_CATEGORIES.find((c) => c.id === activeCat)?.label}</strong> yet.</>}
+            {' '}
+            <button onClick={() => { setQ(''); setActiveCat(null); }} className="text-pantry-leaf-dk font-bold underline">Clear filters</button>.
           </p>
         </div>
       )}
