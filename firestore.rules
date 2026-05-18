@@ -433,23 +433,60 @@ service cloud.firestore {
       // UI for now and will tighten into rule-level validators when
       // step 2 (Approval mode) lands.
       match /purchaseRequests/{requestId} {
-        allow read: if belongsToFamily(familyId);
-        // Five Household request modules all share this collection,
-        // discriminated by `module`. Pantry on `household/purchase`,
-        // Outdoor on `household/outdoor` (Gardener), Drivers on
-        // `household/drivers` (Driver), Utility on `household/utility`,
-        // Payroll self-service for ANY helper writing their OWN request
-        // (helperUid == auth.uid). v1 keeps the cross-module rule
-        // permissive — any grant permits writes against any module.
-        // Tighten with strict per-module checks (incl. payroll
-        // helperUid pinning) when a family asks.
-        allow create, update, delete: if isParentInFamily(familyId)
-          || helperCanActOnSub(familyId, 'household', 'purchase')
-          || helperCanActOnSub(familyId, 'household', 'outdoor')
-          || helperCanActOnSub(familyId, 'household', 'drivers')
-          || helperCanActOnSub(familyId, 'household', 'utility')
-          || helperCanActOnSub(familyId, 'household', 'payroll')
-          || isLegacyHelperWithoutLink(familyId);
+        // ── Read ──
+        // Non-payroll requests: any family member (today's behaviour).
+        // Payroll requests: parents see all; helpers see ONLY their
+        // own (where `helperUid == auth.uid`). Self-service privacy
+        // per the v3 design (2026-05-18, Decision B locked in).
+        allow read: if belongsToFamily(familyId)
+          && (
+            resource.data.module != 'payroll'
+            || isParentInFamily(familyId)
+            || resource.data.helperUid == request.auth.uid
+          );
+
+        // ── Create ──
+        // Parents can create anything. Helpers with the relevant
+        // sub-grant can create non-payroll requests in their module.
+        // Payroll create is self-service ONLY — a helper can create
+        // a payroll request, but it MUST pin their own UID (no
+        // creating-on-behalf-of-others). Parents can create payroll
+        // requests on behalf of any helper.
+        allow create: if isParentInFamily(familyId)
+          || (
+            request.resource.data.module == 'payroll'
+            && request.resource.data.helperUid == request.auth.uid
+          )
+          || (
+            request.resource.data.module != 'payroll'
+            && (
+              helperCanActOnSub(familyId, 'household', 'purchase')
+              || helperCanActOnSub(familyId, 'household', 'outdoor')
+              || helperCanActOnSub(familyId, 'household', 'drivers')
+              || helperCanActOnSub(familyId, 'household', 'utility')
+              || isLegacyHelperWithoutLink(familyId)
+            )
+          );
+
+        // ── Update + Delete ──
+        // Parents unconstrained. Helpers can update non-payroll
+        // requests they have grant for (existing rule), OR their own
+        // payroll requests (pinned by helperUid). Mirrors read scope.
+        allow update, delete: if isParentInFamily(familyId)
+          || (
+            resource.data.module == 'payroll'
+            && resource.data.helperUid == request.auth.uid
+          )
+          || (
+            resource.data.module != 'payroll'
+            && (
+              helperCanActOnSub(familyId, 'household', 'purchase')
+              || helperCanActOnSub(familyId, 'household', 'outdoor')
+              || helperCanActOnSub(familyId, 'household', 'drivers')
+              || helperCanActOnSub(familyId, 'household', 'utility')
+              || isLegacyHelperWithoutLink(familyId)
+            )
+          );
       }
 
       // ── Moments · Keepsake Albums ────────────────────────────────
