@@ -34,6 +34,11 @@ import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
 import { listHelpers } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
+import {
+  getTodaysFeedback, setFeedbackNote, deleteFeedbackNote,
+  type HelperFeedbackNote, type FeedbackSentiment,
+} from '@/lib/helperFeedback';
+import { todayDateString } from '@/lib/workplan';
 import type { HelperLink } from '@/lib/firestore';
 
 // Emoji map per preset — same vocabulary as the role chips in
@@ -142,6 +147,7 @@ export default function PantryWorkplanPage() {
             key={h.uid}
             helper={h}
             familyId={family.id}
+            isParent={profile?.role === 'parent'}
             expanded={!collapsedIds.has(h.uid)}
             onToggle={() => setCollapsedIds((prev) => {
               const next = new Set(prev);
@@ -177,11 +183,14 @@ export default function PantryWorkplanPage() {
 }
 
 // ── Single person row ────────────────────────────────
-function PersonCard({ helper, familyId, expanded, onToggle }: {
+function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
   helper: HelperLink;
   familyId: string;
   expanded: boolean;
   onToggle: () => void;
+  /** Parent-only affordances inside the expanded card (e.g. the
+   *  quick feedback strip — helpers can't write feedback on themselves). */
+  isParent: boolean;
 }) {
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg overflow-hidden">
@@ -216,12 +225,17 @@ function PersonCard({ helper, familyId, expanded, onToggle }: {
 
       {expanded && (
         <div className="border-t border-hive-line p-4 space-y-3 bg-hive-cream/30">
+          {/* Quick feedback strip — parent-only. One tap registers
+              👍 / 😐 / 👎 for today (upserts the day's note). Feeds
+              the new parentFeedback metric in PerformanceCard. v3
+              2026-05-18. */}
+          {isParent && <FeedbackStrip familyId={familyId} helperUid={helper.uid} />}
+
           {/* Performance card — big, icon-first, top of expanded view */}
           <PerformanceCard
             familyId={familyId}
             helperUid={helper.uid}
             name={helper.displayName}
-            days={7}
           />
 
           {/* Workplan editor (parent edits; helper views) */}
@@ -281,5 +295,140 @@ function PerfInline({ familyId, helperUid }: { familyId: string; helperUid: stri
         <span className="text-hive-muted">· {inputs.join(' · ')}</span>
       )}
     </p>
+  );
+}
+
+// ── Feedback strip (v3 — 2026-05-18) ────────────────────────────
+// Parent's daily 👍 / 😐 / 👎 on a helper. Upserts the day's note so
+// tapping again switches the sentiment; tapping the active one
+// removes the note. Inline optional comment ("Was late twice"). Feeds
+// the parentFeedback metric in PerformanceCard.
+function FeedbackStrip({ familyId, helperUid }: { familyId: string; helperUid: string }) {
+  const { profile } = useAuth();
+  const [today, setToday] = useState<HelperFeedbackNote | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const t = await getTodaysFeedback(familyId, helperUid);
+      setToday(t);
+      setNoteDraft(t?.note ?? '');
+    } catch { /* swallow */ } finally { setLoaded(true); }
+  }, [familyId, helperUid]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const setSentiment = async (sentiment: FeedbackSentiment | null) => {
+    if (!profile?.uid) return;
+    setSaving(true);
+    try {
+      if (sentiment === null) {
+        // Remove today's note.
+        await deleteFeedbackNote(familyId, helperUid, todayDateString());
+      } else {
+        await setFeedbackNote(familyId, helperUid, {
+          sentiment, note: noteDraft.trim() || undefined, byUid: profile.uid,
+        });
+      }
+      await reload();
+    } finally { setSaving(false); }
+  };
+
+  const saveNote = async () => {
+    if (!profile?.uid || !today) return;
+    setSaving(true);
+    try {
+      await setFeedbackNote(familyId, helperUid, {
+        sentiment: today.sentiment,
+        note: noteDraft.trim() || undefined,
+        byUid: profile.uid,
+      });
+      setNoteOpen(false);
+      await reload();
+    } finally { setSaving(false); }
+  };
+
+  if (!loaded) return null;
+
+  const OPTS: { id: FeedbackSentiment; emoji: string; label: string; bg: string }[] = [
+    { id: 'positive', emoji: '👍', label: 'Going well',  bg: 'bg-green-100 text-green-800 border-green-400' },
+    { id: 'neutral',  emoji: '😐', label: 'Okay',        bg: 'bg-kaya-cream text-kaya-chocolate border-kaya-warm-dark' },
+    { id: 'negative', emoji: '👎', label: 'Concern',     bg: 'bg-red-50 text-red-700 border-red-300' },
+  ];
+
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+      <p className="text-[10px] uppercase tracking-wider text-hive-muted font-bold inline-flex items-center gap-1.5">
+        👍 Today's feedback
+        {today && <span className="text-[9px] text-hive-muted normal-case font-normal">(tap again to change · ✕ to clear)</span>}
+      </p>
+      <div className="mt-2 flex gap-1.5 flex-wrap">
+        {OPTS.map((o) => {
+          const active = today?.sentiment === o.id;
+          return (
+            <button
+              key={o.id}
+              type="button"
+              disabled={saving}
+              onClick={() => setSentiment(active ? null : o.id)}
+              className={`text-[12px] font-nunito font-extrabold px-3 py-1.5 rounded-full border-2 ${
+                active ? o.bg + ' shadow-sm' : 'bg-hive-cream border-hive-line text-hive-muted'
+              } disabled:opacity-50`}
+            >
+              {o.emoji} {o.label}
+            </button>
+          );
+        })}
+        {today && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => setSentiment(null)}
+            className="text-[11px] text-hive-rose font-nunito font-bold px-2 py-1 disabled:opacity-50"
+            aria-label="Clear today's feedback"
+          >
+            ✕ Clear
+          </button>
+        )}
+      </div>
+      {today && (
+        noteOpen ? (
+          <div className="mt-2">
+            <input
+              type="text"
+              autoFocus
+              value={noteDraft}
+              onChange={(e) => setNoteDraft(e.target.value)}
+              placeholder="Optional note · e.g. 'Did the extra chicken run without being asked'"
+              maxLength={140}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-[12px] font-nunito font-bold"
+            />
+            <div className="mt-1 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => { setNoteOpen(false); setNoteDraft(today.note ?? ''); }}
+                className="text-[11px] text-hive-muted font-bold"
+              >Cancel</button>
+              <button
+                type="button"
+                onClick={saveNote}
+                disabled={saving}
+                className="text-[11px] text-pantry-leaf-dk font-extrabold underline disabled:opacity-50"
+              >{saving ? 'Saving…' : 'Save note'}</button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNoteOpen(true)}
+            className="mt-2 text-[11px] font-nunito font-bold text-pantry-leaf-dk underline"
+          >
+            {today.note ? `✏️ "${today.note}"` : '＋ Add a note'}
+          </button>
+        )
+      )}
+    </div>
   );
 }

@@ -1,17 +1,20 @@
-// Helper performance computation. v2 = workplan completion +
-// grocery-budget adherence. Future iterations layer on: rating
-// completion, parent feedback. Each metric returns 0–100 OR null
-// (when there's no data to score).
+// Helper performance computation — v3 (2026-05-18).
 //
-// The consolidated % is currently a simple average of the metrics
-// that HAVE data (so a helper without any shops doesn't get penalised
-// for the missing budget metric). Once all four metrics ship + we
-// build the weights UI, this becomes a weighted average per family
-// config (default 25/25/25/25).
+// Four metrics, each scored 0–100 OR null (when there's no data),
+// then combined into a single consolidated % using per-family
+// configurable weights:
 //
-// Designed to be cheap: workplan loads N day-docs (default 7); the
-// budget metric loads recent closed purchaseRequests via the existing
-// composite index (status ASC + closedAt DESC). Both run in parallel.
+//   1. workplan          — % of daily-scheduled tasks completed
+//   2. budget            — grocery-shop adherence (under/over estimate)
+//   3. ratingCompletion  — % of expected morning+evening ratings logged
+//   4. parentFeedback    — aggregated 👍 / 😐 / 👎 from parent
+//
+// Defaults: 25/25/25/25 weights, 90/70/50 face thresholds, 7-day window.
+// All configurable via /settings/performance (parent-only). Per-helper
+// overrides let a family exclude a metric for one helper ("tutor
+// doesn't shop, exclude budget"). When a metric is null OR excluded,
+// it drops out of the consolidated calc + the remaining weights are
+// renormalised to 100 so the score stays comparable across helpers.
 
 'use client';
 
@@ -23,8 +26,13 @@ import {
   listWorkplanItems, itemsScheduledOn, dailyCompletionPct,
   todayDateString,
 } from './workplan';
-import type { WorkplanItem, WorkplanCompletion } from './firestore';
+import { getPerformancePolicy, effectiveWeights } from './performancePolicy';
+import { getHelperFeedbackMetric, type FeedbackWindow } from './helperFeedback';
+import { getHelperLink } from './helpers';
+import type { WorkplanItem, WorkplanCompletion, PerformancePolicy } from './firestore';
 import type { PurchaseRequest } from './purchase';
+
+// ── Metric window shapes ─────────────────────────────────────────
 
 export interface HelperBudgetWindow {
   /** Score 0–100 across the window, or null when the helper hasn't
@@ -32,58 +40,80 @@ export interface HelperBudgetWindow {
    *  (not per-shop average) so one big overspend can't be cancelled
    *  by lots of tiny under-spend. */
   scorePct: number | null;
-  /** Number of helper-attributed closed shops in the window. */
   shopsCount: number;
-  /** Total estimated spend across those shops, in display-currency cents. */
   totalEstimatedCents: number;
-  /** Total actual spend across those shops, in display-currency cents. */
   totalActualCents: number;
-  /** Positive = over, negative = under. `totalActual - totalEstimated`. */
+  /** Positive = over, negative = under. */
   varianceCents: number;
 }
 
-export interface HelperPerformanceWindow {
-  /** Last N days the metric considers. Default 7. */
-  days: number;
-  // ── Workplan metric ────────────────────────────────────────────
-  /** Today's workplan % (0–100), or null when nothing was scheduled. */
-  todayPct: number | null;
-  /** Average daily completion % over the window — only counts days
-   *  that HAD scheduled tasks (vacuous-truth days are excluded). */
-  avgPct: number | null;
-  /** Number of scheduled days in the window (denominator of avgPct). */
-  scheduledDays: number;
-  /** Number of days the helper logged anything at all (touched the
-   *  app). Useful as an engagement signal separate from completion. */
-  activeDays: number;
-  /** Total tasks completed across the window — for the badge count. */
-  tasksDone: number;
-  /** Total scheduled tasks across the window — denominator of overall. */
-  tasksScheduled: number;
-  // ── Budget metric ──────────────────────────────────────────────
-  /** Budget adherence across the window. See HelperBudgetWindow. */
-  budget: HelperBudgetWindow;
-  // ── Consolidated score ─────────────────────────────────────────
-  /** Simple average of the metrics that have data (avgPct + budget.scorePct).
-   *  Null when neither metric has data. Once the remaining two
-   *  metrics ship + the weights UI lands this becomes a weighted
-   *  average per family config (default 25/25/25/25). */
-  consolidatedPct: number | null;
+export interface HelperRatingCompletionWindow {
+  /** 0–100 score, null when no ratings were expected (helper has
+   *  no kids assigned OR expectedFrequency wasn't set). */
+  scorePct: number | null;
+  /** Number of (period × kid × day) slots the helper was expected
+   *  to log a rating for, given expectedFrequency + assigned kids
+   *  + the window length. */
+  expected: number;
+  /** Number of slots actually logged in the window. */
+  logged: number;
+  /** Helper's expectedFrequency at the time the metric was computed —
+   *  surfaced on the card so parents see "expected 14, logged 11"
+   *  alongside the helper's role (e.g. Morning helper = 1/day). */
+  perDayExpected: number;
 }
 
-/** Walk backwards from `from` (default today) for `days` days and
- *  compute today's % + window avg + activity counts + budget score.
- *  Workplan + budget run in parallel — no extra wall-clock cost. */
+export interface HelperPerformanceWindow {
+  days: number;
+  // ── Workplan metric ────────────────────────────────────────────
+  todayPct: number | null;
+  avgPct: number | null;
+  scheduledDays: number;
+  activeDays: number;
+  tasksDone: number;
+  tasksScheduled: number;
+  // ── Budget metric ──────────────────────────────────────────────
+  budget: HelperBudgetWindow;
+  // ── Rating-completion metric (v3) ──────────────────────────────
+  ratingCompletion: HelperRatingCompletionWindow;
+  // ── Parent feedback metric (v3) ────────────────────────────────
+  feedback: FeedbackWindow;
+  // ── Consolidated score (weighted average, policy-driven) ───────
+  /** Final 0–100 score. Weighted average across metrics that have
+   *  data and aren't excluded for this helper. Null when EVERY
+   *  metric is null/excluded. */
+  consolidatedPct: number | null;
+  /** Snapshot of the policy used for this computation. Lets the UI
+   *  show "Excellent threshold = 88%" / "weights: 30/30/20/20" etc.
+   *  without re-fetching the doc. */
+  policy: PerformancePolicy;
+  /** Metrics that were excluded for this helper (via policy
+   *  helperOverrides). Surfaced as small "n/a" chips on the card. */
+  excludedMetrics: string[];
+}
+
+// ── Main entry ───────────────────────────────────────────────────
+
 export async function getHelperPerformance(
   familyId: string,
   helperUid: string,
   opts: { days?: number; from?: Date } = {},
 ): Promise<HelperPerformanceWindow> {
-  const days = opts.days ?? 7;
+  const policy = await getPerformancePolicy(familyId);
+  const days = opts.days ?? policy.windowDays;
   const from = opts.from ?? new Date();
-  const [items, budget] = await Promise.all([
+
+  // Fetch everything in parallel — each metric is independent.
+  const [
+    items,
+    budget,
+    ratingCompletion,
+    feedback,
+  ] = await Promise.all([
     listWorkplanItems(familyId, helperUid),
     getHelperBudgetMetric(familyId, helperUid, { days, from }),
+    getHelperRatingMetric(familyId, helperUid, { days, from }),
+    getHelperFeedbackMetric(familyId, helperUid, { days, from }),
   ]);
 
   // Pull all completions for the window in parallel.
@@ -136,32 +166,38 @@ export async function getHelperPerformance(
 
   const avgPct = scheduledDays === 0 ? null : Math.round(pctSum / scheduledDays);
 
-  // Consolidated score — simple average of metrics that have data.
-  // Skips null metrics so a helper without any shops isn't penalised.
-  const metrics: number[] = [];
-  if (avgPct !== null) metrics.push(avgPct);
-  if (budget.scorePct !== null) metrics.push(budget.scorePct);
-  const consolidatedPct = metrics.length === 0
-    ? null
-    : Math.round(metrics.reduce((a, b) => a + b, 0) / metrics.length);
+  // Consolidated score — weighted average per policy.
+  const { weights, excluded } = effectiveWeights(policy, helperUid);
+  const scores: { score: number; weight: number }[] = [];
+  if (avgPct                      !== null && weights.workplan         > 0) scores.push({ score: avgPct,                       weight: weights.workplan });
+  if (budget.scorePct             !== null && weights.budget           > 0) scores.push({ score: budget.scorePct,              weight: weights.budget });
+  if (ratingCompletion.scorePct   !== null && weights.ratingCompletion > 0) scores.push({ score: ratingCompletion.scorePct,    weight: weights.ratingCompletion });
+  if (feedback.scorePct           !== null && weights.parentFeedback   > 0) scores.push({ score: feedback.scorePct,            weight: weights.parentFeedback });
+  let consolidatedPct: number | null = null;
+  if (scores.length > 0) {
+    const wSum = scores.reduce((a, s) => a + s.weight, 0);
+    if (wSum > 0) {
+      consolidatedPct = Math.round(scores.reduce((a, s) => a + s.score * s.weight, 0) / wSum);
+    }
+  }
 
-  return { days, todayPct, avgPct, scheduledDays, activeDays, tasksDone, tasksScheduled, budget, consolidatedPct };
+  return {
+    days,
+    todayPct, avgPct, scheduledDays, activeDays, tasksDone, tasksScheduled,
+    budget, ratingCompletion, feedback,
+    consolidatedPct, policy, excludedMetrics: excluded,
+  };
 }
+
+// ── Budget metric ────────────────────────────────────────────────
 
 /** Budget adherence metric for one helper. Pulls every closed
  *  PurchaseRequest the helper created in the window, sums estimated
  *  + actual across them, scores by overage:
  *    actual ≤ estimated → 100 (on or under budget)
- *    actual > estimated → 100 - 2 × (overage %), floored at 0
- *      (i.e. 10% over = 80, 25% over = 50, 50%+ over = 0)
+ *    actual > estimated → 100 − 2 × (overage %), floored at 0
  *  Returns scorePct = null when the helper has no closed shops in
- *  the window — null is "no data", NOT "zero score".
- *
- *  Per-shop attribution: each PurchaseRequest carries `createdBy` +
- *  `createdByRole` so the helper is identifiable without any schema
- *  change. The helper-filter is post-fetch (small N, ~100 docs cap)
- *  to avoid needing a composite index that includes createdBy.
- */
+ *  the window — null is "no data", NOT "zero score". */
 export async function getHelperBudgetMetric(
   familyId: string,
   helperUid: string,
@@ -184,8 +220,6 @@ export async function getHelperBudgetMetric(
   try {
     snaps = await getDocs(q);
   } catch {
-    // Missing composite index OR rules denied — degrade gracefully
-    // to "no budget data" so the rest of the perf card still renders.
     return { scorePct: null, shopsCount: 0, totalEstimatedCents: 0, totalActualCents: 0, varianceCents: 0 };
   }
 
@@ -210,7 +244,7 @@ export async function getHelperBudgetMetric(
 
   let scorePct: number;
   if (totalEstimatedCents === 0) {
-    scorePct = 100; // no plan to compare against → neutral
+    scorePct = 100;
   } else if (varianceCents <= 0) {
     scorePct = 100;
   } else {
@@ -221,12 +255,107 @@ export async function getHelperBudgetMetric(
   return { scorePct, shopsCount: helperShops.length, totalEstimatedCents, totalActualCents, varianceCents };
 }
 
-/** Friendly emoji + label for a perf %. Used by PerformanceCard so the
- *  visual is readable even before someone parses the number. */
-export function perfFace(pct: number | null): { emoji: string; label: string; tone: 'great' | 'ok' | 'low' | 'none' } {
-  if (pct === null) return { emoji: '🟡', label: 'No data',   tone: 'none' };
-  if (pct >= 90)    return { emoji: '😀', label: 'Excellent', tone: 'great' };
-  if (pct >= 70)    return { emoji: '🙂', label: 'Good',      tone: 'great' };
-  if (pct >= 50)    return { emoji: '😐', label: 'Okay',      tone: 'ok' };
-  return                     { emoji: '🙁', label: 'Low',       tone: 'low' };
+// ── Rating-completion metric (v3 — new) ──────────────────────────
+
+/** What fraction of expected morning/evening ratings the helper has
+ *  actually logged in the window. Pulls all DailyRating docs where
+ *  ratedBy === helperUid then scores against:
+ *    expected = assignedKidsCount × perDayExpected × windowDays
+ *  perDayExpected from HelperLink.expectedFrequency:
+ *    'morning' or 'evening' → 1
+ *    'both'                  → 2
+ *    'flexible' / undef      → 1 (treat as morning-only baseline)
+ *
+ *  Returns scorePct = null when the helper has NO kids assigned or
+ *  the helper-link doc doesn't exist (legacy helpers).
+ *
+ *  Rule note: ratings are queryable by parents + helpers in the same
+ *  family — no extra rule needed for this metric. */
+export async function getHelperRatingMetric(
+  familyId: string,
+  helperUid: string,
+  opts: { days?: number; from?: Date } = {},
+): Promise<HelperRatingCompletionWindow> {
+  const days = opts.days ?? 7;
+  const from = opts.from ?? new Date();
+
+  // Resolve helper-link to figure out expected frequency + scope.
+  let perDayExpected = 1;
+  let assignedKids = 0;
+  try {
+    const link = await getHelperLink(familyId, helperUid);
+    if (!link) {
+      // Legacy helper with no HelperLink doc — score unmeasurable.
+      return { scorePct: null, expected: 0, logged: 0, perDayExpected: 0 };
+    }
+    assignedKids = (link.kidIds ?? []).length;
+    if (link.expectedFrequency === 'both') perDayExpected = 2;
+    else if (link.expectedFrequency === 'morning' || link.expectedFrequency === 'evening') perDayExpected = 1;
+    else perDayExpected = 1;
+  } catch {
+    return { scorePct: null, expected: 0, logged: 0, perDayExpected: 0 };
+  }
+
+  if (assignedKids === 0 || perDayExpected === 0) {
+    return { scorePct: null, expected: 0, logged: 0, perDayExpected };
+  }
+
+  // Pull the helper's ratings in the window.
+  const sinceIso = (() => {
+    const d = new Date(from);
+    d.setDate(d.getDate() - (days - 1));
+    return todayDateString(d);
+  })();
+  const fromIso = todayDateString(from);
+  let logged = 0;
+  try {
+    // Query is filtered by ratedBy first (server-side) so the helper
+    // only sees their own ratings; date filter is in-memory because
+    // DailyRating uses a `date: string` field (sorted lex equals
+    // chronological for YYYY-MM-DD).
+    const q = query(
+      collection(db, 'families', familyId, 'dailyRatings'),
+      where('ratedBy', '==', helperUid),
+      orderBy('date', 'desc'),
+      limit(200),
+    );
+    const snap = await getDocs(q);
+    snap.forEach((d) => {
+      const data = d.data() as { date?: string };
+      const date = data.date;
+      if (!date) return;
+      if (date >= sinceIso && date <= fromIso) logged++;
+    });
+  } catch {
+    // Composite index likely missing for (ratedBy + date desc) — fail
+    // soft so the rest of the card still renders.
+    return { scorePct: null, expected: 0, logged: 0, perDayExpected };
+  }
+
+  const expected = assignedKids * perDayExpected * days;
+  const scorePct = expected === 0 ? null : Math.max(0, Math.min(100, Math.round((logged / expected) * 100)));
+  return { scorePct, expected, logged, perDayExpected };
+}
+
+// ── Face ─────────────────────────────────────────────────────────
+
+export interface PerfFace {
+  emoji: string;
+  label: string;
+  tone: 'great' | 'ok' | 'low' | 'none';
+}
+
+/** Friendly emoji + label for a perf %, using the family's policy
+ *  thresholds (or the v2 hardcoded 90/70/50 when no policy was
+ *  passed — keeps callers that don't yet thread the policy through
+ *  working without code change). */
+export function perfFace(
+  pct: number | null,
+  thresholds: { excellent: number; good: number; okay: number } = { excellent: 90, good: 70, okay: 50 },
+): PerfFace {
+  if (pct === null)              return { emoji: '🟡', label: 'No data',   tone: 'none' };
+  if (pct >= thresholds.excellent) return { emoji: '😀', label: 'Excellent', tone: 'great' };
+  if (pct >= thresholds.good)      return { emoji: '🙂', label: 'Good',      tone: 'great' };
+  if (pct >= thresholds.okay)      return { emoji: '😐', label: 'Okay',      tone: 'ok' };
+  return                                   { emoji: '🙁', label: 'Low',       tone: 'low' };
 }

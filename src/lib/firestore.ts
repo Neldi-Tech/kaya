@@ -488,6 +488,75 @@ export interface WishlistItem {
   createdAt: Timestamp;
 }
 
+// ── Helper performance policy (v3, 2026-05-18) ──────────────────
+//
+// Per-family rules for how a helper's consolidated performance score
+// is computed. v2 (workplan + budget, hardcoded 50/50, hardcoded face
+// thresholds, hardcoded 7-day window) was always intended to be a
+// stepping stone — Elia's original plan was 4 metrics × 25% each,
+// parent-configurable. This is that.
+//
+// Doc location: /families/{f}/performancePolicy/default
+// Singleton today; the subcollection layout leaves room for named
+// alternate policies later (e.g. per-period overrides).
+
+export type PerformanceMetric =
+  | 'workplan'           // % of daily-scheduled tasks completed
+  | 'budget'             // shop-cost adherence (under/over estimate)
+  | 'ratingCompletion'   // % of expected morning+evening ratings logged
+  | 'parentFeedback';    // aggregated 👍 / 😐 / 👎 from parent in window
+
+export interface PerformancePolicy {
+  /** Weights as percentages — must sum to 100. Default 25 each. */
+  weights: Record<PerformanceMetric, number>;
+  /** Face-emoji cutoffs (0–100). Default 90 / 70 / 50:
+   *    pct ≥ excellent → 😀 Excellent
+   *    pct ≥ good      → 🙂 Good
+   *    pct ≥ okay      → 😐 Okay
+   *    pct <  okay     → 🙁 Low
+   *  Validation guarantees excellent > good > okay > 0. */
+  thresholds: { excellent: number; good: number; okay: number };
+  /** Rolling window length in days for every metric. Default 7. */
+  windowDays: number;
+  /** Per-helper escape hatch — typically used to exclude a metric
+   *  that doesn't apply ("tutor doesn't shop, exclude budget";
+   *  "grandparent doesn't have a workplan, exclude workplan"). */
+  helperOverrides?: Record<string, { excludeMetrics?: PerformanceMetric[] }>;
+  updatedAt?: Timestamp;
+  updatedBy?: string;
+}
+
+export const DEFAULT_PERFORMANCE_POLICY: PerformancePolicy = {
+  weights: { workplan: 25, budget: 25, ratingCompletion: 25, parentFeedback: 25 },
+  thresholds: { excellent: 90, good: 70, okay: 50 },
+  windowDays: 7,
+};
+
+// ── Parent feedback on a helper (v3 — 2026-05-18) ────────────────
+//
+// Doc: /families/{f}/helpers/{uid}/feedbackNotes/{YYYY-MM-DD}
+// One doc per day (upsert by date) so a parent's tap "👍 today" is
+// idempotent. Metric aggregates sentiment across the window:
+//   score = clamp((positive% − negative%), 0, 100)
+// Null when there are no notes in the window.
+
+export type FeedbackSentiment = 'positive' | 'neutral' | 'negative';
+
+export interface HelperFeedbackNote {
+  /** Doc id = YYYY-MM-DD. Stored as a field for queryability. */
+  date: string;
+  sentiment: FeedbackSentiment;
+  /** Optional one-line note ("Did extra without being asked",
+   *  "Was late twice this week", etc.). */
+  note?: string;
+  createdAt: Timestamp;
+  /** Parent UID who left the note. */
+  createdBy: string;
+  /** Latest-edit timestamp for the same day. */
+  updatedAt?: Timestamp;
+  updatedBy?: string;
+}
+
 export interface DailyRating {
   id: string;
   childId: string;
