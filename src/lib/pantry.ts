@@ -138,10 +138,13 @@ export interface Staple {
   status?: 'active' | 'pending_promote';
   /** Which Household module this staple belongs to. Default 'pantry'
    *  for any staple that doesn't set it (so existing data behaves as
-   *  before). 'outdoor' staples surface in the Outdoor picker (garden,
-   *  pool, kuku, pets, repairs, vehicle, etc.) and are hidden from
-   *  the Pantry picker. */
-  module?: 'pantry' | 'outdoor';
+   *  before). Module-tagged staples surface in their module's picker
+   *  (Outdoor for garden/pool/kuku/pets, Drivers for fuel/parts/etc.)
+   *  and are hidden from the others. Utility + Payroll don't usually
+   *  use Staple-shaped catalogue data — they read from their own
+   *  collections — but the field accepts those values for forward
+   *  compatibility. */
+  module?: 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll';
   /** Optional supplier this staple usually comes from — drives the
    *  "group by supplier" UX on the active list. */
   preferredSupplierId?: string;

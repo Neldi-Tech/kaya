@@ -198,12 +198,12 @@ export default function PantryHomePage() {
           </span>
         </Link>
         <Link
-          href="/pantry/directory"
+          href="/pantry/browse"
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
         >
           <span className="text-2xl leading-none">🧺</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Browse</span>
-          <span className="text-[11px] text-hive-muted">Staples + foods catalog</span>
+          <span className="text-[11px] text-hive-muted">Pantry + Others catalogue</span>
         </Link>
         <Link
           href="/pantry/meals"
