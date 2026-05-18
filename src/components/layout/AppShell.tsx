@@ -64,6 +64,13 @@ type NavItem = {
   mobileLabel?: string;
   soon?: boolean;
   disabled?: boolean;
+  /** When set, renders a hairline divider + uppercase group label
+   *  above this item — used to group the Household sub-nav into
+   *  semantic clusters (Request modules / Catalogues & plans /
+   *  Browse & suppliers / Parent · money) per the v4-final design
+   *  (2026-05-18). Other sections (Kaya / Hive / Stats / Fun) don't
+   *  set this — no divider renders for them. */
+  groupStart?: string;
 };
 
 // Each row in the desktop sidebar (and the mobile "More" sheet) is one of:
@@ -146,18 +153,33 @@ const KAYA_NAV: NavItem[] = [
 // Household · runs the home. Pantry today; shopping list, meal plan,
 // household routines follow. (Renamed from "Pantry" — the section name
 // now describes the surface, not one feature inside it.)
+// Order per v4-final §01 (locked 2026-05-18):
+//   The Pantry (section home, no group)
+//   ── Request modules ── Purchase · Utilities · Outdoor · Drivers · Payroll
+//   ── Catalogues & plans ── Staples · Meal Planner · Workplan
+//   ── Browse & suppliers ── Browse Catalogue · Other Catalogue · Soko
+//   ── Parent · money ── Finances · Budget
+// Other Catalogue points at the v3 path /pantry/browse/others until
+// Step 4 builds the new /pantry/browse/other surface.
 const HOUSEHOLD_NAV: NavItem[] = [
-  { path: '/pantry',          icon: '🛒', label: 'The Pantry' },
-  { path: '/pantry/people',   icon: '🤝', label: 'People' },
-  // Request modules (five of them)
-  { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
-  { path: '/pantry/outdoor',  icon: '🌿', label: 'Outdoor' },
-  { path: '/pantry/drivers',  icon: '🚗', label: 'Drivers' },
-  { path: '/pantry/utility',  icon: '⚡', label: 'Utility' },
-  { path: '/pantry/payroll',  icon: '🤝', label: 'Payroll' },
-  // Money roll-up + settings
-  { path: '/pantry/finances', icon: '💰', label: 'Finances' },
-  { path: '/pantry/budget',   icon: '⚙️', label: 'Budget' },
+  { path: '/pantry',                 icon: '🛒', label: 'The Pantry' },
+
+  { path: '/pantry/purchase',        icon: '🧾', label: 'Household Purchase', groupStart: 'Request modules' },
+  { path: '/pantry/utility',         icon: '⚡', label: 'Utilities' },
+  { path: '/pantry/outdoor',         icon: '🌿', label: 'Outdoor' },
+  { path: '/pantry/drivers',         icon: '🚗', label: 'Drivers' },
+  { path: '/pantry/payroll',         icon: '🤝', label: 'Payroll' },
+
+  { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans' },
+  { path: '/pantry/meals',           icon: '📅', label: 'Meal Planner' },
+  { path: '/pantry/people',          icon: '📋', label: 'Workplan' },
+
+  { path: '/pantry/browse',          icon: '🧺', label: 'Browse Catalogue', groupStart: 'Browse & suppliers' },
+  { path: '/pantry/browse/others',   icon: '📂', label: 'Other Catalogue' },
+  { path: '/pantry/suppliers',       icon: '🏪', label: 'Soko' },
+
+  { path: '/pantry/finances',        icon: '💰', label: 'Finances',    groupStart: 'Parent · money' },
+  { path: '/pantry/budget',          icon: '⚙️', label: 'Budget' },
 ];
 
 // The Hive · kid's three-layer wallet plus parent controls.
@@ -615,22 +637,38 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     )}
                   </>
                 );
+                // groupStart renders a hairline + uppercase label above
+                // the item (v4-final §01 — Household sub-nav grouping).
+                const divider = item.groupStart ? (
+                  <div
+                    key={`__divider__${item.path}`}
+                    className="flex items-center gap-2 mt-3 mb-1 px-1 text-[9px] font-bold uppercase tracking-[2px] text-kaya-sand"
+                  >
+                    <span>{item.groupStart}</span>
+                    <span className="flex-1 h-px bg-kaya-warm-dark" />
+                  </div>
+                ) : null;
                 if (item.disabled) {
                   return (
-                    <div key={item.path} aria-disabled="true" className={itemClasses}>
-                      {inner}
+                    <div key={item.path}>
+                      {divider}
+                      <div aria-disabled="true" className={itemClasses}>
+                        {inner}
+                      </div>
                     </div>
                   );
                 }
                 return (
-                  <Link
-                    key={item.path}
-                    href={item.path}
-                    onClick={() => setOpenSheetId(null)}
-                    className={itemClasses}
-                  >
-                    {inner}
-                  </Link>
+                  <div key={item.path}>
+                    {divider}
+                    <Link
+                      href={item.path}
+                      onClick={() => setOpenSheetId(null)}
+                      className={itemClasses}
+                    >
+                      {inner}
+                    </Link>
+                  </div>
                 );
               })}
             </div>
