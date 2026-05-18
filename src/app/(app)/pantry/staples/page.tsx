@@ -14,6 +14,8 @@ import {
   STAPLE_CATEGORIES, StapleCategory, Cadence,
   STAPLE_UNITS, MAX_PREFERRED_BRANDS,
   addStaple, updateStaple, deleteStaple,
+  displayStapleName, secondaryStapleName, stapleMatchesQuery,
+  type ViewerRole,
   Staple,
 } from '@/lib/pantry';
 import { suggestStaples } from '@/lib/pantryStapleSuggestions';
@@ -55,12 +57,18 @@ export default function StaplesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // 2026-05-18 — viewer role threads through every staple display
+  // surface for the bilingual rendering. Defaults to 'parent' for
+  // the in-between loading state so guests don't get the helper view.
+  const viewer: ViewerRole = profile?.role === 'helper' ? 'helper' : 'parent';
+
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
     return staples.filter((s) => {
       if (filter !== 'all' && s.category !== filter) return false;
       if (!query) return true;
-      if (s.name.toLowerCase().includes(query)) return true;
+      // Search matches name + name2 (bilingual) + any preferredBrand.
+      if (stapleMatchesQuery(s, query)) return true;
       if ((s.preferredBrands ?? []).some((b) => b.toLowerCase().includes(query))) return true;
       return false;
     });
@@ -235,6 +243,7 @@ export default function StaplesPage() {
             <StapleRow
               key={s.id}
               staple={s}
+              viewer={viewer}
               suppliers={sokoSuppliers}
               currency={currency}
               editing={editingId === s.id}
@@ -300,10 +309,12 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleRow({
-  staple, suppliers, currency, editing, onEditToggle, familyId, isGuest,
+  staple, viewer, suppliers, currency, editing, onEditToggle, familyId, isGuest,
   selectMode, selected, onToggleSelect,
 }: {
   staple: Staple;
+  /** Drives the bilingual headline: parent → name; helper → name2. */
+  viewer: ViewerRole;
   suppliers: import('@/lib/pantry').Supplier[];
   currency: string;
   editing: boolean;
@@ -394,8 +405,11 @@ function StapleRow({
         {cat?.emoji || '✨'}
       </div>
       <div className="flex-1 min-w-0">
+        {/* Bilingual headline (2026-05-18). Parent: name · brands ·
+            badges. Helper: name2 (their language) headline, with
+            name muted underneath so they can learn the cross-reference. */}
         <p className="font-nunito font-extrabold text-[14px] truncate">
-          {staple.name}
+          {displayStapleName(staple, viewer)}
           {/* 2026-05-18 — surface the pending-promote state on the
               Staples page too. Until now these rows blended in with
               real Staples; now they're flagged so a parent who didn't
@@ -412,6 +426,12 @@ function StapleRow({
             </span>
           )}
         </p>
+        {/* Secondary name under the headline — muted. */}
+        {secondaryStapleName(staple, viewer) && (
+          <p className="text-[11px] text-hive-muted/80 italic truncate">
+            {secondaryStapleName(staple, viewer)}
+          </p>
+        )}
         {/* Spec line: qty + cadence + per-unit price.
             Price stays per-unit (canonical input the system needs).
             2026-05-18: explicit "/unit" suffix removes the ambiguity
@@ -542,6 +562,10 @@ function StapleForm({
   onDelete?: () => void;
 }) {
   const [name, setName] = useState(existing?.name || '');
+  // 2026-05-18 — bilingual: optional secondary / local name (Swahili,
+  // helper's first language, etc.). Helpers see this as their primary
+  // headline; parents see it muted below the primary.
+  const [name2, setName2] = useState(existing?.name2 || '');
   const [category, setCategory] = useState<StapleCategory>(existing?.category || 'pantry');
   const [defaultQty, setDefaultQty] = useState<number>(existing?.defaultQty || 1);
   // The unit is a dropdown choice; if the existing value isn't in the
@@ -602,6 +626,7 @@ function StapleForm({
       const cleanedBrands = brands.map((b) => b.trim()).filter((b) => b.length > 0);
       const payload = {
         name: name.trim(),
+        name2: name2.trim() || undefined,
         category,
         // 2026-05-18 — preserve decimals (drop Math.round) so 0.5 kg
         // or 1.5 L round-trip exactly as entered.
@@ -651,6 +676,25 @@ function StapleForm({
             ))}
           </div>
         )}
+      </div>
+
+      {/* Optional secondary / local-language name (2026-05-18). Helpers
+          see this as their primary headline; parents see it muted
+          under the primary name. Both names are searchable. */}
+      <div>
+        <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+          Local name (optional)
+          <span className="text-hive-muted/70 normal-case tracking-normal font-normal ml-1">
+            · Swahili / nanny's word — helpers see this first
+          </span>
+        </label>
+        <input
+          value={name2}
+          onChange={(e) => setName2(e.target.value)}
+          placeholder="e.g. Asali (for Honey)"
+          maxLength={60}
+          className="w-full mt-1 h-10 px-3 bg-hive-cream rounded-[12px] text-sm font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+        />
       </div>
 
       <div>

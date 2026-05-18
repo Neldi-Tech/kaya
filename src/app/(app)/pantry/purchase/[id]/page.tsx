@@ -27,10 +27,15 @@ import {
   sendForApproval, approveRequest, rejectRequest,
   startReconcile, closeReconcile, deleteRequest,
   promotePendingStaple, keepAsOneOff,
+  renamePendingItem, findStapleConflict, linkPendingToExisting,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
   formatRequestSeq,
 } from '@/lib/purchase';
-import { addStaple, type Staple, STAPLE_CATEGORIES } from '@/lib/pantry';
+import {
+  addStaple, type Staple, STAPLE_CATEGORIES,
+  displayStapleName, secondaryStapleName, stapleMatchesQuery,
+  type ViewerRole,
+} from '@/lib/pantry';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
@@ -133,6 +138,9 @@ export default function PurchaseDetailPage() {
         id: cryptoRandomId(),
         stapleId: s.id,
         name: s.name,
+        // Snapshot the local-name too so the basket renders bilingual
+        // without needing to re-fetch the staple. 2026-05-18.
+        ...(s.name2 ? { name2: s.name2 } : {}),
         category: s.category,
         qty: s.defaultQty || 1,
         unit: s.unit,
@@ -277,6 +285,8 @@ export default function PurchaseDetailPage() {
   // Outdoor requests see only outdoor staples. Missing `module` on
   // legacy staples defaults to 'pantry'.
   const reqModule = req.module ?? 'pantry';
+  // 2026-05-18 — viewer for bilingual display.
+  const viewer: ViewerRole = role;
   const pickable = staples.filter((s) =>
     !inBasket.has(s.id)
     && s.status !== 'pending_promote'
@@ -284,7 +294,7 @@ export default function PurchaseDetailPage() {
   );
   const q = pickerQuery.trim().toLowerCase();
   const filteredPickable = q
-    ? pickable.filter((s) => s.name.toLowerCase().includes(q))
+    ? pickable.filter((s) => stapleMatchesQuery(s, q))
     : pickable;
 
   const total = reconcilable || isClosed
@@ -447,6 +457,7 @@ export default function PurchaseDetailPage() {
           <ItemRow
             key={it.id}
             item={it}
+            viewer={viewer}
             module={reqModule}
             currency={currency}
             editable={editable}
@@ -456,18 +467,17 @@ export default function PurchaseDetailPage() {
             onActual={(p) => setItemActual(it.id, p)}
             onRemove={() => removeItem(it.id)}
             canPromote={role === 'parent'}
-            onPromote={async () => {
-              if (!profile?.familyId || !it.stapleId) return;
-              setBusy(true);
-              try { await promotePendingStaple(profile.familyId, { requestId: req.id, itemId: it.id, stapleId: it.stapleId }); }
-              finally { setBusy(false); }
-            }}
-            onKeepOneOff={async () => {
-              if (!profile?.familyId || !it.stapleId) return;
-              setBusy(true);
-              try { await keepAsOneOff(profile.familyId, { requestId: req.id, itemId: it.id, stapleId: it.stapleId }); }
-              finally { setBusy(false); }
-            }}
+            pendingCard={
+              role === 'parent' && it.pendingPromote && it.stapleId
+                ? <PendingDecisionCard
+                    familyId={profile?.familyId || ''}
+                    requestId={req.id}
+                    item={it}
+                    staples={staples}
+                    setBusy={setBusy}
+                  />
+                : null
+            }
             varianceOnClose={isClosed}
           />
         ))}
@@ -532,7 +542,11 @@ export default function PurchaseDetailPage() {
                     >
                       <div className="w-9 h-9 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-base">{stapleEmoji(s)}</div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-nunito font-extrabold text-sm truncate">{s.name}</div>
+                        {/* Bilingual headline — helper sees name2 first */}
+                        <div className="font-nunito font-extrabold text-sm truncate">{displayStapleName(s, viewer)}</div>
+                        {secondaryStapleName(s, viewer) && (
+                          <div className="text-[10px] text-hive-muted/80 italic truncate">{secondaryStapleName(s, viewer)}</div>
+                        )}
                         <div className="text-[11px] text-hive-muted">
                           {s.defaultQty} {s.unit}
                           {s.lastBoughtCents != null && ` · ${formatCents(s.lastBoughtCents, currency)} ea`}
@@ -752,12 +766,14 @@ function Banner({ tone, title, body }: { tone: 'amber' | 'leaf' | 'rose'; title:
 }
 
 function ItemRow({
-  item, module: itemModule, currency, editable, reconcilable,
+  item, viewer, module: itemModule, currency, editable, reconcilable,
   onQty, onPrice, onActual, onRemove,
-  onPromote, onKeepOneOff, canPromote,
+  canPromote, pendingCard,
   varianceOnClose,
 }: {
   item: PurchaseRequestItem;
+  /** Bilingual viewer — helper sees name2 first, parent sees name. */
+  viewer: ViewerRole;
   module: PurchaseModule;
   currency: string;
   editable: boolean;
@@ -769,15 +785,13 @@ function ItemRow({
   onPrice: (cents: number | undefined) => void;
   onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
   onRemove: () => void;
-  /** Promote this item's pending staple into the family's catalogue
-   *  (only meaningful when item.pendingPromote && canPromote). */
-  onPromote: () => void;
-  /** Keep this item as a one-off — delete the placeholder staple
-   *  but leave the item in this basket. */
-  onKeepOneOff: () => void;
   /** Whether the viewer is allowed to promote/keep this pending
    *  item. Parents only — helpers can't write to the catalogue. */
   canPromote: boolean;
+  /** Pre-rendered pending-decision card (parent passes a stateful
+   *  card so it can chain rename / cross-check / promote in one
+   *  scope). Only used when canPromote && item.pendingPromote. */
+  pendingCard: React.ReactNode;
   varianceOnClose: boolean;
 }) {
   // 2026-05-18 (verification pass v2) — collapse-by-default. Default
@@ -807,14 +821,18 @@ function ItemRow({
       >
         <div className="w-10 h-10 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-lg flex-shrink-0">{emoji}</div>
         <div className="flex-1 min-w-0">
+          {/* Bilingual headline — helper sees name2 first if present. */}
           <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
-            <span className="truncate">{item.name}</span>
+            <span className="truncate">{displayStapleName(item, viewer)}</span>
             {pending && (
               <span className="text-[9px] bg-[#FFF3D9] border border-hive-honey text-hive-honey-dk px-1.5 py-0.5 rounded font-extrabold uppercase tracking-[1px]">
                 Pending
               </span>
             )}
           </div>
+          {secondaryStapleName(item, viewer) && (
+            <div className="text-[10px] text-hive-muted/80 italic truncate">{secondaryStapleName(item, viewer)}</div>
+          )}
           <div className="text-[11px] text-hive-muted font-bold truncate">
             {item.qty} {item.unit}
             {item.estimatedCents != null && ` · ${formatCents(item.estimatedCents, currency)} ea`}
@@ -850,33 +868,7 @@ function ItemRow({
               right here in the request flow, no separate review screen
               needed. Helpers see the badge but the action is gated to
               parents (they own the catalogue). */}
-          {pending && canPromote && item.stapleId && (
-            <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3">
-              <p className="text-[11px] font-nunito font-extrabold text-hive-honey-dk leading-snug">
-                ✨ New item — should this become a regular Staple?
-              </p>
-              <p className="text-[10px] text-hive-ink/80 mt-1 leading-relaxed">
-                Promote it and helpers can pick it from the Pantry next time.
-                Keep one-off and it stays in this basket only.
-              </p>
-              <div className="grid grid-cols-2 gap-2 mt-2.5">
-                <button
-                  type="button"
-                  onClick={onPromote}
-                  className="bg-pantry-leaf hover:bg-pantry-leaf-dk text-white rounded-lg py-2 font-nunito font-black text-xs"
-                >
-                  ＋ Add to Staples
-                </button>
-                <button
-                  type="button"
-                  onClick={onKeepOneOff}
-                  className="bg-hive-paper border border-hive-line text-hive-ink hover:bg-hive-cream rounded-lg py-2 font-nunito font-bold text-xs"
-                >
-                  Keep one-off
-                </button>
-              </div>
-            </div>
-          )}
+          {pending && canPromote && item.stapleId && pendingCard}
         <div className="grid grid-cols-2 gap-2">
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Qty ({item.unit})</span>
@@ -942,6 +934,202 @@ function ItemRow({
           </label>
         </div>
       )}
+    </div>
+  );
+}
+
+// PendingDecisionCard — parent-only review surface for items the
+// helper quick-added at the shop. Three actions in one card:
+//   1. EDIT NAME — primary + optional local (Swahili) secondary,
+//      so the parent can correct the helper's quick-typed label
+//      before promoting (e.g. helper typed "Asali" → parent renames
+//      to "Honey" + sets secondary "Asali" for nanny searchability).
+//   2. ADD TO STAPLES — promote to catalogue. Cross-checks against
+//      existing staples first; if a duplicate is found, surfaces an
+//      in-app confirm asking the parent to link to the existing
+//      staple instead of creating a near-twin.
+//   3. KEEP ONE-OFF — delete placeholder; item stays in basket only.
+// Lifted into its own component because the rename + cross-check
+// state is local + the JSX is non-trivial. 2026-05-18.
+function PendingDecisionCard({
+  familyId, requestId, item, staples, setBusy,
+}: {
+  familyId: string;
+  requestId: string;
+  item: PurchaseRequestItem;
+  staples: Staple[];
+  setBusy: (b: boolean) => void;
+}) {
+  const confirmAction = useConfirm();
+  // Edit-mode toggle — collapsed by default so the card stays small;
+  // tap "✏️ Edit name" to expand the two inputs.
+  const [editing, setEditing] = useState(false);
+  const [nameDraft, setNameDraft] = useState(item.name);
+  const [name2Draft, setName2Draft] = useState(item.name2 ?? '');
+  const [saving, setSaving] = useState(false);
+
+  // Re-sync drafts when the item itself changes (e.g. external
+  // basket edit). Avoids stale inputs if the parent navigates away
+  // and back without closing the row.
+  useEffect(() => {
+    if (!editing) {
+      setNameDraft(item.name);
+      setName2Draft(item.name2 ?? '');
+    }
+  }, [item.name, item.name2, editing]);
+
+  const saveRename = async () => {
+    if (!item.stapleId) return;
+    const trimmed = nameDraft.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      await renamePendingItem(familyId, {
+        requestId,
+        itemId: item.id,
+        stapleId: item.stapleId,
+        name: trimmed,
+        name2: name2Draft.trim() || undefined,
+      });
+      setEditing(false);
+    } finally { setSaving(false); }
+  };
+
+  const promote = async () => {
+    if (!item.stapleId) return;
+    // Cross-check against existing family staples BEFORE creating a
+    // duplicate catalogue entry. Match by name OR name2 (case- +
+    // punctuation-insensitive) so "Honey" finds "honey" finds "Asali".
+    const candidate = { id: item.stapleId, name: item.name, name2: item.name2 };
+    const conflict = findStapleConflict(staples, candidate);
+    if (conflict) {
+      const ok = await confirmAction({
+        title: `Already a Staple — "${conflict.name}"`,
+        message:
+          `Looks like you already have this in your Staples${conflict.name2 ? ` (local: ${conflict.name2})` : ''}. ` +
+          `Link this purchase to the existing one instead of creating a duplicate?`,
+        confirmLabel: 'Use existing',
+        cancelLabel: 'Add as new anyway',
+      });
+      if (ok) {
+        setBusy(true);
+        try {
+          await linkPendingToExisting(familyId, {
+            requestId,
+            itemId: item.id,
+            pendingStapleId: item.stapleId,
+            existingStapleId: conflict.id,
+            existingName: conflict.name,
+            existingName2: conflict.name2,
+          });
+        } finally { setBusy(false); }
+        return;
+      }
+      // Parent chose "Add as new anyway" → fall through to promote.
+    }
+    setBusy(true);
+    try {
+      await promotePendingStaple(familyId, {
+        requestId,
+        itemId: item.id,
+        stapleId: item.stapleId,
+      });
+    } finally { setBusy(false); }
+  };
+
+  const keepOneOff = async () => {
+    if (!item.stapleId) return;
+    setBusy(true);
+    try {
+      await keepAsOneOff(familyId, {
+        requestId,
+        itemId: item.id,
+        stapleId: item.stapleId,
+      });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3">
+      <p className="text-[11px] font-nunito font-extrabold text-hive-honey-dk leading-snug">
+        ✨ New item — should this become a regular Staple?
+      </p>
+      <p className="text-[10px] text-hive-ink/80 mt-1 leading-relaxed">
+        Promote it and helpers can pick it from the Pantry next time.
+        Keep one-off and it stays in this basket only. We&apos;ll check for duplicates before adding.
+      </p>
+
+      {/* Rename strip — collapsed by default. */}
+      {editing ? (
+        <div className="mt-2.5 bg-white border border-hive-honey-dk/40 rounded-lg p-2.5 space-y-2">
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Primary name</span>
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={(e) => setNameDraft(e.target.value)}
+              placeholder="e.g. Honey"
+              maxLength={60}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">
+              Local name (Swahili etc.) — optional, what helpers see first
+            </span>
+            <input
+              value={name2Draft}
+              onChange={(e) => setName2Draft(e.target.value)}
+              placeholder="e.g. Asali"
+              maxLength={60}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            />
+          </label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setEditing(false); setNameDraft(item.name); setName2Draft(item.name2 ?? ''); }}
+              disabled={saving}
+              className="text-[11px] font-nunito font-bold text-hive-muted px-2 py-1"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveRename}
+              disabled={saving || !nameDraft.trim()}
+              className="flex-1 bg-hive-honey-dk text-white rounded-lg py-1.5 font-nunito font-black text-[11px] disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save names'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="mt-2 text-[11px] font-nunito font-extrabold text-hive-honey-dk underline"
+        >
+          ✏️ Edit name {item.name2 ? `(${item.name} / ${item.name2})` : `(${item.name})`}
+        </button>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 mt-2.5">
+        <button
+          type="button"
+          onClick={promote}
+          className="bg-pantry-leaf hover:bg-pantry-leaf-dk text-white rounded-lg py-2 font-nunito font-black text-xs"
+        >
+          ＋ Add to Staples
+        </button>
+        <button
+          type="button"
+          onClick={keepOneOff}
+          className="bg-hive-paper border border-hive-line text-hive-ink hover:bg-hive-cream rounded-lg py-2 font-nunito font-bold text-xs"
+        >
+          Keep one-off
+        </button>
+      </div>
     </div>
   );
 }

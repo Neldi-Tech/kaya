@@ -23,6 +23,7 @@ import {
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { StapleCategory } from './pantry';
+import { stapleNamesOverlap } from './pantry';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -179,6 +180,10 @@ export interface PurchaseRequestItem {
   /** Source staple. Null when the row was quick-added at the shop. */
   stapleId?: string;
   name: string;
+  /** Optional secondary / local-language name (snapshot from the
+   *  staple at add time). Mirrors Staple.name2 — helpers see this as
+   *  the primary label, parents see it muted below. 2026-05-18. */
+  name2?: string;
   category?: StapleCategory;
   /** Estimated qty at request time. */
   qty: number;
@@ -915,6 +920,112 @@ export async function keepAsOneOff(
   const batch = writeBatch(db);
   batch.update(reqRef, { items, updatedAt: serverTimestamp() });
   batch.delete(stapleRef);
+  await batch.commit();
+}
+
+/** Edit the primary / secondary name of a pending item BEFORE
+ *  resolving it (promote / keep one-off). Useful when the helper
+ *  typed the local-language name ("Asali") and the parent wants to
+ *  rename to the English primary + capture the Swahili as name2 for
+ *  the catalogue. 2026-05-18.
+ *
+ *  Touches both:
+ *    • the placeholder Staple doc — so when the parent then promotes,
+ *      it lands in the catalogue under the corrected names.
+ *    • the basket item snapshot — so the basket reads the corrected
+ *      names immediately (no need to re-pick the staple). */
+export async function renamePendingItem(
+  familyId: string,
+  args: {
+    requestId: string;
+    itemId: string;
+    stapleId: string;
+    name: string;
+    name2?: string;
+  },
+): Promise<void> {
+  if (isGuestActive()) return;
+  const trimmedName = args.name.trim();
+  const trimmedName2 = args.name2?.trim() || undefined;
+  if (!trimmedName) return; // primary name is mandatory
+  const reqRef = requestDoc(familyId, args.requestId);
+  const stapleRef = doc(db, 'families', familyId, 'staples', args.stapleId);
+  const snap = await getDoc(reqRef);
+  if (!snap.exists()) return;
+  const items = ((snap.data().items as PurchaseRequestItem[]) ?? []).map((i) =>
+    i.id === args.itemId
+      ? { ...i, name: trimmedName, name2: trimmedName2 }
+      : i,
+  );
+  const batch = writeBatch(db);
+  batch.update(reqRef, { items, updatedAt: serverTimestamp() });
+  // For staple, omit name2 from the payload when empty so we don't
+  // store undefined; merge:true keeps untouched fields alone.
+  const staplePatch: Record<string, unknown> = {
+    name: trimmedName,
+    updatedAt: serverTimestamp(),
+  };
+  staplePatch.name2 = trimmedName2 ?? null;  // null = clear field
+  batch.update(stapleRef, staplePatch);
+  await batch.commit();
+}
+
+/** "Same item already exists" detection. Given a candidate name +
+ *  optional name2 + the family's current staples, returns any
+ *  existing active staple that overlaps by name or name2 (case-
+ *  insensitive, punctuation-stripped). Excludes the candidate's
+ *  own stapleId so a pending row doesn't match itself.
+ *
+ *  Used by the pending-item promote flow to surface a "you already
+ *  have this — link to existing?" modal before creating a duplicate
+ *  catalogue entry. 2026-05-18. */
+export function findStapleConflict(
+  staples: { id: string; name: string; name2?: string; status?: string }[],
+  candidate: { id: string; name: string; name2?: string },
+): { id: string; name: string; name2?: string } | null {
+  for (const s of staples) {
+    if (s.id === candidate.id) continue;
+    if (s.status === 'pending_promote') continue; // ignore other pending rows
+    if (stapleNamesOverlap(s, candidate)) return s;
+  }
+  return null;
+}
+
+/** Resolve a pending item by linking it to an EXISTING staple
+ *  instead of promoting the placeholder. Used when the cross-check
+ *  surfaces a duplicate: parent picks "use existing" and we rewrite
+ *  the basket line to point at the canonical staple while deleting
+ *  the placeholder. 2026-05-18. */
+export async function linkPendingToExisting(
+  familyId: string,
+  args: {
+    requestId: string;
+    itemId: string;
+    pendingStapleId: string;
+    existingStapleId: string;
+    existingName: string;
+    existingName2?: string;
+  },
+): Promise<void> {
+  if (isGuestActive()) return;
+  const reqRef = requestDoc(familyId, args.requestId);
+  const pendingRef = doc(db, 'families', familyId, 'staples', args.pendingStapleId);
+  const snap = await getDoc(reqRef);
+  if (!snap.exists()) return;
+  const items = ((snap.data().items as PurchaseRequestItem[]) ?? []).map((i) =>
+    i.id === args.itemId
+      ? {
+          ...i,
+          stapleId: args.existingStapleId,
+          name: args.existingName,
+          name2: args.existingName2,
+          pendingPromote: false,
+        }
+      : i,
+  );
+  const batch = writeBatch(db);
+  batch.update(reqRef, { items, updatedAt: serverTimestamp() });
+  batch.delete(pendingRef);
   await batch.commit();
 }
 
