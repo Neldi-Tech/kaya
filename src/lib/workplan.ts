@@ -13,7 +13,7 @@
 
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-  serverTimestamp, Timestamp, query, orderBy,
+  serverTimestamp, query, orderBy,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import type {
@@ -61,6 +61,42 @@ export async function addWorkplanItem(
   return ref.id;
 }
 
+/** Convenience writer for ad-hoc one-off tasks (v4-final §04 Step 7).
+ *  Sets `kind: 'adhoc'`, empty `daysOfWeek`, and stamps `assignedAt`
+ *  on the server. Callers only need to know about the user-meaningful
+ *  fields (who, what, when, period, optional note). */
+export async function addAdhocWorkplanItem(
+  familyId: string,
+  helperUid: string,
+  input: {
+    label: string;
+    icon: string;
+    period: WorkplanPeriod;
+    scheduledDates: string[];   // YYYY-MM-DD list (1+)
+    assignedBy: string;         // parent UID
+    note?: string;
+  },
+): Promise<string> {
+  if (input.scheduledDates.length === 0) {
+    throw new Error('addAdhocWorkplanItem requires at least one scheduledDate');
+  }
+  const ref = await addDoc(itemsCol(familyId, helperUid), {
+    label: input.label,
+    icon: input.icon,
+    daysOfWeek: [],
+    period: input.period,
+    active: true,
+    kind: 'adhoc',
+    scheduledDates: input.scheduledDates,
+    createdBy: input.assignedBy,
+    assignedBy: input.assignedBy,
+    createdAt: serverTimestamp(),
+    assignedAt: serverTimestamp(),
+    ...(input.note ? { note: input.note } : {}),
+  });
+  return ref.id;
+}
+
 export async function updateWorkplanItem(
   familyId: string,
   helperUid: string,
@@ -79,13 +115,34 @@ export async function deleteWorkplanItem(
 }
 
 // ── Today's view ──────────────────────────────────
-/** Filter the helper's items down to the ones scheduled for `date`
- *  (any day-of-week match + active=true). Items without a matching
- *  day are simply omitted — the helper sees only what's expected
- *  today. */
+/** Filter the helper's items down to the ones scheduled for `date`.
+ *  v4-final §04 Step 7: handles both flavours —
+ *    • recurring (default for legacy docs without `kind`) — match by
+ *      `daysOfWeek` against `date`'s weekday.
+ *    • adhoc — match by `scheduledDates` containing `date`'s ISO string.
+ *  Items without a matching schedule are omitted so the helper sees
+ *  only what's expected today (recurring + assigned one-offs). */
 export function itemsScheduledOn(items: WorkplanItem[], date: Date = new Date()): WorkplanItem[] {
   const dow = todayDayOfWeek(date);
-  return items.filter((i) => i.active && i.daysOfWeek.includes(dow));
+  const dateStr = todayDateString(date);
+  return items.filter((i) => {
+    if (!i.active) return false;
+    const kind = i.kind ?? 'recurring';
+    if (kind === 'adhoc') {
+      return (i.scheduledDates ?? []).includes(dateStr);
+    }
+    return i.daysOfWeek.includes(dow);
+  });
+}
+
+/** Partition a list of items into adhoc + recurring buckets. Useful
+ *  for surfaces that want to render ad-hoc separately (helper home
+ *  shows them in a honey "Ad-hoc" strip at the top). */
+export function partitionByKind(items: WorkplanItem[]): { adhoc: WorkplanItem[]; recurring: WorkplanItem[] } {
+  const adhoc: WorkplanItem[] = [];
+  const recurring: WorkplanItem[] = [];
+  for (const i of items) ((i.kind ?? 'recurring') === 'adhoc' ? adhoc : recurring).push(i);
+  return { adhoc, recurring };
 }
 
 /** Group items by their `period` (morning / anytime / evening) so the
@@ -94,6 +151,16 @@ export function groupItemsByPeriod(items: WorkplanItem[]): Record<WorkplanPeriod
   const out: Record<WorkplanPeriod, WorkplanItem[]> = { morning: [], anytime: [], evening: [] };
   for (const i of items) out[i.period].push(i);
   return out;
+}
+
+/** Active ad-hoc items whose first scheduled date is in the future
+ *  (or today). Used by the parent WorkplanEditor to show a small
+ *  "Upcoming one-offs" list separate from the recurring matrix. */
+export function upcomingAdhoc(items: WorkplanItem[], from: Date = new Date()): WorkplanItem[] {
+  const todayStr = todayDateString(from);
+  return items
+    .filter((i) => i.active && (i.kind ?? 'recurring') === 'adhoc')
+    .filter((i) => (i.scheduledDates ?? []).some((d) => d >= todayStr));
 }
 
 // ── Completions ───────────────────────────────────

@@ -336,15 +336,42 @@ export interface HelperLink {
 export type DayOfWeek = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type WorkplanPeriod = 'morning' | 'evening' | 'anytime';
 
+// v4-final §04 Step 7 (2026-05-18) — workplan items now come in two
+// flavours. Legacy docs without `kind` are treated as 'recurring' for
+// back-compat (every read site falls back via `?? 'recurring'`).
+//   • recurring — repeats by `daysOfWeek` (the original behaviour)
+//   • adhoc     — one-off tasks assigned for specific calendar dates
+//                 (`scheduledDates`); `daysOfWeek` is ignored. Captured
+//                 audit fields: `assignedAt`/`assignedBy`/optional `note`.
+export type WorkplanItemKind = 'recurring' | 'adhoc';
+
 export interface WorkplanItem {
   id: string;
   label: string;                       // e.g. "Make beds"
   icon: string;                        // emoji — surfaced as a big tile on the helper view
-  daysOfWeek: DayOfWeek[];             // which days this recurs (empty = never)
+  daysOfWeek: DayOfWeek[];             // recurring: which days; adhoc: [] (ignored)
   period: WorkplanPeriod;              // groups tiles on the helper view; 'anytime' is the default
   active: boolean;                     // soft on/off without deleting (audit)
   createdAt: Timestamp;
   createdBy: string;                   // parent UID
+  // ── Ad-hoc one-offs (v4-final §04 Step 7) ───────────────────────
+  /** Item flavour. Absent = legacy recurring (read sites must coalesce). */
+  kind?: WorkplanItemKind;
+  /** Adhoc only: YYYY-MM-DD list of dates this task is scheduled for.
+   *  Helper sees it on each of these dates; itemsScheduledOn() honors
+   *  this for adhoc items in place of daysOfWeek. */
+  scheduledDates?: string[];
+  /** Adhoc only: when the parent assigned it (separate from createdAt
+   *  for symmetry — they're the same on creation but distinguishing
+   *  the audit field makes future "reassign" semantics cleaner). */
+  assignedAt?: Timestamp;
+  /** Adhoc only: parent UID who assigned this one-off. Mirrors
+   *  createdBy on creation; kept separate for future delegated-assign. */
+  assignedBy?: string;
+  /** Adhoc only: optional short message from parent to helper
+   *  ("pls also pick up cake on the way back"). Rendered under the
+   *  tile label on both surfaces. */
+  note?: string;
 }
 
 export interface WorkplanCompletion {
