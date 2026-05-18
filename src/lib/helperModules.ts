@@ -71,6 +71,14 @@ export const HELPER_MODULES: HelperModule[] = [
       { id: 'outdoor',   label: 'Outdoor',       icon: '🌿', paths: ['/pantry/outdoor'] },
       // Drivers — same loop on fuel / service / parts / wash / tolls.
       { id: 'drivers',   label: 'Drivers',       icon: '🚗', paths: ['/pantry/drivers'] },
+      // Utility — request flow for electricity / water / internet / gas
+      // top-ups + bill payments. Coexists with the existing /utilities
+      // recurring-bills catalogue for now.
+      { id: 'utility',   label: 'Utility',       icon: '⚡', paths: ['/pantry/utility'] },
+      // Payroll — self-service: helper requests advance / loan / bonus
+      // for themselves. Each request is scoped via `helperUid`; helpers
+      // only see their own.
+      { id: 'payroll',   label: 'Payroll',       icon: '🤝', paths: ['/pantry/payroll'] },
       // Finances — read-only household money roll-up (parent surface,
       // gated separately in the page itself).
       { id: 'finances',  label: 'Finances',      icon: '💰', paths: ['/pantry/finances'] },

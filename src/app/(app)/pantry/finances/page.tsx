@@ -27,20 +27,23 @@ const monthKey = (d: Date = new Date()) =>
 const monthLabel = (d: Date = new Date()) =>
   d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-// Modules that have a live request flow today. Utility + Payroll get
-// added here as those modules ship.
-const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers'];
+// Every Household request module rolled up here. All five live now.
+const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll'];
 
 const MODULE_HREF: Record<PurchaseModule, string> = {
   pantry:  '/pantry/purchase',
   outdoor: '/pantry/outdoor',
   drivers: '/pantry/drivers',
+  utility: '/pantry/utility',
+  payroll: '/pantry/payroll',
 };
 
 const MODULE_TINT: Record<PurchaseModule, { card: string; border: string; bar: string }> = {
   pantry:  { card: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', bar: 'bg-pantry-leaf-dk' },
   outdoor: { card: 'bg-[#E6F2EC]',        border: 'border-pantry-leaf', bar: 'bg-pantry-leaf' },
   drivers: { card: 'bg-[#E5EFF8]',        border: 'border-[#B5CFE5]',   bar: 'bg-hive-blue' },
+  utility: { card: 'bg-[#FFF3D9]',        border: 'border-hive-honey',  bar: 'bg-hive-honey-dk' },
+  payroll: { card: 'bg-[#F4EFFB]',        border: 'border-[#C9B8E5]',   bar: 'bg-[#8A6FBF]' },
 };
 
 export default function FinancesPage() {
@@ -81,6 +84,8 @@ export default function FinancesPage() {
       pantry:  { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
       outdoor: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
       drivers: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      utility: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      payroll: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
     };
     for (const r of closedThisMonth) {
       const m = (r.module ?? 'pantry') as PurchaseModule;
@@ -90,7 +95,11 @@ export default function FinancesPage() {
     }
     const budgets = family?.householdBudgets ?? {};
     for (const m of LIVE_MODULES) {
-      result[m].cap = budgets[m] ?? 0;
+      // householdBudgets has a `payroll` field; legacy schema has no
+      // 'utility' explicitly tied to request-module spend — keep the
+      // existing `utility` cap pointing to the same number for now.
+      const capKey = m === 'payroll' ? 'payroll' : (m as 'pantry' | 'outdoor' | 'drivers' | 'utility');
+      result[m].cap = (budgets as Record<string, number | undefined>)[capKey] ?? 0;
       const { spent, cap } = result[m];
       result[m].over = cap > 0 && spent > cap;
       result[m].pct = cap > 0 ? Math.min(100, Math.round((spent / cap) * 100)) : 0;
@@ -220,19 +229,21 @@ export default function FinancesPage() {
           );
         })}
 
-        {/* Utilities card — separate source (the /pantry/utilities
-            recurring-bills collection, not purchaseRequests). Shows
+        {/* Utility bills card — separate source (the /pantry/utilities
+            recurring-bills catalogue, not purchaseRequests). Shows
             paid-this-period over monthly committed bills. Salaries are
-            excluded (they belong to the future Payroll module). */}
+            excluded (they belong to Payroll). Sits alongside the
+            Utility request-module card above for a complete picture:
+            committed bills (here) vs ad-hoc top-ups (there). */}
         <Link
           href="/pantry/utilities"
           className={`block rounded-hive border p-4 no-underline text-inherit ${
-            utilitiesOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-[#FFF3D9] border-hive-honey'
+            utilitiesOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-[#FFF8EC] border-hive-line'
           }`}
         >
           <div className="flex items-center justify-between gap-2 mb-1">
-            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk">
-              ⚡ Utilities
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+              ⚡ Utility bills · monthly
             </p>
             <span className="text-[10px] text-hive-muted font-bold">
               {utilitiesEx.length} {utilitiesEx.length === 1 ? 'bill' : 'bills'}

@@ -227,8 +227,12 @@ export function buildModuleAccessFromPreset(
 }
 
 /** Default key set per preset. These are starting points — the parent
- *  can edit any of them in Settings → Helpers after creation. */
+ *  can edit any of them in Settings → Helpers after creation. EVERY
+ *  preset (including custom) gets `household:payroll` — that's the
+ *  helper's self-service path to request their own advances / loans /
+ *  bonuses, scoped to their own UID. */
 export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
+  const PAYROLL_SELF = 'household:payroll';
   switch (preset) {
     case 'nanny':
       // Full helper hand — Kaya (rate/award), the household, moments
@@ -238,33 +242,34 @@ export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
         'household:meals', 'household:list', 'household:staples',
         'household:suppliers', 'household:directory', 'household:utilities',
         'household:budget',
+        PAYROLL_SELF,
         'moments',
         'profiles',
       ];
     case 'tutor':
       // Homework + meetings, no household chores or photos.
-      return ['kaya:rate', 'kaya:meetings', 'profiles'];
+      return ['kaya:rate', 'kaya:meetings', PAYROLL_SELF, 'profiles'];
     case 'driver':
       // Pickup/dropoff context + Directory contacts. Plus the Drivers
       // request flow — fuel, vehicle service, spare parts — so the
       // driver can request what they need at the pump or the workshop.
-      return ['household:directory', 'household:drivers', 'profiles'];
+      return ['household:directory', 'household:drivers', PAYROLL_SELF, 'profiles'];
     case 'gardener':
       // Outdoor + grounds — household coverage but typically no kid scope.
       // Gets the Outdoor request flow by default (garden / pool / kuku /
-      // pets / repairs / vehicle), plus the supplier + staples context
-      // it needs to know what's in stock.
-      return ['household:outdoor', 'household:staples', 'household:suppliers', 'household:utilities'];
+      // pets / repairs), plus the supplier + staples context it needs.
+      return ['household:outdoor', 'household:staples', 'household:suppliers', 'household:utilities', PAYROLL_SELF];
     case 'grandparent':
       // View-only across the kid-facing surfaces.
       return [
         'kaya:rate', 'kaya:meetings',
+        PAYROLL_SELF,
         'moments',
         'profiles',
       ];
     case 'custom':
     default:
-      return [];
+      return [PAYROLL_SELF];
   }
 }
 

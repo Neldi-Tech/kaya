@@ -21,7 +21,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { usePantry } from '@/contexts/PantryContext';
 import {
-  type PurchaseRequest, type PurchaseRequestItem,
+  type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
   sendForApproval, approveRequest, rejectRequest,
   startReconcile, closeReconcile, discardDraft,
@@ -34,9 +34,11 @@ import { formatCents } from '@/components/pantry/format';
 // their category emoji (🥬 🥛 🍚 🧴 ✨); Outdoor + Drivers staples
 // inherit the module emoji (🌿 / 🚗) — their categories aren't stored
 // on the staple yet.
-function stapleEmoji(s: { category?: string; module?: 'pantry' | 'outdoor' | 'drivers' }): string {
+function stapleEmoji(s: { category?: string; module?: PurchaseModule }): string {
   if (s.module === 'outdoor') return '🌿';
   if (s.module === 'drivers') return '🚗';
+  if (s.module === 'utility') return '⚡';
+  if (s.module === 'payroll') return '🤝';
   const c = STAPLE_CATEGORIES.find((x) => x.id === s.category);
   return c?.emoji ?? '🧺';
 }
@@ -626,7 +628,7 @@ function ItemRow({
   item, module: itemModule, currency, editable, reconcilable, onQty, onActual, onRemove, varianceOnClose,
 }: {
   item: PurchaseRequestItem;
-  module: 'pantry' | 'outdoor' | 'drivers';
+  module: PurchaseModule;
   currency: string;
   editable: boolean;
   reconcilable: boolean;
