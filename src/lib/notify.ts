@@ -1,6 +1,14 @@
 // Client-side helpers for the /api/notify endpoint. All calls are
 // fire-and-forget — they never throw, so a notification failure can never
 // block the user's actual write (rating, award, etc.).
+//
+// v4-final §04 Step 8 (2026-05-18): added Workplan ad-hoc notify helpers
+// that fan out to (1) the in-app bell collection and (2) FCM web-push
+// via the new `/api/push` route. The two are independent: the bell
+// always writes (Firestore is reliable), push gracefully no-ops if
+// admin creds aren't configured in the deployment env.
+
+import { createNotification } from './firestore';
 
 interface RatingNotify {
   to: string[];
@@ -137,4 +145,71 @@ export function notifyMomentMention(args: MomentMentionNotify): Promise<void> {
 export function notifyMomentNewPost(args: MomentNewPostNotify): Promise<void> {
   if (!args.to.length) return Promise.resolve();
   return post({ type: 'moment-new', to: args.to, data: args });
+}
+
+// ── Workplan ad-hoc notifications (v4-final §04 Step 8) ──────────
+// Fan-out: (1) in-app bell doc on families/{f}/notifications and
+// (2) FCM web-push via /api/push. Both are best-effort — the helper's
+// next visit to /helper will surface the ad-hoc card via the workplan
+// data regardless of whether the notification land.
+
+/** Server-side route entrypoint for FCM push (fire-and-forget). */
+async function pushToUid(args: { uid: string; title: string; body: string; url?: string; tag?: string }): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    await fetch('/api/push', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(args),
+      keepalive: true,
+    });
+  } catch {
+    // Swallow — push is non-critical; the in-app bell + the next
+    // helper-home load both deliver the same information.
+  }
+}
+
+interface AdhocAssignedNotify {
+  familyId: string;
+  helperUid: string;        // the assignee
+  parentName: string;       // who assigned (display name)
+  taskLabel: string;        // e.g. "Buy extra chicken"
+  taskIcon: string;         // emoji
+  note?: string;            // optional parent note
+  scheduledLabel: string;   // human-readable date(s) e.g. "today" / "today + 2 more"
+}
+
+/** Notify a helper that they've been assigned a one-off task. Writes
+ *  to the in-app bell (always) + fires a web-push to the helper's
+ *  registered devices (gracefully no-ops if admin creds aren't set in
+ *  the deployment env). Both surfaces deep-link to /helper. */
+export async function notifyAdhocAssigned(args: AdhocAssignedNotify): Promise<void> {
+  const title = `${args.taskIcon} New work from ${args.parentName}`;
+  const bodyBase = `${args.taskLabel} · ${args.scheduledLabel}`;
+  const body = args.note ? `${bodyBase} — “${args.note}”` : bodyBase;
+
+  // 1) In-app bell — reliable, always-on.
+  try {
+    await createNotification(args.familyId, {
+      type: 'workplan-adhoc-assigned',
+      title,
+      message: body,
+      read: false,
+      forUserId: args.helperUid,
+      link: '/helper',
+      // createdAt is set by the writer.
+    } as Parameters<typeof createNotification>[1]);
+  } catch {
+    // Swallow — not the end of the world; helper still sees the ad-hoc
+    // tile on /helper next visit.
+  }
+
+  // 2) FCM web push — best-effort.
+  await pushToUid({
+    uid: args.helperUid,
+    title,
+    body,
+    url: '/helper',
+    tag: 'workplan-adhoc',
+  });
 }

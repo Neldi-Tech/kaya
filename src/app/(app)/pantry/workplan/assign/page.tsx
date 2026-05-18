@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { listHelpers } from '@/lib/helpers';
 import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
+import { notifyAdhocAssigned } from '@/lib/notify';
 import type { HelperLink, WorkplanPeriod } from '@/lib/firestore';
 
 // Emoji palette for the "What" picker. Curated to common helper-task
@@ -125,14 +126,39 @@ export default function AssignWorkPage() {
     setError(null);
     setBusy(true);
     try {
+      const trimmedLabel = label.trim();
+      const trimmedNote = note.trim() || undefined;
       await addAdhocWorkplanItem(family.id, selectedHelperUid, {
-        label: label.trim(),
+        label: trimmedLabel,
         icon,
         period,
         scheduledDates: selectedDates,
         assignedBy: profile.uid,
-        note: note.trim() || undefined,
+        note: trimmedNote,
       });
+
+      // Step 8: in-app bell + FCM web-push to the assigned helper.
+      // Fire-and-forget so push failures don't roll back the write.
+      const todayIso = todayDateString();
+      const hasToday = selectedDates.includes(todayIso);
+      const extraDays = selectedDates.length - (hasToday ? 1 : 0);
+      const scheduledLabel = hasToday
+        ? extraDays > 0
+          ? `today + ${extraDays} more day${extraDays === 1 ? '' : 's'}`
+          : 'today'
+        : selectedDates.length === 1
+          ? selectedDates[0]
+          : `${selectedDates[0]} + ${selectedDates.length - 1} more day${selectedDates.length - 1 === 1 ? '' : 's'}`;
+      notifyAdhocAssigned({
+        familyId: family.id,
+        helperUid: selectedHelperUid,
+        parentName: profile.displayName?.split(' ')[0] || 'A parent',
+        taskLabel: trimmedLabel,
+        taskIcon: icon,
+        note: trimmedNote,
+        scheduledLabel,
+      }).catch(() => undefined);
+
       // Brief "Assigned ✓" flash, then bounce back to Workplan home.
       const helper = helpers?.find((h) => h.uid === selectedHelperUid);
       setDoneFlash(`Assigned to ${helper?.displayName ?? 'helper'} ✓`);
@@ -375,7 +401,7 @@ export default function AssignWorkPage() {
           {busy ? 'Assigning…' : '＋ Assign this work'}
         </button>
         <p className="text-[10px] text-hive-muted text-center">
-          Helper sees the task on their home for each day you picked. Push notification ships in Step 8.
+          Helper sees the task on their home for each day you picked + gets a notification (in-app bell + web push if they&apos;ve enabled it).
         </p>
         <div className="text-center pt-2">
           <Link

@@ -16,6 +16,7 @@ const TYPE_ICONS: Record<string, string> = {
   'moment-comment':  '💬',
   'moment-mention':  '🏷️',
   'moment-new':      '📸',
+  'workplan-adhoc-assigned': '✨',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -28,6 +29,7 @@ const TYPE_LABELS: Record<string, string> = {
   'moment-comment':  'Comment',
   'moment-mention':  'Mention',
   'moment-new':      'New post',
+  'workplan-adhoc-assigned': 'Ad-hoc work',
 };
 
 export default function NotificationsPage() {

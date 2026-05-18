@@ -853,7 +853,11 @@ export interface Notification {
     | 'moment-reaction'
     | 'moment-comment'
     | 'moment-mention'
-    | 'moment-new';
+    | 'moment-new'
+    // Household → Workplan v3 (v4-final §04 Step 8, 2026-05-18) —
+    // parent assigned a one-off task to this helper. `link` deep-links
+    // to /helper so the helper lands on their workplan card.
+    | 'workplan-adhoc-assigned';
   title: string;
   message: string;
   read: boolean;
