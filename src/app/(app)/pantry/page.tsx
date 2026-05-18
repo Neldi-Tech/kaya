@@ -14,7 +14,6 @@ import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   createListFromStaples, createList, thisWeekKey, thisWeekLabel,
-  sumMonthlyUtilities,
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
@@ -23,11 +22,10 @@ export default function PantryHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { family } = useFamily();
-  const { staples, sokoSuppliers, utilities, currentList, loading } = usePantry();
+  const { staples, sokoSuppliers, currentList, loading } = usePantry();
   const isParent = profile?.role === 'parent';
   const { config } = useHive();
   const currency = config.currency;
-  const utilitiesMonthly = sumMonthlyUtilities(utilities);
 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -128,90 +126,91 @@ export default function PantryHomePage() {
         </div>
       )}
 
-      {/* Quick actions. Daily-use surfaces (Purchase + Budget) lead so
-          parents land on the new request → approve → reconcile loop
-          first; People + Soko cover the humans; Staples + Utilities are
-          the catalogues; Browse + Meals close it out. */}
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <Link
-          href="/pantry/purchase"
-          className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit"
-        >
+      {/* Quick actions — grouped per v4-final §02 (2026-05-18):
+          Request modules · Catalogues & plans · Browse & suppliers.
+          Finances + Budget are intentionally NOT here — they're in the
+          sidebar / tab bar as parent-only money surfaces. */}
+
+      {/* ── Request modules ── */}
+      <Divider label="Request modules" />
+      <div className="grid grid-cols-2 gap-3 mb-2">
+        <Link href="/pantry/purchase"
+          className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit">
           <span className="text-2xl leading-none">🧾</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Purchase</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Household Purchase</span>
           <span className="text-[11px] text-pantry-leaf-dk font-bold">Request → approve → reconcile</span>
         </Link>
-        <Link
-          href="/pantry/outdoor"
-          className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit"
-        >
+        <Link href="/pantry/utility"
+          className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey-dk transition-colors no-underline text-inherit">
+          <span className="text-2xl leading-none">⚡</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Utilities</span>
+          <span className="text-[11px] text-hive-honey-dk font-bold">Top-ups + bills · per-meter</span>
+        </Link>
+        <Link href="/pantry/outdoor"
+          className="bg-[#E6F2EC] border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit">
           <span className="text-2xl leading-none">🌿</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Outdoor</span>
           <span className="text-[11px] text-pantry-leaf-dk font-bold">Garden · pool · kuku · pets</span>
         </Link>
-        <Link
-          href="/pantry/drivers"
-          className="bg-[#E5EFF8] border border-[#B5CFE5] rounded-hive p-4 flex flex-col gap-1 hover:border-hive-blue transition-colors no-underline text-inherit"
-        >
+        <Link href="/pantry/drivers"
+          className="bg-[#E5EFF8] border border-[#B5CFE5] rounded-hive p-4 flex flex-col gap-1 hover:border-hive-blue transition-colors no-underline text-inherit">
           <span className="text-2xl leading-none">🚗</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Drivers</span>
           <span className="text-[11px] text-hive-blue font-bold">Fuel · service · spare parts</span>
         </Link>
-        {/* Budget + Finances live as their own modules (sidebar +
-            tab bar entries). The home grid focuses on action surfaces
-            — places where you DO things — so we don't duplicate the
-            aggregation pages here. */}
-        <Link
-          href="/pantry/people"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
+        <Link href="/pantry/payroll"
+          className="bg-[#F4EFFB] border border-[#C9B8E5] rounded-hive p-4 flex flex-col gap-1 hover:border-[#8A6FBF] transition-colors no-underline text-inherit col-span-2">
           <span className="text-2xl leading-none">🤝</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">People</span>
-          <span className="text-[11px] text-hive-muted">Helpers + workplans</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Payroll</span>
+          <span className="text-[11px] text-[#5E4A8F] font-bold">Self-service · advances · loans</span>
         </Link>
-        <Link
-          href="/pantry/suppliers"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">🏪</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Soko</span>
-          <span className="text-[11px] text-hive-muted">{sokoSuppliers.length} supplier{sokoSuppliers.length === 1 ? '' : 's'}</span>
-        </Link>
-        <Link
-          href="/pantry/staples"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
+      </div>
+
+      {/* ── Catalogues & plans ── */}
+      <Divider label="Catalogues & plans" />
+      <div className="grid grid-cols-2 gap-3 mb-2">
+        <Link href="/pantry/staples"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
           <span className="text-2xl leading-none">📦</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Staples</span>
-          <span className="text-[11px] text-hive-muted">{staples.length} item{staples.length === 1 ? '' : 's'}</span>
+          <span className="text-[11px] text-hive-muted">Your family's regulars · {staples.length} item{staples.length === 1 ? '' : 's'}</span>
         </Link>
-        <Link
-          href="/pantry/utilities"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">⚡</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Utilities</span>
-          <span className="text-[11px] text-hive-muted">
-            {utilities.length > 0
-              ? `${formatCents(utilitiesMonthly, currency)}/mo`
-              : 'Bills & salaries'}
-          </span>
-        </Link>
-        <Link
-          href="/pantry/browse"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">🧺</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Browse</span>
-          <span className="text-[11px] text-hive-muted">Pantry + Others catalogue</span>
-        </Link>
-        <Link
-          href="/pantry/meals"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-        >
-          <span className="text-2xl leading-none">🍽️</span>
+        <Link href="/pantry/meals"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
+          <span className="text-2xl leading-none">📅</span>
           <span className="font-nunito font-extrabold text-[15px] mt-1">Meal Planner</span>
           <span className="text-[11px] text-hive-muted">7-day timetable</span>
+        </Link>
+        <Link href="/pantry/people"
+          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit col-span-2">
+          <span className="text-2xl leading-none">📋</span>
+          <span className="font-nunito font-extrabold text-[15px] mt-1">Workplan</span>
+          <span className="text-[11px] text-hive-muted">Helpers · duties · ＋ assign one-off work</span>
+        </Link>
+      </div>
+
+      {/* ── Browse & suppliers ── */}
+      <Divider label="Browse & suppliers" />
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        <Link href="/pantry/browse"
+          className="bg-hive-paper border border-hive-line rounded-hive p-3 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
+          <span className="text-xl leading-none">🧺</span>
+          <span className="font-nunito font-extrabold text-[13px] mt-1">Browse Catalogue</span>
+          <span className="text-[10px] text-hive-muted">Pantry · Foods + Household</span>
+        </Link>
+        <Link href="/pantry/browse/others"
+          className="bg-hive-paper border border-hive-line rounded-hive p-3 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
+          <span className="text-xl leading-none">📂</span>
+          <span className="font-nunito font-extrabold text-[13px] mt-1">Other Catalogue</span>
+          <span className="text-[10px] text-hive-muted">Outdoor · Utility · Drivers · Payroll</span>
+        </Link>
+        <Link href="/pantry/suppliers"
+          className="bg-hive-paper border border-hive-line rounded-hive p-3 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
+          <span className="text-xl leading-none">🏪</span>
+          <span className="font-nunito font-extrabold text-[13px] mt-1">Soko</span>
+          <span className="text-[10px] text-hive-muted">
+            {sokoSuppliers.length} supplier{sokoSuppliers.length === 1 ? '' : 's'}
+          </span>
         </Link>
       </div>
 
@@ -248,6 +247,18 @@ export default function PantryHomePage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Hairline group divider with an uppercase label. Used to separate the
+// /pantry tile grid into 3 semantic groups (Request modules · Catalogues
+// & plans · Browse & suppliers) per the v4-final design.
+function Divider({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 mt-4 mb-2 px-1 text-[10px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-muted">
+      <span>{label}</span>
+      <span className="flex-1 h-px bg-hive-line" />
     </div>
   );
 }
