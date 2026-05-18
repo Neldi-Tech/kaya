@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   GroceryList, GroceryListItem, Supplier,
   STAPLE_CATEGORIES, StapleCategory,
@@ -34,6 +35,7 @@ export default function ListPage() {
   const { sokoSuppliers, staples } = usePantry();
   const { config } = useHive();
   const currency = config.currency;
+  const confirmAction = useConfirm();
 
   const [list, setList] = useState<GroceryList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,7 +212,12 @@ export default function ListPage() {
           <button
             onClick={async () => {
               if (!profile?.familyId || !listId) return;
-              if (!confirm('Close this list? You can still see it in history.')) return;
+              const ok = await confirmAction({
+                title: 'Close this list?',
+                message: 'You can still see it in history.',
+                confirmLabel: 'Close',
+              });
+              if (!ok) return;
               await closeList(profile.familyId, listId);
               router.push('/pantry');
             }}

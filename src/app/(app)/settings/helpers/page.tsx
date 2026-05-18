@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { Copy, Check, UserPlus, Pause, Play, Trash2, ChevronLeft, KeyRound, ChevronDown, ChevronUp, Info, Clock, Eye, Pencil } from 'lucide-react';
 import {
   ensureFamilyCode,
@@ -62,6 +63,7 @@ export default function HelpersSettingsPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { family, children, refresh } = useFamily();
+  const confirmAction = useConfirm();
 
   const [familyCode, setFamilyCode] = useState<string | null>(null);
   const [helpers, setHelpers] = useState<HelperLink[] | null>(null);
@@ -294,7 +296,13 @@ export default function HelpersSettingsPage() {
             }}
             onRemove={async () => {
               if (!family) return;
-              if (!confirm(`Remove ${h.displayName}? Their login will stop working immediately. Past entries are kept.`)) return;
+              const ok = await confirmAction({
+                title: `Remove ${h.displayName}?`,
+                message: 'Their login will stop working immediately. Past entries are kept.',
+                confirmLabel: 'Remove',
+                tone: 'danger',
+              });
+              if (!ok) return;
               setBusyHelperUid(h.uid);
               try {
                 await removeHelper(family.id, h.uid);

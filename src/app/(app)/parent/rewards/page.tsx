@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   addReward, updateReward, deleteReward, addRewardsBatch,
   getRedemptions,
@@ -34,6 +35,7 @@ const blankDraft = (): Draft => ({
 export default function ParentRewardsPage() {
   const { profile, isGuest } = useAuth();
   const { rewards, children, refresh } = useFamily();
+  const confirmAction = useConfirm();
 
   // Recent redemptions — fetched once when the page mounts and after
   // any operation that might have logged a new one. Limited to 25 so
@@ -231,7 +233,13 @@ export default function ParentRewardsPage() {
 
   const remove = async (r: Reward) => {
     if (isGuest || !profile?.familyId) return;
-    if (!confirm(`Delete "${r.title}"? Past redemptions stay in history.`)) return;
+    const ok = await confirmAction({
+      title: `Delete "${r.title}"?`,
+      message: 'Past redemptions stay in history.',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setBusyId(r.id);
     try {
       await deleteReward(profile.familyId, r.id);

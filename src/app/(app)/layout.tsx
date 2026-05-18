@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { ConfirmProvider } from '@/contexts/ConfirmContext';
 import AppShell from '@/components/layout/AppShell';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -33,5 +34,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  // ConfirmProvider mounts the in-app confirm dialog so any descendant
+  // can call useConfirm() instead of window.confirm(). One dialog is
+  // shared across the whole app shell (2026-05-18).
+  return (
+    <ConfirmProvider>
+      <AppShell>{children}</AppShell>
+    </ConfirmProvider>
+  );
 }

@@ -9,6 +9,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { usePantry } from '@/contexts/PantryContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   Supplier, SupplierCategory,
   addSupplier, updateSupplier, deleteSupplier,
@@ -99,6 +100,7 @@ function SupplierRow({
   familyId: string;
   isGuest: boolean;
 }) {
+  const confirmAction = useConfirm();
   if (editing) {
     return (
       <SupplierForm
@@ -107,7 +109,13 @@ function SupplierRow({
         onDone={onEditToggle}
         onDelete={async () => {
           if (isGuest) return;
-          if (!confirm(`Delete ${supplier.name}? They'll vanish from your list (and from any staples they're tagged on).`)) return;
+          const ok = await confirmAction({
+            title: `Delete ${supplier.name}?`,
+            message: "They'll vanish from your list (and from any staples they're tagged on).",
+            confirmLabel: 'Delete',
+            tone: 'danger',
+          });
+          if (!ok) return;
           await deleteSupplier(familyId, supplier.id);
           onEditToggle();
         }}

@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { updateFamily, ReflectionMode } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
@@ -55,6 +56,7 @@ function makeId() {
 export default function MeetingSetupPage() {
   const { profile } = useAuth();
   const { family } = useFamily();
+  const confirmAction = useConfirm();
 
   // ── Local state, seeded from family doc once family loads ────────
   const [agendaSteps, setAgendaSteps] = useState<string[]>(AGENDA_STEPS.map((s) => s.id));
@@ -146,8 +148,14 @@ export default function MeetingSetupPage() {
     });
     cancelEdit();
   };
-  const deletePrayer = (id: string) => {
-    if (!confirm('Delete this prayer? This can\'t be undone.')) return;
+  const deletePrayer = async (id: string) => {
+    const ok = await confirmAction({
+      title: 'Delete this prayer?',
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setPrayers((prev) => prev.filter((p) => p.id !== id));
     if (editingId === id) cancelEdit();
   };

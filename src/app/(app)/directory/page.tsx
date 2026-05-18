@@ -16,6 +16,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   subscribeToSuppliers, addSupplier, updateSupplier, deleteSupplier,
   markSupplierContacted, type Supplier,
@@ -31,6 +32,7 @@ import ContactPickerButton from '@/components/pantry/ContactPickerButton';
 export default function DirectoryPage() {
   const { profile, isGuest } = useAuth();
   const { family } = useFamily();
+  const confirmAction = useConfirm();
   const familyId = profile?.familyId || '';
 
   const [contacts, setContacts] = useState<Supplier[]>([]);
@@ -129,7 +131,12 @@ export default function DirectoryPage() {
 
   const removeContact = async (c: Supplier) => {
     if (!familyId || isGuest) return;
-    if (!confirm(`Remove "${c.name}" from your Directory?`)) return;
+    const ok = await confirmAction({
+      title: `Remove "${c.name}" from your Directory?`,
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
     await deleteSupplier(familyId, c.id);
     setEditingId(null);
     flash(`Removed ${c.name}`);

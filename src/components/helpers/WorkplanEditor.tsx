@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import { Check, ChevronDown, ChevronUp, Pause, Play, Trash2, ClipboardList, Plus } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -31,6 +32,7 @@ export default function WorkplanEditor({
   defaultOpen?: boolean;
 }) {
   const { profile } = useAuth();
+  const confirmAction = useConfirm();
   const [items, setItems] = useState<WorkplanItem[] | null>(null);
   const [open, setOpen] = useState(defaultOpen);
   const [busy, setBusy] = useState(false);
@@ -184,7 +186,12 @@ export default function WorkplanEditor({
                         finally { setBusy(false); }
                       }}
                       onDelete={async () => {
-                        if (!confirm(`Remove "${item.label}" from this helper's workplan?`)) return;
+                        const ok = await confirmAction({
+                          title: `Remove "${item.label}" from this helper's workplan?`,
+                          confirmLabel: 'Remove',
+                          tone: 'danger',
+                        });
+                        if (!ok) return;
                         setBusy(true);
                         try { await deleteWorkplanItem(familyId, helperUid, item.id); await reload(); flash(); }
                         finally { setBusy(false); }

@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   getPost, toggleReaction, subscribeToMyReactions, subscribeToComments,
   addComment, deleteComment,
@@ -24,6 +25,7 @@ export default function PostDetailPage() {
   const { postId } = useParams<{ postId: string }>();
   const { profile, isGuest } = useAuth();
   const { children } = useFamily();
+  const confirmAction = useConfirm();
   const [post, setPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [myReactions, setMyReactions] = useState<Set<Reaction>>(new Set());
@@ -132,7 +134,12 @@ export default function PostDetailPage() {
 
   const onDeleteComment = async (id: string) => {
     if (!profile?.familyId) return;
-    if (!window.confirm('Delete this comment?')) return;
+    const ok = await confirmAction({
+      title: 'Delete this comment?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
     await deleteComment(profile.familyId, post.id, id);
   };
 
