@@ -142,7 +142,10 @@ export default function PurchaseDetailPage() {
   };
 
   const setItemQty = (id: string, qty: number) => {
-    const next = req.items.map((i) => i.id === id ? { ...i, qty: Math.max(1, qty) } : i);
+    // 2026-05-18 — preserve decimals (0.5 kg garlic, 1.5 L oil).
+    // Floor is 0 so the input can be cleared mid-edit; the parent
+    // can't send with 0 items per the existing send guard.
+    const next = req.items.map((i) => i.id === id ? { ...i, qty: Math.max(0, qty) } : i);
     patchItems(next);
   };
   // 2026-05-18 — let the helper edit estimated price during draft,
@@ -165,7 +168,7 @@ export default function PurchaseDetailPage() {
     if (!quickAdd || !profile?.familyId) return;
     const name = quickAdd.name.trim();
     if (!name) { setQuickAdd(null); return; }
-    const qty = Math.max(1, parseInt(quickAdd.qty || '1', 10));
+    const qty = Math.max(0.001, parseFloat(quickAdd.qty || '1'));
     const cents = quickAdd.cents ? Math.round(parseFloat(quickAdd.cents) * 100) : undefined;
     setBusy(true);
     try {
@@ -557,7 +560,7 @@ export default function PurchaseDetailPage() {
               />
               <div className="grid grid-cols-2 gap-2">
                 <input
-                  type="number" min={1} value={quickAdd.qty}
+                  type="number" min={0} step="0.01" value={quickAdd.qty}
                   onChange={(e) => setQuickAdd({ ...quickAdd, qty: e.target.value })}
                   placeholder="Qty"
                   className="border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold"
@@ -869,9 +872,9 @@ function ItemRow({
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Qty ({item.unit})</span>
             <input
-              type="number" min={1}
+              type="number" min={0} step="0.01"
               value={item.qty}
-              onChange={(e) => onQty(e.target.value === '' ? 1 : parseInt(e.target.value, 10))}
+              onChange={(e) => onQty(e.target.value === '' ? 0 : parseFloat(e.target.value))}
               className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
             />
           </label>
@@ -913,7 +916,7 @@ function ItemRow({
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Actual qty</span>
             <input
-              type="number" min={0}
+              type="number" min={0} step="0.01"
               value={item.actualQty ?? ''}
               onChange={(e) => onActual({ actualQty: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
               className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"

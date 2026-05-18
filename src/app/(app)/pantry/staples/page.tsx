@@ -21,6 +21,7 @@ import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
+import { toDisplayDate } from '@/lib/dates';
 
 type Filter = 'all' | StapleCategory;
 
@@ -463,16 +464,31 @@ function StapleRow({
             </button>
           )}
         </p>
-        {/* Last-purchase total commentary — qty × per-unit price.
-            Only renders when both are known. Helps parents sanity-check
-            "is this what we usually spend each cycle?" without doing
-            the arithmetic. Subtle/muted so the per-unit price stays
-            the headline. 2026-05-18. */}
-        {typeof staple.lastBoughtCents === 'number' && staple.lastBoughtCents > 0 && staple.defaultQty > 0 && (
-          <p className="text-[10px] text-hive-muted/80 truncate mt-0.5">
-            ≈ {formatCents(staple.lastBoughtCents * staple.defaultQty, currency)} per {cadence?.label.toLowerCase() || 'cycle'} shop
-          </p>
-        )}
+        {/* Last-purchase commentary — refined 2026-05-18 per Elia.
+            Shows the actual last shop: qty × per-unit = total (date).
+            Falls back to defaultQty × lastBoughtCents when lastBoughtQty
+            is missing (older data from before the field was captured).
+            Subtle/muted so the per-unit price up-top stays the headline. */}
+        {typeof staple.lastBoughtCents === 'number' && staple.lastBoughtCents > 0 && (() => {
+          const qty = staple.lastBoughtQty && staple.lastBoughtQty > 0
+            ? staple.lastBoughtQty
+            : (staple.defaultQty > 0 ? staple.defaultQty : 0);
+          if (qty <= 0) return null;
+          const total = staple.lastBoughtCents * qty;
+          const isReal = staple.lastBoughtQty && staple.lastBoughtQty > 0;
+          const when = staple.lastBoughtAt?.toDate?.();
+          const whenStr = when
+            ? toDisplayDate(`${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(when.getDate()).padStart(2, '0')}`)
+            : '';
+          // Format qty cleanly: 0.5 → "0.5", 5 → "5" (no trailing .0)
+          const qtyDisplay = Number.isInteger(qty) ? String(qty) : qty.toFixed(2).replace(/\.?0+$/, '');
+          return (
+            <p className="text-[10px] text-hive-muted/80 truncate mt-0.5">
+              {isReal ? 'Last:' : '≈'} {qtyDisplay} {staple.unit || 'x'} × {formatCents(staple.lastBoughtCents, currency)} = <span className="font-bold">{formatCents(total, currency)}</span>
+              {isReal && whenStr && ` · ${whenStr}`}
+            </p>
+          );
+        })()}
         {supplier && (
           <div className="mt-1"><SupplierBadge supplier={supplier} /></div>
         )}
@@ -579,7 +595,7 @@ function StapleForm({
   const submit = async () => {
     setError('');
     if (!name.trim()) { setError('Pick a name.'); return; }
-    if (defaultQty <= 0) { setError('Default quantity must be at least 1.'); return; }
+    if (defaultQty <= 0) { setError('Default quantity must be greater than zero.'); return; }
     setSaving(true);
     try {
       const finalUnit = unitMode === 'other' ? unitOther.trim() : unit;
@@ -587,7 +603,9 @@ function StapleForm({
       const payload = {
         name: name.trim(),
         category,
-        defaultQty: Math.round(defaultQty),
+        // 2026-05-18 — preserve decimals (drop Math.round) so 0.5 kg
+        // or 1.5 L round-trip exactly as entered.
+        defaultQty,
         unit: finalUnit,
         cadence,
         lastBoughtCents: lastBoughtMajor > 0 ? Math.round(lastBoughtMajor * 100) : undefined,
@@ -661,7 +679,10 @@ function StapleForm({
           <NumberInput
             value={defaultQty}
             onChange={setDefaultQty}
-            min={1}
+            min={0}
+            // 2026-05-18 — allow decimals (e.g. 0.5 kg of garlic,
+            // 1.5 L of oil) instead of integer-only.
+            allowDecimal
             ariaLabel="Default quantity"
             className="w-full mt-1 h-10 px-3 bg-hive-cream rounded-[12px] text-center font-nunito font-black text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
           />
