@@ -17,6 +17,7 @@ import {
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
+import InfoIcon from '@/components/ui/InfoIcon';
 
 export default function PantryHomePage() {
   const router = useRouter();
@@ -134,84 +135,50 @@ export default function PantryHomePage() {
       {/* ── Request modules ── */}
       <Divider label="Request modules" />
       <div className="grid grid-cols-2 gap-3 mb-2">
-        <Link href="/pantry/purchase"
-          className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit">
-          <span className="text-2xl leading-none">🧾</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Household Purchase</span>
-          <span className="text-[11px] text-pantry-leaf-dk font-bold">Request → approve → reconcile</span>
-        </Link>
-        <Link href="/pantry/utility"
-          className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey-dk transition-colors no-underline text-inherit">
-          <span className="text-2xl leading-none">⚡</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Utilities</span>
-          <span className="text-[11px] text-hive-honey-dk font-bold">Top-ups + bills · per-meter</span>
-        </Link>
-        <Link href="/pantry/outdoor"
-          className="bg-[#E6F2EC] border border-pantry-leaf rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf-dk transition-colors no-underline text-inherit">
-          <span className="text-2xl leading-none">🌿</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Outdoor</span>
-          <span className="text-[11px] text-pantry-leaf-dk font-bold">Garden · pool · kuku · pets</span>
-        </Link>
-        <Link href="/pantry/drivers"
-          className="bg-[#E5EFF8] border border-[#B5CFE5] rounded-hive p-4 flex flex-col gap-1 hover:border-hive-blue transition-colors no-underline text-inherit">
-          <span className="text-2xl leading-none">🚗</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Drivers</span>
-          <span className="text-[11px] text-hive-blue font-bold">Fuel · service · spare parts</span>
-        </Link>
-        <Link href="/pantry/payroll"
-          className="bg-[#F4EFFB] border border-[#C9B8E5] rounded-hive p-4 flex flex-col gap-1 hover:border-[#8A6FBF] transition-colors no-underline text-inherit col-span-2">
-          <span className="text-2xl leading-none">🤝</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Payroll</span>
-          <span className="text-[11px] text-[#5E4A8F] font-bold">Self-service · advances · loans</span>
-        </Link>
+        <Tile href="/pantry/purchase" emoji="🧾" label="Household Purchase" sub="Request → approve → reconcile"
+          tint="bg-pantry-leaf-soft border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
+          tooltip="Request → approve → reconcile for groceries + pantry items." />
+        <Tile href="/pantry/utility" emoji="⚡" label="Utilities" sub="Top-ups + bills · per-meter"
+          tint="bg-[#FFF3D9] border-hive-honey hover:border-hive-honey-dk" subColor="text-hive-honey-dk"
+          tooltip="Electricity / water / internet top-ups + bill payments. Per-meter when set up." />
+        <Tile href="/pantry/outdoor" emoji="🌿" label="Outdoor" sub="Garden · pool · kuku · pets"
+          tint="bg-[#E6F2EC] border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
+          tooltip="Garden · pool · kuku · pets · repairs. Gardener-helper scope." />
+        <Tile href="/pantry/drivers" emoji="🚗" label="Drivers" sub="Fuel · service · spare parts"
+          tint="bg-[#E5EFF8] border-[#B5CFE5] hover:border-hive-blue" subColor="text-hive-blue"
+          tooltip="Vehicle fuel · service · spare parts · tolls. Driver-helper scope." />
+        <Tile href="/pantry/payroll" emoji="🤝" label="Payroll" sub="Self-service · advances · loans"
+          tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
+          tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them." />
       </div>
 
       {/* ── Catalogues & plans ── */}
       <Divider label="Catalogues & plans" />
       <div className="grid grid-cols-2 gap-3 mb-2">
-        <Link href="/pantry/staples"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
-          <span className="text-2xl leading-none">📦</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Staples</span>
-          <span className="text-[11px] text-hive-muted">Your family's regulars · {staples.length} item{staples.length === 1 ? '' : 's'}</span>
-        </Link>
-        <Link href="/pantry/meals"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
-          <span className="text-2xl leading-none">📅</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Meal Planner</span>
-          <span className="text-[11px] text-hive-muted">7-day timetable</span>
-        </Link>
-        <Link href="/pantry/people"
-          className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit col-span-2">
-          <span className="text-2xl leading-none">📋</span>
-          <span className="font-nunito font-extrabold text-[15px] mt-1">Workplan</span>
-          <span className="text-[11px] text-hive-muted">Helpers · duties · ＋ assign one-off work</span>
-        </Link>
+        <Tile href="/pantry/staples" emoji="📦" label="Staples" sub={`Your family's regulars · ${staples.length} item${staples.length === 1 ? '' : 's'}`}
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+          tooltip="Your family's curated regulars. Picked from Browse to your list." />
+        <Tile href="/pantry/meals" emoji="📅" label="Meal Planner" sub="7-day timetable"
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+          tooltip="Weekly meal timetable. Bigger redesign incoming." />
+        <Tile href="/pantry/people" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf col-span-2" subColor="text-hive-muted"
+          tooltip="Helper roster + each helper's daily task list. Add ad-hoc work." />
       </div>
 
       {/* ── Browse & suppliers ── */}
       <Divider label="Browse & suppliers" />
       <div className="grid grid-cols-3 gap-3 mb-5">
-        <Link href="/pantry/browse"
-          className="bg-hive-paper border border-hive-line rounded-hive p-3 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
-          <span className="text-xl leading-none">🧺</span>
-          <span className="font-nunito font-extrabold text-[13px] mt-1">Browse Catalogue</span>
-          <span className="text-[10px] text-hive-muted">Pantry · Foods + Household</span>
-        </Link>
-        <Link href="/pantry/browse/others"
-          className="bg-hive-paper border border-hive-line rounded-hive p-3 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
-          <span className="text-xl leading-none">📂</span>
-          <span className="font-nunito font-extrabold text-[13px] mt-1">Other Catalogue</span>
-          <span className="text-[10px] text-hive-muted">Outdoor · Utility · Drivers · Payroll</span>
-        </Link>
-        <Link href="/pantry/suppliers"
-          className="bg-hive-paper border border-hive-line rounded-hive p-3 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit">
-          <span className="text-xl leading-none">🏪</span>
-          <span className="font-nunito font-extrabold text-[13px] mt-1">Soko</span>
-          <span className="text-[10px] text-hive-muted">
-            {sokoSuppliers.length} supplier{sokoSuppliers.length === 1 ? '' : 's'}
-          </span>
-        </Link>
+        <Tile href="/pantry/browse" emoji="🧺" label="Browse Catalogue" sub="Pantry · Foods + Household"
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+          tooltip="The full Pantry library — Foods + Household tabs. Add to your Staples." />
+        <Tile href="/pantry/browse/others" emoji="📂" label="Other Catalogue" sub="Outdoor · Utility · Drivers · Payroll"
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+          tooltip="Outdoor · Utility · Drivers · Payroll catalogues, by module." />
+        <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
+          sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+          tooltip="Family supplier directory + WhatsApp shortcuts." />
       </div>
 
       {/* Suppliers preview — top 3, tap-through to /pantry/suppliers */}
@@ -260,5 +227,40 @@ function Divider({ label }: { label: string }) {
       <span>{label}</span>
       <span className="flex-1 h-px bg-hive-line" />
     </div>
+  );
+}
+
+// Shared tile renderer for the /pantry home grid. Each tile gets a
+// top-right (i) info-icon with the surface's tooltip — v4-final §02
+// copy lives in the calling sites (not centralised) so it stays
+// editable per-tile without indirection.
+function Tile({
+  href, emoji, label, sub, tint, subColor, tooltip, compact,
+}: {
+  href: string;
+  emoji: string;
+  label: string;
+  sub: string;
+  tint: string;
+  subColor: string;
+  tooltip: string;
+  compact?: boolean;
+}) {
+  const pad = compact ? 'p-3' : 'p-4';
+  const labelSize = compact ? 'text-[13px]' : 'text-[15px]';
+  const subSize = compact ? 'text-[10px]' : 'text-[11px]';
+  const emojiSize = compact ? 'text-xl' : 'text-2xl';
+  return (
+    <Link
+      href={href}
+      className={`relative ${tint} rounded-hive ${pad} flex flex-col gap-1 border transition-colors no-underline text-inherit`}
+    >
+      <span className="absolute top-2 right-2">
+        <InfoIcon tooltip={tooltip} size="xs" align="left" />
+      </span>
+      <span className={`${emojiSize} leading-none`}>{emoji}</span>
+      <span className={`font-nunito font-extrabold ${labelSize} mt-1`}>{label}</span>
+      <span className={`${subSize} ${subColor} font-bold`}>{sub}</span>
+    </Link>
   );
 }

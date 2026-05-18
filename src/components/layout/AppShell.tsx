@@ -9,6 +9,7 @@ import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import { getHelperLink } from '@/lib/helpers';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import GuestBanner from './GuestBanner';
+import InfoIcon from '@/components/ui/InfoIcon';
 
 // Visibility check for a helper navigating to `path`. Walks
 // helperModuleKeyForPath() → gets the required key (e.g. 'kaya:rate',
@@ -71,6 +72,10 @@ type NavItem = {
    *  (2026-05-18). Other sections (Kaya / Hive / Stats / Fun) don't
    *  set this — no divider renders for them. */
   groupStart?: string;
+  /** Short one-line explainer surfaced via an (i) info-icon next to
+   *  the label. Hover on desktop, tap-popover on mobile. Seeded from
+   *  v4-final §02 for every Household surface. */
+  tooltip?: string;
 };
 
 // Each row in the desktop sidebar (and the mobile "More" sheet) is one of:
@@ -161,25 +166,44 @@ const KAYA_NAV: NavItem[] = [
 //   ── Parent · money ── Finances · Budget
 // Other Catalogue points at the v3 path /pantry/browse/others until
 // Step 4 builds the new /pantry/browse/other surface.
+// Tooltip copy seeded from v4-final §02 (2026-05-18). Each item
+// gets a one-line explainer surfaced via an (i) badge next to the
+// label. Helps disambiguate similar-named surfaces — Staples vs
+// Browse, People (old) vs Workplan, Finances (roll-up) vs Budget
+// (caps), and so on.
 const HOUSEHOLD_NAV: NavItem[] = [
-  { path: '/pantry',                 icon: '🛒', label: 'The Pantry' },
+  { path: '/pantry',                 icon: '🛒', label: 'The Pantry',
+    tooltip: 'Household section home. Tile shortcuts to every surface below.' },
 
-  { path: '/pantry/purchase',        icon: '🧾', label: 'Household Purchase', groupStart: 'Request modules' },
-  { path: '/pantry/utility',         icon: '⚡', label: 'Utilities' },
-  { path: '/pantry/outdoor',         icon: '🌿', label: 'Outdoor' },
-  { path: '/pantry/drivers',         icon: '🚗', label: 'Drivers' },
-  { path: '/pantry/payroll',         icon: '🤝', label: 'Payroll' },
+  { path: '/pantry/purchase',        icon: '🧾', label: 'Household Purchase', groupStart: 'Request modules',
+    tooltip: 'Request → approve → reconcile for groceries + pantry items.' },
+  { path: '/pantry/utility',         icon: '⚡', label: 'Utilities',
+    tooltip: 'Electricity / water / internet top-ups + bill payments. Per-meter when set up.' },
+  { path: '/pantry/outdoor',         icon: '🌿', label: 'Outdoor',
+    tooltip: 'Garden · pool · kuku · pets · repairs. Gardener-helper scope.' },
+  { path: '/pantry/drivers',         icon: '🚗', label: 'Drivers',
+    tooltip: 'Vehicle fuel · service · spare parts · tolls. Driver-helper scope.' },
+  { path: '/pantry/payroll',         icon: '🤝', label: 'Payroll',
+    tooltip: 'Self-service: each helper requests their own advance / loan / bonus. Private to them.' },
 
-  { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans' },
-  { path: '/pantry/meals',           icon: '📅', label: 'Meal Planner' },
-  { path: '/pantry/people',          icon: '📋', label: 'Workplan' },
+  { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans',
+    tooltip: "Your family's curated regulars. Picked from Browse to your list." },
+  { path: '/pantry/meals',           icon: '📅', label: 'Meal Planner',
+    tooltip: 'Weekly meal timetable. Bigger redesign incoming.' },
+  { path: '/pantry/people',          icon: '📋', label: 'Workplan',
+    tooltip: 'Helper roster + each helper\'s daily task list. Add ad-hoc work.' },
 
-  { path: '/pantry/browse',          icon: '🧺', label: 'Browse Catalogue', groupStart: 'Browse & suppliers' },
-  { path: '/pantry/browse/others',   icon: '📂', label: 'Other Catalogue' },
-  { path: '/pantry/suppliers',       icon: '🏪', label: 'Soko' },
+  { path: '/pantry/browse',          icon: '🧺', label: 'Browse Catalogue', groupStart: 'Browse & suppliers',
+    tooltip: 'The full Pantry library — Foods + Household tabs. Add to your Staples.' },
+  { path: '/pantry/browse/others',   icon: '📂', label: 'Other Catalogue',
+    tooltip: 'Outdoor · Utility · Drivers · Payroll catalogues, by module.' },
+  { path: '/pantry/suppliers',       icon: '🏪', label: 'Soko',
+    tooltip: 'Family supplier directory + WhatsApp shortcuts.' },
 
-  { path: '/pantry/finances',        icon: '💰', label: 'Finances',    groupStart: 'Parent · money' },
-  { path: '/pantry/budget',          icon: '⚙️', label: 'Budget' },
+  { path: '/pantry/finances',        icon: '💰', label: 'Finances',    groupStart: 'Parent · money',
+    tooltip: 'All-Household money roll-up across modules. Parent-only.' },
+  { path: '/pantry/budget',          icon: '⚙️', label: 'Budget',
+    tooltip: 'Per-module monthly caps. Parent-only.' },
 ];
 
 // The Hive · kid's three-layer wallet plus parent controls.
@@ -630,6 +654,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   <>
                     <span className="text-sm leading-none">{item.icon}</span>
                     <span className="text-left flex-1 truncate">{item.label}</span>
+                    {item.tooltip && (
+                      <InfoIcon tooltip={item.tooltip} size="xs" align="left" />
+                    )}
                     {item.soon && (
                       <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark text-kaya-sand">
                         Soon
