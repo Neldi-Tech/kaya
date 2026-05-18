@@ -42,6 +42,10 @@ export default function StaplesPage() {
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  // 2026-05-18 — name search on top of the category chip filter.
+  // Cheap client-side filter (staples are typically <50). Matches
+  // name + any preferredBrands so a parent can find "Onja" → Rice.
+  const [q, setQ] = useState('');
   // Select mode: when on, every row shows a checkbox and the
   // header swaps Edit/Add for Cancel/Delete. Closing select mode
   // clears the selection so a stray selection can't haunt the next
@@ -50,10 +54,16 @@ export default function StaplesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  const visible = useMemo(
-    () => filter === 'all' ? staples : staples.filter((s) => s.category === filter),
-    [staples, filter],
-  );
+  const visible = useMemo(() => {
+    const query = q.trim().toLowerCase();
+    return staples.filter((s) => {
+      if (filter !== 'all' && s.category !== filter) return false;
+      if (!query) return true;
+      if (s.name.toLowerCase().includes(query)) return true;
+      if ((s.preferredBrands ?? []).some((b) => b.toLowerCase().includes(query))) return true;
+      return false;
+    });
+  }, [staples, filter, q]);
 
   const exitSelectMode = () => {
     setSelectMode(false);
@@ -154,6 +164,26 @@ export default function StaplesPage() {
         )}
       </div>
 
+      {/* Search bar — name + brand match. 2026-05-18. */}
+      <div className="relative mb-2">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-hive-muted text-sm pointer-events-none">🔍</span>
+        <input
+          type="text"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={`Search ${staples.length} staple${staples.length === 1 ? '' : 's'}…`}
+          className="w-full bg-hive-paper border border-hive-line rounded-hive pl-10 pr-9 py-2.5 text-sm font-nunito font-bold placeholder:text-hive-muted placeholder:font-normal focus:outline-none focus:border-pantry-leaf"
+        />
+        {q && (
+          <button
+            type="button"
+            onClick={() => setQ('')}
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-hive-line text-hive-muted text-sm font-black"
+            aria-label="Clear search"
+          >×</button>
+        )}
+      </div>
+
       {/* Filter chips */}
       <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
         <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
@@ -177,12 +207,25 @@ export default function StaplesPage() {
       {/* List */}
       {visible.length === 0 ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-8 text-center">
-          <div className="text-4xl mb-2">📦</div>
-          <p className="font-nunito font-extrabold text-[14px]">No staples here yet</p>
+          <div className="text-4xl mb-2">{q.trim() ? '🔍' : '📦'}</div>
+          <p className="font-nunito font-extrabold text-[14px]">
+            {q.trim() ? 'No matches' : 'No staples here yet'}
+          </p>
           <p className="text-[12px] text-hive-muted mt-1">
-            {filter === 'all'
-              ? 'Add the items your household always needs — rice, milk, soap, bread.'
-              : 'No staples in this category. Tap + Add to add one.'}
+            {q.trim()
+              ? <>
+                  Nothing matches <strong>&ldquo;{q.trim()}&rdquo;</strong>
+                  {filter !== 'all' && <> in this category</>}.
+                  {' '}
+                  <button
+                    type="button"
+                    onClick={() => { setQ(''); setFilter('all'); }}
+                    className="text-pantry-leaf-dk font-bold underline"
+                  >Clear filters</button>.
+                </>
+              : filter === 'all'
+                ? 'Add the items your household always needs — rice, milk, soap, bread.'
+                : 'No staples in this category. Tap + Add to add one.'}
           </p>
         </div>
       ) : (
@@ -359,6 +402,10 @@ function StapleRow({
             </span>
           )}
         </p>
+        {/* Spec line: qty + cadence + per-unit price.
+            Price stays per-unit (canonical input the system needs).
+            2026-05-18: explicit "/unit" suffix removes the ambiguity
+            in the earlier display ("TZS 1,000" — total? per-kg?). */}
         <p className="text-[11px] text-hive-muted truncate flex items-baseline gap-1 flex-wrap">
           <span>{staple.defaultQty}{staple.unit ? ` ${staple.unit}` : ''} · {cadence?.label || staple.cadence}</span>
           <span>·</span>
@@ -370,12 +417,13 @@ function StapleRow({
                 onChange={setPriceDraft}
                 allowDecimal
                 min={0}
-                ariaLabel="Last-bought price"
+                ariaLabel="Last-bought price per unit"
                 placeholder="0"
                 autoFocus
                 onEnter={commitPriceEdit}
                 className="w-20 h-7 px-2 bg-hive-cream rounded-[8px] text-[12px] font-nunito font-extrabold border border-pantry-leaf focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
               />
+              <span className="text-hive-muted text-[10px]">/{staple.unit || 'unit'}</span>
               <button
                 type="button"
                 onClick={cancelPriceEdit}
@@ -401,11 +449,21 @@ function StapleRow({
               className="text-pantry-leaf-dk font-nunito font-extrabold underline-offset-2 hover:underline disabled:no-underline disabled:opacity-70"
             >
               {typeof staple.lastBoughtCents === 'number' && staple.lastBoughtCents > 0
-                ? formatCents(staple.lastBoughtCents, currency)
+                ? <>{formatCents(staple.lastBoughtCents, currency)} <span className="font-bold text-hive-muted">/{staple.unit || 'unit'}</span></>
                 : '+ set price'}
             </button>
           )}
         </p>
+        {/* Last-purchase total commentary — qty × per-unit price.
+            Only renders when both are known. Helps parents sanity-check
+            "is this what we usually spend each cycle?" without doing
+            the arithmetic. Subtle/muted so the per-unit price stays
+            the headline. 2026-05-18. */}
+        {typeof staple.lastBoughtCents === 'number' && staple.lastBoughtCents > 0 && staple.defaultQty > 0 && (
+          <p className="text-[10px] text-hive-muted/80 truncate mt-0.5">
+            ≈ {formatCents(staple.lastBoughtCents * staple.defaultQty, currency)} per {cadence?.label.toLowerCase() || 'cycle'} shop
+          </p>
+        )}
         {supplier && (
           <div className="mt-1"><SupplierBadge supplier={supplier} /></div>
         )}
