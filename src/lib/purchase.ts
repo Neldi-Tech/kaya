@@ -237,6 +237,44 @@ export function subscribeToRecentRequests(
   });
 }
 
+/** Subscribe to payroll requests pinned to a specific helper.
+ *  Required by the v3 confidentiality rule — helpers can only read
+ *  payroll docs where `helperUid == their own uid`, so the query
+ *  itself MUST include that where-clause or Firestore returns
+ *  permission_denied on the whole result set.
+ *
+ *  Parents should keep using `subscribeToOpenRequests` /
+ *  `subscribeToRecentRequests` and filter by `module === 'payroll'`
+ *  client-side — they're allowed to read all payroll docs.
+ *
+ *  `bucket: 'open'` returns drafts / pending / approved / reconciling
+ *  ordered by createdAt; `bucket: 'recent'` returns closed / rejected
+ *  ordered by closedAt. */
+export function subscribeToPayrollForHelper(
+  familyId: string,
+  helperUid: string,
+  bucket: 'open' | 'recent',
+  cb: (requests: PurchaseRequest[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  const statuses = bucket === 'open'
+    ? ['draft', 'pending_approval', 'approved', 'reconciling']
+    : ['closed', 'rejected'];
+  const orderField = bucket === 'open' ? 'createdAt' : 'closedAt';
+  const q = query(
+    requestCol(familyId),
+    where('helperUid', '==', helperUid),
+    where('status', 'in', statuses),
+    orderBy(orderField, 'desc'),
+  );
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PurchaseRequest)));
+  });
+}
+
 /** Subscribe to a single request by id. */
 export function subscribeToRequest(
   familyId: string,

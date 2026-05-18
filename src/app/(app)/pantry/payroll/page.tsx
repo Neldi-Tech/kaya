@@ -22,6 +22,7 @@ import {
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
+  subscribeToPayrollForHelper,
   createDraftRequest,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
@@ -48,21 +49,28 @@ export default function PayrollHomePage() {
     const flip = () => { if (!flipped) { flipped = true; setLoading(false); } };
     const t = setTimeout(flip, 1500);
 
-    // Visibility rule: helpers ONLY see their own payroll requests;
-    // parents see every payroll request in the family.
-    const scope = (r: PurchaseRequest) => {
-      if (r.module !== 'payroll') return false;
-      if (role === 'parent') return true;
-      return r.helperUid === myUid;
-    };
-    const a = subscribeToOpenRequests(profile.familyId, (r) => {
-      setOpen(r.filter(scope));
-      flip();
-    });
-    const b = subscribeToRecentRequests(profile.familyId, (r) => {
-      setRecent(r.filter(scope));
-      flip();
-    });
+    if (role === 'parent') {
+      // Parents are allowed to read every payroll doc by the rule —
+      // use the broad open/recent subscriptions and filter to payroll
+      // client-side.
+      const onlyPayroll = (r: PurchaseRequest) => r.module === 'payroll';
+      const a = subscribeToOpenRequests(profile.familyId, (r) => {
+        setOpen(r.filter(onlyPayroll));
+        flip();
+      });
+      const b = subscribeToRecentRequests(profile.familyId, (r) => {
+        setRecent(r.filter(onlyPayroll));
+        flip();
+      });
+      return () => { clearTimeout(t); a(); b(); };
+    }
+
+    // Helpers MUST query with where(helperUid == own uid) — the
+    // confidentiality rule blocks reading other helpers' payroll
+    // docs, so a broad query would return permission_denied.
+    if (!myUid) { setLoading(false); return; }
+    const a = subscribeToPayrollForHelper(profile.familyId, myUid, 'open',   (r) => { setOpen(r); flip(); });
+    const b = subscribeToPayrollForHelper(profile.familyId, myUid, 'recent', (r) => { setRecent(r); flip(); });
     return () => { clearTimeout(t); a(); b(); };
   }, [profile?.familyId, role, myUid]);
 
