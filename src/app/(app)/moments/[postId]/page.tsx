@@ -9,12 +9,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   getPost, toggleReaction, subscribeToMyReactions, subscribeToComments,
-  addComment, deleteComment, deletePost,
+  addComment, deleteComment,
   Post, Comment, Reaction, REACTION_EMOJIS,
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
@@ -22,7 +22,6 @@ import KidAvatar from '@/components/ui/KidAvatar';
 
 export default function PostDetailPage() {
   const { postId } = useParams<{ postId: string }>();
-  const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { children } = useFamily();
   const [post, setPost] = useState<Post | null>(null);
@@ -83,8 +82,10 @@ export default function PostDetailPage() {
 
   const isAuthor = post.authorUid === profile?.uid;
   const isParent = profile?.role === 'parent';
-  const canDeletePost = isAuthor || isParent;
-  const canEditPost = isAuthor;
+  // Edit page hosts both edit + delete now — anyone who could
+  // previously delete (author or parent) can reach the edit page so
+  // they keep that moderation path.
+  const canEditPost = isAuthor || isParent;
   const event = post.eventTag;
   const date = post.createdAt?.toDate?.() || new Date();
   const dateLabel = date.toLocaleDateString('en-US', {
@@ -135,13 +136,6 @@ export default function PostDetailPage() {
     await deleteComment(profile.familyId, post.id, id);
   };
 
-  const onDeletePost = async () => {
-    if (!profile?.familyId) return;
-    if (!window.confirm('Delete this moment? Photos and comments will be removed.')) return;
-    await deletePost(profile.familyId, post);
-    router.replace('/moments');
-  };
-
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
@@ -165,18 +159,10 @@ export default function PostDetailPage() {
         {canEditPost && (
           <Link
             href={`/moments/${post.id}/edit`}
-            className="text-[11px] font-bold text-kaya-chocolate hover:underline"
+            className="h-8 px-3 inline-flex items-center bg-kaya-gold/15 text-kaya-chocolate rounded-kaya-sm text-[11px] font-bold hover:bg-kaya-gold/25 transition-colors"
           >
             Edit
           </Link>
-        )}
-        {canDeletePost && (
-          <button
-            onClick={onDeletePost}
-            className="text-[11px] font-bold text-red-600 hover:underline"
-          >
-            Delete
-          </button>
         )}
       </div>
 

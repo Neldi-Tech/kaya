@@ -16,7 +16,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  getPost, updatePost, uploadProcessedPhoto, deleteRemovedPhotos,
+  getPost, updatePost, uploadProcessedPhoto, deleteRemovedPhotos, deletePost,
   EVENT_TAGS, EventTag, Post, PhotoRef,
   CUSTOM_TAG_EMOJI, CUSTOM_TAG_MAX_LEN,
 } from '@/lib/moments';
@@ -69,6 +69,7 @@ export default function EditMomentPage() {
   const [slots, setSlots] = useState<PhotoSlot[]>([]);
   const [processing, setProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
 
@@ -85,7 +86,11 @@ export default function EditMomentPage() {
     (async () => {
       const p = await getPost(profile.familyId, postId);
       if (!p) { setLoading(false); return; }
-      if (p.authorUid !== profile.uid) {
+      // Author edits their own; parents can also open the page so
+      // they keep their moderation Delete (which now lives here).
+      const isAuthor = p.authorUid === profile.uid;
+      const isParent = profile.role === 'parent';
+      if (!isAuthor && !isParent) {
         setDenied(true);
         setLoading(false);
         return;
@@ -159,7 +164,7 @@ export default function EditMomentPage() {
     return (
       <div className="mx-auto max-w-md w-full px-4 pt-16 text-center">
         <p className="text-5xl mb-3">🔒</p>
-        <p className="text-kaya-sand text-sm">Only the original poster can edit this moment.</p>
+        <p className="text-kaya-sand text-sm">Only the original poster or a parent can edit this moment.</p>
       </div>
     );
   }
@@ -350,6 +355,20 @@ export default function EditMomentPage() {
     } catch (e: any) {
       setError(e?.message || 'Could not save the changes.');
       setSaving(false);
+    }
+  };
+
+  const onDelete = async () => {
+    if (!profile?.familyId || !post) return;
+    if (!window.confirm('Delete this moment? Photos and comments will be removed.')) return;
+    setError('');
+    setDeleting(true);
+    try {
+      await deletePost(profile.familyId, post);
+      router.replace('/moments');
+    } catch (e: any) {
+      setError(e?.message || 'Could not delete this moment.');
+      setDeleting(false);
     }
   };
 
@@ -625,18 +644,33 @@ export default function EditMomentPage() {
       <div className="sticky bottom-24 lg:bottom-4 flex items-center gap-2 bg-kaya-cream/95 backdrop-blur-sm py-2 -mx-4 px-4 lg:mx-0 lg:px-0">
         <button
           onClick={onSave}
-          disabled={saving || processing || slots.length === 0}
+          disabled={saving || deleting || processing || slots.length === 0}
           className="flex-1 h-12 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40"
         >
           {saving ? 'Saving…' : 'Save changes'}
         </button>
         <button
           onClick={() => router.back()}
-          disabled={saving}
+          disabled={saving || deleting}
           className="h-12 px-4 bg-white border border-kaya-warm-dark rounded-kaya font-bold text-sm text-kaya-chocolate"
         >
           Cancel
         </button>
+      </div>
+
+      {/* ── Danger zone ─────────────────────────────────────── */}
+      <div className="mt-6 pt-4 border-t border-kaya-warm-dark/60">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand-light mb-2">Danger zone</p>
+        <button
+          onClick={onDelete}
+          disabled={saving || deleting}
+          className="w-full h-11 bg-white border border-red-200 text-red-600 rounded-kaya-sm font-bold text-sm hover:bg-red-50 transition-colors disabled:opacity-40"
+        >
+          {deleting ? 'Deleting…' : 'Delete this moment'}
+        </button>
+        <p className="text-[10px] text-kaya-sand-light mt-1.5 text-center">
+          Photos, comments, and reactions will be removed.
+        </p>
       </div>
     </div>
   );
