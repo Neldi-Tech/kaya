@@ -46,7 +46,7 @@ const PRIMARY_TABS: TabDef[] = [
 // Finances + Budget are parent-only.
 const MORE_TABS: TabDef[] = [
   { path: '/pantry/payroll',   icon: '🤝', label: 'Payroll',          match: 'prefix', sub: 'Self · advances & loans' },
-  { path: '/pantry/people',    icon: '🤝', label: 'People',           match: 'prefix', sub: 'Helpers + workplans' },
+  { path: '/pantry/workplan',  icon: '📋', label: 'Workplan',         match: 'prefix', sub: 'Helpers · duties · assign' },
   { path: '/pantry/browse',    icon: '🧺', label: 'Browse Catalogue', match: 'prefix', sub: 'Pantry + Others' },
   { path: '/pantry/meals',     icon: '🍽️', label: 'Meal Planner',     match: 'prefix', sub: '7-day timetable' },
   { path: '/pantry/suppliers', icon: '🏪', label: 'Soko',             match: 'prefix', sub: 'Suppliers' },
