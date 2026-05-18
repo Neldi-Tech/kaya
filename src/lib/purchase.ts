@@ -47,9 +47,12 @@ export type PurchaseRequestStatus =
  *    pantry  — groceries / staples
  *    outdoor — garden, pool, kuku, pets, repairs (Gardener-scoped)
  *    drivers — vehicle fuel + service + spare parts (Driver-scoped)
- *  Utility top-ups + Payroll requests live in their own collections
- *  when those modules ship. */
-export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers';
+ *    utility — electricity / water / internet top-ups + bill payments
+ *    payroll — helper-private: advances + loans tied to the helper's
+ *              `helperUid` field on the request, parent-only approval
+ *  All five modules share the `purchaseRequests` collection;
+ *  `module` discriminates the surface. */
+export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll';
 
 /** Categories specific to the Outdoor module. Used in the catalogue
  *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
@@ -80,18 +83,48 @@ export const DRIVERS_CATEGORIES: { id: DriversCategory; emoji: string; label: st
   { id: 'other',   emoji: '📦',  label: 'Other' },
 ];
 
+/** Categories specific to the Utility module. */
+export type UtilityRequestCategory =
+  | 'electricity' | 'water' | 'internet' | 'gas' | 'tv' | 'security' | 'rent' | 'other';
+
+export const UTILITY_REQUEST_CATEGORIES: { id: UtilityRequestCategory; emoji: string; label: string }[] = [
+  { id: 'electricity', emoji: '⚡', label: 'Electricity' },
+  { id: 'water',       emoji: '💧', label: 'Water' },
+  { id: 'internet',    emoji: '📶', label: 'Internet' },
+  { id: 'gas',         emoji: '🔥', label: 'Gas' },
+  { id: 'tv',          emoji: '📺', label: 'TV / streaming' },
+  { id: 'security',    emoji: '🛡️', label: 'Security' },
+  { id: 'rent',        emoji: '🏠', label: 'Rent' },
+  { id: 'other',       emoji: '📦', label: 'Other' },
+];
+
+/** Categories specific to the Payroll module. Self-service: the
+ *  helper themselves creates these, parents approve. */
+export type PayrollCategory = 'advance' | 'loan' | 'bonus' | 'reimbursement';
+
+export const PAYROLL_CATEGORIES: { id: PayrollCategory; emoji: string; label: string }[] = [
+  { id: 'advance',       emoji: '💵', label: 'Salary advance' },
+  { id: 'loan',          emoji: '🏦', label: 'Loan' },
+  { id: 'bonus',         emoji: '🎁', label: 'Bonus' },
+  { id: 'reimbursement', emoji: '↩️', label: 'Reimbursement' },
+];
+
 /** Module → emoji + label shortcuts for consistent branding across
  *  pickers, tab bars, Finances roll-up, etc. */
 export const MODULE_EMOJI: Record<PurchaseModule, string> = {
   pantry:  '🛒',
   outdoor: '🌿',
   drivers: '🚗',
+  utility: '⚡',
+  payroll: '🤝',
 };
 
 export const MODULE_LABEL: Record<PurchaseModule, string> = {
   pantry:  'Pantry',
   outdoor: 'Outdoor',
   drivers: 'Drivers',
+  utility: 'Utilities',
+  payroll: 'Payroll',
 };
 
 export interface PurchaseRequestItem {
@@ -136,6 +169,12 @@ export interface PurchaseRequest {
   createdBy: string;
   createdByRole: 'parent' | 'helper';
   updatedAt?: Timestamp;
+
+  /** For Payroll requests — the helper this request is FOR (not just
+   *  who created it). Helpers see only payroll requests where
+   *  `helperUid === their own uid`; parents see all. For non-payroll
+   *  modules this field is unused. */
+  helperUid?: string;
 
   sentAt?: Timestamp;
   /** Array so the upcoming "Both parents must approve" mode (step 2 of
@@ -217,7 +256,9 @@ export function subscribeToRequest(
 // ── Write ────────────────────────────────────────────────────────
 
 /** Create a draft request. Returns the new id. Module defaults to
- *  'pantry' so existing callers don't need to pass it. */
+ *  'pantry' so existing callers don't need to pass it. For Payroll
+ *  requests, pass `helperUid` so the request is scoped to that helper
+ *  (visibility + future Firestore rule enforcement). */
 export async function createDraftRequest(
   familyId: string,
   args: {
@@ -226,11 +267,12 @@ export async function createDraftRequest(
     createdByRole: 'parent' | 'helper';
     module?: PurchaseModule;
     items?: PurchaseRequestItem[];
+    helperUid?: string;
   },
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   const items = args.items ?? [];
-  const ref = await addDoc(requestCol(familyId), {
+  const payload: Record<string, unknown> = {
     name: args.name,
     status: 'draft' as PurchaseRequestStatus,
     module: (args.module ?? 'pantry') as PurchaseModule,
@@ -239,7 +281,9 @@ export async function createDraftRequest(
     createdAt: serverTimestamp(),
     createdBy: args.createdBy,
     createdByRole: args.createdByRole,
-  });
+  };
+  if (args.helperUid) payload.helperUid = args.helperUid;
+  const ref = await addDoc(requestCol(familyId), payload);
   return ref.id;
 }
 

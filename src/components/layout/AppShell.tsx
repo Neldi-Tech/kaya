@@ -149,9 +149,13 @@ const KAYA_NAV: NavItem[] = [
 const HOUSEHOLD_NAV: NavItem[] = [
   { path: '/pantry',          icon: '🛒', label: 'The Pantry' },
   { path: '/pantry/people',   icon: '🤝', label: 'People' },
+  // Request modules (five of them)
   { path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
   { path: '/pantry/outdoor',  icon: '🌿', label: 'Outdoor' },
   { path: '/pantry/drivers',  icon: '🚗', label: 'Drivers' },
+  { path: '/pantry/utility',  icon: '⚡', label: 'Utility' },
+  { path: '/pantry/payroll',  icon: '🤝', label: 'Payroll' },
+  // Money roll-up + settings
   { path: '/pantry/finances', icon: '💰', label: 'Finances' },
   { path: '/pantry/budget',   icon: '⚙️', label: 'Budget' },
 ];

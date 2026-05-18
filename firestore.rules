@@ -434,16 +434,21 @@ service cloud.firestore {
       // step 2 (Approval mode) lands.
       match /purchaseRequests/{requestId} {
         allow read: if belongsToFamily(familyId);
-        // Pantry on `household/purchase`; Outdoor on `household/outdoor`
-        // (Gardener); Drivers on `household/drivers` (Driver). v1 keeps
-        // the rule permissive across modules — any grant permits writes
-        // against any request type. The UI keeps the surfaces separate
-        // so per-helper scoping still feels clean. Tighten with strict
-        // per-module rule checks if a family asks for it.
+        // Five Household request modules all share this collection,
+        // discriminated by `module`. Pantry on `household/purchase`,
+        // Outdoor on `household/outdoor` (Gardener), Drivers on
+        // `household/drivers` (Driver), Utility on `household/utility`,
+        // Payroll self-service for ANY helper writing their OWN request
+        // (helperUid == auth.uid). v1 keeps the cross-module rule
+        // permissive — any grant permits writes against any module.
+        // Tighten with strict per-module checks (incl. payroll
+        // helperUid pinning) when a family asks.
         allow create, update, delete: if isParentInFamily(familyId)
           || helperCanActOnSub(familyId, 'household', 'purchase')
           || helperCanActOnSub(familyId, 'household', 'outdoor')
           || helperCanActOnSub(familyId, 'household', 'drivers')
+          || helperCanActOnSub(familyId, 'household', 'utility')
+          || helperCanActOnSub(familyId, 'household', 'payroll')
           || isLegacyHelperWithoutLink(familyId);
       }
 
