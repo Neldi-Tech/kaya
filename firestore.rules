@@ -519,6 +519,28 @@ service cloud.firestore {
           );
       }
 
+      // ── Purchase request TEMPLATES (2026-05-18) ─────────────────
+      // Auto-saved snapshots of approved/rejected baskets, so the
+      // family can re-issue a similar shop in one tap. Doc id is
+      // deterministic (module + slugified name) so the latest snapshot
+      // upserts the prior one.
+      //
+      // Same access shape as purchaseRequests above EXCEPT payroll
+      // is NOT a template-relevant module (helpers self-service
+      // their pay; no template reuse pattern). Parents + module-
+      // grant helpers can write; everyone in the family can read
+      // (browsing templates is no riskier than browsing past
+      // requests, which is already allowed).
+      match /purchaseTemplates/{templateId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperCanActOnSub(familyId, 'household', 'purchase')
+          || helperCanActOnSub(familyId, 'household', 'outdoor')
+          || helperCanActOnSub(familyId, 'household', 'drivers')
+          || helperCanActOnSub(familyId, 'household', 'utility')
+          || isLegacyHelperWithoutLink(familyId);
+      }
+
       // ── Moments · Keepsake Albums ────────────────────────────────
       // Family photo repository. Each album has its own access list;
       // sub-albums inherit-then-narrow (their accessList must be a

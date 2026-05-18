@@ -20,11 +20,13 @@ import {
   subscribeToOpenRequests,
   subscribeToRecentRequests,
   createDraftRequest,
+  createDraftFromTemplate,
 } from '@/lib/purchase';
 import {
   type UtilityMeter, subscribeToMeters, meterEmoji,
 } from '@/lib/utilityMeters';
 import { formatCents } from '@/components/pantry/format';
+import TemplatePicker from '@/components/pantry/TemplatePicker';
 
 const todayDraftName = () => {
   const d = new Date();
@@ -44,6 +46,9 @@ export default function UtilityHomePage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  // Same pattern as Drivers — stash the chosen template id while the
+  // meter picker runs.
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
@@ -71,13 +76,23 @@ export default function UtilityHomePage() {
     setCreating(true);
     setShowPicker(false);
     try {
-      const id = await createDraftRequest(profile.familyId, {
-        name: meter ? `${meter.label} top-up` : todayDraftName(),
-        createdBy: profile.uid,
-        createdByRole: role,
-        module: 'utility',
-        meterId: meter?.id,
-      });
+      let id: string;
+      if (pendingTemplateId) {
+        id = await createDraftFromTemplate(profile.familyId, pendingTemplateId, {
+          createdBy: profile.uid,
+          createdByRole: role,
+          meterId: meter?.id,
+        });
+        setPendingTemplateId(null);
+      } else {
+        id = await createDraftRequest(profile.familyId, {
+          name: meter ? `${meter.label} top-up` : todayDraftName(),
+          createdBy: profile.uid,
+          createdByRole: role,
+          module: 'utility',
+          meterId: meter?.id,
+        });
+      }
       router.push(`/pantry/purchase/${id}`);
     } catch {
       setCreating(false);
@@ -88,6 +103,7 @@ export default function UtilityHomePage() {
   // goes straight to a no-meter draft (so the flow isn't gated on
   // meter setup). Otherwise it opens the meter picker.
   const startDraft = () => {
+    setPendingTemplateId(null);
     if (meters.length === 0) startDraftWithMeter(null);
     else setShowPicker(true);
   };
@@ -176,6 +192,18 @@ export default function UtilityHomePage() {
       )}
 
       <div className="mt-4 mb-32">
+        {profile?.familyId && !isGuest && (
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="utility"
+            currency={currency}
+            onPick={async (tpl) => {
+              setPendingTemplateId(tpl.id);
+              if (meters.length === 0) await startDraftWithMeter(null);
+              else setShowPicker(true);
+            }}
+          />
+        )}
         <button
           type="button"
           onClick={startDraft}
@@ -194,7 +222,7 @@ export default function UtilityHomePage() {
       {/* Meter picker sheet */}
       {showPicker && (
         <>
-          <div className="fixed inset-0 bg-hive-navy/40 z-40" onClick={() => setShowPicker(false)} />
+          <div className="fixed inset-0 bg-hive-navy/40 z-40" onClick={() => { setShowPicker(false); setPendingTemplateId(null); }} />
           <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-hive-paper rounded-t-3xl shadow-2xl z-50 pb-6 pt-2 max-h-[80vh] overflow-y-auto">
             <div className="flex justify-center pt-1 pb-2">
               <div className="w-12 h-1 rounded-full bg-hive-line"></div>
@@ -232,7 +260,7 @@ export default function UtilityHomePage() {
               {role === 'parent' && (
                 <Link
                   href="/pantry/utility-meters"
-                  onClick={() => setShowPicker(false)}
+                  onClick={() => { setShowPicker(false); setPendingTemplateId(null); }}
                   className="block text-center mt-2 text-[11px] font-nunito font-bold text-hive-honey-dk hover:underline"
                 >
                   ＋ Add a new meter

@@ -23,11 +23,13 @@ import {
   subscribeToOpenRequests,
   subscribeToRecentRequests,
   createDraftRequest,
+  createDraftFromTemplate,
 } from '@/lib/purchase';
 import {
   type Vehicle, subscribeToVehicles, vehicleEmoji,
 } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
+import TemplatePicker from '@/components/pantry/TemplatePicker';
 
 const todayDraftName = () => {
   const d = new Date();
@@ -47,6 +49,10 @@ export default function DriversHomePage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  // When a template is picked, stash its id while the vehicle picker
+  // runs — the actual draft creation needs both pieces. Cleared on
+  // create or cancel.
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
@@ -74,13 +80,25 @@ export default function DriversHomePage() {
     setCreating(true);
     setShowPicker(false);
     try {
-      const id = await createDraftRequest(profile.familyId, {
-        name: vehicle ? `${vehicle.label} run` : todayDraftName(),
-        createdBy: profile.uid,
-        createdByRole: role,
-        module: 'drivers',
-        vehicleId: vehicle?.id,
-      });
+      // If a template is pending, branch — the items come from the
+      // template snapshot, not a fresh basket.
+      let id: string;
+      if (pendingTemplateId) {
+        id = await createDraftFromTemplate(profile.familyId, pendingTemplateId, {
+          createdBy: profile.uid,
+          createdByRole: role,
+          vehicleId: vehicle?.id,
+        });
+        setPendingTemplateId(null);
+      } else {
+        id = await createDraftRequest(profile.familyId, {
+          name: vehicle ? `${vehicle.label} run` : todayDraftName(),
+          createdBy: profile.uid,
+          createdByRole: role,
+          module: 'drivers',
+          vehicleId: vehicle?.id,
+        });
+      }
       router.push(`/pantry/purchase/${id}`);
     } catch {
       setCreating(false);
@@ -90,6 +108,7 @@ export default function DriversHomePage() {
   // No vehicles set up yet → start a no-vehicle draft (don't gate the
   // request flow on setup). Otherwise show the picker.
   const startDraft = () => {
+    setPendingTemplateId(null);
     if (vehicles.length === 0) startDraftWithVehicle(null);
     else setShowPicker(true);
   };
@@ -157,7 +176,7 @@ export default function DriversHomePage() {
           </div>
           <button
             type="button"
-            onClick={() => setShowPicker(false)}
+            onClick={() => { setShowPicker(false); setPendingTemplateId(null); }}
             className="text-[11px] text-hive-muted underline mt-2"
           >
             Cancel
@@ -222,6 +241,21 @@ export default function DriversHomePage() {
       )}
 
       <div className="mt-4 mb-32">
+        {profile?.familyId && !isGuest && (
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="drivers"
+            currency={currency}
+            onPick={async (tpl) => {
+              // Stash the template; if the family has vehicles, run
+              // the picker first so the new draft is properly pinned.
+              // Otherwise jump straight to creating a no-vehicle draft.
+              setPendingTemplateId(tpl.id);
+              if (vehicles.length === 0) await startDraftWithVehicle(null);
+              else setShowPicker(true);
+            }}
+          />
+        )}
         <button
           type="button"
           onClick={startDraft}

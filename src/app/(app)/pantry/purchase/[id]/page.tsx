@@ -430,11 +430,13 @@ export default function PurchaseDetailPage() {
         ))}
       </div>
 
-      {/* Add-from-Pantry + Quick-add — drafts only. Editable is now
-          broader (also lets parents fix qty/price on pending), but
-          adding NEW items to a pending request would change its
-          shape mid-approval — that's a redraft. */}
-      {isDraft && (
+      {/* Add-from-Pantry + Quick-add — available whenever items are
+          editable. As of 2026-05-18: parent reviewing a pending
+          request CAN also add items ("while you're at it, grab
+          garlic too"). Helper sees the updated basket when they go
+          to reconcile; the totals + budget impact recompute on
+          every change. */}
+      {editable && (
         <div className="mt-3">
           <button
             type="button"
