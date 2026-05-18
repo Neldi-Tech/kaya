@@ -1,10 +1,13 @@
 'use client';
 
-// /moments/[postId]/edit — author edits caption / kid tags / event chip.
+// /moments/[postId]/edit — author edits caption / photos / tags / event chip.
 //
-// Photos are read-only here — adding or removing photos after publish
-// has to push and reclaim Storage paths, which V1 leaves alone.
-// Visibility is similarly fixed since the UI only writes 'family'.
+// Photo edits: remove, reorder, or add new photos. New photos run
+// through the same processing pipeline as the composer and land in
+// Storage under the EXISTING postId path so we don't have to re-link
+// anything on the doc. Removed photos are cleaned out of Storage
+// fire-and-forget so the doc save isn't blocked on Storage round-trips.
+// Visibility stays fixed since the UI only writes 'family'.
 // On save we patch the post doc with `updatedAt` so the detail page
 // can render a small "edited" hint.
 
@@ -13,13 +16,18 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  getPost, updatePost,
-  EVENT_TAGS, EventTag, Post,
+  getPost, updatePost, uploadProcessedPhoto, deleteRemovedPhotos,
+  EVENT_TAGS, EventTag, Post, PhotoRef,
   CUSTOM_TAG_EMOJI, CUSTOM_TAG_MAX_LEN,
 } from '@/lib/moments';
+import {
+  processPhotoForUpload, ProcessedPhoto, MAX_PHOTO_BYTES,
+} from '@/lib/photoUpload';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+
+const MAX_PHOTOS = 10;
 
 const EMOJI_PALETTE = [
   '😀','😂','😍','🥰','😎','😊','🙏','👏',
@@ -36,6 +44,14 @@ interface MentionTarget {
   uid?: string;
 }
 
+// One ordered slot in the editor's photo strip. Either an already-
+// published PhotoRef (kind: 'existing') or a freshly-picked file
+// awaiting upload on Save (kind: 'draft'). Reorder + remove operate
+// on this unified list so the UI doesn't care about the difference.
+type PhotoSlot =
+  | { kind: 'existing'; slotId: string; photo: PhotoRef }
+  | { kind: 'draft'; slotId: string; fileName: string; processed: ProcessedPhoto; previewUrl: string };
+
 export default function EditMomentPage() {
   const { postId } = useParams<{ postId: string }>();
   const router = useRouter();
@@ -50,9 +66,13 @@ export default function EditMomentPage() {
   const [kidTags, setKidTags] = useState<string[]>([]);
   const [eventTag, setEventTag] = useState<EventTag | undefined>(undefined);
   const [mentionedUids, setMentionedUids] = useState<string[]>([]);
+  const [slots, setSlots] = useState<PhotoSlot[]>([]);
+  const [processing, setProcessing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const captionRef = useRef<HTMLTextAreaElement>(null);
   const [showEmojis, setShowEmojis] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
@@ -75,9 +95,24 @@ export default function EditMomentPage() {
       setKidTags(p.kidTags || []);
       setEventTag(p.eventTag);
       setMentionedUids(p.mentionedUids || []);
+      setSlots((p.photos || []).map((ph) => ({
+        kind: 'existing' as const,
+        slotId: `existing-${ph.id}`,
+        photo: ph,
+      })));
       setLoading(false);
     })();
   }, [profile?.familyId, profile?.uid, postId]);
+
+  // Revoke the object URLs we created for draft previews when the
+  // component unmounts — drafts that survive to Save are revoked by
+  // the save flow before navigating away.
+  useEffect(() => () => {
+    setSlots((prev) => {
+      prev.forEach((s) => { if (s.kind === 'draft') URL.revokeObjectURL(s.previewUrl); });
+      return prev;
+    });
+  }, []);
 
   useEffect(() => {
     if (!profile?.familyId) return;
@@ -137,6 +172,59 @@ export default function EditMomentPage() {
       </div>
     );
   }
+
+  const onPickFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    if (slots.length + files.length > MAX_PHOTOS) {
+      setError(`Maximum ${MAX_PHOTOS} photos per post.`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    setError('');
+    setProcessing(true);
+    const next: PhotoSlot[] = [];
+    for (const file of files) {
+      try {
+        if (file.size > MAX_PHOTO_BYTES) {
+          throw new Error(`${file.name} is too large (>${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} MB).`);
+        }
+        const processed = await processPhotoForUpload(file);
+        next.push({
+          kind: 'draft',
+          slotId: `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+          fileName: file.name,
+          processed,
+          previewUrl: URL.createObjectURL(processed.feedBlob),
+        });
+      } catch (err: any) {
+        setError(err?.message || `Couldn't process ${file.name}.`);
+      }
+    }
+    setSlots((prev) => [...prev, ...next]);
+    setProcessing(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const removeSlot = (slotId: string) => {
+    setSlots((prev) => {
+      const target = prev.find((s) => s.slotId === slotId);
+      if (target && target.kind === 'draft') URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((s) => s.slotId !== slotId);
+    });
+  };
+
+  const moveSlot = (slotId: string, dir: -1 | 1) => {
+    setSlots((prev) => {
+      const i = prev.findIndex((s) => s.slotId === slotId);
+      if (i < 0) return prev;
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  };
 
   const toggleKidTag = (childId: string) => {
     setKidTags((prev) =>
@@ -205,8 +293,41 @@ export default function EditMomentPage() {
 
   const onSave = async () => {
     if (!profile?.familyId || !post) return;
+    if (slots.length === 0) {
+      setError('A moment needs at least one photo.');
+      return;
+    }
     setError('');
     setSaving(true);
+
+    // Upload any new drafts sequentially so the progress counter stays
+    // monotonic and a flaky mobile connection isn't asked to push 10
+    // photos in parallel. Existing PhotoRefs pass through untouched.
+    const drafts = slots.filter((s): s is Extract<PhotoSlot, { kind: 'draft' }> => s.kind === 'draft');
+    setProgress({ done: 0, total: drafts.length });
+    const uploadedByDraftId = new Map<string, PhotoRef>();
+    try {
+      for (const d of drafts) {
+        const ref = await uploadProcessedPhoto(profile.familyId, post.id, d.processed);
+        uploadedByDraftId.set(d.slotId, ref);
+        setProgress((p) => ({ ...p, done: p.done + 1 }));
+      }
+    } catch (e: any) {
+      setError(e?.message || 'Upload failed. Tap Save to retry.');
+      setSaving(false);
+      return;
+    }
+
+    // Build the final ordered photo list + figure out which originals
+    // the author dropped (for Storage cleanup).
+    const finalPhotos: PhotoRef[] = slots.map((s) =>
+      s.kind === 'existing' ? s.photo : uploadedByDraftId.get(s.slotId)!,
+    );
+    const keptIds = new Set(
+      slots.filter((s) => s.kind === 'existing').map((s) => (s as Extract<PhotoSlot, { kind: 'existing' }>).photo.id),
+    );
+    const removed = (post.photos || []).filter((p) => !keptIds.has(p.id));
+
     try {
       const finalCaption = caption.trim();
       const finalMentionedUids = mentionedUids.filter((uid) => {
@@ -218,7 +339,13 @@ export default function EditMomentPage() {
         kidTags,
         eventTag,
         mentionedUids: finalMentionedUids,
+        photos: finalPhotos,
       });
+      // Reclaim Storage for dropped photos — best-effort, doesn't
+      // block navigation.
+      if (removed.length > 0) deleteRemovedPhotos(profile.familyId, post.id, removed);
+      // Revoke local previews before navigating.
+      drafts.forEach((d) => URL.revokeObjectURL(d.previewUrl));
       router.replace(`/moments/${post.id}`);
     } catch (e: any) {
       setError(e?.message || 'Could not save the changes.');
@@ -233,26 +360,75 @@ export default function EditMomentPage() {
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Moments</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">Edit moment</h1>
         <p className="text-sm text-kaya-sand mt-1">
-          Update the caption, who&apos;s tagged, or the event chip. Photos can&apos;t be changed once posted.
+          Update photos, the caption, who&apos;s tagged, or the event chip.
         </p>
       </div>
 
-      {/* ── Photos (read-only preview) ──────────────────────── */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-4">
+      {/* ── Photos (add / remove / reorder) ─────────────────── */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
         <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">Photos</p>
-        <div className="grid grid-cols-3 gap-2">
-          {post.photos.map((p, i) => (
-            <div key={p.id} className="relative aspect-square rounded-kaya-sm overflow-hidden bg-kaya-warm">
-              <img src={p.feedUrl} alt="" className="w-full h-full object-cover" />
-              <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-bold rounded px-1.5 py-0.5">
-                {i + 1}
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          {slots.map((s, i) => {
+            const src = s.kind === 'existing' ? s.photo.feedUrl : s.previewUrl;
+            return (
+              <div key={s.slotId} className="relative aspect-square rounded-kaya-sm overflow-hidden bg-kaya-warm">
+                <img src={src} alt="" className="w-full h-full object-cover" />
+                <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-bold rounded px-1.5 py-0.5">
+                  {i + 1}
+                </div>
+                {s.kind === 'draft' && (
+                  <div className="absolute top-1 right-8 bg-kaya-gold text-white text-[9px] font-bold rounded px-1.5 py-0.5 uppercase tracking-wider">
+                    New
+                  </div>
+                )}
+                <button
+                  onClick={() => removeSlot(s.slotId)}
+                  disabled={saving}
+                  className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs disabled:opacity-30"
+                  aria-label="Remove photo"
+                >✕</button>
+                <div className="absolute bottom-1 left-1 right-1 flex justify-between">
+                  <button
+                    onClick={() => moveSlot(s.slotId, -1)}
+                    disabled={saving || i === 0}
+                    className="w-6 h-6 rounded-full bg-black/60 text-white text-xs disabled:opacity-20"
+                    aria-label="Move left"
+                  >←</button>
+                  <button
+                    onClick={() => moveSlot(s.slotId, 1)}
+                    disabled={saving || i === slots.length - 1}
+                    className="w-6 h-6 rounded-full bg-black/60 text-white text-xs disabled:opacity-20"
+                    aria-label="Move right"
+                  >→</button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
+          {slots.length < MAX_PHOTOS && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={processing || saving}
+              className="aspect-square rounded-kaya-sm border-2 border-dashed border-kaya-warm-dark text-kaya-sand text-xs font-bold flex flex-col items-center justify-center gap-1 hover:border-kaya-chocolate hover:text-kaya-chocolate transition-colors disabled:opacity-40"
+            >
+              <span className="text-2xl">📷</span>
+              <span>{slots.length === 0 ? 'Add photos' : `${MAX_PHOTOS - slots.length} more`}</span>
+            </button>
+          )}
         </div>
-        <p className="text-[10px] text-kaya-sand-light mt-2">
-          To change photos, delete this moment and share a new one.
-        </p>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={onPickFiles}
+        />
+        {processing && (
+          <p className="text-[11px] text-kaya-sand text-center">Processing photos…</p>
+        )}
+        {slots.length === 0 && !processing && (
+          <p className="text-[11px] text-kaya-sand text-center">A moment needs at least one photo.</p>
+        )}
       </div>
 
       {/* ── Caption ─────────────────────────────────────────── */}
@@ -432,10 +608,24 @@ export default function EditMomentPage() {
         <p className="text-red-500 text-xs bg-red-50 border border-red-200 rounded-kaya-sm px-2 py-1.5 mb-3">{error}</p>
       )}
 
+      {saving && progress.total > 0 && progress.done < progress.total && (
+        <div className="bg-kaya-gold/10 border border-kaya-gold/40 rounded-kaya-sm px-3 py-2 mb-3">
+          <p className="text-xs font-bold text-kaya-chocolate">
+            Uploading {progress.done} of {progress.total}…
+          </p>
+          <div className="h-1.5 bg-white rounded-full mt-1.5 overflow-hidden">
+            <div
+              className="h-full bg-kaya-gold transition-all"
+              style={{ width: `${Math.round((progress.done / progress.total) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="sticky bottom-24 lg:bottom-4 flex items-center gap-2 bg-kaya-cream/95 backdrop-blur-sm py-2 -mx-4 px-4 lg:mx-0 lg:px-0">
         <button
           onClick={onSave}
-          disabled={saving}
+          disabled={saving || processing || slots.length === 0}
           className="flex-1 h-12 bg-kaya-gold text-white rounded-kaya font-bold text-sm disabled:opacity-40"
         >
           {saving ? 'Saving…' : 'Save changes'}
