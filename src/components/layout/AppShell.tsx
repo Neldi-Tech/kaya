@@ -249,19 +249,24 @@ const KID_SIDEBAR: SidebarRow[] = [
 // ── Mobile bottom-bar groups ─────────────────────────────────────────
 // 5 slots per role — Discover always anchors slot 1. Moments + the rest
 // remain reachable via the More mega-sheet.
+// Mobile bottom-bar slots are limited to 5 — anything else lives in
+// the More mega-sheet. Moments earns slot 3 (front-and-centre as the
+// family's daily-rhythm surface) per Elia 2026-05-17; Hive moves into
+// the More sheet for parents (kids keep it on the bar since it's
+// their wallet).
 const PARENT_MOBILE_GROUPS: MobileGroup[] = [
-  { kind: 'link', id: 'discover', path: '/',     icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/home', icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link', id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
+  { kind: 'link', id: 'home',     path: '/home',    icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link', id: 'moments',  path: '/moments', icon: '📸', label: 'Moments' },
   { kind: 'sheet', id: 'kaya', iconNode: <KayaIcon className="w-5 h-5" />, label: 'Kaya', title: 'Kaya · point system', items: KAYA_NAV },
-  { kind: 'link', id: 'hive',     path: '/hive', icon: '🍯', label: 'Hive', activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
 const KID_MOBILE_GROUPS: MobileGroup[] = [
   { kind: 'link', id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
   { kind: 'link', id: 'home',     path: '/kid',     icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'hive',     path: '/hive',    icon: '🍯', label: 'Hive' },
   { kind: 'link', id: 'moments',  path: '/moments', icon: '📸', label: 'Moments' },
+  { kind: 'link', id: 'hive',     path: '/hive',    icon: '🍯', label: 'Hive' },
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
