@@ -140,6 +140,15 @@ export interface Supplier {
 export interface Staple {
   id: string;
   name: string;
+  /** Optional secondary / local-language name (e.g. Swahili "Asali"
+   *  for the primary "Honey"). 2026-05-18 — bilingual UX:
+   *    • Parents see `name` as the headline and `name2` muted below.
+   *    • Helpers see `name2` as the headline (when set) and `name`
+   *      muted below — easier scanning for low-literacy English /
+   *      local-language-native helpers.
+   *    • Search matches either `name` or `name2` case-insensitively
+   *      so "asali" finds "Honey" and vice versa. */
+  name2?: string;
   category: StapleCategory;
   /** Default quantity per cycle (e.g. 2). */
   defaultQty: number;
@@ -540,6 +549,63 @@ const paymentCol = (familyId: string, utilityId: string) =>
   collection(db, 'families', familyId, 'utilities', utilityId, 'payments');
 
 // ── Staples ──────────────────────────────────────────────────────
+
+// ── Bilingual display helpers (2026-05-18) ────────────────────────
+//
+// Helpers + parents see staple names with a different headline order.
+// A helper who's more comfortable in Swahili picks "Asali" out of the
+// list faster than scanning for "Honey"; a parent maintaining the
+// catalogue thinks in English. The Staple stores BOTH names; these
+// helpers pick which one is the headline for the viewer.
+
+export interface StapleLike {
+  name: string;
+  name2?: string;
+}
+
+export type ViewerRole = 'parent' | 'helper';
+
+/** Headline name for `viewer`. Helpers see `name2` (the local label)
+ *  when present; parents always see `name`. Falls back to whichever
+ *  is set if the preferred one is missing. */
+export function displayStapleName(s: StapleLike, viewer: ViewerRole): string {
+  if (viewer === 'helper' && s.name2 && s.name2.trim()) return s.name2;
+  return s.name || s.name2 || '';
+}
+
+/** Secondary name to show muted under the headline. Returns null
+ *  when there's nothing to show (single-name staple OR the headline
+ *  already exhausted both labels). */
+export function secondaryStapleName(s: StapleLike, viewer: ViewerRole): string | null {
+  if (!s.name2 || !s.name2.trim()) return null;
+  return viewer === 'helper' ? (s.name || null) : s.name2;
+}
+
+/** True when `query` (lower-cased) matches either `name` or `name2`.
+ *  Used by every staple-list search filter so a helper typing "asali"
+ *  finds Honey, and a parent typing "honey" finds the same row. */
+export function stapleMatchesQuery(s: StapleLike, query: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  if (s.name && s.name.toLowerCase().includes(q)) return true;
+  if (s.name2 && s.name2.toLowerCase().includes(q)) return true;
+  return false;
+}
+
+/** Normalise a string for duplicate-detection. Drops whitespace +
+ *  punctuation + casing so "Honey", "honey ", and " HONEY!" all match. */
+export function normaliseStapleName(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[^\w]+/g, '');
+}
+
+/** True when two staple-likes refer to the same item (by either
+ *  name OR name2 after normalisation). Used by the promote-pending
+ *  flow to spot duplicates before adding to the catalogue. */
+export function stapleNamesOverlap(a: StapleLike, b: StapleLike): boolean {
+  const aN = [a.name, a.name2].filter((n): n is string => !!n && !!n.trim()).map(normaliseStapleName);
+  const bN = [b.name, b.name2].filter((n): n is string => !!n && !!n.trim()).map(normaliseStapleName);
+  return aN.some((x) => bN.includes(x));
+}
 
 export function subscribeToStaples(
   familyId: string,
