@@ -13,11 +13,13 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
+import { usePantry } from '@/contexts/PantryContext';
 import {
   type PurchaseRequest, type PurchaseModule,
   subscribeToRecentRequests,
   MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
+import { sumMonthlyUtilities, sumPaidThisPeriod } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
 
 const monthKey = (d: Date = new Date()) =>
@@ -46,6 +48,7 @@ export default function FinancesPage() {
   const { profile } = useAuth();
   const { family } = useFamily();
   const { config } = useHive();
+  const { utilities } = usePantry();
   const currency = config.currency;
 
   // Parent-only — bounce helpers back to the Pantry home and render a
@@ -95,8 +98,25 @@ export default function FinancesPage() {
     return result;
   }, [closedThisMonth, family?.householdBudgets]);
 
-  const totalSpent = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].spent, 0);
-  const totalCap = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].cap, 0);
+  // Utilities — sourced from the existing /pantry/utilities collection
+  // (recurring bills, NOT from purchaseRequests). Salary rows are
+  // excluded — those belong to the future Payroll module. `cap` is the
+  // sum of monthly bill amounts the family has set; `spent` reads the
+  // denormalised lastPayment* fields so we don't have to subscribe to
+  // every payment subcollection just to render this card.
+  const utilitiesEx = useMemo(
+    () => utilities.filter((u) => u.category !== 'salary'),
+    [utilities],
+  );
+  const utilitiesCap = useMemo(() => sumMonthlyUtilities(utilitiesEx), [utilitiesEx]);
+  const utilitiesPaid = useMemo(() => sumPaidThisPeriod(utilitiesEx), [utilitiesEx]);
+  const utilitiesOver = utilitiesCap > 0 && utilitiesPaid.paidCents > utilitiesCap;
+  const utilitiesPct = utilitiesCap > 0
+    ? Math.min(100, Math.round((utilitiesPaid.paidCents / utilitiesCap) * 100))
+    : 0;
+
+  const totalSpent = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].spent, 0) + utilitiesPaid.paidCents;
+  const totalCap = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].cap, 0) + utilitiesCap;
   const totalPct = totalCap > 0 ? Math.min(100, Math.round((totalSpent / totalCap) * 100)) : 0;
   const totalOver = totalCap > 0 && totalSpent > totalCap;
 
@@ -199,6 +219,45 @@ export default function FinancesPage() {
             </Link>
           );
         })}
+
+        {/* Utilities card — separate source (the /pantry/utilities
+            recurring-bills collection, not purchaseRequests). Shows
+            paid-this-period over monthly committed bills. Salaries are
+            excluded (they belong to the future Payroll module). */}
+        <Link
+          href="/pantry/utilities"
+          className={`block rounded-hive border p-4 no-underline text-inherit ${
+            utilitiesOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-[#FFF3D9] border-hive-honey'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk">
+              ⚡ Utilities
+            </p>
+            <span className="text-[10px] text-hive-muted font-bold">
+              {utilitiesEx.length} {utilitiesEx.length === 1 ? 'bill' : 'bills'}
+            </span>
+          </div>
+          <p className="font-nunito font-black text-xl text-hive-ink">
+            {formatCents(utilitiesPaid.paidCents, currency)}
+            <span className="text-hive-muted text-xs font-bold">
+              {' '}of {utilitiesCap > 0 ? formatCents(utilitiesCap, currency) : '—'}
+            </span>
+          </p>
+          {utilitiesCap > 0 && (
+            <div className="mt-2 h-1.5 bg-white/70 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${utilitiesOver ? 'bg-hive-rose' : 'bg-hive-honey-dk'}`}
+                style={{ width: `${utilitiesPct}%` }}
+              />
+            </div>
+          )}
+          {utilitiesCap === 0 && (
+            <p className="text-[10px] text-hive-muted mt-2 font-bold">
+              Add a bill in <span className="text-hive-honey-dk">/pantry/utilities</span> →
+            </p>
+          )}
+        </Link>
       </div>
 
       {/* Recent closed across all modules */}

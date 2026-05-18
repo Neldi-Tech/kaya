@@ -157,26 +157,10 @@ export default function PantryHomePage() {
           <span className="font-nunito font-extrabold text-[15px] mt-1">Drivers</span>
           <span className="text-[11px] text-hive-blue font-bold">Fuel · service · spare parts</span>
         </Link>
-        {isParent && (
-          <Link
-            href="/pantry/finances"
-            className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey-dk transition-colors no-underline text-inherit"
-          >
-            <span className="text-2xl leading-none">💰</span>
-            <span className="font-nunito font-extrabold text-[15px] mt-1">Finances</span>
-            <span className="text-[11px] text-hive-honey-dk font-bold">All-household money roll-up</span>
-          </Link>
-        )}
-        {isParent && (
-          <Link
-            href="/pantry/budget"
-            className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
-          >
-            <span className="text-2xl leading-none">⚙️</span>
-            <span className="font-nunito font-extrabold text-[15px] mt-1">Budget</span>
-            <span className="text-[11px] text-hive-muted">Per-module caps + settings</span>
-          </Link>
-        )}
+        {/* Budget + Finances live as their own modules (sidebar +
+            tab bar entries). The home grid focuses on action surfaces
+            — places where you DO things — so we don't duplicate the
+            aggregation pages here. */}
         <Link
           href="/pantry/people"
           className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-pantry-leaf transition-colors no-underline text-inherit"
