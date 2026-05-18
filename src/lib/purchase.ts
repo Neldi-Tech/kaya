@@ -176,6 +176,12 @@ export interface PurchaseRequest {
    *  modules this field is unused. */
   helperUid?: string;
 
+  /** For Utility requests — which meter this request is for.
+   *  Pinned at draft creation via the meter picker on /pantry/utility.
+   *  Finances rolls up per-meter consumption via this field. Unused
+   *  for non-utility modules. */
+  meterId?: string;
+
   sentAt?: Timestamp;
   /** Array so the upcoming "Both parents must approve" mode (step 2 of
    *  the build) can require length === 2 without a schema change. */
@@ -294,9 +300,9 @@ export function subscribeToRequest(
 // ── Write ────────────────────────────────────────────────────────
 
 /** Create a draft request. Returns the new id. Module defaults to
- *  'pantry' so existing callers don't need to pass it. For Payroll
- *  requests, pass `helperUid` so the request is scoped to that helper
- *  (visibility + future Firestore rule enforcement). */
+ *  'pantry' so existing callers don't need to pass it. For Payroll,
+ *  pass `helperUid` (scoping + rule); for Utility, pass `meterId`
+ *  (which meter the request is for). */
 export async function createDraftRequest(
   familyId: string,
   args: {
@@ -306,6 +312,7 @@ export async function createDraftRequest(
     module?: PurchaseModule;
     items?: PurchaseRequestItem[];
     helperUid?: string;
+    meterId?: string;
   },
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
@@ -321,6 +328,7 @@ export async function createDraftRequest(
     createdByRole: args.createdByRole,
   };
   if (args.helperUid) payload.helperUid = args.helperUid;
+  if (args.meterId) payload.meterId = args.meterId;
   const ref = await addDoc(requestCol(familyId), payload);
   return ref.id;
 }

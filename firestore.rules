@@ -432,6 +432,19 @@ service cloud.firestore {
       // transitions, "Both parents must approve") are enforced in the
       // UI for now and will tighten into rule-level validators when
       // step 2 (Approval mode) lands.
+      // ── Utility meters (Household → Utility) ────────────────────
+      // The family's tracked meters (electric / water / gas / internet /
+      // etc.) — one doc per meter. Tim-family has 5 electric meters; the
+      // collection scales. Gated by the household/utility sub-grant for
+      // helpers; parents unconstrained. Each Utility PurchaseRequest
+      // pins to a meter via `request.meterId`.
+      match /utilityMeters/{meterId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperCanActOnSub(familyId, 'household', 'utility')
+          || isLegacyHelperWithoutLink(familyId);
+      }
+
       match /purchaseRequests/{requestId} {
         // ── Read ──
         // Non-payroll requests: any family member (today's behaviour).
