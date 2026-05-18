@@ -388,11 +388,13 @@ export default function PurchaseDetailPage() {
       })()}
 
       {/* Parent · pending hint — let the parent know they can correct
-          qty or price right here before approving. New 2026-05-18. */}
+          qty or price right here before approving. Updated 2026-05-18
+          (verification pass v2) — items are now click-to-expand to
+          keep the list short; copy matches the new interaction. */}
       {isPending && role === 'parent' && (
         <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-2.5 mb-3 text-[11px] text-hive-ink leading-relaxed">
           <span className="font-nunito font-extrabold text-hive-honey-dk">✏️ Fix before you approve.</span>
-          {' '}Edit any qty or price below — the helper sees the corrected numbers.
+          {' '}Tap any item to edit its qty or price — the helper sees the corrected numbers.
         </div>
       )}
 
@@ -713,14 +715,31 @@ function ItemRow({
   onRemove: () => void;
   varianceOnClose: boolean;
 }) {
+  // 2026-05-18 (verification pass v2) — collapse-by-default. Default
+  // is a single tidy line; tap to expand the qty + price inputs +
+  // remove. Always-on inputs made the basket noisy + tall — most
+  // items are correct as-typed; the parent only needs to fix a few.
+  const [open, setOpen] = useState(false);
   const est = (item.estimatedCents ?? 0) * item.qty;
   const act = (item.actualCents ?? 0) * (item.actualQty ?? 0);
   const vDelta = est > 0 ? Math.round(((act - est) / est) * 100) : 0;
   const pending = !!item.pendingPromote;
   const emoji = stapleEmoji({ category: item.category, module: itemModule });
+  const totalNow = reconcilable || (varianceOnClose && item.actualCents != null) ? act : est;
+  const canExpandEdit = editable && !reconcilable;
   return (
-    <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 ${pending ? 'opacity-70 bg-[repeating-linear-gradient(135deg,white,white_6px,#FFF8EC_6px,#FFF8EC_12px)]' : ''}`}>
-      <div className="flex items-center gap-3">
+    <div className={`bg-hive-paper border ${open && canExpandEdit ? 'border-pantry-leaf' : 'border-hive-line'} rounded-hive ${pending ? 'opacity-70 bg-[repeating-linear-gradient(135deg,white,white_6px,#FFF8EC_6px,#FFF8EC_12px)]' : ''}`}>
+      {/* Always-visible single-line summary. The whole row is clickable
+          when editable (cursor + hover hint). Right side shows the
+          total + a small ✏️ hint when editable so users know they
+          can tap to fix. */}
+      <button
+        type="button"
+        onClick={canExpandEdit ? () => setOpen((v) => !v) : undefined}
+        disabled={!canExpandEdit}
+        aria-expanded={open}
+        className={`w-full flex items-center gap-3 p-3 text-left ${canExpandEdit ? 'hover:bg-hive-cream/40 cursor-pointer' : 'cursor-default'}`}
+      >
         <div className="w-10 h-10 rounded-lg bg-pantry-leaf-soft flex items-center justify-center text-lg flex-shrink-0">{emoji}</div>
         <div className="flex-1 min-w-0">
           <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
@@ -731,17 +750,15 @@ function ItemRow({
               </span>
             )}
           </div>
-          <div className="text-[11px] text-hive-muted font-bold">
+          <div className="text-[11px] text-hive-muted font-bold truncate">
             {item.qty} {item.unit}
-            {item.estimatedCents != null && ` · est. ${formatCents(item.estimatedCents, currency)} ea · total ${formatCents(est, currency)}`}
+            {item.estimatedCents != null && ` · ${formatCents(item.estimatedCents, currency)} ea`}
           </div>
         </div>
-        {editable ? (
-          <button onClick={onRemove} className="text-hive-rose font-nunito font-black px-1 flex-shrink-0" aria-label="Remove item">×</button>
-        ) : (
-          <div className="text-right">
-            <div className="font-nunito font-black text-sm">
-              {formatCents(reconcilable || (varianceOnClose && item.actualCents != null) ? act : est, currency)}
+        <div className="text-right flex-shrink-0 flex items-center gap-2">
+          <div>
+            <div className="font-nunito font-black text-sm text-hive-navy">
+              {formatCents(totalNow, currency)}
             </div>
             {varianceOnClose && item.actualCents != null && (
               <span className={`text-[10px] font-extrabold px-1 py-0.5 rounded ${vDelta > 0 ? 'bg-[#FCEAEA] text-hive-rose' : 'bg-[#E6F7EE] text-hive-green'}`}>
@@ -749,16 +766,20 @@ function ItemRow({
               </span>
             )}
           </div>
-        )}
-      </div>
+          {canExpandEdit && (
+            <span className="text-hive-muted text-xs font-bold w-4 text-center" aria-hidden>
+              {open ? '▴' : '▾'}
+            </span>
+          )}
+        </div>
+      </button>
 
-      {/* Edit mode: qty + estimated price (draft helper + pending parent).
-          Same 2-col grid as reconcile below — keeps the visual rhythm
-          consistent so helpers immediately recognise "edit the numbers
-          here". Step away from the inline +/- spinner because the
-          number input gives a working keyboard on phones for both. */}
-      {editable && (
-        <div className="grid grid-cols-2 gap-2 mt-2">
+      {/* Edit mode (collapsed by default): qty + estimated price.
+          Same 2-col grid as the reconcile section so the visual
+          rhythm is consistent. Remove (×) moves into the expanded
+          section so the collapsed row stays clean. */}
+      {open && canExpandEdit && (
+        <div className="border-t border-hive-line/60 p-3 grid grid-cols-2 gap-2">
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Qty ({item.unit})</span>
             <input
@@ -778,12 +799,30 @@ function ItemRow({
               className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
             />
           </label>
+          <div className="col-span-2 flex items-center justify-between mt-1">
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-hive-rose font-nunito font-bold text-xs"
+            >
+              × Remove item
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-hive-muted font-nunito font-bold text-xs"
+            >
+              Done
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Reconcile mode: actual qty + actual price */}
+      {/* Reconcile mode: actual qty + actual price. Stays always-on
+          here because every line typically needs touching during
+          reconcile (helper is at the shop confirming numbers). */}
       {reconcilable && (
-        <div className="grid grid-cols-2 gap-2 mt-2">
+        <div className="border-t border-hive-line/60 p-3 grid grid-cols-2 gap-2">
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Actual qty</span>
             <input

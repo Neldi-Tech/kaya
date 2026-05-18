@@ -6,7 +6,7 @@
 // and upcoming-meals card return in Phase 1B.
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -15,6 +15,10 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   createListFromStaples, createList, thisWeekKey, thisWeekLabel,
 } from '@/lib/pantry';
+import {
+  subscribeToOpenRequests,
+  type PurchaseModule,
+} from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
 import InfoIcon from '@/components/ui/InfoIcon';
@@ -30,6 +34,35 @@ export default function PantryHomePage() {
 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
+
+  // 2026-05-18 (verification pass v2) — notification counts per module
+  // tile. "Open" = anything still in flight (pending_approval / approved
+  // / reconciling). Closed + rejected don't count. Helps parents see at
+  // a glance which module has work waiting without opening each one.
+  //
+  // Gated to parents because subscribeToOpenRequests is a family-wide
+  // query — helpers may not have read access to every payroll doc and
+  // the rules would deny the listener. Helpers see their workload on
+  // each module's home page directly.
+  const [openByModule, setOpenByModule] = useState<Record<PurchaseModule, number>>({
+    pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0,
+  });
+  useEffect(() => {
+    if (!profile?.familyId || !isParent) return;
+    return subscribeToOpenRequests(profile.familyId, (reqs) => {
+      const counts: Record<PurchaseModule, number> = {
+        pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0,
+      };
+      for (const r of reqs) {
+        // 'draft' isn't a notification — it's the author's own scratch
+        // space, not work waiting on anyone else.
+        if (r.status === 'pending_approval' || r.status === 'approved' || r.status === 'reconciling') {
+          counts[r.module] = (counts[r.module] ?? 0) + 1;
+        }
+      }
+      setOpenByModule(counts);
+    });
+  }, [profile?.familyId, isParent]);
 
   const startWeek = async () => {
     if (!profile?.familyId || isGuest) return;
@@ -137,19 +170,24 @@ export default function PantryHomePage() {
       <div className="grid grid-cols-2 gap-3 mb-2">
         <Tile href="/pantry/purchase" emoji="🧾" label="Household Purchase" sub="Request → approve → reconcile"
           tint="bg-pantry-leaf-soft border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
-          tooltip="Request → approve → reconcile for groceries + pantry items." />
+          tooltip="Request → approve → reconcile for groceries + pantry items."
+          badge={openByModule.pantry} />
         <Tile href="/pantry/utility" emoji="⚡" label="Utilities" sub="Top-ups + bills · per-meter"
           tint="bg-[#FFF3D9] border-hive-honey hover:border-hive-honey-dk" subColor="text-hive-honey-dk"
-          tooltip="Electricity / water / internet top-ups + bill payments. Per-meter when set up." />
+          tooltip="Electricity / water / internet top-ups + bill payments. Per-meter when set up."
+          badge={openByModule.utility} />
         <Tile href="/pantry/outdoor" emoji="🌿" label="Outdoor" sub="Garden · pool · kuku · pets"
           tint="bg-[#E6F2EC] border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
-          tooltip="Garden · pool · kuku · pets · repairs. Gardener-helper scope." />
+          tooltip="Garden · pool · kuku · pets · repairs. Gardener-helper scope."
+          badge={openByModule.outdoor} />
         <Tile href="/pantry/drivers" emoji="🚗" label="Drivers" sub="Fuel · service · spare parts"
           tint="bg-[#E5EFF8] border-[#B5CFE5] hover:border-hive-blue" subColor="text-hive-blue"
-          tooltip="Vehicle fuel · service · spare parts · tolls. Driver-helper scope." />
+          tooltip="Vehicle fuel · service · spare parts · tolls. Driver-helper scope."
+          badge={openByModule.drivers} />
         <Tile href="/pantry/payroll" emoji="🤝" label="Payroll" sub="Self-service · advances · loans"
           tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
-          tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them." />
+          tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
+          badge={openByModule.payroll} />
       </div>
 
       {/* ── Catalogues & plans ── */}
@@ -234,8 +272,13 @@ function Divider({ label }: { label: string }) {
 // top-right (i) info-icon with the surface's tooltip — v4-final §02
 // copy lives in the calling sites (not centralised) so it stays
 // editable per-tile without indirection.
+//
+// 2026-05-18 (verification pass v2): optional `badge` prop renders a
+// honey notification chip on the top-left for "N requests in flight"
+// — pending_approval / approved / reconciling. Driven from the
+// /pantry page subscription; only shows when N > 0.
 function Tile({
-  href, emoji, label, sub, tint, subColor, tooltip, compact,
+  href, emoji, label, sub, tint, subColor, tooltip, compact, badge,
 }: {
   href: string;
   emoji: string;
@@ -245,16 +288,28 @@ function Tile({
   subColor: string;
   tooltip: string;
   compact?: boolean;
+  /** Notification count (open requests in flight). Hidden when 0/undefined. */
+  badge?: number;
 }) {
   const pad = compact ? 'p-3' : 'p-4';
   const labelSize = compact ? 'text-[13px]' : 'text-[15px]';
   const subSize = compact ? 'text-[10px]' : 'text-[11px]';
   const emojiSize = compact ? 'text-xl' : 'text-2xl';
+  const hasBadge = typeof badge === 'number' && badge > 0;
   return (
     <Link
       href={href}
       className={`relative ${tint} rounded-hive ${pad} flex flex-col gap-1 border transition-colors no-underline text-inherit`}
     >
+      {hasBadge && (
+        <span
+          className="absolute -top-1.5 -left-1.5 z-10 min-w-[22px] h-[22px] px-1.5 rounded-full bg-hive-honey-dk text-white text-[11px] font-nunito font-black inline-flex items-center justify-center border-2 border-white shadow-sm"
+          aria-label={`${badge} request${badge === 1 ? '' : 's'} in flight`}
+          title={`${badge} ${badge === 1 ? 'request' : 'requests'} in flight (pending approval, approved, or reconciling)`}
+        >
+          {badge}
+        </span>
+      )}
       <span className="absolute top-2 right-2">
         <InfoIcon tooltip={tooltip} size="xs" align="left" />
       </span>
