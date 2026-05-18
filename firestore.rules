@@ -445,6 +445,23 @@ service cloud.firestore {
           || isLegacyHelperWithoutLink(familyId);
       }
 
+      // ── Vehicles (Household → Drivers) ─────────────────────────
+      // The family's vehicles (sedan / SUV / pickup / motorbike /
+      // tuk-tuk / etc.) — one doc per vehicle. Each Drivers
+      // PurchaseRequest pins to a vehicle via `request.vehicleId`
+      // so workshop bills attribute to the actual car.
+      // Same shape as utilityMeters. Gated by household/drivers
+      // sub-grant for helpers; parents unconstrained. When Kaya
+      // Wealth ships, this collection will be mirrored from the KW
+      // asset registry — the path stays stable so call sites don't
+      // change.
+      match /vehicles/{vehicleId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperCanActOnSub(familyId, 'household', 'drivers')
+          || isLegacyHelperWithoutLink(familyId);
+      }
+
       match /purchaseRequests/{requestId} {
         // ── Read ──
         // Non-payroll requests: any family member (today's behaviour).

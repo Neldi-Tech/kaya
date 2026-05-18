@@ -470,6 +470,107 @@ export const DIRECTORY_FOODS: DirectoryFood[] = [
 // builders who may want to compose rows differently.
 export type __DirectoryRowShape = _Row;
 
+// ── Outdoor catalogue ────────────────────────────────────────────
+// Curated catalogue for Household → Outdoor (garden / pool / kuku /
+// pets / repairs / other). 2026-05-18: added on Elia's verification
+// pass to enrich the Other Catalogue page — the previous Outdoor tab
+// only rendered family-owned staples, which is empty for new families
+// and sparse for established ones. This list seeds the discoverable
+// "what could I be buying" view; promote-to-Staples lands next iter.
+//
+// Cadence + qty are typical-family guesses; the Other Catalogue page
+// shows them as suggestions only (no live budget impact until promoted
+// into a family staple).
+
+export type OutdoorCategoryId = 'garden' | 'pool' | 'kuku' | 'pets' | 'repairs' | 'other';
+
+export interface DirectoryOutdoorItem {
+  label: string;
+  match: string[];          // lowercase search aliases (English + Swahili where relevant)
+  emoji: string;
+  category: OutdoorCategoryId;
+  defaultQty: number;
+  unit: string;
+  cadence: Cadence;
+  note?: string;
+}
+
+const _o = (
+  label: string, match: string[], category: OutdoorCategoryId, emoji: string,
+  qty: number, unit: string, cadence: Cadence, note?: string,
+): DirectoryOutdoorItem => ({ label, match, category, emoji, defaultQty: qty, unit, cadence, note });
+
+export const DIRECTORY_OUTDOOR: DirectoryOutdoorItem[] = [
+  // ── 🌿 GARDEN ─────────────────────────────────────────────────
+  _o('Potting soil',          ['potting soil','soil'],         'garden', '🪴', 2,  'bag',     'monthly'),
+  _o('Manure / compost',      ['manure','compost','samadi'],    'garden', '🪨', 2,  'bag',     'monthly'),
+  _o('Fertiliser (NPK)',      ['fertiliser','fertilizer','npk'], 'garden', '🌱', 1,  'bag',     'monthly'),
+  _o('Mulch',                 ['mulch','wood chip'],            'garden', '🪵', 1,  'bag',     'monthly',  'For moisture + weed suppression.'),
+  _o('Vegetable seeds',       ['seeds','mbegu','vegetable'],    'garden', '🌾', 1,  'pack',    'monthly'),
+  _o('Flower seedlings',      ['seedlings','flowers','miche'],   'garden', '🌸', 6,  'x',       'monthly'),
+  _o('Garden hose',           ['hose','bomba','pipe'],          'garden', '🪢', 1,  'x',       'as-needed'),
+  _o('Sprinkler head',        ['sprinkler'],                    'garden', '💦', 2,  'x',       'as-needed'),
+  _o('Watering can',          ['watering can'],                 'garden', '🪣', 1,  'x',       'as-needed'),
+  _o('Garden gloves',         ['gloves','garden gloves'],       'garden', '🧤', 1,  'pair',    'as-needed'),
+  _o('Pesticide / fungicide', ['pesticide','dawa','spray'],     'garden', '🧪', 1,  'bottle',  'monthly',  'Check label — neem-based first.'),
+  _o('Weed killer',           ['weedkiller','herbicide'],       'garden', '🧴', 1,  'bottle',  'monthly'),
+  _o('Pruning shears',        ['shears','secateurs','snips'],   'garden', '✂️', 1,  'x',       'as-needed'),
+  _o('Machete / panga',       ['panga','machete','slasher'],    'garden', '🔪', 1,  'x',       'as-needed'),
+  _o('Wheelbarrow',           ['wheelbarrow','toroli'],         'garden', '🛒', 1,  'x',       'as-needed'),
+
+  // ── 🏊 POOL ───────────────────────────────────────────────────
+  _o('Pool chlorine',         ['chlorine','klorini'],           'pool',   '🧪', 1,  'kg',      'biweekly'),
+  _o('pH+ (raiser)',          ['ph up','ph plus','soda ash'],   'pool',   '⬆️', 1,  'bottle',  'monthly'),
+  _o('pH− (reducer)',         ['ph down','ph minus'],            'pool',   '⬇️', 1,  'bottle',  'monthly'),
+  _o('Pool shock',            ['shock treatment'],               'pool',   '💥', 1,  'pack',    'monthly'),
+  _o('Pool test kit',         ['test kit','strips'],            'pool',   '🧫', 1,  'kit',     'as-needed'),
+  _o('Pool net (skimmer)',    ['skimmer','net'],                'pool',   '🥅', 1,  'x',       'as-needed'),
+  _o('Pool brush',            ['brush','pool brush'],            'pool',   '🪮', 1,  'x',       'as-needed'),
+  _o('Pool vacuum head',      ['vacuum','suction'],             'pool',   '🌀', 1,  'x',       'as-needed'),
+
+  // ── 🐔 KUKU (CHICKENS) ────────────────────────────────────────
+  _o('Layers mash',           ['layers mash','chakula kuku'],   'kuku',   '🌽', 1,  'bag',     'weekly',   '50kg typical bag.'),
+  _o('Chick starter',         ['chick starter','vifaranga'],    'kuku',   '🐥', 1,  'bag',     'biweekly'),
+  _o('Broiler feed',          ['broiler feed'],                 'kuku',   '🍗', 1,  'bag',     'weekly'),
+  _o('Maize germ',            ['maize germ','pumba'],           'kuku',   '🌽', 1,  'bag',     'biweekly'),
+  _o('Grit / oyster shell',   ['grit','oyster shell'],          'kuku',   '🐚', 1,  'kg',      'monthly'),
+  _o('Newcastle vaccine',     ['vaccine','chanjo','newcastle'], 'kuku',   '💉', 1,  'vial',    'monthly'),
+  _o('Dewormer',              ['dewormer','minyoo'],            'kuku',   '💊', 1,  'bottle',  'monthly'),
+  _o('Wood shavings',         ['shavings','litter'],            'kuku',   '🪵', 2,  'bag',     'monthly'),
+  _o('Feeder / drinker',      ['feeder','drinker','waterer'],   'kuku',   '🥣', 1,  'x',       'as-needed'),
+
+  // ── 🐱 PETS ───────────────────────────────────────────────────
+  _o('Dog food',              ['dog food','chakula mbwa'],      'pets',   '🐕', 1,  'bag',     'biweekly'),
+  _o('Cat food',              ['cat food','chakula paka'],      'pets',   '🐈', 1,  'bag',     'biweekly'),
+  _o('Cat litter',            ['litter','sand'],                'pets',   '🧱', 1,  'bag',     'biweekly'),
+  _o('Pet treats',            ['treats','snacks'],              'pets',   '🦴', 1,  'pack',    'monthly'),
+  _o('Vet visit',             ['vet','daktari mifugo'],         'pets',   '🩺', 1,  'visit',   'as-needed'),
+  _o('Flea / tick treatment', ['flea','tick','viroboto'],       'pets',   '🐜', 1,  'bottle',  'monthly'),
+  _o('Pet shampoo',           ['shampoo'],                      'pets',   '🧴', 1,  'bottle',  'as-needed'),
+  _o('Leash / collar',        ['leash','collar','kamba'],       'pets',   '🪢', 1,  'x',       'as-needed'),
+
+  // ── 🔧 REPAIRS ────────────────────────────────────────────────
+  _o('Paint (wall)',          ['paint','rangi'],                'repairs', '🎨', 4,  'L',       'as-needed', 'Specify interior vs exterior.'),
+  _o('Paint brush',           ['paint brush','brashi'],         'repairs', '🖌️', 2,  'x',       'as-needed'),
+  _o('Paint roller',          ['roller'],                       'repairs', '🌀', 1,  'x',       'as-needed'),
+  _o('Cement',                ['cement','simenti'],             'repairs', '🪨', 1,  'bag',     'as-needed', '50kg bag typical.'),
+  _o('Sand',                  ['sand','mchanga'],               'repairs', '⏳', 1,  'tip',     'as-needed'),
+  _o('Nails (assorted)',      ['nails','misumari'],             'repairs', '📍', 1,  'kg',      'as-needed'),
+  _o('Screws (assorted)',     ['screws','sukurubu'],            'repairs', '🔩', 1,  'box',     'as-needed'),
+  _o('Wood plank',            ['plank','mbao','timber'],        'repairs', '🪵', 4,  'x',       'as-needed'),
+  _o('Silicone sealant',      ['silicone','sealant'],           'repairs', '🧴', 1,  'tube',    'as-needed'),
+  _o('Plumbing tape',         ['ptfe','plumbing tape','teflon'], 'repairs', '🪢', 1,  'roll',    'as-needed'),
+  _o('Tap / faucet washer',   ['washer','rubber'],              'repairs', '⚙️', 5,  'x',       'as-needed'),
+  _o('Light bulb (LED)',      ['bulb','balbu','led'],           'repairs', '💡', 4,  'x',       'monthly'),
+  _o('Extension cable',       ['extension','cable','waya'],     'repairs', '🔌', 1,  'x',       'as-needed'),
+
+  // ── 📦 OTHER ─────────────────────────────────────────────────
+  _o('Generator petrol',      ['generator fuel','petrol'],      'other',   '⛽', 5,  'L',       'monthly',  'Diesel for the big genset.'),
+  _o('Mosquito coil',         ['coil','mbu','mosquito'],        'other',   '🔥', 1,  'pack',    'biweekly'),
+  _o('Insect spray',          ['insect spray','baygon'],        'other',   '🦟', 1,  'can',     'monthly'),
+  _o('Bin liners (heavy)',    ['bin liner','garbage bag'],      'other',   '🗑️', 1,  'pack',    'monthly'),
+];
+
 // ── Starter packs ────────────────────────────────────────────────
 // Curated bundles a parent can one-tap to seed their staples list
 // without entering items one-by-one. Each pack lists DIRECTORY_STAPLES

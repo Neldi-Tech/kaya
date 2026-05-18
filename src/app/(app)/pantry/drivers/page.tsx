@@ -24,6 +24,9 @@ import {
   subscribeToRecentRequests,
   createDraftRequest,
 } from '@/lib/purchase';
+import {
+  type Vehicle, subscribeToVehicles, vehicleEmoji,
+} from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
 
 const todayDraftName = () => {
@@ -40,8 +43,10 @@ export default function DriversHomePage() {
 
   const [open, setOpen] = useState<PurchaseRequest[]>([]);
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
@@ -56,27 +61,37 @@ export default function DriversHomePage() {
       setRecent(r.filter((x) => x.module === 'drivers'));
       flip();
     });
-    return () => { clearTimeout(t); a(); b(); };
+    const c = subscribeToVehicles(profile.familyId, (v) => { setVehicles(v.filter((x) => x.active)); flip(); });
+    return () => { clearTimeout(t); a(); b(); c(); };
   }, [profile?.familyId]);
 
   const pending = open.filter((r) => r.status === 'pending_approval');
   const drafts = open.filter((r) => r.status === 'draft');
   const inProgress = open.filter((r) => r.status === 'approved' || r.status === 'reconciling');
 
-  const startDraft = async () => {
+  const startDraftWithVehicle = async (vehicle: Vehicle | null) => {
     if (!profile?.familyId || !profile.uid || isGuest) return;
     setCreating(true);
+    setShowPicker(false);
     try {
       const id = await createDraftRequest(profile.familyId, {
-        name: todayDraftName(),
+        name: vehicle ? `${vehicle.label} run` : todayDraftName(),
         createdBy: profile.uid,
         createdByRole: role,
         module: 'drivers',
+        vehicleId: vehicle?.id,
       });
       router.push(`/pantry/purchase/${id}`);
     } catch {
       setCreating(false);
     }
+  };
+
+  // No vehicles set up yet → start a no-vehicle draft (don't gate the
+  // request flow on setup). Otherwise show the picker.
+  const startDraft = () => {
+    if (vehicles.length === 0) startDraftWithVehicle(null);
+    else setShowPicker(true);
   };
 
   return (
@@ -90,10 +105,65 @@ export default function DriversHomePage() {
         </h1>
         <p className="text-hive-muted text-sm mt-1">
           {role === 'parent'
-            ? 'Fuel, vehicle service, spare parts, car wash, tolls — everything on wheels.'
-            : 'Build a request for fuel or service, send for the nod, then reconcile after.'}
+            ? 'Fuel, vehicle service, spare parts, car wash, tolls — pinned to the specific vehicle.'
+            : 'Pick a vehicle, build the request, send for the nod, reconcile after.'}
         </p>
+        {/* 2026-05-18 — vehicles registry. Future: Kaya Wealth becomes
+            the source of truth and this lives there; the path stays
+            stable so call sites don't change. */}
+        <Link
+          href="/pantry/drivers/vehicles"
+          className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline mt-2 inline-block"
+        >
+          🚗 Manage vehicles ({vehicles.length}) →
+        </Link>
       </div>
+
+      {/* Vehicle picker — opens on "+ New driver request" when at
+          least one vehicle is set up. "Skip" lets the helper proceed
+          without pinning a vehicle (catch-all for generic spends). */}
+      {showPicker && (
+        <div className="bg-hive-paper border border-pantry-leaf rounded-hive p-3 mb-3">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-2">
+            Which vehicle is this for?
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {vehicles.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => startDraftWithVehicle(v)}
+                disabled={creating}
+                className="text-left bg-white border border-hive-line rounded-hive p-2.5 hover:border-pantry-leaf flex items-center gap-2.5 disabled:opacity-60"
+              >
+                <span className="text-2xl flex-shrink-0">{vehicleEmoji(v.type)}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-nunito font-extrabold text-sm truncate">{v.label}</p>
+                  <p className="text-[11px] text-hive-muted truncate">
+                    {[v.makeModel, v.plate, v.color].filter(Boolean).join(' · ') || '—'}
+                  </p>
+                </div>
+                <span className="text-pantry-leaf-dk font-nunito font-black">＋</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => startDraftWithVehicle(null)}
+              disabled={creating}
+              className="text-left bg-hive-cream border border-dashed border-hive-line rounded-hive p-2.5 text-[12px] font-nunito font-bold text-hive-muted hover:text-hive-ink"
+            >
+              Skip · don't pin to a vehicle
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowPicker(false)}
+            className="text-[11px] text-hive-muted underline mt-2"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
