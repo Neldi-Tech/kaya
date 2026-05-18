@@ -27,8 +27,8 @@ import {
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
 
-const todayDraftName = (role: 'parent' | 'helper') =>
-  role === 'helper' ? 'Advance request' : `${new Date().toLocaleDateString('en-US', { weekday: 'long' })} payroll`;
+// Auto-name comes from createDraftRequest (`PAY-NNNN · DDMMYY`).
+// Helper displayName is passed as context: `PAY-NNNN · DDMMYY · Jacky`.
 
 export default function PayrollHomePage() {
   const router = useRouter();
@@ -83,7 +83,9 @@ export default function PayrollHomePage() {
     setCreating(true);
     try {
       const id = await createDraftRequest(profile.familyId, {
-        name: todayDraftName(role),
+        // Context = helper displayName, so payroll requests read as
+        // `PAY-NNNN · DDMMYY · Jacky` for the parent's audit view.
+        context: profile.displayName?.split(' ')[0],
         createdBy: profile.uid,
         createdByRole: role,
         module: 'payroll',

@@ -31,10 +31,9 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 
-const todayDraftName = () => {
-  const d = new Date();
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} drive`;
-};
+// Auto-name comes from createDraftRequest (`CAR-NNNN · DDMMYY`).
+// Vehicle label is passed as the context suffix when a vehicle is
+// pinned: `CAR-NNNN · DDMMYY · Diana's RAV4`.
 
 export default function DriversHomePage() {
   const router = useRouter();
@@ -88,11 +87,12 @@ export default function DriversHomePage() {
           createdBy: profile.uid,
           createdByRole: role,
           vehicleId: vehicle?.id,
+          context: vehicle?.label,
         });
         setPendingTemplateId(null);
       } else {
         id = await createDraftRequest(profile.familyId, {
-          name: vehicle ? `${vehicle.label} run` : todayDraftName(),
+          context: vehicle?.label,
           createdBy: profile.uid,
           createdByRole: role,
           module: 'drivers',

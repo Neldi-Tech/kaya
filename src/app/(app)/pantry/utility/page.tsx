@@ -28,10 +28,9 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 
-const todayDraftName = () => {
-  const d = new Date();
-  return `${d.toLocaleDateString('en-US', { weekday: 'long' })} utility`;
-};
+// Auto-name comes from createDraftRequest (`UTL-NNNN · DDMMYY`).
+// Meter label is passed as the context suffix when a meter is pinned:
+// `UTL-NNNN · DDMMYY · Main House LUKU`.
 
 export default function UtilityHomePage() {
   const router = useRouter();
@@ -82,11 +81,12 @@ export default function UtilityHomePage() {
           createdBy: profile.uid,
           createdByRole: role,
           meterId: meter?.id,
+          context: meter?.label,
         });
         setPendingTemplateId(null);
       } else {
         id = await createDraftRequest(profile.familyId, {
-          name: meter ? `${meter.label} top-up` : todayDraftName(),
+          context: meter?.label,
           createdBy: profile.uid,
           createdByRole: role,
           module: 'utility',
