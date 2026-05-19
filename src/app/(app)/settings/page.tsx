@@ -2914,26 +2914,30 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {/* Navigation links */}
-          <div className="bg-white border border-kaya-warm-dark rounded-kaya overflow-hidden">
-            {[
-              { label: 'Kid Profiles', path: '/profiles', icon: '👧' },
-              { label: 'Reports',      path: '/reports',  icon: '📊' },
-              { label: 'Badges',       path: '/badges',   icon: '🏆' },
-            ].map((item, i) => (
-              <button
-                key={item.path}
-                onClick={() => router.push(item.path)}
-                className={`w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-kaya-cream transition-colors ${
-                  i > 0 ? 'border-t border-kaya-warm-dark' : ''
-                }`}
-              >
-                <span className="text-lg">{item.icon}</span>
-                <span className="text-sm font-medium flex-1">{item.label}</span>
-                <span className="text-kaya-sand text-sm">→</span>
-              </button>
-            ))}
-          </div>
+          {/* Navigation links — parent-only. Helpers don't need to
+              navigate to Kid Profiles / Reports / Badges from their
+              own Settings page (2026-05-19, Elia helper-cleanup pass). */}
+          {isParent && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya overflow-hidden">
+              {[
+                { label: 'Kid Profiles', path: '/profiles', icon: '👧' },
+                { label: 'Reports',      path: '/reports',  icon: '📊' },
+                { label: 'Badges',       path: '/badges',   icon: '🏆' },
+              ].map((item, i) => (
+                <button
+                  key={item.path}
+                  onClick={() => router.push(item.path)}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-kaya-cream transition-colors ${
+                    i > 0 ? 'border-t border-kaya-warm-dark' : ''
+                  }`}
+                >
+                  <span className="text-lg">{item.icon}</span>
+                  <span className="text-sm font-medium flex-1">{item.label}</span>
+                  <span className="text-kaya-sand text-sm">→</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Sign out */}
           <button

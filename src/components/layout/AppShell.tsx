@@ -22,15 +22,20 @@ import InfoIcon from '@/components/ui/InfoIcon';
 //   3. kaya:* required, legacy 'home' granted → access (pre-Kaya-split
 //      docs from earlier helper rollout)
 // Returns true when the route isn't helper-module-gated at all.
-function isHelperPathAllowed(pathname: string, granted: Set<string>): boolean {
+// 2026-05-19 v2 — deny-precedence so an explicit `view: false` on a
+// sub overrides a parent-level grant (was leaking Drivers etc.).
+type HelperAccessMap = { grants: Set<string>; denies: Set<string> };
+function isHelperPathAllowed(pathname: string, access: HelperAccessMap): boolean {
   const required = helperModuleKeyForPath(pathname);
   if (!required) return true;
-  if (granted.has(required)) return true;
+  if (access.denies.has(required)) return false;
+  if (access.grants.has(required)) return true;
   const colon = required.indexOf(':');
   if (colon > 0) {
     const parent = required.slice(0, colon);
-    if (granted.has(parent)) return true;
-    if (parent === 'kaya' && granted.has('home')) return true;  // legacy alias
+    if (access.denies.has(parent)) return false;
+    if (access.grants.has(parent)) return true;
+    if (parent === 'kaya' && access.grants.has('home') && !access.denies.has('home')) return true;
   }
   return false;
 }
@@ -394,7 +399,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // HelperLink doc, fall back to full helper sidebar" (matches the
   // firestore.rules `isLegacyHelperWithoutLink` carve-out). A real Set
   // means we filter strictly.
-  const [helperModules, setHelperModules] = useState<Set<string> | 'legacy' | null>(null);
+  // 2026-05-19 v2 — Track both granted AND denied module keys so a
+  // parent-level grant doesn't silently override an explicit per-sub
+  // deny (was leaking Drivers + similar to helpers). Same shape used
+  // by `useHelperGrants` for the per-page tile gates.
+  const [helperModules, setHelperModules] = useState<HelperAccessMap | 'legacy' | null>(null);
   useEffect(() => {
     let cancelled = false;
     if (role !== 'helper' || !profile?.familyId || !profile.uid) {
@@ -411,15 +420,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         // they navigate to it" = view-tier. Act-tier checks happen
         // on writes inside each screen. Legacy docs (only `modules`
         // array, no moduleAccess) get treated as view+act.
-        const ids = new Set<string>();
+        const grants = new Set<string>();
+        const denies = new Set<string>();
         if (link.moduleAccess) {
           for (const [id, flags] of Object.entries(link.moduleAccess)) {
-            if (flags.view) ids.add(id);
+            if (flags.view) grants.add(id);
+            else denies.add(id);
           }
         } else {
-          for (const id of link.modules) ids.add(id);
+          for (const id of link.modules) grants.add(id);
         }
-        setHelperModules(ids);
+        setHelperModules({ grants, denies });
       } catch {
         if (!cancelled) setHelperModules('legacy');
       }

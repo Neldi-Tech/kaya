@@ -79,11 +79,14 @@ export default function FamilyTreePage() {
         </div>
       )}
 
-      {/* Anniversary card — always rendered so parents always know where
-          to go to set/see it. When no anniversary is on the Family doc,
-          it becomes an "+ Add anniversary" prompt that links straight
-          into the editor. */}
-      {family && (() => {
+      {/* Anniversary card — parents only as of 2026-05-19 (Elia helper-
+          cleanup pass). Helpers don't need to see the family's wedding
+          anniversary on their family-tree view — it's a personal-family
+          milestone, not a workplace metric. Parents still see the
+          card (and the "+ Add anniversary" prompt when unset). If
+          finer-grained per-helper visibility is needed later, gate
+          here on a family setting. */}
+      {family && isParent && (() => {
         const anniversary = family.anniversary;
         const familyShortName = (family.name || '').replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim() || family.name || '';
         if (!anniversary) {

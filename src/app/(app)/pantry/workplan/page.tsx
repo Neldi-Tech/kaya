@@ -32,6 +32,7 @@ import { ChevronDown, ChevronUp, Settings as SettingsIcon } from 'lucide-react';
 import BackButton from '@/components/ui/BackButton';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
+import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
 import {
@@ -269,14 +270,25 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
             name={helper.displayName}
           />
 
-          {/* Workplan editor (parent edits; helper views) */}
-          <WorkplanEditor
-            familyId={familyId}
-            helperUid={helper.uid}
-            helperName={helper.displayName}
-            presetHint={helper.preset}
-            defaultOpen={true}
-          />
+          {/* Role-aware workplan view (2026-05-19) — parents get the
+              full editor for managing recurring + ad-hoc items; helpers
+              see the same daily check-off card as on /helper, so they
+              can tick off today's tasks here too instead of being
+              dropped into the parent's editor UI. */}
+          {isParent ? (
+            <WorkplanEditor
+              familyId={familyId}
+              helperUid={helper.uid}
+              helperName={helper.displayName}
+              presetHint={helper.preset}
+              defaultOpen={true}
+            />
+          ) : (
+            <TodaysWorkplanCard
+              familyId={familyId}
+              helperUid={helper.uid}
+            />
+          )}
         </div>
       )}
     </div>

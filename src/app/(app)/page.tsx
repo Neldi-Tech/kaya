@@ -169,16 +169,12 @@ export default function DiscoverPage() {
               helperName={isHelper ? firstName : undefined}
             />
 
-            {/* PhotoMosaic — hide for helpers entirely (work-focused
-                role; family photos still reachable via More → Moments).
-                Kids too if family.kidModules excludes 'moments'. Parents
-                always see it. (2026-05-19 — Elia helper-login audit.) */}
-            {!isHelper && (
-              role === 'parent'
-              || (role === 'kid' && (family?.kidModules ?? ['moments']).includes('moments'))
-            ) && (
-              <PhotoMosaic posts={posts} familyId={profile?.familyId} />
-            )}
+            {/* PhotoMosaic — disabled globally on the Discover page
+                2026-05-19. Photos aren't loading reliably in
+                production and the empty mosaic looks broken. Moments
+                feed itself stays reachable via /moments + the mobile
+                bar slot; we'll re-enable the Discover preview when
+                the upstream load is fixed. */}
 
             {!isHelper && (
               <ActivityFeed
