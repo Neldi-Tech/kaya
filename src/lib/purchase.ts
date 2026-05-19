@@ -34,7 +34,12 @@ import { stapleNamesOverlap } from './pantry';
  *  approved         — parent approved; helper can go shop
  *  rejected         — parent rejected (terminal, with note)
  *  reconciling      — helper entering actuals against the approved basket
- *  closed           — reconciled; totals frozen, posted to budget
+ *  pending_close    — helper finished reconcile; parent reviewing actuals
+ *                     before totals post to the family budget. Parent
+ *                     allocates any overrun, decides what to do with any
+ *                     savings, optionally leaves a note. (2026-05-19)
+ *  closed           — reconciled + parent-approved; totals frozen,
+ *                     posted to budget. Staple write-back happens here.
  */
 export type PurchaseRequestStatus =
   | 'draft'
@@ -42,6 +47,7 @@ export type PurchaseRequestStatus =
   | 'approved'
   | 'rejected'
   | 'reconciling'
+  | 'pending_close'
   | 'closed';
 
 /** Which Household module the request belongs to.
@@ -228,6 +234,33 @@ export interface PurchaseRequest {
   receiptUrl?: string;
   /** Free-text reason if status === 'rejected'. */
   rejectionNote?: string;
+
+  /** Submit-for-close-review flow (2026-05-19): when the helper
+   *  finishes reconcile they hand off to the parent, who reviews
+   *  the actuals + allocates overrun + decides on savings + leaves
+   *  a note, then posts to budget. Filled when state moves from
+   *  `reconciling` → `pending_close`. */
+  submittedForCloseAt?: Timestamp;
+  submittedForCloseBy?: string;
+
+  /** Parent's free-text note attached during close review — captures
+   *  context like "shop was further this week so transport added
+   *  $5" or "next month's budget covers this". Optional. */
+  closeApprovalNote?: string;
+
+  /** Post-close decision when actuals came in OVER approved — the
+   *  parent picks how the overage is treated for budget reporting.
+   *    'absorb'     — count the overage against this month's cap
+   *                   (default — money already spent, budget eats it).
+   *    'unbudgeted' — mark as a one-off / exceptional expense so the
+   *                   per-module monthly trend doesn't get distorted.
+   *  Stored as a permanent audit field. (2026-05-19) */
+  overrunAllocation?: {
+    kind: 'absorb' | 'unbudgeted';
+    amountCents: number;
+    decidedBy: string;
+    decidedAt: Timestamp;
+  };
 
   /** Post-close decision when actuals came in UNDER approved — the
    *  parent picks one of: tip the helper, carry the balance forward
@@ -416,7 +449,7 @@ export function subscribeToOpenRequests(
   }
   const q = query(
     requestCol(familyId),
-    where('status', 'in', ['draft', 'pending_approval', 'approved', 'reconciling']),
+    where('status', 'in', ['draft', 'pending_approval', 'approved', 'reconciling', 'pending_close']),
     orderBy('createdAt', 'desc'),
   );
   return onSnapshot(q, (snap) => {
@@ -451,7 +484,7 @@ export function subscribeToOpenRequestsByModule(
   const q = query(
     requestCol(familyId),
     where('module', '==', module),
-    where('status', 'in', ['draft', 'pending_approval', 'approved', 'reconciling']),
+    where('status', 'in', ['draft', 'pending_approval', 'approved', 'reconciling', 'pending_close']),
     orderBy('createdAt', 'desc'),
   );
   return onSnapshot(q, (snap) => {
@@ -528,7 +561,7 @@ export function subscribeToPayrollForHelper(
     return () => {};
   }
   const statuses = bucket === 'open'
-    ? ['draft', 'pending_approval', 'approved', 'reconciling']
+    ? ['draft', 'pending_approval', 'approved', 'reconciling', 'pending_close']
     : ['closed', 'rejected'];
   const orderField = bucket === 'open' ? 'createdAt' : 'closedAt';
   const q = query(
@@ -1032,6 +1065,130 @@ export async function closeReconcile(
   }
 }
 
+// ── Submit-for-close-review flow (2026-05-19) ───────────────────────
+// Previously the helper pressed "Close · post to budget" and the
+// actuals went straight to the family budget. Per Elia's request,
+// we now insert a parent review step: helper submits → parent reviews
+// (allocates overrun, decides savings, leaves a note) → parent posts
+// to budget. State machine: reconciling → pending_close → closed.
+
+/** Helper hands off a reconciled request to the parent for review.
+ *  Writes the final items + actualTotalCents now (so the parent sees
+ *  a frozen snapshot to review), flips status to pending_close, and
+ *  stamps submittedForCloseAt/By. Receipt URL is finalized too — the
+ *  parent shouldn't be reviewing a moving target. */
+export async function submitForCloseReview(
+  familyId: string,
+  requestId: string,
+  items: PurchaseRequestItem[],
+  args: { submittedBy: string; receiptUrl?: string },
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(requestDoc(familyId, requestId), {
+    status: 'pending_close' as PurchaseRequestStatus,
+    items,
+    actualTotalCents: sumActual(items),
+    receiptUrl: args.receiptUrl ?? '',
+    reconciledAt: serverTimestamp(),
+    submittedForCloseAt: serverTimestamp(),
+    submittedForCloseBy: args.submittedBy,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Parent approves a pending_close request — applies overrun
+ *  allocation + savings decision atomically, then runs closeReconcile
+ *  (staple write-back, payroll deductions, status → closed). Single
+ *  user-facing action; multiple writes underneath. */
+export async function approveCloseAndPost(
+  familyId: string,
+  requestId: string,
+  args: {
+    decidedBy: string;
+    closeApprovalNote?: string;
+    /** Required when actuals went OVER approved budget. */
+    overrunAllocation?: { kind: 'absorb' | 'unbudgeted' };
+    /** Required when actuals came in UNDER approved budget. */
+    savings?: {
+      kind: 'tip' | 'balance' | 'skip';
+      helperUid?: string;
+    };
+  },
+): Promise<{ tipRequestId?: string }> {
+  if (isGuestActive()) return {};
+  const reqRef = requestDoc(familyId, requestId);
+  const reqSnap = await getDoc(reqRef);
+  if (!reqSnap.exists()) throw new Error('Request not found');
+  const reqData = reqSnap.data() as PurchaseRequest;
+
+  const approved = reqData.estimatedTotalCents;
+  const actual = reqData.actualTotalCents ?? sumActual(reqData.items);
+  const savingsCents = approved - actual;
+  const overrunCents = actual - approved;
+
+  // 1) Stamp the review-decision fields. Doing this BEFORE the close
+  //    so post-close consumers (budget page, etc.) see the allocation
+  //    in the same render that picks up status='closed'.
+  const reviewPatch: Record<string, unknown> = {
+    updatedAt: serverTimestamp(),
+  };
+  if (args.closeApprovalNote) {
+    reviewPatch.closeApprovalNote = args.closeApprovalNote;
+  }
+  if (overrunCents > 0 && args.overrunAllocation) {
+    reviewPatch.overrunAllocation = {
+      kind: args.overrunAllocation.kind,
+      amountCents: overrunCents,
+      decidedBy: args.decidedBy,
+      decidedAt: serverTimestamp(),
+    };
+  }
+  if (Object.keys(reviewPatch).length > 1) {
+    await updateDoc(reqRef, reviewPatch);
+  }
+
+  // 2) Apply savings decision if savings exist + a kind was picked.
+  //    recordSavingsDecision stamps the savingsDecision field AND
+  //    handles the tip-request creation + pendingModuleBalance bump.
+  let tipRequestId: string | undefined;
+  if (savingsCents > 0 && args.savings) {
+    const r = await recordSavingsDecision(familyId, requestId, {
+      kind: args.savings.kind,
+      amountCents: savingsCents,
+      helperUid: args.savings.kind === 'tip' ? args.savings.helperUid : undefined,
+      module: args.savings.kind === 'balance' ? reqData.module : undefined,
+      decidedBy: args.decidedBy,
+    });
+    tipRequestId = r.tipRequestId;
+  }
+
+  // 3) Post to budget — the existing closeReconcile handles status
+  //    flip, staple write-back, and payroll deductions.
+  await closeReconcile(familyId, requestId, reqData.items, reqData.receiptUrl);
+
+  return { tipRequestId };
+}
+
+/** Optional kick-back: parent can send a pending_close request back
+ *  to the helper for fixes (e.g. "you forgot the receipt"). Resets
+ *  status to reconciling so the helper can edit + re-submit. */
+export async function kickBackToReconcile(
+  familyId: string,
+  requestId: string,
+  args: { decidedBy: string; reason?: string },
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(requestDoc(familyId, requestId), {
+    status: 'reconciling' as PurchaseRequestStatus,
+    // Keep submittedForCloseAt/By as a breadcrumb — the parent can
+    // see it WAS submitted once; the new submit will overwrite.
+    closeApprovalNote: args.reason
+      ? `Sent back by parent: ${args.reason}`
+      : 'Sent back by parent for revisions',
+    updatedAt: serverTimestamp(),
+  });
+}
+
 // ── Pending-promote workflow (2026-05-18 verification fix) ───────
 //
 // When a helper quick-adds an item in the basket, two things happen:
@@ -1283,6 +1440,7 @@ export const STATUS_LABEL: Record<PurchaseRequestStatus, string> = {
   approved: 'Approved · ready to shop',
   rejected: 'Rejected',
   reconciling: 'Reconciling',
+  pending_close: 'Submitted for review',
   closed: 'Closed',
 };
 
