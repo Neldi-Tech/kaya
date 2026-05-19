@@ -26,16 +26,50 @@ import { isGuestActive } from './mockFamily';
 
 // ── Categories ───────────────────────────────────────────────────
 
-/** Buckets the staples + budget surfaces use. Kept short on purpose. */
+/** Buckets the staples + budget surfaces use. Kept short on purpose.
+ *
+ *  Storage values are stable for back-compat — `'produce'` and
+ *  `'pantry'` were the names from day one, so changing the DB string
+ *  would force a migration on every family + every closed shop.
+ *  Display labels are now decoupled (see STAPLE_CATEGORIES below)
+ *  so we can rename in the UI freely. 2026-05-19: "Produce" →
+ *  "Fresh" + "Pantry" → "Dry" (kills the page-name collision with
+ *  the parent Pantry module). */
 export type StapleCategory =
   | 'produce' | 'dairy' | 'pantry' | 'cleaning' | 'personal' | 'other';
 
+/** Top-level Food vs Household split. The Staples page renders these
+ *  as tabs above the chip filter. Categories under each tab are
+ *  enumerated below in CATEGORY_TAB. New 2026-05-19. */
+export type StapleTab = 'food' | 'household';
+
+/** Map every storage category to its tab. Drives:
+ *    • Which tab a row appears under
+ *    • Which chips show when a tab is active
+ *  Tab assignment is intentional (data, not config) — most families
+ *  agree these belong together. */
+export const CATEGORY_TAB: Record<StapleCategory, StapleTab> = {
+  produce:  'food',
+  dairy:    'food',
+  pantry:   'food',    // dry goods (rice, flour, beans, oils)
+  cleaning: 'household',
+  personal: 'household',
+  other:    'household',
+};
+
+export const STAPLE_TABS: { id: StapleTab; emoji: string; label: string }[] = [
+  { id: 'food',      emoji: '🥗', label: 'Food' },
+  { id: 'household', emoji: '🧴', label: 'Household' },
+];
+
 export const STAPLE_CATEGORIES: { id: StapleCategory; emoji: string; label: string }[] = [
-  { id: 'produce',  emoji: '🥬', label: 'Produce' },
+  // ── Food tab ───────────────────────────────────────────────
+  { id: 'produce',  emoji: '🥬', label: 'Fresh' },     // was "Produce"; broadened to cover meat/bread too
   { id: 'dairy',    emoji: '🥛', label: 'Dairy' },
-  { id: 'pantry',   emoji: '🍚', label: 'Pantry' },
+  { id: 'pantry',   emoji: '🌾', label: 'Dry' },       // was "Pantry"; renamed to kill the name collision
+  // ── Household tab ──────────────────────────────────────────
   { id: 'cleaning', emoji: '🧴', label: 'Cleaning' },
-  { id: 'personal', emoji: '🧴', label: 'Personal' },
+  { id: 'personal', emoji: '🪥', label: 'Personal' },
   { id: 'other',    emoji: '✨', label: 'Other' },
 ];
 

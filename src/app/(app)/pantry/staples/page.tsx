@@ -13,6 +13,7 @@ import { useHive } from '@/contexts/HiveContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   STAPLE_CATEGORIES, StapleCategory, Cadence,
+  STAPLE_TABS, CATEGORY_TAB, type StapleTab,
   STAPLE_UNITS, MAX_PREFERRED_BRANDS,
   addStaple, updateStaple, deleteStaple,
   displayStapleName, secondaryStapleName, stapleMatchesQuery,
@@ -48,11 +49,20 @@ export default function StaplesPage() {
   const confirmAction = useConfirm();
 
   const [filter, setFilter] = useState<Filter>('all');
+  // 2026-05-19 — Food / Household tabs above the chip filter. Each
+  // tab scopes the chips to its categories (Food: Fresh/Dairy/Dry;
+  // Household: Cleaning/Personal/Other). Switching tabs resets the
+  // chip filter to "all" so a stale chip can't collapse the new
+  // tab's list to zero.
+  const [tab, setTab] = useState<StapleTab>('food');
+  const switchTab = (next: StapleTab) => { setTab(next); setFilter('all'); };
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // 2026-05-18 — name search on top of the category chip filter.
   // Cheap client-side filter (staples are typically <50). Matches
   // name + any preferredBrands so a parent can find "Onja" → Rice.
+  // Note: search spans BOTH tabs (a parent who types "soap" should
+  // find it without first switching to Household).
   const [q, setQ] = useState('');
   // Select mode: when on, every row shows a checkbox and the
   // header swaps Edit/Add for Cancel/Delete. Closing select mode
@@ -70,6 +80,12 @@ export default function StaplesPage() {
   const visible = useMemo(() => {
     const query = q.trim().toLowerCase();
     return staples.filter((s) => {
+      // When the user is actively searching, span both tabs — a parent
+      // typing "soap" shouldn't have to first switch to Household to
+      // find it. Otherwise the active tab scopes the list.
+      if (!query) {
+        if (CATEGORY_TAB[s.category] !== tab) return false;
+      }
       if (filter !== 'all' && s.category !== filter) return false;
       if (!query) return true;
       // Search matches name + name2 (bilingual) + any preferredBrand.
@@ -77,7 +93,16 @@ export default function StaplesPage() {
       if ((s.preferredBrands ?? []).some((b) => b.toLowerCase().includes(query))) return true;
       return false;
     });
-  }, [staples, filter, q]);
+  }, [staples, filter, q, tab]);
+
+  // Chip set + counts scoped to the active tab. Counts ignore the
+  // current chip selection so users see what each chip would unlock.
+  const tabChips = STAPLE_CATEGORIES.filter((c) => CATEGORY_TAB[c.id] === tab);
+  const tabStaples = staples.filter((s) => CATEGORY_TAB[s.category] === tab);
+  const chipCounts: Record<string, number> = { all: tabStaples.length };
+  for (const c of tabChips) {
+    chipCounts[c.id] = tabStaples.filter((s) => s.category === c.id).length;
+  }
 
   const exitSelectMode = () => {
     setSelectMode(false);
@@ -198,15 +223,49 @@ export default function StaplesPage() {
         )}
       </div>
 
-      {/* Filter chips */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-3">
-        <Chip active={filter === 'all'} onClick={() => setFilter('all')}>All</Chip>
-        {STAPLE_CATEGORIES.map((c) => (
+      {/* Food / Household tabs — 2026-05-19. When searching, both
+          tabs are spanned in the result list, but the tab still
+          drives WHICH chips are visible (a search-narrowed view
+          shouldn't suddenly grow extra chips). */}
+      <div className="flex gap-1 mt-1 mb-2 border-b border-hive-line">
+        {STAPLE_TABS.map((t) => {
+          const count = staples.filter((s) => CATEGORY_TAB[s.category] === t.id).length;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => switchTab(t.id)}
+              className={`px-4 py-2.5 -mb-px font-nunito font-extrabold text-sm border-b-[3px] ${
+                tab === t.id
+                  ? 'text-pantry-leaf-dk border-pantry-leaf'
+                  : 'text-hive-muted border-transparent'
+              }`}
+            >
+              {t.emoji} {t.label}
+              <span className="ml-1 text-[10px] font-bold opacity-70">· {count}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Filter chips — scoped to the active tab. */}
+      <div className="flex gap-1.5 overflow-x-auto pb-1 mb-1">
+        <Chip active={filter === 'all'} onClick={() => setFilter('all')}>
+          All <span className="opacity-70">· {chipCounts.all}</span>
+        </Chip>
+        {tabChips.map((c) => (
           <Chip key={c.id} active={filter === c.id} onClick={() => setFilter(c.id)}>
             {c.emoji} {c.label}
+            <span className="ml-1 opacity-70">· {chipCounts[c.id] ?? 0}</span>
           </Chip>
         ))}
       </div>
+      {q.trim() && (
+        <p className="text-[10px] text-hive-muted italic mb-3 ml-1">
+          🔍 Searching across both tabs — tab + chip narrow when search is cleared.
+        </p>
+      )}
+      {!q.trim() && <div className="mb-3" />}
 
       {/* Add form (collapsible) */}
       {adding && !selectMode && (
