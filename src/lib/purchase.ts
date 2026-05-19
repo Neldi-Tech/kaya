@@ -473,24 +473,58 @@ export function subscribeToRequest(
  *  family. Lives at families/{f}/counters/purchaseRequests-{module}
  *  with a single `nextSeq` field. Transactional so two concurrent
  *  createDraftRequest calls (e.g. parent + helper at the same time)
- *  can't collide. Returns the seq just allocated. */
+ *  can't collide.
+ *
+ *  Returns 0 (sentinel) on failure — typically when the counters
+ *  firestore rule hasn't been deployed yet. The caller treats 0 as
+ *  "no seq available" and skips the audit-pill + falls back to a
+ *  weekday-based draft name. Without this resilience, a rule-deploy
+ *  miss after a rule-touching PR silently breaks ALL request
+ *  creation (which is exactly what bit production on 2026-05-19). */
 async function nextRequestSeq(familyId: string, module: PurchaseModule): Promise<number> {
   if (isGuestActive()) return 1;
   const counterRef = doc(
     db, 'families', familyId, 'counters', `purchaseRequests-${module}`,
   );
-  const seq = await runTransaction(db, async (tx) => {
-    const snap = await tx.get(counterRef);
-    const current = snap.exists() ? Number((snap.data() as { nextSeq?: number }).nextSeq ?? 0) : 0;
-    const next = current + 1;
-    if (snap.exists()) {
-      tx.update(counterRef, { nextSeq: next, updatedAt: serverTimestamp() });
-    } else {
-      tx.set(counterRef, { nextSeq: next, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    }
-    return next;
-  });
-  return seq;
+  try {
+    const seq = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(counterRef);
+      const current = snap.exists() ? Number((snap.data() as { nextSeq?: number }).nextSeq ?? 0) : 0;
+      const next = current + 1;
+      if (snap.exists()) {
+        tx.update(counterRef, { nextSeq: next, updatedAt: serverTimestamp() });
+      } else {
+        tx.set(counterRef, { nextSeq: next, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      }
+      return next;
+    });
+    return seq;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[purchase] counter allocation failed — falling back to anonymous draft. ' +
+      'Run `firebase deploy --only firestore:rules` to re-enable PNT-NNNN audit naming.',
+      e,
+    );
+    return 0;
+  }
+}
+
+/** Legacy weekday-noun draft names, used as a fallback when the
+ *  counter transaction can't allocate a seq. Matches the v2 naming
+ *  (`Monday shop` / `Monday outdoor` / etc.) so the UX is still
+ *  intelligible even without the structured PNT-NNNN scheme. */
+function fallbackDraftName(module: PurchaseModule, context?: string): string {
+  const day = new Date().toLocaleDateString('en-US', { weekday: 'long' });
+  const noun: Record<PurchaseModule, string> = {
+    pantry:  'shop',
+    outdoor: 'outdoor',
+    drivers: 'drive',
+    utility: 'utility',
+    payroll: 'payroll',
+  };
+  const head = `${day} ${noun[module]}`;
+  return context?.trim() ? `${head} · ${context.trim()}` : head;
 }
 
 /** Create a draft request. Returns the new id. Module defaults to
@@ -543,10 +577,15 @@ export async function createDraftRequest(
   const seq = await nextRequestSeq(familyId, module);
   const finalName = (args.name && args.name.trim())
     ? args.name.trim()
-    : buildAutoRequestName(module, seq, new Date(), args.context);
+    : seq > 0
+      ? buildAutoRequestName(module, seq, new Date(), args.context)
+      : fallbackDraftName(module, args.context);
   const payload: Record<string, unknown> = {
     name: finalName,
-    seq,
+    // Only stamp seq when we got one — fallback drafts skip the
+    // field entirely (the detail page hides the audit pill when
+    // seq is missing).
+    ...(seq > 0 ? { seq } : {}),
     status: (args.initialStatus ?? 'draft') as PurchaseRequestStatus,
     module,
     items,

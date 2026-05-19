@@ -100,7 +100,9 @@ export default function DriversHomePage() {
         });
       }
       router.push(`/pantry/purchase/${id}`);
-    } catch {
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[drivers] startDraftWithVehicle failed:', e);
       setCreating(false);
     }
   };

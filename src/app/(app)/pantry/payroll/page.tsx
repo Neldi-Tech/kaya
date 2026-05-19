@@ -115,7 +115,9 @@ export default function PayrollHomePage() {
         helperUid: profile.uid,
       });
       router.push(`/pantry/purchase/${id}`);
-    } catch {
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[payroll] startDraft failed:', e);
       setCreating(false);
     }
   };

@@ -94,7 +94,14 @@ export default function UtilityHomePage() {
         });
       }
       router.push(`/pantry/purchase/${id}`);
-    } catch {
+    } catch (e) {
+      // 2026-05-19 — log so silent failures show up in devtools.
+      // The most common cause is a missing firestore rule deploy
+      // (counters or purchaseRequests). createDraftRequest now
+      // gracefully degrades for counters; permission failures on
+      // the request itself surface here.
+      // eslint-disable-next-line no-console
+      console.error('[utility] startDraftWithMeter failed:', e);
       setCreating(false);
     }
   };
