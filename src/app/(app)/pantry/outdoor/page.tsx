@@ -70,7 +70,9 @@ export default function OutdoorHomePage() {
         module: 'outdoor',
       });
       router.push(`/pantry/purchase/${id}`);
-    } catch {
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[outdoor] startDraft failed:', e);
       setCreating(false);
     }
   };

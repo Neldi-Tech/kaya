@@ -81,7 +81,9 @@ export default function PurchaseHomePage() {
         createdByRole: role,
       });
       router.push(`/pantry/purchase/${id}`);
-    } catch {
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] startDraft failed:', e);
       setCreating(false);
     }
   };
