@@ -21,18 +21,22 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getHelperLink } from './helpers';
 
-/** 2026-05-19 v2 — Helper grants now carry BOTH the granted set AND
- *  the explicitly-denied set, so parent-level grants don't override
- *  per-sub denies. Previously: a HelperLink with
- *    moduleAccess['household']         = { view: true, act: true }
- *    moduleAccess['household:drivers'] = { view: false, act: false }
- *  collapsed to a single Set containing 'household' but not
- *  'household:drivers'. helperGrantsAllow('household:drivers') then
- *  fell back to the parent grant and returned true — Drivers tile
- *  showed up even though the parent had explicitly toggled it off.
- *  Deny-precedence fixes that. */
+/** Helper grants state. Four cases:
+ *  - `null`      — caller is NOT a helper (parent/kid/guest/loading).
+ *                  helperGrantsAllow returns true (no gating).
+ *  - `'loading'` — caller IS a helper but the HelperLink fetch hasn't
+ *                  resolved yet. helperGrantsAllow returns FALSE for
+ *                  every key to avoid the flash-of-unauthorised-tiles
+ *                  during the first render. (2026-05-19 v4.)
+ *  - `'legacy'`  — caller is a helper with NO HelperLink doc (pre-
+ *                  rollout join). Show everything — matches the
+ *                  isLegacyHelperWithoutLink rule carve-out.
+ *  - `{ grants, denies }` — resolved per-key access map. Deny
+ *                  precedence applies; no parent fallback (see v3).
+ */
 export type HelperGrants =
   | { grants: Set<string>; denies: Set<string> }
+  | 'loading'
   | 'legacy'
   | null;
 
@@ -42,7 +46,12 @@ export function useHelperGrants(): HelperGrants {
   const familyId = profile?.familyId;
   const uid = profile?.uid;
 
-  const [grants, setGrants] = useState<HelperGrants>(null);
+  // Initial state depends on role: helpers start in 'loading' so
+  // gated content stays hidden until the fetch resolves; everyone
+  // else gets null (show-everything).
+  const [grants, setGrants] = useState<HelperGrants>(
+    role === 'helper' ? 'loading' : null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +59,7 @@ export function useHelperGrants(): HelperGrants {
       setGrants(null);
       return;
     }
+    setGrants('loading');
     (async () => {
       try {
         const link = await getHelperLink(familyId, uid);
@@ -94,6 +104,11 @@ export function useHelperGrants(): HelperGrants {
  *  legacy join path. */
 export function helperGrantsAllow(grants: HelperGrants, key: string): boolean {
   if (grants === null || grants === 'legacy') return true;
+  // While the HelperLink fetch is in flight, deny everything. This
+  // prevents the flash-of-unauthorised-tiles a helper saw on every
+  // page load (initial render had grants=null → allow-all → Drivers
+  // tile rendered, then disappeared once grants resolved). 2026-05-19.
+  if (grants === 'loading') return false;
   // Explicit deny on this exact key wins over everything else.
   if (grants.denies.has(key)) return false;
   // Explicit grant on this exact key.

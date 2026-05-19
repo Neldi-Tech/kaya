@@ -407,13 +407,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // parent-level grant doesn't silently override an explicit per-sub
   // deny (was leaking Drivers + similar to helpers). Same shape used
   // by `useHelperGrants` for the per-page tile gates.
-  const [helperModules, setHelperModules] = useState<HelperAccessMap | 'legacy' | null>(null);
+  // 2026-05-19 v4 — initial state is 'loading' for helpers (deny-all
+  // until fetch resolves) so the sidebar / mobile nav don't flash
+  // parent rows during the first render. Non-helpers stay null.
+  const [helperModules, setHelperModules] = useState<HelperAccessMap | 'loading' | 'legacy' | null>(
+    role === 'helper' ? 'loading' : null,
+  );
   useEffect(() => {
     let cancelled = false;
     if (role !== 'helper' || !profile?.familyId || !profile.uid) {
       setHelperModules(null);
       return;
     }
+    setHelperModules('loading');
     (async () => {
       try {
         const link = await getHelperLink(profile.familyId, profile.uid);
@@ -460,6 +466,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const isHelperRowVisible = useMemo(() => {
     return (path: string | undefined) => {
       if (helperModules === 'legacy' || helperModules === null) return true;
+      // While the HelperLink fetch is in flight, deny everything so
+      // gated nav rows don't flash for the helper. 2026-05-19.
+      if (helperModules === 'loading') return false;
       if (!path) return true;
       return isHelperPathAllowed(path, helperModules);
     };
@@ -504,6 +513,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (role !== 'helper' || !pathname) return;
     if (helperModules === 'legacy' || helperModules === null) return;
+    // Skip bounce while loading — let the page mount, then re-check
+    // after grants resolve (the effect re-runs on helperModules change).
+    if (helperModules === 'loading') return;
     if (!isHelperPathAllowed(pathname, helperModules)) {
       router.replace('/helper');
     }
