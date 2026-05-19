@@ -393,6 +393,41 @@ export function subscribeToOpenRequests(
   });
 }
 
+/** Module-scoped open-requests subscription. (2026-05-19)
+ *
+ *  Why this exists: `subscribeToOpenRequests` reads ALL modules,
+ *  including payroll. The Firestore rule for payroll requires the
+ *  reader to be a parent OR the helperUid of the doc — so a broad
+ *  listen for a HELPER fails with permission_denied when the family
+ *  has any payroll doc not pinned to them, blocking visibility into
+ *  approved Pantry / Outdoor / Drivers / Utility requests too.
+ *
+ *  This variant constrains the query at the DB layer to a single
+ *  module, eliminating cross-module bleed entirely. Each non-payroll
+ *  module home should use this for helpers; parents can keep using
+ *  the broad subscription (rules allow them unconstrained read).
+ *
+ *  Index: (module ASC, status ASC, createdAt DESC). */
+export function subscribeToOpenRequestsByModule(
+  familyId: string,
+  module: PurchaseModule,
+  cb: (requests: PurchaseRequest[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(
+    requestCol(familyId),
+    where('module', '==', module),
+    where('status', 'in', ['draft', 'pending_approval', 'approved', 'reconciling']),
+    orderBy('createdAt', 'desc'),
+  );
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PurchaseRequest)));
+  });
+}
+
 /** Subscribe to recently closed (or rejected) requests — feeds the
  *  "Recent" tab on the Purchase home and the Finances ledger. */
 export function subscribeToRecentRequests(
@@ -405,6 +440,31 @@ export function subscribeToRecentRequests(
   }
   const q = query(
     requestCol(familyId),
+    where('status', 'in', ['closed', 'rejected']),
+    orderBy('closedAt', 'desc'),
+  );
+  return onSnapshot(q, (snap) => {
+    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PurchaseRequest)));
+  });
+}
+
+/** Module-scoped recent-requests subscription — companion to
+ *  `subscribeToOpenRequestsByModule`. Same rationale: helper-side
+ *  reads can't bleed across modules without hitting permission_denied
+ *  on payroll docs.
+ *  Index: (module ASC, status ASC, closedAt DESC). */
+export function subscribeToRecentRequestsByModule(
+  familyId: string,
+  module: PurchaseModule,
+  cb: (requests: PurchaseRequest[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(
+    requestCol(familyId),
+    where('module', '==', module),
     where('status', 'in', ['closed', 'rejected']),
     orderBy('closedAt', 'desc'),
   );

@@ -19,6 +19,8 @@ import {
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
+  subscribeToOpenRequestsByModule,
+  subscribeToRecentRequestsByModule,
   createDraftRequest,
   createDraftFromTemplate,
   deleteRequest,
@@ -78,6 +80,18 @@ export default function UtilityHomePage() {
     let flipped = false;
     const flip = () => { if (!flipped) { flipped = true; setLoading(false); } };
     const t = setTimeout(flip, 1500);
+    // Helpers use module-scoped subscriptions; broad listen fails for
+    // them on the payroll rule. See purchase.ts comment.
+    const c = subscribeToMeters(profile.familyId, (m) => { setMeters(m.filter((x) => x.active)); flip(); });
+    if (role === 'helper') {
+      const a = subscribeToOpenRequestsByModule(profile.familyId, 'utility', (r) => {
+        setOpen(r); flip();
+      });
+      const b = subscribeToRecentRequestsByModule(profile.familyId, 'utility', (r) => {
+        setRecent(r); flip();
+      });
+      return () => { clearTimeout(t); a(); b(); c(); };
+    }
     const a = subscribeToOpenRequests(profile.familyId, (r) => {
       setOpen(r.filter((x) => x.module === 'utility'));
       flip();
@@ -86,9 +100,8 @@ export default function UtilityHomePage() {
       setRecent(r.filter((x) => x.module === 'utility'));
       flip();
     });
-    const c = subscribeToMeters(profile.familyId, (m) => { setMeters(m.filter((x) => x.active)); flip(); });
     return () => { clearTimeout(t); a(); b(); c(); };
-  }, [profile?.familyId]);
+  }, [profile?.familyId, role]);
 
   const pending = open.filter((r) => r.status === 'pending_approval');
   const drafts = open.filter((r) => r.status === 'draft');
