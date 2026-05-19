@@ -1080,6 +1080,19 @@ export default function PurchaseDetailPage() {
                 )}
               </div>
             </div>
+          ) : isClosed ? (
+            /* Closed without a receipt — the audit trail has a gap.
+               Show a passive placeholder rather than an active upload
+               card; receipts are an in-reconcile artefact. */
+            <div className="border-2 border-dashed border-hive-line rounded-hive p-3 text-center bg-hive-cream/40">
+              <div className="text-2xl mb-1 opacity-60">📷</div>
+              <div className="font-nunito font-extrabold text-sm text-hive-muted">
+                No receipt attached
+              </div>
+              <div className="text-[11px] text-hive-muted/80 font-bold mt-0.5">
+                The shop closed without an uploaded photo.
+              </div>
+            </div>
           ) : (
             <label className={`block w-full border-2 border-dashed rounded-hive p-4 text-center cursor-pointer transition-colors ${
               receiptBusy
