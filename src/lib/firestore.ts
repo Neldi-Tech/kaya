@@ -1041,16 +1041,21 @@ export interface Notification {
     // parent assigned a one-off task to this helper. `link` deep-links
     // to /helper so the helper lands on their workplan card.
     | 'workplan-adhoc-assigned'
-    // Household → Purchase request events (2026-05-19). Three flavours:
+    // Household → Purchase request events (2026-05-19). Four flavours:
     //   `purchase-approval-requested` — helper sent a draft for approval;
     //                                   notified to all parents.
     //   `purchase-approved`           — parent approved a request;
     //                                   notified to the creator (helper).
+    //   `purchase-rejected`           — parent rejected (or force-rejected
+    //                                   an already-approved request);
+    //                                   notified to the creator so they
+    //                                   don't shop on an outdated nod.
     //   `purchase-reconciled`         — helper closed reconcile, budget
     //                                   posted; notified to all parents.
     // Each one's `link` deep-links to /pantry/purchase/{requestId}.
     | 'purchase-approval-requested'
     | 'purchase-approved'
+    | 'purchase-rejected'
     | 'purchase-reconciled';
   title: string;
   message: string;
