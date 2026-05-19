@@ -133,6 +133,12 @@ export default function PurchaseDetailPage() {
   //     (e.g. helper typed wrong price; parent fixes before approving)
   const editable = isDraft || (isPending && role === 'parent');
   const reconcilable = isReconciling;
+  // 2026-05-19 — Helpers can ADD lines during reconcile too (picked up
+  // something extra at the shop). Existing approved lines stay locked
+  // for edit; only the add affordances open up. New lines get the
+  // `addedDuringReconcile` flag so the audit trail makes ad-hoc
+  // additions obvious.
+  const canAddItems = editable || reconcilable;
 
   // ── Item mutations ───────────────────────────────────────────
 
@@ -159,6 +165,9 @@ export default function PurchaseDetailPage() {
         qty: s.defaultQty || 1,
         unit: s.unit,
         estimatedCents: s.lastBoughtCents,
+        // Tag rows added during reconcile so the audit trail flags
+        // them as ad-hoc additions to the approved basket. (2026-05-19)
+        ...(reconcilable ? { addedDuringReconcile: true } : {}),
       },
     ];
     await patchItems(next);
@@ -221,6 +230,7 @@ export default function PurchaseDetailPage() {
           unit: 'x',
           estimatedCents: cents,
           pendingPromote: true,
+          ...(reconcilable ? { addedDuringReconcile: true } : {}),
         },
       ];
       await patchItems(next);
@@ -628,6 +638,7 @@ export default function PurchaseDetailPage() {
           qty: s.qty,
           unit: s.unit,
           ...(role === 'helper' && stapleId ? { pendingPromote: true } : {}),
+          ...(reconcilable ? { addedDuringReconcile: true } : {}),
         },
       ];
       await patchItems(next);
@@ -848,13 +859,15 @@ export default function PurchaseDetailPage() {
         ))}
       </div>
 
-      {/* Add-from-Pantry + Quick-add — available whenever items are
-          editable. As of 2026-05-18: parent reviewing a pending
+      {/* Add-from-Pantry + Quick-add — available whenever items can
+          be added. As of 2026-05-18: parent reviewing a pending
           request CAN also add items ("while you're at it, grab
-          garlic too"). Helper sees the updated basket when they go
-          to reconcile; the totals + budget impact recompute on
-          every change. */}
-      {editable && (
+          garlic too"). 2026-05-19: helpers can ALSO add during
+          reconcile when they picked up something extra at the shop;
+          those new lines get `addedDuringReconcile: true` so they're
+          visibly marked in the audit trail. Existing approved lines
+          stay locked from edit/remove during reconcile. */}
+      {canAddItems && (
         <div className="mt-3">
           <button
             type="button"
@@ -1288,6 +1301,22 @@ export default function PurchaseDetailPage() {
             Close · post to budget →
           </button>
         )}
+
+        {/* Save & exit — explicit "pause" affordance for draft +
+            reconcile states. Inputs already auto-save on every
+            change; this is the affirmative UX so the helper /
+            parent feels safe stepping away mid-edit (no internet,
+            another task, etc.) and resuming later. Routes back to
+            the module home with the request safely persisted. */}
+        {(isDraft || isReconciling) && (
+          <button
+            type="button"
+            onClick={() => router.push(`/pantry/${req.module && req.module !== 'pantry' ? req.module : 'purchase'}`)}
+            className="text-hive-muted text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
+          >
+            💾 Save &amp; exit · pick up later
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1384,6 +1413,11 @@ function ItemRow({
             {pending && (
               <span className="text-[9px] bg-[#FFF3D9] border border-hive-honey text-hive-honey-dk px-1.5 py-0.5 rounded font-extrabold uppercase tracking-[1px]">
                 Pending
+              </span>
+            )}
+            {item.addedDuringReconcile && (
+              <span className="text-[9px] bg-pantry-leaf-soft border border-pantry-leaf text-pantry-leaf-dk px-1.5 py-0.5 rounded font-extrabold uppercase tracking-[1px]">
+                + Added at shop
               </span>
             )}
           </div>
@@ -1554,7 +1588,12 @@ function ItemRow({
                 clear anchor for what the parent signed off on, with a
                 live total delta + absolute savings/over so they see
                 the budget impact as they type. Only renders once
-                they've entered numbers (avoids −100% on empty input). */}
+                they've entered numbers (avoids −100% on empty input).
+                Skipped entirely for ad-hoc items added during
+                reconcile — they have no approval baseline to compare
+                against (the badge in the row header makes their
+                provenance obvious). */}
+            {!item.addedDuringReconcile && (
             <div className="bg-hive-cream/60 border border-hive-line/50 rounded-lg p-2 text-[11px] font-bold">
               <div className="flex items-center justify-between gap-2 text-hive-muted">
                 <span>
@@ -1595,6 +1634,7 @@ function ItemRow({
                 </>
               )}
             </div>
+            )}
           </div>
         );
       })()}
