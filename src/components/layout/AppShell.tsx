@@ -7,6 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import { getHelperLink } from '@/lib/helpers';
+import { subscribeToUnreadNotificationCount } from '@/lib/firestore';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import GuestBanner from './GuestBanner';
 import InfoIcon from '@/components/ui/InfoIcon';
@@ -414,6 +415,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [role, profile?.familyId, profile?.uid]);
 
+  // 2026-05-19 — Bell badge: live unread-notification count for the
+  // current user. Drives the small red dot/count on the 🔔 icons in
+  // both the mobile and desktop top-bars. Without this, purchase
+  // notifications (and every other in-app notification type) fire
+  // silently — users only see them by clicking through to
+  // /notifications.
+  const [unreadCount, setUnreadCount] = useState(0);
+  useEffect(() => {
+    if (!profile?.familyId || !profile?.uid) { setUnreadCount(0); return; }
+    return subscribeToUnreadNotificationCount(profile.familyId, profile.uid, setUnreadCount);
+  }, [profile?.familyId, profile?.uid]);
+
   // Visibility predicate for a helper sidebar/mobile row. Walks the
   // path through helperModuleKeyForPath() and checks the helper's
   // granted set with the composite/parent/legacy fallback chain.
@@ -796,10 +809,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center gap-2 shrink-0">
               <Link
                 href="/notifications"
-                aria-label="Notifications"
-                className="w-9 h-9 rounded-full bg-white border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-kaya-warm transition-colors"
+                aria-label={unreadCount > 0 ? `Notifications · ${unreadCount} unread` : 'Notifications'}
+                className="relative w-9 h-9 rounded-full bg-white border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-kaya-warm transition-colors"
               >
                 🔔
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-hive-rose text-white text-[10px] font-nunito font-black flex items-center justify-center border-2 border-white">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </Link>
               <Link
                 href="/settings"
@@ -826,10 +844,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
             <Link
               href="/notifications"
-              aria-label="Notifications"
-              className="w-9 h-9 rounded-full border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-white transition-colors"
+              aria-label={unreadCount > 0 ? `Notifications · ${unreadCount} unread` : 'Notifications'}
+              className="relative w-9 h-9 rounded-full border border-kaya-warm-dark flex items-center justify-center text-sm hover:bg-white transition-colors"
             >
               🔔
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-hive-rose text-white text-[10px] font-nunito font-black flex items-center justify-center border-2 border-kaya-cream">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </Link>
           </div>
         </header>

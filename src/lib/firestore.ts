@@ -2438,3 +2438,35 @@ export async function markNotificationRead(familyId: string, notificationId: str
   if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId, 'notifications', notificationId), { read: true });
 }
+
+/** Live unread-count subscription used by the AppShell bell badge.
+ *  (2026-05-19) Reuses the same (forUserId ASC, createdAt DESC) index
+ *  as `getNotifications` — no additional index required. Counts unread
+ *  client-side over the last 30 notifications, which is the same window
+ *  the bell page renders, so the badge can't drift from what the user
+ *  actually sees when they open it. Returns an unsubscribe. */
+export function subscribeToUnreadNotificationCount(
+  familyId: string,
+  userId: string,
+  cb: (count: number) => void,
+): () => void {
+  if (isGuestActive() || !familyId || !userId) {
+    cb(0);
+    return () => {};
+  }
+  const q = query(
+    collection(db, 'families', familyId, 'notifications'),
+    where('forUserId', '==', userId),
+    orderBy('createdAt', 'desc'),
+    limit(30),
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      let n = 0;
+      snap.forEach((d) => { if (!(d.data() as Notification).read) n += 1; });
+      cb(n);
+    },
+    () => cb(0), // on error, hide the badge rather than show a stale count
+  );
+}
