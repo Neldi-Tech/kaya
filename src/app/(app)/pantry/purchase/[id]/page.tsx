@@ -43,7 +43,8 @@ import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/
 import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
 import {
-  notifyPurchaseApprovalRequested, notifyPurchaseApproved, notifyPurchaseReconciled,
+  notifyPurchaseApprovalRequested, notifyPurchaseApproved,
+  notifyPurchaseRejected, notifyPurchaseReconciled,
 } from '@/lib/notify';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ReconcileTimerBanner } from '@/components/pantry/ReconcileTimer';
@@ -286,7 +287,28 @@ export default function PurchaseDetailPage() {
     if (!profile?.familyId || !profile.uid) return;
     setBusy(true);
     try {
-      await rejectRequest(profile.familyId, req.id, profile.uid, rejectNote ?? '');
+      const note = rejectNote ?? '';
+      await rejectRequest(profile.familyId, req.id, profile.uid, note);
+      // Notify the creator (typically a helper) so they don't go
+      // shopping on a request that's no longer approved. Fire-and-
+      // forget; a notify failure shouldn't block the user-visible step.
+      if (req.createdBy && req.createdBy !== profile.uid) {
+        try {
+          void notifyPurchaseRejected({
+            familyId: profile.familyId,
+            requestId: req.id,
+            creatorUid: req.createdBy,
+            rejecterName: profile.displayName?.split(' ')[0] || 'Parent',
+            requestName: req.name || 'Untitled request',
+            module: req.module || 'pantry',
+            variant: 'normal',
+            note: note || undefined,
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[purchase] notifyRejected failed:', e);
+        }
+      }
       setRejectNote(null);
     } finally { setBusy(false); }
   };
@@ -317,7 +339,28 @@ export default function PurchaseDetailPage() {
     if (!okSecond) return;
     setBusy(true);
     try {
-      await rejectRequest(profile.familyId, req.id, profile.uid, 'Force-rejected after approval (parent correction).');
+      const note = 'Force-rejected after approval (parent correction).';
+      await rejectRequest(profile.familyId, req.id, profile.uid, note);
+      // Force-reject = the helper may already be acting on the
+      // approval (cash in hand, on the way to the shop). The notify
+      // copy is louder than a normal reject so they pull back.
+      if (req.createdBy && req.createdBy !== profile.uid) {
+        try {
+          void notifyPurchaseRejected({
+            familyId: profile.familyId,
+            requestId: req.id,
+            creatorUid: req.createdBy,
+            rejecterName: profile.displayName?.split(' ')[0] || 'Parent',
+            requestName: req.name || 'Untitled request',
+            module: req.module || 'pantry',
+            variant: 'force',
+            note,
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[purchase] notifyForceRejected failed:', e);
+        }
+      }
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[purchase] forceReject failed:', e);

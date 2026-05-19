@@ -287,6 +287,49 @@ export async function notifyPurchaseApproved(args: PurchaseApprovedNotify): Prom
   await pushToUid({ uid: args.creatorUid, title, body, url: link, tag: `purchase-${args.requestId}-approved` });
 }
 
+interface PurchaseRejectedNotify {
+  familyId: string;
+  requestId: string;
+  creatorUid: string;          // helper who created the request
+  rejecterName: string;        // parent who rejected
+  requestName: string;
+  module: string;
+  /** Force-reject = parent course-corrected after approving. Changes
+   *  the copy so the helper understands "you might've already started
+   *  on this — stop." Normal reject = the request never got approved. */
+  variant: 'normal' | 'force';
+  /** Optional parent note (free-text reason from the reject dialog). */
+  note?: string;
+}
+
+/** Parent rejected (or force-rejected) — the original helper must know
+ *  before they spend any time / money on the request. */
+export async function notifyPurchaseRejected(args: PurchaseRejectedNotify): Promise<void> {
+  if (!args.creatorUid) return;
+  const link = `/pantry/purchase/${args.requestId}`;
+  const moduleEmoji = purchaseModuleEmoji(args.module);
+  const title = args.variant === 'force'
+    ? `⚠ ${args.rejecterName} cancelled your approved ${moduleLabel(args.module)} request`
+    : `↩ ${args.rejecterName} rejected your ${moduleLabel(args.module)} request`;
+  const reason = args.note?.trim()
+    ? ` — "${args.note.trim()}"`
+    : '';
+  const body = args.variant === 'force'
+    ? `${args.requestName} ${moduleEmoji} — do NOT shop on this. The approval was undone${reason}.`
+    : `${args.requestName} ${moduleEmoji}${reason || ' — open to see the parent note.'}`;
+  try {
+    await createNotification(args.familyId, {
+      type: 'purchase-rejected',
+      title,
+      message: body,
+      read: false,
+      forUserId: args.creatorUid,
+      link,
+    } as Parameters<typeof createNotification>[1]);
+  } catch { /* swallow */ }
+  await pushToUid({ uid: args.creatorUid, title, body, url: link, tag: `purchase-${args.requestId}-rejected` });
+}
+
 interface PurchaseReconciledNotify {
   familyId: string;
   requestId: string;
