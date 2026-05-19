@@ -324,8 +324,113 @@ export interface HelperLink {
   //   both     → both morning AND evening expected
   //   flexible → no specific cadence; helper fills when relevant
   expectedFrequency?: 'morning' | 'evening' | 'both' | 'flexible';
+  /** Automated payroll setup (2026-05-19). When present, the
+   *  /pantry/payroll page auto-generates pending salary requests
+   *  on the configured cadence. Optional — leave undefined for
+   *  helpers paid via the existing ad-hoc Payroll flow only
+   *  (advance / loan / bonus / reimbursement). See
+   *  HelperPayrollConfig below for the full shape. */
+  payrollConfig?: HelperPayrollConfig;
   createdAt: Timestamp;
   createdBy: string;                                         // parent UID who added them
+}
+
+// ── Payroll automation (v1 — 2026-05-19) ─────────────────────────
+//
+// Two new sub-systems on top of the existing Payroll module:
+//   1. AUTOMATED SALARY — per-helper pay config drives a generator
+//      that creates pending PurchaseRequest docs on each pay date.
+//   2. CHECK-INS — for hourly/daily helpers, a per-day log of hours
+//      worked (helper logs, parent approves) that the generator
+//      sums into the basic-pay line.
+//
+// The existing self-service advance / loan / bonus / reimbursement
+// flow is UNCHANGED. Loans + advances feed into the new system via
+// the optional `deductions` list on payrollConfig — each pay cycle
+// includes a repayment line, balance auto-decrements on close.
+
+export type PayBasis = 'hourly' | 'daily' | 'monthly';
+export type PayFrequency = 'weekly' | 'biweekly' | 'monthly';
+
+export interface PayrollAllowance {
+  /** Free-text label visible on the generated request ("Transport",
+   *  "Airtime", "Meals", "Housing", etc.). */
+  label: string;
+  /** Recurring amount in cents added to every pay cycle on top of
+   *  the basic rate. */
+  amountCents: number;
+}
+
+export interface PayrollDeduction {
+  /** Source request — typically the loan / advance the helper took. */
+  sourceRequestId: string;
+  /** Human label rendered on the pay request ("Loan from 18-May-2026"). */
+  label: string;
+  /** Amount deducted each pay cycle, in cents. */
+  perCycleCents: number;
+  /** Outstanding balance in cents. Decremented on every closed
+   *  payroll request that included this deduction. */
+  balanceCents: number;
+  /** When balance hits 0 (or below), set false so the generator
+   *  stops including the line. Kept in the array for audit. */
+  active: boolean;
+}
+
+export interface HelperPayrollConfig {
+  /** Hourly = needs check-ins (hours); Daily = needs check-ins
+   *  (day-count); Monthly = fixed salary (no check-ins). */
+  basis: PayBasis;
+  /** Rate in cents. Per-hour / per-day / per-month per basis. */
+  rateCents: number;
+  /** Pay-cycle cadence — drives WHEN the generator fires. */
+  frequency: PayFrequency;
+  /** Anchor for the next pay date.
+   *    weekly/biweekly → day-of-week (0=Sun .. 6=Sat)
+   *    monthly         → day-of-month (1..28; capped for safety) */
+  payAnchor: number;
+  /** ISO YYYY-MM-DD when payroll begins. The generator won't
+   *  back-fill before this date. */
+  startDate: string;
+  /** Optional contract end. Generator stops AFTER this date. */
+  endDate?: string;
+  /** Recurring allowances added to every pay cycle. */
+  allowances?: PayrollAllowance[];
+  /** Active loans + advances. Decremented per cycle on close. */
+  deductions?: PayrollDeduction[];
+  /** Last YYYY-MM-DD the generator created a request for this
+   *  helper. Used to avoid double-creating. */
+  lastGeneratedDate?: string;
+  /** Optional cap: stop generating after this many cycles total.
+   *  Null/undefined = open-ended. Decremented as requests are
+   *  generated. */
+  cyclesRemaining?: number | null;
+}
+
+// ── Pay check-ins (hourly/daily helpers only) ────────────────────
+//
+// One doc per day per helper at:
+//   /families/{f}/helpers/{uid}/payCheckIns/{YYYY-MM-DD}
+//
+// Helper taps "Log today" → writes the doc with hours + helperLoggedAt.
+// Parent approves → adds approvedBy + approvedAt. The generator only
+// counts APPROVED check-ins when computing basic pay.
+
+export interface PayCheckIn {
+  /** Doc id = YYYY-MM-DD. */
+  date: string;
+  /** Hours worked (1 or fractional for hourly; 1 for full day
+   *  daily helpers — they can also enter 0.5 for half-day). */
+  hours: number;
+  /** When the helper self-logged. */
+  helperLoggedAt: Timestamp;
+  /** Approved by which parent (UID); undefined while unapproved. */
+  approvedBy?: string;
+  approvedAt?: Timestamp;
+  /** Optional one-liner ("Came in late · made up next day"). */
+  note?: string;
+  /** Last edit stamp. */
+  updatedAt?: Timestamp;
+  updatedBy?: string;
 }
 
 // ── Helper Workplan ──────────────────────────────

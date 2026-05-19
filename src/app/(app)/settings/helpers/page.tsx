@@ -20,6 +20,10 @@ import {
 import { KID_MODULES, DEFAULT_KID_MODULES } from '@/lib/kidModules';
 import { HELPER_MODULES } from '@/lib/helperModules';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
+import { setPayrollConfig, clearPayrollConfig, payAnchorLabel } from '@/lib/payroll';
+import type { HelperPayrollConfig, PayBasis, PayFrequency, PayrollAllowance } from '@/lib/firestore';
+import { useHive } from '@/contexts/HiveContext';
+import { formatCents } from '@/components/pantry/format';
 import { updateFamily, type HelperLink } from '@/lib/firestore';
 
 const SESSION_LENGTH_CHOICES: { days: number; label: string }[] = [
@@ -1052,6 +1056,15 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
             </p>
           </div>
 
+          {/* Payroll automation (2026-05-19). Optional per-helper
+              salary setup — when filled, the system auto-creates a
+              pending salary request on each pay date. */}
+          <PayrollConfigSection
+            familyId={familyId}
+            helperUid={helper.uid}
+            helper={helper}
+          />
+
           {/* Login code + tier footer */}
           <div className="text-[11px] text-kaya-sand pt-2 border-t border-kaya-warm-dark/30">
             Login code: <span className="font-mono font-bold text-kaya-chocolate">{helper.helperCode}</span>
@@ -1119,6 +1132,308 @@ function SubTierToggle({ tier, on, busy, onToggle }: {
       <Icon size={10} />
       <span className="font-bold">{label}</span>
     </button>
+  );
+}
+
+// ── Payroll configuration section (v1 — 2026-05-19) ──────────────
+//
+// Collapsible block inside each expanded helper row. Lets a parent
+// set the helper's basis (hourly/daily/monthly) + rate + cadence +
+// allowances + the pay-day anchor. On save the system starts
+// auto-generating pending salary requests on each pay date.
+
+const BASIS_LABELS: Record<PayBasis, { label: string; sub: string }> = {
+  monthly: { label: 'Monthly (fixed)',   sub: 'Same amount every cycle — no check-ins needed' },
+  daily:   { label: 'Per day worked',    sub: 'Helper logs each day → parent approves → counted' },
+  hourly:  { label: 'Per hour',          sub: 'Helper logs hours each day → parent approves → counted' },
+};
+
+const FREQ_LABELS: Record<PayFrequency, string> = {
+  weekly:   'Weekly',
+  biweekly: 'Every 2 weeks',
+  monthly:  'Monthly',
+};
+
+const DOW_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function PayrollConfigSection({
+  familyId, helperUid, helper,
+}: { familyId: string; helperUid: string; helper: HelperLink }) {
+  const { config: hiveConfig } = useHive();
+  const currency = hiveConfig.currency;
+  const confirmAction = useConfirm();
+  const existing = helper.payrollConfig;
+  const [expanded, setExpanded] = useState(!!existing);
+
+  // Form state — pre-fill from existing or sensible defaults.
+  const [basis, setBasis] = useState<PayBasis>(existing?.basis ?? 'monthly');
+  const [rateMajor, setRateMajor] = useState<number>(existing ? existing.rateCents / 100 : 0);
+  const [frequency, setFrequency] = useState<PayFrequency>(existing?.frequency ?? 'monthly');
+  const [payAnchor, setPayAnchor] = useState<number>(existing?.payAnchor ?? (existing?.frequency === 'monthly' ? 1 : 5)); // 5=Friday default for weekly
+  const [startDate, setStartDate] = useState<string>(existing?.startDate ?? new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState<string>(existing?.endDate ?? '');
+  const [allowances, setAllowances] = useState<PayrollAllowance[]>(existing?.allowances ?? []);
+  const [allowanceLabel, setAllowanceLabel] = useState('');
+  const [allowanceAmt, setAllowanceAmt] = useState<number>(0);
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset payAnchor sanely when frequency switches (different domains).
+  useEffect(() => {
+    if (frequency === 'monthly') {
+      if (payAnchor < 1 || payAnchor > 28) setPayAnchor(1);
+    } else {
+      if (payAnchor < 0 || payAnchor > 6) setPayAnchor(5);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frequency]);
+
+  const save = async () => {
+    setError(null);
+    if (rateMajor <= 0) { setError('Rate must be greater than zero.'); return; }
+    if (!startDate) { setError('Pick a start date.'); return; }
+    setSaving(true);
+    try {
+      const patch: Partial<HelperPayrollConfig> = {
+        basis,
+        rateCents: Math.round(rateMajor * 100),
+        frequency,
+        payAnchor,
+        startDate,
+        endDate: endDate || undefined,
+        allowances: allowances.length > 0 ? allowances : undefined,
+      };
+      await setPayrollConfig(familyId, helperUid, patch);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1500);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Save failed');
+    } finally { setSaving(false); }
+  };
+
+  const remove = async () => {
+    const ok = await confirmAction({
+      title: 'Turn off auto-payroll?',
+      message: 'Saved config is removed. Existing pending salary requests stay; new ones stop being generated.',
+      confirmLabel: 'Turn off',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setSaving(true);
+    try { await clearPayrollConfig(familyId, helperUid); }
+    finally { setSaving(false); }
+  };
+
+  const addAllowance = () => {
+    const label = allowanceLabel.trim();
+    if (!label || allowanceAmt <= 0) return;
+    setAllowances((arr) => [...arr, { label, amountCents: Math.round(allowanceAmt * 100) }]);
+    setAllowanceLabel('');
+    setAllowanceAmt(0);
+  };
+  const removeAllowance = (idx: number) => {
+    setAllowances((arr) => arr.filter((_, i) => i !== idx));
+  };
+
+  return (
+    <div className="border-t border-kaya-warm-dark/30 pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand inline-flex items-center gap-2">
+          💼 Auto-payroll
+          {existing
+            ? <span className="text-[10px] normal-case tracking-normal font-normal text-pantry-leaf-dk">· active · {formatCents(existing.rateCents, currency)} / {existing.basis} · {payAnchorLabel(existing)}</span>
+            : <span className="text-[10px] normal-case tracking-normal font-normal text-kaya-sand italic">· not set up</span>
+          }
+        </p>
+        <span className="text-[10px] text-kaya-sand">{expanded ? '▴' : '▾'}</span>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {/* Basis */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">Pay basis</p>
+            <div className="grid grid-cols-1 gap-1.5">
+              {(Object.keys(BASIS_LABELS) as PayBasis[]).map((b) => {
+                const on = basis === b;
+                return (
+                  <button
+                    key={b}
+                    type="button"
+                    onClick={() => setBasis(b)}
+                    className={`p-2 text-left rounded-kaya border ${on
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                    }`}
+                  >
+                    <p className="font-bold text-sm">{BASIS_LABELS[b].label}</p>
+                    <p className={`text-[10px] mt-0.5 ${on ? 'text-white/80' : 'text-kaya-sand'}`}>{BASIS_LABELS[b].sub}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Rate */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">
+              Rate ({currency} per {basis === 'monthly' ? 'month' : basis === 'daily' ? 'day' : 'hour'})
+            </p>
+            <input
+              type="number" min={0} step="0.01"
+              value={rateMajor}
+              onChange={(e) => setRateMajor(parseFloat(e.target.value) || 0)}
+              className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
+            />
+          </div>
+
+          {/* Frequency + anchor */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">Pay frequency</p>
+              <select
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value as PayFrequency)}
+                className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
+              >
+                {(Object.keys(FREQ_LABELS) as PayFrequency[]).map((f) => (
+                  <option key={f} value={f}>{FREQ_LABELS[f]}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">
+                {frequency === 'monthly' ? 'Pay day of month' : 'Pay day of week'}
+              </p>
+              {frequency === 'monthly' ? (
+                <input
+                  type="number" min={1} max={28}
+                  value={payAnchor}
+                  onChange={(e) => setPayAnchor(Math.min(28, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                  className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
+                />
+              ) : (
+                <select
+                  value={payAnchor}
+                  onChange={(e) => setPayAnchor(parseInt(e.target.value, 10))}
+                  className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
+                >
+                  {DOW_NAMES.map((n, i) => <option key={i} value={i}>{n}</option>)}
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">Start date</p>
+              <input
+                type="date" value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
+              />
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">End date (optional)</p>
+              <input
+                type="date" value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
+              />
+            </div>
+          </div>
+
+          {/* Allowances */}
+          <div>
+            <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">Allowances (added every cycle)</p>
+            {allowances.length === 0 && (
+              <p className="text-[11px] text-kaya-sand italic mb-1">None yet — add transport, airtime, meals, etc.</p>
+            )}
+            <div className="space-y-1 mb-2">
+              {allowances.map((a, i) => (
+                <div key={i} className="flex items-center gap-2 text-[11px] bg-white border border-kaya-warm-dark/50 rounded-kaya-sm px-2 py-1">
+                  <span className="flex-1 font-bold">{a.label}</span>
+                  <span className="text-kaya-sand">{formatCents(a.amountCents, currency)}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAllowance(i)}
+                    className="text-kaya-sand hover:text-red-600 text-xs"
+                    aria-label={`Remove ${a.label}`}
+                  >×</button>
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-[2fr_1fr_auto] gap-1.5">
+              <input
+                type="text" value={allowanceLabel}
+                onChange={(e) => setAllowanceLabel(e.target.value)}
+                placeholder="e.g. Transport"
+                className="h-9 px-2 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate"
+              />
+              <input
+                type="number" min={0} step="0.01"
+                value={allowanceAmt}
+                onChange={(e) => setAllowanceAmt(parseFloat(e.target.value) || 0)}
+                placeholder="0"
+                className="h-9 px-2 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate"
+              />
+              <button
+                type="button"
+                onClick={addAllowance}
+                disabled={!allowanceLabel.trim() || allowanceAmt <= 0}
+                className="h-9 px-3 bg-kaya-chocolate text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+              >+ Add</button>
+            </div>
+          </div>
+
+          {/* Save row */}
+          <div className="flex items-center gap-2 pt-1">
+            {existing && (
+              <button
+                type="button"
+                onClick={remove}
+                disabled={saving}
+                className="text-[11px] font-bold text-red-600 disabled:opacity-50"
+              >Turn off auto-payroll</button>
+            )}
+            <div className="flex-1" />
+            {error && <span className="text-[11px] text-red-600 font-bold">{error}</span>}
+            {savedFlash && <span className="text-[11px] text-pantry-leaf-dk font-bold">✓ Saved</span>}
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="h-9 px-4 bg-kaya-chocolate text-white rounded-kaya-sm text-xs font-black disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : existing ? 'Update' : 'Activate auto-payroll'}
+            </button>
+          </div>
+
+          {/* Deductions read-only summary (set elsewhere; here just for visibility). */}
+          {existing?.deductions && existing.deductions.length > 0 && (
+            <div className="border-t border-kaya-warm-dark/30 pt-2">
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">
+                Active deductions ({existing.deductions.filter((d) => d.active).length})
+              </p>
+              <div className="space-y-1">
+                {existing.deductions.map((d, i) => (
+                  <div key={i} className={`text-[11px] flex items-center gap-2 ${d.active ? '' : 'opacity-50'}`}>
+                    <span className="flex-1 truncate">{d.label}</span>
+                    <span className="text-kaya-sand">{formatCents(d.perCycleCents, currency)} / cycle · balance {formatCents(d.balanceCents, currency)}</span>
+                    {!d.active && <span className="text-[9px] italic">paid off</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
