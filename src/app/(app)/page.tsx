@@ -28,6 +28,7 @@ import {
   listWorkplanItems, itemsScheduledOn,
 } from '@/lib/workplan';
 import { type WorkplanItem } from '@/lib/firestore';
+import { useHelperGrants, helperGrantsAllow, type HelperGrants } from '@/lib/useHelperGrants';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -46,6 +47,10 @@ export default function DiscoverPage() {
   const isParent = role === 'parent';
   const isKid = role === 'kid';
   const isHelper = role === 'helper';
+  // Helper module grants — drives HelperPriorities subscription set
+  // so a helper without Drivers access doesn't see Drivers shop runs
+  // (and doesn't open a listen Firestore would reject anyway).
+  const grants = useHelperGrants();
 
   // ─── Data ──────────────────────────────────────────────────────────
   const [activity, setActivity] = useState<ActivityItem[]>([]);
@@ -185,7 +190,7 @@ export default function DiscoverPage() {
             )}
 
             {isHelper && profile?.familyId && profile?.uid && (
-              <HelperPriorities familyId={profile.familyId} uid={profile.uid} />
+              <HelperPriorities familyId={profile.familyId} uid={profile.uid} grants={grants} />
             )}
 
             <QuickActions role={role} />
@@ -318,15 +323,14 @@ function RemindersStrip({
       label: '📋 Today',
       title: 'Your assigned tasks',
       sub: 'Open the list to mark them done',
-      href: '/pantry',
+      href: '/pantry/workplan',
     });
-    reminders.push({
-      tone: 'ok',
-      label: '$ Paid',
-      title: 'Salary received',
-      sub: 'Last cycle was on time',
-      href: '/settings',
-    });
+    // 2026-05-19 — Removed the "$ Paid · Salary received · Last cycle
+    // was on time" reminder. It was a hardcoded placeholder: the label
+    // pre-pended a literal `$` regardless of the family's currency,
+    // and "Last cycle was on time" was static text not backed by any
+    // payCheckIn / payroll data. Real payday signal lives on /helper
+    // (PayCheckInCard); the helper home doesn't need a fake duplicate.
   }
 
   // Default fallback so the strip is never empty.
@@ -673,7 +677,7 @@ function QuickActions({ role }: { role: Role }) {
 //   2. Shop runs ready — approved + reconciling Purchase / Outdoor /
 //      Drivers / Utility requests
 // Both are tappable; the row deep-links to the right detail page.
-function HelperPriorities({ familyId, uid }: { familyId: string; uid: string }) {
+function HelperPriorities({ familyId, uid, grants }: { familyId: string; uid: string; grants: HelperGrants }) {
   const [workplan, setWorkplan] = useState<WorkplanItem[]>([]);
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
 
@@ -692,9 +696,10 @@ function HelperPriorities({ familyId, uid }: { familyId: string; uid: string }) 
   }, [familyId, uid]);
 
   // Approved + reconciling requests across the 4 non-payroll modules.
-  // Uses the module-scoped subscription so helpers don't hit the
-  // payroll permission_denied wall (see purchase.ts comment). Four
-  // small live listens beats one big one that fails.
+  // Subscribes ONLY to modules this helper has view tier on (so a
+  // gardener doesn't see Drivers shop runs etc.). Module-scoped
+  // subscriptions avoid the payroll permission_denied wall — see
+  // purchase.ts comment for the rationale.
   useEffect(() => {
     const buckets: Record<string, PurchaseRequest[]> = { pantry: [], outdoor: [], drivers: [], utility: [] };
     const refresh = () => {
@@ -703,11 +708,13 @@ function HelperPriorities({ familyId, uid }: { familyId: string; uid: string }) 
         .sort((a, b) => (b.approvedAt?.toMillis?.() ?? 0) - (a.approvedAt?.toMillis?.() ?? 0));
       setRequests(merged);
     };
-    const unsubs = (['pantry', 'outdoor', 'drivers', 'utility'] as const).map((m) =>
+    const allowedModules = (['pantry', 'outdoor', 'drivers', 'utility'] as const)
+      .filter((m) => helperGrantsAllow(grants, `household:${m === 'pantry' ? 'purchase' : m}`));
+    const unsubs = allowedModules.map((m) =>
       subscribeToOpenRequestsByModule(familyId, m, (r) => { buckets[m] = r; refresh(); }),
     );
     return () => { unsubs.forEach((u) => u()); };
-  }, [familyId]);
+  }, [familyId, grants]);
 
   const remainingCount = workplan.length + requests.length;
 

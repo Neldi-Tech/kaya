@@ -22,6 +22,7 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
 import InfoIcon from '@/components/ui/InfoIcon';
+import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 
 export default function PantryHomePage() {
   const router = useRouter();
@@ -31,6 +32,15 @@ export default function PantryHomePage() {
   const isParent = profile?.role === 'parent';
   const { config } = useHive();
   const currency = config.currency;
+
+  // 2026-05-19 — Pantry tile gating for helpers. Each tile maps to a
+  // composite key on HelperLink.moduleAccess; tiles without view tier
+  // hide entirely (was showing all tiles regardless of grant, letting
+  // helpers navigate into modules they shouldn't see — Drivers
+  // specifically per Elia's audit).
+  const grants = useHelperGrants();
+  const showHouseholdSub = (sub: string) => helperGrantsAllow(grants, `household:${sub}`);
+  const showModule = (id: string) => helperGrantsAllow(grants, id);
 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
@@ -166,28 +176,42 @@ export default function PantryHomePage() {
           sidebar / tab bar as parent-only money surfaces. */}
 
       {/* ── Request modules ── */}
+      {/* 2026-05-19 — Tiles now gated by helper.moduleAccess so a
+          helper sees only the modules they've been granted view tier
+          on. Parents + legacy helpers see everything (helperGrantsAllow
+          returns true). */}
       <Divider label="Request modules" />
       <div className="grid grid-cols-2 gap-3 mb-2">
-        <Tile href="/pantry/purchase" emoji="🧾" label="Household Purchase" sub="Request → approve → reconcile"
-          tint="bg-pantry-leaf-soft border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
-          tooltip="Request → approve → reconcile for groceries + pantry items."
-          badge={openByModule.pantry} />
-        <Tile href="/pantry/utility" emoji="⚡" label="Utilities" sub="Top-ups + bills · per-meter"
-          tint="bg-[#FFF3D9] border-hive-honey hover:border-hive-honey-dk" subColor="text-hive-honey-dk"
-          tooltip="Electricity / water / internet top-ups + bill payments. Per-meter when set up."
-          badge={openByModule.utility} />
-        <Tile href="/pantry/outdoor" emoji="🌿" label="Outdoor" sub="Garden · pool · kuku · pets"
-          tint="bg-[#E6F2EC] border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
-          tooltip="Garden · pool · kuku · pets · repairs. Gardener-helper scope."
-          badge={openByModule.outdoor} />
-        <Tile href="/pantry/drivers" emoji="🚗" label="Drivers" sub="Fuel · service · spare parts"
-          tint="bg-[#E5EFF8] border-[#B5CFE5] hover:border-hive-blue" subColor="text-hive-blue"
-          tooltip="Vehicle fuel · service · spare parts · tolls. Driver-helper scope."
-          badge={openByModule.drivers} />
-        <Tile href="/pantry/payroll" emoji="🤝" label="Payroll" sub="Self-service · advances · loans"
-          tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
-          tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
-          badge={openByModule.payroll} />
+        {showHouseholdSub('purchase') && (
+          <Tile href="/pantry/purchase" emoji="🧾" label="Household Purchase" sub="Request → approve → reconcile"
+            tint="bg-pantry-leaf-soft border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
+            tooltip="Request → approve → reconcile for groceries + pantry items."
+            badge={openByModule.pantry} />
+        )}
+        {showHouseholdSub('utility') && (
+          <Tile href="/pantry/utility" emoji="⚡" label="Utilities" sub="Top-ups + bills · per-meter"
+            tint="bg-[#FFF3D9] border-hive-honey hover:border-hive-honey-dk" subColor="text-hive-honey-dk"
+            tooltip="Electricity / water / internet top-ups + bill payments. Per-meter when set up."
+            badge={openByModule.utility} />
+        )}
+        {showHouseholdSub('outdoor') && (
+          <Tile href="/pantry/outdoor" emoji="🌿" label="Outdoor" sub="Garden · pool · kuku · pets"
+            tint="bg-[#E6F2EC] border-pantry-leaf hover:border-pantry-leaf-dk" subColor="text-pantry-leaf-dk"
+            tooltip="Garden · pool · kuku · pets · repairs. Gardener-helper scope."
+            badge={openByModule.outdoor} />
+        )}
+        {showHouseholdSub('drivers') && (
+          <Tile href="/pantry/drivers" emoji="🚗" label="Drivers" sub="Fuel · service · spare parts"
+            tint="bg-[#E5EFF8] border-[#B5CFE5] hover:border-hive-blue" subColor="text-hive-blue"
+            tooltip="Vehicle fuel · service · spare parts · tolls. Driver-helper scope."
+            badge={openByModule.drivers} />
+        )}
+        {showHouseholdSub('payroll') && (
+          <Tile href="/pantry/payroll" emoji="🤝" label="Payroll" sub="Self-service · advances · loans"
+            tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
+            tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
+            badge={openByModule.payroll} />
+        )}
       </div>
 
       {/* ── Catalogues & plans ── */}

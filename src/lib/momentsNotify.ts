@@ -14,6 +14,7 @@ import {
 } from './notify';
 import { createNotification, getUserProfile, getFamilyMembers, UserProfile } from './firestore';
 import { Post, Reaction } from './moments';
+import { getHelperLink } from './helpers';
 
 function buildPostUrl(postId: string): string {
   const origin =
@@ -155,10 +156,36 @@ export async function notifyOnNewPost(
   try {
     const members = await getFamilyMembers(familyId);
     const mentionedSet = new Set(mentionedUids);
+    // 2026-05-19 — Helpers without the Moments grant should not get
+    // moment-new bell pings or emails. Pre-fetch each helper's
+    // HelperLink (one getDoc per helper; only runs for the helpers in
+    // the recipient set, so it's cheap on typical family sizes).
+    // A helper with no HelperLink doc (legacy) keeps default behaviour
+    // (see PR comment) and continues to receive — matches the
+    // isLegacyHelperWithoutLink rule carve-out.
+    const helperGrantsByUid: Record<string, boolean> = {};
+    await Promise.all(members
+      .filter((m) => m.role === 'helper')
+      .map(async (m) => {
+        try {
+          const link = await getHelperLink(familyId, m.uid);
+          if (!link) { helperGrantsByUid[m.uid] = true; return; }
+          if (link.moduleAccess) {
+            helperGrantsByUid[m.uid] = !!link.moduleAccess['moments']?.view;
+          } else {
+            helperGrantsByUid[m.uid] = link.modules.includes('moments');
+          }
+        } catch {
+          helperGrantsByUid[m.uid] = true; // fail-open
+        }
+      }));
+    const canReceive = (m: UserProfile): boolean =>
+      m.role !== 'helper' || helperGrantsByUid[m.uid] !== false;
     const others: UserProfile[] = [];
     const mentionedTargets: UserProfile[] = [];
     for (const m of members) {
       if (m.uid === post.authorUid) continue;
+      if (!canReceive(m)) continue;
       if (mentionedSet.has(m.uid)) mentionedTargets.push(m);
       else others.push(m);
     }

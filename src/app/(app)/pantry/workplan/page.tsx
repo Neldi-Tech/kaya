@@ -32,7 +32,7 @@ import { ChevronDown, ChevronUp, Settings as SettingsIcon } from 'lucide-react';
 import BackButton from '@/components/ui/BackButton';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
-import { listHelpers } from '@/lib/helpers';
+import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
 import {
   listPendingCheckIns, approveCheckIn, approveAllPending, deleteCheckIn,
@@ -78,9 +78,25 @@ export default function PantryWorkplanPage() {
 
   const reload = useCallback(async () => {
     if (!family) return;
+    // 2026-05-19 — Helpers can ONLY read their own /helpers/{uid} doc
+    // (rule: `request.auth.uid == helperUid`). The original
+    // listHelpers() call here did a getDocs over every helper doc in
+    // the family; for a helper viewer the rule rejects all docs except
+    // their own, which fails the whole query with permission_denied
+    // and hangs the page in "Loading…". Fix: take the cheap path for
+    // helpers and fetch a single doc; parents still need the full list.
+    if (profile?.role === 'helper' && profile.uid) {
+      try {
+        const own = await getHelperLink(family.id, profile.uid);
+        setHelpers(own && own.status !== 'removed' ? [own] : []);
+      } catch {
+        setHelpers([]);
+      }
+      return;
+    }
     const list = await listHelpers(family.id);
     setHelpers(list.filter((h) => h.status !== 'removed'));
-  }, [family]);
+  }, [family, profile?.role, profile?.uid]);
   useEffect(() => { reload(); }, [reload]);
 
   // Helpers reaching this page can only see their own row in detail
