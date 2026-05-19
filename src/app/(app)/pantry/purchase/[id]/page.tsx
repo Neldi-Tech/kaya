@@ -25,12 +25,13 @@ import {
   type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
   sendForApproval, approveRequest, rejectRequest,
-  startReconcile, closeReconcile, deleteRequest,
+  startReconcile, deleteRequest,
   promotePendingStaple, keepAsOneOff,
   renamePendingItem, findStapleConflict, linkPendingToExisting,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
   formatRequestSeq,
   recordSavingsDecision, recommendedSavingsDecision,
+  submitForCloseReview, approveCloseAndPost, kickBackToReconcile,
 } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
@@ -124,6 +125,7 @@ export default function PurchaseDetailPage() {
   const isPending = req.status === 'pending_approval';
   const isApproved = req.status === 'approved';
   const isReconciling = req.status === 'reconciling';
+  const isPendingClose = req.status === 'pending_close';
   const isClosed = req.status === 'closed';
   const isRejected = req.status === 'rejected';
   // Creator (anyone who built this request) may DELETE their own
@@ -397,13 +399,20 @@ export default function PurchaseDetailPage() {
       await startReconcile(profile.familyId, req.id);
     } finally { setBusy(false); }
   };
-  const close = async () => {
-    if (!profile?.familyId) return;
+  // 2026-05-19 — Reconcile now hands off to a parent review step
+  // BEFORE posting to budget. Helper presses "Submit for review →";
+  // parent reviews + allocates overrun / decides savings / posts.
+  // The notify call still fires (parents need to know the shop is
+  // ready for review). State flips reconciling → pending_close.
+  const submitClose = async () => {
+    if (!profile?.familyId || !profile.uid) return;
     setBusy(true);
     try {
-      await closeReconcile(profile.familyId, req.id, req.items);
-      // Notify parents that the shop is closed + budget posted. Read
-      // members AFTER close so we don't slow the user-visible step.
+      await submitForCloseReview(profile.familyId, req.id, req.items, {
+        submittedBy: profile.uid,
+        receiptUrl: req.receiptUrl,
+      });
+      // Notify parents that there's a shop waiting for budget review.
       try {
         const members = await getFamilyMembers(profile.familyId);
         const parentUids = members
@@ -654,7 +663,10 @@ export default function PurchaseDetailPage() {
     }
   };
 
-  const total = reconcilable || isClosed
+  // During pending_close the items are frozen actuals — sum them like
+  // we do for closed/reconciling so the Total card + comparison strip
+  // show the right number to the parent reviewer. (2026-05-19)
+  const total = reconcilable || isClosed || isPendingClose
     ? sumActual(req.items)
     : sumEstimated(req.items);
   const vPct = isClosed ? variancePct(req) : 0;
@@ -740,10 +752,54 @@ export default function PurchaseDetailPage() {
           body={req.rejectionNote || 'No reason given.'} />
       )}
 
-      {/* Savings decision card — appears after close when the helper
-          closed under approved budget AND the parent hasn't yet
-          decided what to do with the leftover. Two paths: tip the
-          helper or carry forward as balance. (2026-05-19.) */}
+      {/* Helper-side waiting banner — shop done, parent reviewing.
+          Helper can't take further action until parent approves or
+          kicks back. (2026-05-19) */}
+      {isPendingClose && role === 'helper' && (
+        <Banner tone="amber" title="Submitted · waiting for parent"
+          body="You finished reconciling. Your parent is reviewing the actuals before posting to the budget." />
+      )}
+
+      {/* Parent close-review card — appears when the helper has
+          submitted reconciled actuals for budget review. Parent
+          allocates overrun, decides on savings, leaves a note,
+          then posts to budget. (2026-05-19) */}
+      {isPendingClose && role === 'parent' && profile?.familyId && profile.uid && (
+        <CloseReviewCard
+          familyId={profile.familyId}
+          parentUid={profile.uid}
+          request={req}
+          onPosted={() => {
+            // After posting we want the parent to see how the budget
+            // looks with this shop applied — direct deep-link to the
+            // budget page is the fastest way to that view.
+            router.push('/pantry/budget');
+          }}
+        />
+      )}
+
+      {/* Post-close "View budget →" CTA — shown to parents on a
+          freshly closed request so they can immediately see how the
+          shop hit the monthly budget. (2026-05-19) */}
+      {isClosed && role === 'parent' && (
+        <Link
+          href="/pantry/budget"
+          className="mt-3 block bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-3 text-center"
+        >
+          <span className="font-nunito font-extrabold text-pantry-leaf-dk text-sm">
+            View Budget →
+          </span>
+          <span className="block text-[11px] text-hive-muted mt-0.5">
+            See how this shop landed against the monthly cap
+          </span>
+        </Link>
+      )}
+
+      {/* Savings decision card — legacy fallback for closed requests
+          that didn't go through pending_close (created before the
+          submit-for-review flow shipped). Hides automatically once
+          `request.savingsDecision` is set, so post-pending_close
+          requests don't double-prompt. (2026-05-19) */}
       {isClosed && role === 'parent' && profile?.familyId && profile.uid && req.module !== 'payroll' && (
         <SavingsDecisionCard
           familyId={profile.familyId}
@@ -869,7 +925,7 @@ export default function PurchaseDetailPage() {
                   />
                 : null
             }
-            varianceOnClose={isClosed}
+            varianceOnClose={isClosed || isPendingClose}
           />
         ))}
       </div>
@@ -1059,7 +1115,7 @@ export default function PurchaseDetailPage() {
       {req.items.length > 0 && (() => {
         const approved = req.estimatedTotalCents ?? sumEstimated(req.items);
         const showVariance =
-          (reconcilable || isClosed) &&
+          (reconcilable || isClosed || isPendingClose) &&
           approved > 0 &&
           // During reconcile, only once the helper has filled actuals
           // for at least one line — avoids a misleading "−100% saved"
@@ -1075,7 +1131,7 @@ export default function PurchaseDetailPage() {
               <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
                 {reconcilable || isClosed ? 'Actual total' : 'Estimated total'}
               </div>
-              {(reconcilable || isClosed) && approved > 0 && (
+              {(reconcilable || isClosed || isPendingClose) && approved > 0 && (
                 <div className="text-[11px] text-hive-muted font-bold mt-1">
                   approved {formatCents(approved, currency)}
                 </div>
@@ -1089,7 +1145,7 @@ export default function PurchaseDetailPage() {
                   (2026-05-19 — Elia's "round up totals in the nearest
                   100 to make the budget neat".) */}
               <div className="font-nunito font-black text-2xl text-hive-ink">
-                {(reconcilable || isClosed)
+                {(reconcilable || isClosed || isPendingClose)
                   ? formatCents(total, currency)
                   : <>≈ {formatCentsBudgetNeat(total, currency)}</>}
               </div>
@@ -1126,7 +1182,7 @@ export default function PurchaseDetailPage() {
           states (draft / pending / approved) since there's nothing to
           photograph yet. The thumbnail is the uploaded receipt itself
           — tap to open in a new tab for full-size review. */}
-      {(reconcilable || isClosed) && (
+      {(reconcilable || isClosed || isPendingClose) && (
         <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-3">
           <div className="flex items-center justify-between mb-2">
             <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
@@ -1322,8 +1378,8 @@ export default function PurchaseDetailPage() {
           </button>
         )}
         {isReconciling && (
-          <button onClick={close} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
-            Close · post to budget →
+          <button onClick={submitClose} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
+            Submit for review →
           </button>
         )}
 
@@ -1353,6 +1409,9 @@ function StatusChip({ status }: { status: PurchaseRequest['status'] }) {
   const cls =
     status === 'draft' ? 'bg-hive-cream text-hive-muted border-hive-line'
     : status === 'pending_approval' ? 'bg-[#FFF3D9] text-hive-honey-dk border-hive-honey'
+    // pending_close uses the same amber styling as pending_approval —
+    // it's "awaiting parent action" with the same visual urgency.
+    : status === 'pending_close' ? 'bg-[#FFF3D9] text-hive-honey-dk border-hive-honey'
     : status === 'approved' || status === 'reconciling' ? 'bg-pantry-leaf-soft text-pantry-leaf-dk border-pantry-leaf'
     : status === 'closed' ? 'bg-pantry-leaf-soft text-pantry-leaf-dk border-pantry-leaf'
     : 'bg-[#FCEAEA] text-hive-rose border-[#E8B5B5]';
@@ -2037,6 +2096,257 @@ function cryptoRandomId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+// ── Close-review card (2026-05-19) ─────────────────────────────────
+// Shown to parents on a `pending_close` request — helper finished
+// reconciling and submitted the actuals for budget review. Three
+// decisions land here in one screen:
+//   1. Overrun allocation (if actual > approved): "absorb in this
+//      month's budget" or "mark as one-off / unbudgeted"
+//   2. Savings decision (if actual < approved): tip / balance / skip
+//      (same logic as the legacy post-close SavingsDecisionCard)
+//   3. Optional note from the parent
+// Single "Approve & post to budget" CTA fires all three atomically,
+// then redirects to /pantry/budget so the parent sees the budget
+// view immediately after posting.
+function CloseReviewCard({
+  familyId, parentUid, request, onPosted,
+}: {
+  familyId: string;
+  parentUid: string;
+  request: PurchaseRequest;
+  onPosted: () => void;
+}) {
+  const { config } = useHive();
+  const currency = config.currency;
+
+  const approved = request.estimatedTotalCents;
+  const actual = request.actualTotalCents ?? sumActual(request.items);
+  const savings = approved - actual;
+  const overrun = actual - approved;
+  const isOver = overrun > 0;
+  const isUnder = savings > 0;
+  const variancePctValue = approved > 0 ? Math.round((Math.abs(actual - approved) / approved) * 100) : 0;
+
+  // Helper attribution for tip path — same as SavingsDecisionCard.
+  const [helpers, setHelpers] = useState<HelperLink[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listHelpers(familyId);
+        if (!cancelled) setHelpers(list.filter((h) => h.status !== 'removed'));
+      } catch {
+        if (!cancelled) setHelpers([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [familyId]);
+
+  // Pre-pick recommendations:
+  //   • Overrun → default to 'absorb' (most common; budget eats it)
+  //   • Savings → AI default per ratio (tip < 1%, balance otherwise)
+  const [overrunChoice, setOverrunChoice] = useState<'absorb' | 'unbudgeted'>('absorb');
+  const recommendedSavings = recommendedSavingsDecision(approved, savings);
+  const [savingsChoice, setSavingsChoice] = useState<'tip' | 'balance' | 'skip'>(recommendedSavings);
+  const [helperUid, setHelperUid] = useState<string>('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Pre-select the request's creator if they're a helper.
+  useEffect(() => {
+    if (!helpers || helperUid) return;
+    const creatorIsHelper = helpers.find((h) => h.uid === request.createdBy);
+    if (creatorIsHelper) setHelperUid(creatorIsHelper.uid);
+    else if (helpers.length === 1) setHelperUid(helpers[0].uid);
+  }, [helpers, request.createdBy, helperUid]);
+
+  const apply = async () => {
+    setError('');
+    if (isUnder && savingsChoice === 'tip' && !helperUid) {
+      setError('Pick a helper to tip, or change the savings choice.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await approveCloseAndPost(familyId, request.id, {
+        decidedBy: parentUid,
+        closeApprovalNote: note.trim() || undefined,
+        overrunAllocation: isOver ? { kind: overrunChoice } : undefined,
+        savings: isUnder ? {
+          kind: savingsChoice,
+          helperUid: savingsChoice === 'tip' ? helperUid : undefined,
+        } : undefined,
+      });
+      onPosted();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] approveCloseAndPost failed:', e);
+      setError('Could not post to budget. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const kickBack = async () => {
+    if (!window.confirm('Send this request back to the helper for revisions?')) return;
+    setSaving(true);
+    try {
+      await kickBackToReconcile(familyId, request.id, {
+        decidedBy: parentUid,
+        reason: note.trim() || undefined,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] kickBackToReconcile failed:', e);
+      setError('Could not send back. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 bg-[#FFF8E6] border-2 border-hive-honey rounded-hive p-4">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <p className="font-nunito font-extrabold text-hive-honey-dk text-[11px] uppercase tracking-[1.5px]">
+          📋 Review &amp; post to budget
+        </p>
+        <span className={`text-[10px] font-extrabold uppercase tracking-[1px] px-2 py-0.5 rounded ${
+          isOver ? 'bg-[#FCEAEA] text-hive-rose' : isUnder ? 'bg-[#E6F7EE] text-pantry-leaf-dk' : 'bg-hive-cream text-hive-muted'
+        }`}>
+          {isOver ? `+${formatCents(overrun, currency)} over` : isUnder ? `${formatCents(savings, currency)} saved` : 'on the dot'}
+        </span>
+      </div>
+      <p className="text-[11px] text-hive-ink/80 mb-3">
+        Helper submitted actuals of <strong>{formatCents(actual, currency)}</strong> against approved <strong>{formatCents(approved, currency)}</strong>
+        {(isOver || isUnder) && <> ({variancePctValue}% {isOver ? 'over' : 'under'})</>}.
+        Allocate the {isOver ? 'overrun' : 'savings'}, add a note if useful, then post to the budget.
+      </p>
+
+      {/* Overrun allocation (only when actual > approved) */}
+      {isOver && (
+        <div className="mb-3">
+          <p className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px] mb-1.5">
+            Allocate overrun · {formatCents(overrun, currency)}
+          </p>
+          <div className="space-y-2">
+            <ChoiceRow
+              active={overrunChoice === 'absorb'}
+              recommended={true}
+              onClick={() => setOverrunChoice('absorb')}
+              icon="📉"
+              label="Absorb in this month's budget"
+              sub="Counts against the monthly cap. Default — money's spent, budget eats it."
+            />
+            <ChoiceRow
+              active={overrunChoice === 'unbudgeted'}
+              recommended={false}
+              onClick={() => setOverrunChoice('unbudgeted')}
+              icon="📌"
+              label="Mark as one-off / unbudgeted"
+              sub="Tagged as exceptional so monthly trend reports don't get distorted."
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Savings decision (only when actual < approved AND not payroll) */}
+      {isUnder && request.module !== 'payroll' && (
+        <div className="mb-3">
+          <p className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px] mb-1.5">
+            What about the savings · {formatCents(savings, currency)}?
+          </p>
+          <div className="space-y-2">
+            <ChoiceRow
+              active={savingsChoice === 'tip'}
+              recommended={recommendedSavings === 'tip'}
+              onClick={() => setSavingsChoice('tip')}
+              icon="🎁"
+              label="Tip the helper"
+              sub="Creates a payroll bonus tagged Savings tip in their pay history."
+            />
+            {savingsChoice === 'tip' && (
+              <div className="pl-7">
+                <label className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px] block mb-1">
+                  Tip to
+                </label>
+                <select
+                  value={helperUid}
+                  onChange={(e) => setHelperUid(e.target.value)}
+                  className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold bg-white"
+                >
+                  <option value="">— Pick a helper —</option>
+                  {(helpers ?? []).map((h) => (
+                    <option key={h.uid} value={h.uid}>{h.displayName}</option>
+                  ))}
+                </select>
+                {helpers && helpers.length === 0 && (
+                  <p className="text-[10px] text-hive-rose mt-1">
+                    No active helpers in your family. Add one in Settings → Helpers, or carry as balance.
+                  </p>
+                )}
+              </div>
+            )}
+            <ChoiceRow
+              active={savingsChoice === 'balance'}
+              recommended={recommendedSavings === 'balance'}
+              onClick={() => setSavingsChoice('balance')}
+              icon="💰"
+              label="Carry as balance"
+              sub={`Credits the next ${request.module} request by ${formatCents(savings, currency)}.`}
+            />
+            <ChoiceRow
+              active={savingsChoice === 'skip'}
+              recommended={false}
+              onClick={() => setSavingsChoice('skip')}
+              icon="✓"
+              label="Skip — retain by family"
+              sub="No payroll movement; savings stays in the family pot."
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Optional note */}
+      <div className="mb-3">
+        <label className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px] block mb-1">
+          Note (optional)
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder={isOver
+            ? 'e.g. shop was further this week so transport added $5'
+            : isUnder
+              ? 'e.g. found vegetables on discount'
+              : 'Add any context for the audit trail…'}
+          rows={2}
+          className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito bg-white resize-none"
+        />
+      </div>
+
+      {error && <p className="text-[11px] text-hive-rose font-bold mb-2">{error}</p>}
+
+      <button
+        type="button"
+        disabled={saving || (isUnder && savingsChoice === 'tip' && !helperUid)}
+        onClick={apply}
+        className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+      >
+        {saving ? 'Posting…' : 'Approve & post to budget →'}
+      </button>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={kickBack}
+        className="w-full text-hive-muted text-xs font-nunito font-extrabold underline underline-offset-2 mt-2 py-1"
+      >
+        ↺ Send back to helper for revisions
+      </button>
+    </div>
+  );
+}
+
 // ── Savings decision card (2026-05-19) ─────────────────────────────
 // When a request closes UNDER approved budget, the parent picks what
 // to do with the leftover: tip the helper (creates a PAY-* request
@@ -2049,6 +2359,12 @@ function cryptoRandomId(): string {
 // decision don't re-prompt. Helper attribution: parent picks from
 // active helpers in family via dropdown; pre-filled with the
 // request's creator if they're a helper.
+//
+// 2026-05-19 update: the close-review flow now makes this decision
+// PRE-close inside CloseReviewCard. This component is preserved as
+// a fallback for closed requests created before the submit-for-review
+// flow shipped (no `pending_close` in their history). Hides once
+// `savingsDecision` is set on either path.
 function SavingsDecisionCard({
   familyId, parentUid, request,
 }: {

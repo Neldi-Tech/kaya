@@ -90,15 +90,21 @@ export default function PendingApprovalsBanner() {
   const rows = useMemo<UnifiedRow[]>(() => {
     const out: UnifiedRow[] = [];
 
-    // Purchase requests — only pending_approval ones count as "waiting
-    // on a parent". 'approved' means at least one parent has signed
-    // off; 'draft' / 'reconciling' don't need approval action.
+    // Purchase requests — count two parent-action states:
+    //   • pending_approval — the basket needs a nod before shopping
+    //   • pending_close    — the helper finished reconcile and is
+    //                        waiting on the parent to allocate + post
+    //                        to budget (2026-05-19).
+    // 'approved' means at least one parent has signed off; 'draft' /
+    // 'reconciling' don't need parent action.
     for (const r of purchaseOpen) {
-      if (r.status !== 'pending_approval') continue;
+      if (r.status !== 'pending_approval' && r.status !== 'pending_close') continue;
       const itemCount = r.items?.length ?? 0;
-      const amount = fmt(r.estimatedTotalCents);
+      const isCloseReview = r.status === 'pending_close';
+      const amount = fmt(isCloseReview ? (r.actualTotalCents ?? r.estimatedTotalCents) : r.estimatedTotalCents);
       const itemLabel = itemCount > 0 ? `${itemCount} item${itemCount === 1 ? '' : 's'}` : null;
-      const subtitle = [amount, itemLabel].filter(Boolean).join(' · ');
+      const reviewTag = isCloseReview ? 'Reconciled — review' : null;
+      const subtitle = [reviewTag, amount, itemLabel].filter(Boolean).join(' · ');
       out.push({
         key: `p:${r.id}`,
         source: 'purchase',

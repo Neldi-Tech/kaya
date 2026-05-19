@@ -118,7 +118,9 @@ export default function PayrollHomePage() {
     return () => { clearTimeout(t); a(); b(); };
   }, [profile?.familyId, role, myUid]);
 
-  const pending = open.filter((r) => r.status === 'pending_approval');
+  // `pending` covers both parent-action states: pre-shop approval AND
+  // post-shop close review (pending_close — 2026-05-19).
+  const pending = open.filter((r) => r.status === 'pending_approval' || r.status === 'pending_close');
   const drafts = open.filter((r) => r.status === 'draft');
   const inProgress = open.filter((r) => r.status === 'approved' || r.status === 'reconciling');
 

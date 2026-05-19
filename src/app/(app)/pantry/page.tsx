@@ -68,7 +68,7 @@ export default function PantryHomePage() {
       for (const r of reqs) {
         // 'draft' isn't a notification — it's the author's own scratch
         // space, not work waiting on anyone else.
-        if (r.status === 'pending_approval' || r.status === 'approved' || r.status === 'reconciling') {
+        if (r.status === 'pending_approval' || r.status === 'approved' || r.status === 'reconciling' || r.status === 'pending_close') {
           counts[r.module] = (counts[r.module] ?? 0) + 1;
         }
       }
