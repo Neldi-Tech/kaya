@@ -17,6 +17,13 @@ const TYPE_ICONS: Record<string, string> = {
   'moment-mention':  '🏷️',
   'moment-new':      '📸',
   'workplan-adhoc-assigned': '✨',
+  // Household → Purchase request lifecycle (2026-05-19). Same family
+  // of events covers all 5 request modules — module-specific emoji
+  // lives in the notification body, not here.
+  'purchase-approval-requested': '🧾',
+  'purchase-approved':           '✅',
+  'purchase-rejected':           '⚠️',
+  'purchase-reconciled':         '💰',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -30,6 +37,10 @@ const TYPE_LABELS: Record<string, string> = {
   'moment-mention':  'Mention',
   'moment-new':      'New post',
   'workplan-adhoc-assigned': 'Ad-hoc work',
+  'purchase-approval-requested': 'Approval needed',
+  'purchase-approved':           'Approved',
+  'purchase-rejected':           'Rejected',
+  'purchase-reconciled':         'Reconciled',
 };
 
 export default function NotificationsPage() {
