@@ -14,7 +14,7 @@
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
-import type { PurchaseModule } from './purchase';
+import type { PurchaseModule, PurchaseRequest } from './purchase';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -220,6 +220,69 @@ function scaled(usdCents: number, currency: string): number {
   return Math.round(usdCents * currencyScale(currency));
 }
 
+/** Region-specific overrides — pure magnitude scaling (USD × FX-ish)
+ *  works for most lines but underestimates regional differences in
+ *  labor markets + utility tariffs. Where the actual local figure
+ *  differs from "1× USD × FX," provide it directly here. (2026-05-19
+ *  Phase 2 of the Budget Composer.)
+ *
+ *  Each entry overrides one or more starter-pack values for a given
+ *  currency. Values are in LOCAL cents (already scaled to the
+ *  currency), so they replace `scaled()` not pre-scale through it.
+ *
+ *  Coverage focus: PAYROLL (single biggest divergence), POWER_WEEK
+ *  (prepaid culture in TZ/KE/NG differs from US/EU monthly billing),
+ *  and RENT. Other lines fall through to magnitude scaling.
+ *
+ *  Sources: Elia's own household numbers (TZ) + rough comparable
+ *  market rates (Numbeo / Glassdoor-equiv) for the rest. Refine
+ *  with real-user data once Kaya has more families per region. */
+type RegionOverrides = {
+  PAYROLL_PER_HELPER_MONTH?: number;
+  UTIL_POWER_WEEK?: number;
+  UTIL_RENT_MONTH?: number;
+};
+const REGION_OVERRIDES: Record<string, RegionOverrides> = {
+  // Tanzania — labor cost ≈ TZS 350k/mo per helper (nanny/cook),
+  // power TZS 10k/wk prepaid top-up typical, rent varies wildly so
+  // we keep magnitude-scaled $800 as placeholder.
+  TZS: {
+    PAYROLL_PER_HELPER_MONTH: 35_000_000, // TZS 350,000/mo
+    UTIL_POWER_WEEK:          1_000_000,  // TZS 10,000/wk
+  },
+  // Kenya — comparable wage ratio, KES 18,000/mo per helper.
+  KES: {
+    PAYROLL_PER_HELPER_MONTH: 1_800_000,  // KES 18,000/mo
+    UTIL_POWER_WEEK:            50_000,   // KES 500/wk
+  },
+  // Nigeria — NGN 80,000/mo per helper typical Lagos.
+  NGN: {
+    PAYROLL_PER_HELPER_MONTH: 8_000_000,  // NGN 80,000/mo
+  },
+  // UAE — high cost-of-living, AED 1,500/mo per helper visa-sponsored.
+  AED: {
+    PAYROLL_PER_HELPER_MONTH:   150_000,  // AED 1,500/mo
+    UTIL_RENT_MONTH:          400_000_0,  // AED 4,000/mo rent (placeholder)
+  },
+  // India — INR 12,000/mo per helper urban average.
+  INR: {
+    PAYROLL_PER_HELPER_MONTH: 1_200_000,  // INR 12,000/mo
+  },
+  // South Africa — ZAR 4,500/mo per helper.
+  ZAR: {
+    PAYROLL_PER_HELPER_MONTH:   450_000,  // ZAR 4,500/mo
+  },
+  // EUR / GBP / USD — leave as magnitude-scaled USD baselines.
+};
+
+/** Lookup helper: returns the region-override value if present, else
+ *  falls back to magnitude-scaled USD baseline. */
+function regional(key: keyof RegionOverrides, currency: string): number {
+  const o = REGION_OVERRIDES[currency];
+  if (o && o[key] != null) return o[key]!;
+  return scaled(USD_BASE[key], currency);
+}
+
 /** Build a starter composer state from family-size inputs. Caller
  *  is expected to walk the user through each module before saving
  *  — this is the "kick-starter pack" not the final cap. */
@@ -341,7 +404,7 @@ export function buildStarterComposer(
   const payrollPer: Record<string, { monthlySalaryCents: number }> = {};
   for (const h of input.helpers) {
     payrollPer[h.uid] = {
-      monthlySalaryCents: scaled(USD_BASE.PAYROLL_PER_HELPER_MONTH, currency),
+      monthlySalaryCents: regional('PAYROLL_PER_HELPER_MONTH', currency),
     };
   }
 
@@ -375,7 +438,7 @@ function utilityDefaultsFor(type: string, currency: string): {
 } {
   switch (type) {
     case 'electric':
-      return { amountCents: scaled(USD_BASE.UTIL_POWER_WEEK, currency), cadence: 'week', emoji: '⚡' };
+      return { amountCents: regional('UTIL_POWER_WEEK', currency), cadence: 'week', emoji: '⚡' };
     case 'water':
       return { amountCents: scaled(USD_BASE.UTIL_WATER_MONTH, currency), cadence: 'month', emoji: '💧' };
     case 'gas':
@@ -387,7 +450,7 @@ function utilityDefaultsFor(type: string, currency: string): {
     case 'security':
       return { amountCents: scaled(USD_BASE.UTIL_SECURITY_MONTH, currency), cadence: 'month', emoji: '🛡️' };
     case 'rent':
-      return { amountCents: scaled(USD_BASE.UTIL_RENT_MONTH, currency), cadence: 'month', emoji: '🏠' };
+      return { amountCents: regional('UTIL_RENT_MONTH', currency), cadence: 'month', emoji: '🏠' };
     default:
       return { amountCents: scaled(USD_BASE.UTIL_OTHER_MONTH, currency), cadence: 'month', emoji: '📦' };
   }
@@ -413,4 +476,100 @@ export function emptyDefaults(module: 'pantry' | 'outdoor'): BudgetLine[] {
     { id: 'outdoor-kuku',    label: 'Kuku / Pets',       emoji: '🐔', amountCents: 0, cadence: 'week' },
     { id: 'outdoor-repairs', label: 'Repairs (typical)', emoji: '🔧', amountCents: 0, cadence: 'year' },
   ];
+}
+
+// ── Reality-check: recent monthly average (Phase 2) ─────────────
+//
+// Given the family's recent closed requests, compute a per-module
+// monthly average. Used by:
+//   1. Budget home — surface a banner if a module's recent average
+//      diverges from the current cap by >10% ("bump cap?").
+//   2. Composer header — show "recent avg: X/mo" so the parent can
+//      see if the draft cap matches reality.
+//
+// Logic: group closed requests by (module, calendar-month), sum
+// `actualTotalCents` per group, then average the per-month sums.
+// Skip the current calendar month — it's incomplete and would drag
+// the average down. Require at least 1 full month of data per
+// module; otherwise return null for that module.
+
+export interface MonthlyAverageResult {
+  /** Months observed (excluding current). Higher = more reliable. */
+  monthsCounted: number;
+  /** Per-module average in cents. null = not enough data. */
+  averages: Partial<Record<PurchaseModule, number>>;
+}
+
+/** Compute per-module rolling-average monthly spend from closed
+ *  requests. `monthsBack` caps how far back we look (default 3).
+ *  Current month is always excluded because it's partial. */
+export function recentMonthlyAverage(
+  recentClosed: PurchaseRequest[],
+  opts: { monthsBack?: number; nowMs?: number } = {},
+): MonthlyAverageResult {
+  const monthsBack = opts.monthsBack ?? 3;
+  const now = opts.nowMs ? new Date(opts.nowMs) : new Date();
+  const currentKey = monthKey(now);
+
+  // Build {module: {monthKey: sum}} so we can average each module
+  // independently (a sparse month for one module shouldn't drag
+  // another module's average down).
+  const buckets: Partial<Record<PurchaseModule, Record<string, number>>> = {};
+  const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1).getTime();
+
+  for (const r of recentClosed) {
+    if (r.status !== 'closed') continue;
+    const at = r.closedAt?.toDate?.();
+    if (!at) continue;
+    if (at.getTime() < cutoff) continue;
+    const mk = monthKey(at);
+    if (mk === currentKey) continue;             // skip partial month
+    const m = (r.module ?? 'pantry') as PurchaseModule;
+    const cents = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
+    if (!buckets[m]) buckets[m] = {};
+    buckets[m]![mk] = (buckets[m]![mk] ?? 0) + cents;
+  }
+
+  const averages: Partial<Record<PurchaseModule, number>> = {};
+  let maxMonths = 0;
+  for (const [mod, monthMap] of Object.entries(buckets)) {
+    if (!monthMap) continue;
+    const months = Object.values(monthMap);
+    if (months.length === 0) continue;
+    const total = months.reduce((a, b) => a + b, 0);
+    averages[mod as PurchaseModule] = Math.round(total / months.length);
+    if (months.length > maxMonths) maxMonths = months.length;
+  }
+  return { monthsCounted: maxMonths, averages };
+}
+
+/** YYYY-MM key for grouping closed requests. */
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Decide whether the current cap is meaningfully off the rolling
+ *  average. Returns null if no signal (too few months) or the cap
+ *  is within tolerance. Otherwise returns the suggested new cap +
+ *  the direction ("up" / "down"). 10% threshold matches the human
+ *  intuition of "noticeably off" without being twitchy. */
+export function suggestCapAdjustment(
+  currentCapCents: number,
+  averageCents: number | undefined,
+  monthsCounted: number,
+): { direction: 'up' | 'down'; suggestedCapCents: number; deltaPct: number } | null {
+  if (!averageCents || averageCents <= 0) return null;
+  if (monthsCounted < 1) return null;
+  if (currentCapCents <= 0) {
+    // No cap set yet — always suggest setting to the average.
+    return { direction: 'up', suggestedCapCents: averageCents, deltaPct: 100 };
+  }
+  const delta = averageCents - currentCapCents;
+  const pct = Math.abs(delta) / currentCapCents;
+  if (pct < 0.10) return null;                   // within tolerance
+  return {
+    direction: delta > 0 ? 'up' : 'down',
+    suggestedCapCents: averageCents,
+    deltaPct: Math.round(pct * 100),
+  };
 }

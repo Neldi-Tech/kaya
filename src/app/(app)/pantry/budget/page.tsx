@@ -24,8 +24,11 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import {
   buildStarterComposer, saveFullComposer, computeModuleMonthly,
+  recentMonthlyAverage, suggestCapAdjustment,
   type StarterInput,
 } from '@/lib/budgetComposer';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 import { subscribeToChildren, type Child } from '@/lib/firestore';
 import { subscribeToVehicles, type Vehicle } from '@/lib/vehicles';
 import { subscribeToMeters, type UtilityMeter } from '@/lib/utilityMeters';
@@ -164,6 +167,22 @@ export default function BudgetPage() {
     }
     return acc;
   }, [closedThisMonth]);
+
+  // Rolling-average spend per module — drives the "reality-check"
+  // auto-tune banner under each card. (Phase 2, 2026-05-19.)
+  const rollingAverages = useMemo(() => recentMonthlyAverage(recent, { monthsBack: 3 }), [recent]);
+
+  /** One-tap apply: bump the module's cap to match the rolling average.
+   *  Writes ONLY the cap (householdBudgets) — leaves the composer
+   *  state untouched so the parent can later "open the composer" and
+   *  rebalance lines manually. We surface this as a fast path for
+   *  "yeah just match reality" rather than a structured re-edit. */
+  const applyCapAdjustment = async (m: PurchaseModule, newCents: number) => {
+    if (!profile?.familyId || isGuest) return;
+    await updateDoc(doc(db, 'families', profile.familyId), {
+      [`householdBudgets.${m}`]: newCents,
+    });
+  };
 
   // Caps map — read from family.householdBudgets, missing keys = 0.
   const caps: Record<PurchaseModule, number> = {
@@ -313,6 +332,30 @@ export default function BudgetPage() {
                   />
                 </div>
               )}
+
+              {/* Auto-tune banner — shows when the rolling 3-month
+                  average diverges from the current cap by >10%. The
+                  banner offers a one-tap "match reality" bump, OR a
+                  deep-link into the composer for a structured re-edit.
+                  (Phase 2, 2026-05-19.) */}
+              {isParent && (() => {
+                const avg = rollingAverages.averages[m.id];
+                const advice = suggestCapAdjustment(cap, avg, rollingAverages.monthsCounted);
+                if (!advice) return null;
+                return (
+                  <AutoTuneBanner
+                    direction={advice.direction}
+                    suggested={advice.suggestedCapCents}
+                    average={avg!}
+                    currentCap={cap}
+                    deltaPct={advice.deltaPct}
+                    monthsCounted={rollingAverages.monthsCounted}
+                    currency={currency}
+                    onApply={() => applyCapAdjustment(m.id, advice.suggestedCapCents)}
+                    onOpenComposer={() => openComposer(m.id)}
+                  />
+                );
+              })()}
 
             </div>
           );
@@ -502,6 +545,61 @@ function DetectedRow({ label, count }: { label: string; count: number }) {
       <span className={`text-[11px] font-nunito font-extrabold ${count > 0 ? 'text-pantry-leaf-dk' : 'text-hive-muted'}`}>
         {count} {count === 1 ? 'detected' : 'detected'}
       </span>
+    </div>
+  );
+}
+
+// ── Auto-tune banner ───────────────────────────────────────────
+// Surfaces under a module card when the cap is meaningfully off the
+// last few months of actual spending. Two one-tap actions:
+//   • "Match reality" — write the average to the cap directly
+//   • "Edit lines" — open the composer for structured re-edit
+
+function AutoTuneBanner({
+  direction, suggested, average, currentCap, deltaPct, monthsCounted, currency,
+  onApply, onOpenComposer,
+}: {
+  direction: 'up' | 'down';
+  suggested: number;
+  average: number;
+  currentCap: number;
+  deltaPct: number;
+  monthsCounted: number;
+  currency: string;
+  onApply: () => void;
+  onOpenComposer: () => void;
+}) {
+  const monthsLabel = monthsCounted === 1 ? 'last month' : `last ${monthsCounted} months`;
+  const headline = direction === 'up'
+    ? `Averaging ${deltaPct}% over cap`
+    : `Spending ${deltaPct}% under cap`;
+  const sub = direction === 'up'
+    ? `Your ${monthsLabel} averaged ${formatCents(average, currency)}/mo — cap is ${formatCents(currentCap, currency)}.`
+    : `Your ${monthsLabel} averaged ${formatCents(average, currency)}/mo — cap is ${formatCents(currentCap, currency)}.`;
+  const tone = direction === 'up' ? 'bg-[#FCEAEA] border-[#E8B5B5] text-hive-rose' : 'bg-pantry-leaf-soft border-pantry-leaf text-pantry-leaf-dk';
+  const buttonTone = direction === 'up' ? 'bg-hive-rose text-white' : 'bg-pantry-leaf text-white';
+  return (
+    <div className={`mt-3 rounded-xl border p-3 ${tone}`}>
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px]">
+        💡 {headline}
+      </p>
+      <p className="text-[12px] font-nunito text-hive-ink/85 mt-0.5">{sub}</p>
+      <div className="flex items-center gap-2 mt-2">
+        <button
+          type="button"
+          onClick={onApply}
+          className={`flex-1 ${buttonTone} rounded-lg py-2 font-nunito font-black text-xs`}
+        >
+          {direction === 'up' ? '↑' : '↓'} Match · {formatCents(suggested, currency)}/mo
+        </button>
+        <button
+          type="button"
+          onClick={onOpenComposer}
+          className="bg-white border border-hive-line rounded-lg py-2 px-3 font-nunito font-extrabold text-xs text-hive-ink"
+        >
+          Edit lines →
+        </button>
+      </div>
     </div>
   );
 }
