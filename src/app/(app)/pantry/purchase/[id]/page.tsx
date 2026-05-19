@@ -1021,33 +1021,66 @@ export default function PurchaseDetailPage() {
         </div>
       )}
 
-      {/* Total card */}
-      {req.items.length > 0 && (
-        <div className={`mt-4 rounded-hive p-4 flex items-center justify-between ${
-          isClosed ? 'bg-pantry-leaf-soft border border-pantry-leaf' : 'bg-pantry-leaf-soft border border-pantry-leaf'
-        }`}>
-          <div>
-            <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
-              {reconcilable || isClosed ? 'Actual total' : 'Estimated total'}
-            </div>
-            {isClosed && req.estimatedTotalCents > 0 && (
-              <div className="text-[11px] text-hive-muted font-bold mt-1">
-                est. {formatCents(req.estimatedTotalCents, currency)}
+      {/* Total card — the de-facto receipt summary. Shows the actual
+          total prominently + an approved-vs-actual variance line below
+          (both %-chip AND absolute amount labelled "saved" / "over").
+          (2026-05-19 — Elia's "show savings or overrun amount, not
+          just %" ask + "update in the receipt".) The variance line
+          renders during reconcile too so the helper sees the running
+          budget impact, not only post-close. */}
+      {req.items.length > 0 && (() => {
+        const approved = req.estimatedTotalCents ?? sumEstimated(req.items);
+        const showVariance =
+          (reconcilable || isClosed) &&
+          approved > 0 &&
+          // During reconcile, only once the helper has filled actuals
+          // for at least one line — avoids a misleading "−100% saved"
+          // on an empty actuals page.
+          (isClosed || req.items.some((i) => i.actualCents != null && i.actualQty != null));
+        const varianceCents = total - approved;
+        const variancePctNow = approved > 0 ? Math.round((varianceCents / approved) * 100) : 0;
+        const variancePositive = varianceCents > 0;
+        const exactly = varianceCents === 0;
+        return (
+          <div className="mt-4 rounded-hive p-4 flex items-center justify-between bg-pantry-leaf-soft border border-pantry-leaf">
+            <div>
+              <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
+                {reconcilable || isClosed ? 'Actual total' : 'Estimated total'}
               </div>
-            )}
+              {(reconcilable || isClosed) && approved > 0 && (
+                <div className="text-[11px] text-hive-muted font-bold mt-1">
+                  approved {formatCents(approved, currency)}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              <div className="font-nunito font-black text-2xl text-hive-ink">{formatCents(total, currency)}</div>
+              {showVariance && (
+                <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] font-nunito font-extrabold">
+                  <span className={`px-1.5 py-0.5 rounded ${
+                    exactly
+                      ? 'bg-hive-cream text-hive-muted'
+                      : variancePositive
+                        ? 'bg-[#FCEAEA] text-hive-rose'
+                        : 'bg-[#E6F7EE] text-hive-green'
+                  }`}>
+                    {variancePositive ? '+' : ''}{variancePctNow}%
+                  </span>
+                  <span className={exactly
+                    ? 'text-hive-muted'
+                    : variancePositive ? 'text-hive-rose' : 'text-hive-green'}>
+                    {exactly
+                      ? 'on the dot'
+                      : variancePositive
+                        ? `+${formatCents(varianceCents, currency)} over`
+                        : `${formatCents(-varianceCents, currency)} saved`}
+                  </span>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="text-right">
-            <div className="font-nunito font-black text-2xl text-hive-ink">{formatCents(total, currency)}</div>
-            {isClosed && (
-              <span className={`inline-block text-[10px] font-extrabold px-1.5 py-0.5 rounded mt-1 ${
-                vPct > 0 ? 'bg-[#FCEAEA] text-hive-rose' : 'bg-[#E6F7EE] text-hive-green'
-              }`}>
-                {vPct > 0 ? '+' : ''}{Math.round(vPct * 100)}%
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Receipt photo — shown during reconcile + closed states.
           (2026-05-19) Helper attaches the paper trail during reconcile;
@@ -1511,22 +1544,36 @@ function ItemRow({
                 <span className="text-hive-navy">{formatCents(eTotal, currency)}</span>
               </div>
               {(aQty != null || aPrice != null) && (
-                <div className="flex items-center justify-between gap-2 mt-1 pt-1 border-t border-hive-line/40">
-                  <span>
-                    <span className="uppercase tracking-[1px] text-[9px] text-hive-muted">Actual</span>
-                    <span className="ml-1.5 text-hive-navy">
-                      {aQty ?? 0} {item.unit}{aPrice != null && ` × ${formatCents(aPrice, currency)}`}
-                    </span>
-                  </span>
-                  <span className="flex items-center gap-1.5 text-hive-navy">
-                    {formatCents(aTotal, currency)}
-                    {eTotal > 0 && (
-                      <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${chipCls(totalPct)}`}>
-                        {fmt(totalPct)}
+                <>
+                  <div className="flex items-center justify-between gap-2 mt-1 pt-1 border-t border-hive-line/40">
+                    <span>
+                      <span className="uppercase tracking-[1px] text-[9px] text-hive-muted">Actual</span>
+                      <span className="ml-1.5 text-hive-navy">
+                        {aQty ?? 0} {item.unit}{aPrice != null && ` × ${formatCents(aPrice, currency)}`}
                       </span>
-                    )}
-                  </span>
-                </div>
+                    </span>
+                    <span className="flex items-center gap-1.5 text-hive-navy">
+                      {formatCents(aTotal, currency)}
+                      {eTotal > 0 && (
+                        <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${chipCls(totalPct)}`}>
+                          {fmt(totalPct)}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  {/* Absolute savings/overrun for this single line — same
+                      semantic colour as the chip above, plain text so it
+                      reads naturally alongside the %. (2026-05-19) */}
+                  {eTotal > 0 && totalDelta !== 0 && (
+                    <div className={`text-[10px] mt-0.5 text-right font-nunito font-extrabold ${
+                      totalDelta > 0 ? 'text-hive-rose' : 'text-hive-green'
+                    }`}>
+                      {totalDelta > 0
+                        ? `+${formatCents(totalDelta, currency)} over`
+                        : `${formatCents(-totalDelta, currency)} saved`}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
