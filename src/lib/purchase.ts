@@ -196,6 +196,12 @@ export interface PurchaseRequestItem {
   /** Filled during reconcile. Both editable by the helper. */
   actualQty?: number;
   actualCents?: number;
+  /** True when the helper added this line during reconciliation (not
+   *  part of the approved basket). Marks the row with an "added at
+   *  shop" badge so the audit trail makes it obvious which items were
+   *  ad-hoc additions versus part of the approved scope.
+   *  (2026-05-19.) */
+  addedDuringReconcile?: boolean;
 }
 
 export interface PurchaseRequest {
