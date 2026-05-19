@@ -22,6 +22,8 @@ import {
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
+  subscribeToOpenRequestsByModule,
+  subscribeToRecentRequestsByModule,
   createDraftRequest,
   createDraftFromTemplate,
   deleteRequest,
@@ -82,6 +84,18 @@ export default function DriversHomePage() {
     let flipped = false;
     const flip = () => { if (!flipped) { flipped = true; setLoading(false); } };
     const t = setTimeout(flip, 1500);
+    // Helpers use module-scoped subscriptions; broad listen fails for
+    // them on the payroll rule. See purchase.ts comment.
+    const c = subscribeToVehicles(profile.familyId, (v) => { setVehicles(v.filter((x) => x.active)); flip(); });
+    if (role === 'helper') {
+      const a = subscribeToOpenRequestsByModule(profile.familyId, 'drivers', (r) => {
+        setOpen(r); flip();
+      });
+      const b = subscribeToRecentRequestsByModule(profile.familyId, 'drivers', (r) => {
+        setRecent(r); flip();
+      });
+      return () => { clearTimeout(t); a(); b(); c(); };
+    }
     const a = subscribeToOpenRequests(profile.familyId, (r) => {
       setOpen(r.filter((x) => x.module === 'drivers'));
       flip();
@@ -90,9 +104,8 @@ export default function DriversHomePage() {
       setRecent(r.filter((x) => x.module === 'drivers'));
       flip();
     });
-    const c = subscribeToVehicles(profile.familyId, (v) => { setVehicles(v.filter((x) => x.active)); flip(); });
     return () => { clearTimeout(t); a(); b(); c(); };
-  }, [profile?.familyId]);
+  }, [profile?.familyId, role]);
 
   const pending = open.filter((r) => r.status === 'pending_approval');
   const drafts = open.filter((r) => r.status === 'draft');

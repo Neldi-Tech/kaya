@@ -328,11 +328,14 @@ const KID_MOBILE_GROUPS: MobileGroup[] = [
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
+// Helper mobile nav (2026-05-19 revision): swap Discover for Workplan
+// per Elia — work-day surfaces are what a helper actually needs on
+// the bar. Discover stays reachable via the More mega-sheet.
 const HELPER_MOBILE_GROUPS: MobileGroup[] = [
-  { kind: 'link', id: 'discover', path: '/',        icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/home',    icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'rate',     path: '/rate',    icon: '📋', label: 'Rate' },
-  { kind: 'link', id: 'pantry',   path: '/pantry',  icon: '🛒', label: 'Pantry' },
+  { kind: 'link', id: 'home',     path: '/home',            icon: '🏠', label: 'Home' },
+  { kind: 'link', id: 'workplan', path: '/pantry/workplan', icon: '📋', label: 'Workplan' },
+  { kind: 'link', id: 'rate',     path: '/rate',            icon: '⭐', label: 'Rate' },
+  { kind: 'link', id: 'pantry',   path: '/pantry',          icon: '🛒', label: 'Pantry' },
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 

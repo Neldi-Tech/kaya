@@ -20,6 +20,14 @@ import {
 } from '@/lib/firestore';
 import { subscribeToFeed, Post } from '@/lib/moments';
 import { subscribeToPendingApprovals } from '@/lib/hive';
+import {
+  type PurchaseRequest,
+  subscribeToOpenRequestsByModule,
+} from '@/lib/purchase';
+import {
+  listWorkplanItems, itemsScheduledOn,
+} from '@/lib/workplan';
+import { type WorkplanItem } from '@/lib/firestore';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -156,7 +164,16 @@ export default function DiscoverPage() {
               helperName={isHelper ? firstName : undefined}
             />
 
-            <PhotoMosaic posts={posts} familyId={profile?.familyId} />
+            {/* PhotoMosaic — hide for helpers entirely (work-focused
+                role; family photos still reachable via More → Moments).
+                Kids too if family.kidModules excludes 'moments'. Parents
+                always see it. (2026-05-19 — Elia helper-login audit.) */}
+            {!isHelper && (
+              role === 'parent'
+              || (role === 'kid' && (family?.kidModules ?? ['moments']).includes('moments'))
+            ) && (
+              <PhotoMosaic posts={posts} familyId={profile?.familyId} />
+            )}
 
             {!isHelper && (
               <ActivityFeed
@@ -167,7 +184,9 @@ export default function DiscoverPage() {
               />
             )}
 
-            {isHelper && <HelperTasks />}
+            {isHelper && profile?.familyId && profile?.uid && (
+              <HelperPriorities familyId={profile.familyId} uid={profile.uid} />
+            )}
 
             <QuickActions role={role} />
           </div>
@@ -648,32 +667,152 @@ function QuickActions({ role }: { role: Role }) {
 
 // ─── Helper-only blocks ───────────────────────────────────────────────
 
-function HelperTasks() {
-  // Placeholder until a real helper-task model lands. Shows the shape
-  // the design promises so helpers see a non-empty page on day one.
-  const tasks = [
-    { title: 'Living room', desc: 'Mop & dust', due: 'Now', done: false },
-    { title: 'Laundry', desc: 'Sort & wash whites', due: 'By 11am', done: false },
-    { title: 'Dinner prep', desc: 'Pasta + salad', due: 'By 5pm', done: false },
-  ];
+// HelperPriorities — real helper home card (2026-05-19, replaces the
+// HelperTasks placeholder). Two stacked lists:
+//   1. Today's workplan items (real, from listWorkplanItems)
+//   2. Shop runs ready — approved + reconciling Purchase / Outdoor /
+//      Drivers / Utility requests
+// Both are tappable; the row deep-links to the right detail page.
+function HelperPriorities({ familyId, uid }: { familyId: string; uid: string }) {
+  const [workplan, setWorkplan] = useState<WorkplanItem[]>([]);
+  const [requests, setRequests] = useState<PurchaseRequest[]>([]);
+
+  // Today's workplan — one-shot read; cheap enough not to need a sub.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await listWorkplanItems(familyId, uid);
+        if (cancelled) return;
+        // itemsScheduledOn takes a Date; default = today.
+        setWorkplan(itemsScheduledOn(all));
+      } catch { /* swallow — helper page still renders */ }
+    })();
+    return () => { cancelled = true; };
+  }, [familyId, uid]);
+
+  // Approved + reconciling requests across the 4 non-payroll modules.
+  // Uses the module-scoped subscription so helpers don't hit the
+  // payroll permission_denied wall (see purchase.ts comment). Four
+  // small live listens beats one big one that fails.
+  useEffect(() => {
+    const buckets: Record<string, PurchaseRequest[]> = { pantry: [], outdoor: [], drivers: [], utility: [] };
+    const refresh = () => {
+      const merged = [...buckets.pantry, ...buckets.outdoor, ...buckets.drivers, ...buckets.utility]
+        .filter((r) => r.status === 'approved' || r.status === 'reconciling')
+        .sort((a, b) => (b.approvedAt?.toMillis?.() ?? 0) - (a.approvedAt?.toMillis?.() ?? 0));
+      setRequests(merged);
+    };
+    const unsubs = (['pantry', 'outdoor', 'drivers', 'utility'] as const).map((m) =>
+      subscribeToOpenRequestsByModule(familyId, m, (r) => { buckets[m] = r; refresh(); }),
+    );
+    return () => { unsubs.forEach((u) => u()); };
+  }, [familyId]);
+
+  const remainingCount = workplan.length + requests.length;
+
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2.5">
-        <h2 className="font-display font-black text-[13px]">Today's chores</h2>
-        <span className="font-display font-extrabold text-[10px] text-kaya-sand uppercase tracking-wider">0 of {tasks.length}</span>
+        <h2 className="font-display font-black text-[13px]">Today's priorities</h2>
+        <span className="font-display font-extrabold text-[10px] text-kaya-sand uppercase tracking-wider">
+          {remainingCount} item{remainingCount === 1 ? '' : 's'}
+        </span>
       </div>
-      {tasks.map((t, i) => (
-        <div key={i} className="flex items-center gap-2.5 px-3 py-2 border-t border-kaya-warm-dark">
-          <div className="w-7 h-7 rounded-full bg-kaya-warm-dark/60 text-kaya-sand flex items-center justify-center text-[12px] shrink-0">○</div>
-          <div className="flex-1 min-w-0">
-            <div className="font-display font-black text-[12px] truncate">{t.title} · <span className="font-bold text-kaya-sand">{t.desc}</span></div>
-            <div className="text-[9.5px] text-kaya-sand font-display font-bold uppercase tracking-wider mt-0.5">{t.due}</div>
-          </div>
-          <div className="font-display font-extrabold text-[10px] text-kaya-gold-dark bg-kaya-gold-light px-2 py-1 rounded-full">{t.due === 'Now' ? 'Now' : 'Later'}</div>
+
+      {/* Approved shop runs first — they have time pressure (12h
+          reconcile window) so the helper sees them top-of-card. */}
+      {requests.length > 0 && (
+        <>
+          {requests.slice(0, 4).map((r) => {
+            const moduleIcon = moduleEmoji(r.module);
+            const isReconciling = r.status === 'reconciling';
+            return (
+              <Link
+                key={r.id}
+                href={`/pantry/purchase/${r.id}`}
+                className="flex items-center gap-2.5 px-3 py-2 border-t border-kaya-warm-dark no-underline hover:bg-kaya-cream/40"
+              >
+                <div className="w-7 h-7 rounded-full bg-pantry-leaf-soft text-pantry-leaf-dk flex items-center justify-center text-[14px] shrink-0">{moduleIcon}</div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-display font-black text-[12px] truncate text-kaya-ink">{r.name || 'Untitled request'}</div>
+                  <div className="text-[10px] text-kaya-sand font-display font-bold mt-0.5">
+                    {r.items.length} item{r.items.length === 1 ? '' : 's'} · {isReconciling ? 'reconciling' : 'approved · go shop'}
+                  </div>
+                </div>
+                <div className={`font-display font-extrabold text-[10px] px-2 py-1 rounded-full ${
+                  isReconciling
+                    ? 'text-hive-honey-dk bg-[#FFF3D9]'
+                    : 'text-pantry-leaf-dk bg-pantry-leaf-soft'
+                }`}>
+                  {isReconciling ? 'Close out' : 'Shop now'}
+                </div>
+              </Link>
+            );
+          })}
+          {requests.length > 4 && (
+            <Link
+              href="/pantry/purchase"
+              className="flex items-center justify-center px-3 py-2 border-t border-kaya-warm-dark no-underline text-kaya-gold-dark font-display font-extrabold text-[11px]"
+            >
+              + {requests.length - 4} more shop run{requests.length - 4 === 1 ? '' : 's'} →
+            </Link>
+          )}
+        </>
+      )}
+
+      {/* Today's workplan tasks. */}
+      {workplan.length > 0 && (
+        <>
+          {workplan.slice(0, 4).map((t) => (
+            <Link
+              key={t.id}
+              href="/pantry/workplan"
+              className="flex items-center gap-2.5 px-3 py-2 border-t border-kaya-warm-dark no-underline hover:bg-kaya-cream/40"
+            >
+              <div className="w-7 h-7 rounded-full bg-kaya-warm-dark/60 text-kaya-sand flex items-center justify-center text-[12px] shrink-0">
+                {t.icon || '✓'}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-display font-black text-[12px] truncate text-kaya-ink">{t.label}</div>
+                <div className="text-[10px] text-kaya-sand font-display font-bold mt-0.5">Today's workplan</div>
+              </div>
+              <div className="font-display font-extrabold text-[10px] text-kaya-gold-dark bg-kaya-gold-light px-2 py-1 rounded-full">Open</div>
+            </Link>
+          ))}
+          {workplan.length > 4 && (
+            <Link
+              href="/pantry/workplan"
+              className="flex items-center justify-center px-3 py-2 border-t border-kaya-warm-dark no-underline text-kaya-gold-dark font-display font-extrabold text-[11px]"
+            >
+              + {workplan.length - 4} more task{workplan.length - 4 === 1 ? '' : 's'} →
+            </Link>
+          )}
+        </>
+      )}
+
+      {/* Empty state. */}
+      {requests.length === 0 && workplan.length === 0 && (
+        <div className="px-3 py-6 text-center border-t border-kaya-warm-dark">
+          <div className="text-2xl mb-1">🌤️</div>
+          <div className="font-display font-black text-[13px] text-kaya-ink">All clear</div>
+          <div className="text-[11px] text-kaya-sand font-display font-bold mt-0.5">No shop runs or tasks waiting on you right now.</div>
         </div>
-      ))}
+      )}
     </div>
   );
+}
+
+// Module → emoji for the helper priorities card.
+function moduleEmoji(m: PurchaseRequest['module'] | undefined): string {
+  switch (m) {
+    case 'pantry':  return '🧾';
+    case 'outdoor': return '🌿';
+    case 'drivers': return '🚗';
+    case 'utility': return '⚡';
+    case 'payroll': return '🤝';
+    default:        return '🧾';
+  }
 }
 
 function HelperWorkCard({ name }: { name: string }) {

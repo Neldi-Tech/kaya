@@ -23,6 +23,8 @@ import {
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
+  subscribeToOpenRequestsByModule,
+  subscribeToRecentRequestsByModule,
   createDraftRequest,
   createDraftFromTemplate,
   deleteRequest,
@@ -73,14 +75,28 @@ export default function PurchaseHomePage() {
 
   // Subscribe to both buckets in parallel; flip loading off as soon as
   // the first listener returns so the empty state lands fast.
+  //
+  // 2026-05-19 — Helpers use the module-scoped subscription to avoid
+  // cross-module bleed. The broad listen reads ALL modules including
+  // payroll; the payroll rule blocks non-self reads, which made the
+  // whole listen permission-denied for helpers when the family had
+  // any non-self payroll doc. Parents keep the broad listen since
+  // their rule is unconstrained, and the broad listen also covers
+  // legacy module-less docs (rare; pre-2026-05).
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
     let flipped = false;
     const flip = () => { if (!flipped) { flipped = true; setLoading(false); } };
     const t = setTimeout(flip, 1500);
-    // Pantry list only — Outdoor requests live in their own page so
-    // helper-side scoping stays clean. Treat missing `module` as 'pantry'
-    // for back-compat with docs written before Outdoor shipped.
+    if (role === 'helper') {
+      const a = subscribeToOpenRequestsByModule(profile.familyId, 'pantry', (r) => {
+        setOpen(r); flip();
+      });
+      const b = subscribeToRecentRequestsByModule(profile.familyId, 'pantry', (r) => {
+        setRecent(r); flip();
+      });
+      return () => { clearTimeout(t); a(); b(); };
+    }
     const a = subscribeToOpenRequests(profile.familyId, (r) => {
       setOpen(r.filter((x) => (x.module ?? 'pantry') === 'pantry'));
       flip();
@@ -90,7 +106,7 @@ export default function PurchaseHomePage() {
       flip();
     });
     return () => { clearTimeout(t); a(); b(); };
-  }, [profile?.familyId]);
+  }, [profile?.familyId, role]);
 
   const pending = open.filter((r) => r.status === 'pending_approval');
   const drafts = open.filter((r) => r.status === 'draft');

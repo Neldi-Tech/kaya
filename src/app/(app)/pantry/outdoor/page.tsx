@@ -19,6 +19,8 @@ import {
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
+  subscribeToOpenRequestsByModule,
+  subscribeToRecentRequestsByModule,
   createDraftRequest,
   createDraftFromTemplate,
   deleteRequest,
@@ -69,6 +71,18 @@ export default function OutdoorHomePage() {
     let flipped = false;
     const flip = () => { if (!flipped) { flipped = true; setLoading(false); } };
     const t = setTimeout(flip, 1500);
+    // Helpers use the module-scoped subscription to avoid cross-
+    // module bleed (the broad listen fails for them when the family
+    // has any non-self payroll doc). See purchase.ts comment.
+    if (role === 'helper') {
+      const a = subscribeToOpenRequestsByModule(profile.familyId, 'outdoor', (r) => {
+        setOpen(r); flip();
+      });
+      const b = subscribeToRecentRequestsByModule(profile.familyId, 'outdoor', (r) => {
+        setRecent(r); flip();
+      });
+      return () => { clearTimeout(t); a(); b(); };
+    }
     const a = subscribeToOpenRequests(profile.familyId, (r) => {
       setOpen(r.filter((x) => x.module === 'outdoor'));
       flip();
@@ -78,7 +92,7 @@ export default function OutdoorHomePage() {
       flip();
     });
     return () => { clearTimeout(t); a(); b(); };
-  }, [profile?.familyId]);
+  }, [profile?.familyId, role]);
 
   const pending = open.filter((r) => r.status === 'pending_approval');
   const drafts = open.filter((r) => r.status === 'draft');
