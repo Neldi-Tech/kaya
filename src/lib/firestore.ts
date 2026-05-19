@@ -228,6 +228,17 @@ export interface Family {
     utility?: number;
     payroll?: number;
   };
+  /** Per-module carry-forward balance from prior closed requests
+   *  where the parent chose "keep as balance" on the savings decision.
+   *  Applied as a credit on the NEXT request in the same module
+   *  (next createDraftRequest reads + clears this). Stored in cents,
+   *  family display currency. (2026-05-19.) */
+  pendingModuleBalance?: {
+    pantry?: number;
+    outdoor?: number;
+    drivers?: number;
+    utility?: number;
+  };
   // ── Meeting setup ────────────────────────────────────────────
   // Parent-controlled configuration the presenter reads on meeting
   // night. Optional — absent = sensible defaults (every step in the

@@ -101,13 +101,20 @@ export const UTILITY_REQUEST_CATEGORIES: { id: UtilityRequestCategory; emoji: st
 
 /** Categories specific to the Payroll module. Self-service: the
  *  helper themselves creates these, parents approve. */
-export type PayrollCategory = 'advance' | 'loan' | 'bonus' | 'reimbursement';
+export type PayrollCategory = 'advance' | 'loan' | 'bonus' | 'reimbursement' | 'savings_tip';
 
 export const PAYROLL_CATEGORIES: { id: PayrollCategory; emoji: string; label: string }[] = [
   { id: 'advance',       emoji: '💵', label: 'Salary advance' },
   { id: 'loan',          emoji: '🏦', label: 'Loan' },
   { id: 'bonus',         emoji: '🎁', label: 'Bonus' },
   { id: 'reimbursement', emoji: '↩️', label: 'Reimbursement' },
+  // 2026-05-19 — Savings tip: when a purchase request closes UNDER
+  // approved budget, the parent can give the saved amount to the
+  // helper as a thank-you. Lands as a payroll bonus-type request so
+  // it threads through the same approve → reconcile → close flow and
+  // the helper's payroll history accumulates "savings earned over
+  // time" — visible signal of frugal shopping.
+  { id: 'savings_tip',   emoji: '🌱', label: 'Savings tip' },
 ];
 
 /** Module → emoji + label shortcuts for consistent branding across
@@ -221,6 +228,24 @@ export interface PurchaseRequest {
   receiptUrl?: string;
   /** Free-text reason if status === 'rejected'. */
   rejectionNote?: string;
+
+  /** Post-close decision when actuals came in UNDER approved — the
+   *  parent picks one of: tip the helper, carry the balance forward
+   *  to the next request, or skip. Stored as a permanent audit
+   *  field so the family can see the trail later. (2026-05-19) */
+  savingsDecision?: {
+    kind: 'tip' | 'balance' | 'skip';
+    /** Cents of savings the decision was made against. Snapshot — if
+     *  someone later edits actuals (shouldn't happen post-close, but
+     *  guard anyway) we keep the number that was decided on. */
+    amountCents: number;
+    /** When `kind === 'tip'` — the helper UID being tipped, and the
+     *  PAY-* request id we created for them. Skipped when carry/skip. */
+    helperUid?: string;
+    tipRequestId?: string;
+    decidedBy: string;
+    decidedAt: Timestamp;
+  };
 
   createdAt: Timestamp;
   createdBy: string;
@@ -1260,3 +1285,116 @@ export const STATUS_LABEL: Record<PurchaseRequestStatus, string> = {
   reconciling: 'Reconciling',
   closed: 'Closed',
 };
+
+// ── Savings-decision flow (2026-05-19) ──────────────────────────────
+// When a request closes UNDER approved budget, the parent decides
+// what to do with the leftover: tip the helper (creates a payroll
+// bonus request tagged 'savings_tip'), carry the balance forward to
+// the next request in the same module (writes Family.pendingModuleBalance),
+// or skip. Either way, `savingsDecision` is stamped on the request so
+// the audit trail is permanent.
+
+/** Suggest a default savings decision based on the savings ratio.
+ *  Elia's rule: if savings < 1% of approved, the savings is too
+ *  small to be a useful carry-forward — recommend a tip to the
+ *  helper as a thank-you for closing tight. Above that, recommend
+ *  carrying the balance forward so the family banks the saving. */
+export function recommendedSavingsDecision(
+  approvedCents: number,
+  savingsCents: number,
+): 'tip' | 'balance' {
+  if (approvedCents <= 0 || savingsCents <= 0) return 'tip';
+  return (savingsCents / approvedCents) < 0.01 ? 'tip' : 'balance';
+}
+
+/** Record the parent's savings decision on a closed request. Three
+ *  paths:
+ *    'tip'     → creates a payroll PAY-* request for the helper with
+ *                category 'savings_tip', status 'approved' (parent's
+ *                already deciding here — no need to re-approve).
+ *    'balance' → writes to family.pendingModuleBalance[module], where
+ *                the next createDraftRequest for that module will
+ *                pick it up as a credit.
+ *    'skip'    → just records the decision (no money movement).
+ *  Idempotent on the savingsDecision field — re-running with the
+ *  same request will be rejected by the UI (post-close, the card
+ *  hides once savingsDecision is set). */
+export async function recordSavingsDecision(
+  familyId: string,
+  requestId: string,
+  args: {
+    kind: 'tip' | 'balance' | 'skip';
+    /** Snapshot — savings amount from approved - actual at decision time. */
+    amountCents: number;
+    /** Required when kind === 'tip'. */
+    helperUid?: string;
+    /** Required when kind === 'balance' — module the balance carries on. */
+    module?: PurchaseModule;
+    decidedBy: string;
+  },
+): Promise<{ tipRequestId?: string }> {
+  if (isGuestActive()) return {};
+  const decision: NonNullable<PurchaseRequest['savingsDecision']> = {
+    kind: args.kind,
+    amountCents: args.amountCents,
+    decidedBy: args.decidedBy,
+    // serverTimestamp() can't be nested inside an object on update;
+    // we cast it later. Set to a sentinel here that we replace in the
+    // patch payload below.
+    decidedAt: serverTimestamp() as unknown as Timestamp,
+    ...(args.helperUid ? { helperUid: args.helperUid } : {}),
+  };
+
+  let tipRequestId: string | undefined;
+
+  if (args.kind === 'tip' && args.helperUid && args.amountCents > 0) {
+    // Create a payroll-bonus request for the helper. Status starts
+    // as 'approved' so it goes straight into the helper's "ready to
+    // reconcile / receive" bucket — the parent has already approved
+    // by deciding to tip. The helper's payroll page will surface it
+    // alongside any other pay items.
+    tipRequestId = await createDraftRequest(familyId, {
+      module: 'payroll',
+      helperUid: args.helperUid,
+      createdBy: args.decidedBy,
+      createdByRole: 'parent',
+      payrollCycle: undefined,
+      initialStatus: 'approved',
+      items: [
+        {
+          id: `${Date.now().toString(36)}-tip`,
+          name: 'Savings tip',
+          category: 'other',
+          qty: 1,
+          unit: 'x',
+          estimatedCents: args.amountCents,
+          actualCents: args.amountCents,
+          actualQty: 1,
+        },
+      ],
+      context: 'savings tip',
+    });
+    decision.tipRequestId = tipRequestId;
+  }
+
+  if (args.kind === 'balance' && args.module && args.module !== 'payroll' && args.amountCents > 0) {
+    // Add to family.pendingModuleBalance[module] — next request in
+    // this module reads + consumes it.
+    await updateDoc(doc(db, 'families', familyId), {
+      [`pendingModuleBalance.${args.module}`]: (
+        // Read-modify-write would race; Firestore increment is the safe
+        // primitive here. Use FieldValue.increment via the SDK helper.
+        // (Imported below — we use the modular `increment` from
+        // firebase/firestore.)
+        increment(args.amountCents)
+      ),
+    });
+  }
+
+  // Stamp the decision on the request.
+  await updateDoc(requestDoc(familyId, requestId), {
+    savingsDecision: decision,
+    updatedAt: serverTimestamp(),
+  });
+  return { tipRequestId };
+}
