@@ -571,6 +571,184 @@ export const DIRECTORY_OUTDOOR: DirectoryOutdoorItem[] = [
   _o('Bin liners (heavy)',    ['bin liner','garbage bag'],      'other',   '🗑️', 1,  'pack',    'monthly'),
 ];
 
+// ── Drivers catalogue ─────────────────────────────────────────────
+// Curated catalogue for Household → Drivers (fuel / service / parts /
+// wash / tolls / other). 2026-05-19 — shipped alongside the editable
+// Other Catalogue rework: families pick the regulars from here, then
+// they propagate into the request quick-add as suggestions.
+//
+// Vehicles themselves live in the Drivers vehicles registry; this
+// catalogue covers what a vehicle CONSUMES (fuel, oil, tyres, periodic
+// service, parking, car wash). One row = one buyable thing or service.
+
+export type DriversCategoryId = 'fuel' | 'service' | 'parts' | 'wash' | 'tolls' | 'other';
+
+export interface DirectoryDriversItem {
+  label: string;
+  match: string[];
+  emoji: string;
+  category: DriversCategoryId;
+  defaultQty: number;
+  unit: string;
+  cadence: Cadence;
+  note?: string;
+}
+
+const _d = (
+  label: string, match: string[], category: DriversCategoryId, emoji: string,
+  qty: number, unit: string, cadence: Cadence, note?: string,
+): DirectoryDriversItem => ({ label, match, category, emoji, defaultQty: qty, unit, cadence, note });
+
+export const DIRECTORY_DRIVERS: DirectoryDriversItem[] = [
+  // ── ⛽ FUEL ───────────────────────────────────────────────────
+  _d('Petrol (regular)',     ['petrol','gasoline','mafuta'],        'fuel',    '⛽', 40, 'L',      'weekly',   'Daily commuter top-up.'),
+  _d('Diesel',               ['diesel','dizeli'],                   'fuel',    '🛢️', 40, 'L',      'weekly'),
+  _d('Petrol (premium)',     ['premium','super','v-power'],         'fuel',    '⛽', 40, 'L',      'weekly'),
+  _d('AdBlue / DEF',         ['adblue','def'],                      'fuel',    '🧪', 5,  'L',      'monthly',  'Diesel emissions fluid.'),
+  _d('Jerrycan fuel',        ['jerrycan','reserve fuel'],           'fuel',    '🥫', 20, 'L',      'as-needed', 'For generator or reserve.'),
+
+  // ── 🛠️ SERVICE ────────────────────────────────────────────────
+  _d('Regular service',      ['service','full service'],            'service', '🛠️', 1,  'visit',  'as-needed', 'Every 5,000–10,000 km — oil + filters + check.'),
+  _d('Oil change only',      ['oil change','mafuta engine'],        'service', '🧴', 1,  'visit',  'monthly',  'Between full services if mileage is high.'),
+  _d('Wheel alignment',      ['alignment','tracking'],              'service', '⚙️', 1,  'visit',  'as-needed', 'Every 6 months or after kerb hits.'),
+  _d('Wheel balancing',      ['balancing'],                         'service', '⚙️', 1,  'visit',  'as-needed', 'With tyre rotation, ~6 months.'),
+  _d('Brake service',        ['brake service','brake check'],       'service', '🛑', 1,  'visit',  'as-needed', 'Every 6 months — inspect pads, fluid.'),
+  _d('AC service / regas',   ['ac service','aircon','regas'],       'service', '❄️', 1,  'visit',  'as-needed', 'Yearly — before hot season.'),
+  _d('Battery check',        ['battery check'],                     'service', '🔋', 1,  'visit',  'as-needed', 'Every 6 months.'),
+  _d('Inspection / TLB',     ['inspection','tlb','test'],           'service', '📋', 1,  'visit',  'as-needed', 'Annual roadworthy inspection.'),
+  _d('Insurance renewal',    ['insurance','bima'],                  'service', '🛡️', 1,  'yr',     'as-needed', 'Yearly — comprehensive or third-party.'),
+  _d('Road licence',         ['road licence','road tax'],           'service', '📄', 1,  'yr',     'as-needed', 'Yearly renewal.'),
+
+  // ── 🔩 SPARE PARTS ────────────────────────────────────────────
+  _d('Tyres (set of 4)',     ['tyres','tires','magurudumu'],        'parts',   '🛞', 4,  'x',      'as-needed', 'Replace every 40k–60k km.'),
+  _d('Tyre (single)',        ['tyre','tire'],                       'parts',   '🛞', 1,  'x',      'as-needed', 'Puncture replacement.'),
+  _d('Engine oil',           ['engine oil','oil','mafuta'],         'parts',   '🛢️', 4,  'L',      'monthly',  'Spec depends on car — check manual.'),
+  _d('Oil filter',           ['oil filter'],                        'parts',   '🧪', 1,  'x',      'monthly'),
+  _d('Air filter',           ['air filter'],                        'parts',   '🌬️', 1,  'x',      'as-needed', 'Every ~15k km.'),
+  _d('Cabin filter',         ['cabin filter','pollen filter'],      'parts',   '🌿', 1,  'x',      'as-needed', 'Every ~15k km.'),
+  _d('Fuel filter',          ['fuel filter'],                       'parts',   '⛽', 1,  'x',      'as-needed', 'Every 30k–40k km.'),
+  _d('Brake pads (front)',   ['brake pads','pads'],                 'parts',   '🛑', 1,  'set',    'as-needed'),
+  _d('Brake pads (rear)',    ['rear pads'],                         'parts',   '🛑', 1,  'set',    'as-needed'),
+  _d('Brake discs',          ['brake disc','rotor'],                'parts',   '⚙️', 1,  'set',    'as-needed'),
+  _d('Brake fluid',          ['brake fluid','dot'],                 'parts',   '🧴', 1,  'bottle', 'as-needed', 'Top-up at service.'),
+  _d('Coolant / antifreeze', ['coolant','antifreeze'],              'parts',   '💧', 2,  'L',      'as-needed', 'Flush every 2 yrs.'),
+  _d('Power steering fluid', ['power steering','ps fluid'],         'parts',   '🧴', 1,  'bottle', 'as-needed'),
+  _d('Transmission fluid',   ['atf','transmission fluid'],          'parts',   '🛢️', 4,  'L',      'as-needed'),
+  _d('Wiper blades',         ['wipers','wiper blades','viwiper'],   'parts',   '🌧️', 2,  'x',      'as-needed', 'Every 6 months in dusty seasons.'),
+  _d('Windscreen washer',    ['washer fluid','screen wash'],        'parts',   '💦', 1,  'bottle', 'monthly'),
+  _d('Battery (car)',        ['car battery'],                       'parts',   '🔋', 1,  'x',      'as-needed', 'Typical lifespan 2–4 years.'),
+  _d('Spark plugs',          ['spark plug','plug'],                 'parts',   '⚡', 1,  'set',    'as-needed'),
+  _d('Headlight bulb',       ['headlight','bulb','taa'],            'parts',   '💡', 1,  'x',      'as-needed'),
+  _d('Indicator bulb',       ['indicator','signal bulb'],           'parts',   '💡', 1,  'x',      'as-needed'),
+  _d('Fan belt',             ['fan belt','belt'],                   'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('Shock absorber',       ['shocks','absorber'],                 'parts',   '⚙️', 1,  'set',    'as-needed'),
+
+  // ── 🧽 CAR WASH ───────────────────────────────────────────────
+  _d('Exterior wash',        ['car wash','wash'],                   'wash',    '🚿', 1,  'wash',   'weekly'),
+  _d('Full valet',           ['valet','interior detail'],           'wash',    '✨', 1,  'wash',   'monthly', 'Inside + outside + polish.'),
+  _d('Engine bay clean',     ['engine wash','engine clean'],        'wash',    '🧼', 1,  'wash',   'as-needed', 'Every ~3 months.'),
+  _d('Polish / wax',         ['polish','wax'],                      'wash',    '✨', 1,  'visit',  'as-needed', 'Every ~3 months.'),
+  _d('Interior shampoo',     ['shampoo','interior clean'],          'wash',    '🧴', 1,  'visit',  'as-needed', 'Every ~3 months.'),
+
+  // ── 🛣️ TOLLS / PARKING ───────────────────────────────────────
+  _d('Toll fee',              ['toll','barabara'],                  'tolls',   '🛣️', 1,  'pass',   'weekly'),
+  _d('Parking (day)',         ['parking','day parking'],            'tolls',   '🅿️', 1,  'day',    'weekly'),
+  _d('Parking (monthly)',     ['monthly parking'],                  'tolls',   '🅿️', 1,  'month',  'monthly'),
+  _d('Airport parking',       ['airport parking'],                  'tolls',   '✈️', 1,  'visit',  'as-needed'),
+  _d('Traffic fine',          ['fine','penalty','faini'],           'tolls',   '🚨', 1,  'x',      'as-needed'),
+
+  // ── 📦 OTHER ─────────────────────────────────────────────────
+  _d('Tow service',           ['tow','breakdown'],                  'other',   '🚛', 1,  'visit',  'as-needed'),
+  _d('Air freshener',         ['freshener','air freshener'],        'other',   '🌸', 1,  'x',      'monthly'),
+  _d('Car mat',               ['car mat','mats'],                   'other',   '🟫', 1,  'set',    'as-needed'),
+  _d('Phone holder / charger',['phone holder','car charger'],       'other',   '📱', 1,  'x',      'as-needed'),
+  _d('Driver allowance',      ['driver allowance','meal'],          'other',   '🍱', 1,  'day',    'daily',  'Lunch / meal stipend if outside home.'),
+];
+
+// ── Utilities catalogue ───────────────────────────────────────────
+// Curated catalogue for Household → Utility (electricity / water /
+// internet / gas / tv / security / rent / other). 2026-05-19 — these
+// are the typical bill/top-up TYPES a family might track. The family
+// then ties each one to a specific meter or account on
+// /pantry/utilities (e.g. "Main House LUKU", "Diana DSTV"). The
+// catalogue is the menu of "what kind of bill is this?".
+
+export type UtilitiesCategoryId =
+  | 'electricity' | 'water' | 'internet' | 'gas' | 'tv' | 'security' | 'rent' | 'other';
+
+export interface DirectoryUtilityItem {
+  label: string;
+  match: string[];
+  emoji: string;
+  category: UtilitiesCategoryId;
+  defaultQty: number;
+  unit: string;
+  cadence: Cadence;
+  note?: string;
+}
+
+const _u = (
+  label: string, match: string[], category: UtilitiesCategoryId, emoji: string,
+  qty: number, unit: string, cadence: Cadence, note?: string,
+): DirectoryUtilityItem => ({ label, match, category, emoji, defaultQty: qty, unit, cadence, note });
+
+export const DIRECTORY_UTILITIES: DirectoryUtilityItem[] = [
+  // ── ⚡ ELECTRICITY ────────────────────────────────────────────
+  _u('LUKU top-up (prepaid)',   ['luku','prepaid power','umeme'],   'electricity', '⚡', 1, 'top-up', 'monthly', 'TANESCO prepaid token.'),
+  _u('TANESCO postpaid bill',   ['tanesco','postpaid'],             'electricity', '⚡', 1, 'bill',   'monthly'),
+  _u('Solar inverter battery',  ['solar battery','inverter'],       'electricity', '🔋', 1, 'x',      'as-needed'),
+  _u('Generator service',       ['generator service','genset'],     'electricity', '🛠️', 1, 'visit',  'as-needed', 'Every 6 months.'),
+  _u('Generator petrol',        ['genset fuel','generator petrol'], 'electricity', '⛽', 20, 'L',     'monthly'),
+
+  // ── 💧 WATER ─────────────────────────────────────────────────
+  _u('DAWASA bill',             ['dawasa','water bill','maji'],     'water',       '💧', 1, 'bill',   'monthly', 'Dar es Salaam water utility.'),
+  _u('Water bowser delivery',   ['bowser','water truck'],           'water',       '🚛', 1, 'trip',   'as-needed', '5,000–10,000 L tanker drop.'),
+  _u('Borehole pump service',   ['borehole','pump service'],        'water',       '🛠️', 1, 'visit',  'as-needed', 'Yearly check.'),
+  _u('Water tank clean',        ['tank clean','tank service'],      'water',       '🪣', 1, 'visit',  'as-needed', 'Yearly.'),
+  _u('Water filter cartridge',  ['filter','cartridge'],             'water',       '🧪', 1, 'x',      'as-needed', 'Every ~3 months.'),
+
+  // ── 📶 INTERNET ──────────────────────────────────────────────
+  _u('Fibre subscription',      ['fibre','liquid','smile','simbanet'], 'internet', '📶', 1, 'month',  'monthly', 'Liquid Home / SimbaNet / Smile fibre.'),
+  _u('Router replacement',      ['router','modem'],                 'internet',    '📡', 1, 'x',      'as-needed'),
+  _u('Mobile data bundle',      ['data bundle','vodacom','airtel','halotel'], 'internet', '📱', 1, 'bundle', 'monthly'),
+  _u('Office hotspot',          ['hotspot','mifi'],                 'internet',    '📶', 1, 'month',  'monthly'),
+
+  // ── 🔥 GAS ────────────────────────────────────────────────────
+  _u('Cooking gas refill (15kg)', ['cooking gas','gas refill','oryx','manjis'], 'gas', '🔥', 1, 'cyl',  'monthly'),
+  _u('Cooking gas refill (6kg)',  ['small gas','6kg gas'],          'gas',        '🔥', 1, 'cyl',    'monthly'),
+  _u('Gas regulator',             ['regulator'],                    'gas',        '⚙️', 1, 'x',      'as-needed'),
+  _u('Gas hose',                  ['gas hose','gas pipe'],          'gas',        '🪢', 1, 'x',      'as-needed'),
+  _u('LPG bulk delivery',         ['lpg','bulk gas'],               'gas',        '🚛', 1, 'trip',   'as-needed'),
+
+  // ── 📺 TV / STREAMING ────────────────────────────────────────
+  _u('DSTV',                    ['dstv','multichoice'],             'tv',          '📺', 1, 'month',  'monthly'),
+  _u('Azam TV',                 ['azam','azam tv'],                 'tv',          '📺', 1, 'month',  'monthly'),
+  _u('Startimes',               ['startimes'],                      'tv',          '📺', 1, 'month',  'monthly'),
+  _u('ZUKU TV',                 ['zuku','zuku tv'],                 'tv',          '📺', 1, 'month',  'monthly'),
+  _u('Netflix',                 ['netflix'],                        'tv',          '🎬', 1, 'month',  'monthly'),
+  _u('Showmax',                 ['showmax'],                        'tv',          '🎬', 1, 'month',  'monthly'),
+  _u('YouTube Premium',         ['youtube premium','youtube'],      'tv',          '▶️', 1, 'month',  'monthly'),
+  _u('Spotify',                 ['spotify'],                        'tv',          '🎵', 1, 'month',  'monthly'),
+
+  // ── 🛡️ SECURITY ──────────────────────────────────────────────
+  _u('Security subscription',   ['security','ultimate','knight'],   'security',    '🛡️', 1, 'month',  'monthly', 'KK Security / Ultimate / Group 4.'),
+  _u('CCTV maintenance',        ['cctv','camera service'],          'security',    '📹', 1, 'visit',  'as-needed', 'Every ~3 months.'),
+  _u('Alarm battery',           ['alarm battery'],                  'security',    '🔋', 1, 'x',      'as-needed', 'Yearly.'),
+  _u('Gate motor service',      ['gate motor','automatic gate'],    'security',    '⚙️', 1, 'visit',  'as-needed', 'Yearly.'),
+  _u('Guard uniform / kit',     ['guard kit','uniform'],            'security',    '👮', 1, 'set',    'as-needed', 'Yearly issue.'),
+
+  // ── 🏠 RENT ──────────────────────────────────────────────────
+  _u('Monthly rent',            ['rent','pango'],                   'rent',        '🏠', 1, 'month',  'monthly'),
+  _u('Service charge',          ['service charge','levy'],          'rent',        '🏢', 1, 'month',  'monthly', 'Apartment / compound levy.'),
+  _u('Property tax',            ['property tax','land rent'],       'rent',        '📄', 1, 'yr',     'as-needed', 'Yearly.'),
+
+  // ── 📦 OTHER ─────────────────────────────────────────────────
+  _u('Refuse / garbage fee',    ['refuse','garbage','taka'],        'other',       '🗑️', 1, 'month',  'monthly'),
+  _u('Septic / exhauster',      ['septic','exhauster'],             'other',       '🚛', 1, 'visit',  'as-needed', 'Every 6 months.'),
+  _u('Fumigation',              ['fumigation','pest control'],      'other',       '🦟', 1, 'visit',  'as-needed', 'Every ~3 months.'),
+  _u('Insurance · home',        ['home insurance','property bima'], 'other',       '🛡️', 1, 'yr',     'as-needed', 'Yearly.'),
+];
+
 // ── Starter packs ────────────────────────────────────────────────
 // Curated bundles a parent can one-tap to seed their staples list
 // without entering items one-by-one. Each pack lists DIRECTORY_STAPLES
