@@ -30,7 +30,10 @@ import {
   renamePendingItem, findStapleConflict, linkPendingToExisting,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
   formatRequestSeq,
+  recordSavingsDecision, recommendedSavingsDecision,
 } from '@/lib/purchase';
+import { listHelpers } from '@/lib/helpers';
+import type { HelperLink } from '@/lib/firestore';
 import {
   addStaple, type Staple, type Cadence, STAPLE_CATEGORIES,
   displayStapleName, secondaryStapleName, stapleMatchesQuery,
@@ -735,6 +738,18 @@ export default function PurchaseDetailPage() {
       {isRejected && (
         <Banner tone="rose" title="Rejected"
           body={req.rejectionNote || 'No reason given.'} />
+      )}
+
+      {/* Savings decision card — appears after close when the helper
+          closed under approved budget AND the parent hasn't yet
+          decided what to do with the leftover. Two paths: tip the
+          helper or carry forward as balance. (2026-05-19.) */}
+      {isClosed && role === 'parent' && profile?.familyId && profile.uid && req.module !== 'payroll' && (
+        <SavingsDecisionCard
+          familyId={profile.familyId}
+          parentUid={profile.uid}
+          request={req}
+        />
       )}
 
       {/* Utility meter context — shown only when the request is
@@ -2020,6 +2035,237 @@ function VehicleBanner({ familyId, vehicleId }: { familyId: string; vehicleId: s
 function cryptoRandomId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID();
   return Math.random().toString(36).slice(2, 10);
+}
+
+// ── Savings decision card (2026-05-19) ─────────────────────────────
+// When a request closes UNDER approved budget, the parent picks what
+// to do with the leftover: tip the helper (creates a PAY-* request
+// with category 'savings_tip'), carry forward as a balance for the
+// next request in the same module, or skip. AI default: tip when
+// savings < 1% of approved (too small to matter for carry-forward),
+// else carry — but the parent can always override.
+//
+// Card hides once `req.savingsDecision` is set so re-renders post-
+// decision don't re-prompt. Helper attribution: parent picks from
+// active helpers in family via dropdown; pre-filled with the
+// request's creator if they're a helper.
+function SavingsDecisionCard({
+  familyId, parentUid, request,
+}: {
+  familyId: string;
+  parentUid: string;
+  request: PurchaseRequest;
+}) {
+  const { config } = useHive();
+  const currency = config.currency;
+
+  const approved = request.estimatedTotalCents;
+  const actual = request.actualTotalCents ?? sumActual(request.items);
+  const savings = approved - actual;
+
+  const [helpers, setHelpers] = useState<HelperLink[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = await listHelpers(familyId);
+        if (!cancelled) setHelpers(list.filter((h) => h.status !== 'removed'));
+      } catch {
+        if (!cancelled) setHelpers([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [familyId]);
+
+  const recommended = recommendedSavingsDecision(approved, savings);
+  const [choice, setChoice] = useState<'tip' | 'balance' | 'skip'>(recommended);
+  const [helperUid, setHelperUid] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  // Pre-select the request's creator if they're a helper in the family.
+  useEffect(() => {
+    if (!helpers || helperUid) return;
+    const creatorIsHelper = helpers.find((h) => h.uid === request.createdBy);
+    if (creatorIsHelper) setHelperUid(creatorIsHelper.uid);
+    else if (helpers.length === 1) setHelperUid(helpers[0].uid);
+  }, [helpers, request.createdBy, helperUid]);
+
+  // Hide once a decision has been recorded.
+  if (request.savingsDecision) {
+    const d = request.savingsDecision;
+    return (
+      <div className="mt-3 bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-3 text-[12px]">
+        <p className="font-nunito font-extrabold text-pantry-leaf-dk text-[11px] uppercase tracking-[1.5px]">
+          🌱 Savings decision · recorded
+        </p>
+        <p className="font-nunito text-hive-ink mt-1">
+          {d.kind === 'tip' && (
+            <>Tipped helper · {formatCents(d.amountCents, currency)}</>
+          )}
+          {d.kind === 'balance' && (
+            <>Carried forward · {formatCents(d.amountCents, currency)} credit on next {request.module} request</>
+          )}
+          {d.kind === 'skip' && (
+            <>Skipped · {formatCents(d.amountCents, currency)} savings retained by family (no payroll movement)</>
+          )}
+        </p>
+      </div>
+    );
+  }
+
+  // No savings → no card.
+  if (savings <= 0) return null;
+
+  const savingsPct = approved > 0 ? (savings / approved) * 100 : 0;
+  const isSmall = savingsPct < 1;
+
+  const apply = async () => {
+    setError('');
+    if (choice === 'tip' && !helperUid) {
+      setError('Pick a helper to tip.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await recordSavingsDecision(familyId, request.id, {
+        kind: choice,
+        amountCents: savings,
+        helperUid: choice === 'tip' ? helperUid : undefined,
+        module: choice === 'balance' ? request.module : undefined,
+        decidedBy: parentUid,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] recordSavingsDecision failed:', e);
+      setError('Could not save. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 bg-[#E6F7EE] border border-hive-green rounded-hive p-4">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
+        <p className="font-nunito font-extrabold text-hive-green text-[11px] uppercase tracking-[1.5px]">
+          🌱 Savings · what should happen?
+        </p>
+        <span className="font-nunito font-black text-hive-green">
+          {formatCents(savings, currency)}
+        </span>
+      </div>
+      <p className="text-[11px] text-hive-ink/80 mb-3">
+        This shop closed <strong>{formatCents(savings, currency)} under</strong> approved
+        ({Math.round(savingsPct)}%). Tip the helper as a thank-you, or carry the balance into the next {request.module} request.
+        {isSmall && (
+          <>
+            {' '}<strong className="text-pantry-leaf-dk">Recommended: tip</strong> — savings is small enough that tipping has more impact than carrying.
+          </>
+        )}
+        {!isSmall && (
+          <>
+            {' '}<strong className="text-pantry-leaf-dk">Recommended: carry forward</strong> — savings is meaningful; banking it gives the next shop more headroom.
+          </>
+        )}
+      </p>
+
+      <div className="space-y-2">
+        <ChoiceRow
+          active={choice === 'tip'}
+          recommended={recommended === 'tip'}
+          onClick={() => setChoice('tip')}
+          icon="🎁"
+          label="Tip the helper"
+          sub="Creates a payroll bonus tagged Savings tip in their pay history."
+        />
+        {choice === 'tip' && (
+          <div className="pl-7">
+            <label className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px] block mb-1">
+              Tip to
+            </label>
+            <select
+              value={helperUid}
+              onChange={(e) => setHelperUid(e.target.value)}
+              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold bg-white"
+            >
+              <option value="">— Pick a helper —</option>
+              {(helpers ?? []).map((h) => (
+                <option key={h.uid} value={h.uid}>{h.displayName}</option>
+              ))}
+            </select>
+            {helpers && helpers.length === 0 && (
+              <p className="text-[10px] text-hive-rose mt-1">No active helpers in your family. Add one in Settings → Helpers, or carry as balance.</p>
+            )}
+          </div>
+        )}
+        <ChoiceRow
+          active={choice === 'balance'}
+          recommended={recommended === 'balance'}
+          onClick={() => setChoice('balance')}
+          icon="💰"
+          label="Carry as balance"
+          sub={`Credits the next ${request.module} request by ${formatCents(savings, currency)}.`}
+        />
+        <ChoiceRow
+          active={choice === 'skip'}
+          recommended={false}
+          onClick={() => setChoice('skip')}
+          icon="✓"
+          label="Skip — retain by family"
+          sub="No payroll movement; just close the shop. Savings stays in the family pot."
+        />
+      </div>
+
+      {error && <p className="text-[11px] text-hive-rose font-bold mt-2">{error}</p>}
+
+      <button
+        type="button"
+        disabled={saving || (choice === 'tip' && !helperUid)}
+        onClick={apply}
+        className="w-full mt-3 bg-pantry-leaf text-white rounded-hive py-2.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+      >
+        {saving ? 'Saving…' : 'Apply decision'}
+      </button>
+    </div>
+  );
+}
+
+function ChoiceRow({
+  active, recommended, onClick, icon, label, sub,
+}: {
+  active: boolean;
+  recommended: boolean;
+  onClick: () => void;
+  icon: string;
+  label: string;
+  sub: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`w-full flex items-start gap-2.5 p-2.5 rounded-lg border-2 text-left transition-colors ${
+        active
+          ? 'border-pantry-leaf bg-white'
+          : 'border-hive-line bg-hive-paper/60 hover:border-pantry-leaf/40'
+      }`}
+    >
+      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[12px] flex-shrink-0 ${
+        active ? 'bg-pantry-leaf text-white' : 'bg-hive-cream text-hive-muted border border-hive-line'
+      }`}>{active ? '✓' : icon}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span className="font-nunito font-extrabold text-[13px] text-hive-ink">{label}</span>
+          {recommended && (
+            <span className="text-[9px] font-extrabold uppercase tracking-[1px] bg-pantry-leaf-soft text-pantry-leaf-dk px-1.5 py-0.5 rounded">
+              Recommended
+            </span>
+          )}
+        </div>
+        <div className="text-[11px] text-hive-muted font-bold mt-0.5">{sub}</div>
+      </div>
+    </button>
+  );
 }
 
 // ── Payroll paystub banner (v3 — 2026-05-19) ────────────────────
