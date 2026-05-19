@@ -1,13 +1,17 @@
 'use client';
 
-// Bottom tab bar for the Pantry section — 7 primary slots + a "More"
+// Bottom tab bar for the Pantry section — primary slots + a "More"
 // sheet for secondary surfaces. Mobile-only; desktop reaches everything
 // via the AppShell sidebar.
 //
-// Primary (7 slots): Kaya · Home · 5 request modules · More.
-// Payroll lives in More (self-service surface, helpers reach their own
-// pay there). Browse / Meals / Soko / Finances / Budget / People are
-// also in More — every secondary surface in one place.
+// Primary (parent default): Kaya · Home · 5 request modules · More.
+// For helpers (2026-05-19 fix): the request-module slots are filtered
+// by HelperLink.moduleAccess so a helper without 'household:drivers'
+// view tier no longer sees the Drivers tab here. Was the actual cause
+// of Elia's persistent Drivers-leak report — this tab bar is a SEPARATE
+// component from the global AppShell mobile nav, with its own hard-
+// coded list. Both Kaya + Home stay unconditional (they're back-out
+// anchors, not module surfaces).
 //
 // Parent-only items in the More sheet are filtered out for helpers.
 
@@ -15,6 +19,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 
 type TabMatch = 'exact' | 'prefix' | 'list-prefix' | 'kaya';
 interface TabDef {
@@ -23,6 +28,12 @@ interface TabDef {
   label: string;
   match: TabMatch;
   parentOnly?: boolean;
+  /** Helper module-access key required to see this tab. Empty / undefined
+   *  = always show (back-out anchors like Kaya + Home). Path is the
+   *  source of truth for navigation; this key drives visibility.
+   *  Composite keys ('household:drivers') map onto HelperLink.moduleAccess
+   *  via helperGrantsAllow. */
+  helperKey?: string;
   /** Used only by More items: a short note that appears under the label
    *  in the sheet to disambiguate similar emojis (the 🤝 collision
    *  between People and Payroll is the obvious one). */
@@ -31,27 +42,27 @@ interface TabDef {
 
 // Primary slots — fits 7 across a phone tab bar without overflow.
 // Order: escape hatch back to Kaya · section home · five request
-// modules · the More sheet.
+// modules · the More sheet. `helperKey` drives helper-side visibility;
+// Kaya + Home stay unconditional (back-out anchors).
 const PRIMARY_TABS: TabDef[] = [
-  { path: '/home',             icon: '🏠',  label: 'Kaya',     match: 'kaya' },
-  { path: '/pantry',           icon: '🛒',  label: 'Home',     match: 'exact' },
-  { path: '/pantry/purchase',  icon: '🧾',  label: 'Purchase', match: 'prefix' },
-  { path: '/pantry/outdoor',   icon: '🌿',  label: 'Outdoor',  match: 'prefix' },
-  { path: '/pantry/drivers',   icon: '🚗',  label: 'Drivers',  match: 'prefix' },
-  { path: '/pantry/utility',   icon: '⚡',  label: 'Utility',  match: 'prefix' },
+  { path: '/home',             icon: '🏠',  label: 'Kaya',     match: 'kaya'   },
+  { path: '/pantry',           icon: '🛒',  label: 'Home',     match: 'exact'  },
+  { path: '/pantry/purchase',  icon: '🧾',  label: 'Purchase', match: 'prefix', helperKey: 'household:purchase' },
+  { path: '/pantry/outdoor',   icon: '🌿',  label: 'Outdoor',  match: 'prefix', helperKey: 'household:outdoor'  },
+  { path: '/pantry/drivers',   icon: '🚗',  label: 'Drivers',  match: 'prefix', helperKey: 'household:drivers'  },
+  { path: '/pantry/utility',   icon: '⚡',  label: 'Utility',  match: 'prefix', helperKey: 'household:utility'  },
 ];
 
 // More sheet — everything else under Household. Parent-only items
-// filter out for helpers. People + Payroll are useful for both roles;
-// Finances + Budget are parent-only.
+// filter out for helpers; per-module items filter by helperKey.
 const MORE_TABS: TabDef[] = [
-  { path: '/pantry/payroll',   icon: '🤝', label: 'Payroll',          match: 'prefix', sub: 'Self · advances & loans' },
-  { path: '/pantry/workplan',  icon: '📋', label: 'Workplan',         match: 'prefix', sub: 'Helpers · duties · assign' },
-  { path: '/pantry/browse',    icon: '🧺', label: 'Browse Catalogue', match: 'prefix', sub: 'Pantry + Others' },
-  { path: '/pantry/meals',     icon: '🍽️', label: 'Meal Planner',     match: 'prefix', sub: '7-day timetable' },
-  { path: '/pantry/suppliers', icon: '🏪', label: 'Soko',             match: 'prefix', sub: 'Suppliers' },
-  { path: '/pantry/finances',  icon: '💰', label: 'Finances',         match: 'prefix', parentOnly: true, sub: 'Money roll-up' },
-  { path: '/pantry/budget',    icon: '⚙️', label: 'Budget',           match: 'prefix', parentOnly: true, sub: 'Per-module caps' },
+  { path: '/pantry/payroll',   icon: '🤝', label: 'Payroll',          match: 'prefix', helperKey: 'household:payroll',   sub: 'Self · advances & loans' },
+  { path: '/pantry/workplan',  icon: '📋', label: 'Workplan',         match: 'prefix',                                    sub: 'Your day · tasks' },
+  { path: '/pantry/browse',    icon: '🧺', label: 'Browse Catalogue', match: 'prefix', helperKey: 'household:staples',    sub: 'Pantry + Others' },
+  { path: '/pantry/meals',     icon: '🍽️', label: 'Meal Planner',     match: 'prefix', helperKey: 'household:meals',      sub: '7-day timetable' },
+  { path: '/pantry/suppliers', icon: '🏪', label: 'Soko',             match: 'prefix', helperKey: 'household:suppliers',  sub: 'Suppliers' },
+  { path: '/pantry/finances',  icon: '💰', label: 'Finances',         match: 'prefix', parentOnly: true,                  sub: 'Money roll-up' },
+  { path: '/pantry/budget',    icon: '⚙️', label: 'Budget',           match: 'prefix', parentOnly: true,                  sub: 'Per-module caps' },
 ];
 
 const isActive = (pathname: string, path: string, match: TabMatch): boolean => {
@@ -65,8 +76,26 @@ export default function PantryTabBar() {
   const pathname = usePathname() || '';
   const { profile } = useAuth();
   const isParent = profile?.role === 'parent';
+  const isHelper = profile?.role === 'helper';
+  const grants = useHelperGrants();
 
-  const visibleMore = MORE_TABS.filter((t) => !t.parentOnly || isParent);
+  // Helper-grant filter. For non-helpers (parent / kid / guest /
+  // loading), everything that isn't parentOnly passes. For helpers,
+  // tabs with a helperKey must pass helperGrantsAllow — and during
+  // the 'loading' window the predicate returns false (see
+  // useHelperGrants), so the helper sees nothing gated until the
+  // HelperLink fetch resolves. Closes the actual Drivers leak that
+  // showed Drivers tab here regardless of grants.
+  const helperAllow = (t: TabDef): boolean => {
+    if (!isHelper) return true;
+    if (!t.helperKey) return true; // unconditional tabs (Kaya, Home, Workplan)
+    return helperGrantsAllow(grants, t.helperKey);
+  };
+
+  const visiblePrimary = PRIMARY_TABS.filter(helperAllow);
+  const visibleMore = MORE_TABS
+    .filter((t) => !t.parentOnly || isParent)
+    .filter(helperAllow);
   const moreActive = visibleMore.some((t) => isActive(pathname, t.path, t.match));
 
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -144,7 +173,7 @@ export default function PantryTabBar() {
       {/* ── Primary tab bar (always visible) ── */}
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-hive-paper border-t border-hive-line z-30 lg:hidden safe-bottom">
         <div className="flex items-center px-1.5 pt-2 pb-4">
-          {PRIMARY_TABS.map((t) => {
+          {visiblePrimary.map((t) => {
             const active = isActive(pathname, t.path, t.match);
             return (
               <Link
