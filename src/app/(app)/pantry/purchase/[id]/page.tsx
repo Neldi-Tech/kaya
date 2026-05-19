@@ -1367,8 +1367,11 @@ function ItemRow({
             <div className="font-nunito font-black text-sm text-hive-navy">
               {formatCents(totalNow, currency)}
             </div>
-            {varianceOnClose && item.actualCents != null && (
-              <span className={`text-[10px] font-extrabold px-1 py-0.5 rounded ${vDelta > 0 ? 'bg-[#FCEAEA] text-hive-rose' : 'bg-[#E6F7EE] text-hive-green'}`}>
+            {/* Variance chip — was only post-close; also show during
+                reconcile so the helper sees the running delta as they
+                fill actuals. 2026-05-19. */}
+            {(varianceOnClose || reconcilable) && item.actualCents != null && item.actualQty != null && est > 0 && (
+              <span className={`text-[10px] font-extrabold px-1 py-0.5 rounded ${vDelta === 0 ? 'bg-hive-cream text-hive-muted' : vDelta > 0 ? 'bg-[#FCEAEA] text-hive-rose' : 'bg-[#E6F7EE] text-hive-green'}`}>
                 {vDelta > 0 ? '+' : ''}{vDelta}%
               </span>
             )}
@@ -1433,31 +1436,102 @@ function ItemRow({
         </div>
       )}
 
-      {/* Reconcile mode: actual qty + actual price. Stays always-on
+      {/* Reconcile mode: actual qty + actual price + live deltas vs the
+          approved baseline. (2026-05-19 — Elia's reconcile-visibility
+          ask: helper at the shop should see what the parent approved
+          AND how their entry compares, in one glance.) Stays always-on
           here because every line typically needs touching during
           reconcile (helper is at the shop confirming numbers). */}
-      {reconcilable && (
-        <div className="border-t border-hive-line/60 p-3 grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Actual qty</span>
-            <input
-              type="number" min={0} step="0.01"
-              value={item.actualQty ?? ''}
-              onChange={(e) => onActual({ actualQty: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
-            />
-          </label>
-          <label className="block">
-            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">Actual price ea</span>
-            <input
-              type="number" step="0.01" min={0}
-              value={item.actualCents != null ? (item.actualCents / 100).toString() : ''}
-              onChange={(e) => onActual({ actualCents: e.target.value === '' ? 0 : Math.round(parseFloat(e.target.value) * 100) })}
-              className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
-            />
-          </label>
-        </div>
-      )}
+      {reconcilable && (() => {
+        const aQty = item.actualQty;
+        const aPrice = item.actualCents;
+        const ePrice = item.estimatedCents;
+        const eQty = item.qty;
+        const qtyDelta = (aQty != null && aQty > 0 && eQty > 0) ? aQty - eQty : null;
+        const qtyPct = (qtyDelta != null && eQty > 0) ? Math.round((qtyDelta / eQty) * 100) : null;
+        const priceDelta = (aPrice != null && ePrice != null && ePrice > 0) ? aPrice - ePrice : null;
+        const pricePct = (priceDelta != null && ePrice != null && ePrice > 0) ? Math.round((priceDelta / ePrice) * 100) : null;
+        const aTotal = (aPrice ?? 0) * (aQty ?? 0);
+        const eTotal = (ePrice ?? 0) * eQty;
+        const totalDelta = aTotal - eTotal;
+        const totalPct = eTotal > 0 ? Math.round((totalDelta / eTotal) * 100) : 0;
+        const fmt = (pct: number) => `${pct > 0 ? '+' : ''}${pct}%`;
+        const chipCls = (pct: number) => pct === 0
+          ? 'bg-hive-cream text-hive-muted'
+          : pct > 0
+            ? 'bg-[#FCEAEA] text-hive-rose'
+            : 'bg-[#E6F7EE] text-hive-green';
+        return (
+          <div className="border-t border-hive-line/60 p-3 space-y-2">
+            {/* Live actual qty + price inputs */}
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block">
+                <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
+                  <span>Actual qty</span>
+                  {qtyPct != null && qtyPct !== 0 && (
+                    <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(qtyPct)}`}>{fmt(qtyPct)}</span>
+                  )}
+                </span>
+                <input
+                  type="number" min={0} step="0.01"
+                  value={aQty ?? ''}
+                  onChange={(e) => onActual({ actualQty: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                  className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
+                  <span>Actual price ea</span>
+                  {pricePct != null && pricePct !== 0 && (
+                    <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(pricePct)}`}>{fmt(pricePct)}</span>
+                  )}
+                </span>
+                <input
+                  type="number" step="0.01" min={0}
+                  value={aPrice != null ? (aPrice / 100).toString() : ''}
+                  onChange={(e) => onActual({ actualCents: e.target.value === '' ? 0 : Math.round(parseFloat(e.target.value) * 100) })}
+                  className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+                />
+              </label>
+            </div>
+
+            {/* Approved-vs-actual comparison strip — gives the helper a
+                clear anchor for what the parent signed off on, with a
+                live total delta so they see the budget impact as they
+                type. Only renders once they've actually entered numbers
+                (avoids the noise of −100% deltas pre-fill). */}
+            <div className="bg-hive-cream/60 border border-hive-line/50 rounded-lg p-2 text-[11px] font-bold">
+              <div className="flex items-center justify-between gap-2 text-hive-muted">
+                <span>
+                  <span className="uppercase tracking-[1px] text-[9px]">Approved</span>
+                  <span className="ml-1.5 text-hive-navy">
+                    {eQty} {item.unit}{ePrice != null && ` × ${formatCents(ePrice, currency)}`}
+                  </span>
+                </span>
+                <span className="text-hive-navy">{formatCents(eTotal, currency)}</span>
+              </div>
+              {(aQty != null || aPrice != null) && (
+                <div className="flex items-center justify-between gap-2 mt-1 pt-1 border-t border-hive-line/40">
+                  <span>
+                    <span className="uppercase tracking-[1px] text-[9px] text-hive-muted">Actual</span>
+                    <span className="ml-1.5 text-hive-navy">
+                      {aQty ?? 0} {item.unit}{aPrice != null && ` × ${formatCents(aPrice, currency)}`}
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1.5 text-hive-navy">
+                    {formatCents(aTotal, currency)}
+                    {eTotal > 0 && (
+                      <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${chipCls(totalPct)}`}>
+                        {fmt(totalPct)}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
