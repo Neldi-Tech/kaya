@@ -213,3 +213,134 @@ export async function notifyAdhocAssigned(args: AdhocAssignedNotify): Promise<vo
     tag: 'workplan-adhoc',
   });
 }
+
+// ── Household → Purchase request notifications (2026-05-19) ──────
+// Three events fan out across the request lifecycle:
+//   1. Helper sends draft for approval  → parents notified
+//   2. Parent approves                  → helper (creator) notified
+//   3. Helper closes reconcile          → parents notified
+//
+// Same fan-out shape as workplan-adhoc: in-app bell first (always),
+// then best-effort FCM web-push. All notifications deep-link to
+// /pantry/purchase/{requestId}.
+
+interface PurchaseApprovalRequestedNotify {
+  familyId: string;
+  requestId: string;
+  requesterName: string;       // helper display name (or 'Parent' if a parent sent it)
+  requestName: string;         // request.name (e.g. `PNT-0042 · 180526`)
+  estimatedLabel: string;      // formatted total e.g. "TZS 42,500"
+  module: string;              // 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll'
+  parentUids: string[];        // recipients
+}
+
+/** Helper just sent a draft for approval. Parents need to nod. */
+export async function notifyPurchaseApprovalRequested(args: PurchaseApprovalRequestedNotify): Promise<void> {
+  if (args.parentUids.length === 0) return;
+  const moduleEmoji = purchaseModuleEmoji(args.module);
+  const title = `${moduleEmoji} Approval needed — ${args.requesterName}`;
+  const body = `${args.requestName} · ~${args.estimatedLabel}. Open to approve or reject.`;
+  const link = `/pantry/purchase/${args.requestId}`;
+  await Promise.all(
+    args.parentUids.map(async (uid) => {
+      try {
+        await createNotification(args.familyId, {
+          type: 'purchase-approval-requested',
+          title,
+          message: body,
+          read: false,
+          forUserId: uid,
+          link,
+        } as Parameters<typeof createNotification>[1]);
+      } catch { /* swallow */ }
+      await pushToUid({ uid, title, body, url: link, tag: `purchase-${args.requestId}-pending` });
+    }),
+  );
+}
+
+interface PurchaseApprovedNotify {
+  familyId: string;
+  requestId: string;
+  creatorUid: string;          // helper who originally sent the request
+  approverName: string;        // parent who approved
+  requestName: string;
+  module: string;
+}
+
+/** Parent approved — the original helper / creator should know. */
+export async function notifyPurchaseApproved(args: PurchaseApprovedNotify): Promise<void> {
+  if (!args.creatorUid) return;
+  const moduleEmoji = purchaseModuleEmoji(args.module);
+  const title = `✅ ${args.approverName} approved your ${moduleLabel(args.module)} request`;
+  const body = `${args.requestName} ${moduleEmoji} — you can go shop now. Reconcile after.`;
+  const link = `/pantry/purchase/${args.requestId}`;
+  try {
+    await createNotification(args.familyId, {
+      type: 'purchase-approved',
+      title,
+      message: body,
+      read: false,
+      forUserId: args.creatorUid,
+      link,
+    } as Parameters<typeof createNotification>[1]);
+  } catch { /* swallow */ }
+  await pushToUid({ uid: args.creatorUid, title, body, url: link, tag: `purchase-${args.requestId}-approved` });
+}
+
+interface PurchaseReconciledNotify {
+  familyId: string;
+  requestId: string;
+  helperName: string;          // who closed the reconcile
+  requestName: string;
+  actualLabel: string;         // formatted actual total e.g. "TZS 45,200"
+  module: string;
+  parentUids: string[];        // recipients (typically all parents in family)
+}
+
+/** Helper closed the reconcile — budget just got posted. */
+export async function notifyPurchaseReconciled(args: PurchaseReconciledNotify): Promise<void> {
+  if (args.parentUids.length === 0) return;
+  const moduleEmoji = purchaseModuleEmoji(args.module);
+  const title = `${moduleEmoji} Reconciled — ${args.helperName} closed a shop`;
+  const body = `${args.requestName} · actual ${args.actualLabel}. Posted to budget.`;
+  const link = `/pantry/purchase/${args.requestId}`;
+  await Promise.all(
+    args.parentUids.map(async (uid) => {
+      try {
+        await createNotification(args.familyId, {
+          type: 'purchase-reconciled',
+          title,
+          message: body,
+          read: false,
+          forUserId: uid,
+          link,
+        } as Parameters<typeof createNotification>[1]);
+      } catch { /* swallow */ }
+      await pushToUid({ uid, title, body, url: link, tag: `purchase-${args.requestId}-closed` });
+    }),
+  );
+}
+
+// Locale-light label helpers — kept here so notify.ts doesn't drag in
+// the whole purchase.ts type tree (and so the wording stays in one
+// place across in-app + push).
+function purchaseModuleEmoji(m: string): string {
+  switch (m) {
+    case 'pantry':  return '🧾';
+    case 'outdoor': return '🌿';
+    case 'drivers': return '🚗';
+    case 'utility': return '⚡';
+    case 'payroll': return '🤝';
+    default:        return '🧾';
+  }
+}
+function moduleLabel(m: string): string {
+  switch (m) {
+    case 'pantry':  return 'Pantry';
+    case 'outdoor': return 'Outdoor';
+    case 'drivers': return 'Drivers';
+    case 'utility': return 'Utility';
+    case 'payroll': return 'Payroll';
+    default:        return 'household';
+  }
+}

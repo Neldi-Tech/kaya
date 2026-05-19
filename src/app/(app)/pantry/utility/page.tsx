@@ -28,6 +28,7 @@ import {
 } from '@/lib/utilityMeters';
 import { formatCents } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
+import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { useConfirm } from '@/contexts/ConfirmContext';
 
 // Auto-name comes from createDraftRequest (`UTL-NNNN · DDMMYY`).
@@ -378,8 +379,9 @@ function RequestRow({
           <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">
             {req.name || 'Untitled request'}
           </div>
-          <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-            {req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}
+          <div className="text-[11px] text-hive-muted font-bold mt-0.5 flex items-center gap-1.5">
+            <span>{req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}</span>
+            {req.status === 'approved' && <ReconcileTimerChip approvedAt={req.approvedAt} />}
           </div>
         </div>
         <div className="text-right flex-shrink-0">

@@ -1040,7 +1040,18 @@ export interface Notification {
     // Household → Workplan v3 (v4-final §04 Step 8, 2026-05-18) —
     // parent assigned a one-off task to this helper. `link` deep-links
     // to /helper so the helper lands on their workplan card.
-    | 'workplan-adhoc-assigned';
+    | 'workplan-adhoc-assigned'
+    // Household → Purchase request events (2026-05-19). Three flavours:
+    //   `purchase-approval-requested` — helper sent a draft for approval;
+    //                                   notified to all parents.
+    //   `purchase-approved`           — parent approved a request;
+    //                                   notified to the creator (helper).
+    //   `purchase-reconciled`         — helper closed reconcile, budget
+    //                                   posted; notified to all parents.
+    // Each one's `link` deep-links to /pantry/purchase/{requestId}.
+    | 'purchase-approval-requested'
+    | 'purchase-approved'
+    | 'purchase-reconciled';
   title: string;
   message: string;
   read: boolean;

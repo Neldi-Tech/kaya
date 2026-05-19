@@ -42,6 +42,12 @@ import {
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
+import {
+  notifyPurchaseApprovalRequested, notifyPurchaseApproved, notifyPurchaseReconciled,
+} from '@/lib/notify';
+import { getFamilyMembers } from '@/lib/firestore';
+import { ReconcileTimerBanner } from '@/components/pantry/ReconcileTimer';
+import { uploadReceipt, clearReceipt } from '@/lib/receiptUpload';
 
 // Per-staple icon for picker + basket rows. Pantry staples surface
 // their category emoji (🥬 🥛 🍚 🧴 ✨); Outdoor + Drivers staples
@@ -83,6 +89,8 @@ export default function PurchaseDetailPage() {
   const [pickerQuery, setPickerQuery] = useState('');
   const [quickAdd, setQuickAdd] = useState<{ name: string; qty: string; cents: string } | null>(null);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
+  const [receiptBusy, setReceiptBusy] = useState(false);
+  const [receiptError, setReceiptError] = useState('');
 
   useEffect(() => {
     if (!profile?.familyId || !requestId) { setLoading(false); return; }
@@ -222,12 +230,57 @@ export default function PurchaseDetailPage() {
   const send = async () => {
     if (!profile?.familyId || req.items.length === 0) return;
     setBusy(true);
-    try { await sendForApproval(profile.familyId, req.id); } finally { setBusy(false); }
+    try {
+      await sendForApproval(profile.familyId, req.id);
+      // Notify parents that a request needs approval. Fire-and-forget —
+      // a notify failure (rule mis-deploy, etc.) shouldn't block the
+      // happy-path send.
+      try {
+        const members = await getFamilyMembers(profile.familyId);
+        const parentUids = members
+          .filter((m) => m.role === 'parent' && m.uid && m.uid !== profile.uid)
+          .map((m) => m.uid);
+        void notifyPurchaseApprovalRequested({
+          familyId: profile.familyId,
+          requestId: req.id,
+          requesterName: profile.displayName?.split(' ')[0] || (role === 'helper' ? 'Helper' : 'Parent'),
+          requestName: req.name || 'Untitled request',
+          estimatedLabel: formatCents(sumEstimated(req.items), currency),
+          module: req.module || 'pantry',
+          parentUids,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[purchase] notifyApprovalRequested failed:', e);
+      }
+    } finally { setBusy(false); }
   };
   const approve = async () => {
     if (!profile?.familyId || !profile.uid) return;
     setBusy(true);
-    try { await approveRequest(profile.familyId, req.id, profile.uid, approvalMode); } finally { setBusy(false); }
+    try {
+      const result = await approveRequest(profile.familyId, req.id, profile.uid, approvalMode);
+      // Fire the approval notification ONLY when this approval flipped
+      // the status to 'approved'. In 'both' mode the first parent's tap
+      // doesn't yet approve — no premature notify to the helper. The
+      // creator (helper) is the recipient; if a parent created their
+      // own request, no need to notify themselves.
+      if (result.status === 'approved' && req.createdBy && req.createdBy !== profile.uid) {
+        try {
+          void notifyPurchaseApproved({
+            familyId: profile.familyId,
+            requestId: req.id,
+            creatorUid: req.createdBy,
+            approverName: profile.displayName?.split(' ')[0] || 'Parent',
+            requestName: req.name || 'Untitled request',
+            module: req.module || 'pantry',
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[purchase] notifyApproved failed:', e);
+        }
+      }
+    } finally { setBusy(false); }
   };
   const reject = async () => {
     if (!profile?.familyId || !profile.uid) return;
@@ -289,9 +342,76 @@ export default function PurchaseDetailPage() {
   const close = async () => {
     if (!profile?.familyId) return;
     setBusy(true);
-    try { await closeReconcile(profile.familyId, req.id, req.items); router.push('/pantry/purchase'); }
-    finally { setBusy(false); }
+    try {
+      await closeReconcile(profile.familyId, req.id, req.items);
+      // Notify parents that the shop is closed + budget posted. Read
+      // members AFTER close so we don't slow the user-visible step.
+      try {
+        const members = await getFamilyMembers(profile.familyId);
+        const parentUids = members
+          .filter((m) => m.role === 'parent' && m.uid && m.uid !== profile.uid)
+          .map((m) => m.uid);
+        void notifyPurchaseReconciled({
+          familyId: profile.familyId,
+          requestId: req.id,
+          helperName: profile.displayName?.split(' ')[0] || (role === 'helper' ? 'Helper' : 'Parent'),
+          requestName: req.name || 'Untitled request',
+          actualLabel: formatCents(sumActual(req.items), currency),
+          module: req.module || 'pantry',
+          parentUids,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[purchase] notifyReconciled failed:', e);
+      }
+      router.push(`/pantry/${req.module && req.module !== 'pantry' ? req.module : 'purchase'}`);
+    } finally { setBusy(false); }
   };
+
+  // 2026-05-19 — Receipt photo upload. Helper attaches a paper-trail
+  // during reconcile so the parent has audit evidence on close. The
+  // file is downscaled client-side to ~1600px before upload (receipts
+  // have small text; lower resolution becomes illegible). One blob per
+  // request; re-uploading replaces it and best-effort deletes the old.
+  const handleReceiptUpload = async (file: File | null) => {
+    if (!file || !profile?.familyId) return;
+    setReceiptError('');
+    setReceiptBusy(true);
+    try {
+      await uploadReceipt({
+        familyId: profile.familyId,
+        requestId: req.id,
+        file,
+        previousUrl: req.receiptUrl,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] uploadReceipt failed:', e);
+      setReceiptError(e instanceof Error ? e.message : 'Could not upload that photo.');
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
+  const handleReceiptClear = async () => {
+    if (!profile?.familyId || !req.receiptUrl) return;
+    const ok = await confirmAction({
+      title: 'Remove this receipt?',
+      message: 'The photo will be removed from storage. You can upload a fresh one anytime before closing.',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setReceiptBusy(true);
+    try {
+      await clearReceipt({ familyId: profile.familyId, requestId: req.id, previousUrl: req.receiptUrl });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] clearReceipt failed:', e);
+    } finally {
+      setReceiptBusy(false);
+    }
+  };
+
   // Hard-delete the creator's own request (draft or pending-approval).
   // Distinct from reject — see comment in lib/purchase.ts. Confirms
   // first because the doc goes away for good.
@@ -543,6 +663,10 @@ export default function PurchaseDetailPage() {
         <Banner tone="leaf" title="Approved · helper can shop now"
           body="The helper will reconcile after the shop. You'll see actuals here." />
       )}
+      {/* 12-hour soft reconciliation window. Banner renders only when
+          the request was approved and not yet reconciled — applies to
+          both helper (their reminder) and parent (audit visibility). */}
+      {isApproved && <ReconcileTimerBanner approvedAt={req.approvedAt} />}
       {isRejected && (
         <Banner tone="rose" title="Rejected"
           body={req.rejectionNote || 'No reason given.'} />
@@ -859,6 +983,86 @@ export default function PurchaseDetailPage() {
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {/* Receipt photo — shown during reconcile + closed states.
+          (2026-05-19) Helper attaches the paper trail during reconcile;
+          parent sees it post-close as audit evidence. Hidden in earlier
+          states (draft / pending / approved) since there's nothing to
+          photograph yet. The thumbnail is the uploaded receipt itself
+          — tap to open in a new tab for full-size review. */}
+      {(reconcilable || isClosed) && (
+        <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+              📷 Receipt photo
+            </div>
+            {req.receiptUrl && !isClosed && (
+              <button
+                type="button"
+                onClick={handleReceiptClear}
+                disabled={receiptBusy}
+                className="text-hive-rose text-[10px] font-nunito font-extrabold disabled:opacity-50"
+              >
+                ✕ Remove
+              </button>
+            )}
+          </div>
+          {req.receiptUrl ? (
+            <div className="flex items-start gap-3">
+              <a
+                href={req.receiptUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-24 h-24 rounded-lg overflow-hidden border border-hive-line bg-hive-cream flex-shrink-0"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={req.receiptUrl} alt="Receipt" className="w-full h-full object-cover" />
+              </a>
+              <div className="flex-1 min-w-0 text-[11px] text-hive-muted font-bold">
+                <p>Tap the photo to open full-size in a new tab.</p>
+                {!isClosed && (
+                  <label className="inline-block mt-2 cursor-pointer text-pantry-leaf-dk font-extrabold underline">
+                    📷 Replace receipt
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      disabled={receiptBusy}
+                      onChange={(e) => { void handleReceiptUpload(e.target.files?.[0] ?? null); e.target.value = ''; }}
+                    />
+                  </label>
+                )}
+              </div>
+            </div>
+          ) : (
+            <label className={`block w-full border-2 border-dashed rounded-hive p-4 text-center cursor-pointer transition-colors ${
+              receiptBusy
+                ? 'border-hive-line text-hive-muted opacity-60 cursor-default'
+                : 'border-pantry-leaf/40 text-pantry-leaf-dk hover:bg-pantry-leaf-soft/40'
+            }`}>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                disabled={receiptBusy}
+                onChange={(e) => { void handleReceiptUpload(e.target.files?.[0] ?? null); e.target.value = ''; }}
+              />
+              <div className="text-2xl mb-1">📷</div>
+              <div className="font-nunito font-extrabold text-sm">
+                {receiptBusy ? 'Uploading…' : 'Add receipt photo'}
+              </div>
+              <div className="text-[11px] text-hive-muted font-bold mt-0.5">
+                Snap or pick from your gallery. Helps the parent close the audit trail.
+              </div>
+            </label>
+          )}
+          {receiptError && (
+            <p className="text-[11px] text-hive-rose font-bold mt-2">{receiptError}</p>
+          )}
         </div>
       )}
 
