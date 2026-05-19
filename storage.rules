@@ -49,5 +49,21 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if belongsToFamily(familyId);
     }
+
+    // ── Household → Purchase receipts (2026-05-19) ─────────────
+    // One receipt photo per purchase request, uploaded during
+    // reconcile. Stored at:
+    //   families/{f}/purchaseRequests/{requestId}/receipt/{photoId}.jpg
+    // Same family-scope as the post/album surfaces — anyone in the
+    // family can upload (helper attaches, parent reviews). Receipts
+    // are bigger than thumbs but smaller than full-resolution Moments
+    // (~1600px long edge after the client-side downscale).
+    match /families/{familyId}/purchaseRequests/{requestId}/receipt/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
   }
 }

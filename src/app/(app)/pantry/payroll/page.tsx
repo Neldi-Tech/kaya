@@ -27,6 +27,7 @@ import {
   deleteRequest,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
+import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { runPayrollGenerator, type GeneratorRun } from '@/lib/payroll';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { listHelpers } from '@/lib/helpers';
@@ -388,8 +389,9 @@ function RequestRow({
           <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">
             {req.name || 'Untitled request'}
           </div>
-          <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-            {STATUS_LABEL[req.status]}{showHelper && req.helperUid ? ` · uid ${req.helperUid.slice(0, 6)}…` : ''}
+          <div className="text-[11px] text-hive-muted font-bold mt-0.5 flex items-center gap-1.5">
+            <span>{STATUS_LABEL[req.status]}{showHelper && req.helperUid ? ` · uid ${req.helperUid.slice(0, 6)}…` : ''}</span>
+            {req.status === 'approved' && <ReconcileTimerChip approvedAt={req.approvedAt} />}
           </div>
         </div>
         <div className="text-right flex-shrink-0">
