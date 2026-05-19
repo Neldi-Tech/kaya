@@ -21,8 +21,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
-  type Vehicle, type VehicleType,
-  VEHICLE_TYPES, vehicleEmoji,
+  type Vehicle, type VehicleType, type VehicleFuel,
+  VEHICLE_TYPES, VEHICLE_FUELS, VEHICLE_COLORS,
+  vehicleEmoji, vehicleColorHex, vehicleFuelLabel,
   subscribeToVehicles, addVehicle, updateVehicle, removeVehicle,
 } from '@/lib/vehicles';
 
@@ -52,9 +53,10 @@ export default function VehiclesPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<{
     type: VehicleType; label: string; plate: string; makeModel: string;
-    year: string; color: string;
+    year: string; color: string; colorOther: string; fuel: VehicleFuel | '';
   }>({
-    type: 'sedan', label: '', plate: '', makeModel: '', year: '', color: '',
+    type: 'sedan', label: '', plate: '', makeModel: '', year: '',
+    color: '', colorOther: '', fuel: '',
   });
   const [saving, setSaving] = useState(false);
 
@@ -64,15 +66,24 @@ export default function VehiclesPage() {
     if (!label) return;
     setSaving(true);
     try {
+      // Resolve color: 'other' means use the free-text value; everything
+      // else is the curated swatch label. Empty → undefined.
+      const colorValue = form.color === 'other'
+        ? (form.colorOther.trim() || undefined)
+        : (form.color || undefined);
       await addVehicle(profile.familyId, {
         type: form.type,
         label,
         plate:     form.plate.trim()     || undefined,
         makeModel: form.makeModel.trim() || undefined,
         year:      form.year ? parseInt(form.year, 10) : undefined,
-        color:     form.color.trim()     || undefined,
+        color:     colorValue,
+        fuel:      form.fuel || undefined,
       });
-      setForm({ type: 'sedan', label: '', plate: '', makeModel: '', year: '', color: '' });
+      setForm({
+        type: 'sedan', label: '', plate: '', makeModel: '', year: '',
+        color: '', colorOther: '', fuel: '',
+      });
       setAdding(false);
     } finally { setSaving(false); }
   };
@@ -168,29 +179,100 @@ export default function VehiclesPage() {
               />
             </label>
           </div>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <label className="block">
-              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Make + model</span>
+          <label className="block mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Make + model</span>
+            <input
+              type="text"
+              value={form.makeModel}
+              onChange={(e) => setForm({ ...form, makeModel: e.target.value })}
+              placeholder="Toyota RAV4"
+              className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
+            />
+          </label>
+          {/* Colour — curated swatch chips with an "Other" free-text
+              fallback for wraps / two-tone / dealer-specific shades. */}
+          <label className="block mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Colour</span>
+            <div className="flex gap-1.5 mt-1 flex-wrap">
+              {VEHICLE_COLORS.map((c) => {
+                const active = form.color === c.label;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setForm({ ...form, color: c.label, colorOther: '' })}
+                    className={`text-[11px] font-nunito font-extrabold px-2.5 py-1 rounded-full border flex items-center gap-1.5 ${
+                      active
+                        ? 'bg-pantry-leaf-soft border-pantry-leaf-dk text-pantry-leaf-dk'
+                        : 'bg-hive-cream border-hive-line text-hive-muted'
+                    }`}
+                  >
+                    <span
+                      className="w-3 h-3 rounded-full border border-hive-line/60 inline-block"
+                      style={{ backgroundColor: c.hex }}
+                    />
+                    {c.label}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, color: 'other' })}
+                className={`text-[11px] font-nunito font-extrabold px-2.5 py-1 rounded-full border ${
+                  form.color === 'other'
+                    ? 'bg-pantry-leaf-soft border-pantry-leaf-dk text-pantry-leaf-dk'
+                    : 'bg-hive-cream border-hive-line text-hive-muted'
+                }`}
+              >
+                ✏️ Other
+              </button>
+            </div>
+            {form.color === 'other' && (
               <input
                 type="text"
-                value={form.makeModel}
-                onChange={(e) => setForm({ ...form, makeModel: e.target.value })}
-                placeholder="Toyota RAV4"
-                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
+                value={form.colorOther}
+                onChange={(e) => setForm({ ...form, colorOther: e.target.value })}
+                placeholder="e.g. Wrapped matte black"
+                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-2"
               />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Colour</span>
-              <input
-                type="text"
-                value={form.color}
-                onChange={(e) => setForm({ ...form, color: e.target.value })}
-                placeholder="Silver"
-                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
-              />
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-2 mt-2">
+            )}
+          </label>
+          {/* Fuel — drives request auto-suggestions for fuel prices on
+              the Drivers request flow. Optional. Grouped: Conventional
+              first (most common), Green tier below. */}
+          <label className="block mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Fuel (optional)</span>
+            <div className="flex gap-1.5 mt-1 flex-wrap">
+              {VEHICLE_FUELS.filter((f) => f.group === 'conventional').map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, fuel: form.fuel === f.id ? '' : f.id })}
+                  className={`text-[11px] font-nunito font-extrabold px-2.5 py-1 rounded-full border ${
+                    form.fuel === f.id
+                      ? 'bg-hive-honey text-white border-hive-honey-dk'
+                      : 'bg-hive-cream border-hive-line text-hive-muted'
+                  }`}
+                >{f.emoji} {f.label}</button>
+              ))}
+            </div>
+            <div className="text-[9px] uppercase tracking-[1.5px] font-bold text-pantry-leaf-dk mt-2 mb-1">🌱 Green options</div>
+            <div className="flex gap-1.5 flex-wrap">
+              {VEHICLE_FUELS.filter((f) => f.group === 'green').map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setForm({ ...form, fuel: form.fuel === f.id ? '' : f.id })}
+                  className={`text-[11px] font-nunito font-extrabold px-2.5 py-1 rounded-full border ${
+                    form.fuel === f.id
+                      ? 'bg-pantry-leaf text-white border-pantry-leaf-dk'
+                      : 'bg-hive-cream border-hive-line text-hive-muted'
+                  }`}
+                >{f.emoji} {f.label}</button>
+              ))}
+            </div>
+          </label>
+          <div className="grid grid-cols-2 gap-2 mt-3">
             <button onClick={() => setAdding(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
             <button onClick={submit} disabled={saving || !form.label.trim()} className="bg-pantry-leaf text-white rounded-lg py-2 font-nunito font-black text-sm disabled:opacity-60">
               {saving ? 'Adding…' : 'Add vehicle'}
@@ -308,7 +390,12 @@ function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string 
     );
   }
 
-  const sub = [vehicle.makeModel, vehicle.plate, vehicle.year, vehicle.color].filter(Boolean).join(' · ');
+  // Sub-line: make/model · plate · year · color · fuel. Color is the
+  // label (matched against the curated palette for a swatch dot); fuel
+  // renders as its display label. Both fields are optional.
+  const colorHex = vehicleColorHex(vehicle.color);
+  const fuelLabel = vehicleFuelLabel(vehicle.fuel);
+  const subParts = [vehicle.makeModel, vehicle.plate, vehicle.year].filter(Boolean) as Array<string | number>;
   return (
     <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 ${vehicle.active ? '' : 'opacity-60'}`}>
       <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base">
@@ -316,9 +403,28 @@ function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string 
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{vehicle.label}</div>
-        <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-          {sub || 'No details — tap Edit to add plate, model, colour'}
-          {!vehicle.active && ' · paused'}
+        <div className="text-[11px] text-hive-muted font-bold mt-0.5 flex items-center gap-1.5 flex-wrap">
+          {subParts.length > 0 ? <span>{subParts.join(' · ')}</span> : null}
+          {vehicle.color && (
+            <span className="inline-flex items-center gap-1">
+              {colorHex && (
+                <span
+                  className="w-2.5 h-2.5 rounded-full border border-hive-line/60 inline-block"
+                  style={{ backgroundColor: colorHex }}
+                />
+              )}
+              <span>{vehicle.color}</span>
+            </span>
+          )}
+          {fuelLabel && (
+            <span className="inline-flex items-center bg-hive-cream border border-hive-line rounded-full px-1.5 py-0.5 text-[9px] uppercase tracking-[1px]">
+              {fuelLabel}
+            </span>
+          )}
+          {!subParts.length && !vehicle.color && !fuelLabel && (
+            <span className="italic">No details — tap Edit to add plate, model, colour, fuel</span>
+          )}
+          {!vehicle.active && <span className="text-hive-muted">· paused</span>}
         </div>
       </div>
       <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-pantry-leaf-dk px-2">Edit</button>
