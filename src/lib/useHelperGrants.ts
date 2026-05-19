@@ -78,23 +78,32 @@ export function useHelperGrants(): HelperGrants {
 
 /** Predicate for "does this helper see this module?". Returns true for
  *  non-helpers (no gating) and legacy helpers (show everything). For
- *  helpers with concrete grants, walks the composite/parent fallback
- *  chain with DENY PRECEDENCE — an explicit `view: false` on a sub
- *  wins over a parent-level grant. Accepts both bare ids ('moments')
- *  and composite keys ('household:purchase'). */
+ *  helpers with concrete grants, requires the EXACT key in the grants
+ *  set (or its legacy 'home' alias for 'kaya:*').
+ *
+ *  2026-05-19 v3 — Parent-grant fallback removed. Previously, a bare
+ *  'household' grant in moduleAccess (or in the legacy `modules`
+ *  array) auto-allowed every household:* sub, which was the actual
+ *  root cause of the Drivers-leak Elia kept reporting: the deny-
+ *  precedence fix in v2 only helped when the helper had an explicit
+ *  per-sub deny written; helpers with a bare parent grant and no
+ *  explicit sub-deny still leaked. Each sub must now be explicitly
+ *  granted (matches what the settings UI writes — togglePresetSubs +
+ *  toggleModuleTier both write specific sub keys, never bare
+ *  parents). The 'home' → 'kaya:*' alias stays for the very old
+ *  legacy join path. */
 export function helperGrantsAllow(grants: HelperGrants, key: string): boolean {
   if (grants === null || grants === 'legacy') return true;
   // Explicit deny on this exact key wins over everything else.
   if (grants.denies.has(key)) return false;
   // Explicit grant on this exact key.
   if (grants.grants.has(key)) return true;
-  // Composite key — fall back to the parent grant, but only if the
-  // parent itself isn't explicitly denied.
+  // Legacy: a `kaya:*` key passes if the very-old 'home' alias was
+  // granted (pre-Kaya-split helper docs). Same explicit-deny check.
   const colon = key.indexOf(':');
   if (colon > 0) {
     const parent = key.slice(0, colon);
-    if (grants.denies.has(parent)) return false;
-    if (grants.grants.has(parent)) return true;
+    if (parent === 'kaya' && !grants.denies.has('home') && grants.grants.has('home')) return true;
   }
   return false;
 }
