@@ -46,6 +46,9 @@ export default function PayrollHomePage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // Recent collapses to 3 with a "+ See more" toggle (2026-05-19).
+  const [showAllRecent, setShowAllRecent] = useState(false);
+  const RECENT_DEFAULT_LIMIT = 3;
 
   const confirmAction = useConfirm();
   const handleDeleteDraft = async (req: PurchaseRequest) => {
@@ -202,6 +205,20 @@ export default function PayrollHomePage() {
         )}
       </div>
 
+      {/* Top CTA: visible without scrolling (2026-05-19). Payroll has
+          no TemplatePicker (each request is unique per helper); the
+          auto-payroll generator handles the "recurring" use case. */}
+      {!isGuest && (
+        <button
+          type="button"
+          onClick={startDraft}
+          disabled={creating}
+          className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-4"
+        >
+          {creating ? 'Starting…' : (role === 'helper' ? '＋ New advance / loan / bonus' : '＋ New payroll entry')}
+        </button>
+      )}
+
       {/* Generator banner — surfaces what the auto-payroll just
           created so the parent knows where to look. Dismissable. */}
       {generatorRun && generatorRun.generated.length > 0 && (
@@ -283,12 +300,24 @@ export default function PayrollHomePage() {
 
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
-          {recent.slice(0, 5).map((r) => (
+          {(showAllRecent ? recent : recent.slice(0, RECENT_DEFAULT_LIMIT)).map((r) => (
             <RequestRow key={r.id} req={r} currency={currency} showHelper={role === 'parent'} dimmed />
           ))}
+          {recent.length > RECENT_DEFAULT_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAllRecent((v) => !v)}
+              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-pantry-leaf-dk font-nunito font-extrabold text-xs"
+            >
+              {showAllRecent
+                ? '▴ Show less'
+                : `＋ See ${recent.length - RECENT_DEFAULT_LIMIT} more`}
+            </button>
+          )}
         </Section>
       )}
 
+      {/* Bottom fallback CTA — convenience after scroll. */}
       <div className="mt-4 mb-32">
         <button
           type="button"

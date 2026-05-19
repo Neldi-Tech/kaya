@@ -46,6 +46,11 @@ export default function PurchaseHomePage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // 2026-05-19 — Recent list collapses to 3 with a "+ See more"
+  // toggle. Keeps the actionable piles (pending / drafts / in progress)
+  // closer to the top of a long page.
+  const [showAllRecent, setShowAllRecent] = useState(false);
+  const RECENT_DEFAULT_LIMIT = 3;
 
   const confirmAction = useConfirm();
   const handleDeleteDraft = async (req: PurchaseRequest) => {
@@ -124,6 +129,37 @@ export default function PurchaseHomePage() {
         </p>
       </div>
 
+      {/* 2026-05-19 — Top CTA block. Primary new-request action sits
+          ABOVE the actionable piles so it's visible without scrolling
+          on long pages. Recycle picker rides alongside so past requests
+          are equally discoverable for the "make a new one like that"
+          flow. */}
+      {profile?.familyId && !isGuest && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={startDraft}
+            disabled={creating}
+            className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
+          >
+            {creating ? 'Starting…' : '＋ New request'}
+          </button>
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="pantry"
+            currency={currency}
+            onPick={async (tpl) => {
+              if (!profile.uid) return;
+              const id = await createDraftFromTemplate(profile.familyId!, tpl.id, {
+                createdBy: profile.uid,
+                createdByRole: role,
+              });
+              router.push(`/pantry/purchase/${id}`);
+            }}
+          />
+        </div>
+      )}
+
       {/* Parent's actionable pile: pending approval */}
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
@@ -180,33 +216,32 @@ export default function PurchaseHomePage() {
         </div>
       )}
 
-      {/* Recently closed */}
+      {/* Recently closed — capped to RECENT_DEFAULT_LIMIT (3) with a
+          "+ See more" toggle to reveal the rest. Keeps the page focused
+          on actionable items. */}
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
-          {recent.slice(0, 5).map((r) => (
+          {(showAllRecent ? recent : recent.slice(0, RECENT_DEFAULT_LIMIT)).map((r) => (
             <RequestRow key={r.id} req={r} currency={currency} dimmed />
           ))}
+          {recent.length > RECENT_DEFAULT_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAllRecent((v) => !v)}
+              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-pantry-leaf-dk font-nunito font-extrabold text-xs"
+            >
+              {showAllRecent
+                ? '▴ Show less'
+                : `＋ See ${recent.length - RECENT_DEFAULT_LIMIT} more`}
+            </button>
+          )}
         </Section>
       )}
 
-      {/* New request CTA (sticky-ish above the tab bar). Auto-saved
-          templates from past approvals/rejections appear above. */}
+      {/* Bottom fallback "+ New request" — kept so the action is also
+          reachable after a long scroll. The top block above is the
+          primary CTA; this one is convenience. */}
       <div className="mt-4 mb-32">
-        {profile?.familyId && !isGuest && (
-          <TemplatePicker
-            familyId={profile.familyId}
-            module="pantry"
-            currency={currency}
-            onPick={async (tpl) => {
-              if (!profile.uid) return;
-              const id = await createDraftFromTemplate(profile.familyId!, tpl.id, {
-                createdBy: profile.uid,
-                createdByRole: role,
-              });
-              router.push(`/pantry/purchase/${id}`);
-            }}
-          />
-        )}
         <button
           type="button"
           onClick={startDraft}

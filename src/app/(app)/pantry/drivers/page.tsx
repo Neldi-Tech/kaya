@@ -50,6 +50,9 @@ export default function DriversHomePage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  // Recent collapses to 3 with a "+ See more" toggle (2026-05-19).
+  const [showAllRecent, setShowAllRecent] = useState(false);
+  const RECENT_DEFAULT_LIMIT = 3;
   // When a template is picked, stash its id while the vehicle picker
   // runs — the actual draft creation needs both pieces. Cleared on
   // create or cancel.
@@ -160,6 +163,30 @@ export default function DriversHomePage() {
         </Link>
       </div>
 
+      {/* Top CTA: visible without scrolling (2026-05-19). */}
+      {profile?.familyId && !isGuest && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={startDraft}
+            disabled={creating}
+            className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
+          >
+            {creating ? 'Starting…' : '＋ New driver request'}
+          </button>
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="drivers"
+            currency={currency}
+            onPick={async (tpl) => {
+              setPendingTemplateId(tpl.id);
+              if (vehicles.length === 0) await startDraftWithVehicle(null);
+              else setShowPicker(true);
+            }}
+          />
+        </div>
+      )}
+
       {/* Vehicle picker — opens on "+ New driver request" when at
           least one vehicle is set up. "Skip" lets the helper proceed
           without pinning a vehicle (catch-all for generic spends). */}
@@ -256,28 +283,25 @@ export default function DriversHomePage() {
 
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
-          {recent.slice(0, 5).map((r) => (
+          {(showAllRecent ? recent : recent.slice(0, RECENT_DEFAULT_LIMIT)).map((r) => (
             <RequestRow key={r.id} req={r} currency={currency} dimmed />
           ))}
+          {recent.length > RECENT_DEFAULT_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAllRecent((v) => !v)}
+              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-pantry-leaf-dk font-nunito font-extrabold text-xs"
+            >
+              {showAllRecent
+                ? '▴ Show less'
+                : `＋ See ${recent.length - RECENT_DEFAULT_LIMIT} more`}
+            </button>
+          )}
         </Section>
       )}
 
+      {/* Bottom fallback CTA — convenience after scroll. */}
       <div className="mt-4 mb-32">
-        {profile?.familyId && !isGuest && (
-          <TemplatePicker
-            familyId={profile.familyId}
-            module="drivers"
-            currency={currency}
-            onPick={async (tpl) => {
-              // Stash the template; if the family has vehicles, run
-              // the picker first so the new draft is properly pinned.
-              // Otherwise jump straight to creating a no-vehicle draft.
-              setPendingTemplateId(tpl.id);
-              if (vehicles.length === 0) await startDraftWithVehicle(null);
-              else setShowPicker(true);
-            }}
-          />
-        )}
         <button
           type="button"
           onClick={startDraft}

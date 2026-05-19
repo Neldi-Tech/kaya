@@ -47,6 +47,9 @@ export default function UtilityHomePage() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  // Recent collapses to 3 with a "+ See more" toggle (2026-05-19).
+  const [showAllRecent, setShowAllRecent] = useState(false);
+  const RECENT_DEFAULT_LIMIT = 3;
   // Same pattern as Drivers — stash the chosen template id while the
   // meter picker runs.
   const [pendingTemplateId, setPendingTemplateId] = useState<string | null>(null);
@@ -162,6 +165,30 @@ export default function UtilityHomePage() {
         )}
       </div>
 
+      {/* Top CTA: visible without scrolling (2026-05-19). */}
+      {profile?.familyId && !isGuest && (
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={startDraft}
+            disabled={creating}
+            className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
+          >
+            {creating ? 'Starting…' : '＋ New utility request'}
+          </button>
+          <TemplatePicker
+            familyId={profile.familyId}
+            module="utility"
+            currency={currency}
+            onPick={async (tpl) => {
+              setPendingTemplateId(tpl.id);
+              if (meters.length === 0) await startDraftWithMeter(null);
+              else setShowPicker(true);
+            }}
+          />
+        </div>
+      )}
+
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
           {pending.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
@@ -212,25 +239,25 @@ export default function UtilityHomePage() {
 
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
-          {recent.slice(0, 5).map((r) => (
+          {(showAllRecent ? recent : recent.slice(0, RECENT_DEFAULT_LIMIT)).map((r) => (
             <RequestRow key={r.id} req={r} currency={currency} dimmed />
           ))}
+          {recent.length > RECENT_DEFAULT_LIMIT && (
+            <button
+              type="button"
+              onClick={() => setShowAllRecent((v) => !v)}
+              className="w-full bg-hive-paper border border-hive-line rounded-hive py-2 mt-1 text-hive-honey-dk font-nunito font-extrabold text-xs"
+            >
+              {showAllRecent
+                ? '▴ Show less'
+                : `＋ See ${recent.length - RECENT_DEFAULT_LIMIT} more`}
+            </button>
+          )}
         </Section>
       )}
 
+      {/* Bottom fallback CTA — convenience after scroll. */}
       <div className="mt-4 mb-32">
-        {profile?.familyId && !isGuest && (
-          <TemplatePicker
-            familyId={profile.familyId}
-            module="utility"
-            currency={currency}
-            onPick={async (tpl) => {
-              setPendingTemplateId(tpl.id);
-              if (meters.length === 0) await startDraftWithMeter(null);
-              else setShowPicker(true);
-            }}
-          />
-        )}
         <button
           type="button"
           onClick={startDraft}
