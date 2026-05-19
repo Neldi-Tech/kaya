@@ -53,9 +53,10 @@ import {
   type Vehicle, subscribeToVehicles,
 } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
+import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 
 type OtherModule = Exclude<PurchaseModule, 'pantry'>;
-const TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll'];
+const ALL_TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll'];
 
 export default function OtherCataloguePage() {
   const { staples, utilities } = usePantry();
@@ -63,6 +64,11 @@ export default function OtherCataloguePage() {
   const { profile, isGuest } = useAuth();
   const confirmAction = useConfirm();
   const currency = config.currency;
+  // 2026-05-19 — gate tabs by helper grants so a helper without (e.g.)
+  // 'household:drivers' doesn't see the Drivers tab here either. Parents
+  // and legacy helpers see all four; loading state hides until resolved.
+  const grants = useHelperGrants();
+  const TABS = ALL_TABS.filter((m) => helperGrantsAllow(grants, `household:${m}`));
   const [tab, setTab] = useState<OtherModule>('outdoor');
   const [cat, setCat] = useState<string | 'all'>('all');
   const [q, setQ] = useState('');
@@ -74,6 +80,13 @@ export default function OtherCataloguePage() {
     if (!profile?.familyId) return;
     return subscribeToVehicles(profile.familyId, setVehicles);
   }, [profile?.familyId]);
+
+  // If the current tab is no longer allowed (helper without grant or
+  // grants resolved to a smaller set), snap to the first allowed tab.
+  useEffect(() => {
+    if (TABS.length === 0) return;
+    if (!TABS.includes(tab)) setTab(TABS[0]);
+  }, [TABS, tab]);
 
   const switchTab = (t: OtherModule) => { setTab(t); setCat('all'); setEditing(null); };
 
