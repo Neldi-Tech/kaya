@@ -41,7 +41,7 @@ import {
 } from '@/lib/pantryDirectory';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
-import { formatCents } from '@/components/pantry/format';
+import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import {
   notifyPurchaseApprovalRequested, notifyPurchaseApproved,
   notifyPurchaseRejected, notifyPurchaseReconciled,
@@ -1067,7 +1067,17 @@ export default function PurchaseDetailPage() {
               )}
             </div>
             <div className="text-right">
-              <div className="font-nunito font-black text-2xl text-hive-ink">{formatCents(total, currency)}</div>
+              {/* Estimated total renders to a "budget-neat" bucket
+                  (round-up to nearest 10/100/1000 depending on
+                  magnitude) so the parent sees a clean number when
+                  planning. Actuals stay precise — they're facts.
+                  (2026-05-19 — Elia's "round up totals in the nearest
+                  100 to make the budget neat".) */}
+              <div className="font-nunito font-black text-2xl text-hive-ink">
+                {(reconcilable || isClosed)
+                  ? formatCents(total, currency)
+                  : <>≈ {formatCentsBudgetNeat(total, currency)}</>}
+              </div>
               {showVariance && (
                 <div className="mt-1 flex items-center justify-end gap-1.5 text-[11px] font-nunito font-extrabold">
                   <span className={`px-1.5 py-0.5 rounded ${
