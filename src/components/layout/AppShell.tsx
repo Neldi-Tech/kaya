@@ -328,14 +328,16 @@ const KID_MOBILE_GROUPS: MobileGroup[] = [
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
-// Helper mobile nav (2026-05-19 revision): swap Discover for Workplan
-// per Elia — work-day surfaces are what a helper actually needs on
-// the bar. Discover stays reachable via the More mega-sheet.
+// Helper mobile nav (revised 2026-05-19 v2): per Elia's helper-login
+// audit, keep Discover (good level of data) and focus the rest on the
+// helper's most-frequent surfaces — Home, Purchase, Utility. Workplan,
+// Rate, Outdoor, Drivers etc. all stay reachable via the More mega-
+// sheet (which already builds from helper grants via isHelperRowVisible).
 const HELPER_MOBILE_GROUPS: MobileGroup[] = [
+  { kind: 'link', id: 'discover', path: '/',                icon: '🔎', label: 'Discover' },
   { kind: 'link', id: 'home',     path: '/home',            icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'workplan', path: '/pantry/workplan', icon: '📋', label: 'Workplan' },
-  { kind: 'link', id: 'rate',     path: '/rate',            icon: '⭐', label: 'Rate' },
-  { kind: 'link', id: 'pantry',   path: '/pantry',          icon: '🛒', label: 'Pantry' },
+  { kind: 'link', id: 'purchase', path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
+  { kind: 'link', id: 'utility',  path: '/pantry/utility',  icon: '⚡', label: 'Utility' },
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
