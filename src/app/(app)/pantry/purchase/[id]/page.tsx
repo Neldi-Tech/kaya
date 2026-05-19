@@ -110,7 +110,9 @@ export default function PurchaseDetailPage() {
     return (
       <div className="mx-auto max-w-md w-full px-4 pt-16 text-center">
         <p className="text-hive-muted text-sm">Request not found.</p>
-        <Link href="/pantry/purchase" className="text-pantry-leaf-dk font-bold text-sm underline">Back to Purchase</Link>
+        {/* No `req` → can't infer module. Fall back to the Pantry
+            section landing so the parent can navigate from there. */}
+        <Link href="/pantry" className="text-pantry-leaf-dk font-bold text-sm underline">Back to Pantry</Link>
       </div>
     );
   }
@@ -645,9 +647,18 @@ export default function PurchaseDetailPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      {/* Header */}
+      {/* Header — back link is module-aware. A UTL request points back
+          to /pantry/utility ("‹ Utility"), an OUT to /pantry/outdoor
+          ("‹ Outdoor"), etc. Pantry stays on /pantry/purchase since
+          that's its module home. (2026-05-19, fixes "back says
+          Purchase even for utility requests".) */}
       <div className="flex items-center justify-between mb-3">
-        <Link href="/pantry/purchase" className="text-hive-muted text-sm no-underline">‹ Purchase</Link>
+        <Link
+          href={`/pantry/${reqModule === 'pantry' ? 'purchase' : reqModule}`}
+          className="text-hive-muted text-sm no-underline"
+        >
+          ‹ {reqModule === 'pantry' ? 'Purchase' : reqModule === 'utility' ? 'Utility' : reqModule === 'outdoor' ? 'Outdoor' : reqModule === 'drivers' ? 'Drivers' : reqModule === 'payroll' ? 'Payroll' : 'Back'}
+        </Link>
         <StatusChip status={req.status} />
       </div>
       <div className="mb-4">
