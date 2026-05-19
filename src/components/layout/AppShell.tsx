@@ -22,20 +22,24 @@ import InfoIcon from '@/components/ui/InfoIcon';
 //   3. kaya:* required, legacy 'home' granted → access (pre-Kaya-split
 //      docs from earlier helper rollout)
 // Returns true when the route isn't helper-module-gated at all.
-// 2026-05-19 v2 — deny-precedence so an explicit `view: false` on a
-// sub overrides a parent-level grant (was leaking Drivers etc.).
+// 2026-05-19 v3 — Parent-grant fallback removed. Requires explicit
+// per-key grant (or the legacy 'home' alias for 'kaya:*'). See
+// useHelperGrants.ts for the full rationale — this matches what the
+// settings UI writes (always specific sub keys) and closes the
+// Drivers-leak root cause: a bare 'household' grant no longer
+// auto-allows every household:* sub.
 type HelperAccessMap = { grants: Set<string>; denies: Set<string> };
 function isHelperPathAllowed(pathname: string, access: HelperAccessMap): boolean {
   const required = helperModuleKeyForPath(pathname);
   if (!required) return true;
   if (access.denies.has(required)) return false;
   if (access.grants.has(required)) return true;
+  // Very-old legacy: 'home' bare grant aliased to all kaya:* subs
+  // (pre-Kaya-split helper docs).
   const colon = required.indexOf(':');
   if (colon > 0) {
     const parent = required.slice(0, colon);
-    if (access.denies.has(parent)) return false;
-    if (access.grants.has(parent)) return true;
-    if (parent === 'kaya' && access.grants.has('home') && !access.denies.has('home')) return true;
+    if (parent === 'kaya' && !access.denies.has('home') && access.grants.has('home')) return true;
   }
   return false;
 }
