@@ -29,6 +29,7 @@ import {
 import { formatCents } from '@/components/pantry/format';
 import { runPayrollGenerator, type GeneratorRun } from '@/lib/payroll';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { listHelpers } from '@/lib/helpers';
 
 // Auto-name comes from createDraftRequest (`PAY-NNNN · DDMMYY`).
 // Helper displayName is passed as context: `PAY-NNNN · DDMMYY · Jacky`.
@@ -121,6 +122,41 @@ export default function PayrollHomePage() {
     if (!profile?.familyId || !profile.uid || isGuest) return;
     setCreating(true);
     try {
+      // 2026-05-19 — Double-pay guard. Helper-locked self-service is
+      // the intended flow; when a Parent raises a MANUAL payroll
+      // request and auto-payroll is already armed for any helper, we
+      // pause to confirm — accidental overlap creates a near-perfect
+      // duplicate that's painful to unwind once approved.
+      //
+      // Two signals trip the warning:
+      //   • any helper has payrollConfig set (auto-payroll is armed)
+      //   • there's an open auto-generated payroll request in flight
+      //     (generatedBy='system' on `open`)
+      if (role === 'parent') {
+        const [helpers, openAutoCount] = await Promise.all([
+          listHelpers(profile.familyId).catch(() => []),
+          Promise.resolve(open.filter((r) => r.generatedBy === 'system').length),
+        ]);
+        const helpersWithAuto = helpers.filter((h) => h.payrollConfig && h.status !== 'removed');
+        if (helpersWithAuto.length > 0 || openAutoCount > 0) {
+          const names = helpersWithAuto.map((h) => h.displayName).slice(0, 3);
+          const moreCount = helpersWithAuto.length - names.length;
+          const namesLine = names.length === 0
+            ? ''
+            : names.join(', ') + (moreCount > 0 ? ` + ${moreCount} more` : '');
+          const inflight = openAutoCount > 0
+            ? ` There ${openAutoCount === 1 ? 'is' : 'are'} ${openAutoCount} auto-generated payroll request${openAutoCount === 1 ? '' : 's'} already in flight.`
+            : '';
+          const ok = await confirmAction({
+            title: 'Auto-payroll is active',
+            message: `${namesLine ? `Auto-payroll is set up for ${namesLine}. ` : ''}Manually creating a payroll entry now risks double-paying the helper.${inflight} Continue anyway?`,
+            confirmLabel: 'Continue · I checked',
+            tone: 'danger',
+          });
+          if (!ok) { setCreating(false); return; }
+        }
+      }
+
       const id = await createDraftRequest(profile.familyId, {
         // Context = helper displayName, so payroll requests read as
         // `PAY-NNNN · DDMMYY · Jacky` for the parent's audit view.
