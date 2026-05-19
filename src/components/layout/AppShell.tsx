@@ -158,14 +158,15 @@ const KAYA_NAV: NavItem[] = [
 // Household · runs the home. Pantry today; shopping list, meal plan,
 // household routines follow. (Renamed from "Pantry" — the section name
 // now describes the surface, not one feature inside it.)
-// Order per v4-final §01 (locked 2026-05-18):
+// Order per v4-final §01 (locked 2026-05-18), revised 2026-05-19:
 //   The Pantry (section home, no group)
 //   ── Request modules ── Purchase · Utilities · Outdoor · Drivers · Payroll
-//   ── Catalogues & plans ── Staples · Meal Planner · Workplan
-//   ── Browse & suppliers ── Browse Catalogue · Other Catalogue · Soko
+//   ── Catalogues & plans ── Staples · Other Regulars · Meal Planner · Workplan
+//   ── Browse & suppliers ── Browse Catalogue · Soko
 //   ── Parent · money ── Finances · Budget
-// Other Catalogue points at the v3 path /pantry/browse/others until
-// Step 4 builds the new /pantry/browse/other surface.
+// "Other Regulars" was previously "Other Catalogue" under Browse &
+// suppliers; promoted on 2026-05-19 since the page is now an editable
+// family-curated regulars list (peer of Staples), not browse-only.
 // Tooltip copy seeded from v4-final §02 (2026-05-18). Each item
 // gets a one-line explainer surfaced via an (i) badge next to the
 // label. Helps disambiguate similar-named surfaces — Staples vs
@@ -187,7 +188,13 @@ const HOUSEHOLD_NAV: NavItem[] = [
     tooltip: 'Self-service: each helper requests their own advance / loan / bonus. Private to them.' },
 
   { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans',
-    tooltip: "Your family's curated regulars. Picked from Browse to your list." },
+    tooltip: "Your family's curated Pantry regulars. Picked from Browse to your list." },
+  // 2026-05-19 — Other Regulars promoted out of "Browse & suppliers".
+  // Same page (route unchanged for bookmarks), but it's conceptually a
+  // peer of Staples: family's curated list for Outdoor / Drivers /
+  // Utility / Payroll, with curated suggestions hidden inside.
+  { path: '/pantry/browse/other',    icon: '🗂', label: 'Other Regulars',
+    tooltip: "Your family's curated regulars for Outdoor · Utility · Drivers · Payroll." },
   { path: '/pantry/meals',           icon: '📅', label: 'Meal Planner',
     tooltip: 'Weekly meal timetable. Bigger redesign incoming.' },
   { path: '/pantry/workplan',        icon: '📋', label: 'Workplan',
@@ -195,8 +202,6 @@ const HOUSEHOLD_NAV: NavItem[] = [
 
   { path: '/pantry/browse',          icon: '🧺', label: 'Browse Catalogue', groupStart: 'Browse & suppliers',
     tooltip: 'The full Pantry library — Foods + Household tabs. Add to your Staples.' },
-  { path: '/pantry/browse/other',    icon: '📂', label: 'Other Catalogue',
-    tooltip: 'Outdoor · Utility · Drivers · Payroll catalogues, by module.' },
   { path: '/pantry/suppliers',       icon: '🏪', label: 'Soko',
     tooltip: 'Family supplier directory + WhatsApp shortcuts.' },
 
