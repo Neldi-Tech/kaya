@@ -111,8 +111,23 @@ export default function HelperPage() {
         <h1 className="font-display text-2xl lg:text-[34px] font-black lg:font-extrabold tracking-tight mt-0.5">
           Hello, {firstName} 🤝
         </h1>
-        <p className="text-kaya-sand text-sm mt-1 lg:mt-2">Ready to rate the children&apos;s routines.</p>
+        <p className="text-kaya-sand text-sm mt-1 lg:mt-2">Your day in one place — performance, work, pay, kids.</p>
       </div>
+
+      {/* Hero · helper performance. (2026-05-19 — Elia's home-card
+          revamp: the helper's own score belongs at the top, not buried
+          between Workplan + Kids. Kids ratings still appear further
+          down. Full-size — drops the `compact` prop the inline version
+          had.) */}
+      {link && profile && profile.familyId && (
+        <div className="mb-5 lg:mb-7">
+          <PerformanceCard
+            familyId={profile.familyId}
+            helperUid={profile.uid}
+            days={7}
+          />
+        </div>
+      )}
 
       {/* "Your access" panel — only when a HelperLink doc exists, so
           legacy helpers (full-family access) don't see a misleading
@@ -208,18 +223,9 @@ export default function HelperPage() {
         />
       )}
 
-      {/* The helper's own performance — face emoji + today % + 7-day
-          avg. Compact so it sits naturally between workplan + kids. */}
-      {link && profile && profile.familyId && (
-        <div className="mb-5 lg:mb-7">
-          <PerformanceCard
-            familyId={profile.familyId}
-            helperUid={profile.uid}
-            compact
-            days={7}
-          />
-        </div>
-      )}
+      {/* Performance card now renders as the hero card at the top of
+          the page — see above. The previous mid-page placement was
+          retired 2026-05-19 per Elia's home-card revamp. */}
 
       {/* Children overview */}
       {scopeLoaded && visibleChildren.length === 0 && (

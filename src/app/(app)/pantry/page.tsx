@@ -30,6 +30,7 @@ export default function PantryHomePage() {
   const { family } = useFamily();
   const { staples, sokoSuppliers, currentList, loading } = usePantry();
   const isParent = profile?.role === 'parent';
+  const isHelper = profile?.role === 'helper';
   const { config } = useHive();
   const currency = config.currency;
 
@@ -40,6 +41,7 @@ export default function PantryHomePage() {
   // specifically per Elia's audit).
   const grants = useHelperGrants();
   const showHouseholdSub = (sub: string) => helperGrantsAllow(grants, `household:${sub}`);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const showModule = (id: string) => helperGrantsAllow(grants, id);
 
   const [creating, setCreating] = useState(false);
@@ -176,10 +178,11 @@ export default function PantryHomePage() {
           sidebar / tab bar as parent-only money surfaces. */}
 
       {/* ── Request modules ── */}
-      {/* 2026-05-19 — Tiles now gated by helper.moduleAccess so a
-          helper sees only the modules they've been granted view tier
-          on. Parents + legacy helpers see everything (helperGrantsAllow
-          returns true). */}
+      {/* 2026-05-19 v2 — Helper layout refocus per Elia: helpers see
+          only Purchase / Utilities / Outdoor (+ Drivers when granted)
+          as the frequent surfaces; Payroll moves OUT of /pantry to the
+          global More mega-sheet (HELPER_SIDEBAR carries it). Parents
+          see the original full grid. */}
       <Divider label="Request modules" />
       <div className="grid grid-cols-2 gap-3 mb-2">
         {showHouseholdSub('purchase') && (
@@ -206,7 +209,9 @@ export default function PantryHomePage() {
             tooltip="Vehicle fuel · service · spare parts · tolls. Driver-helper scope."
             badge={openByModule.drivers} />
         )}
-        {showHouseholdSub('payroll') && (
+        {/* Payroll: parents only on /pantry; helpers reach it via the
+            More mega-sheet so the tile grid stays focused. */}
+        {!isHelper && showHouseholdSub('payroll') && (
           <Tile href="/pantry/payroll" emoji="🤝" label="Payroll" sub="Self-service · advances · loans"
             tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
             tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
@@ -215,36 +220,60 @@ export default function PantryHomePage() {
       </div>
 
       {/* ── Catalogues & plans ── */}
-      <Divider label="Catalogues & plans" />
-      <div className="grid grid-cols-2 gap-3 mb-2">
-        <Tile href="/pantry/staples" emoji="📦" label="Staples" sub={`Your family's Pantry regulars · ${staples.length} item${staples.length === 1 ? '' : 's'}`}
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
-          tooltip="Your family's curated Pantry regulars. Picked from Browse to your list." />
-        {/* 2026-05-19 — Other Regulars promoted into Catalogues & plans;
-            it's the conceptual peer of Staples for non-Pantry modules
-            (Outdoor / Drivers / Utility / Payroll). */}
-        <Tile href="/pantry/browse/other" emoji="🗂" label="Other Regulars" sub="Outdoor · Drivers · Utility · Payroll"
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
-          tooltip="Your family's curated regulars for Outdoor / Drivers / Utility / Payroll." />
-        <Tile href="/pantry/meals" emoji="📅" label="Meal Planner" sub="7-day timetable"
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
-          tooltip="Weekly meal timetable. Bigger redesign incoming." />
-        <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
-          tooltip="Helper roster + each helper's daily task list. Add ad-hoc work." />
-      </div>
+      {/* For helpers: just Workplan + Meal Planner + Soko in a single
+          "More in Pantry" tile row (Elia's refocus). Staples + Other
+          Regulars + Browse Catalogue are parent curation surfaces and
+          don't earn the helper's screen. */}
+      {isHelper ? (
+        <>
+          <Divider label="More in Pantry" />
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Your day · tasks · meals"
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+              tooltip="Your day's workplan, today's meals, your tasks." />
+            <Tile href="/pantry/meals" emoji="📅" label="Meal Planner" sub="Family · 7-day timetable"
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+              tooltip="Weekly family meal timetable." />
+            <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
+              sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf col-span-2" subColor="text-hive-muted" compact
+              tooltip="Family supplier directory + WhatsApp shortcuts." />
+          </div>
+        </>
+      ) : (
+        <>
+          <Divider label="Catalogues & plans" />
+          <div className="grid grid-cols-2 gap-3 mb-2">
+            <Tile href="/pantry/staples" emoji="📦" label="Staples" sub={`Your family's Pantry regulars · ${staples.length} item${staples.length === 1 ? '' : 's'}`}
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+              tooltip="Your family's curated Pantry regulars. Picked from Browse to your list." />
+            {/* 2026-05-19 — Other Regulars promoted into Catalogues & plans;
+                it's the conceptual peer of Staples for non-Pantry modules
+                (Outdoor / Drivers / Utility / Payroll). */}
+            <Tile href="/pantry/browse/other" emoji="🗂" label="Other Regulars" sub="Outdoor · Drivers · Utility · Payroll"
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+              tooltip="Your family's curated regulars for Outdoor / Drivers / Utility / Payroll." />
+            <Tile href="/pantry/meals" emoji="📅" label="Meal Planner" sub="7-day timetable"
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+              tooltip="Weekly meal timetable. Bigger redesign incoming." />
+            <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+              tooltip="Helper roster + each helper's daily task list. Add ad-hoc work." />
+          </div>
 
-      {/* ── Browse & suppliers ── */}
-      <Divider label="Browse & suppliers" />
-      <div className="grid grid-cols-2 gap-3 mb-5">
-        <Tile href="/pantry/browse" emoji="🧺" label="Browse Catalogue" sub="Pantry · Foods + Household"
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
-          tooltip="The full Pantry library — Foods + Household tabs. Add to your Staples." />
-        <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
-          sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
-          tooltip="Family supplier directory + WhatsApp shortcuts." />
-      </div>
+          {/* ── Browse & suppliers ── (parent only) */}
+          <Divider label="Browse & suppliers" />
+          <div className="grid grid-cols-2 gap-3 mb-5">
+            <Tile href="/pantry/browse" emoji="🧺" label="Browse Catalogue" sub="Pantry · Foods + Household"
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+              tooltip="The full Pantry library — Foods + Household tabs. Add to your Staples." />
+            <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
+              sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
+              tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
+              tooltip="Family supplier directory + WhatsApp shortcuts." />
+          </div>
+        </>
+      )}
 
       {/* Suppliers preview — top 3, tap-through to /pantry/suppliers */}
       {sokoSuppliers.length > 0 && (
