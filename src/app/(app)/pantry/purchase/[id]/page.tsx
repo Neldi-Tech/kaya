@@ -1528,11 +1528,33 @@ function ItemRow({
               </label>
             </div>
 
+            {/* From-total calculator. (2026-05-19 — Elia: helper has a
+                line total off the receipt + the count; doing per-unit
+                math in their head was producing wrong per-unit prices
+                that broke future budget signals.) The helper enters
+                Total spent for this line + (optionally) sets Actual qty
+                above; we compute total / qty → per-unit and write it
+                back to actualCents. canonical storage stays per-unit so
+                Finances + Staples last-bought price keep working
+                unchanged. */}
+            <FromTotalCalculator
+              currency={currency}
+              actualQty={aQty}
+              onComputed={(perUnitCents, qty) => {
+                // If the user typed a qty alongside the total, set both;
+                // otherwise only the per-unit price.
+                onActual({
+                  actualCents: perUnitCents,
+                  ...(qty != null ? { actualQty: qty } : {}),
+                });
+              }}
+            />
+
             {/* Approved-vs-actual comparison strip — gives the helper a
                 clear anchor for what the parent signed off on, with a
-                live total delta so they see the budget impact as they
-                type. Only renders once they've actually entered numbers
-                (avoids the noise of −100% deltas pre-fill). */}
+                live total delta + absolute savings/over so they see
+                the budget impact as they type. Only renders once
+                they've entered numbers (avoids −100% on empty input). */}
             <div className="bg-hive-cream/60 border border-hive-line/50 rounded-lg p-2 text-[11px] font-bold">
               <div className="flex items-center justify-between gap-2 text-hive-muted">
                 <span>
@@ -1561,9 +1583,6 @@ function ItemRow({
                       )}
                     </span>
                   </div>
-                  {/* Absolute savings/overrun for this single line — same
-                      semantic colour as the chip above, plain text so it
-                      reads naturally alongside the %. (2026-05-19) */}
                   {eTotal > 0 && totalDelta !== 0 && (
                     <div className={`text-[10px] mt-0.5 text-right font-nunito font-extrabold ${
                       totalDelta > 0 ? 'text-hive-rose' : 'text-hive-green'
@@ -1579,6 +1598,109 @@ function ItemRow({
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+/** Inline "enter total → per-unit auto" helper. Collapsed by default
+ *  (link); expands into a 2-field calculator that mirrors the receipt
+ *  shape (Total + count). Writes the computed per-unit back to the
+ *  parent row. Local state only — no Firestore writes until the
+ *  parent's onActual fires. */
+function FromTotalCalculator({
+  currency, actualQty, onComputed,
+}: {
+  currency: string;
+  /** Current actualQty on the line — pre-fills the qty field when set. */
+  actualQty: number | undefined;
+  /** Called once we have a per-unit value. `qty` is the qty the helper
+   *  typed into the calculator (may differ from actualQty if they
+   *  corrected the count); parent decides whether to set actualQty. */
+  onComputed: (perUnitCents: number, qty: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [totalDraft, setTotalDraft] = useState('');
+  const [qtyDraft, setQtyDraft] = useState<string>(actualQty != null && actualQty > 0 ? String(actualQty) : '');
+
+  // Live preview of per-unit while the user is typing.
+  const totalNum = totalDraft === '' ? null : parseFloat(totalDraft);
+  const qtyNum = qtyDraft === '' ? null : parseFloat(qtyDraft);
+  const perUnit = (totalNum != null && qtyNum != null && qtyNum > 0 && totalNum >= 0)
+    ? totalNum / qtyNum
+    : null;
+
+  const apply = () => {
+    if (perUnit == null) return;
+    onComputed(Math.round(perUnit * 100), qtyNum);
+    // Reset + collapse.
+    setTotalDraft('');
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-[10px] text-pantry-leaf-dk font-nunito font-extrabold underline underline-offset-2"
+      >
+        🧮 From total → per-unit (when the receipt shows the line total)
+      </button>
+    );
+  }
+  return (
+    <div className="mt-1 bg-pantry-leaf-soft/40 border border-pantry-leaf/30 rounded-lg p-2.5">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">🧮 From total → per-unit</span>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          className="text-[10px] text-hive-muted font-bold"
+          aria-label="Close calculator"
+        >✕</button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[9px] font-bold text-hive-muted uppercase tracking-[1px]">Total spent ({currency})</span>
+          <input
+            type="number" min={0} step="0.01"
+            value={totalDraft}
+            onChange={(e) => setTotalDraft(e.target.value)}
+            placeholder="0.00"
+            className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            inputMode="decimal"
+            autoFocus
+          />
+        </label>
+        <label className="block">
+          <span className="text-[9px] font-bold text-hive-muted uppercase tracking-[1px]">Count / qty</span>
+          <input
+            type="number" min={0} step="0.01"
+            value={qtyDraft}
+            onChange={(e) => setQtyDraft(e.target.value)}
+            placeholder="0"
+            className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+            inputMode="decimal"
+          />
+        </label>
+      </div>
+      <div className="flex items-center justify-between gap-2 mt-2">
+        <div className="text-[11px] font-nunito font-bold text-hive-ink">
+          {perUnit != null ? (
+            <>= <span className="font-black">{formatCents(Math.round(perUnit * 100), currency)}</span> per unit</>
+          ) : (
+            <span className="text-hive-muted italic">Enter total + qty to compute…</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={apply}
+          disabled={perUnit == null}
+          className="bg-pantry-leaf text-white rounded-lg px-3 py-1.5 text-xs font-nunito font-black disabled:opacity-50"
+        >
+          Apply
+        </button>
+      </div>
     </div>
   );
 }
