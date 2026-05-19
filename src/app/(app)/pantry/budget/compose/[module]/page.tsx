@@ -20,10 +20,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
-import type { PurchaseModule } from '@/lib/purchase';
+import { type PurchaseModule, type PurchaseRequest, subscribeToRecentRequests } from '@/lib/purchase';
 import {
   type BudgetLine, type BudgetCadence,
   saveModuleComposer, sumMonthlyCents, toMonthlyCents, emptyDefaults,
+  recentMonthlyAverage,
 } from '@/lib/budgetComposer';
 import { subscribeToVehicles, vehicleEmoji, type Vehicle } from '@/lib/vehicles';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
@@ -78,6 +79,15 @@ export default function ComposeBudgetPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [meters, setMeters] = useState<UtilityMeter[]>([]);
   const [helpers, setHelpers] = useState<HelperLink[]>([]);
+
+  // Recent closed requests — feeds the "average spend" chip in the
+  // header so the parent can see if their draft cap is in line with
+  // reality. (Phase 2, 2026-05-19.)
+  const [recent, setRecent] = useState<PurchaseRequest[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId || profile.role !== 'parent') return;
+    return subscribeToRecentRequests(profile.familyId, setRecent);
+  }, [profile?.familyId, profile?.role]);
 
   const [saving, setSaving] = useState(false);
   const [bootstrapped, setBootstrapped] = useState(false);
@@ -260,9 +270,32 @@ export default function ComposeBudgetPage() {
 
       {/* Computed monthly header */}
       <div className={`mt-4 rounded-hive border-2 p-4 ${meta.tint} ${meta.border}`}>
-        <p className={`text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] ${meta.eyebrow}`}>
-          Computed monthly cap
-        </p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className={`text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] ${meta.eyebrow}`}>
+            Computed monthly cap
+          </p>
+          {/* Reality-check chip — recent rolling average for this
+              module. Helps the parent see if the draft they're
+              composing matches actual spend. (Phase 2, 2026-05-19) */}
+          {(() => {
+            const avgs = recentMonthlyAverage(recent, { monthsBack: 3 });
+            const avg = avgs.averages[module];
+            if (!avg || avgs.monthsCounted < 1) return null;
+            const draftMatchesAvg = monthlyCents > 0 && Math.abs(monthlyCents - avg) / avg < 0.10;
+            return (
+              <span
+                className={`text-[10px] font-nunito font-extrabold uppercase tracking-[1px] px-2 py-0.5 rounded ${
+                  draftMatchesAvg
+                    ? 'bg-pantry-leaf-soft text-pantry-leaf-dk'
+                    : 'bg-hive-cream text-hive-muted border border-hive-line'
+                }`}
+                title={`Average of the last ${avgs.monthsCounted} closed month${avgs.monthsCounted === 1 ? '' : 's'}`}
+              >
+                {avgs.monthsCounted}-mo avg · {formatCents(avg, currency)}
+              </span>
+            );
+          })()}
+        </div>
         <p className="font-nunito font-black text-3xl lg:text-4xl text-hive-ink mt-1">
           {formatCents(monthlyCents, currency)}
         </p>
