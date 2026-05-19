@@ -237,6 +237,40 @@ export default function PurchaseDetailPage() {
       setRejectNote(null);
     } finally { setBusy(false); }
   };
+
+  // 2026-05-19 — Force reject for accidentally-approved requests.
+  // Two confirmation steps because once a parent says yes, the request
+  // is locked in 'rejected' and the helper has to rebuild from scratch.
+  // Distinct from the normal reject (which fires on pending_approval);
+  // this one fires AFTER approval — the parent realised they hit the
+  // wrong button. Gated to parents + status='approved' so it can't be
+  // used to retroactively cancel a shop that's already in progress
+  // (reconciling) or closed (budget posted).
+  const forceReject = async () => {
+    if (!profile?.familyId || !profile.uid) return;
+    const okFirst = await confirmAction({
+      title: 'Force reject this approved request?',
+      message: "You approved this already. Force-rejecting will cancel it — the helper will need to rebuild from scratch or recycle a past request.",
+      confirmLabel: 'Continue',
+      tone: 'danger',
+    });
+    if (!okFirst) return;
+    const okSecond = await confirmAction({
+      title: 'Are you sure?',
+      message: 'Last check: the request will be marked Rejected and can\'t be re-approved. The auto-saved template stays available so a new request can start from it.',
+      confirmLabel: 'Yes · force reject',
+      tone: 'danger',
+    });
+    if (!okSecond) return;
+    setBusy(true);
+    try {
+      await rejectRequest(profile.familyId, req.id, profile.uid, 'Force-rejected after approval (parent correction).');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] forceReject failed:', e);
+    } finally { setBusy(false); }
+  };
+
   const startRec = async () => {
     if (!profile?.familyId) return;
     setBusy(true);
@@ -920,6 +954,20 @@ export default function PurchaseDetailPage() {
         {isApproved && role === 'parent' && (
           <button onClick={startRec} disabled={busy} className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm">
             Start reconcile (on helper's behalf)
+          </button>
+        )}
+        {/* Force reject — only when approved, parent only, only after
+            approval. Visually de-emphasised (small text-link style) so
+            it doesn't compete with Start reconcile. Two confirmations
+            fire inside forceReject() — see lib/purchase.ts comment. */}
+        {isApproved && role === 'parent' && (
+          <button
+            type="button"
+            onClick={forceReject}
+            disabled={busy}
+            className="text-hive-rose text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
+          >
+            ⚠ Force reject (approved by mistake)
           </button>
         )}
         {isReconciling && (

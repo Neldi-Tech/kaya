@@ -48,7 +48,7 @@ export default function TemplatePicker({ familyId, module, currency, onPick }: P
         aria-expanded={expanded}
       >
         <span className="font-nunito font-extrabold text-sm inline-flex items-center gap-2">
-          📋 Start from template
+          ♻️ Recycle a past request
           <span className="text-[11px] text-hive-muted font-bold">({templates.length})</span>
         </span>
         <span className="text-hive-muted text-xs font-bold">{expanded ? '▴ Hide' : '▾ Show'}</span>
