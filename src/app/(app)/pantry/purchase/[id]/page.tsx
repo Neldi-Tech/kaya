@@ -475,6 +475,7 @@ export default function PurchaseDetailPage() {
                     item={it}
                     staples={staples}
                     setBusy={setBusy}
+                    localLanguage={(family?.localLanguage ?? '').trim()}
                   />
                 : null
             }
@@ -952,13 +953,16 @@ function ItemRow({
 // Lifted into its own component because the rename + cross-check
 // state is local + the JSX is non-trivial. 2026-05-18.
 function PendingDecisionCard({
-  familyId, requestId, item, staples, setBusy,
+  familyId, requestId, item, staples, setBusy, localLanguage,
 }: {
   familyId: string;
   requestId: string;
   item: PurchaseRequestItem;
   staples: Staple[];
   setBusy: (b: boolean) => void;
+  /** Family-configured local language label ('Swahili', 'Hindi', …)
+   *  or '' for none. Drives the secondary-name input copy. */
+  localLanguage: string;
 }) {
   const confirmAction = useConfirm();
   // Edit-mode toggle — collapsed by default so the card stays small;
@@ -1075,12 +1079,14 @@ function PendingDecisionCard({
           </label>
           <label className="block">
             <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px]">
-              Local name (Swahili etc.) — optional, what helpers see first
+              {localLanguage
+                ? `Local name · ${localLanguage} — optional, what helpers see first`
+                : 'Local / native language name — optional, what helpers see first'}
             </span>
             <input
               value={name2Draft}
               onChange={(e) => setName2Draft(e.target.value)}
-              placeholder="e.g. Asali"
+              placeholder={localLanguage ? `e.g. the ${localLanguage} word` : 'e.g. the local-language equivalent'}
               maxLength={60}
               className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
             />

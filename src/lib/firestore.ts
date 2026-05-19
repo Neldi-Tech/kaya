@@ -188,6 +188,15 @@ export interface Family {
   // for already-signed-in helpers — they get bounced on their next
   // page load.
   helperSessionDays?: number;
+  // ── Local language label (2026-05-19) ─────────────────────────
+  // Free-text label for the family's second language — used in the
+  // Staples form helper text ("Local name (Swahili) — helpers see
+  // this first") and similar bilingual surfaces. Default undefined
+  // → forms show the generic "Local language" copy. Setting any
+  // value (Swahili, Hindi, French, Arabic, …) personalises every
+  // hint string accordingly. English is implicit as the primary
+  // (the `name` field of Staple).
+  localLanguage?: string;
   // ── Approval mode (Household requests) — LEGACY ──────────────
   // Family-wide default that pre-dates per-category modes
   // (introduced 2026-05-17). Still respected as the fallback when a

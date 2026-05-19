@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
@@ -37,8 +38,12 @@ const CADENCES: { id: Cadence; label: string }[] = [
 
 export default function StaplesPage() {
   const { profile, isGuest } = useAuth();
+  const { family } = useFamily();
   const { staples, sokoSuppliers } = usePantry();
   const { config } = useHive();
+  // Resolve the family's local-language label (e.g. "Swahili"); empty
+  // string falls back to the generic "Local language" copy below.
+  const localLanguage = (family?.localLanguage ?? '').trim();
   const currency = config.currency;
   const confirmAction = useConfirm();
 
@@ -209,6 +214,7 @@ export default function StaplesPage() {
           familyId={profile?.familyId || ''}
           suppliers={sokoSuppliers}
           currency={currency}
+          localLanguage={localLanguage}
           onDone={() => setAdding(false)}
         />
       )}
@@ -246,6 +252,7 @@ export default function StaplesPage() {
               viewer={viewer}
               suppliers={sokoSuppliers}
               currency={currency}
+              localLanguage={localLanguage}
               editing={editingId === s.id}
               onEditToggle={() => setEditingId((id) => (id === s.id ? null : s.id))}
               familyId={profile?.familyId || ''}
@@ -309,7 +316,7 @@ function Chip({ active, onClick, children }: { active: boolean; onClick: () => v
 }
 
 function StapleRow({
-  staple, viewer, suppliers, currency, editing, onEditToggle, familyId, isGuest,
+  staple, viewer, suppliers, currency, localLanguage, editing, onEditToggle, familyId, isGuest,
   selectMode, selected, onToggleSelect,
 }: {
   staple: Staple;
@@ -317,6 +324,10 @@ function StapleRow({
   viewer: ViewerRole;
   suppliers: import('@/lib/pantry').Supplier[];
   currency: string;
+  /** Family's local-language label ('' = none) — threaded into the
+   *  edit form so the secondary-name field reads "Local name (Swahili)"
+   *  rather than the generic copy. */
+  localLanguage: string;
   editing: boolean;
   onEditToggle: () => void;
   familyId: string;
@@ -364,6 +375,7 @@ function StapleRow({
         familyId={familyId}
         suppliers={suppliers}
         currency={currency}
+        localLanguage={localLanguage}
         existing={staple}
         onDone={onEditToggle}
         onDelete={async () => {
@@ -552,11 +564,14 @@ function StapleRow({
 }
 
 function StapleForm({
-  familyId, suppliers, currency, existing, onDone, onDelete,
+  familyId, suppliers, currency, localLanguage, existing, onDone, onDelete,
 }: {
   familyId: string;
   suppliers: import('@/lib/pantry').Supplier[];
   currency: string;
+  /** Family's local-language label ('Swahili' / 'Hindi' / etc.).
+   *  Empty string = none set → generic "Local language" copy. */
+  localLanguage: string;
   existing?: Staple;
   onDone: () => void;
   onDelete?: () => void;
@@ -680,18 +695,24 @@ function StapleForm({
 
       {/* Optional secondary / local-language name (2026-05-18). Helpers
           see this as their primary headline; parents see it muted
-          under the primary name. Both names are searchable. */}
+          under the primary name. Both names are searchable.
+          2026-05-19 — copy now reads the family's local-language label
+          from Settings ("Swahili" / "Hindi" / "Yoruba" / etc.) and
+          falls back to a generic phrase when none is set. */}
       <div>
         <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
-          Local name (optional)
+          {localLanguage ? `Local name · ${localLanguage} (optional)` : 'Local / native language name (optional)'}
           <span className="text-hive-muted/70 normal-case tracking-normal font-normal ml-1">
-            · Swahili / nanny's word — helpers see this first
+            · helpers see this first
+            {!localLanguage && (
+              <> · <Link href="/settings" className="underline">set in Settings</Link></>
+            )}
           </span>
         </label>
         <input
           value={name2}
           onChange={(e) => setName2(e.target.value)}
-          placeholder="e.g. Asali (for Honey)"
+          placeholder={localLanguage ? `e.g. the ${localLanguage} word` : 'e.g. the local-language equivalent'}
           maxLength={60}
           className="w-full mt-1 h-10 px-3 bg-hive-cream rounded-[12px] text-sm font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
         />
@@ -796,7 +817,17 @@ function StapleForm({
       </div>
 
       <div>
-        <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Last-bought price (optional)</label>
+        {/* 2026-05-19 — relabelled per Elia: the input is the
+            per-unit reference price (one mango / one kg). The
+            "last purchase total" displayed on the row is computed
+            from this price × the last actual qty captured during
+            reconcile. */}
+        <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+          Price per unit (optional)
+          <span className="ml-1 normal-case tracking-normal text-hive-muted/70 font-normal">
+            · per 1 {unitMode === 'other' ? (unitOther || 'unit') : (unit || 'unit')}
+          </span>
+        </label>
         <div className="flex items-baseline gap-2 mt-1">
           <span className="font-nunito font-black text-base text-hive-muted">{currency === 'USD' ? '$' : currency}</span>
           <NumberInput
@@ -804,10 +835,13 @@ function StapleForm({
             onChange={setLastBoughtMajor}
             allowDecimal
             min={0}
-            ariaLabel="Last-bought price"
+            ariaLabel="Price per unit"
             placeholder="0"
             className="flex-1 h-10 px-3 bg-hive-cream rounded-[12px] font-nunito font-black text-base border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
           />
+          <span className="text-[11px] text-hive-muted font-bold">
+            /{unitMode === 'other' ? (unitOther || 'unit') : (unit || 'unit')}
+          </span>
         </div>
       </div>
 

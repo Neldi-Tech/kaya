@@ -737,6 +737,61 @@ export default function SettingsPage() {
   const [savingLocation, setSavingLocation] = useState(false);
   const familyCountry = family?.location?.country || '';
   const derivedCurrency = countryToCurrency(familyCountry);
+
+  // ── Local language label (2026-05-19) ─────────────────────────
+  // Used by the Staples form to label the optional secondary-name
+  // field with the family's local language ("Swahili", "Hindi", etc.)
+  // instead of generic "Local language". English is implicit as the
+  // primary; this field is just the cosmetic label.
+  const [savingLanguage, setSavingLanguage] = useState(false);
+  const familyLocalLanguage = family?.localLanguage ?? '';
+  // 8 common picks + an "Other…" escape to free-text. Order roughly
+  // by Kaya's user base (East Africa first, then global). "None"
+  // clears the field → form falls back to the generic label.
+  const LANGUAGE_PRESETS = [
+    { value: '',           label: '— No local language (use generic label) —' },
+    { value: 'Swahili',    label: 'Swahili (Kiswahili)' },
+    { value: 'Hindi',      label: 'Hindi (हिन्दी)' },
+    { value: 'Arabic',     label: 'Arabic (العربية)' },
+    { value: 'French',     label: 'French (Français)' },
+    { value: 'Spanish',    label: 'Spanish (Español)' },
+    { value: 'Portuguese', label: 'Portuguese (Português)' },
+    { value: 'Mandarin',   label: 'Mandarin (中文)' },
+    { value: 'German',     label: 'German (Deutsch)' },
+    { value: '__other__',  label: 'Other — type below' },
+  ];
+  const presetValues = LANGUAGE_PRESETS.map((p) => p.value);
+  const initialMode = familyLocalLanguage && !presetValues.includes(familyLocalLanguage)
+    ? '__other__'
+    : familyLocalLanguage;
+  const [languageMode, setLanguageMode] = useState<string>(initialMode);
+  const [languageOther, setLanguageOther] = useState<string>(
+    familyLocalLanguage && !presetValues.includes(familyLocalLanguage) ? familyLocalLanguage : '',
+  );
+  // Keep local state in sync when the family doc changes underneath us
+  // (another parent saving in another tab).
+  useEffect(() => {
+    const newInitial = familyLocalLanguage && !presetValues.includes(familyLocalLanguage)
+      ? '__other__'
+      : familyLocalLanguage;
+    setLanguageMode(newInitial);
+    setLanguageOther(familyLocalLanguage && !presetValues.includes(familyLocalLanguage) ? familyLocalLanguage : '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyLocalLanguage]);
+  const saveLocalLanguage = async (rawValue: string) => {
+    if (!profile?.familyId || isGuest || savingLanguage) return;
+    const next = rawValue.trim() || undefined;  // empty → unset
+    if ((family?.localLanguage ?? undefined) === next) return;
+    setSavingLanguage(true);
+    try {
+      // Use null-coalesce → undefined would skip the write; explicit
+      // empty-string clears + re-saves cleanly. Cast to satisfy the
+      // typed updateFamily signature for an optional field.
+      await updateFamily(profile.familyId, { localLanguage: next ?? '' } as any);
+      await refresh();
+    } catch { /* surface via the savingLanguage spinner only */ }
+    setSavingLanguage(false);
+  };
   const handleCountryChange = async (countryCode: string) => {
     if (!profile?.familyId || !family || isGuest || savingLocation) return;
     if (!countryCode || countryCode === familyCountry) return;
@@ -1675,6 +1730,73 @@ export default function SettingsPage() {
                         No country set — using <strong>US Dollar (USD)</strong> as
                         the default. Pick your country so pantry prices show in
                         your local currency.
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {/* Local / native language (2026-05-19) — labels the
+                  optional secondary name on Staples + future bilingual
+                  surfaces with the family's actual language ("Asali"
+                  in Swahili etc.). Helpers see this name FIRST in
+                  rows so a low-literacy nanny scans faster. English
+                  is the implicit primary. */}
+              {isParent && !isGuest && (
+                <div className="border-t border-kaya-warm-dark pt-3">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">
+                      Local / native language
+                    </p>
+                    {savingLanguage && (
+                      <span className="text-[10px] text-kaya-sand">Saving…</span>
+                    )}
+                  </div>
+                  <select
+                    value={languageMode}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setLanguageMode(v);
+                      if (v !== '__other__') {
+                        saveLocalLanguage(v);
+                      }
+                    }}
+                    disabled={savingLanguage}
+                    className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-semibold focus:outline-none focus:border-kaya-chocolate disabled:opacity-60"
+                  >
+                    {LANGUAGE_PRESETS.map((p) => (
+                      <option key={p.value || 'none'} value={p.value}>{p.label}</option>
+                    ))}
+                  </select>
+                  {languageMode === '__other__' && (
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        type="text"
+                        value={languageOther}
+                        onChange={(e) => setLanguageOther(e.target.value)}
+                        placeholder="e.g. Yoruba"
+                        maxLength={40}
+                        className="flex-1 h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-semibold focus:outline-none focus:border-kaya-chocolate"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => saveLocalLanguage(languageOther)}
+                        disabled={savingLanguage || !languageOther.trim()}
+                        className="h-10 px-3 bg-kaya-chocolate text-white rounded-kaya-sm text-xs font-bold disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-kaya-sand-light leading-relaxed mt-1.5">
+                    {familyLocalLanguage ? (
+                      <>
+                        Set to <strong>{familyLocalLanguage}</strong>. Staples can carry a second name in this language —
+                        helpers see it as their primary label. Searches match either name.
+                      </>
+                    ) : (
+                      <>
+                        Default is <strong>English</strong> only. Pick a second language so helpers can search and read staples in their preferred word.
                       </>
                     )}
                   </p>
