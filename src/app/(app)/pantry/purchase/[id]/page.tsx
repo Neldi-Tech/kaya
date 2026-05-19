@@ -32,10 +32,13 @@ import {
   formatRequestSeq,
 } from '@/lib/purchase';
 import {
-  addStaple, type Staple, STAPLE_CATEGORIES,
+  addStaple, type Staple, type Cadence, STAPLE_CATEGORIES,
   displayStapleName, secondaryStapleName, stapleMatchesQuery,
   type ViewerRole,
 } from '@/lib/pantry';
+import {
+  DIRECTORY_STAPLES, DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES,
+} from '@/lib/pantryDirectory';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
 import { formatCents } from '@/components/pantry/format';
@@ -297,6 +300,147 @@ export default function PurchaseDetailPage() {
     ? pickable.filter((s) => stapleMatchesQuery(s, q))
     : pickable;
 
+  // 2026-05-19 — Catalogue fallback for the request picker. When the
+  // helper / parent searches and the family's list has no match (or
+  // few matches), we surface curated DIRECTORY items for the request's
+  // module so they can tap-to-add without leaving the request. Hidden
+  // until there's a query so the picker stays focused on the family's
+  // list by default.
+  type CuratedSuggestion = {
+    key: string; label: string; emoji: string;
+    qty: number; unit: string; cadence: Cadence;
+    note?: string;
+    /** Maps to the StapleCategory written on the new Staple. For
+     *  outdoor / drivers we re-use the curated category ids (they
+     *  type-narrow through Staple['category']). For pantry we keep the
+     *  catalogue's category as-is. Utility uses its own UtilityCategory
+     *  so this field is irrelevant there (no Staple created). */
+    stapleCategory?: Staple['category'];
+  };
+  const curatedSuggestions: CuratedSuggestion[] = (() => {
+    if (!q) return [];
+    // Names already on the family list — skip suggesting these. We
+    // compare against ALL staples (regardless of module) to avoid
+    // adding the same name twice when modules overlap loosely.
+    const familyNames = new Set(staples.map((s) => s.name.toLowerCase()));
+    const matchesQuery = (label: string, aliases: string[]) =>
+      label.toLowerCase().includes(q) || aliases.some((a) => a.includes(q));
+
+    if (reqModule === 'outdoor') {
+      return DIRECTORY_OUTDOOR
+        .filter((r) => matchesQuery(r.label, r.match))
+        .filter((r) => !familyNames.has(r.label.toLowerCase()))
+        .slice(0, 8)
+        .map((r) => ({
+          key: `${r.category}:${r.label}`,
+          label: r.label,
+          emoji: r.emoji,
+          qty: r.defaultQty,
+          unit: r.unit,
+          cadence: r.cadence,
+          note: r.note,
+          stapleCategory: r.category as Staple['category'],
+        }));
+    }
+    if (reqModule === 'drivers') {
+      return DIRECTORY_DRIVERS
+        .filter((r) => matchesQuery(r.label, r.match))
+        .filter((r) => !familyNames.has(r.label.toLowerCase()))
+        .slice(0, 8)
+        .map((r) => ({
+          key: `${r.category}:${r.label}`,
+          label: r.label,
+          emoji: r.emoji,
+          qty: r.defaultQty,
+          unit: r.unit,
+          cadence: r.cadence,
+          note: r.note,
+          stapleCategory: r.category as Staple['category'],
+        }));
+    }
+    if (reqModule === 'utility') {
+      // Utility requests don't promote to Staples (they're paid bills
+      // not list items) — but the catalogue still helps describe
+      // common bill types. Tap-to-add creates a one-off basket item.
+      return DIRECTORY_UTILITIES
+        .filter((r) => matchesQuery(r.label, r.match))
+        .slice(0, 8)
+        .map((r) => ({
+          key: `${r.category}:${r.label}`,
+          label: r.label,
+          emoji: r.emoji,
+          qty: r.defaultQty,
+          unit: r.unit,
+          cadence: r.cadence,
+          note: r.note,
+        }));
+    }
+    if (reqModule === 'pantry') {
+      return DIRECTORY_STAPLES
+        .filter((r) => matchesQuery(r.label, r.match))
+        .filter((r) => !familyNames.has(r.label.toLowerCase()))
+        .slice(0, 8)
+        .map((r) => ({
+          key: `${r.surface}:${r.label}`,
+          label: r.label,
+          emoji: r.emoji ?? '🧺',
+          qty: r.defaultQty,
+          unit: r.unit,
+          cadence: r.cadence,
+          note: r.note,
+          stapleCategory: r.category,
+        }));
+    }
+    return [];
+  })();
+
+  // Tap a curated suggestion → add to basket. For modules that have a
+  // family Staple list (pantry / outdoor / drivers), we ALSO create
+  // the Staple (pending_promote for helpers · active for parents) so
+  // the family's regulars grow with use. Utility skips that (its bills
+  // live in a separate collection).
+  const addCuratedToBasket = async (s: CuratedSuggestion) => {
+    if (!profile?.familyId) return;
+    setBusy(true);
+    try {
+      let stapleId: string | undefined;
+      if ((reqModule === 'pantry' || reqModule === 'outdoor' || reqModule === 'drivers')
+          && s.stapleCategory) {
+        stapleId = await addStaple(profile.familyId, {
+          name: s.label,
+          category: s.stapleCategory,
+          defaultQty: s.qty,
+          unit: s.unit,
+          cadence: s.cadence,
+          active: true,
+          // Helpers' picks land as pending_promote (parent reviews on
+          // the Staples page); parents' picks are active immediately.
+          status: role === 'helper' ? 'pending_promote' : 'active',
+          module: reqModule,
+        } as Omit<Staple, 'id' | 'createdAt' | 'active'> & { active?: boolean });
+      }
+      const next: PurchaseRequestItem[] = [
+        ...req.items,
+        {
+          id: cryptoRandomId(),
+          ...(stapleId ? { stapleId } : {}),
+          name: s.label,
+          ...(s.stapleCategory ? { category: s.stapleCategory } : {}),
+          qty: s.qty,
+          unit: s.unit,
+          ...(role === 'helper' && stapleId ? { pendingPromote: true } : {}),
+        },
+      ];
+      await patchItems(next);
+      setPickerQuery('');
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] addCuratedToBasket failed:', e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const total = reconcilable || isClosed
     ? sumActual(req.items)
     : sumEstimated(req.items);
@@ -520,7 +664,7 @@ export default function PurchaseDetailPage() {
                     type="text"
                     value={pickerQuery}
                     onChange={(e) => setPickerQuery(e.target.value)}
-                    placeholder={`Search ${pickable.length} staple${pickable.length === 1 ? '' : 's'}…`}
+                    placeholder={`Search ${pickable.length} ${reqModule === 'pantry' ? 'staple' : reqModule + ' regular'}${pickable.length === 1 ? '' : 's'} + catalogue…`}
                     className="w-full bg-hive-cream border border-hive-line rounded-lg pl-9 pr-9 py-2 text-sm font-nunito font-bold placeholder:text-hive-muted placeholder:font-normal focus:outline-none focus:border-pantry-leaf"
                   />
                   {pickerQuery && (
@@ -535,13 +679,10 @@ export default function PurchaseDetailPage() {
               </div>
 
               <div className="max-h-72 overflow-y-auto">
-                {pickable.length === 0 ? (
-                  <p className="text-hive-muted text-xs text-center py-6">No more staples to add. Quick-add a new one below.</p>
-                ) : filteredPickable.length === 0 ? (
-                  <p className="text-hive-muted text-xs text-center py-6">
-                    No staples match "<span className="font-bold">{pickerQuery}</span>". Quick-add a new one below.
-                  </p>
-                ) : (
+                {/* Family staples — primary block. Always rendered first
+                    when there are matches; the catalogue suggestions
+                    below act as a fallback for typos / new items. */}
+                {filteredPickable.length > 0 && (
                   filteredPickable.map((s) => (
                     <button
                       key={s.id}
@@ -564,6 +705,52 @@ export default function PurchaseDetailPage() {
                       <span className="text-pantry-leaf-dk font-nunito font-black">＋</span>
                     </button>
                   ))
+                )}
+
+                {/* Catalogue fallback — surfaces when the user has typed
+                    a query and we have curated suggestions to offer.
+                    Tap-to-add creates the Staple (pending_promote for
+                    helpers · active for parents) + adds to the basket
+                    in one step, so the family's regulars grow with use. */}
+                {curatedSuggestions.length > 0 && (
+                  <>
+                    <div className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk px-2 pt-3 pb-1 flex items-center gap-1.5">
+                      <span>From the catalogue</span>
+                      <span className="bg-hive-paper border border-hive-line rounded-full px-1.5 py-0.5 text-[9px] text-hive-muted">{curatedSuggestions.length}</span>
+                    </div>
+                    {curatedSuggestions.map((c) => (
+                      <button
+                        key={c.key}
+                        type="button"
+                        onClick={() => addCuratedToBasket(c)}
+                        disabled={busy}
+                        className="w-full flex items-center gap-3 py-2 px-2 hover:bg-hive-cream rounded-lg text-left disabled:opacity-50"
+                      >
+                        <div className="w-9 h-9 rounded-lg bg-[#FFF3D9] flex items-center justify-center text-base">{c.emoji}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-nunito font-extrabold text-sm truncate">{c.label}</div>
+                          <div className="text-[10px] text-hive-honey-dk/80 italic truncate">Catalogue suggestion</div>
+                          <div className="text-[11px] text-hive-muted truncate">
+                            {c.qty} {c.unit} · {c.cadence}{c.note ? ` · ${c.note}` : ''}
+                          </div>
+                        </div>
+                        <span className="text-hive-honey-dk font-nunito font-black">＋</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+
+                {/* Empty states — only fire when BOTH blocks are empty */}
+                {filteredPickable.length === 0 && curatedSuggestions.length === 0 && (
+                  pickable.length === 0
+                    ? <p className="text-hive-muted text-xs text-center py-6">
+                        No more {reqModule === 'pantry' ? 'staples' : reqModule + ' regulars'} to add. Quick-add a new one below.
+                      </p>
+                    : q
+                      ? <p className="text-hive-muted text-xs text-center py-6">
+                          Nothing matches "<span className="font-bold">{pickerQuery}</span>" — in your list or the catalogue. Quick-add it below.
+                        </p>
+                      : null
                 )}
               </div>
             </div>

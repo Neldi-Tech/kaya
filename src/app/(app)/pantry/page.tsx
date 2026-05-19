@@ -193,26 +193,29 @@ export default function PantryHomePage() {
       {/* ── Catalogues & plans ── */}
       <Divider label="Catalogues & plans" />
       <div className="grid grid-cols-2 gap-3 mb-2">
-        <Tile href="/pantry/staples" emoji="📦" label="Staples" sub={`Your family's regulars · ${staples.length} item${staples.length === 1 ? '' : 's'}`}
+        <Tile href="/pantry/staples" emoji="📦" label="Staples" sub={`Your family's Pantry regulars · ${staples.length} item${staples.length === 1 ? '' : 's'}`}
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
-          tooltip="Your family's curated regulars. Picked from Browse to your list." />
+          tooltip="Your family's curated Pantry regulars. Picked from Browse to your list." />
+        {/* 2026-05-19 — Other Regulars promoted into Catalogues & plans;
+            it's the conceptual peer of Staples for non-Pantry modules
+            (Outdoor / Drivers / Utility / Payroll). */}
+        <Tile href="/pantry/browse/other" emoji="🗂" label="Other Regulars" sub="Outdoor · Drivers · Utility · Payroll"
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
+          tooltip="Your family's curated regulars for Outdoor / Drivers / Utility / Payroll." />
         <Tile href="/pantry/meals" emoji="📅" label="Meal Planner" sub="7-day timetable"
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
           tooltip="Weekly meal timetable. Bigger redesign incoming." />
         <Tile href="/pantry/workplan" emoji="📋" label="Workplan" sub="Helpers · duties · ＋ assign one-off work"
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf col-span-2" subColor="text-hive-muted"
+          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted"
           tooltip="Helper roster + each helper's daily task list. Add ad-hoc work." />
       </div>
 
       {/* ── Browse & suppliers ── */}
       <Divider label="Browse & suppliers" />
-      <div className="grid grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-2 gap-3 mb-5">
         <Tile href="/pantry/browse" emoji="🧺" label="Browse Catalogue" sub="Pantry · Foods + Household"
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
           tooltip="The full Pantry library — Foods + Household tabs. Add to your Staples." />
-        <Tile href="/pantry/browse/other" emoji="📂" label="Other Catalogue" sub="Outdoor · Utility · Drivers · Payroll"
-          tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact
-          tooltip="Outdoor · Utility · Drivers · Payroll catalogues, by module." />
         <Tile href="/pantry/suppliers" emoji="🏪" label="Soko"
           sub={`${sokoSuppliers.length} supplier${sokoSuppliers.length === 1 ? '' : 's'}`}
           tint="bg-hive-paper border-hive-line hover:border-pantry-leaf" subColor="text-hive-muted" compact

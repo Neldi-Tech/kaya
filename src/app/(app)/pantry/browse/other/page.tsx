@@ -1,10 +1,18 @@
 'use client';
 
-// /pantry/browse/other — Other Catalogue · per-module sub-tabs.
+// /pantry/browse/other — Other Regulars · per-module sub-tabs.
 //
 // v5 (2026-05-19, Elia's "regulars under one roof" pass). Builds on
 // v4-final by surfacing each non-Pantry module's regulars + curated
-// suggestions in the same browse hub. Four sub-tabs:
+// suggestions in the same browse hub.
+//
+// Naming note: page-as-route still lives at /pantry/browse/other so
+// existing bookmarks + the dashboard tile keep working; the user-
+// facing label is "Other Regulars" everywhere (sidebar, dashboard,
+// page heading). Conceptually it's the peer of Staples for the four
+// non-Pantry modules.
+//
+// Four sub-tabs:
 //
 //   🌿 Outdoor  → family staples (module='outdoor') · DIRECTORY_OUTDOOR
 //                 suggestions · OUTDOOR_CATEGORIES chips
@@ -239,13 +247,13 @@ export default function OtherCataloguePage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
-          Household · Other Catalogue
+          Household · Catalogues &amp; plans
         </p>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          Your regulars
+          Other Regulars
         </h1>
         <p className="text-hive-muted text-sm mt-1">
-          One roof for all the non-Pantry regulars — Outdoor, Utility, Drivers, Payroll. Edit, add, or tap a suggestion.
+          The peer of <Link href="/pantry/staples" className="text-pantry-leaf-dk underline">Staples</Link> for everything outside the kitchen — Outdoor, Drivers, Utility, Payroll. Edit, add, or tap a suggestion.
         </p>
       </div>
 
