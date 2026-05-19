@@ -1,21 +1,20 @@
 'use client';
 
-// /pantry/budget — Household → Per-module Budget (v2, 2026-05-19).
+// /pantry/budget — Household → Per-module Budget (v3, 2026-05-19).
 //
 // Five module caps + their rolling current-month spend, derived from
-// every CLOSED PurchaseRequest. Each card edits its own cap independently
-// and writes to `family.householdBudgets[module]`. Totals roll into
-// Household Finances (sums all caps + all spend).
+// every CLOSED PurchaseRequest. Each card opens a per-module COMPOSER
+// (/pantry/budget/compose/{module}) instead of a flat number input —
+// the cap is now built up from structured line items in their natural
+// cadence (Pantry: weekly × 4 staples; Drivers: per-vehicle; …).
 //
-// v1 only rendered Pantry; the others were placeholders until each
-// module shipped. Now that all 5 are live (PR #80 finished Payroll),
-// expose them all here per Elia's 2026-05-19 budget pass.
+// v1 only rendered Pantry; v2 added the other four. v3 (this pass)
+// replaces the inline cap editor with the composer + adds an
+// auto-suggest "starter pack" CTA at the top for first-time setup.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -23,6 +22,15 @@ import {
   type PurchaseRequest, type PurchaseModule, subscribeToRecentRequests,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
+import {
+  buildStarterComposer, saveFullComposer, computeModuleMonthly,
+  type StarterInput,
+} from '@/lib/budgetComposer';
+import { subscribeToChildren, type Child } from '@/lib/firestore';
+import { subscribeToVehicles, type Vehicle } from '@/lib/vehicles';
+import { subscribeToMeters, type UtilityMeter } from '@/lib/utilityMeters';
+import { listHelpers } from '@/lib/helpers';
+import type { HelperLink } from '@/lib/firestore';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -72,10 +80,49 @@ export default function BudgetPage() {
     return subscribeToRecentRequests(profile.familyId, setRecent);
   }, [profile?.familyId, profile?.role]);
 
-  // Which module's cap editor is open (null = none).
-  const [editingModule, setEditingModule] = useState<PurchaseModule | null>(null);
-  const [draftCap, setDraftCap] = useState('');
-  const [saving, setSaving] = useState(false);
+  // Auto-suggest sheet open state. Reads kids / helpers / vehicles /
+  // meters reactively; user can tweak the count inputs before applying.
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [savingSuggest, setSavingSuggest] = useState(false);
+
+  // Family-size signals — kept in module state because the suggest
+  // sheet may bump these manually before generating the starter pack.
+  const [kids, setKids] = useState<Child[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [meters, setMeters] = useState<UtilityMeter[]>([]);
+  const [helpers, setHelpers] = useState<HelperLink[]>([]);
+  // Editable counts on the suggest sheet — start from the auto-detected
+  // numbers, then the parent can tweak (e.g. "we have 5 kids actually").
+  const [draftAdults, setDraftAdults] = useState(2);
+  const [draftKids, setDraftKids] = useState(0);
+  const [draftHelpers, setDraftHelpers] = useState(0);
+
+  // Subscribe once the user opens the suggest sheet — avoids paying
+  // for these subscriptions for parents who never use auto-suggest.
+  useEffect(() => {
+    if (!profile?.familyId || !suggestOpen) return;
+    const unsubKids = subscribeToChildren(profile.familyId, setKids);
+    const unsubVeh = subscribeToVehicles(profile.familyId, (vs) =>
+      setVehicles(vs.filter((v) => v.active !== false)));
+    const unsubMet = subscribeToMeters(profile.familyId, (ms) =>
+      setMeters(ms.filter((m) => m.active !== false)));
+    let active = true;
+    (async () => {
+      try {
+        const list = await listHelpers(profile.familyId!);
+        if (active) setHelpers(list.filter((h) => h.status !== 'removed'));
+      } catch { if (active) setHelpers([]); }
+    })();
+    return () => { unsubKids(); unsubVeh(); unsubMet(); active = false; };
+  }, [profile?.familyId, suggestOpen]);
+
+  // Sync the editable counts when the detected numbers change.
+  useEffect(() => {
+    setDraftKids(kids.length);
+  }, [kids.length]);
+  useEffect(() => {
+    setDraftHelpers(helpers.length);
+  }, [helpers.length]);
 
   if (profile && profile.role !== 'parent') {
     return (
@@ -127,22 +174,40 @@ export default function BudgetPage() {
     payroll: family?.householdBudgets?.payroll ?? 0,
   };
 
-  const startEdit = (m: PurchaseModule) => {
-    const cap = caps[m];
-    setDraftCap(cap > 0 ? (cap / 100).toFixed(2) : '');
-    setEditingModule(m);
+  // Open the per-module composer route. Each module has its own
+  // tailored editor — Pantry/Outdoor by free-form lines, Drivers by
+  // vehicle, Utility by meter, Payroll by helper.
+  const openComposer = (m: PurchaseModule) => {
+    router.push(`/pantry/budget/compose/${m}`);
   };
-  const saveCap = async () => {
-    if (!profile?.familyId || isGuest || !editingModule) { setEditingModule(null); return; }
-    setSaving(true);
+
+  // Build + show the starter-pack preview. Numbers are derived from
+  // family-size detected automatically (kids, helpers, vehicles, meters)
+  // and the user-tweakable adult count.
+  const previewStarter = useMemo(() => {
+    const input: StarterInput = {
+      adultsCount: Math.max(1, draftAdults),
+      kidsCount: Math.max(0, draftKids),
+      helpersCount: helpers.length,
+      vehicles: vehicles.map((v) => ({ id: v.id, label: v.label, type: v.type })),
+      meters: meters.map((m) => ({ id: m.id, type: m.type, label: m.label || m.type })),
+      helpers: helpers.slice(0, draftHelpers).map((h) => ({ uid: h.uid, displayName: h.displayName })),
+    };
+    return buildStarterComposer(input, currency);
+  }, [draftAdults, draftKids, draftHelpers, helpers, vehicles, meters, currency]);
+
+  const applyStarter = async () => {
+    if (!profile?.familyId || isGuest) return;
+    setSavingSuggest(true);
     try {
-      const cents = draftCap === '' ? 0 : Math.round(parseFloat(draftCap) * 100);
-      // Dot-path update so we only write the one module's cap.
-      await updateDoc(doc(db, 'families', profile.familyId), {
-        [`householdBudgets.${editingModule}`]: cents,
-      });
-      setEditingModule(null);
-    } finally { setSaving(false); }
+      await saveFullComposer(profile.familyId, previewStarter);
+      setSuggestOpen(false);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[budget] applyStarter failed:', e);
+    } finally {
+      setSavingSuggest(false);
+    }
   };
 
   // Roll-up totals for the header strip.
@@ -184,6 +249,27 @@ export default function BudgetPage() {
         </div>
       )}
 
+      {/* Auto-suggest CTA — first thing parents see. Tap opens the
+          starter-pack sheet (numbers derived from family-size signals).
+          Only shows when at LEAST ONE module is uncapped — once every
+          module has a cap, we hide it so the home stays clean. */}
+      {isParent && Object.values(caps).some((c) => !c || c <= 0) && (
+        <button
+          type="button"
+          onClick={() => setSuggestOpen(true)}
+          className="w-full mt-4 bg-gradient-to-br from-[#FFF3D9] to-[#FCD9A0] border-2 border-hive-honey rounded-hive p-3 text-left flex items-center gap-3"
+        >
+          <span className="text-2xl">✨</span>
+          <div className="flex-1 min-w-0">
+            <div className="font-nunito font-black text-sm text-hive-honey-dk">Suggest a starter budget</div>
+            <div className="text-[11px] text-hive-ink/80 font-bold mt-0.5">
+              Based on your family + helpers + vehicles + meters
+            </div>
+          </div>
+          <span className="font-nunito font-black text-hive-honey-dk text-lg">→</span>
+        </button>
+      )}
+
       {/* Per-module cards */}
       <div className="mt-4 flex flex-col gap-3">
         {MODULE_CARDS.map((m) => {
@@ -191,7 +277,6 @@ export default function BudgetPage() {
           const spent = spentByModule[m.id];
           const pct = cap > 0 ? Math.min(100, Math.round((spent / cap) * 100)) : 0;
           const over = cap > 0 && spent > cap;
-          const isEditing = editingModule === m.id;
           return (
             <div
               key={m.id}
@@ -209,9 +294,9 @@ export default function BudgetPage() {
                     </span>
                   </p>
                 </div>
-                {isParent && !isEditing && (
+                {isParent && (
                   <button
-                    onClick={() => startEdit(m.id)}
+                    onClick={() => openComposer(m.id)}
                     className="text-xs font-nunito font-bold text-pantry-leaf-dk bg-white border border-hive-line rounded-full px-3 py-1.5 flex-shrink-0"
                   >
                     {cap > 0 ? 'Edit cap' : 'Set cap'}
@@ -229,39 +314,108 @@ export default function BudgetPage() {
                 </div>
               )}
 
-              {/* Inline cap editor — one card opens at a time. */}
-              {isParent && isEditing && (
-                <div className="mt-3 bg-white border border-hive-line rounded-xl p-3">
-                  <label className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">
-                    Monthly cap for {m.label} ({currency})
-                  </label>
-                  <input
-                    autoFocus
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={draftCap}
-                    onChange={(e) => setDraftCap(e.target.value)}
-                    placeholder="e.g. 500"
-                    className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
-                  />
-                  <div className="grid grid-cols-2 gap-2 mt-2">
-                    <button
-                      onClick={() => setEditingModule(null)}
-                      className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm"
-                    >Cancel</button>
-                    <button
-                      onClick={saveCap}
-                      disabled={saving}
-                      className="bg-pantry-leaf text-white rounded-lg py-2 font-nunito font-black text-sm"
-                    >{saving ? 'Saving…' : 'Save'}</button>
-                  </div>
-                </div>
-              )}
             </div>
           );
         })}
       </div>
+
+      {/* Auto-suggest sheet — overlay that lets the parent review the
+          starter-pack numbers + tweak counts before applying to all 5
+          modules at once. (2026-05-19) */}
+      {suggestOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 z-50 flex items-end lg:items-center justify-center p-0 lg:p-6"
+          onClick={() => !savingSuggest && setSuggestOpen(false)}
+        >
+          <div
+            className="bg-hive-cream w-full max-w-md rounded-t-3xl lg:rounded-hive max-h-[88vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 pb-3 sticky top-0 bg-hive-cream border-b border-hive-line z-10">
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-nunito font-black text-xl">✨ Starter budget</h2>
+                <button
+                  type="button"
+                  onClick={() => !savingSuggest && setSuggestOpen(false)}
+                  className="text-hive-muted text-xl font-nunito font-extrabold"
+                  aria-label="Close"
+                >×</button>
+              </div>
+              <p className="text-[12px] text-hive-muted mt-1">
+                Based on your family setup. Numbers are editable in each module's composer after you apply.
+              </p>
+            </div>
+
+            <div className="p-5 pt-3">
+              {/* Family-size inputs */}
+              <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">
+                Your family
+              </p>
+              <div className="bg-hive-paper border border-hive-line rounded-hive p-3 space-y-2">
+                <CountInput
+                  label="Adults"
+                  value={draftAdults}
+                  onChange={setDraftAdults}
+                  min={1}
+                />
+                <CountInput
+                  label="Kids"
+                  value={draftKids}
+                  onChange={setDraftKids}
+                  min={0}
+                  detected={kids.length}
+                />
+                <CountInput
+                  label="Helpers"
+                  value={draftHelpers}
+                  onChange={setDraftHelpers}
+                  min={0}
+                  max={helpers.length}
+                  detected={helpers.length}
+                />
+                <DetectedRow label="Vehicles" count={vehicles.length} />
+                <DetectedRow label="Meters" count={meters.length} />
+              </div>
+
+              {/* Suggested caps preview */}
+              <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mt-4 mb-2">
+                Suggested monthly caps
+              </p>
+              <div className="bg-hive-paper border-2 border-hive-honey rounded-hive p-3">
+                {MODULE_CARDS.map((m) => {
+                  const v = computeModuleMonthly(m.id, previewStarter);
+                  return (
+                    <div key={m.id} className="flex items-center justify-between py-1.5 border-b border-hive-line last:border-0 text-sm">
+                      <span className="font-nunito font-extrabold">{m.emoji} {m.label}</span>
+                      <span className={`font-nunito font-black ${v > 0 ? 'text-hive-ink' : 'text-hive-muted'}`}>
+                        {v > 0 ? formatCents(v, currency) : '—'}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div className="flex items-center justify-between pt-2 mt-1 border-t-2 border-hive-line text-sm">
+                  <span className="font-nunito font-black">Total monthly</span>
+                  <span className="font-nunito font-black text-base">
+                    {formatCents(MODULE_CARDS.reduce((s, m) => s + computeModuleMonthly(m.id, previewStarter), 0), currency)}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={applyStarter}
+                disabled={savingSuggest}
+                className="w-full mt-4 bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+              >
+                {savingSuggest ? 'Applying…' : 'Apply starter pack →'}
+              </button>
+              <p className="text-[10px] text-hive-muted text-center mt-2">
+                Tweak each module's lines after applying — tap any module to open its composer.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Closed requests this month — combined across all modules so the
           parent sees the full month at a glance. */}
@@ -302,6 +456,52 @@ export default function BudgetPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── Suggest-sheet helpers ──────────────────────────────────────
+
+function CountInput({
+  label, value, onChange, min, max, detected,
+}: {
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  min: number;
+  max?: number;
+  detected?: number;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex-1 font-nunito font-extrabold text-sm">{label}</span>
+      {detected != null && (
+        <span className="text-[10px] font-nunito font-extrabold text-hive-muted">
+          detected: {detected}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(min, value - 1))}
+        className="w-7 h-7 rounded-full bg-hive-cream border border-hive-line font-nunito font-black text-sm"
+      >−</button>
+      <span className="w-8 text-center font-nunito font-black text-sm">{value}</span>
+      <button
+        type="button"
+        onClick={() => onChange(max != null ? Math.min(max, value + 1) : value + 1)}
+        className="w-7 h-7 rounded-full bg-hive-cream border border-hive-line font-nunito font-black text-sm"
+      >＋</button>
+    </div>
+  );
+}
+
+function DetectedRow({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="flex-1 font-nunito font-extrabold text-sm">{label}</span>
+      <span className={`text-[11px] font-nunito font-extrabold ${count > 0 ? 'text-pantry-leaf-dk' : 'text-hive-muted'}`}>
+        {count} {count === 1 ? 'detected' : 'detected'}
+      </span>
     </div>
   );
 }

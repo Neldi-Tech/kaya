@@ -221,12 +221,34 @@ export interface Family {
   // Per-module monthly caps (in cents, family display currency) that
   // roll up into the Household Finances view. Each Household module
   // gets its own cap; Finances reads them all and sums to a total.
+  //
+  // 2026-05-19 (Budget v3) — this field is now a denormalized CACHE
+  // of the computed monthly total from `budgetComposer`. The composer
+  // owns the source of truth (line items + cadence); on save we
+  // compute the monthly and write it here too so existing readers
+  // (progress bars, finances roll-up) keep working unchanged.
   householdBudgets?: {
     pantry?: number;
     outdoor?: number;
     drivers?: number;
     utility?: number;
     payroll?: number;
+  };
+  /** Structured budget breakdowns — line items in their natural
+   *  cadence (day/week/month/year), normalized to monthly on save.
+   *  See `src/lib/budgetComposer.ts` for shape + helpers. (2026-05-19) */
+  budgetComposer?: {
+    pantry?: { lines: import('./budgetComposer').BudgetLine[] };
+    outdoor?: { lines: import('./budgetComposer').BudgetLine[] };
+    drivers?: {
+      perVehicle?: Record<string, { lines: import('./budgetComposer').BudgetLine[] }>;
+      other?: { lines: import('./budgetComposer').BudgetLine[] };
+    };
+    utility?: { perMeter?: Record<string, import('./budgetComposer').BudgetLine> };
+    payroll?: {
+      perHelper?: Record<string, { monthlySalaryCents: number }>;
+      other?: { lines: import('./budgetComposer').BudgetLine[] };
+    };
   };
   /** Per-module carry-forward balance from prior closed requests
    *  where the parent chose "keep as balance" on the savings decision.
