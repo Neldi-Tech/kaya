@@ -180,21 +180,26 @@ export default function PantryTabBar() {
                 key={t.path}
                 href={t.path}
                 onClick={() => setSheetOpen(false)}
-                className="flex-1 flex flex-col items-center gap-1 py-1.5 font-nunito font-bold text-[10px] no-underline"
+                className="flex-1 min-w-0 flex flex-col items-center gap-1 py-1.5 font-nunito font-bold text-[10px] no-underline"
               >
                 <span className={`w-7 h-7 rounded-[10px] flex items-center justify-center text-base transition-colors ${
                   active ? 'bg-pantry-leaf text-white' : 'bg-hive-cream text-hive-muted'
                 }`}>
                   {t.icon}
                 </span>
-                <span className={active ? 'text-pantry-leaf-dk' : 'text-hive-muted'}>{t.label}</span>
+                {/* whitespace-nowrap so a parent's 7-tab bar (Kaya · Home
+                    · Purchase · Outdoor · Drivers · Utility · More) doesn't
+                    clip "Outdoor" → "Outdoo" on narrower phones. The
+                    parent flex-1 + min-w-0 lets each tab shrink uniformly,
+                    and the label keeps a single line. */}
+                <span className={`${active ? 'text-pantry-leaf-dk' : 'text-hive-muted'} whitespace-nowrap`}>{t.label}</span>
               </Link>
             );
           })}
           <button
             type="button"
             onClick={() => setSheetOpen((v) => !v)}
-            className="flex-1 flex flex-col items-center gap-1 py-1.5 font-nunito font-bold text-[10px]"
+            className="flex-1 min-w-0 flex flex-col items-center gap-1 py-1.5 font-nunito font-bold text-[10px]"
             aria-expanded={sheetOpen}
             aria-label="More Household surfaces"
           >
@@ -203,7 +208,7 @@ export default function PantryTabBar() {
             }`}>
               ⋯
             </span>
-            <span className={sheetOpen || moreActive ? 'text-pantry-leaf-dk' : 'text-hive-muted'}>More</span>
+            <span className={`${sheetOpen || moreActive ? 'text-pantry-leaf-dk' : 'text-hive-muted'} whitespace-nowrap`}>More</span>
           </button>
         </div>
       </div>

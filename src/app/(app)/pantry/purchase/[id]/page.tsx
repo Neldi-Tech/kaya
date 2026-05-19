@@ -861,7 +861,16 @@ export default function PurchaseDetailPage() {
             onClick={() => { setShowPicker((v) => !v); setPickerQuery(''); }}
             className="w-full bg-hive-paper border border-hive-line rounded-hive py-2.5 font-nunito font-bold text-sm text-pantry-leaf-dk"
           >
-            {showPicker ? '× Close picker' : `＋ Add from Pantry${pickable.length > 0 ? ` (${pickable.length})` : ''}`}
+            {showPicker
+              ? '× Close picker'
+              : `＋ Pick from ${
+                  reqModule === 'pantry'  ? 'Staples'
+                : reqModule === 'utility' ? 'Utilities'
+                : reqModule === 'outdoor' ? 'Outdoor'
+                : reqModule === 'drivers' ? 'Drivers'
+                : reqModule === 'payroll' ? 'Payroll'
+                : 'list'
+              }${pickable.length > 0 ? ` (${pickable.length})` : ''}`}
           </button>
           {showPicker && (
             <div className="mt-2 bg-hive-paper border border-hive-line rounded-hive p-2">
