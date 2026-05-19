@@ -272,13 +272,18 @@ const PARENT_SIDEBAR: SidebarRow[] = [
 // Helpers and kids — no Soon teasers, no collapsibles (their feature
 // set is small enough to render flat).
 const HELPER_SIDEBAR: SidebarRow[] = [
-  { kind: 'link', id: 'discover', path: '/',         icon: '🔎', label: 'Discover' },
-  { kind: 'link', id: 'home',     path: '/home',     icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'rate',     path: '/rate',     icon: '📋', label: 'Rate' },
-  { kind: 'link', id: 'award',    path: '/award',    icon: '🎖️', label: 'Award' },
-  { kind: 'link', id: 'moments',  path: '/moments',  icon: '📸', label: 'Moments' },
-  { kind: 'link', id: 'pantry',   path: '/pantry',   icon: '🛒', label: 'Pantry' },
-  { kind: 'link', id: 'profiles', path: '/profiles', icon: '👧', label: 'Kids' },
+  { kind: 'link', id: 'discover', path: '/',                icon: '🔎', label: 'Discover' },
+  { kind: 'link', id: 'home',     path: '/home',            icon: '🏠', label: 'Home' },
+  { kind: 'link', id: 'rate',     path: '/rate',            icon: '📋', label: 'Rate' },
+  { kind: 'link', id: 'award',    path: '/award',           icon: '🎖️', label: 'Award' },
+  { kind: 'link', id: 'moments',  path: '/moments',         icon: '📸', label: 'Moments' },
+  { kind: 'link', id: 'pantry',   path: '/pantry',          icon: '🛒', label: 'Pantry' },
+  // 2026-05-19 — Payroll moved out of the /pantry tile grid for helpers
+  // and surfaced directly in the sidebar / More mega-sheet, per Elia's
+  // layout refocus. Still gated by isHelperPathAllowed so a helper
+  // without the grant doesn't see it. Self-service flow is unchanged.
+  { kind: 'link', id: 'payroll',  path: '/pantry/payroll',  icon: '🤝', label: 'Payroll' },
+  { kind: 'link', id: 'profiles', path: '/profiles',        icon: '👧', label: 'Kids' },
 ];
 
 // Full kid menu in canonical order. Filtered at render time through
@@ -328,16 +333,18 @@ const KID_MOBILE_GROUPS: MobileGroup[] = [
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
-// Helper mobile nav (revised 2026-05-19 v2): per Elia's helper-login
-// audit, keep Discover (good level of data) and focus the rest on the
-// helper's most-frequent surfaces — Home, Purchase, Utility. Workplan,
-// Rate, Outdoor, Drivers etc. all stay reachable via the More mega-
-// sheet (which already builds from helper grants via isHelperRowVisible).
+// Helper mobile nav (revised 2026-05-19 v3): per Elia's layout refocus.
+// Workplan is the helper's day-of-the-week home, so it earns slot 2.
+// Pantry stays as the hub for Purchase / Utilities / Outdoor (the
+// frequent helper surfaces) — see /pantry/page.tsx for the role-aware
+// tile layout. Home (= /helper) stays in the bar for the personal
+// performance card. Payroll moves out of /pantry tiles into the More
+// mega-sheet for helpers (lives in HELPER_NAV).
 const HELPER_MOBILE_GROUPS: MobileGroup[] = [
   { kind: 'link', id: 'discover', path: '/',                icon: '🔎', label: 'Discover' },
+  { kind: 'link', id: 'workplan', path: '/pantry/workplan', icon: '📋', label: 'Workplan' },
+  { kind: 'link', id: 'pantry',   path: '/pantry',          icon: '🛒', label: 'Pantry' },
   { kind: 'link', id: 'home',     path: '/home',            icon: '🏠', label: 'Home' },
-  { kind: 'link', id: 'purchase', path: '/pantry/purchase', icon: '🧾', label: 'Purchase' },
-  { kind: 'link', id: 'utility',  path: '/pantry/utility',  icon: '⚡', label: 'Utility' },
   { kind: 'mega', id: 'more',     icon: '☰', label: 'More', title: 'All modules' },
 ];
 
