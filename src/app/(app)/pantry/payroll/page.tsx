@@ -26,7 +26,7 @@ import {
   createDraftRequest,
   deleteRequest,
 } from '@/lib/purchase';
-import { formatCents } from '@/components/pantry/format';
+import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { runPayrollGenerator, type GeneratorRun } from '@/lib/payroll';
 import { useConfirm } from '@/contexts/ConfirmContext';
@@ -396,7 +396,9 @@ function RequestRow({
         </div>
         <div className="text-right flex-shrink-0">
           <div className="font-nunito font-black text-sm text-hive-navy">
-            {formatCents(total, currency)}
+            {req.actualTotalCents != null
+              ? formatCents(total, currency)
+              : <>≈ {formatCentsBudgetNeat(total, currency)}</>}
           </div>
           <div className="text-[10px] text-hive-muted font-bold">
             {isClosed ? 'actual' : req.actualTotalCents != null ? 'actual' : 'est.'}

@@ -58,7 +58,6 @@ export default function UtilitiesPage() {
 
   const [filter, setFilter] = useState<Filter>('all');
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [payingId, setPayingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // Quick-start pack panel: collapsed by default once the family has
   // any bills (no point pushing seed UI when the list is populated).
@@ -133,7 +132,7 @@ export default function UtilitiesPage() {
         </div>
         {!isGuest && (
           <button
-            onClick={() => { setAdding((v) => !v); setEditingId(null); setPayingId(null); }}
+            onClick={() => { setAdding((v) => !v); setEditingId(null); }}
             className="h-10 px-4 rounded-hive-pill bg-pantry-leaf hover:bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] shadow-[0_8px_20px_-8px_rgba(91,168,140,0.5)]"
           >
             {adding ? 'Close' : '+ Add'}
@@ -162,7 +161,7 @@ export default function UtilitiesPage() {
             </span>
           </div>
           <p className="text-[10px] text-hive-muted mt-2 leading-relaxed">
-            Non-monthly cadences are normalised to a monthly figure. Tap a row's <strong>Mark paid</strong> to log the actual amount.
+            Non-monthly cadences are normalised to a monthly figure. Payments are recorded via the <strong>Utility request flow</strong> (request → approve → reconcile → close).
           </p>
         </div>
       )}
@@ -271,18 +270,11 @@ export default function UtilitiesPage() {
               suppliers={suppliers}
               currency={currency}
               editing={editingId === u.id}
-              paying={payingId === u.id}
               onEditToggle={() => {
                 setEditingId((id) => (id === u.id ? null : u.id));
-                setPayingId(null);
-              }}
-              onPayToggle={() => {
-                setPayingId((id) => (id === u.id ? null : u.id));
-                setEditingId(null);
               }}
               familyId={profile?.familyId || ''}
               isGuest={isGuest}
-              paidByUid={profile?.uid || ''}
             />
           ))}
         </div>
@@ -349,19 +341,16 @@ function StatusPill({ status, currency }: { status: UtilityStatus; currency: str
 }
 
 function UtilityRow({
-  utility, suppliers, currency, editing, paying,
-  onEditToggle, onPayToggle, familyId, isGuest, paidByUid,
+  utility, suppliers, currency, editing,
+  onEditToggle, familyId, isGuest,
 }: {
   utility: Utility;
   suppliers: Supplier[];
   currency: string;
   editing: boolean;
-  paying: boolean;
   onEditToggle: () => void;
-  onPayToggle: () => void;
   familyId: string;
   isGuest: boolean;
-  paidByUid: string;
 }) {
   const confirmAction = useConfirm();
   const supplier = utility.preferredSupplierId
@@ -371,7 +360,6 @@ function UtilityRow({
   const cadence = CADENCES.find((c) => c.id === utility.cadence);
   const monthly = monthlyEquivalentCents(utility.amountCents || 0, utility.cadence);
   const status = paymentStatus(utility);
-  const isPaid = status.kind === 'paid';
 
   if (editing) {
     return (
@@ -426,18 +414,14 @@ function UtilityRow({
         </div>
         {!isGuest && (
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <button
-              onClick={onPayToggle}
-              className={`h-7 px-2.5 rounded-hive-pill text-[10px] font-nunito font-black transition-colors ${
-                isPaid
-                  ? 'bg-pantry-leaf-soft text-pantry-leaf-dk border border-pantry-leaf/40'
-                  : status.kind === 'overdue'
-                    ? 'bg-hive-rose text-white'
-                    : 'bg-pantry-leaf text-white'
-              }`}
-            >
-              {paying ? 'Close' : isPaid ? '✏ Update payment' : '✓ Mark paid'}
-            </button>
+            {/* 2026-05-19 — Elia: /pantry/utilities is for DETAILS
+                (name, amount, due day, cadence). "Mark paid" was
+                misleading here — payment should come ONLY via the
+                request flow (UTL purchase request → reconcile →
+                close). The PaymentForm component is preserved
+                elsewhere in this file for a future auto-record
+                hook from request-close; we just stopped surfacing
+                the manual button + form expansion on rows. */}
             <button
               onClick={onEditToggle}
               className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk hover:underline"
@@ -447,15 +431,6 @@ function UtilityRow({
           </div>
         )}
       </div>
-      {paying && !isGuest && (
-        <PaymentForm
-          familyId={familyId}
-          utility={utility}
-          currency={currency}
-          paidByUid={paidByUid}
-          onDone={onPayToggle}
-        />
-      )}
     </div>
   );
 }
