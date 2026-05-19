@@ -21,9 +21,11 @@ import {
   subscribeToRecentRequests,
   createDraftRequest,
   createDraftFromTemplate,
+  deleteRequest,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
+import { useConfirm } from '@/contexts/ConfirmContext';
 
 // Auto-name now comes from createDraftRequest (`OUT-NNNN · DDMMYY`);
 // no module-specific context for Outdoor.
@@ -39,6 +41,24 @@ export default function OutdoorHomePage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+
+  const confirmAction = useConfirm();
+  const handleDeleteDraft = async (req: PurchaseRequest) => {
+    if (!profile?.familyId) return;
+    const ok = await confirmAction({
+      title: `Delete "${req.name || 'this draft'}"?`,
+      message: "This can't be undone.",
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await deleteRequest(profile.familyId, req.id);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[outdoor] deleteRequest failed:', e);
+    }
+  };
 
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
@@ -103,7 +123,7 @@ export default function OutdoorHomePage() {
         <>
           {drafts.length > 0 && (
             <Section title="Your drafts" tone="leaf" count={drafts.length}>
-              {drafts.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
+              {drafts.map((r) => <RequestRow key={r.id} req={r} currency={currency} onDelete={() => handleDeleteDraft(r)} />)}
             </Section>
           )}
           {inProgress.length > 0 && (
@@ -116,7 +136,7 @@ export default function OutdoorHomePage() {
 
       {role === 'parent' && drafts.length > 0 && (
         <Section title="Drafts" tone="neutral" count={drafts.length}>
-          {drafts.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
+          {drafts.map((r) => <RequestRow key={r.id} req={r} currency={currency} onDelete={() => handleDeleteDraft(r)} />)}
         </Section>
       )}
       {role === 'parent' && inProgress.length > 0 && (
@@ -211,38 +231,54 @@ function Section({
 }
 
 function RequestRow({
-  req, currency, dimmed,
+  req, currency, dimmed, onDelete,
 }: {
   req: PurchaseRequest;
   currency: string;
   dimmed?: boolean;
+  /** Render an inline × delete button at the end of the row when set.
+   *  Only passed for draft rows so non-drafts stay click-through-only. */
+  onDelete?: () => void | Promise<void>;
 }) {
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
   return (
-    <Link
-      href={`/pantry/purchase/${req.id}`}
-      className={`bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline ${dimmed ? 'opacity-70' : ''}`}
-    >
-      <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">
-        🌿
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">
-          {req.name || 'Untitled request'}
+    <div className={`flex items-stretch gap-1.5 ${dimmed ? 'opacity-70' : ''}`}>
+      <Link
+        href={`/pantry/purchase/${req.id}`}
+        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+      >
+        <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base flex-shrink-0">
+          🌿
         </div>
-        <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-          {req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}
+        <div className="flex-1 min-w-0">
+          <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">
+            {req.name || 'Untitled request'}
+          </div>
+          <div className="text-[11px] text-hive-muted font-bold mt-0.5">
+            {req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}
+          </div>
         </div>
-      </div>
-      <div className="text-right flex-shrink-0">
-        <div className="font-nunito font-black text-sm text-hive-navy">
-          {formatCents(total, currency)}
+        <div className="text-right flex-shrink-0">
+          <div className="font-nunito font-black text-sm text-hive-navy">
+            {formatCents(total, currency)}
+          </div>
+          <div className="text-[10px] text-hive-muted font-bold">
+            {isClosed ? 'actual' : req.actualTotalCents != null ? 'actual' : 'est.'}
+          </div>
         </div>
-        <div className="text-[10px] text-hive-muted font-bold">
-          {isClosed ? 'actual' : req.actualTotalCents != null ? 'actual' : 'est.'}
-        </div>
-      </div>
-    </Link>
+      </Link>
+      {onDelete && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onDelete(); }}
+          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-hive-rose font-nunito font-black hover:bg-hive-rose/10 hover:border-hive-rose"
+          aria-label="Delete this draft"
+          title="Delete draft"
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }
