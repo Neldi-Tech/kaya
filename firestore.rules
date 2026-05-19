@@ -229,6 +229,25 @@ service cloud.firestore {
             || request.auth.uid == helperUid;
           allow create, update, delete: if isParentInFamily(familyId);
         }
+
+        // ── Pay check-ins (v3 — 2026-05-19) ─────────────────
+        // One doc per day at /payCheckIns/{YYYY-MM-DD}. Helper
+        // self-logs hours/days worked; parent approves to count
+        // toward the auto-generated salary basic-pay line.
+        //   read:   parent + the helper themselves
+        //   create: parent (back-fill) + helper (self-log)
+        //   update: parent (approve / edit) + helper (re-log)
+        //   delete: parent only (reject + remove)
+        // The payroll generator reads the approved subset via the
+        // parent's session, so listApprovedCheckIns runs under the
+        // parent's auth scope.
+        match /payCheckIns/{date} {
+          allow read: if isParentInFamily(familyId)
+            || request.auth.uid == helperUid;
+          allow create, update: if isParentInFamily(familyId)
+            || request.auth.uid == helperUid;
+          allow delete: if isParentInFamily(familyId);
+        }
       }
 
       // ── Performance policy (v3 — 2026-05-18) ──────────────

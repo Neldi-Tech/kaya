@@ -26,6 +26,7 @@ import {
   createDraftRequest,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
+import { runPayrollGenerator, type GeneratorRun } from '@/lib/payroll';
 
 // Auto-name comes from createDraftRequest (`PAY-NNNN · DDMMYY`).
 // Helper displayName is passed as context: `PAY-NNNN · DDMMYY · Jacky`.
@@ -42,6 +43,24 @@ export default function PayrollHomePage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // v3 — payroll auto-generator. Runs once when a parent lands on
+  // this page; results show in a transient banner.
+  const [generatorRun, setGeneratorRun] = useState<GeneratorRun | null>(null);
+  useEffect(() => {
+    if (!profile?.familyId || !profile.uid || role !== 'parent') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const run = await runPayrollGenerator(profile.familyId, profile.uid);
+        if (!cancelled && run.generated.length > 0) {
+          setGeneratorRun(run);
+        }
+      } catch { /* swallow — page renders without the banner */ }
+    })();
+    return () => { cancelled = true; };
+  // Only re-run on family/role change, NOT on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.familyId, role]);
 
   useEffect(() => {
     if (!profile?.familyId) { setLoading(false); return; }
@@ -124,6 +143,33 @@ export default function PayrollHomePage() {
           </div>
         )}
       </div>
+
+      {/* Generator banner — surfaces what the auto-payroll just
+          created so the parent knows where to look. Dismissable. */}
+      {generatorRun && generatorRun.generated.length > 0 && (
+        <div className="bg-pantry-leaf-soft border border-pantry-leaf rounded-hive p-3 mb-3">
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <p className="font-nunito font-extrabold text-sm text-pantry-leaf-dk">
+              ⚙️ Auto-generated {generatorRun.generated.length} salary request{generatorRun.generated.length === 1 ? '' : 's'}
+            </p>
+            <button
+              type="button"
+              onClick={() => setGeneratorRun(null)}
+              className="text-[11px] text-hive-muted font-bold"
+            >Dismiss</button>
+          </div>
+          <ul className="text-[11px] text-hive-ink leading-relaxed space-y-0.5">
+            {generatorRun.generated.map((g) => (
+              <li key={g.helperUid}>
+                · <strong>{g.helperName}</strong> · pay date {g.payDate}
+              </li>
+            ))}
+          </ul>
+          <p className="text-[10px] text-hive-muted mt-1.5">
+            Review + approve them below — they appear in <strong>Awaiting your nod</strong>.
+          </p>
+        </div>
+      )}
 
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>

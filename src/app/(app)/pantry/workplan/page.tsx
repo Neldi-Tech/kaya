@@ -35,6 +35,11 @@ import PerformanceCard from '@/components/helpers/PerformanceCard';
 import { listHelpers } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
 import {
+  listPendingCheckIns, approveCheckIn, approveAllPending, deleteCheckIn,
+} from '@/lib/payCheckIns';
+import type { PayCheckIn, PayBasis } from '@/lib/firestore';
+import { toDisplayDate } from '@/lib/dates';
+import {
   getTodaysFeedback, setFeedbackNote, deleteFeedbackNote,
   type HelperFeedbackNote, type FeedbackSentiment,
 } from '@/lib/helperFeedback';
@@ -230,6 +235,16 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
               the new parentFeedback metric in PerformanceCard. v3
               2026-05-18. */}
           {isParent && <FeedbackStrip familyId={familyId} helperUid={helper.uid} />}
+
+          {/* Pay check-in approvals — only relevant for helpers on
+              hourly/daily payroll. v3 2026-05-19. */}
+          {isParent && (helper.payrollConfig?.basis === 'hourly' || helper.payrollConfig?.basis === 'daily') && (
+            <CheckInApprovals
+              familyId={familyId}
+              helperUid={helper.uid}
+              basis={helper.payrollConfig.basis}
+            />
+          )}
 
           {/* Performance card — big, icon-first, top of expanded view */}
           <PerformanceCard
@@ -428,6 +443,97 @@ function FeedbackStrip({ familyId, helperUid }: { familyId: string; helperUid: s
             {today.note ? `✏️ "${today.note}"` : '＋ Add a note'}
           </button>
         )
+      )}
+    </div>
+  );
+}
+
+// ── Pay check-in approvals (v3 — 2026-05-19) ────────────────────
+// Parent-only strip inside each expanded helper card. Lists unapproved
+// pay check-ins (hourly hours / daily-flag rows) for this helper +
+// one-tap per-row Approve + Approve-all button.
+function CheckInApprovals({
+  familyId, helperUid, basis,
+}: { familyId: string; helperUid: string; basis: PayBasis }) {
+  const { profile } = useAuth();
+  const [pending, setPending] = useState<PayCheckIn[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const reload = useCallback(async () => {
+    try {
+      const list = await listPendingCheckIns(familyId, helperUid);
+      setPending(list);
+    } catch { /* swallow */ } finally { setLoaded(true); }
+  }, [familyId, helperUid]);
+  useEffect(() => { reload(); }, [reload]);
+
+  if (!loaded) return null;
+
+  const total = pending.length;
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+      <div className="flex items-baseline justify-between gap-2 mb-1.5">
+        <p className="text-[10px] uppercase tracking-wider text-hive-muted font-bold inline-flex items-center gap-1.5">
+          🕒 Pay check-ins · {basis === 'hourly' ? 'hours' : 'days'}
+          {total > 0 && (
+            <span className="text-[10px] normal-case font-bold tracking-normal text-hive-honey-dk">
+              · {total} waiting for your nod
+            </span>
+          )}
+        </p>
+        {total > 0 && (
+          <button
+            type="button"
+            disabled={busy || !profile?.uid}
+            onClick={async () => {
+              if (!profile?.uid) return;
+              setBusy(true);
+              try { await approveAllPending(familyId, helperUid, profile.uid); await reload(); }
+              finally { setBusy(false); }
+            }}
+            className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk underline disabled:opacity-50"
+          >
+            ✓ Approve all
+          </button>
+        )}
+      </div>
+      {total === 0 ? (
+        <p className="text-[11px] text-hive-muted italic">All caught up — no check-ins waiting.</p>
+      ) : (
+        <ul className="space-y-1">
+          {pending.map((c) => (
+            <li key={c.date} className="flex items-center gap-2 text-[12px]">
+              <span className="text-hive-muted font-bold w-24 flex-shrink-0">{toDisplayDate(c.date)}</span>
+              <span className="flex-1 font-bold">
+                {c.hours} {basis === 'hourly' ? 'h' : (c.hours === 1 ? 'day' : 'days')}
+                {c.note && <span className="text-hive-muted font-normal italic ml-1.5">· {c.note}</span>}
+              </span>
+              <button
+                type="button"
+                disabled={busy || !profile?.uid}
+                onClick={async () => {
+                  if (!profile?.uid) return;
+                  setBusy(true);
+                  try { await approveCheckIn(familyId, helperUid, c.date, profile.uid); await reload(); }
+                  finally { setBusy(false); }
+                }}
+                className="text-[11px] font-extrabold text-green-700 px-1.5 disabled:opacity-50"
+              >✓ Approve</button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  try { await deleteCheckIn(familyId, helperUid, c.date); await reload(); }
+                  finally { setBusy(false); }
+                }}
+                className="text-[11px] font-bold text-hive-rose px-1 disabled:opacity-50"
+                aria-label="Reject + remove"
+              >×</button>
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );

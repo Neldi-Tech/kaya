@@ -385,6 +385,14 @@ export default function PurchaseDetailPage() {
         <VehicleBanner familyId={profile!.familyId!} vehicleId={req.vehicleId} />
       )}
 
+      {/* Auto-generated payroll paystub (v3 — 2026-05-19). Renders
+          the cycle summary in a tight pill row so the parent sees
+          basic + allowances − deductions = net at a glance before
+          scrolling into the line items. */}
+      {req.generatedBy === 'system' && req.payrollCycle && (
+        <PayrollPaystubBanner cycle={req.payrollCycle} currency={currency} />
+      )}
+
       {/* Module budget banner — kept lightweight (single Family read).
           Shows the cap + this request's estimated impact so the helper
           can scale their basket without leaving the page. Skipped if
@@ -1204,4 +1212,47 @@ function VehicleBanner({ familyId, vehicleId }: { familyId: string; vehicleId: s
 function cryptoRandomId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as any).randomUUID();
   return Math.random().toString(36).slice(2, 10);
+}
+
+// ── Payroll paystub banner (v3 — 2026-05-19) ────────────────────
+// Renders the pay-cycle summary for a system-generated salary
+// request: period + basis (with hours/days breakdown) + basic +
+// allowances − deductions = net. Sits above the item list which
+// has the per-line detail.
+function PayrollPaystubBanner({
+  cycle, currency,
+}: {
+  cycle: NonNullable<PurchaseRequest['payrollCycle']>;
+  currency: string;
+}) {
+  const basisLine =
+    cycle.basis === 'hourly' ? `${cycle.hours ?? 0}h logged` :
+    cycle.basis === 'daily'  ? `${cycle.daysWorked ?? 0} day${cycle.daysWorked === 1 ? '' : 's'} worked` :
+                                'Monthly fixed';
+  return (
+    <div className="bg-[#F4EFFB] border border-[#C9B8E5] rounded-hive p-3 mb-3">
+      <p className="text-[10px] uppercase tracking-wider font-bold text-[#5E4A8F] mb-1">
+        🤝 Auto-generated salary · {cycle.periodStart} → {cycle.periodEnd}
+      </p>
+      <p className="text-[11px] text-hive-ink mb-2">{basisLine}</p>
+      <div className="grid grid-cols-4 gap-2 text-[11px]">
+        <div>
+          <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Basic</p>
+          <p className="font-nunito font-extrabold text-sm">{formatCents(cycle.basicCents, currency)}</p>
+        </div>
+        <div>
+          <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Allowances</p>
+          <p className="font-nunito font-extrabold text-sm">+{formatCents(cycle.allowancesCents, currency)}</p>
+        </div>
+        <div>
+          <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Deductions</p>
+          <p className="font-nunito font-extrabold text-sm text-hive-rose">−{formatCents(cycle.deductionsCents, currency)}</p>
+        </div>
+        <div>
+          <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Net</p>
+          <p className="font-nunito font-black text-sm text-[#5E4A8F]">{formatCents(cycle.netCents, currency)}</p>
+        </div>
+      </div>
+    </div>
+  );
 }

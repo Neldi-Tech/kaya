@@ -14,7 +14,9 @@ import { auth } from '@/lib/firebase';
 import { signOut } from 'firebase/auth';
 import KidAvatar from '@/components/ui/KidAvatar';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
-import { ShieldCheck, Lock, Check, ClipboardList } from 'lucide-react';
+import { ShieldCheck, Lock, Check, ClipboardList, Clock } from 'lucide-react';
+import { getTodaysCheckIn, logCheckIn } from '@/lib/payCheckIns';
+import type { PayCheckIn, PayBasis } from '@/lib/firestore';
 import { KID_MODULES } from '@/lib/kidModules';
 import { HELPER_MODULE_KEY_LABEL } from '@/lib/helperModules';
 
@@ -191,6 +193,18 @@ export default function HelperPage() {
         <TodaysWorkplanCard
           familyId={profile.familyId}
           helperUid={profile.uid}
+        />
+      )}
+
+      {/* Pay check-in (v3 — 2026-05-19). Only renders for helpers
+          on hourly or daily payroll basis. Self-log per day; parent
+          approves on /pantry/workplan. */}
+      {link && profile && profile.familyId &&
+        (link.payrollConfig?.basis === 'hourly' || link.payrollConfig?.basis === 'daily') && (
+        <CheckInCard
+          familyId={profile.familyId}
+          helperUid={profile.uid}
+          basis={link.payrollConfig.basis}
         />
       )}
 
@@ -479,6 +493,138 @@ function TodaysWorkplanCard({ familyId, helperUid }: {
         </label>
         <p className="text-[10px] text-kaya-sand mt-1">Saves when you tap outside the box.</p>
       </div>
+    </div>
+  );
+}
+
+// ── Pay check-in card (v3 — 2026-05-19) ──────────────────────────
+// Renders on the helper home when their payrollConfig.basis is
+// 'hourly' or 'daily'. One-tap "Log today" for daily, or hours input
+// for hourly. Re-tapping updates + clears any prior parent approval
+// (so the parent re-reviews the new number).
+function CheckInCard({
+  familyId, helperUid, basis,
+}: { familyId: string; helperUid: string; basis: PayBasis }) {
+  const [today, setToday] = useState<PayCheckIn | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [hoursDraft, setHoursDraft] = useState<number>(8);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const t = await getTodaysCheckIn(familyId, helperUid);
+        if (!cancelled) {
+          setToday(t);
+          if (t?.hours) setHoursDraft(t.hours);
+        }
+      } catch { /* swallow */ }
+      finally { if (!cancelled) setLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, [familyId, helperUid]);
+
+  const log = async (hours: number) => {
+    setSaving(true);
+    try {
+      await logCheckIn(familyId, helperUid, { hours });
+      const t = await getTodaysCheckIn(familyId, helperUid);
+      setToday(t);
+      setEditing(false);
+    } finally { setSaving(false); }
+  };
+
+  if (!loaded) return null;
+
+  const approved = !!today?.approvedBy;
+  const ringClass = approved
+    ? 'bg-green-50 border-green-400'
+    : today
+      ? 'bg-kaya-gold-light/30 border-kaya-gold'
+      : 'bg-white border-kaya-warm-dark';
+
+  return (
+    <div className={`mb-5 lg:mb-7 border-2 rounded-kaya-lg p-4 ${ringClass}`}>
+      <div className="flex items-center gap-3">
+        <Clock size={20} className="text-kaya-chocolate flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-kaya-sand">
+            Today's pay check-in · {basis === 'hourly' ? 'Hours' : 'Day'}
+          </p>
+          {today ? (
+            <p className="text-[13px] font-bold mt-0.5">
+              Logged <strong>{today.hours} {basis === 'hourly' ? 'h' : (today.hours === 1 ? 'day' : 'days')}</strong>
+              {approved
+                ? <span className="ml-2 text-green-700 font-extrabold">✓ Approved by parent</span>
+                : <span className="ml-2 text-kaya-sand italic">waiting for parent's nod</span>}
+            </p>
+          ) : (
+            <p className="text-[13px] text-kaya-sand mt-0.5 italic">
+              Not logged yet today.
+            </p>
+          )}
+        </div>
+      </div>
+
+      {basis === 'daily' && !editing && (
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => log(1)}
+            className="bg-kaya-chocolate text-white font-bold text-sm rounded-kaya py-2.5 disabled:opacity-50"
+          >
+            {today ? 'Re-log: full day' : 'Log full day'}
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => log(0.5)}
+            className="bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-bold text-sm rounded-kaya py-2.5 disabled:opacity-50"
+          >
+            {today ? 'Re-log: half day' : 'Log half day'}
+          </button>
+        </div>
+      )}
+
+      {basis === 'hourly' && (
+        editing || !today ? (
+          <div className="mt-3 flex items-center gap-2">
+            <label className="text-[11px] text-kaya-sand font-bold">Hours:</label>
+            <input
+              type="number" min={0} step="0.25"
+              value={hoursDraft}
+              onChange={(e) => setHoursDraft(parseFloat(e.target.value) || 0)}
+              className="w-20 h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-center font-bold focus:outline-none focus:border-kaya-chocolate"
+            />
+            <button
+              type="button"
+              disabled={saving || hoursDraft <= 0}
+              onClick={() => log(hoursDraft)}
+              className="flex-1 bg-kaya-chocolate text-white font-bold text-sm rounded-kaya py-2 disabled:opacity-50"
+            >
+              {saving ? 'Logging…' : today ? 'Update hours' : 'Log hours'}
+            </button>
+            {today && (
+              <button
+                type="button"
+                onClick={() => { setEditing(false); setHoursDraft(today.hours); }}
+                className="text-[11px] text-kaya-sand font-bold"
+              >Cancel</button>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mt-2 text-[11px] font-bold text-kaya-chocolate underline"
+          >
+            ✏️ Re-log hours
+          </button>
+        )
+      )}
     </div>
   );
 }
