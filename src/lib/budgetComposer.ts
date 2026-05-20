@@ -14,6 +14,7 @@
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
+import { roundNeatCents } from './format';
 import type { PurchaseModule, PurchaseRequest } from './purchase';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -127,7 +128,7 @@ export async function saveModuleComposer(
 ): Promise<void> {
   if (isGuestActive()) return;
   const fullComposer = { ...(state ? { [module]: state } : {}) } as BudgetComposer;
-  const monthlyCents = computeModuleMonthly(module, fullComposer);
+  const monthlyCents = roundNeatCents(computeModuleMonthly(module, fullComposer));
   await updateDoc(doc(db, 'families', familyId), {
     [`budgetComposer.${module}`]: state ?? null,
     [`householdBudgets.${module}`]: monthlyCents,
@@ -145,7 +146,7 @@ export async function saveFullComposer(
   const modules: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll'];
   const patch: Record<string, unknown> = { budgetComposer: composer };
   for (const m of modules) {
-    patch[`householdBudgets.${m}`] = computeModuleMonthly(m, composer);
+    patch[`householdBudgets.${m}`] = roundNeatCents(computeModuleMonthly(m, composer));
   }
   await updateDoc(doc(db, 'families', familyId), patch);
 }

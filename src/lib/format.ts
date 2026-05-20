@@ -20,3 +20,31 @@ export function fmtSigned(n: number | null | undefined): string {
   if (n > 0) return `+${n.toLocaleString('en-US')}`;
   return n.toLocaleString('en-US');
 }
+
+/** Round a cents amount to the NEAREST "neat budget bucket" sized to
+ *  the magnitude of the figure, so rolled-up totals read cleanly
+ *  (TSh 4,995.90 → TSh 5,000). Bucket scale (in display units):
+ *    < 1,000    → nearest 10
+ *    < 100,000  → nearest 100
+ *    ≥ 100,000  → nearest 1,000
+ *  Rounds to nearest (not up) per the family's preference. Returns
+ *  cents so callers keep passing it to formatCents. */
+export function roundNeatCents(cents: number): number {
+  if (!Number.isFinite(cents) || cents <= 0) return 0;
+  const display = cents / 100;
+  let bucket: number;
+  if (display < 1000) bucket = 10;
+  else if (display < 100000) bucket = 100;
+  else bucket = 1000;
+  const bucketCents = bucket * 100;
+  return Math.round(cents / bucketCents) * bucketCents;
+}
+
+/** Strip a cents amount down to whole currency units (drop the
+ *  sub-unit "cents"). For zero-decimal currencies an entry like
+ *  KSh 50.50 (stored 5050) becomes KSh 51 (5100). Used by the
+ *  currency calibration to clean nonsensical sub-unit decimals. */
+export function roundToWholeUnitCents(cents: number): number {
+  if (!Number.isFinite(cents)) return 0;
+  return Math.round(cents / 100) * 100;
+}

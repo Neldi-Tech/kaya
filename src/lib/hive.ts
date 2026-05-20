@@ -160,21 +160,27 @@ export interface CurrencyMeta {
   /** Suggested max for the Lever B (Honey → Cash) slider — same scale concept. */
   honeyMax: number;
   honeyStep: number;
+  /** Sub-unit decimal places shown/entered. 2 for "cents" currencies
+   *  (USD, EUR…); 0 for high-denomination currencies where the minor
+   *  unit is worthless in practice (KES, TZS, NGN…). Drives both input
+   *  (no decimal point) and display (no trailing ".00"). Storage stays
+   *  in integer cents everywhere regardless. */
+  decimals: number;
 }
 
 export const CURRENCIES: CurrencyMeta[] = [
-  { code: 'USD', label: 'US Dollar',          symbol: '$',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
-  { code: 'EUR', label: 'Euro',               symbol: '€',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
-  { code: 'GBP', label: 'British Pound',      symbol: '£',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
-  { code: 'TZS', label: 'Tanzanian Shilling', symbol: 'TSh ',  smallSpends: [1000, 2500, 5000, 10000], step: 500,  max: 100000, honeyMax: 10000, honeyStep: 50 },
-  { code: 'KES', label: 'Kenyan Shilling',    symbol: 'KSh ',  smallSpends: [100, 250, 500, 1000],    step: 50,   max: 10000,  honeyMax: 500,   honeyStep: 5 },
-  { code: 'UGX', label: 'Ugandan Shilling',   symbol: 'USh ',  smallSpends: [2000, 5000, 10000, 25000], step: 500, max: 200000, honeyMax: 25000, honeyStep: 100 },
-  { code: 'ZAR', label: 'South African Rand', symbol: 'R ',    smallSpends: [10, 25, 50, 100],        step: 5,    max: 2000,   honeyMax: 100,   honeyStep: 1 },
-  { code: 'NGN', label: 'Nigerian Naira',     symbol: '₦',     smallSpends: [500, 1000, 2500, 5000],  step: 100,  max: 100000, honeyMax: 5000,  honeyStep: 25 },
-  { code: 'AED', label: 'UAE Dirham',         symbol: 'AED ',  smallSpends: [5, 10, 25, 50],          step: 1,    max: 1000,   honeyMax: 25,    honeyStep: 0.25 },
-  { code: 'INR', label: 'Indian Rupee',       symbol: '₹',     smallSpends: [50, 100, 250, 500],      step: 10,   max: 10000,  honeyMax: 500,   honeyStep: 5 },
-  { code: 'CAD', label: 'Canadian Dollar',    symbol: 'C$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
-  { code: 'AUD', label: 'Australian Dollar',  symbol: 'A$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05 },
+  { code: 'USD', label: 'US Dollar',          symbol: '$',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05, decimals: 2 },
+  { code: 'EUR', label: 'Euro',               symbol: '€',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05, decimals: 2 },
+  { code: 'GBP', label: 'British Pound',      symbol: '£',     smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05, decimals: 2 },
+  { code: 'TZS', label: 'Tanzanian Shilling', symbol: 'TSh ',  smallSpends: [1000, 2500, 5000, 10000], step: 500,  max: 100000, honeyMax: 10000, honeyStep: 50, decimals: 0 },
+  { code: 'KES', label: 'Kenyan Shilling',    symbol: 'KSh ',  smallSpends: [100, 250, 500, 1000],    step: 50,   max: 10000,  honeyMax: 500,   honeyStep: 5, decimals: 0 },
+  { code: 'UGX', label: 'Ugandan Shilling',   symbol: 'USh ',  smallSpends: [2000, 5000, 10000, 25000], step: 500, max: 200000, honeyMax: 25000, honeyStep: 100, decimals: 0 },
+  { code: 'ZAR', label: 'South African Rand', symbol: 'R ',    smallSpends: [10, 25, 50, 100],        step: 5,    max: 2000,   honeyMax: 100,   honeyStep: 1, decimals: 0 },
+  { code: 'NGN', label: 'Nigerian Naira',     symbol: '₦',     smallSpends: [500, 1000, 2500, 5000],  step: 100,  max: 100000, honeyMax: 5000,  honeyStep: 25, decimals: 0 },
+  { code: 'AED', label: 'UAE Dirham',         symbol: 'AED ',  smallSpends: [5, 10, 25, 50],          step: 1,    max: 1000,   honeyMax: 25,    honeyStep: 0.25, decimals: 2 },
+  { code: 'INR', label: 'Indian Rupee',       symbol: '₹',     smallSpends: [50, 100, 250, 500],      step: 10,   max: 10000,  honeyMax: 500,   honeyStep: 5, decimals: 0 },
+  { code: 'CAD', label: 'Canadian Dollar',    symbol: 'C$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05, decimals: 2 },
+  { code: 'AUD', label: 'Australian Dollar',  symbol: 'A$',    smallSpends: [1, 2, 5, 10],            step: 0.5,  max: 100,    honeyMax: 5,     honeyStep: 0.05, decimals: 2 },
 ];
 
 /** Find the symbol for the active currency; defaults to '$' if unknown. */
@@ -185,6 +191,20 @@ export function currencySymbol(code: string): string {
 /** Find the full meta for a currency; falls back to the USD entry. */
 export function currencyMeta(code: string): CurrencyMeta {
   return CURRENCIES.find((c) => c.code === code) || CURRENCIES[0];
+}
+
+/** Sub-unit decimal places for a currency (2 for USD/EUR…, 0 for
+ *  high-denomination currencies like KES/TZS). Unknown codes default
+ *  to 2 so a new currency never silently drops cents. */
+export function currencyDecimals(code: string): number {
+  return CURRENCIES.find((c) => c.code === code)?.decimals ?? 2;
+}
+
+/** True when the currency uses a sub-unit worth typing (USD cents).
+ *  False for whole-number currencies (KES/TZS/NGN) — used to switch
+ *  off the decimal point in amount inputs. */
+export function currencyAllowsDecimals(code: string): boolean {
+  return currencyDecimals(code) > 0;
 }
 
 // ── Country → Currency mapping ───────────────────────────────────

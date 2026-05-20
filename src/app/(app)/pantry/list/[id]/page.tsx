@@ -22,6 +22,7 @@ import {
   cryptoId,
 } from '@/lib/pantry';
 import { formatCents } from '@/components/pantry/format';
+import { currencyAllowsDecimals } from '@/lib/hive';
 import WhatsAppSendButton from '@/components/pantry/WhatsAppSendButton';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
@@ -409,7 +410,7 @@ function ListRow({
             <NumberInput
               value={(item.estimatedCents || 0) / 100}
               onChange={(n) => onChange({ estimatedCents: n > 0 ? Math.round(n * 100) : undefined })}
-              allowDecimal
+              allowDecimal={currencyAllowsDecimals(currency)}
               min={0}
               ariaLabel="Estimated cost"
               placeholder="0"

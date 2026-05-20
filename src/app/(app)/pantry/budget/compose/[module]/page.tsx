@@ -19,8 +19,9 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { formatCents } from '@/components/pantry/format';
+import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import NumberInput from '@/components/hive/NumberInput';
+import { currencyAllowsDecimals } from '@/lib/hive';
 import { type PurchaseModule, type PurchaseRequest, subscribeToRecentRequests } from '@/lib/purchase';
 import {
   type BudgetLine, type BudgetCadence,
@@ -298,7 +299,7 @@ export default function ComposeBudgetPage() {
           })()}
         </div>
         <p className="font-nunito font-black text-3xl lg:text-4xl text-hive-ink mt-1">
-          {formatCents(monthlyCents, currency)}
+          {formatCentsBudgetNeat(monthlyCents, currency)}
         </p>
         <p className="text-[11px] text-hive-muted font-bold mt-0.5">
           Auto-updates as you edit · saved to {meta.label} cap on next tap
@@ -351,7 +352,7 @@ export default function ComposeBudgetPage() {
         disabled={saving}
         className="w-full mt-5 bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
       >
-        {saving ? 'Saving…' : `Save ${meta.label} cap · ${formatCents(monthlyCents, currency)}/mo →`}
+        {saving ? 'Saving…' : `Save ${meta.label} cap · ${formatCentsBudgetNeat(monthlyCents, currency)}/mo →`}
       </button>
     </div>
   );
@@ -443,7 +444,7 @@ function LineEditor({
           <NumberInput
             value={line.amountCents / 100}
             onChange={(v) => onChange({ amountCents: Math.round(v * 100) })}
-            allowDecimal
+            allowDecimal={currencyAllowsDecimals(currency)}
             placeholder="0"
             className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
           />
@@ -668,7 +669,7 @@ function PayrollComposer({
                 <NumberInput
                   value={cents / 100}
                   onChange={(v) => updateHelper(h.uid, Math.round(v * 100))}
-                  allowDecimal
+                  allowDecimal={currencyAllowsDecimals(currency)}
                   placeholder="0"
                   className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
                 />
