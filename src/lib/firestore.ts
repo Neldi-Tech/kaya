@@ -1085,11 +1085,15 @@ export interface Notification {
     //                                   don't shop on an outdated nod.
     //   `purchase-reconciled`         — helper closed reconcile, budget
     //                                   posted; notified to all parents.
+    //   `utility-topup-reminder`      — a regular top-up's reminder day
+    //                                   arrived; nudges helpers to launch
+    //                                   a request. Links to /pantry/utility.
     // Each one's `link` deep-links to /pantry/purchase/{requestId}.
     | 'purchase-approval-requested'
     | 'purchase-approved'
     | 'purchase-rejected'
-    | 'purchase-reconciled';
+    | 'purchase-reconciled'
+    | 'utility-topup-reminder';
   title: string;
   message: string;
   read: boolean;

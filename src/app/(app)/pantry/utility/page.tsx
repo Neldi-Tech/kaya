@@ -32,6 +32,7 @@ import {
   CADENCE_LABEL, type Utility, subscribeToUtilities, paymentStatus,
 } from '@/lib/pantry';
 import { runUtilityBillGenerator } from '@/lib/utilityBills';
+import { runUtilityTopupReminders } from '@/lib/utilityReminders';
 import { getFamilyMembers } from '@/lib/firestore';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
@@ -141,6 +142,25 @@ export default function UtilityHomePage() {
       }
     })();
   }, [profile?.familyId, profile?.uid, role, isGuest, currency]);
+
+  // Run the regular top-up reminder generator on page-load — for BOTH
+  // roles, so a helper opening the app on a reminder day still triggers
+  // their own nudge (idempotent via lastRemindedKey). Reminder-only:
+  // never auto-creates a request. (2026-05-20)
+  const reminderRan = useRef(false);
+  useEffect(() => {
+    if (!profile?.familyId || isGuest) return;
+    if (reminderRan.current) return;
+    reminderRan.current = true;
+    (async () => {
+      try {
+        await runUtilityTopupReminders(profile.familyId!, { currency });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[utility] top-up reminder generator failed:', e);
+      }
+    })();
+  }, [profile?.familyId, isGuest, currency]);
 
   // Outstanding = active recurring bills with a KNOWN amount that are
   // OVERDUE this period (past due day, not paid). Amount-less bills
