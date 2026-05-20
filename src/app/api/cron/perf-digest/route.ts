@@ -205,10 +205,16 @@ async function computeHelperPerf(
   let ratingLogged = 0;
   let ratingExpected = 0;
   try {
-    const rSnap = await famRef.collection('dailyRatings').where('ratedBy', '==', uid).limit(300).get();
+    // Query by date range (single-field, no composite index) + filter
+    // ratedBy in memory — mirrors the in-app card fix. Window is small.
+    const earliest = ctx.windowDates[ctx.windowDates.length - 1];
+    const latest = ctx.windowDates[0];
+    const rSnap = await famRef.collection('dailyRatings')
+      .where('date', '>=', earliest).where('date', '<=', latest).limit(500).get();
     const kids = new Set<string>();
     for (const d of rSnap.docs) {
-      const data = d.data() as { date?: string; childId?: string };
+      const data = d.data() as { date?: string; childId?: string; ratedBy?: string };
+      if (data.ratedBy !== uid) continue;
       if (data.date && ctx.windowDates.includes(data.date)) {
         ratingLogged++;
         if (data.childId) kids.add(data.childId);
