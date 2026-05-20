@@ -891,14 +891,20 @@ export function subscribeToTemplates(
     cb([]);
     return () => {};
   }
-  const q = query(
-    templateCol(familyId),
-    where('module', '==', module),
-    orderBy('createdAt', 'desc'),
+  // Single-field equality only — `where(module) + orderBy(createdAt)` needs
+  // a composite index that isn't deployed; without it onSnapshot errors and
+  // the picker silently never renders. Sort newest-first in memory instead.
+  const q = query(templateCol(familyId), where('module', '==', module));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const templates = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as PurchaseTemplate))
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
+      cb(templates);
+    },
+    (err) => console.error('subscribeToTemplates failed', err),
   );
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PurchaseTemplate)));
-  });
 }
 
 /** Create a fresh draft from a template snapshot. Increments the
