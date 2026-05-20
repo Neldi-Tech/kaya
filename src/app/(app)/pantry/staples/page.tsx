@@ -666,6 +666,29 @@ function StapleForm({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // AI-assisted local-language name (2026-05-20). Fills `name2` from the
+  // English `name` + the family's chosen localLanguage via /api/translate.
+  const [translating, setTranslating] = useState(false);
+
+  const suggestTranslation = async () => {
+    const term = name.trim();
+    if (!term || !localLanguage || translating) return;
+    setTranslating(true);
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names: [term], language: localLanguage }),
+      });
+      const data = await res.json();
+      const native = data?.translations?.[term];
+      if (native) setName2(native);
+    } catch {
+      // Best-effort — the parent can still type the local name by hand.
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   // Typeahead suggestions from the COMMON_STAPLES dictionary. Only
   // surfaces while typing a new staple (we hide them once the user is
@@ -768,13 +791,26 @@ function StapleForm({
             )}
           </span>
         </label>
-        <input
-          value={name2}
-          onChange={(e) => setName2(e.target.value)}
-          placeholder={localLanguage ? `e.g. the ${localLanguage} word` : 'e.g. the local-language equivalent'}
-          maxLength={60}
-          className="w-full mt-1 h-10 px-3 bg-hive-cream rounded-[12px] text-sm font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
-        />
+        <div className="mt-1 flex gap-2">
+          <input
+            value={name2}
+            onChange={(e) => setName2(e.target.value)}
+            placeholder={localLanguage ? `e.g. the ${localLanguage} word` : 'e.g. the local-language equivalent'}
+            maxLength={60}
+            className="flex-1 min-w-0 h-10 px-3 bg-hive-cream rounded-[12px] text-sm font-bold border border-hive-line focus:outline-none focus:ring-2 focus:ring-pantry-leaf/40"
+          />
+          {localLanguage && (
+            <button
+              type="button"
+              onClick={suggestTranslation}
+              disabled={!name.trim() || translating}
+              className="flex-shrink-0 h-10 px-3 rounded-[12px] text-[12px] font-nunito font-extrabold border border-pantry-leaf/40 bg-pantry-leaf-soft text-pantry-leaf-dk disabled:opacity-50 hover:brightness-105"
+              title={`Suggest the ${localLanguage} word with AI`}
+            >
+              {translating ? '…' : '✨ Translate'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div>

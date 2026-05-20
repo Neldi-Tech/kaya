@@ -21,7 +21,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule, subscribeToRecentRequests,
 } from '@/lib/purchase';
-import { formatCents } from '@/components/pantry/format';
+import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import {
   buildStarterComposer, saveFullComposer, computeModuleMonthly,
   recentMonthlyAverage, suggestCapAdjustment,
@@ -431,7 +431,7 @@ export default function BudgetPage() {
                     <div key={m.id} className="flex items-center justify-between py-1.5 border-b border-hive-line last:border-0 text-sm">
                       <span className="font-nunito font-extrabold">{m.emoji} {m.label}</span>
                       <span className={`font-nunito font-black ${v > 0 ? 'text-hive-ink' : 'text-hive-muted'}`}>
-                        {v > 0 ? formatCents(v, currency) : '—'}
+                        {v > 0 ? formatCentsBudgetNeat(v, currency) : '—'}
                       </span>
                     </div>
                   );
@@ -439,7 +439,7 @@ export default function BudgetPage() {
                 <div className="flex items-center justify-between pt-2 mt-1 border-t-2 border-hive-line text-sm">
                   <span className="font-nunito font-black">Total monthly</span>
                   <span className="font-nunito font-black text-base">
-                    {formatCents(MODULE_CARDS.reduce((s, m) => s + computeModuleMonthly(m.id, previewStarter), 0), currency)}
+                    {formatCentsBudgetNeat(MODULE_CARDS.reduce((s, m) => s + computeModuleMonthly(m.id, previewStarter), 0), currency)}
                   </span>
                 </div>
               </div>

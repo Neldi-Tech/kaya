@@ -20,7 +20,7 @@ import {
   MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { sumMonthlyUtilities, sumPaidThisPeriod } from '@/lib/pantry';
-import { formatCents } from '@/components/pantry/format';
+import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -167,9 +167,9 @@ export default function FinancesPage() {
           🏡 Household total
         </p>
         <p className="font-nunito font-black text-3xl text-hive-ink mt-1">
-          {formatCents(totalSpent, currency)}
+          {formatCentsBudgetNeat(totalSpent, currency)}
           <span className="text-hive-muted text-sm font-bold">
-            {' '}of {totalCap > 0 ? formatCents(totalCap, currency) : '—'}
+            {' '}of {totalCap > 0 ? formatCentsBudgetNeat(totalCap, currency) : '—'}
           </span>
         </p>
         {totalCap > 0 && (

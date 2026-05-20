@@ -142,7 +142,8 @@ export async function saveModuleComposer(
   if (isGuestActive()) return;
   const fullComposer = { ...(state ? { [module]: state } : {}) } as BudgetComposer;
   const rawMonthly = computeModuleMonthly(module, fullComposer) + Math.max(0, extraMonthlyCents);
-  // Saved cap is rounded up to a neat budget figure (Elia 2026-05-20).
+  // Saved cap is rounded UP to a neat budget figure (Elia 2026-05-20:
+  // round UP so the cap is never below reality — safer for projection).
   // The composer state keeps exact line amounts; only the cap cache is
   // rounded so progress bars + finances read a clean number.
   const monthlyCents = roundUpDisplay(rawMonthly);

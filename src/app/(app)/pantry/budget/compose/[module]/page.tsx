@@ -21,6 +21,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents, roundUpDisplay } from '@/components/pantry/format';
 import NumberInput from '@/components/hive/NumberInput';
+import { currencyAllowsDecimals } from '@/lib/hive';
 import { type PurchaseModule, type PurchaseRequest, subscribeToRecentRequests } from '@/lib/purchase';
 import {
   type BudgetLine, type BudgetCadence,
@@ -530,7 +531,7 @@ function LineEditor({
           <NumberInput
             value={line.amountCents / 100}
             onChange={(v) => onChange({ amountCents: Math.round(v * 100) })}
-            allowDecimal
+            allowDecimal={currencyAllowsDecimals(currency)}
             placeholder="0"
             className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
           />
@@ -801,7 +802,7 @@ function PayrollComposer({
                 <NumberInput
                   value={cents / 100}
                   onChange={(v) => updateHelper(h.uid, Math.round(v * 100))}
-                  allowDecimal
+                  allowDecimal={currencyAllowsDecimals(currency)}
                   placeholder="0"
                   className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
                 />
