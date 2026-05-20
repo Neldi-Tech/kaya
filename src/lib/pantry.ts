@@ -124,8 +124,49 @@ export const STAPLE_UNITS = [
 
 /** Recurrence cadence — used to decide which staples auto-flow into
  *  next week's list (Phase 1B will run the auto-populate; Phase 1A
- *  treats every staple as "available to add to this week".) */
-export type Cadence = 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'as-needed';
+ *  treats every staple as "available to add to this week".)
+ *
+ *  Note on the two "twice" cadences (Utilities v2, 2026-05-20):
+ *    biweekly    = TWICE A WEEK  (104/yr) — historical name, kept for
+ *                  back-compat. UI labels it "2× a week".
+ *    semimonthly = TWICE A MONTH ( 24/yr) — added for utilities that
+ *                  top up on the 1st & 15th. UI labels it "2× a month".
+ *  quarterly + yearly added for recurring bills (insurance, security). */
+export type Cadence =
+  | 'daily'
+  | 'weekly'
+  | 'biweekly'      // 2× a week (104/yr)
+  | 'semimonthly'   // 2× a month (24/yr) — NEW 2026-05-20
+  | 'monthly'
+  | 'quarterly'     // NEW 2026-05-20
+  | 'yearly'        // NEW 2026-05-20
+  | 'as-needed';
+
+/** Human label for each cadence — keep "2×" phrasing explicit so the
+ *  twice-a-week vs twice-a-month distinction is never ambiguous in the
+ *  UI. Used by every utility / staple cadence picker + status line. */
+export const CADENCE_LABEL: Record<Cadence, string> = {
+  daily:       'Daily',
+  weekly:      'Weekly',
+  biweekly:    '2× a week',
+  semimonthly: '2× a month',
+  monthly:     'Monthly',
+  quarterly:   'Quarterly',
+  yearly:      'Yearly',
+  'as-needed': 'As needed',
+};
+
+/** Short label for tight chips/toggles. */
+export const CADENCE_SHORT: Record<Cadence, string> = {
+  daily:       '/day',
+  weekly:      '/wk',
+  biweekly:    '2×/wk',
+  semimonthly: '2×/mo',
+  monthly:     '/mo',
+  quarterly:   '/qtr',
+  yearly:      '/yr',
+  'as-needed': 'ad-hoc',
+};
 
 // ── Supplier (shared with future Roster) ──────────────────────────
 
@@ -739,12 +780,15 @@ export async function deleteUtility(familyId: string, utilityId: string): Promis
  *  unpredictable, so they contribute 0. */
 export function monthlyEquivalentCents(amountCents: number, cadence: Cadence): number {
   switch (cadence) {
-    case 'daily':     return Math.round((amountCents * 365) / 12);
-    case 'weekly':    return Math.round((amountCents * 52) / 12);
-    case 'biweekly':  return Math.round((amountCents * 104) / 12); // 'biweekly' = 2×/week here
-    case 'monthly':   return amountCents;
-    case 'as-needed': return 0;
-    default:          return amountCents;
+    case 'daily':       return Math.round((amountCents * 365) / 12);
+    case 'weekly':      return Math.round((amountCents * 52) / 12);
+    case 'biweekly':    return Math.round((amountCents * 104) / 12); // 2×/week (104/yr)
+    case 'semimonthly': return amountCents * 2;                      // 2×/month (24/yr)
+    case 'monthly':     return amountCents;
+    case 'quarterly':   return Math.round(amountCents / 3);          // once per 3 months
+    case 'yearly':      return Math.round(amountCents / 12);         // once per 12 months
+    case 'as-needed':   return 0;
+    default:            return amountCents;
   }
 }
 

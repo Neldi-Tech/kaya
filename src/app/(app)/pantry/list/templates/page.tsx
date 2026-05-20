@@ -140,8 +140,9 @@ const DIET_LABEL: Record<Lifestyle, string> = {
   mixed: '🥗 Mixed', veg: '🥬 Veg', vegan: '🌱 Vegan', halal: '☪️ Halal',
 };
 const CADENCE_LABEL: Record<Cadence, string> = {
-  daily: 'Daily', weekly: 'Weekly', biweekly: 'Bi-weekly',
-  monthly: 'Monthly', 'as-needed': 'As needed',
+  daily: 'Daily', weekly: 'Weekly', biweekly: '2× a week',
+  semimonthly: '2× a month', monthly: 'Monthly',
+  quarterly: 'Quarterly', yearly: 'Yearly', 'as-needed': 'As needed',
 };
 
 function buildPermutations(): Template[] {

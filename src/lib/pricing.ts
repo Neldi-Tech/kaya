@@ -163,9 +163,12 @@ export const BUDGET_MULT: Record<'lean' | 'standard' | 'generous', number> = {
  *  the same item needs more qty. Used by the generator when the
  *  parent picks monthly cadence. */
 export const CADENCE_MULT: Record<Cadence, number> = {
-  daily:      0.2,
-  weekly:     1,
-  biweekly:   2,
-  monthly:    4,
+  daily:       0.2,
+  weekly:      1,
+  biweekly:    2,    // 2× a week
+  semimonthly: 0.5,  // 2× a month → half a week's worth per occurrence
+  monthly:     4,
+  quarterly:   12,   // a quarter's worth bought at once
+  yearly:      48,   // a year's worth bought at once
   'as-needed': 0,
 };

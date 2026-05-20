@@ -17,6 +17,13 @@ import {
   METER_TYPES, meterEmoji,
   subscribeToMeters, addMeter, updateMeter, removeMeter,
 } from '@/lib/utilityMeters';
+import { type Cadence, CADENCE_LABEL } from '@/lib/pantry';
+
+// Frequency choices offered for regular top-ups. Ordered most→least
+// frequent. Excludes 'daily' (no meter tops up daily) + the long
+// recurring-bill cadences (quarterly/yearly belong to recurring bills,
+// not variable top-ups). 'as-needed' for unpredictable refills (gas).
+const TOPUP_FREQUENCIES: Cadence[] = ['weekly', 'biweekly', 'semimonthly', 'monthly', 'as-needed'];
 
 export default function UtilityMetersPage() {
   const router = useRouter();
@@ -39,8 +46,8 @@ export default function UtilityMetersPage() {
   }, [profile?.familyId, profile?.role]);
 
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<{ type: UtilityMeterType; label: string; providerRef: string; cadenceDays: string }>({
-    type: 'electric', label: '', providerRef: '', cadenceDays: '',
+  const [form, setForm] = useState<{ type: UtilityMeterType; label: string; providerRef: string; frequency: Cadence }>({
+    type: 'electric', label: '', providerRef: '', frequency: 'weekly',
   });
   const [saving, setSaving] = useState(false);
 
@@ -54,9 +61,9 @@ export default function UtilityMetersPage() {
         type: form.type,
         label,
         providerRef: form.providerRef.trim() || undefined,
-        cadenceDays: form.cadenceDays ? parseInt(form.cadenceDays, 10) : undefined,
+        frequency: form.frequency,
       });
-      setForm({ type: 'electric', label: '', providerRef: '', cadenceDays: '' });
+      setForm({ type: 'electric', label: '', providerRef: '', frequency: 'weekly' });
       setAdding(false);
     } finally { setSaving(false); }
   };
@@ -82,18 +89,26 @@ export default function UtilityMetersPage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
-          Household · Utility · Meters
-        </p>
+        <Link href="/pantry/utility/setup" className="text-[12px] text-pantry-leaf-dk font-bold no-underline hover:underline inline-block mb-2">
+          ← Utilities setup
+        </Link>
+        {/* Category banner — makes it unmistakable which of the two
+            utility categories this page configures. (Utilities v2) */}
+        <div className="rounded-hive border border-pantry-leaf bg-[#E6F2EC] p-3 mb-3">
+          <p className="font-nunito font-black text-pantry-leaf-dk text-sm flex items-center gap-1.5">
+            🔌 Regular top-ups
+          </p>
+          <p className="text-[12px] text-hive-ink mt-0.5 leading-snug">
+            Variable amount the helper buys as they run low (power, water, gas).
+            Set the meter + how often; <strong>helpers request each top-up</strong>.
+          </p>
+        </div>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
           {meters.length === 0 ? 'Add your first meter' : `${meters.length} meter${meters.length === 1 ? '' : 's'}`}
         </h1>
         <p className="text-hive-muted text-sm mt-1">
           Register each meter once. Helpers pick from this list when requesting a top-up.
         </p>
-        <Link href="/pantry/utility" className="text-[12px] text-hive-honey-dk font-bold no-underline hover:underline mt-2 inline-block">
-          ← Back to Utility
-        </Link>
       </div>
 
       {/* Add form */}
@@ -128,27 +143,37 @@ export default function UtilityMetersPage() {
               className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
             />
           </label>
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            <label className="block">
-              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Meter # (optional)</span>
-              <input
-                type="text"
-                value={form.providerRef}
-                onChange={(e) => setForm({ ...form, providerRef: e.target.value })}
-                placeholder="LUKU 0124-887"
-                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
-              />
-            </label>
-            <label className="block">
-              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Avg cycle (days)</span>
-              <input
-                type="number" min={1} max={365}
-                value={form.cadenceDays}
-                onChange={(e) => setForm({ ...form, cadenceDays: e.target.value })}
-                placeholder="9"
-                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
-              />
-            </label>
+          <label className="block mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Meter # (optional)</span>
+            <input
+              type="text"
+              value={form.providerRef}
+              onChange={(e) => setForm({ ...form, providerRef: e.target.value })}
+              placeholder="LUKU 0124-887"
+              className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1"
+            />
+          </label>
+          {/* Frequency picker — how often this top-up is bought. Named
+              choices (incl "2× a week" + "2× a month") replace the old
+              raw "avg cycle days" input. (Utilities v2, 2026-05-20) */}
+          <div className="mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">How often topped up</span>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {TOPUP_FREQUENCIES.map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setForm({ ...form, frequency: f })}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-nunito font-extrabold border ${
+                    form.frequency === f
+                      ? 'bg-hive-honey text-white border-hive-honey'
+                      : 'bg-white text-hive-muted border-hive-line'
+                  }`}
+                >
+                  {CADENCE_LABEL[f]}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2 mt-2">
             <button onClick={() => setAdding(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
@@ -201,6 +226,7 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(meter.label);
   const [providerRef, setProviderRef] = useState(meter.providerRef ?? '');
+  const [frequency, setFrequency] = useState<Cadence>(meter.frequency ?? 'weekly');
 
   const save = async () => {
     setBusy(true);
@@ -208,6 +234,7 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
       await updateMeter(familyId, meter.id, {
         label: label.trim() || meter.label,
         providerRef: providerRef.trim() || undefined,
+        frequency,
       });
       setEditing(false);
     } finally { setBusy(false); }
@@ -240,6 +267,25 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
           placeholder="Meter # (optional)"
           className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mb-2"
         />
+        <div className="mb-2">
+          <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">How often topped up</span>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {TOPUP_FREQUENCIES.map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFrequency(f)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-nunito font-extrabold border ${
+                  frequency === f
+                    ? 'bg-hive-honey text-white border-hive-honey'
+                    : 'bg-white text-hive-muted border-hive-line'
+                }`}
+              >
+                {CADENCE_LABEL[f]}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setEditing(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
           <button onClick={save} disabled={busy} className="bg-hive-honey text-white rounded-lg py-2 font-nunito font-black text-sm">Save</button>
@@ -257,7 +303,11 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
         <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{meter.label}</div>
         <div className="text-[11px] text-hive-muted font-bold mt-0.5">
           {meter.providerRef ? `# ${meter.providerRef}` : 'No meter number'}
-          {meter.cadenceDays != null && ` · ~${meter.cadenceDays}d cycle`}
+          {meter.frequency
+            ? ` · ${CADENCE_LABEL[meter.frequency]}`
+            : meter.cadenceDays != null
+              ? ` · ~${meter.cadenceDays}d cycle`
+              : ''}
         </div>
       </div>
       <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-hive-honey-dk px-2">Edit</button>

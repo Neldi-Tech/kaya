@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
+import type { Cadence } from './pantry';
 
 /** Meter type drives the emoji + picker chip colour + default
  *  cadence guess. Keep short on purpose — most families have
@@ -46,6 +47,13 @@ export interface UtilityMeter {
    *  Pantry-style Wink ("haven't topped up in 14 days, average is 9")
    *  + by the picker to surface "due now" meters first. Optional. */
   cadenceDays?: number;
+  /** How often this regular top-up is bought, as a named cadence
+   *  (Utilities v2, 2026-05-20). Replaces the raw `cadenceDays` for the
+   *  UI picker — supports "2× a week" (biweekly) + "2× a month"
+   *  (semimonthly). Feeds the Budget composer's per-meter estimate.
+   *  Optional for back-compat; absent meters fall back to a type
+   *  default (electric → weekly, others → monthly). */
+  frequency?: Cadence;
   /** Optional photo of the meter (mounted on a wall etc.) — helps
    *  helpers identify which meter is which when there are several. */
   photoUrl?: string;

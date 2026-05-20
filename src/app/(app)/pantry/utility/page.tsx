@@ -28,6 +28,7 @@ import {
 import {
   type UtilityMeter, subscribeToMeters, meterEmoji,
 } from '@/lib/utilityMeters';
+import { CADENCE_LABEL } from '@/lib/pantry';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
@@ -168,14 +169,19 @@ export default function UtilityHomePage() {
             ? 'Top-ups + bill payments for electricity, water, internet, gas, TV, security, rent.'
             : 'Request a top-up or bill payment, send for the nod, then reconcile after.'}
         </p>
-        <p className="text-[11px] text-hive-muted mt-2 font-bold">
-          Recurring bills live in <Link href="/pantry/utilities" className="text-hive-honey-dk underline">/pantry/utilities</Link>.
-          {role === 'parent' && (
-            <> Per-meter setup in <Link href="/pantry/utility-meters" className="text-hive-honey-dk underline">/utility-meters</Link>.</>
-          )}
-        </p>
+        {/* One clear entry to BOTH config categories (recurring bills +
+            regular top-ups). Replaces the old two scattered deep-links.
+            (Utilities v2, 2026-05-20) */}
+        {role === 'parent' && (
+          <Link
+            href="/pantry/utility/setup"
+            className="mt-3 inline-flex items-center gap-1.5 rounded-hive-pill border border-hive-honey bg-[#FFF3D9] px-3.5 py-2 text-[12px] font-nunito font-extrabold text-hive-honey-dk no-underline"
+          >
+            ⚙ Set up utilities →
+          </Link>
+        )}
         {role === 'parent' && meters.length > 0 && (
-          <p className="text-[11px] text-hive-honey-dk mt-1 font-bold">
+          <p className="text-[11px] text-hive-honey-dk mt-2 font-bold">
             🔌 {meters.length} meter{meters.length === 1 ? '' : 's'} registered.
           </p>
         )}
@@ -314,8 +320,10 @@ export default function UtilityHomePage() {
                     <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{m.label}</div>
                     <div className="text-[11px] text-hive-muted font-bold mt-0.5">
                       {m.providerRef ? `# ${m.providerRef}` : ''}
-                      {m.providerRef && m.cadenceDays != null && ' · '}
-                      {m.cadenceDays != null && `~${m.cadenceDays}d cycle`}
+                      {m.providerRef && (m.frequency || m.cadenceDays != null) && ' · '}
+                      {m.frequency
+                        ? CADENCE_LABEL[m.frequency]
+                        : m.cadenceDays != null ? `~${m.cadenceDays}d cycle` : ''}
                     </div>
                   </div>
                   <span className="text-hive-muted">›</span>
