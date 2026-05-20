@@ -11,7 +11,11 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { resolveApprovalRequest, ApprovalRequest } from '@/lib/hive';
 import { formatCash, formatHoney, formatHp } from './format';
 
-const TYPE_META: Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }> = {
+// Hive-native request types only. Business reuses the same queue (decision
+// §3.2) but renders its own filtered view in the Business console — so an
+// unknown (business) type here falls back to a neutral label rather than
+// being mislabelled by this Hive card.
+const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }>> = {
   hp_to_honey: { emoji: '⇆', label: 'Save HP → 🍯',     tone: 'honey' },
   cash_out:    { emoji: '🍯', label: 'Cash out 🍯 → $', tone: 'green' },
   spend:       { emoji: '🛒', label: 'Cash spend',      tone: 'rose'  },
@@ -21,7 +25,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
   const { profile } = useAuth();
   const { children } = useFamily();
   const kid = children.find((c) => c.id === req.kidId);
-  const meta = TYPE_META[req.type];
+  const meta = TYPE_META[req.type] ?? { emoji: '•', label: 'Request', tone: 'honey' as const };
   const [resolving, setResolving] = useState<'approve' | 'reject' | null>(null);
   const [showReject, setShowReject] = useState(false);
   const [reason, setReason] = useState('');

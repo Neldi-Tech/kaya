@@ -33,7 +33,20 @@ export type HiveLayer = 'house_points' | 'honey' | 'cash';
 export type TxDirection = 'in' | 'out';
 export type TxStatus = 'completed' | 'pending_approval' | 'approved' | 'rejected';
 
-export type ApprovalType = 'hp_to_honey' | 'cash_out' | 'spend';
+export type ApprovalType =
+  | 'hp_to_honey' | 'cash_out' | 'spend'
+  // ── Kaya Business ──────────────────────────────────────────────
+  // Business reuses this one queue so the parent inbox stays unified
+  // (the Business console renders a filtered view via `module`). The
+  // resolution branches for these land in the Business PRs (PR2/PR6);
+  // until then no business requests are created, so the resolve switch's
+  // existing else-throw is a correct guard.
+  | 'business_launch'        // idea/pilot → active (single-parent in Phase 1)
+  | 'business_price_change'  // price moved outside the business's band
+  | 'neighbours_unlock'      // open sales to neighbours (dual-parent, Phase 2)
+  | 'investment_buy'         // simulated buy (single-parent OK in Phase 1)
+  | 'investment_sell'        // simulated sell
+  | 'capital_injection';     // parent loan/gift into a kid's business
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -427,6 +440,21 @@ export interface ApprovalRequest {
   hpAmount?: number;
   description: string;
   category?: TxCategory;
+  // ── Kaya Business (optional; absent on Hive-native requests) ──────
+  /** Discriminates the parent inbox into sections. Absent / 'hive' = a Hive
+   *  request. Resolved business requests are retained (never deleted) so the
+   *  Business console can show them as approval history for future reference. */
+  module?: 'hive' | 'business';
+  businessId?: string;
+  instrumentSymbol?: string;        // investment_buy / investment_sell
+  shares?: number;                  // investment_buy / investment_sell
+  /** Snapshot of the AI co-pilot context shown to the parent at decide time. */
+  aiContext?: string;
+  /** Dual-parent gate: distinct parent approvals required (default 1). Phase 1
+   *  keeps everything single-parent; `approvals` collects approver uids so
+   *  Phase 2 can switch on dual-parent without a migration. */
+  requiredApprovals?: number;
+  approvals?: string[];
   status: ApprovalStatus;
   rejectionReason?: string;
   resultingTxIds?: string[];
