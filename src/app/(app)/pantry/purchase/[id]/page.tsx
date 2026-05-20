@@ -46,6 +46,8 @@ import {
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
+import { currencyAllowsDecimals } from '@/lib/hive';
+import NumberInput from '@/components/hive/NumberInput';
 import {
   notifyPurchaseApprovalRequested, notifyPurchaseApproved,
   notifyPurchaseRejected, notifyPurchaseReconciled,
@@ -1639,10 +1641,13 @@ function ItemRow({
                     <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(pricePct)}`}>{fmt(pricePct)}</span>
                   )}
                 </span>
-                <input
-                  type="number" step="0.01" min={0}
-                  value={aPrice != null ? (aPrice / 100).toString() : ''}
-                  onChange={(e) => onActual({ actualCents: e.target.value === '' ? 0 : Math.round(parseFloat(e.target.value) * 100) })}
+                <NumberInput
+                  value={aPrice != null ? aPrice / 100 : 0}
+                  onChange={(n) => onActual({ actualCents: n > 0 ? Math.round(n * 100) : 0 })}
+                  allowDecimal={currencyAllowsDecimals(currency)}
+                  min={0}
+                  ariaLabel="Actual price each"
+                  placeholder="0"
                   className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
                 />
               </label>
