@@ -34,27 +34,30 @@ export default function PerformanceCard({
   const { config } = useHive();
   const currency = config.currency;
 
-  // Period filter (2026-05-20) — lets the parent/helper scope the
-  // metrics to a defined window instead of a fixed "last 7 days", so
-  // the numbers are realistic + comparable. "This month" = days elapsed
-  // so far this month. Defaults to the `days` prop or 7.
-  const PERIODS: { id: string; label: string; days: number }[] = [
+  // Period filter (2026-05-20) — scope the metrics to a defined window.
+  // "Today" includes the live in-progress day (so today's ratings/tasks
+  // show — the view a parent uses to confirm fills are coming in). The
+  // historical periods exclude today for a settled, fair score.
+  // "This month" = days elapsed so far this month.
+  const PERIODS: { id: string; label: string; days: number; includeToday?: boolean }[] = [
+    { id: 'today', label: 'Today', days: 1, includeToday: true },
     { id: '7', label: '7 days', days: 7 },
     { id: '30', label: '30 days', days: 30 },
     { id: 'month', label: 'This month', days: Math.max(1, new Date().getDate()) },
   ];
-  const [periodId, setPeriodId] = useState<string>(days === 30 ? '30' : '7');
-  // Compact rows (lists) honour the caller's fixed `days`; the full card
-  // uses the interactive period selector.
-  const periodDays = compact
-    ? (days ?? 7)
-    : (PERIODS.find((p) => p.id === periodId)?.days ?? 7);
+  // Default to Today so the freshest activity (incl. today's ratings) is
+  // what you see first; switch to a historical period for the settled score.
+  const [periodId, setPeriodId] = useState<string>(days === 30 ? '30' : days === 7 ? '7' : 'today');
+  const activePeriod = PERIODS.find((p) => p.id === periodId);
+  // Compact rows (lists) honour the caller's fixed `days` (historical).
+  const periodDays = compact ? (days ?? 7) : (activePeriod?.days ?? 1);
+  const includeToday = compact ? false : (activePeriod?.includeToday ?? false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const p = await getHelperPerformance(familyId, helperUid, { days: periodDays });
+        const p = await getHelperPerformance(familyId, helperUid, { days: periodDays, includeToday });
         if (!cancelled) setPerf(p);
       } catch {
         // Best-effort: a perf card that can't load shouldn't break
@@ -62,7 +65,7 @@ export default function PerformanceCard({
       }
     })();
     return () => { cancelled = true; };
-  }, [familyId, helperUid, periodDays]);
+  }, [familyId, helperUid, periodDays, includeToday]);
 
   if (!perf) {
     return (
@@ -169,8 +172,10 @@ export default function PerformanceCard({
           label="Tasks done"
           value={`${perf.tasksDone} / ${perf.tasksScheduled}`}
           subtitle={perf.tasksScheduled > 0
-            ? `due over ${perf.scheduledDays} day${perf.scheduledDays === 1 ? '' : 's'} (excl. today)`
-            : 'nothing due yet'}
+            ? (periodId === 'today'
+                ? 'scheduled today'
+                : `due over ${perf.scheduledDays} day${perf.scheduledDays === 1 ? '' : 's'} (excl. today)`)
+            : (periodId === 'today' ? 'nothing scheduled today' : 'nothing due yet')}
         />
         <MetricBlock
           icon={<Star size={11} />}
@@ -178,7 +183,7 @@ export default function PerformanceCard({
           value={perf.ratingCompletion.scorePct === null ? '—' : `${perf.ratingCompletion.scorePct}%`}
           subtitle={perf.ratingCompletion.expected > 0
             ? `${perf.ratingCompletion.logged} / ${perf.ratingCompletion.expected} logged`
-            : 'no expectation set'}
+            : (periodId === 'today' ? 'no ratings logged today yet' : 'assign kids in Settings → Helpers')}
           excluded={perf.excludedMetrics.includes('ratingCompletion')}
           weight={perf.policy.weights.ratingCompletion}
         />
