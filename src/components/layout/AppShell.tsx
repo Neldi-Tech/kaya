@@ -236,10 +236,11 @@ const HIVE_NAV: NavItem[] = [
   { path: '/parent/hive-deposit', icon: '💸', label: 'Deposit cash' },
 ];
 
-// Kaya Business · micro-enterprises. Coming soon — one placeholder
-// sub-item announces the module until it ships.
+// Kaya Business · micro-enterprises. Kid Portfolio at /business; the parent
+// Family Console (grid + approvals) at /parent/business.
 const BUSINESS_NAV: NavItem[] = [
-  { path: '/business', icon: '💼', label: 'Overview' },
+  { path: '/business',        icon: '💼', label: 'Overview' },
+  { path: '/parent/business', icon: '🧭', label: 'Family console' },
 ];
 
 // Stats · reports & trends. Collapsed by default to keep the menu calm.
@@ -276,7 +277,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KAYA_NAV },
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
-  { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV },
+  { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: FUN_NAV },
