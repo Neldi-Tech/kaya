@@ -110,6 +110,16 @@ async function run(req: NextRequest) {
       .map((d) => ({ uid: d.id, ...(d.data() as Record<string, unknown>) }))
       .filter((h) => (h as { status?: string }).status !== 'removed');
 
+    // Active routine count per period — denominator for partial
+    // "by checks" rating credit. Read once from the family doc (already
+    // loaded), shared across all helpers in the family.
+    const routineCount: Record<string, number> = { morning: 0, evening: 0 };
+    for (const r of ((famDoc.data()?.routines ?? []) as { period?: string; active?: boolean }[])) {
+      if (r.active === false) continue;
+      if (r.period === 'morning') routineCount.morning++;
+      else if (r.period === 'evening') routineCount.evening++;
+    }
+
     const digestHelpers = [];
     for (const h of helpers) {
       const uid = (h as { uid: string }).uid;
@@ -118,7 +128,7 @@ async function run(req: NextRequest) {
       const expectedFrequency = (h as { expectedFrequency?: string }).expectedFrequency;
       try {
         const perf = await computeHelperPerf(db, famDoc.ref, uid, {
-          assignedKids, expectedFrequency, windowDates, sinceMs,
+          assignedKids, expectedFrequency, windowDates, sinceMs, routineCount,
         });
         const face = perfFace(perf.consolidatedPct);
         digestHelpers.push({
@@ -172,7 +182,7 @@ async function computeHelperPerf(
   db: FirebaseFirestore.Firestore,
   famRef: FirebaseFirestore.DocumentReference,
   uid: string,
-  ctx: { assignedKids: number; expectedFrequency?: string; windowDates: string[]; sinceMs: number },
+  ctx: { assignedKids: number; expectedFrequency?: string; windowDates: string[]; sinceMs: number; routineCount: Record<string, number> },
 ): Promise<PerfResult> {
   const helperRef = famRef.collection('helpers').doc(uid);
 
@@ -212,12 +222,21 @@ async function computeHelperPerf(
     const rSnap = await famRef.collection('ratings')
       .where('date', '>=', earliest).where('date', '<=', latest).limit(500).get();
     const kids = new Set<string>();
+    let weightedLogged = 0; // partial-by-checks sum
     for (const d of rSnap.docs) {
-      const data = d.data() as { date?: string; childId?: string; ratedBy?: string };
+      const data = d.data() as {
+        date?: string; childId?: string; ratedBy?: string;
+        period?: string; ratings?: Record<string, string>;
+      };
       if (data.ratedBy !== uid) continue;
       if (data.date && ctx.windowDates.includes(data.date)) {
         ratingLogged++;
         if (data.childId) kids.add(data.childId);
+        // Partial credit by checks marked (incl 'skip'); unmarked
+        // routines reduce the slot. Falls back to full when no count.
+        const marked = data.ratings ? Object.keys(data.ratings).length : 0;
+        const total = data.period ? (ctx.routineCount[data.period] ?? 0) : 0;
+        weightedLogged += total > 0 ? Math.min(1, marked / total) : (marked > 0 ? 1 : 0);
       }
     }
     const perDay = ctx.expectedFrequency === 'both' ? 2 : 1;
@@ -225,7 +244,7 @@ async function computeHelperPerf(
     if (effectiveKids > 0) {
       ratingExpected = effectiveKids * perDay * WINDOW_DAYS;
       ratingPct = ratingExpected === 0 ? null
-        : Math.max(0, Math.min(100, Math.round((ratingLogged / ratingExpected) * 100)));
+        : Math.max(0, Math.min(100, Math.round((weightedLogged / ratingExpected) * 100)));
     }
   } catch { /* leave null */ }
 
@@ -234,15 +253,22 @@ async function computeHelperPerf(
   let budgetVariance = 0;
   let shopsCount = 0;
   try {
-    const sSnap = await famRef.collection('purchaseRequests').where('createdBy', '==', uid).limit(200).get();
+    // Shops the helper SHOPPED — created OR reconciled. Two single-field
+    // queries merged + deduped (no composite index).
+    const [createdSnap, reconciledSnap] = await Promise.all([
+      famRef.collection('purchaseRequests').where('createdBy', '==', uid).limit(200).get(),
+      famRef.collection('purchaseRequests').where('submittedForCloseBy', '==', uid).limit(200).get(),
+    ]);
     let est = 0; let act = 0;
-    for (const d of sSnap.docs) {
+    const seen = new Set<string>();
+    for (const d of [...createdSnap.docs, ...reconciledSnap.docs]) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
       const r = d.data() as {
-        createdByRole?: string; status?: string;
+        status?: string;
         estimatedTotalCents?: number; actualTotalCents?: number;
         closedAt?: FirebaseFirestore.Timestamp; submittedForCloseAt?: FirebaseFirestore.Timestamp; reconciledAt?: FirebaseFirestore.Timestamp;
       };
-      if (r.createdByRole !== 'helper') continue;
       if (r.status !== 'closed' && r.status !== 'pending_close') continue;
       const stamp = r.closedAt ?? r.submittedForCloseAt ?? r.reconciledAt;
       const ms = stamp?.toMillis?.();

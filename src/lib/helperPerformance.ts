@@ -220,37 +220,46 @@ export async function getHelperBudgetMetric(
   since.setDate(since.getDate() - days);
   const sinceMs = since.getTime();
 
-  // 2026-05-20 fix — query by createdBy (single-field, always indexed)
-  // instead of status+closedAt (composite index that can silently
-  // diverge from prod → metric never shows). We then filter in memory:
-  //   • status ∈ {closed, pending_close} — the helper's shopping +
-  //     reconcile is DONE at pending_close (actuals submitted); waiting
-  //     on the parent's budget approval shouldn't hide it. This is why
-  //     "bought yesterday" didn't show: the submit-for-review flow
-  //     parks shops in pending_close until the parent posts.
-  //   • date (closedAt ?? submittedForCloseAt ?? reconciledAt) in window.
-  const q = query(
-    collection(db, 'families', familyId, 'purchaseRequests'),
-    where('createdBy', '==', helperUid),
-    limit(200),
-  );
-  let snaps;
+  // Count shops the helper SHOPPED — created OR reconciled (2026-05-20,
+  // Elia's call). Two single-field queries (both auto-indexed, no
+  // composite-index dependency), merged + deduped:
+  //   • createdBy == helper        — helper-initiated requests
+  //   • submittedForCloseBy == helper — helper reconciled a request a
+  //     PARENT created (the "we bought it / she shopped it" case that
+  //     was previously missed because createdBy was the parent).
+  // Then filter in memory: status ∈ {closed, pending_close} (reconcile
+  // done at pending_close; parent budget-approval is separate) + the
+  // relevant timestamp in window.
+  let createdSnaps; let reconciledSnaps;
   try {
-    snaps = await getDocs(q);
+    [createdSnaps, reconciledSnaps] = await Promise.all([
+      getDocs(query(
+        collection(db, 'families', familyId, 'purchaseRequests'),
+        where('createdBy', '==', helperUid),
+        limit(200),
+      )),
+      getDocs(query(
+        collection(db, 'families', familyId, 'purchaseRequests'),
+        where('submittedForCloseBy', '==', helperUid),
+        limit(200),
+      )),
+    ]);
   } catch {
     return { scorePct: null, shopsCount: 0, totalEstimatedCents: 0, totalActualCents: 0, varianceCents: 0 };
   }
 
+  const seen = new Set<string>();
   const helperShops: PurchaseRequest[] = [];
-  snaps.forEach((d) => {
+  for (const d of [...createdSnaps.docs, ...reconciledSnaps.docs]) {
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
     const data = { id: d.id, ...d.data() } as PurchaseRequest;
-    if (data.createdByRole !== 'helper') return;
-    if (data.status !== 'closed' && data.status !== 'pending_close') return;
+    if (data.status !== 'closed' && data.status !== 'pending_close') continue;
     const stamp = data.closedAt ?? data.submittedForCloseAt ?? data.reconciledAt;
     const ms = stamp?.toMillis?.();
-    if (ms == null || ms < sinceMs) return;
+    if (ms == null || ms < sinceMs) continue;
     helperShops.push(data);
-  });
+  }
 
   if (helperShops.length === 0) {
     return { scorePct: null, shopsCount: 0, totalEstimatedCents: 0, totalActualCents: 0, varianceCents: 0 };
@@ -340,22 +349,28 @@ export async function getHelperRatingMetric(
     if (!includeToday) d.setDate(d.getDate() - 1);
     return todayDateString(d);
   })();
-  let logged = 0;
+  // Active routine count per period — the denominator for partial
+  // "by checks" credit. Routines are family-wide, filtered by period
+  // (see /rate). One getDoc; cheap. (2026-05-20, Elia's design.)
+  const routineCount: Record<string, number> = { morning: 0, evening: 0 };
+  try {
+    const famSnap = await getDoc(doc(db, 'families', familyId));
+    const routines = (famSnap.data()?.routines ?? []) as { period?: string; active?: boolean }[];
+    for (const r of routines) {
+      if (r.active === false) continue;
+      if (r.period === 'morning') routineCount.morning++;
+      else if (r.period === 'evening') routineCount.evening++;
+    }
+  } catch { /* leave zeros — partial falls back to whole-slot credit */ }
+
+  let logged = 0;          // raw count of period-slots she touched
+  let weightedLogged = 0;  // partial-by-checks sum (each slot 0..1)
   const kidsRated = new Set<string>();
   try {
-    // 2026-05-20 fix — query by DATE RANGE (single-field, auto-indexed)
-    // and filter ratedBy in memory. The prior `where('ratedBy') +
-    // orderBy('date')` needed a composite index that isn't deployed, so
-    // the query threw → caught → null → "Ratings —" even when the helper
-    // logs them daily (the bug Elia hit despite kids assigned). The
-    // window is tiny (≤30 days) so reading all family ratings in it + a
-    // 500 cap is cheap, and it has zero index dependency.
+    // Query by DATE RANGE (single-field, auto-indexed) on the canonical
+    // `ratings` collection; filter ratedBy in memory. Window is tiny so
+    // a 500 cap is plenty + there's zero composite-index dependency.
     const q = query(
-      // 2026-05-20 — the canonical ratings collection is `ratings`
-      // (submitRating/importRating/reports all use it). This metric +
-      // the digest cron were reading a non-existent `dailyRatings`
-      // collection, so ratings ALWAYS showed empty — the real reason
-      // they "never picked up", independent of kids/index.
       collection(db, 'families', familyId, 'ratings'),
       where('date', '>=', sinceIso),
       where('date', '<=', fromIso),
@@ -363,10 +378,22 @@ export async function getHelperRatingMetric(
     );
     const snap = await getDocs(q);
     snap.forEach((d) => {
-      const data = d.data() as { date?: string; childId?: string; ratedBy?: string };
+      const data = d.data() as {
+        date?: string; childId?: string; ratedBy?: string;
+        period?: string; ratings?: Record<string, string>;
+      };
       if (data.ratedBy !== helperUid) return;
       logged++;
       if (data.childId) kidsRated.add(data.childId);
+      // Partial credit "by checks": fraction of the period's active
+      // routines she actually marked (any value, incl 'skip' — a skip
+      // is a conscious call, so it counts). Forgotten/unmarked routines
+      // reduce the slot's credit. Falls back to full credit (1) when we
+      // can't resolve the routine count.
+      const marked = data.ratings ? Object.keys(data.ratings).length : 0;
+      const total = data.period ? (routineCount[data.period] ?? 0) : 0;
+      const partial = total > 0 ? Math.min(1, marked / total) : (marked > 0 ? 1 : 0);
+      weightedLogged += partial;
     });
   } catch {
     // Even the single-field date query failed — fail soft so the rest
@@ -383,7 +410,10 @@ export async function getHelperRatingMetric(
   }
 
   const expected = effectiveKids * perDayExpected * days;
-  const scorePct = expected === 0 ? null : Math.max(0, Math.min(100, Math.round((logged / expected) * 100)));
+  // Score on the partial-by-checks sum, not the raw slot count, so an
+  // incomplete rating (some routines unmarked) earns proportional credit.
+  // `logged` stays the raw slot count for the "X / Y logged" display.
+  const scorePct = expected === 0 ? null : Math.max(0, Math.min(100, Math.round((weightedLogged / expected) * 100)));
   return { scorePct, expected, logged, perDayExpected };
 }
 
