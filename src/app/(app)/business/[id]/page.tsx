@@ -1,10 +1,9 @@
 'use client';
 
-// Kaya Business · Business dashboard (kid screen 3). Identity, status, the
-// headline numbers, lifecycle controls, and the entry point to Inventory.
-// Sales/costs entry + Hive sweep (PR4) and the AI coach (PR5) slot into the
-// marked spots below — kept as honest "coming next" affordances for now so
-// nothing here is a dead button.
+// Kaya Business · Business dashboard (kid screen 3). Identity, status, headline
+// numbers + margin, lifecycle controls, the Inventory entry point, 1-tap log
+// sale/cost, recent activity, and milestone badges. The AI coach (PR5) and
+// Junior Investor (PR6) are the remaining "coming next" items.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -12,13 +11,15 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, HiveSplit, BusinessStatus,
-  subscribeToBusiness, subscribeToBusinessRequests,
+  Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES,
+  subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones,
   setBusinessStatus, requestBusinessLaunch,
 } from '@/lib/business';
 import { ApprovalRequest } from '@/lib/hive';
 import { formatCash } from '@/components/hive/format';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
+
+const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
 
 function fmtDate(ts: any): string {
   const ms = ts?.toMillis?.();
@@ -36,6 +37,8 @@ export default function BusinessDashboardPage() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
+  const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [milestones, setMilestones] = useState<BusinessMilestone[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmClose, setConfirmClose] = useState(false);
@@ -45,8 +48,15 @@ export default function BusinessDashboardPage() {
     if (!familyId || !businessId) return;
     const u1 = subscribeToBusiness(familyId, businessId, (b) => { setBusiness(b); setLoading(false); });
     const u2 = subscribeToBusinessRequests(familyId, setRequests);
-    return () => { u1(); u2(); };
+    const u3 = subscribeToLedger(familyId, businessId, setLedger, 50);
+    return () => { u1(); u2(); u3(); };
   }, [familyId, businessId]);
+
+  // Milestones live under the owner kid — subscribe once we know the owner.
+  useEffect(() => {
+    if (!familyId || !business?.ownerId) return;
+    return subscribeToBusinessMilestones(familyId, business.ownerId, setMilestones);
+  }, [familyId, business?.ownerId]);
 
   const isParent = profile?.role === 'parent';
   const isOwner = profile?.role === 'kid' && profile?.childId === business?.ownerId;
@@ -128,6 +138,11 @@ export default function BusinessDashboardPage() {
         <div className={statCard}>
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">This month profit</div>
           <div className="font-nunito font-black text-[22px] mt-0.5">{formatCash(stats.monthProfitCents, config.currency)}</div>
+          {stats.monthRevenueCents > 0 && (
+            <div className="text-[11px] text-hive-muted mt-0.5">
+              Margin {Math.round((stats.monthProfitCents / stats.monthRevenueCents) * 100)}%
+            </div>
+          )}
         </div>
         <div className={statCard}>
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Month revenue</div>
@@ -221,6 +236,20 @@ export default function BusinessDashboardPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
 
+      {/* Log sale / cost — 1-tap entry. A paid sale sweeps to the kid's Hive. */}
+      {canAct && business.status !== 'closed' && (
+        <div className="grid grid-cols-2 gap-2.5 mb-3">
+          <Link href={`/business/${businessId}/sale`}
+            className="h-12 flex items-center justify-center gap-1.5 rounded-hive bg-[#2F7D32] text-white font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline">
+            💵 Log sale
+          </Link>
+          <Link href={`/business/${businessId}/cost`}
+            className="h-12 flex items-center justify-center gap-1.5 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-black text-[14px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
+            🧾 Log cost
+          </Link>
+        </div>
+      )}
+
       {/* Inventory — the books that drive worth. */}
       <Link
         href={`/business/${businessId}/inventory`}
@@ -230,12 +259,56 @@ export default function BusinessDashboardPage() {
         <span className="text-hive-honey-soft">{formatCash(stats.worthCents, config.currency)} →</span>
       </Link>
 
-      {/* Coming next — honest placeholders for the books, not dead buttons. */}
+      {/* Milestones unlocked for this business */}
+      {milestones.filter((m) => m.businessId === businessId).length > 0 && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+          <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-2">Milestones</div>
+          <div className="flex flex-wrap gap-2">
+            {milestones.filter((m) => m.businessId === businessId).map((m) => {
+              const meta = MILESTONE_META[m.key];
+              return (
+                <span key={m.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-hive-pill bg-[#FFF6DE] border border-hive-honey/50 text-[11.5px] font-nunito font-extrabold">
+                  <span>{meta?.emoji ?? '🏅'}</span>{meta?.label ?? m.key}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Recent activity (the books) */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+        <div className="flex items-baseline justify-between mb-1">
+          <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
+          <span className="text-[11px] text-hive-muted">{stats.salesCount} {stats.salesCount === 1 ? 'sale' : 'sales'}</span>
+        </div>
+        {ledger.length === 0 ? (
+          <p className="text-[12px] text-hive-muted py-3 text-center">No sales or costs yet. Log your first one above.</p>
+        ) : (
+          ledger.slice(0, 6).map((e) => {
+            const ms = (e.occurredAt as any)?.toMillis?.();
+            const date = typeof ms === 'number' ? new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+            const isSale = e.kind === 'sale';
+            return (
+              <div key={e.id} className="flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0">
+                <div className="min-w-0">
+                  <div className="text-[13px] truncate">{isSale ? '💵' : '🧾'} {e.description}{e.paymentStatus === 'unpaid' ? ' · IOU' : ''}</div>
+                  <div className="text-[11px] text-hive-muted">{date}</div>
+                </div>
+                <span className={`font-nunito font-extrabold text-[13px] shrink-0 ${isSale ? 'text-[#2F7D32]' : 'text-hive-rose'}`}>
+                  {isSale ? '+' : '−'}{formatCash(e.amountCents, config.currency)}
+                </span>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Coming next — what's still ahead. */}
       <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
         <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Coming next</div>
         <p className="text-[13px] text-hive-navy/80 leading-relaxed">
-          💵 log sales · 🧾 log costs · 🐝 profit auto-flows to your Hive ·
-          🏆 milestones · 📈 Junior Investor — landing in the next updates.
+          🤖 your AI coach · 📈 Junior Investor — landing in the next updates.
         </p>
       </div>
     </div>
