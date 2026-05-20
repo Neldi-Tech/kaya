@@ -11,7 +11,7 @@
 // Console's "Send test message" flow (paste a token, click send).
 
 import { useEffect, useState } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { db } from '@/lib/firebase';
 import {
@@ -27,12 +27,45 @@ interface TokenDoc {
 }
 
 export default function NotificationSettings() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [status, setStatus] = useState<Status>('loading');
   const [tokens, setTokens] = useState<TokenDoc[]>([]);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Daily performance email digest — per-parent opt-in (2026-05-20).
+  // Stored on the user's own doc (users/{uid}.perfDigestEmail), so one
+  // parent enabling it doesn't affect the other. A daily Vercel cron
+  // (/api/cron/perf-digest) emails opted-in parents each helper's score.
+  const isParent = profile?.role === 'parent';
+  const [digestEmail, setDigestEmail] = useState<boolean>(false);
+  const [digestBusy, setDigestBusy] = useState(false);
+  useEffect(() => {
+    if (!user?.uid || !isParent) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (!cancelled) setDigestEmail(snap.exists() && (snap.data() as { perfDigestEmail?: boolean }).perfDigestEmail === true);
+      } catch { /* leave default off */ }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.uid, isParent]);
+
+  async function toggleDigest() {
+    if (!user?.uid) return;
+    const next = !digestEmail;
+    setDigestEmail(next); // optimistic
+    setDigestBusy(true);
+    try {
+      await updateDoc(doc(db, 'users', user.uid), { perfDigestEmail: next });
+    } catch {
+      setDigestEmail(!next); // revert on failure
+    } finally {
+      setDigestBusy(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +221,37 @@ export default function NotificationSettings() {
 
           {error && <p className="text-[11px] text-red-500 mt-2">{error}</p>}
         </>
+      )}
+
+      {/* Daily performance email — per-parent opt-in (2026-05-20). */}
+      {isParent && (
+        <div className="mt-4 pt-4 border-t border-kaya-warm-dark/40">
+          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">Email digest</p>
+          <button
+            type="button"
+            onClick={toggleDigest}
+            disabled={digestBusy}
+            className="w-full flex items-center gap-3 text-left disabled:opacity-60"
+          >
+            <span
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors ${
+                digestEmail ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                  digestEmail ? 'translate-x-[22px]' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-bold text-kaya-chocolate">Daily helper performance email</span>
+              <span className="block text-[11px] text-kaya-sand leading-relaxed mt-0.5">
+                Each evening, get an email summarising every helper&apos;s score. Just for you — the other parent decides separately.
+              </span>
+            </span>
+          </button>
+        </div>
       )}
     </div>
   );
