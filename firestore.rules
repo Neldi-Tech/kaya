@@ -385,6 +385,69 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // ── Kaya Business · per-kid investments + milestones ──────────
+      // Both live under the Hive kid sub-tree, so the
+      // `match /kids/{kidId}/{document=**}` read rule above already grants
+      // family read. Only write rules are needed here.
+
+      // Junior Investor (simulated) holdings — seeded by the kid and
+      // created/updated when a parent approves an investment_buy/sell
+      // request (which runs under the parent's auth). Money is virtual in
+      // Phase 1; the parent-OK gate is enforced at the app + approval layer.
+      match /kids/{kidId}/investments/{symbol} {
+        allow create, update, delete: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+      }
+
+      // Unlocked milestones — written by the milestone engine running under
+      // whoever logged the triggering sale/cost (parent or the owner kid).
+      // Milestones are forever: no client delete.
+      match /kids/{kidId}/businessMilestones/{milestoneId} {
+        allow create, update: if isParentInFamily(familyId)
+          || isThisKid(familyId, kidId);
+        allow delete: if false;
+      }
+
+      // ── Kaya Business · businesses + inventory + books ────────────
+      // A business is owned by one kid (`ownerId`). Read: the whole family
+      // (Parent Console grid + the kid's portfolio). Write: a parent or the
+      // owner kid. Helpers are read-only in Phase 1 (they get read via
+      // belongsToFamily) — flip on `helperCanActOnModule(.,'business')` here
+      // if/when helper bookkeeping is wanted. Closing a business is a status
+      // flip to 'closed'; there is no client-side hard delete.
+      match /businesses/{businessId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if request.resource.data.ownerId != null
+          && (isParentInFamily(familyId)
+              || isThisKid(familyId, request.resource.data.ownerId));
+        allow update: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.ownerId);
+        allow delete: if false;
+
+        // Inventory — assets + stock. Owner resolved via get() on the parent
+        // business doc (one extra read), the same pattern albums→photos uses.
+        match /items/{itemId} {
+          function bizOwnerId() {
+            return get(/databases/$(database)/documents/families/$(familyId)/businesses/$(businessId)).data.ownerId;
+          }
+          allow read: if belongsToFamily(familyId);
+          allow create, update, delete: if isParentInFamily(familyId)
+            || isThisKid(familyId, bizOwnerId());
+        }
+
+        // The books — sales + costs. Append-only: corrections write a fresh
+        // voiding entry, so existing rows are immutable (like hiveTransactions).
+        match /ledger/{entryId} {
+          function bizOwnerId() {
+            return get(/databases/$(database)/documents/families/$(familyId)/businesses/$(businessId)).data.ownerId;
+          }
+          allow read: if belongsToFamily(familyId);
+          allow create: if isParentInFamily(familyId)
+            || isThisKid(familyId, bizOwnerId());
+          allow update, delete: if false;
+        }
+      }
+
       // ── The Pantry · staples ─────────────────────────────────────
       // Master list of recurring household items. Parents + helpers
       // (with the `household` module) edit; kids read only (suggest
@@ -736,6 +799,15 @@ service cloud.firestore {
                 || isParentInFamily(familyId));
         }
       }
+    }
+
+    // ── Kaya Business · market quotes (global, server-written) ───────
+    // Cached real stock/fund prices for the curated Junior Investor menu.
+    // Not family-specific. Any signed-in user can read; only the server
+    // (admin SDK / scheduled job) writes — clients never set prices.
+    match /marketQuotes/{symbol} {
+      allow read: if isSignedIn();
+      allow write: if false;
     }
   }
 }

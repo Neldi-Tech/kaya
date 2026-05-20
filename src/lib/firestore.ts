@@ -10,6 +10,9 @@ import {
   GUEST_FAMILY_ID,
 } from './mockFamily';
 import { FOUNDING_FAMILY_LIMIT, generateReferralCode } from './referral';
+// Type-only import — business.ts never imports firestore.ts, so this adds no
+// runtime cycle. Lets Family.businessConfig stay in sync with the canonical shape.
+import type { BusinessConfig } from './business';
 
 // ── Types ──────────────────────────────────────────
 // `guest` is the most restricted role — added so families can hand out
@@ -163,6 +166,12 @@ export interface Family {
       nextRunAt?: Timestamp;
     };
   };
+  // ── Kaya Business ──
+  // Parent-controlled config for the micro-enterprise module. See
+  // `src/lib/business.ts` for the canonical shape (`BusinessConfig`); persisted
+  // as a partial and merged with DEFAULT_BUSINESS_CONFIG by
+  // `readBusinessConfig(family)`.
+  businessConfig?: Partial<BusinessConfig>;
   // ── External email contacts ──────────────────────────────────
   // Email-only contacts (grandparents, godparents, tutors…) who get
   // the same rating / award notifications as parents/helpers in the
