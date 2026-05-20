@@ -11,7 +11,7 @@
 // If the brand or domain changes, update the config here and bump
 // VERSION below to force clients off the old worker.
 
-const VERSION = 'kaya-sw-v2';
+const VERSION = 'kaya-sw-v3';
 
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
@@ -37,7 +37,19 @@ messaging.onBackgroundMessage((payload) => {
     body,
     icon: '/icon-192.png',
     badge: '/icon-192.png',
-    tag: data.tag || 'kaya',
+    // 2026-05-20 — notification alerting fixes:
+    //  • Unique tag per push (fallback to a timestamp) so a new
+    //    notification doesn't SILENTLY replace the previous one. The
+    //    old constant 'kaya' tag collapsed every alert into one that
+    //    updated without sound/vibration — why pushes "didn't work".
+    //  • renotify so even a reused tag re-alerts (sound + vibrate)
+    //    instead of quietly swapping the text.
+    //  • vibrate pattern → a tactile "sign" on Android (web push has
+    //    no custom-sound support; the OS plays its default tone, and
+    //    vibration is the one alert channel we can actually control).
+    tag: data.tag || ('kaya-' + Date.now()),
+    renotify: true,
+    vibrate: [200, 100, 200],
     data: { url: data.url || '/', ...data },
   });
 });
