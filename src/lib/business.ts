@@ -44,6 +44,9 @@ import { isGuestActive } from './mockFamily';
 // Type-only — Business reuses the Hive's unified `approvalRequests` queue.
 // hive.ts does not import this module, so this is cycle-free.
 import type { ApprovalRequest } from './hive';
+// Runtime — a paid sale's earnings sweep into the kid's Hive Cash wallet via
+// the Hive's own deposit path (one-way dependency: business → hive).
+import { depositCash } from './hive';
 
 // ── Business identity ─────────────────────────────────────────────
 
@@ -809,4 +812,179 @@ export async function removeBusinessItem(familyId: string, businessId: string, i
   if (isGuestActive()) return;
   await deleteDoc(doc(itemsCol(familyId, businessId), itemId));
   await recomputeInventoryStats(familyId, businessId);
+}
+
+// ── The books · sales + costs (PR4) ───────────────────────────────
+// A paid sale's earnings sweep into the owner's Hive Cash (1-tap, no per-sale
+// approval — earning is frictionless; *spending* from the Hive still needs a
+// parent OK). Costs are logged for P&L + margin but, under the parent-float
+// default (config.costFunding), do NOT debit the Hive. Stats recompute from
+// the ledger after every write (no incremental drift). The ledger is
+// append-only per the rules, so corrections are a later PR.
+
+const startOfMonthMs = (): number => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+};
+
+export interface SaleInput {
+  qty: number;
+  unitPriceCents: number;
+  customerRef?: string;          // member uid | contactId | '' (free-text)
+  customerLabel?: string;        // display name ("Aunty Mary")
+  paymentMethod: PaymentMethod;  // cash | hive_transfer | iou
+  description?: string;
+  occurredAt?: Date;
+}
+
+export interface CostInput {
+  costType: CostType;            // supplies | tools | help | other
+  description: string;
+  amountCents: number;
+  occurredAt?: Date;
+}
+
+export interface LedgerActor {
+  uid: string;
+  /** Business owner's Child.id — the wallet a paid sale sweeps into. */
+  ownerId: string;
+}
+
+/** Recompute the ledger-derived figures on business.stats (revenue / profit /
+ *  count) from the full ledger. Dot-path so it never clobbers the inventory
+ *  worth fields. Only paid sales count as revenue; an unpaid IOU is a
+ *  receivable that lands when it's settled (a later PR). */
+export async function recomputeLedgerStats(familyId: string, businessId: string): Promise<void> {
+  if (isGuestActive()) return;
+  const snap = await getDocs(ledgerCol(familyId, businessId));
+  const monthStart = startOfMonthMs();
+  let monthRevenue = 0, monthCosts = 0, lifeRevenue = 0, lifeCosts = 0, salesCount = 0;
+  snap.docs.forEach((d) => {
+    const e = d.data() as LedgerEntry;
+    if (e.voided) return;
+    const ms = (e.occurredAt as any)?.toMillis?.() ?? 0;
+    const inMonth = ms >= monthStart;
+    if (e.kind === 'sale') {
+      if (e.paymentStatus !== 'paid') return;  // receivable — not yet revenue
+      salesCount += 1;
+      lifeRevenue += e.amountCents;
+      if (inMonth) monthRevenue += e.amountCents;
+    } else if (e.kind === 'cost') {
+      lifeCosts += e.amountCents;
+      if (inMonth) monthCosts += e.amountCents;
+    }
+  });
+  await updateDoc(businessDoc(familyId, businessId), {
+    'stats.monthRevenueCents': monthRevenue,
+    'stats.monthProfitCents': monthRevenue - monthCosts,
+    'stats.lifetimeProfitCents': lifeRevenue - lifeCosts,
+    'stats.salesCount': salesCount,
+    'stats.lastActivityAt': serverTimestamp(),
+  });
+}
+
+/** Log a sale. A paid sale (cash / hive_transfer) sweeps its full amount into
+ *  the owner's Hive Cash; an IOU is recorded unpaid and doesn't sweep. Then
+ *  stats refresh + milestone check. */
+export async function logSale(
+  familyId: string,
+  businessId: string,
+  input: SaleInput,
+  actor: LedgerActor,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const qty = Math.max(1, Math.round(input.qty || 1));
+  const amountCents = Math.max(0, Math.round(qty * input.unitPriceCents));
+  if (amountCents <= 0) throw new Error('Sale amount must be positive.');
+  const paymentStatus: PaymentStatus = input.paymentMethod === 'iou' ? 'unpaid' : 'paid';
+  const occurred = input.occurredAt ?? new Date();
+  const entry: Record<string, unknown> = {
+    businessId,
+    ownerId: actor.ownerId,
+    kind: 'sale',
+    qty,
+    unitPriceCents: input.unitPriceCents,
+    paymentMethod: input.paymentMethod,
+    paymentStatus,
+    amountCents,
+    description: (input.description || '').trim() || 'Sale',
+    occurredAt: Timestamp.fromDate(occurred),
+    createdBy: actor.uid,
+    createdAt: serverTimestamp(),
+  };
+  if (input.customerRef) entry.customerRef = input.customerRef;
+  if (input.customerLabel?.trim()) entry.customerLabel = input.customerLabel.trim();
+  await addDoc(ledgerCol(familyId, businessId), entry);
+  if (paymentStatus === 'paid') {
+    const note = `${input.customerLabel ? input.customerLabel + ' · ' : ''}${input.description || 'Sale'}`.slice(0, 80);
+    await depositCash(familyId, actor.ownerId, amountCents, 'business', note, actor.uid);
+  }
+  await recomputeLedgerStats(familyId, businessId);
+  await runThresholdMilestones(familyId, businessId, actor.ownerId);
+}
+
+/** Log a cost. Tracked for P&L + margin; under the parent-float default it does
+ *  NOT debit the Hive (the parent covers it). */
+export async function logCost(
+  familyId: string,
+  businessId: string,
+  input: CostInput,
+  actor: LedgerActor,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const amountCents = Math.max(0, Math.round(input.amountCents));
+  if (amountCents <= 0) throw new Error('Cost amount must be positive.');
+  const occurred = input.occurredAt ?? new Date();
+  await addDoc(ledgerCol(familyId, businessId), {
+    businessId,
+    ownerId: actor.ownerId,
+    kind: 'cost',
+    costType: input.costType,
+    amountCents,
+    description: input.description.trim() || input.costType,
+    occurredAt: Timestamp.fromDate(occurred),
+    createdBy: actor.uid,
+    createdAt: serverTimestamp(),
+  });
+  await recomputeLedgerStats(familyId, businessId);
+}
+
+// ── Milestone engine (PR4 · stat-threshold subset) ────────────────
+// Unlocks the milestones that fall straight out of business.stats after a
+// sale. Idempotent: one doc per `${key}:${businessId}`, written once. Richer
+// triggers (repeat_customer, month_in_black, black_book) need history scans —
+// left as hooks for a later PR.
+
+/** 1,000 in profit, in the family's minor units. */
+const FIRST_PROFIT_TARGET_CENTS = 1000 * 100;
+
+export async function runThresholdMilestones(
+  familyId: string,
+  businessId: string,
+  ownerId: string,
+): Promise<string[]> {
+  if (isGuestActive()) return [];
+  const biz = await getBusiness(familyId, businessId);
+  if (!biz) return [];
+  const s = biz.stats;
+  const met: string[] = [];
+  if (s.salesCount >= 1) met.push('first_earnings');
+  if (s.salesCount >= 10) met.push('sales_10');
+  if (s.salesCount >= 100) met.push('sales_100');
+  if (s.salesCount >= 1000) met.push('sales_1000');
+  if (s.lifetimeProfitCents >= FIRST_PROFIT_TARGET_CENTS) met.push('first_1000');
+  if (met.length === 0) return [];
+
+  const existing = await getDocs(milestonesCol(familyId, ownerId));
+  const have = new Set(existing.docs.map((d) => d.id));
+  const newlyUnlocked: string[] = [];
+  for (const key of met) {
+    const id = `${key}:${businessId}`;
+    if (have.has(id)) continue;
+    await setDoc(doc(milestonesCol(familyId, ownerId), id), {
+      key, businessId, unlockedAt: serverTimestamp(),
+    });
+    newlyUnlocked.push(key);
+  }
+  return newlyUnlocked;
 }

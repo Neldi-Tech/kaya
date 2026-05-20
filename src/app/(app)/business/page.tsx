@@ -42,7 +42,9 @@ export default function BusinessPortfolioPage() {
 
   const open = businesses.filter((b) => b.status !== 'closed');
   const businessWorth = open.reduce((s, b) => s + (b.stats?.worthCents ?? 0), 0);
-  const monthProfit = open.reduce((s, b) => s + (b.stats?.monthProfitCents ?? 0), 0);
+  // Paid sales sweep their full amount into the Hive; that's "earnings". Profit
+  // (revenue − costs) is the learning metric shown on each business dashboard.
+  const monthEarnings = open.reduce((s, b) => s + (b.stats?.monthRevenueCents ?? 0), 0);
 
   const counts = useMemo(() => {
     const c = { active: 0, pilot: 0, paused: 0, closed: 0 };
@@ -115,13 +117,13 @@ export default function BusinessPortfolioPage() {
             </p>
           </div>
 
-          {/* This-month profit → Hive (advisory split shown; one cash balance). */}
+          {/* This-month earnings → Hive (paid sales sweep in full; split advisory). */}
           <div className="rounded-hive p-3.5 mb-4 flex items-center gap-3 bg-hive-navy text-hive-cream">
             <div className="flex-1 min-w-0">
               <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-honey-soft">
-                This month profit → Hive
+                This month earnings → Hive
               </div>
-              <div className="font-nunito font-black text-[18px] mt-0.5">{formatCash(monthProfit, config.currency)}</div>
+              <div className="font-nunito font-black text-[18px] mt-0.5">{formatCash(monthEarnings, config.currency)}</div>
               <div className="flex flex-wrap gap-1 mt-1.5 text-[11px] font-nunito font-bold">
                 {(['spend', 'save', 'goal', 'invest'] as Array<keyof HiveSplit>).map((k) => (
                   <span key={k} className="px-2 py-0.5 rounded-hive-pill bg-[rgba(245,215,122,0.15)] text-hive-honey-soft capitalize">
