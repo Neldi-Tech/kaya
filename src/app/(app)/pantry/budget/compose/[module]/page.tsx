@@ -26,14 +26,14 @@ import { type PurchaseModule, type PurchaseRequest, subscribeToRecentRequests } 
 import {
   type BudgetLine, type BudgetCadence,
   saveModuleComposer, sumMonthlyCents, toMonthlyCents, emptyDefaults,
-  recentMonthlyAverage,
+  recentMonthlyAverage, DEFAULT_PERIODS_PER_MONTH, periodsPerMonth,
 } from '@/lib/budgetComposer';
 import { subscribeToVehicles, vehicleEmoji, type Vehicle } from '@/lib/vehicles';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
 import {
-  type Utility, type Cadence, subscribeToUtilities, sumMonthlyUtilities,
+  type Utility, type Cadence, subscribeToUtilities, sumMonthlyUtilities, isUtilityBill,
   monthlyEquivalentCents, CADENCE_SHORT,
 } from '@/lib/pantry';
 
@@ -46,7 +46,7 @@ const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint
 };
 
 const CADENCE_LABELS: Record<BudgetCadence, string> = {
-  day: 'day', week: 'wk', month: 'mo', year: 'yr',
+  day: 'day', week: 'wk', '2x-week': '2×/wk', month: 'mo', '2x-month': '2×/mo', year: 'yr',
 };
 
 /** Map a utility-meter `Cadence` (rich: incl 2×/wk + 2×/mo) to the
@@ -130,7 +130,9 @@ export default function ComposeBudgetPage() {
     }
     if (module === 'utility') {
       const unsubMeters = subscribeToMeters(profile.familyId, (ms) => setMeters(ms.filter((m) => m.active !== false)));
-      const unsubBills = subscribeToUtilities(profile.familyId, (bs) => setBills(bs.filter((b) => b.active)));
+      // Only true utility BILLS feed the cap — salaries + guard are
+      // people costs that belong to Payroll, not Utilities.
+      const unsubBills = subscribeToUtilities(profile.familyId, (bs) => setBills(bs.filter((b) => b.active && isUtilityBill(b))));
       return () => { unsubMeters(); unsubBills(); };
     }
   }, [profile?.familyId, module]);
@@ -484,7 +486,10 @@ function LineEditor({
 }) {
   const monthly = toMonthlyCents(line);
   const qty = Math.max(1, line.qty ?? 1);
-  const cadences: BudgetCadence[] = ['day', 'week', 'month', 'year'];
+  const perPeriod = line.amountCents * qty;
+  const factor = periodsPerMonth(line);
+  const isSubMonthly = line.cadence !== 'month' && line.cadence !== 'year';
+  const cadences: BudgetCadence[] = ['day', 'week', '2x-week', 'month', '2x-month', 'year'];
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
       <div className="flex items-center gap-2">
@@ -527,34 +532,68 @@ function LineEditor({
         </div>
       )}
 
-      <div className="flex items-center gap-2 mt-2">
-        <div className="flex-1 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
-          <span className="text-xs text-hive-muted font-bold">{currency}</span>
-          <NumberInput
-            value={line.amountCents / 100}
-            onChange={(v) => onChange({ amountCents: Math.round(v * 100) })}
-            allowDecimal={currencyAllowsDecimals(currency)}
-            placeholder="0"
-            className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
-          />
-          <span className="text-xs text-hive-muted font-bold">
-            {showQty ? 'unit price' : `/ ${CADENCE_LABELS[line.cadence]}`}
-          </span>
-        </div>
-        <div className="inline-flex bg-hive-cream border border-hive-line rounded-lg p-0.5">
-          {cadences.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => onChange({ cadence: c })}
-              className={`px-2 py-1 text-[10px] font-nunito font-extrabold uppercase tracking-wide rounded ${
-                line.cadence === c ? 'bg-pantry-leaf text-white' : 'text-hive-muted'
-              }`}
-            >
-              {CADENCE_LABELS[c]}
-            </button>
-          ))}
-        </div>
+      <div className="mt-2 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
+        <span className="text-xs text-hive-muted font-bold">{currency}</span>
+        <NumberInput
+          value={line.amountCents / 100}
+          onChange={(v) => onChange({ amountCents: Math.round(v * 100) })}
+          allowDecimal={currencyAllowsDecimals(currency)}
+          placeholder="0"
+          className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
+        />
+        <span className="text-xs text-hive-muted font-bold">
+          {showQty ? 'unit price' : `/ ${CADENCE_LABELS[line.cadence]}`}
+        </span>
+      </div>
+
+      {/* Cadence picker — how often this spend happens. Picking a
+          sub-monthly cadence seeds its default times-per-month, which
+          the parent can then tune in the commentary line below. */}
+      <div className="mt-2 flex flex-wrap gap-1">
+        {cadences.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onChange(
+              c === 'month' || c === 'year'
+                ? { cadence: c }
+                : { cadence: c, periodsPerMonth: DEFAULT_PERIODS_PER_MONTH[c] },
+            )}
+            className={`px-2 py-1 text-[10px] font-nunito font-extrabold uppercase tracking-wide rounded ${
+              line.cadence === c ? 'bg-pantry-leaf text-white' : 'bg-hive-cream text-hive-muted'
+            }`}
+          >
+            {CADENCE_LABELS[c]}
+          </button>
+        ))}
+      </div>
+
+      {/* Commentary — shows exactly how the monthly figure is derived.
+          For sub-monthly cadences the "times per month" count is an
+          editable input so a parent can set /day × 25, 26 or 30, etc. */}
+      <div className="mt-2 flex items-center flex-wrap gap-1.5 text-[11px] font-nunito font-bold text-hive-muted">
+        <span>{formatCents(perPeriod, currency)}</span>
+        {line.cadence === 'month' && <span>/mo</span>}
+        {line.cadence === 'year' && <span>/yr ÷ 12</span>}
+        {isSubMonthly && (
+          <>
+            <span>×</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={factor}
+              onChange={(e) => {
+                const n = Math.max(1, Math.round(parseFloat(e.target.value) || 0));
+                onChange({ periodsPerMonth: n });
+              }}
+              aria-label="Times per month"
+              className="w-12 bg-hive-cream border border-hive-line rounded px-1 py-0.5 text-center font-nunito font-extrabold text-[11px] text-hive-ink focus:outline-none focus:ring-1 focus:ring-pantry-leaf/40"
+            />
+            <span>/mo</span>
+          </>
+        )}
+        <span className="text-hive-ink font-black">= {formatCents(monthly, currency)}/mo</span>
       </div>
       {!hideRemove && onRemove && (
         <button
