@@ -14,6 +14,7 @@ import {
   BUSINESS_TYPES, BusinessType, CustomerChannel, PHASE1_BUSINESS_TYPES,
   CUSTOMER_CHANNELS, createBusiness, readBusinessConfig,
 } from '@/lib/business';
+import AICoachCard from '@/components/business/AICoachCard';
 
 export default function NewBusinessPage() {
   const router = useRouter();
@@ -197,6 +198,23 @@ export default function NewBusinessPage() {
           />
         </div>
       </div>
+
+      {type && name.trim().length > 1 && (
+        <div className="mt-4">
+          <AICoachCard
+            loop="idea"
+            coachName={bizConfig.coachName}
+            currency={config.currency}
+            cta={`Get ${bizConfig.coachName}'s take on your idea`}
+            facts={{
+              idea: name.trim(),
+              type: BUSINESS_TYPES.find((t) => t.key === type)?.label || type,
+              customers: channels.join(', '),
+              ...(price.trim() ? { plannedPrice: `${price} ${config.currency}` } : {}),
+            }}
+          />
+        </div>
+      )}
 
       {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
