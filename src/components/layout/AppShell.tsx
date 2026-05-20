@@ -199,6 +199,13 @@ const HOUSEHOLD_NAV: NavItem[] = [
 
   { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans',
     tooltip: "Your family's curated Pantry regulars. Picked from Browse to your list." },
+  // 2026-05-20 — Utilities Setup promoted to a top-level sidebar entry,
+  // between Staples + Other Regulars. It's the ONLY regular that needs
+  // a dedicated setup (recurring bills + regular top-ups, each with
+  // suppliers / estimates / reminders), so burying it behind a button
+  // on /pantry/utility hid it. Now it's a visible peer.
+  { path: '/pantry/utility/setup',   icon: '⚙️', label: 'Utilities Setup',
+    tooltip: 'Recurring bills + regular top-ups (suppliers, estimates, reminders). Parent-only.' },
   // 2026-05-19 — Other Regulars promoted out of "Browse & suppliers".
   // Same page (route unchanged for bookmarks), but it's conceptually a
   // peer of Staples: family's curated list for Outdoor / Drivers /
