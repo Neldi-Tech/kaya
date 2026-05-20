@@ -19,7 +19,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { formatCents } from '@/components/pantry/format';
+import { formatCents, roundUpDisplay } from '@/components/pantry/format';
 import NumberInput from '@/components/hive/NumberInput';
 import { type PurchaseModule, type PurchaseRequest, subscribeToRecentRequests } from '@/lib/purchase';
 import {
@@ -253,6 +253,12 @@ export default function ComposeBudgetPage() {
     return perH + sumMonthlyCents(otherLines);
   }, [module, lines, perVehicle, perMeter, perHelper, otherLines, billsMonthly]);
 
+  // The SAVED + headline cap is rounded up to a neat budget figure
+  // (nearest 10/100/1000 by magnitude). The raw sum stays visible in
+  // the commentary so the rounding is transparent. (2026-05-20)
+  const roundedCap = roundUpDisplay(monthlyCents);
+  const wasRounded = roundedCap !== monthlyCents;
+
   // ── Save ────────────────────────────────────────────────────
   const handleSave = async () => {
     if (!profile?.familyId || !isParent) return;
@@ -338,10 +344,18 @@ export default function ComposeBudgetPage() {
           })()}
         </div>
         <p className="font-nunito font-black text-3xl lg:text-4xl text-hive-ink mt-1">
-          {formatCents(monthlyCents, currency)}
+          {formatCents(roundedCap, currency)}
         </p>
-        <p className="text-[11px] text-hive-muted font-bold mt-0.5">
-          Auto-updates as you edit · saved to {meta.label} cap on next tap
+        {/* Commentary — makes the cap's logic visible: the raw sum +
+            the rounding. (Elia 2026-05-20: "the logic of the monthly
+            cap should be visible in the commentary".) */}
+        <p className="text-[11px] text-hive-muted font-bold mt-0.5 leading-snug">
+          {wasRounded ? (
+            <>= {formatCents(monthlyCents, currency)} across all lines, rounded up to a neat cap.</>
+          ) : (
+            <>= sum of all lines below.</>
+          )}
+          {' '}Auto-updates as you edit · saved on next tap.
         </p>
       </div>
 
@@ -393,7 +407,7 @@ export default function ComposeBudgetPage() {
         disabled={saving}
         className="w-full mt-5 bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
       >
-        {saving ? 'Saving…' : `Save ${meta.label} cap · ${formatCents(monthlyCents, currency)}/mo →`}
+        {saving ? 'Saving…' : `Save ${meta.label} cap · ${formatCents(roundedCap, currency)}/mo →`}
       </button>
     </div>
   );
@@ -402,11 +416,12 @@ export default function ComposeBudgetPage() {
 // ── Free-form line list (Pantry, Outdoor, Drivers "Other", Payroll "Other") ──
 
 function LineList({
-  lines, setLines, currency,
+  lines, setLines, currency, showQty,
 }: {
   lines: BudgetLine[];
   setLines: React.Dispatch<React.SetStateAction<BudgetLine[]>>;
   currency: string;
+  showQty?: boolean;
 }) {
   const updateLine = (idx: number, patch: Partial<BudgetLine>) => {
     setLines((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
@@ -436,6 +451,7 @@ function LineList({
           currency={currency}
           onChange={(patch) => updateLine(idx, patch)}
           onRemove={() => removeLine(idx)}
+          showQty={showQty}
         />
       ))}
       <button
@@ -452,15 +468,19 @@ function LineList({
 // ── Single line editor — used by every composer flavor ──
 
 function LineEditor({
-  line, currency, onChange, onRemove, hideRemove,
+  line, currency, onChange, onRemove, hideRemove, showQty,
 }: {
   line: BudgetLine;
   currency: string;
   onChange: (patch: Partial<BudgetLine>) => void;
   onRemove?: () => void;
   hideRemove?: boolean;
+  /** Show a qty stepper + "qty × price" breakdown. Used by Drivers
+   *  so a parent can budget "2 × TZS 75,000 fuel/wk". (2026-05-20) */
+  showQty?: boolean;
 }) {
   const monthly = toMonthlyCents(line);
+  const qty = Math.max(1, line.qty ?? 1);
   const cadences: BudgetCadence[] = ['day', 'week', 'month', 'year'];
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
@@ -479,6 +499,31 @@ function LineEditor({
           {formatCents(monthly, currency)}
         </span>
       </div>
+
+      {/* Qty stepper — only when showQty. Shows "qty × unit price". */}
+      {showQty && (
+        <div className="flex items-center gap-2 mt-2">
+          <span className="text-[10px] font-nunito font-extrabold uppercase tracking-[1px] text-hive-muted">Qty</span>
+          <div className="inline-flex items-center bg-hive-cream border border-hive-line rounded-lg">
+            <button
+              type="button"
+              onClick={() => onChange({ qty: Math.max(1, qty - 1) })}
+              className="w-7 h-7 font-nunito font-black text-sm text-hive-muted"
+            >−</button>
+            <span className="w-8 text-center font-nunito font-black text-sm">{qty}</span>
+            <button
+              type="button"
+              onClick={() => onChange({ qty: qty + 1 })}
+              className="w-7 h-7 font-nunito font-black text-sm text-hive-muted"
+            >＋</button>
+          </div>
+          <span className="text-[11px] text-hive-muted font-bold">
+            × {formatCents(line.amountCents, currency)} / {CADENCE_LABELS[line.cadence]}
+            {qty > 1 ? ` = ${formatCents(line.amountCents * qty, currency)} / ${CADENCE_LABELS[line.cadence]}` : ''}
+          </span>
+        </div>
+      )}
+
       <div className="flex items-center gap-2 mt-2">
         <div className="flex-1 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
           <span className="text-xs text-hive-muted font-bold">{currency}</span>
@@ -489,7 +534,9 @@ function LineEditor({
             placeholder="0"
             className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
           />
-          <span className="text-xs text-hive-muted font-bold">/ {CADENCE_LABELS[line.cadence]}</span>
+          <span className="text-xs text-hive-muted font-bold">
+            {showQty ? 'unit price' : `/ ${CADENCE_LABELS[line.cadence]}`}
+          </span>
         </div>
         <div className="inline-flex bg-hive-cream border border-hive-line rounded-lg p-0.5">
           {cadences.map((c) => (
@@ -579,6 +626,7 @@ function DriversComposer({
                   currency={currency}
                   onChange={(patch) => updateLine(v.id, idx, patch)}
                   hideRemove
+                  showQty
                 />
               ))}
             </div>
@@ -595,6 +643,7 @@ function DriversComposer({
           lines={otherLines}
           setLines={setOtherLines}
           currency={currency}
+          showQty
         />
       </div>
     </div>
