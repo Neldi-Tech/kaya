@@ -20,6 +20,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
+import NumberInput from '@/components/hive/NumberInput';
 import { type PurchaseModule, type PurchaseRequest, subscribeToRecentRequests } from '@/lib/purchase';
 import {
   type BudgetLine, type BudgetCadence,
@@ -439,18 +440,11 @@ function LineEditor({
       <div className="flex items-center gap-2 mt-2">
         <div className="flex-1 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
           <span className="text-xs text-hive-muted font-bold">{currency}</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min={0}
-            value={line.amountCents > 0 ? (line.amountCents / 100).toFixed(2) : ''}
-            onChange={(e) => {
-              const v = e.target.value;
-              const cents = v === '' ? 0 : Math.round(parseFloat(v) * 100);
-              onChange({ amountCents: isNaN(cents) ? 0 : cents });
-            }}
-            placeholder="0.00"
+          <NumberInput
+            value={line.amountCents / 100}
+            onChange={(v) => onChange({ amountCents: Math.round(v * 100) })}
+            allowDecimal
+            placeholder="0"
             className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
           />
           <span className="text-xs text-hive-muted font-bold">/ {CADENCE_LABELS[line.cadence]}</span>
@@ -671,18 +665,11 @@ function PayrollComposer({
               </div>
               <div className="mt-2 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
                 <span className="text-xs text-hive-muted font-bold">{currency}</span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  min={0}
-                  value={cents > 0 ? (cents / 100).toFixed(2) : ''}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    const c = v === '' ? 0 : Math.round(parseFloat(v) * 100);
-                    updateHelper(h.uid, isNaN(c) ? 0 : c);
-                  }}
-                  placeholder="0.00"
+                <NumberInput
+                  value={cents / 100}
+                  onChange={(v) => updateHelper(h.uid, Math.round(v * 100))}
+                  allowDecimal
+                  placeholder="0"
                   className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
                 />
                 <span className="text-xs text-hive-muted font-bold">/ mo</span>
