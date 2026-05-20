@@ -15,6 +15,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { PurchaseModule, PurchaseRequest } from './purchase';
+import { roundUpDisplay } from '@/components/pantry/format';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -28,8 +29,13 @@ export interface BudgetLine {
   id: string;
   label: string;
   emoji?: string;
-  /** Amount per cadence period, in cents. */
+  /** Unit price per cadence period, in cents. Multiplied by `qty`
+   *  (default 1) to get the per-period spend. */
   amountCents: number;
+  /** How many units per period. Default 1 (treat amountCents as the
+   *  whole per-period figure). Surfaced in the Drivers composer so a
+   *  parent can budget "2 × TZS 75,000 fuel/wk". (2026-05-20) */
+  qty?: number;
   cadence: BudgetCadence;
   /** Optional sub-kind for Drivers lines so we can chip them in the
    *  UI without parsing the label string. */
@@ -67,11 +73,13 @@ const WEEKS_PER_MONTH = 4.348214;
  *  reduce the cap. */
 export function toMonthlyCents(line: BudgetLine): number {
   if (line.amountCents <= 0) return 0;
+  // Unit price × qty (default 1) = per-period spend, then normalize.
+  const perPeriod = line.amountCents * Math.max(1, line.qty ?? 1);
   switch (line.cadence) {
-    case 'day':   return Math.round(line.amountCents * DAYS_PER_MONTH);
-    case 'week':  return Math.round(line.amountCents * WEEKS_PER_MONTH);
-    case 'month': return line.amountCents;
-    case 'year':  return Math.round(line.amountCents / 12);
+    case 'day':   return Math.round(perPeriod * DAYS_PER_MONTH);
+    case 'week':  return Math.round(perPeriod * WEEKS_PER_MONTH);
+    case 'month': return perPeriod;
+    case 'year':  return Math.round(perPeriod / 12);
   }
 }
 
@@ -133,7 +141,11 @@ export async function saveModuleComposer(
 ): Promise<void> {
   if (isGuestActive()) return;
   const fullComposer = { ...(state ? { [module]: state } : {}) } as BudgetComposer;
-  const monthlyCents = computeModuleMonthly(module, fullComposer) + Math.max(0, extraMonthlyCents);
+  const rawMonthly = computeModuleMonthly(module, fullComposer) + Math.max(0, extraMonthlyCents);
+  // Saved cap is rounded up to a neat budget figure (Elia 2026-05-20).
+  // The composer state keeps exact line amounts; only the cap cache is
+  // rounded so progress bars + finances read a clean number.
+  const monthlyCents = roundUpDisplay(rawMonthly);
   await updateDoc(doc(db, 'families', familyId), {
     [`budgetComposer.${module}`]: state ?? null,
     [`householdBudgets.${module}`]: monthlyCents,
@@ -151,7 +163,7 @@ export async function saveFullComposer(
   const modules: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll'];
   const patch: Record<string, unknown> = { budgetComposer: composer };
   for (const m of modules) {
-    patch[`householdBudgets.${m}`] = computeModuleMonthly(m, composer);
+    patch[`householdBudgets.${m}`] = roundUpDisplay(computeModuleMonthly(m, composer));
   }
   await updateDoc(doc(db, 'families', familyId), patch);
 }
