@@ -209,7 +209,7 @@ async function computeHelperPerf(
     // ratedBy in memory — mirrors the in-app card fix. Window is small.
     const earliest = ctx.windowDates[ctx.windowDates.length - 1];
     const latest = ctx.windowDates[0];
-    const rSnap = await famRef.collection('dailyRatings')
+    const rSnap = await famRef.collection('ratings')
       .where('date', '>=', earliest).where('date', '<=', latest).limit(500).get();
     const kids = new Set<string>();
     for (const d of rSnap.docs) {

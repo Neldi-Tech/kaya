@@ -351,7 +351,12 @@ export async function getHelperRatingMetric(
     // window is tiny (≤30 days) so reading all family ratings in it + a
     // 500 cap is cheap, and it has zero index dependency.
     const q = query(
-      collection(db, 'families', familyId, 'dailyRatings'),
+      // 2026-05-20 — the canonical ratings collection is `ratings`
+      // (submitRating/importRating/reports all use it). This metric +
+      // the digest cron were reading a non-existent `dailyRatings`
+      // collection, so ratings ALWAYS showed empty — the real reason
+      // they "never picked up", independent of kids/index.
+      collection(db, 'families', familyId, 'ratings'),
       where('date', '>=', sinceIso),
       where('date', '<=', fromIso),
       limit(500),
