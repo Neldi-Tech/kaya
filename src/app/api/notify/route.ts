@@ -31,7 +31,18 @@ type NotifyType =
   | 'moment-comment'
   | 'moment-mention'
   | 'moment-new'
-  | 'utility-bill-due';
+  | 'utility-bill-due'
+  | 'perf-digest';
+
+/** One helper's line in the daily performance digest email. */
+interface DigestHelper {
+  name: string;
+  scorePct: number | null;
+  faceEmoji: string;
+  faceLabel: string;
+  /** One-line summary, e.g. "Workplan 88% · Ratings 12/14 · on budget". */
+  line: string;
+}
 
 interface NotifyData {
   // Rating / award / invite fields (legacy)
@@ -62,6 +73,10 @@ interface NotifyData {
   accountRef?: string;
   dueLabel?: string;
   requestUrl?: string;
+  // Performance digest fields
+  parentName?: string;
+  dateLabel?: string;
+  digestHelpers?: DigestHelper[];
 }
 
 interface NotifyBody {
@@ -154,6 +169,15 @@ export async function POST(req: NextRequest) {
     html = renderEmail({
       preheader: `${data.billName} ${data.dueLabel || 'is due'} — ${data.amountFormatted}. Kaya created the payment request.`,
       body: utilityBillDueBody(data),
+    });
+  } else if (type === 'perf-digest') {
+    const n = data.digestHelpers?.length ?? 0;
+    subject = `📊 Daily helper update${data.dateLabel ? ` · ${data.dateLabel}` : ''}`;
+    html = renderEmail({
+      preheader: n === 0
+        ? 'Your daily helper performance summary'
+        : `${n} helper${n === 1 ? '' : 's'} · how today went`,
+      body: perfDigestBody(data),
     });
   } else {
     return NextResponse.json({ error: 'Unknown notification type' }, { status: 400 });
@@ -342,6 +366,51 @@ function momentNewBody(d: NotifyData): string {
       ${d.captionSnippet ? `<div style="margin-top:14px;font-size:14px;color:#F5E6B8;font-style:italic;line-height:1.55;">"${esc(d.captionSnippet)}"</div>` : ''}
     </div>
     ${openLink ? `<p style="margin:18px 0 0;font-size:12px;text-align:center;">${openLink}</p>` : ''}
+  `;
+}
+
+function perfDigestBody(d: NotifyData): string {
+  const helpers = d.digestHelpers ?? [];
+  const greeting = d.parentName ? `Hi ${esc(d.parentName)} 👋` : 'Hi 👋';
+  if (helpers.length === 0) {
+    return `
+      <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">${greeting}</p>
+      <p style="margin:0;font-size:14px;color:#1A1412;line-height:1.55;">No active helpers to report on yet. Add a helper in Settings → Helpers and you'll see their daily summary here.</p>
+    `;
+  }
+  const rows = helpers.map((h) => {
+    const scoreColor = h.scorePct === null ? '#9B8A72'
+      : h.scorePct >= 70 ? '#3FAF6C'
+      : h.scorePct >= 50 ? '#D4A017' : '#E36F6F';
+    const scoreText = h.scorePct === null ? '—' : `${h.scorePct}%`;
+    return `
+      <tr>
+        <td style="padding:14px 0;border-bottom:1px solid #F0EAE0;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+            <tr>
+              <td style="vertical-align:middle;font-size:24px;width:34px;">${esc(h.faceEmoji)}</td>
+              <td style="vertical-align:middle;">
+                <div style="font-size:14px;font-weight:700;color:#1A1412;">${esc(h.name)}</div>
+                <div style="font-size:12px;color:#9B8A72;margin-top:2px;">${esc(h.line)}</div>
+              </td>
+              <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
+                <div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:22px;font-weight:900;color:${scoreColor};line-height:1;">${esc(scoreText)}</div>
+                <div style="font-size:10px;color:#C4B89A;text-transform:uppercase;letter-spacing:0.1em;font-weight:700;margin-top:2px;">${esc(h.faceLabel)}</div>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`;
+  }).join('');
+  return `
+    <p style="margin:0 0 6px;font-size:14px;color:#9B8A72;line-height:1.5;">${greeting}</p>
+    <p style="margin:0 0 18px;font-size:14px;color:#1A1412;line-height:1.55;">
+      Here's how your ${helpers.length === 1 ? 'helper' : 'team'} did${d.dateLabel ? ` over the last few days (as of ${esc(d.dateLabel)})` : ''}.
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">${rows}</table>
+    <p style="margin:18px 0 0;font-size:12px;color:#C4B89A;text-align:center;">
+      Scores cover settled days (today in progress is excluded). Manage this email in Settings → Notifications.
+    </p>
   `;
 }
 
