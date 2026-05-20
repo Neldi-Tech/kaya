@@ -30,7 +30,8 @@ type NotifyType =
   | 'moment-reaction'
   | 'moment-comment'
   | 'moment-mention'
-  | 'moment-new';
+  | 'moment-new'
+  | 'utility-bill-due';
 
 interface NotifyData {
   // Rating / award / invite fields (legacy)
@@ -55,6 +56,12 @@ interface NotifyData {
   context?: 'caption' | 'comment';
   photoCount?: number;
   postUrl?: string;
+  // Utility bill-due fields
+  billName?: string;
+  amountFormatted?: string;
+  accountRef?: string;
+  dueLabel?: string;
+  requestUrl?: string;
 }
 
 interface NotifyBody {
@@ -141,6 +148,12 @@ export async function POST(req: NextRequest) {
     html = renderEmail({
       preheader: data.captionSnippet || `${data.authorName} posted a new moment`,
       body: momentNewBody(data),
+    });
+  } else if (type === 'utility-bill-due') {
+    subject = `💡 ${data.billName} is due — ${data.amountFormatted}`;
+    html = renderEmail({
+      preheader: `${data.billName} ${data.dueLabel || 'is due'} — ${data.amountFormatted}. Kaya created the payment request.`,
+      body: utilityBillDueBody(data),
     });
   } else {
     return NextResponse.json({ error: 'Unknown notification type' }, { status: 400 });
@@ -329,5 +342,23 @@ function momentNewBody(d: NotifyData): string {
       ${d.captionSnippet ? `<div style="margin-top:14px;font-size:14px;color:#F5E6B8;font-style:italic;line-height:1.55;">"${esc(d.captionSnippet)}"</div>` : ''}
     </div>
     ${openLink ? `<p style="margin:18px 0 0;font-size:12px;text-align:center;">${openLink}</p>` : ''}
+  `;
+}
+
+function utilityBillDueBody(d: NotifyData): string {
+  const openLink = d.requestUrl
+    ? `<a href="${esc(d.requestUrl)}" style="display:inline-block;background:#3FAF6C;color:#fff;text-decoration:none;font-weight:700;font-size:13px;padding:11px 22px;border-radius:10px;">Open the payment request →</a>`
+    : '';
+  return `
+    <p style="margin:0 0 16px;font-size:14px;color:#9B8A72;line-height:1.5;">
+      Your recurring bill <strong style="color:#1A1412;">${esc(d.billName)}</strong> ${esc(d.dueLabel || 'is due')}.
+      Kaya created the payment request — approve it in the app, then pay.
+    </p>
+    <div style="background:linear-gradient(135deg,#FFF3D9,#FCD9A0);padding:28px 24px;border-radius:16px;text-align:center;">
+      <div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:42px;font-weight:900;line-height:1;color:#1A1412;">${esc(d.amountFormatted)}</div>
+      <div style="margin-top:6px;font-size:11px;color:#D17F1A;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;">due${d.accountRef ? ` · a/c ${esc(d.accountRef)}` : ''}</div>
+    </div>
+    ${openLink ? `<p style="margin:20px 0 0;text-align:center;">${openLink}</p>` : ''}
+    <p style="margin:16px 0 0;font-size:11px;color:#C4B89A;text-align:center;">Sent to parents · you'll get one per bill, per due date.</p>
   `;
 }

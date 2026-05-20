@@ -124,10 +124,16 @@ export async function saveModuleComposer(
   familyId: string,
   module: PurchaseModule,
   state: BudgetComposer[PurchaseModule],
+  /** Extra monthly cents to add to the computed cap that don't live in
+   *  the composer state — used by Utility, where recurring bills are
+   *  managed in their own collection but still feed the cap. The cap
+   *  written to householdBudgets becomes a SNAPSHOT (composer lines +
+   *  bills-at-save-time). (Utilities v2, 2026-05-20) */
+  extraMonthlyCents = 0,
 ): Promise<void> {
   if (isGuestActive()) return;
   const fullComposer = { ...(state ? { [module]: state } : {}) } as BudgetComposer;
-  const monthlyCents = computeModuleMonthly(module, fullComposer);
+  const monthlyCents = computeModuleMonthly(module, fullComposer) + Math.max(0, extraMonthlyCents);
   await updateDoc(doc(db, 'families', familyId), {
     [`budgetComposer.${module}`]: state ?? null,
     [`householdBudgets.${module}`]: monthlyCents,

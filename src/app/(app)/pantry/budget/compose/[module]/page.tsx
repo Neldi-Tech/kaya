@@ -31,6 +31,10 @@ import { subscribeToVehicles, vehicleEmoji, type Vehicle } from '@/lib/vehicles'
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
+import {
+  type Utility, type Cadence, subscribeToUtilities, sumMonthlyUtilities,
+  monthlyEquivalentCents, CADENCE_SHORT,
+} from '@/lib/pantry';
 
 const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint: string; border: string; eyebrow: string }> = {
   pantry:  { emoji: '🛒', label: 'Pantry',  tint: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', eyebrow: 'text-pantry-leaf-dk' },
@@ -43,6 +47,25 @@ const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint
 const CADENCE_LABELS: Record<BudgetCadence, string> = {
   day: 'day', week: 'wk', month: 'mo', year: 'yr',
 };
+
+/** Map a utility-meter `Cadence` (rich: incl 2×/wk + 2×/mo) to the
+ *  composer's simpler `BudgetCadence` (day/week/month/year) for the
+ *  per-meter line SEED. The 2× cadences map to their base period —
+ *  the parent enters the amount, so precision lands on the figure they
+ *  type, not the seed. (Utilities v2, 2026-05-20) */
+function meterFreqToBudgetCadence(c: Cadence): BudgetCadence {
+  switch (c) {
+    case 'daily':       return 'day';
+    case 'weekly':
+    case 'biweekly':    return 'week';   // 2×/wk → week base
+    case 'yearly':      return 'year';
+    case 'semimonthly':
+    case 'monthly':
+    case 'quarterly':
+    case 'as-needed':
+    default:            return 'month';
+  }
+}
 
 export default function ComposeBudgetPage() {
   const params = useParams();
@@ -80,6 +103,11 @@ export default function ComposeBudgetPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [meters, setMeters] = useState<UtilityMeter[]>([]);
   const [helpers, setHelpers] = useState<HelperLink[]>([]);
+  // Recurring bills — read-only contributor to the Utility cap. They
+  // live in their own collection; the composer shows them + folds their
+  // monthly-equivalent into the saved cap. (Utilities v2, 2026-05-20)
+  const [bills, setBills] = useState<Utility[]>([]);
+  const billsMonthly = useMemo(() => sumMonthlyUtilities(bills), [bills]);
 
   // Recent closed requests — feeds the "average spend" chip in the
   // header so the parent can see if their draft cap is in line with
@@ -100,7 +128,9 @@ export default function ComposeBudgetPage() {
       return subscribeToVehicles(profile.familyId, (vs) => setVehicles(vs.filter((v) => v.active !== false)));
     }
     if (module === 'utility') {
-      return subscribeToMeters(profile.familyId, (ms) => setMeters(ms.filter((m) => m.active !== false)));
+      const unsubMeters = subscribeToMeters(profile.familyId, (ms) => setMeters(ms.filter((m) => m.active !== false)));
+      const unsubBills = subscribeToUtilities(profile.familyId, (bs) => setBills(bs.filter((b) => b.active)));
+      return () => { unsubMeters(); unsubBills(); };
     }
   }, [profile?.familyId, module]);
   useEffect(() => {
@@ -175,7 +205,13 @@ export default function ComposeBudgetPage() {
             label: m.label,
             emoji: meterEmoji(m.type),
             amountCents: 0,
-            cadence: m.type === 'electric' ? 'week' : 'month',
+            // Seed cadence from the meter's frequency, mapped to the
+            // composer's simpler day/week/month/year scale. Falls back
+            // to the type default. (Utilities v2) The parent can fine-
+            // tune the amount + cadence on the line itself.
+            cadence: m.frequency
+              ? meterFreqToBudgetCadence(m.frequency)
+              : (m.type === 'electric' ? 'week' : 'month'),
           };
           changed = true;
         }
@@ -208,12 +244,14 @@ export default function ComposeBudgetPage() {
       return perV + sumMonthlyCents(otherLines);
     }
     if (module === 'utility') {
-      return Object.values(perMeter).reduce((acc, l) => acc + toMonthlyCents(l), 0);
+      // Regular top-ups (meters) + recurring bills both feed the cap.
+      const meterTotal = Object.values(perMeter).reduce((acc, l) => acc + toMonthlyCents(l), 0);
+      return meterTotal + billsMonthly;
     }
     // payroll
     const perH = Object.values(perHelper).reduce((acc, c) => acc + (c ?? 0), 0);
     return perH + sumMonthlyCents(otherLines);
-  }, [module, lines, perVehicle, perMeter, perHelper, otherLines]);
+  }, [module, lines, perVehicle, perMeter, perHelper, otherLines, billsMonthly]);
 
   // ── Save ────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -230,7 +268,9 @@ export default function ComposeBudgetPage() {
           ...(otherLines.length > 0 ? { other: { lines: otherLines } } : {}),
         });
       } else if (module === 'utility') {
-        await saveModuleComposer(profile.familyId, module, { perMeter });
+        // Pass billsMonthly as the addend so the saved cap = meter
+        // lines + recurring bills (snapshot at save time).
+        await saveModuleComposer(profile.familyId, module, { perMeter }, billsMonthly);
       } else if (module === 'payroll') {
         const perHelperOut: Record<string, { monthlySalaryCents: number }> = {};
         for (const [k, v] of Object.entries(perHelper)) perHelperOut[k] = { monthlySalaryCents: v };
@@ -329,6 +369,8 @@ export default function ComposeBudgetPage() {
             meters={meters}
             perMeter={perMeter}
             setPerMeter={setPerMeter}
+            bills={bills}
+            billsMonthly={billsMonthly}
             currency={currency}
           />
         )}
@@ -562,25 +604,15 @@ function DriversComposer({
 // ── Utility composer ──
 
 function UtilityComposer({
-  meters, perMeter, setPerMeter, currency,
+  meters, perMeter, setPerMeter, bills, billsMonthly, currency,
 }: {
   meters: UtilityMeter[];
   perMeter: Record<string, BudgetLine>;
   setPerMeter: React.Dispatch<React.SetStateAction<Record<string, BudgetLine>>>;
+  bills: Utility[];
+  billsMonthly: number;
   currency: string;
 }) {
-  if (meters.length === 0) {
-    return (
-      <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center">
-        <div className="text-3xl mb-2">⚡</div>
-        <p className="text-sm font-nunito font-bold text-hive-navy">No meters set up yet.</p>
-        <Link href="/pantry/utility-meters" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs underline mt-2 block">
-          Add a meter →
-        </Link>
-      </div>
-    );
-  }
-
   const updateMeterLine = (meterId: string, patch: Partial<BudgetLine>) => {
     setPerMeter((prev) => {
       const current = prev[meterId];
@@ -589,29 +621,81 @@ function UtilityComposer({
     });
   };
 
+  // Empty state only when BOTH categories are empty.
+  if (meters.length === 0 && bills.length === 0) {
+    return (
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center">
+        <div className="text-3xl mb-2">⚡</div>
+        <p className="text-sm font-nunito font-bold text-hive-navy">No utilities set up yet.</p>
+        <Link href="/pantry/utility/setup" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs underline mt-2 block">
+          Set up utilities →
+        </Link>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-2">
-      {meters.map((m) => {
-        const line = perMeter[m.id];
-        if (!line) return null;
-        // Force the editor to use this meter's emoji + label even if
-        // the stored line is stale (e.g. parent renamed the meter).
-        const editor: BudgetLine = {
-          ...line,
-          emoji: meterEmoji(m.type),
-          // Prefer the user-given meter label; fall back to type label.
-          label: m.label || meterLabel(m.type),
-        };
-        return (
-          <LineEditor
-            key={m.id}
-            line={editor}
-            currency={currency}
-            onChange={(patch) => updateMeterLine(m.id, patch)}
-            hideRemove
-          />
-        );
-      })}
+    <div className="flex flex-col gap-3">
+      {/* Recurring bills — read-only. Managed in /pantry/utilities;
+          their monthly-equivalent is folded into the cap. (Utilities v2) */}
+      {bills.length > 0 && (
+        <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk">
+              🔁 Recurring bills
+            </p>
+            <span className="font-nunito font-black text-sm text-hive-honey-dk">
+              {formatCents(billsMonthly, currency)}/mo
+            </span>
+          </div>
+          <div className="space-y-1">
+            {bills.map((b) => (
+              <div key={b.id} className="flex items-center justify-between text-[12px]">
+                <span className="font-nunito font-bold text-hive-ink truncate">{b.name}</span>
+                <span className="text-hive-muted font-nunito font-bold flex-shrink-0">
+                  {formatCents(b.amountCents || 0, currency)}{CADENCE_SHORT[b.cadence]} · = {formatCents(monthlyEquivalentCents(b.amountCents || 0, b.cadence), currency)}/mo
+                </span>
+              </div>
+            ))}
+          </div>
+          <Link href="/pantry/utilities" className="text-[10.5px] text-hive-honey-dk font-nunito font-extrabold underline mt-1.5 inline-block">
+            Edit recurring bills →
+          </Link>
+        </div>
+      )}
+
+      {/* Regular top-ups — editable per-meter estimates. */}
+      {meters.length > 0 ? (
+        <div>
+          <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-1.5">
+            🔌 Regular top-ups (estimate)
+          </p>
+          <div className="flex flex-col gap-2">
+            {meters.map((m) => {
+              const line = perMeter[m.id];
+              if (!line) return null;
+              const editor: BudgetLine = {
+                ...line,
+                emoji: meterEmoji(m.type),
+                label: m.label || meterLabel(m.type),
+              };
+              return (
+                <LineEditor
+                  key={m.id}
+                  line={editor}
+                  currency={currency}
+                  onChange={(patch) => updateMeterLine(m.id, patch)}
+                  hideRemove
+                />
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <Link href="/pantry/utility-meters" className="text-pantry-leaf-dk font-nunito font-extrabold text-xs underline">
+          ＋ Add a regular top-up (meter) →
+        </Link>
+      )}
     </div>
   );
 }

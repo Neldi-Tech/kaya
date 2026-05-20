@@ -17,7 +17,7 @@
 // kid read.
 
 import {
-  collection, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
   onSnapshot, writeBatch,
 } from 'firebase/firestore';
@@ -522,6 +522,20 @@ export interface Utility {
   notes: string;
   /** False keeps the row but drops it from the Budget roll-up. */
   active: boolean;
+  // ── Auto-request (Utilities v2, 2026-05-20) ────────────────────
+  // When true, Kaya auto-creates a pending_approval payment request +
+  // emails the parents on the bill's due day. Mirrors the payroll
+  // generator. Only fires for monthly + 2×-a-month cadences in v1
+  // (quarterly/yearly need an anchor-month picker — follow-up).
+  /** Generate a payment request + email on the due day. */
+  autoRequest?: boolean;
+  /** Idempotency guard — the period key we last generated for.
+   *  Monthly: "YYYY-MM". 2× a month: "YYYY-MM-H1" / "YYYY-MM-H2".
+   *  A rerun in the same period is a no-op. */
+  lastGeneratedKey?: string;
+  /** The request id we created on the last generation — lets the row
+   *  + Outstanding banner deep-link to the pending payment. */
+  lastGeneratedRequestId?: string;
   // ── Denormalised payment status ────────────────────────────────
   // Mirrors the most recent payment so each utility row can render
   // its status pill ("Paid · May" / "Overdue 3d") from a single doc
@@ -743,6 +757,15 @@ export function subscribeToUtilities(
     // Permission blip / missing index → render empty rather than hang.
     () => cb([]),
   );
+}
+
+/** One-shot read of all utilities — used by the auto-request
+ *  generator (which runs once on page-load, not as a subscription).
+ *  (Utilities v2, 2026-05-20) */
+export async function listUtilities(familyId: string): Promise<Utility[]> {
+  if (isGuestActive()) return [];
+  const snap = await getDocs(utilityCol(familyId));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Utility));
 }
 
 export async function addUtility(

@@ -364,6 +364,34 @@ export async function notifyPurchaseReconciled(args: PurchaseReconciledNotify): 
   );
 }
 
+// ── Utility bill-due email (Utilities v2, 2026-05-20) ──────────────
+// Fired by the recurring-bill generator when it auto-creates a payment
+// request. Email-only (Resend) — the in-app notification is the request
+// itself landing in the parent's approval queue. No-ops if no
+// recipients / Resend unconfigured.
+interface UtilityBillDueNotify {
+  to: string[];
+  billName: string;
+  amountFormatted: string;
+  accountRef?: string;
+  dueLabel: string;
+  requestUrl: string;
+}
+export function notifyUtilityBillDue(args: UtilityBillDueNotify): Promise<void> {
+  if (!args.to.length) return Promise.resolve();
+  return post({
+    type: 'utility-bill-due',
+    to: args.to,
+    data: {
+      billName: args.billName,
+      amountFormatted: args.amountFormatted,
+      accountRef: args.accountRef,
+      dueLabel: args.dueLabel,
+      requestUrl: args.requestUrl,
+    },
+  });
+}
+
 // Locale-light label helpers — kept here so notify.ts doesn't drag in
 // the whole purchase.ts type tree (and so the wording stays in one
 // place across in-app + push).
