@@ -364,6 +364,42 @@ export async function notifyPurchaseReconciled(args: PurchaseReconciledNotify): 
   );
 }
 
+// ── Utility top-up reminder (2026-05-20) ───────────────────────────
+// Reminder-ONLY nudge to helpers when a regular top-up's reminder day
+// arrives — so the helper launches a request. Unlike recurring bills,
+// this NEVER auto-creates a request (top-up amounts are variable). In-
+// app notification + FCM push to each helper.
+interface UtilityTopupReminderNotify {
+  familyId: string;
+  meterId: string;
+  meterLabel: string;
+  helperUids: string[];
+  estimatedLabel?: string;
+}
+export async function notifyUtilityTopupDue(args: UtilityTopupReminderNotify): Promise<void> {
+  if (args.helperUids.length === 0) return;
+  const title = `⚡ Top-up due — ${args.meterLabel}`;
+  const body = args.estimatedLabel
+    ? `Time to top up ${args.meterLabel} (≈ ${args.estimatedLabel}). Open Utility to launch a request.`
+    : `Time to top up ${args.meterLabel}. Open Utility to launch a request.`;
+  const link = '/pantry/utility';
+  await Promise.all(
+    args.helperUids.map(async (uid) => {
+      try {
+        await createNotification(args.familyId, {
+          type: 'utility-topup-reminder',
+          title,
+          message: body,
+          read: false,
+          forUserId: uid,
+          link,
+        } as Parameters<typeof createNotification>[1]);
+      } catch { /* swallow */ }
+      await pushToUid({ uid, title, body, url: link, tag: `topup-${args.meterId}` });
+    }),
+  );
+}
+
 // ── Utility bill-due email (Utilities v2, 2026-05-20) ──────────────
 // Fired by the recurring-bill generator when it auto-creates a payment
 // request. Email-only (Resend) — the in-app notification is the request

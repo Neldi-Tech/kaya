@@ -10,7 +10,7 @@
 // garden) — each its own request stream + history.
 
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc,
+  collection, doc, addDoc, updateDoc, deleteDoc, getDocs,
   Timestamp, serverTimestamp, onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -57,6 +57,26 @@ export interface UtilityMeter {
   /** Optional photo of the meter (mounted on a wall etc.) — helps
    *  helpers identify which meter is which when there are several. */
   photoUrl?: string;
+  // ── Rich registration (2026-05-20) ─────────────────────────────
+  /** Preferred supplier this top-up is usually bought from / paid to.
+   *  Links to the shared suppliers collection. Surfaces on the picker
+   *  + flows into the request. Optional. */
+  preferredSupplierId?: string;
+  /** Estimated typical top-up amount in cents — the parent's working
+   *  figure (editable from time to time). Pre-fills the request
+   *  estimate + feeds the Budget composer's per-meter line. Variable
+   *  by nature, so it's a guide, not a fixed bill amount. */
+  estimatedCents?: number;
+  /** Days of the month a reminder fires for this top-up (1–31). When
+   *  set, Kaya nudges the helper on those days to launch a top-up
+   *  request — REMINDER ONLY, never auto-creates a request (top-ups
+   *  are variable; the helper enters the actual amount). For a
+   *  "2× a month" frequency the form auto-suggests [1, 15] (editable).
+   *  Empty = no scheduled reminder (helper tops up as they run low). */
+  reminderDays?: number[];
+  /** Idempotency guard for the reminder generator — "YYYY-MM-DD" of the
+   *  last reminder fired, so a re-open on the same day is a no-op. */
+  lastRemindedKey?: string;
   /** Pause without deleting. False meters don't appear in the
    *  request picker but their history stays for Finances. */
   active: boolean;
@@ -84,6 +104,14 @@ export function subscribeToMeters(
   return onSnapshot(q, (snap) => {
     cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as UtilityMeter)));
   });
+}
+
+/** One-shot read of all meters — used by the top-up reminder generator
+ *  (runs once on page-load, not as a subscription). (2026-05-20) */
+export async function listMeters(familyId: string): Promise<UtilityMeter[]> {
+  if (isGuestActive()) return [];
+  const snap = await getDocs(metersCol(familyId));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as UtilityMeter));
 }
 
 export async function addMeter(
