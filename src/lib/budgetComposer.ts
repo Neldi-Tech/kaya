@@ -19,8 +19,11 @@ import { roundUpDisplay } from '@/components/pantry/format';
 
 // ── Types ──────────────────────────────────────────────────────
 
-/** Cadence options for budget line items. */
-export type BudgetCadence = 'day' | 'week' | 'month' | 'year';
+/** Cadence options for budget line items. The sub-monthly cadences
+ *  (day / week / 2×-week / 2×-month) each carry a default "times per
+ *  month" count that the parent can override per line — see
+ *  `DEFAULT_PERIODS_PER_MONTH` + `BudgetLine.periodsPerMonth`. */
+export type BudgetCadence = 'day' | 'week' | '2x-week' | 'month' | '2x-month' | 'year';
 
 /** One structured line in a module's budget — e.g. "Fresh staples,
  *  $80/wk" or "Toyota RAV4 fuel, $40/wk". The label is free-form
@@ -37,6 +40,11 @@ export interface BudgetLine {
    *  parent can budget "2 × TZS 75,000 fuel/wk". (2026-05-20) */
   qty?: number;
   cadence: BudgetCadence;
+  /** How many times this spend happens per month — overrides the
+   *  cadence default (day 25, week 4, 2×-week 8, 2×-month 2). Lets a
+   *  parent tune "/day × 26" vs "× 30" inline. Ignored for month (×1)
+   *  and year (÷12). When unset the cadence default applies. (2026-05-20) */
+  periodsPerMonth?: number;
   /** Optional sub-kind for Drivers lines so we can chip them in the
    *  UI without parsing the label string. */
   kind?: 'fuel' | 'service' | 'parts' | 'wash' | 'tolls' | 'other';
@@ -61,26 +69,41 @@ export interface BudgetComposer {
 }
 
 // ── Cadence math ───────────────────────────────────────────────
+//
+// We deliberately use clean, explainable "times per month" counts
+// instead of calendar-exact averages (4.348 wk/mo, 30.44 d/mo). A
+// parent reads "100,000 × 4 = 400,000/mo", not "× 4.348 = 434,821".
+// The counts below are sensible defaults; each line can override its
+// own count via `BudgetLine.periodsPerMonth` (e.g. /day × 26 or × 30).
 
-/** Average days per month — 365.25 / 12. Used for /day → /month. */
-const DAYS_PER_MONTH = 30.4375;
-/** Average weeks per month — 52.1786 / 12. Used for /week → /month. */
-const WEEKS_PER_MONTH = 4.348214;
+/** Default "times per month" for each sub-monthly cadence. */
+export const DEFAULT_PERIODS_PER_MONTH: Record<BudgetCadence, number> = {
+  day:        25,    // workday-ish default; editable per line
+  week:       4,
+  '2x-week':  8,     // twice a week ≈ 8×/mo
+  month:      1,
+  '2x-month': 2,
+  year:       1 / 12,
+};
+
+/** Resolve how many times a line's spend lands per month. Month is
+ *  always ×1 and year always ÷12 (not overridable); the sub-monthly
+ *  cadences honour the per-line override, falling back to the default. */
+export function periodsPerMonth(line: BudgetLine): number {
+  if (line.cadence === 'month') return 1;
+  if (line.cadence === 'year') return 1 / 12;
+  const override = line.periodsPerMonth;
+  return override && override > 0 ? override : DEFAULT_PERIODS_PER_MONTH[line.cadence];
+}
 
 /** Normalize one line to per-month cents. Always returns a whole
  *  integer (rounded) so downstream `formatCents` displays cleanly.
  *  Negative or zero amounts return 0 — we never want a line to
- *  reduce the cap. */
+ *  reduce the cap. monthly = (unit price × qty) × times-per-month. */
 export function toMonthlyCents(line: BudgetLine): number {
   if (line.amountCents <= 0) return 0;
-  // Unit price × qty (default 1) = per-period spend, then normalize.
   const perPeriod = line.amountCents * Math.max(1, line.qty ?? 1);
-  switch (line.cadence) {
-    case 'day':   return Math.round(perPeriod * DAYS_PER_MONTH);
-    case 'week':  return Math.round(perPeriod * WEEKS_PER_MONTH);
-    case 'month': return perPeriod;
-    case 'year':  return Math.round(perPeriod / 12);
-  }
+  return Math.round(perPeriod * periodsPerMonth(line));
 }
 
 /** Sum a list of lines to monthly cents. */
