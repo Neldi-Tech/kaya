@@ -35,12 +35,15 @@
 // `runTransaction` like the Hive does. Every read is guarded for guest mode.
 
 import {
-  collection, doc, getDoc, getDocs, setDoc,
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, runTransaction,
   query, where, orderBy, limit, onSnapshot,
   Timestamp, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
+// Type-only — Business reuses the Hive's unified `approvalRequests` queue.
+// hive.ts does not import this module, so this is cycle-free.
+import type { ApprovalRequest } from './hive';
 
 // ── Business identity ─────────────────────────────────────────────
 
@@ -468,11 +471,12 @@ export function subscribeToFamilyBusinesses(familyId: string, cb: (businesses: B
   return onSnapshot(q, (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as Business))));
 }
 
-/** One kid's businesses (kid Portfolio). */
+/** One kid's businesses (kid Portfolio). Equality-only query + client-side
+ *  sort so it needs no composite index — the family's set per kid is tiny. */
 export function subscribeToKidBusinesses(familyId: string, kidId: string, cb: (businesses: Business[]) => void): () => void {
   if (isGuestActive()) { cb([]); return () => {}; }
-  const q = query(businessesCol(familyId), where('ownerId', '==', kidId), orderBy('createdAt', 'desc'));
-  return onSnapshot(q, (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as Business))));
+  const q = query(businessesCol(familyId), where('ownerId', '==', kidId));
+  return onSnapshot(q, (s) => cb(sortByCreatedDesc(s.docs.map((d) => ({ id: d.id, ...d.data() } as Business)))));
 }
 
 export async function getBusiness(familyId: string, businessId: string): Promise<Business | null> {
@@ -529,5 +533,175 @@ export function subscribeToMarketQuotes(cb: (quotes: Record<string, MarketQuote>
     const out: Record<string, MarketQuote> = {};
     s.docs.forEach((d) => { out[d.id] = { symbol: d.id, ...d.data() } as MarketQuote; });
     cb(out);
+  });
+}
+
+const approvalRequestsCol = (familyId: string) =>
+  collection(db, 'families', familyId, 'approvalRequests');
+
+function tsMillis(t: Timestamp | undefined): number {
+  return (t as any)?.toMillis?.() ?? 0;
+}
+function sortByCreatedDesc<T extends { createdAt: Timestamp }>(rows: T[]): T[] {
+  return rows.sort((a, b) => tsMillis(b.createdAt) - tsMillis(a.createdAt));
+}
+
+/** Business requests (pending + resolved) for the Parent Console. Filtered to
+ *  module:'business' so Hive-native items never leak in; resolved ones are
+ *  retained as the family's business approval history. Equality-only query +
+ *  client sort — no composite index required. */
+export function subscribeToBusinessRequests(
+  familyId: string,
+  cb: (requests: ApprovalRequest[]) => void,
+): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  const q = query(approvalRequestsCol(familyId), where('module', '==', 'business'));
+  return onSnapshot(q, (s) => {
+    const rows = s.docs.map((d) => ({ id: d.id, ...d.data() } as ApprovalRequest));
+    rows.sort((a, b) => tsMillis(b.createdAt as Timestamp) - tsMillis(a.createdAt as Timestamp));
+    cb(rows);
+  });
+}
+
+// ── Mutations ─────────────────────────────────────────────────────
+// Money-moving + stats-recomputing writes (logSale, logCost, addItem,
+// buyInvestment, the milestone engine) land in PR3/PR4/PR6. PR2 ships the
+// business lifecycle: create, status flips, and the launch approval loop.
+
+export interface NewBusinessInput {
+  type: BusinessType;
+  name: string;
+  emoji: string;
+  mission?: string;
+  customerChannels: CustomerChannel[];
+  unitLabel?: string;
+  unitPriceCents?: number;
+  /** Effective split — caller resolves it from BusinessConfig.defaultHiveSplit. */
+  hiveSplit: HiveSplit;
+  reinvestPct?: number;
+  autoCloseAfterDays?: number;
+}
+
+export interface BusinessActor {
+  uid: string;
+  /** Child.id of the owner. A kid creating their own → their own childId; a
+   *  parent creating → the kid they're setting it up for. */
+  ownerId: string;
+  isParent: boolean;
+}
+
+/** Create a business. A parent's goes live immediately (the parent IS the
+ *  approver); a kid's starts as a 'pilot' sandbox — taking it 'active'
+ *  ("launch") needs a parent OK via {@link requestBusinessLaunch}. Returns
+ *  the new business id. */
+export async function createBusiness(
+  familyId: string,
+  input: NewBusinessInput,
+  actor: BusinessActor,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-business';
+  const status: BusinessStatus = actor.isParent ? 'active' : 'pilot';
+  const now = serverTimestamp();
+  // Build with no `undefined` fields — Firestore rejects them.
+  const data: Record<string, unknown> = {
+    ownerId: actor.ownerId,
+    type: input.type,
+    status,
+    name: input.name.trim(),
+    emoji: input.emoji || '💼',
+    customerChannels: input.customerChannels,
+    hiveSplit: input.hiveSplit,
+    stats: EMPTY_STATS,
+    createdBy: actor.uid,
+    createdAt: now,
+    startedAt: now,
+  };
+  if (input.mission?.trim()) data.mission = input.mission.trim();
+  if (input.unitLabel?.trim()) data.unitLabel = input.unitLabel.trim();
+  if (typeof input.unitPriceCents === 'number') data.unitPriceCents = input.unitPriceCents;
+  if (typeof input.reinvestPct === 'number') data.reinvestPct = input.reinvestPct;
+  if (typeof input.autoCloseAfterDays === 'number') data.autoCloseAfterDays = input.autoCloseAfterDays;
+  const ref = await addDoc(businessesCol(familyId), data);
+  return ref.id;
+}
+
+/** Lifecycle flip — pilot/idea → active, active ↔ paused, → closed. `startedAt`
+ *  is set at creation; `closedAt` is stamped on close so the ledger keeps a
+ *  closing date for archived ad-hoc gigs. */
+export async function setBusinessStatus(
+  familyId: string,
+  businessId: string,
+  status: BusinessStatus,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const patch: Record<string, unknown> = { status };
+  if (status === 'closed') patch.closedAt = serverTimestamp();
+  await updateDoc(businessDoc(familyId, businessId), patch);
+}
+
+/** Light edits to a business's identity / pricing. Kept narrow on purpose —
+ *  money + stats never flow through here. */
+export async function updateBusiness(
+  familyId: string,
+  businessId: string,
+  patch: Partial<Pick<Business, 'name' | 'mission' | 'emoji' | 'unitLabel' | 'unitPriceCents' | 'customerChannels' | 'hiveSplit' | 'reinvestPct'>>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(businessDoc(familyId, businessId), patch as Record<string, unknown>);
+}
+
+/** A kid asks a parent to take a pilot live. Writes a `business_launch` item
+ *  into the unified queue (module:'business'); the parent resolves it in the
+ *  Business console. Disable the button while one is already pending. */
+export async function requestBusinessLaunch(
+  familyId: string,
+  business: Pick<Business, 'id' | 'ownerId' | 'name' | 'emoji'>,
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: business.ownerId,
+    type: 'business_launch',
+    module: 'business',
+    businessId: business.id,
+    description: `Take "${business.name}" ${business.emoji} from pilot to active.`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** Parent resolves a business approval. Retained as history (never deleted).
+ *  Approving a `business_launch` flips the business to 'active' in the same
+ *  transaction so request + business move together. Other business approval
+ *  types (price_change, investment_*) get their branches in later PRs. */
+export async function resolveBusinessRequest(
+  familyId: string,
+  requestId: string,
+  decision: 'approved' | 'rejected',
+  approverUid: string,
+  reason?: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await runTransaction(db, async (tx) => {
+    const reqRef = doc(approvalRequestsCol(familyId), requestId);
+    const reqSnap = await tx.get(reqRef);
+    if (!reqSnap.exists()) throw new Error('Request not found.');
+    const req = reqSnap.data() as Pick<ApprovalRequest, 'type' | 'status' | 'businessId'>;
+    if (req.status !== 'pending') throw new Error('Request already resolved.');
+
+    const now = serverTimestamp();
+    if (decision === 'rejected') {
+      tx.update(reqRef, {
+        status: 'rejected', rejectionReason: reason || '',
+        resolvedAt: now, resolvedBy: approverUid,
+      });
+      return;
+    }
+    if (req.type === 'business_launch' && req.businessId) {
+      tx.update(businessDoc(familyId, req.businessId), { status: 'active', startedAt: now });
+    }
+    tx.update(reqRef, { status: 'approved', resolvedAt: now, resolvedBy: approverUid });
   });
 }
