@@ -169,7 +169,9 @@ export default function PurchaseDetailPage() {
         category: s.category,
         qty: s.defaultQty || 1,
         unit: s.unit,
-        estimatedCents: s.lastBoughtCents,
+        // Prefer the parent's expected price; fall back to the last
+        // actual. (Other Regulars v2, 2026-05-20)
+        estimatedCents: s.defaultPriceCents || s.lastBoughtCents,
         // Tag rows added during reconcile so the audit trail flags
         // them as ad-hoc additions to the approved basket. (2026-05-19)
         ...(reconcilable ? { addedDuringReconcile: true } : {}),

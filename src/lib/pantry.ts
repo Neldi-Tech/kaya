@@ -264,6 +264,19 @@ export interface Staple {
    *  preferred). Surfaces on the active list rows AND in the WhatsApp
    *  message we send to the supplier so they know what to grab. */
   preferredBrands?: string[];
+  /** Expected price PER UNIT in cents — the parent's budgeted figure
+   *  for this regular (distinct from `lastBoughtCents`, which is the
+   *  auto-derived actual). Pre-fills the request estimate when the
+   *  regular is added to a basket. Falls back to lastBoughtCents.
+   *  (Outdoor/Other Regulars v2, 2026-05-20) */
+  defaultPriceCents?: number;
+  /** Fixed due day of the month (1–31) for a recurring regular that
+   *  happens on a set date (e.g. a monthly garden service on the 5th).
+   *  When set, the regular is a FIXED commitment → reminders go to
+   *  BOTH parent + helper. When absent, the regular is cadence-driven
+   *  (helper-reminded when overdue vs cadence). 0 / undefined = none.
+   *  (2026-05-20) */
+  dueDay?: number;
   notes?: string;
   /** False to keep the staple in the master list but skip it in the
    *  Phase 1B auto-populate. Phase 1A treats it as advisory only. */
@@ -1159,7 +1172,8 @@ export async function createListFromStaples(
       category: s.category,
       qty: s.defaultQty,
       unit: s.unit,
-      estimatedCents: s.lastBoughtCents,
+      // Prefer the parent's expected price; fall back to last actual.
+      estimatedCents: s.defaultPriceCents || s.lastBoughtCents,
       supplierId: s.preferredSupplierId,
       preferredBrands: s.preferredBrands && s.preferredBrands.length > 0 ? [...s.preferredBrands] : undefined,
       done: false,

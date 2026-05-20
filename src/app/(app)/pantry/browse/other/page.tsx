@@ -47,7 +47,7 @@ import {
 import {
   type Staple, type Cadence,
   addStaple, updateStaple, deleteStaple,
-  addUtility, deleteUtility,
+  addUtility, deleteUtility, CADENCE_LABEL,
 } from '@/lib/pantry';
 import {
   type Vehicle, subscribeToVehicles,
@@ -394,6 +394,7 @@ export default function OtherCataloguePage() {
                 <FamilyStapleRow
                   key={s.id}
                   staple={s}
+                  currency={currency}
                   onEdit={() => setEditing(s)}
                   onDelete={() => deleteFamilyStaple(s)}
                 />
@@ -516,9 +517,10 @@ function Section({
 }
 
 function FamilyStapleRow({
-  staple, onEdit, onDelete,
+  staple, currency, onEdit, onDelete,
 }: {
   staple: Staple;
+  currency: string;
   onEdit: () => void;
   onDelete: () => void | Promise<void>;
 }) {
@@ -538,10 +540,22 @@ function FamilyStapleRow({
             <div className="text-[11px] text-hive-muted font-bold truncate">{staple.name2}</div>
           )}
           <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-            {staple.defaultQty} {staple.unit} · {staple.cadence} · {staple.category}
+            {staple.defaultQty} {staple.unit} · {CADENCE_LABEL[staple.cadence]}
+            {staple.dueDay && staple.dueDay > 0 ? ` · due ${ordinalDay(staple.dueDay)}` : ''}
+            {' · '}{staple.category}
           </div>
         </div>
-        <div className="text-hive-muted font-nunito font-black text-sm flex-shrink-0">✎</div>
+        <div className="text-right flex-shrink-0">
+          {staple.defaultPriceCents && staple.defaultPriceCents > 0 ? (
+            <div className="font-nunito font-black text-sm text-hive-navy">
+              {formatCents(staple.defaultPriceCents, currency)}
+            </div>
+          ) : null}
+          {staple.dueDay && staple.dueDay > 0 ? (
+            <div className="text-[9px] font-nunito font-extrabold uppercase tracking-[1px] text-hive-honey-dk">🔔 fixed</div>
+          ) : null}
+          <div className="text-hive-muted font-nunito font-black text-sm">✎</div>
+        </div>
       </button>
       <button
         type="button"
@@ -646,6 +660,8 @@ function RegularEditor({
   existing?: Staple;
   onClose: () => void;
 }) {
+  const { config } = useHive();
+  const currency = config.currency;
   const cats = module === 'outdoor' ? OUTDOOR_CATEGORIES : DRIVERS_CATEGORIES;
   const [name, setName] = useState(existing?.name ?? '');
   const [name2, setName2] = useState(existing?.name2 ?? '');
@@ -653,8 +669,19 @@ function RegularEditor({
   const [qty, setQty] = useState<number>(existing?.defaultQty ?? 1);
   const [unit, setUnit] = useState(existing?.unit ?? 'x');
   const [cadence, setCadence] = useState<Cadence>(existing?.cadence ?? 'monthly');
+  // Price + due-date capture (2026-05-20). Price pre-fills the request
+  // estimate; a due day marks the regular as a fixed commitment so the
+  // reminder reaches BOTH parent + helper (vs cadence-only = helper).
+  const [priceMajor, setPriceMajor] = useState<number>(
+    existing?.defaultPriceCents ? existing.defaultPriceCents / 100 : 0,
+  );
+  const [dueDay, setDueDay] = useState<number>(existing?.dueDay ?? 0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // A due day only makes sense for time-bound cadences (not as-needed).
+  const dueEligible = cadence !== 'as-needed';
+  const isFixedDate = dueEligible && dueDay > 0;
 
   const submit = async () => {
     setError('');
@@ -671,6 +698,8 @@ function RegularEditor({
         unit: unit.trim() || 'x',
         cadence,
         module,
+        defaultPriceCents: priceMajor > 0 ? Math.round(priceMajor * 100) : 0,
+        dueDay: dueEligible && dueDay > 0 ? Math.min(31, Math.round(dueDay)) : 0,
       };
       if (existing) {
         await updateStaple(familyId, existing.id, payload);
@@ -763,9 +792,26 @@ function RegularEditor({
           </div>
         </div>
 
+        {/* Price (per unit) — pre-fills the request estimate. */}
+        <label className="block text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-muted mb-1">
+          Price per {unit.trim() || 'unit'} <span className="text-hive-muted/70 normal-case">(optional)</span>
+        </label>
+        <div className="flex items-center gap-1 bg-hive-paper border border-hive-line rounded-hive px-3 py-2.5 mb-3 focus-within:border-hive-honey">
+          <span className="text-xs text-hive-muted font-bold">{currency}</span>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={priceMajor || ''}
+            onChange={(e) => setPriceMajor(Number(e.target.value))}
+            placeholder="0.00"
+            className="flex-1 bg-transparent text-sm font-nunito font-bold focus:outline-none"
+          />
+        </div>
+
         <label className="block text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-muted mb-1">Cadence</label>
-        <div className="flex flex-wrap gap-1.5 mb-4">
-          {(['daily','weekly','biweekly','monthly','as-needed'] as Cadence[]).map((c) => (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {(['daily','weekly','biweekly','semimonthly','monthly','quarterly','yearly','as-needed'] as Cadence[]).map((c) => (
             <button
               key={c}
               type="button"
@@ -776,9 +822,41 @@ function RegularEditor({
                   : 'bg-hive-paper border-hive-line text-hive-muted'
               }`}
             >
-              {c}
+              {CADENCE_LABEL[c]}
             </button>
           ))}
+        </div>
+
+        {/* Due day — marks a fixed-date commitment. Hidden for as-needed. */}
+        {dueEligible && (
+          <>
+            <label className="block text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-muted mb-1">
+              Due day of month <span className="text-hive-muted/70 normal-case">(optional — for fixed dates)</span>
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="31"
+              value={dueDay || ''}
+              onChange={(e) => setDueDay(Number(e.target.value))}
+              placeholder="e.g. 5"
+              className="w-full bg-hive-paper border border-hive-line rounded-hive px-3 py-2.5 text-sm font-nunito font-bold mb-2 focus:outline-none focus:border-hive-honey"
+            />
+          </>
+        )}
+
+        {/* Reminder explainer — tells the parent who gets reminded. */}
+        <div className="rounded-hive border border-hive-line bg-hive-paper p-3 mb-4">
+          <p className="text-[11px] font-nunito font-extrabold text-hive-ink">🔔 Reminders</p>
+          <p className="text-[11px] text-hive-muted mt-0.5 leading-snug">
+            {isFixedDate ? (
+              <>Fixed on the <strong>{ordinalDay(dueDay)}</strong> — Kaya will remind <strong>both the parent &amp; helper</strong> when it's due.</>
+            ) : cadence === 'as-needed' ? (
+              <>Bought as needed — no schedule reminder. The helper requests it when they run low.</>
+            ) : (
+              <>Recurs <strong>{CADENCE_LABEL[cadence].toLowerCase()}</strong> — Kaya nudges the <strong>helper</strong> when it's due for a top-up.</>
+            )}
+          </p>
         </div>
 
         {error && <p className="text-xs text-hive-rose font-bold mb-2">{error}</p>}
@@ -794,6 +872,13 @@ function RegularEditor({
       </div>
     </div>
   );
+}
+
+/** 5 → "5th", 1 → "1st" — for the reminder explainer. */
+function ordinalDay(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 // Suppress unused-import warnings — these types are used by the
