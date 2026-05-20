@@ -141,6 +141,13 @@ export async function getHelperPerformance(
   let tasksDone = 0;
   let tasksScheduled = 0;
   for (let i = 0; i < days; i++) {
+    // 2026-05-20 fix — skip TODAY (i === 0) from the historical tally.
+    // Today's day isn't over: tasks scheduled for later today are "yet
+    // to be completed", and counting them in the denominator dragged
+    // both Tasks-done (e.g. 12/46) and the workplan average unfairly
+    // low. Today is shown on its own (todayPct + "Workplan today" card);
+    // these historical metrics now measure only elapsed, fully-due days.
+    if (i === 0) continue;
     const dateStr = datesToRead[i];
     const d = new Date(from);
     d.setDate(d.getDate() - i);
@@ -260,14 +267,21 @@ export async function getHelperBudgetMetric(
 /** What fraction of expected morning/evening ratings the helper has
  *  actually logged in the window. Pulls all DailyRating docs where
  *  ratedBy === helperUid then scores against:
- *    expected = assignedKidsCount × perDayExpected × windowDays
+ *    expected = effectiveKids × perDayExpected × windowDays
  *  perDayExpected from HelperLink.expectedFrequency:
  *    'morning' or 'evening' → 1
  *    'both'                  → 2
  *    'flexible' / undef      → 1 (treat as morning-only baseline)
  *
- *  Returns scorePct = null when the helper has NO kids assigned or
- *  the helper-link doc doesn't exist (legacy helpers).
+ *  effectiveKids (2026-05-20 fix): the formal `kidIds` assignment on
+ *  the HelperLink, OR — when none are assigned — the number of distinct
+ *  kids the helper has actually rated in the window. Previously a helper
+ *  with 0 assigned kids scored null ("no expectation set") even when she
+ *  was diligently logging ratings every day. Now her fills define the
+ *  expectation, so the metric reflects reality + counts toward the score.
+ *
+ *  Returns scorePct = null only when there's genuinely nothing to
+ *  measure: no kids assigned AND no ratings logged in the window.
  *
  *  Rule note: ratings are queryable by parents + helpers in the same
  *  family — no extra rule needed for this metric. */
@@ -279,40 +293,41 @@ export async function getHelperRatingMetric(
   const days = opts.days ?? 7;
   const from = opts.from ?? new Date();
 
-  // Resolve helper-link to figure out expected frequency + scope.
+  // Resolve helper-link for expected frequency + formal kid assignment.
+  // A missing link (legacy helper) no longer short-circuits to null —
+  // we default to 1/day + infer kids from actual fills below.
   let perDayExpected = 1;
   let assignedKids = 0;
   try {
     const link = await getHelperLink(familyId, helperUid);
-    if (!link) {
-      // Legacy helper with no HelperLink doc — score unmeasurable.
-      return { scorePct: null, expected: 0, logged: 0, perDayExpected: 0 };
+    if (link) {
+      assignedKids = (link.kidIds ?? []).length;
+      if (link.expectedFrequency === 'both') perDayExpected = 2;
+      else perDayExpected = 1; // morning / evening / flexible / undefined
     }
-    assignedKids = (link.kidIds ?? []).length;
-    if (link.expectedFrequency === 'both') perDayExpected = 2;
-    else if (link.expectedFrequency === 'morning' || link.expectedFrequency === 'evening') perDayExpected = 1;
-    else perDayExpected = 1;
   } catch {
-    return { scorePct: null, expected: 0, logged: 0, perDayExpected: 0 };
+    // Soft-fail the link read — fills below can still define expectation.
   }
 
-  if (assignedKids === 0 || perDayExpected === 0) {
-    return { scorePct: null, expected: 0, logged: 0, perDayExpected };
-  }
-
-  // Pull the helper's ratings in the window.
+  // Pull the helper's ratings in the window — count logged slots AND
+  // the distinct kids she rated (drives effectiveKids when none assigned).
+  // Window ENDS YESTERDAY (excludes the in-progress today) so an
+  // un-filled evening slot today doesn't count against her — matches
+  // the workplan tally. Covers the `days` fully-elapsed days [from-days,
+  // from-1]. (2026-05-20 fix.)
   const sinceIso = (() => {
     const d = new Date(from);
-    d.setDate(d.getDate() - (days - 1));
+    d.setDate(d.getDate() - days);
     return todayDateString(d);
   })();
-  const fromIso = todayDateString(from);
+  const fromIso = (() => {
+    const d = new Date(from);
+    d.setDate(d.getDate() - 1);
+    return todayDateString(d);
+  })();
   let logged = 0;
+  const kidsRated = new Set<string>();
   try {
-    // Query is filtered by ratedBy first (server-side) so the helper
-    // only sees their own ratings; date filter is in-memory because
-    // DailyRating uses a `date: string` field (sorted lex equals
-    // chronological for YYYY-MM-DD).
     const q = query(
       collection(db, 'families', familyId, 'dailyRatings'),
       where('ratedBy', '==', helperUid),
@@ -321,10 +336,13 @@ export async function getHelperRatingMetric(
     );
     const snap = await getDocs(q);
     snap.forEach((d) => {
-      const data = d.data() as { date?: string };
+      const data = d.data() as { date?: string; childId?: string };
       const date = data.date;
       if (!date) return;
-      if (date >= sinceIso && date <= fromIso) logged++;
+      if (date >= sinceIso && date <= fromIso) {
+        logged++;
+        if (data.childId) kidsRated.add(data.childId);
+      }
     });
   } catch {
     // Composite index likely missing for (ratedBy + date desc) — fail
@@ -332,7 +350,15 @@ export async function getHelperRatingMetric(
     return { scorePct: null, expected: 0, logged: 0, perDayExpected };
   }
 
-  const expected = assignedKids * perDayExpected * days;
+  // Effective kids: formal assignment wins; otherwise infer from fills.
+  const effectiveKids = assignedKids > 0 ? assignedKids : kidsRated.size;
+
+  // Nothing to measure: no kids assigned AND no ratings logged.
+  if (effectiveKids === 0) {
+    return { scorePct: null, expected: 0, logged: 0, perDayExpected };
+  }
+
+  const expected = effectiveKids * perDayExpected * days;
   const scorePct = expected === 0 ? null : Math.max(0, Math.min(100, Math.round((logged / expected) * 100)));
   return { scorePct, expected, logged, perDayExpected };
 }
