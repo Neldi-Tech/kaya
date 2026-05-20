@@ -18,7 +18,7 @@
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc,
   query, where, orderBy, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch, increment, runTransaction,
+  onSnapshot, writeBatch, increment, runTransaction, deleteField,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -296,6 +296,29 @@ export interface PurchaseRequest {
    *  Finances rolls up per-meter consumption via this field. Unused
    *  for non-utility modules. */
   meterId?: string;
+
+  /** For Utility requests auto-generated from a recurring bill — the
+   *  `Utility` doc this payment satisfies. The mirror of the bill's
+   *  `lastGeneratedRequestId` pointer. On close, closeReconcile stamps
+   *  the bill's lastPayment* fields via this link so the Outstanding
+   *  banner + row pill + budget roll-up flip in sync. Unset for
+   *  free-form top-ups (variable, not tied to a recurring bill).
+   *  (Utilities v2, 2026-05-20.) */
+  utilityId?: string;
+
+  /** The `Payment` doc id closeReconcile created against the linked
+   *  bill on close. Lets reopen/delete reverse exactly that payment
+   *  (rather than guessing) so the bill returns to Outstanding.
+   *  Cleared on reopen. (Reopen v1, 2026-05-20.) */
+  utilityPaymentId?: string;
+
+  // ── Reopen audit (Reopen v1, 2026-05-20) ───────────────────────
+  // A parent can reopen a closed request back to `reconciling` to fix
+  // actuals or delete it. These breadcrumbs survive the reclose so the
+  // trail shows the request WAS reopened (and how many times).
+  reopenedAt?: Timestamp;
+  reopenedBy?: string;
+  reopenCount?: number;
 
   /** For Drivers requests — which vehicle this request is for
    *  (2026-05-18). Pinned at draft creation via the vehicle picker
@@ -687,6 +710,7 @@ export async function createDraftRequest(
     items?: PurchaseRequestItem[];
     helperUid?: string;
     meterId?: string;
+    utilityId?: string;
     vehicleId?: string;
     /** System-generated payroll requests skip 'draft' and land
      *  directly in 'pending_approval' (parents review the auto-
@@ -727,6 +751,7 @@ export async function createDraftRequest(
   };
   if (args.helperUid) payload.helperUid = args.helperUid;
   if (args.meterId) payload.meterId = args.meterId;
+  if (args.utilityId) payload.utilityId = args.utilityId;
   if (args.vehicleId) payload.vehicleId = args.vehicleId;
   if (args.generatedBy) payload.generatedBy = args.generatedBy;
   if (args.payrollCycle) payload.payrollCycle = args.payrollCycle;
@@ -1039,6 +1064,7 @@ export async function closeReconcile(
   requestId: string,
   items: PurchaseRequestItem[],
   receiptUrl?: string,
+  byUid?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
   // Read the request snapshot first so we can pick up payroll fields
@@ -1096,6 +1122,34 @@ export async function closeReconcile(
         deductionsCents: reqData.payrollCycle.deductionsCents,
       });
     } catch { /* swallow — deductions can be reconciled manually if this fails */ }
+  }
+
+  // Utilities v2 — when a utility payment request linked to a recurring
+  // bill closes, mark that bill paid for this period. This is the one
+  // write that keeps the Outstanding banner, the bill's status pill, and
+  // the Budget roll-up in sync (all three read Utility.lastPayment*).
+  // After the batch so a payment-write failure can't roll back the close;
+  // the actual amount paid (sumActual) is what we record, which may
+  // differ from the bill's recurring figure.
+  if (reqData?.module === 'utility' && reqData.utilityId) {
+    try {
+      const { getUtility, recordPayment, currentPeriodKey } = await import('./pantry');
+      const bill = await getUtility(familyId, reqData.utilityId);
+      if (bill) {
+        const paidAt = Timestamp.now();
+        const paymentId = await recordPayment(familyId, bill, {
+          amountCents: sumActual(items),
+          paidAt,
+          paidBy: byUid || reqData.createdBy || '',
+          periodKey: currentPeriodKey(paidAt.toDate()),
+          reference: reqData.name || '',
+          notes: '',
+        });
+        // Remember which payment we created so a later reopen/delete can
+        // reverse exactly this one.
+        await updateDoc(reqRef, { utilityPaymentId: paymentId, updatedAt: serverTimestamp() });
+      }
+    } catch { /* swallow — the bill can be marked paid manually if this fails */ }
   }
 }
 
@@ -1197,8 +1251,9 @@ export async function approveCloseAndPost(
   }
 
   // 3) Post to budget — the existing closeReconcile handles status
-  //    flip, staple write-back, and payroll deductions.
-  await closeReconcile(familyId, requestId, reqData.items, reqData.receiptUrl);
+  //    flip, staple write-back, payroll deductions, and (for bill-linked
+  //    utility requests) marking the recurring bill paid for the period.
+  await closeReconcile(familyId, requestId, reqData.items, reqData.receiptUrl, args.decidedBy);
 
   return { tipRequestId };
 }
@@ -1221,6 +1276,115 @@ export async function kickBackToReconcile(
       : 'Sent back by parent for revisions',
     updatedAt: serverTimestamp(),
   });
+}
+
+// ── Reopen a closed request (Reopen v1, 2026-05-20) ─────────────────
+// Parent-only. Flips a `closed` request back to `reconciling` so the
+// actuals/receipt are editable again and the existing submit-for-review
+// → approve-&-post path can reclose it. Crucially it UNWINDS the close:
+//   • the bill payment this close made is reversed → the bill drops back
+//     into Outstanding until the parent recloses;
+//   • the budget un-counts it automatically (it's no longer `closed`).
+// Payroll is excluded in v1 (deduction re-credit is a follow-up).
+//
+// Legacy bridge: requests closed before the utilityId link existed have
+// no back-reference. The bill still points forward via
+// lastGeneratedRequestId, so we backfill utilityId from that — letting
+// reopen → reclose clear bills that predate the link.
+//
+// Returns `{ ok: false, reason }` when the reopen is refused (so the UI
+// can explain why) — currently only when the close already paid a
+// savings tip out to the helper (see below). Otherwise `{ ok: true }`.
+export type ReopenResult = { ok: true } | { ok: false; reason: string };
+
+export async function reopenRequest(
+  familyId: string,
+  requestId: string,
+  byUid: string,
+): Promise<ReopenResult> {
+  if (isGuestActive()) return { ok: true };
+  const reqRef = requestDoc(familyId, requestId);
+  const snap = await getDoc(reqRef);
+  if (!snap.exists()) return { ok: true };
+  const req = { id: snap.id, ...snap.data() } as PurchaseRequest;
+  if (req.status !== 'closed') return { ok: true };   // only closed can reopen
+  if (req.module === 'payroll') return { ok: true };  // v1 excludes payroll
+
+  // ── Unwind the savings decision so the shop can't be double-counted
+  //    when it recloses. Done FIRST and the block-case returns before
+  //    any mutation, so a refused reopen leaves everything untouched.
+  const sd = req.savingsDecision;
+  if (sd && sd.kind === 'tip' && sd.tipRequestId) {
+    const tipRef = requestDoc(familyId, sd.tipRequestId);
+    const tipSnap = await getDoc(tipRef);
+    if (tipSnap.exists()) {
+      const tip = tipSnap.data() as PurchaseRequest;
+      if (tip.status === 'closed') {
+        // The tip was already received by the helper — clawing back paid
+        // money silently would be wrong. Refuse and point them to fix it.
+        return {
+          ok: false,
+          reason: `This shop's savings were already tipped to the helper and paid out (${tip.name || 'the payroll tip'} is closed). Undo that tip in Payroll first, so reclosing can't pay it twice.`,
+        };
+      }
+      // Not yet received — cancel the pending tip request.
+      if (tip.status !== 'rejected') {
+        try { await deleteDoc(tipRef); } catch { /* swallow */ }
+      }
+    }
+  }
+  if (sd && sd.kind === 'balance' && sd.amountCents > 0) {
+    // Pull the carried-forward balance back out, clamped at 0 so a
+    // balance a later request already consumed can't go negative.
+    const mod = req.module ?? 'pantry';
+    try {
+      await runTransaction(db, async (tx) => {
+        const famRef = doc(db, 'families', familyId);
+        const fsnap = await tx.get(famRef);
+        const cur = ((fsnap.data() as { pendingModuleBalance?: Record<string, number> } | undefined)
+          ?.pendingModuleBalance?.[mod]) ?? 0;
+        tx.update(famRef, { [`pendingModuleBalance.${mod}`]: Math.max(0, cur - sd.amountCents) });
+      });
+    } catch { /* swallow — carry-forward is best-effort */ }
+  }
+
+  // Backfill the bill link for legacy utility requests.
+  let utilityId = req.utilityId;
+  if (req.module === 'utility' && !utilityId) {
+    try {
+      const { listUtilities } = await import('./pantry');
+      const bills = await listUtilities(familyId);
+      const bill = bills.find((b) => b.lastGeneratedRequestId === requestId);
+      if (bill) utilityId = bill.id;
+    } catch { /* swallow — link backfill is best-effort */ }
+  }
+
+  // Unwind the payment this close stamped on the bill, so it returns to
+  // Outstanding. Best-effort: the bill can still be corrected via the
+  // Log payment screen if this fails.
+  if (req.module === 'utility' && utilityId && req.utilityPaymentId) {
+    try {
+      const { reverseUtilityPayment } = await import('./pantry');
+      await reverseUtilityPayment(familyId, utilityId, req.utilityPaymentId);
+    } catch { /* swallow */ }
+  }
+
+  const patch: Record<string, unknown> = {
+    status: 'reconciling' as PurchaseRequestStatus,
+    reopenedAt: serverTimestamp(),
+    reopenedBy: byUid,
+    reopenCount: (req.reopenCount ?? 0) + 1,
+    // Clear the now-stale close stamps + the reversed savings decision so
+    // the reclose review starts fresh.
+    closedAt: deleteField(),
+    utilityPaymentId: deleteField(),
+    savingsDecision: deleteField(),
+    updatedAt: serverTimestamp(),
+  };
+  // Persist a backfilled link so the reclose stamps the right bill.
+  if (utilityId && !req.utilityId) patch.utilityId = utilityId;
+  await updateDoc(reqRef, patch);
+  return { ok: true };
 }
 
 // ── Pending-promote workflow (2026-05-18 verification fix) ───────
@@ -1434,7 +1598,11 @@ export async function deleteRequest(
   const snap = await getDoc(requestDoc(familyId, requestId));
   if (!snap.exists()) return;
   const status = snap.data().status as PurchaseRequestStatus;
-  if (status !== 'draft' && status !== 'pending_approval') return;
+  // draft / pending_approval never posted anything. `reconciling` is
+  // reachable post-close only via reopenRequest, which already unwound
+  // the bill payment + (by virtue of status ≠ closed) the budget, so
+  // the doc is safe to remove with no further reversal here.
+  if (status !== 'draft' && status !== 'pending_approval' && status !== 'reconciling') return;
   await deleteDoc(requestDoc(familyId, requestId));
 }
 

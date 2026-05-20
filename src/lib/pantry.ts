@@ -19,7 +19,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch,
+  onSnapshot, writeBatch, deleteField,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -795,6 +795,16 @@ export async function listUtilities(familyId: string): Promise<Utility[]> {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Utility));
 }
 
+/** Fetch a single recurring bill by id. Returns null when missing
+ *  (e.g. the bill was deleted after a payment request was created
+ *  against it). recordPayment needs the full doc, so the close-time
+ *  reconciliation in purchase.ts reads through here. */
+export async function getUtility(familyId: string, utilityId: string): Promise<Utility | null> {
+  if (isGuestActive()) return null;
+  const snap = await getDoc(doc(utilityCol(familyId), utilityId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Utility) : null;
+}
+
 export async function addUtility(
   familyId: string,
   data: Omit<Utility, 'id' | 'createdAt' | 'active'> & { active?: boolean },
@@ -1029,6 +1039,51 @@ export async function recordPayment(
   });
   await batch.commit();
   return paymentId;
+}
+
+/** Reverse a single payment — delete the ledger row and re-point the
+ *  bill's denormalised lastPayment* fields to whatever payment is now
+ *  the most recent (or clear them if none remain). Used when a closed
+ *  utility request is reopened/deleted: the bill must drop back out of
+ *  "paid this period" so it returns to the Outstanding banner. Always
+ *  re-points to the latest survivor, so reversing an older payment
+ *  leaves a newer period's paid-status intact. (Reopen v1, 2026-05-20.) */
+export async function reverseUtilityPayment(
+  familyId: string,
+  utilityId: string,
+  paymentId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const pcol = paymentCol(familyId, utilityId);
+  // Read the surviving payments so we can restore an accurate pointer.
+  const snap = await getDocs(pcol);
+  const remaining = snap.docs
+    .filter((d) => d.id !== paymentId)
+    .map((d) => ({ id: d.id, ...d.data() } as Payment))
+    .sort((a, b) => (b.paidAt?.toMillis?.() ?? 0) - (a.paidAt?.toMillis?.() ?? 0));
+
+  const batch = writeBatch(db);
+  batch.delete(doc(pcol, paymentId));
+  const latest = remaining[0];
+  const billRef = doc(utilityCol(familyId), utilityId);
+  if (latest) {
+    batch.update(billRef, {
+      lastPaymentId: latest.id,
+      lastPaymentPeriodKey: latest.periodKey,
+      lastPaymentCents: latest.amountCents,
+      lastPaymentAt: latest.paidAt,
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.update(billRef, {
+      lastPaymentId: deleteField(),
+      lastPaymentPeriodKey: deleteField(),
+      lastPaymentCents: deleteField(),
+      lastPaymentAt: deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+  await batch.commit();
 }
 
 // ── Period + status helpers ──────────────────────────────────────
