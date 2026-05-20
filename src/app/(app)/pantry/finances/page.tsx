@@ -19,7 +19,7 @@ import {
   subscribeToRecentRequests,
   MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
-import { sumMonthlyUtilities, sumPaidThisPeriod } from '@/lib/pantry';
+import { sumMonthlyUtilities, sumPaidThisPeriod, isUtilityBill } from '@/lib/pantry';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 
 const monthKey = (d: Date = new Date()) =>
@@ -114,7 +114,7 @@ export default function FinancesPage() {
   // denormalised lastPayment* fields so we don't have to subscribe to
   // every payment subcollection just to render this card.
   const utilitiesEx = useMemo(
-    () => utilities.filter((u) => u.category !== 'salary'),
+    () => utilities.filter(isUtilityBill),
     [utilities],
   );
   const utilitiesCap = useMemo(() => sumMonthlyUtilities(utilitiesEx), [utilitiesEx]);

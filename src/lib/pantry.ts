@@ -308,6 +308,20 @@ export const UTILITY_CATEGORIES: { id: UtilityCategory; emoji: string; label: st
   { id: 'other',    emoji: '✨',  label: 'Other' },
 ];
 
+/** Utility categories that are PEOPLE costs — household staff salaries
+ *  (helper / gardener / driver) and the guard (security). These belong
+ *  to Payroll, not the Utilities budget, so the utility cap + finances
+ *  roll-up exclude them. (2026-05-20 — "remove Guard & Drivers from the
+ *  utilities list; they're not utilities.") */
+export const PEOPLE_UTILITY_CATEGORIES: UtilityCategory[] = ['salary', 'security'];
+
+/** True when a utility row is an actual recurring BILL (power, water,
+ *  internet, TV, gas, rent…) rather than a people cost. Use this to keep
+ *  salaries and the guard out of every Utilities BUDGET surface. */
+export function isUtilityBill(u: { category: UtilityCategory }): boolean {
+  return !PEOPLE_UTILITY_CATEGORIES.includes(u.category);
+}
+
 // ── Utility starter packs (one-tap seed, no amounts) ────────────
 // Mirrors the Directory's STARTER_PACKS — a one-tap seed of typical
 // household bills, scaled to household size. Amounts are left at 0 so

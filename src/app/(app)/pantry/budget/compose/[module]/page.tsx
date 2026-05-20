@@ -33,7 +33,7 @@ import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
 import {
-  type Utility, type Cadence, subscribeToUtilities, sumMonthlyUtilities,
+  type Utility, type Cadence, subscribeToUtilities, sumMonthlyUtilities, isUtilityBill,
   monthlyEquivalentCents, CADENCE_SHORT,
 } from '@/lib/pantry';
 
@@ -130,7 +130,9 @@ export default function ComposeBudgetPage() {
     }
     if (module === 'utility') {
       const unsubMeters = subscribeToMeters(profile.familyId, (ms) => setMeters(ms.filter((m) => m.active !== false)));
-      const unsubBills = subscribeToUtilities(profile.familyId, (bs) => setBills(bs.filter((b) => b.active)));
+      // Only true utility BILLS feed the cap — salaries + guard are
+      // people costs that belong to Payroll, not Utilities.
+      const unsubBills = subscribeToUtilities(profile.familyId, (bs) => setBills(bs.filter((b) => b.active && isUtilityBill(b))));
       return () => { unsubMeters(); unsubBills(); };
     }
   }, [profile?.familyId, module]);
