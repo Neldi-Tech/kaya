@@ -676,9 +676,10 @@ export async function requestBusinessLaunch(
 }
 
 /** Parent resolves a business approval. Retained as history (never deleted).
- *  Approving a `business_launch` flips the business to 'active' in the same
- *  transaction so request + business move together. Other business approval
- *  types (price_change, investment_*) get their branches in later PRs. */
+ *  - business_launch → flips the business to 'active'.
+ *  - investment_buy  → upserts the simulated holding (virtual money) with the
+ *    shares + cost basis snapshotted on the request.
+ *  All in one transaction so the request + its effect move together. */
 export async function resolveBusinessRequest(
   familyId: string,
   requestId: string,
@@ -687,26 +688,97 @@ export async function resolveBusinessRequest(
   reason?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
+  let investedKidId: string | null = null;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(approvalRequestsCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
     if (!reqSnap.exists()) throw new Error('Request not found.');
-    const req = reqSnap.data() as Pick<ApprovalRequest, 'type' | 'status' | 'businessId'>;
+    const req = reqSnap.data() as Pick<ApprovalRequest,
+      'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     const now = serverTimestamp();
     if (decision === 'rejected') {
-      tx.update(reqRef, {
-        status: 'rejected', rejectionReason: reason || '',
-        resolvedAt: now, resolvedBy: approverUid,
-      });
+      tx.update(reqRef, { status: 'rejected', rejectionReason: reason || '', resolvedAt: now, resolvedBy: approverUid });
       return;
     }
+
+    // Reads before writes (Firestore transaction rule).
+    const holdRef = req.type === 'investment_buy' && req.kidId && req.instrumentSymbol
+      ? doc(investmentsCol(familyId, req.kidId), req.instrumentSymbol)
+      : null;
+    const prevHolding = holdRef ? ((await tx.get(holdRef)).data() as InvestmentHolding | undefined) : undefined;
+
     if (req.type === 'business_launch' && req.businessId) {
       tx.update(businessDoc(familyId, req.businessId), { status: 'active', startedAt: now });
+    } else if (holdRef && req.instrumentSymbol) {
+      const inst = INVESTMENT_MENU.find((i) => i.symbol === req.instrumentSymbol);
+      tx.set(holdRef, {
+        symbol: req.instrumentSymbol,
+        label: inst?.label ?? req.instrumentSymbol,
+        emoji: inst?.emoji ?? '📈',
+        shares: (prevHolding?.shares ?? 0) + (req.shares ?? 0),
+        costBasisCents: (prevHolding?.costBasisCents ?? 0) + (req.amountCents ?? 0),
+        createdAt: prevHolding?.createdAt ?? now,
+        updatedAt: now,
+      }, { merge: true });
+      investedKidId = req.kidId ?? null;
     }
     tx.update(reqRef, { status: 'approved', resolvedAt: now, resolvedBy: approverUid });
   });
+
+  // Milestone check needs a collection read — run it after the transaction.
+  if (investedKidId) {
+    try { await unlockInvestingMilestones(familyId, investedKidId); } catch { /* best-effort */ }
+  }
+}
+
+/** Junior Investor · a kid asks a parent to OK a (virtual-money) buy. Shares are
+ *  snapshotted from the live quote + FX at request time and applied on approve.
+ *  Single-parent in Phase 1. */
+export async function requestInvestmentBuy(
+  familyId: string,
+  kidId: string,
+  instrumentSymbol: string,
+  shares: number,
+  amountCents: number,
+  createdByUid: string,
+  description?: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId,
+    type: 'investment_buy',
+    module: 'business',
+    instrumentSymbol,
+    shares,
+    amountCents,
+    description: description || `Buy a piece of ${instrumentSymbol}`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** Unlock investing-scope milestones (kid-level ids) from the holdings count. */
+export async function unlockInvestingMilestones(familyId: string, kidId: string): Promise<string[]> {
+  if (isGuestActive()) return [];
+  const holdings = await getDocs(investmentsCol(familyId, kidId));
+  const count = holdings.docs.filter((d) => ((d.data() as InvestmentHolding).shares ?? 0) > 0).length;
+  const met: string[] = [];
+  if (count >= 1) met.push('first_investor');
+  if (count >= 3) met.push('diversified');
+  if (met.length === 0) return [];
+  const existing = await getDocs(milestonesCol(familyId, kidId));
+  const have = new Set(existing.docs.map((d) => d.id));
+  const out: string[] = [];
+  for (const key of met) {
+    if (have.has(key)) continue; // investing milestones are kid-level (id = key)
+    await setDoc(doc(milestonesCol(familyId, kidId), key), { key, unlockedAt: serverTimestamp() });
+    out.push(key);
+  }
+  return out;
 }
 
 // ── Inventory mutations (PR3) ─────────────────────────────────────
