@@ -10,7 +10,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, HiveSplit, readBusinessConfig, subscribeToKidBusinesses,
+  Business, HiveSplit, InvestmentHolding, MarketQuote,
+  readBusinessConfig, subscribeToKidBusinesses,
+  subscribeToInvestments, subscribeToMarketQuotes, holdingValueCents,
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
 import KidSwitcher from '@/components/hive/KidSwitcher';
@@ -20,21 +22,29 @@ import BusinessCard from '@/components/business/BusinessCard';
 export default function BusinessPortfolioPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
-  const { activeKidId, config, totalNetWorthCents } = useHive();
+  const { activeKidId, config, totalNetWorthCents, fxUsdToFamily } = useHive();
   const isParent = profile?.role === 'parent';
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [holdings, setHoldings] = useState<InvestmentHolding[]>([]);
+  const [quotes, setQuotes] = useState<Record<string, MarketQuote>>({});
   const [loading, setLoading] = useState(true);
 
   const familyId = profile?.familyId;
   useEffect(() => {
-    if (!familyId || !activeKidId) { setBusinesses([]); setLoading(false); return; }
+    if (!familyId || !activeKidId) { setBusinesses([]); setHoldings([]); setLoading(false); return; }
     setLoading(true);
-    return subscribeToKidBusinesses(familyId, activeKidId, (b) => {
-      setBusinesses(b);
-      setLoading(false);
-    });
+    const u1 = subscribeToKidBusinesses(familyId, activeKidId, (b) => { setBusinesses(b); setLoading(false); });
+    const u2 = subscribeToInvestments(familyId, activeKidId, setHoldings);
+    return () => { u1(); u2(); };
   }, [familyId, activeKidId]);
+  useEffect(() => subscribeToMarketQuotes(setQuotes), []);
+
+  const fx = fxUsdToFamily ?? 1;
+  const investedValue = useMemo(
+    () => holdings.reduce((s, h) => s + holdingValueCents(h, quotes[h.symbol], fx), 0),
+    [holdings, quotes, fx],
+  );
 
   const activeKid = children.find((c) => c.id === activeKidId);
   const bizConfig = useMemo(() => readBusinessConfig(family), [family]);
@@ -98,7 +108,7 @@ export default function BusinessPortfolioPage() {
             <NetWorthHero
               businessWorthCents={businessWorth}
               hiveWorthCents={totalNetWorthCents}
-              investedCents={0}
+              investedCents={investedValue}
               businessCount={open.length}
               currency={config.currency}
             />
@@ -159,6 +169,13 @@ export default function BusinessPortfolioPage() {
             className="w-full flex items-center justify-center gap-2 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
           >
             ＋ Start a new business
+          </Link>
+
+          <Link
+            href="/business/invest"
+            className="w-full flex items-center justify-center gap-2 h-11 mt-2.5 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
+          >
+            📈 Junior Investor
           </Link>
         </>
       )}
