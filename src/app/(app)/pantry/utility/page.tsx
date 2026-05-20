@@ -10,7 +10,7 @@
 // transactional surface that actually debits the budget.
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -28,7 +28,11 @@ import {
 import {
   type UtilityMeter, subscribeToMeters, meterEmoji,
 } from '@/lib/utilityMeters';
-import { CADENCE_LABEL } from '@/lib/pantry';
+import {
+  CADENCE_LABEL, type Utility, subscribeToUtilities, paymentStatus,
+} from '@/lib/pantry';
+import { runUtilityBillGenerator } from '@/lib/utilityBills';
+import { getFamilyMembers } from '@/lib/firestore';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
@@ -103,6 +107,49 @@ export default function UtilityHomePage() {
     });
     return () => { clearTimeout(t); a(); b(); c(); };
   }, [profile?.familyId, role]);
+
+  // Recurring bills (parent only) — drives the Outstanding banner +
+  // the auto-request generator. (Utilities v2, 2026-05-20)
+  const [bills, setBills] = useState<Utility[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId || role !== 'parent') return;
+    return subscribeToUtilities(profile.familyId, setBills);
+  }, [profile?.familyId, role]);
+
+  // Run the recurring-bill auto-request generator once on parent
+  // page-load. Mirrors the payroll generator's on-mount trigger. Fully
+  // fire-and-forget — failures are swallowed inside the generator.
+  const generatorRan = useRef(false);
+  useEffect(() => {
+    if (!profile?.familyId || !profile.uid || role !== 'parent' || isGuest) return;
+    if (generatorRan.current) return;
+    generatorRan.current = true;
+    (async () => {
+      try {
+        const members = await getFamilyMembers(profile.familyId!);
+        const parentEmails = members
+          .filter((m) => m.role === 'parent' && m.email)
+          .map((m) => m.email as string);
+        await runUtilityBillGenerator(profile.familyId!, profile.uid!, {
+          parentEmails,
+          currency,
+          appUrl: typeof window !== 'undefined' ? window.location.origin : '',
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[utility] bill generator failed:', e);
+      }
+    })();
+  }, [profile?.familyId, profile?.uid, role, isGuest, currency]);
+
+  // Outstanding = active recurring bills that are OVERDUE this period
+  // (past due day, not paid). Regular top-ups never count — they're
+  // variable + on-demand. (Utilities v2, 2026-05-20)
+  const outstanding = bills.filter((b) => {
+    if (!b.active) return false;
+    return paymentStatus(b).kind === 'overdue';
+  });
+  const outstandingCents = outstanding.reduce((sum, b) => sum + (b.amountCents || 0), 0);
 
   // `pending` covers both parent-action states: pre-shop approval AND
   // post-shop close review (pending_close — 2026-05-19).
@@ -186,6 +233,47 @@ export default function UtilityHomePage() {
           </p>
         )}
       </div>
+
+      {/* Outstanding banner — recurring bills past their due day + not
+          yet paid this period. Parent-only. (Utilities v2, 2026-05-20) */}
+      {role === 'parent' && outstanding.length > 0 && (
+        <div className="mb-4 rounded-hive border-2 border-hive-rose bg-[#FCEAEA] p-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="font-nunito font-black text-hive-rose text-sm">
+              ⚠ Outstanding · {outstanding.length} bill{outstanding.length === 1 ? '' : 's'}
+            </p>
+            <span className="font-nunito font-black text-hive-rose">
+              {formatCents(outstandingCents, currency)}
+            </span>
+          </div>
+          <div className="mt-2 space-y-1">
+            {outstanding.map((b) => {
+              const st = paymentStatus(b);
+              const days = st.kind === 'overdue' ? st.daysOverdue : 0;
+              const link = b.lastGeneratedRequestId
+                ? `/pantry/purchase/${b.lastGeneratedRequestId}`
+                : '/pantry/utilities';
+              return (
+                <Link
+                  key={b.id}
+                  href={link}
+                  className="flex items-center justify-between gap-2 text-[12px] no-underline py-0.5"
+                >
+                  <span className="font-nunito font-bold text-hive-ink truncate">{b.name}</span>
+                  <span className="text-hive-rose font-nunito font-extrabold flex-shrink-0">
+                    {formatCents(b.amountCents || 0, currency)} · {days}d late
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+          <p className="text-[10.5px] text-hive-muted mt-2">
+            {bills.some((b) => b.autoRequest)
+              ? 'Auto-created requests are waiting in your approval queue.'
+              : 'Open a bill to create its payment request.'}
+          </p>
+        </div>
+      )}
 
       {/* Top CTA: visible without scrolling (2026-05-19). */}
       {profile?.familyId && !isGuest && (

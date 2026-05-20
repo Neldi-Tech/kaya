@@ -786,10 +786,15 @@ function UtilityForm({
   const [accountRef, setAccountRef] = useState(existing?.accountRef || '');
   const [supplierId, setSupplierId] = useState<string>(existing?.preferredSupplierId || '');
   const [notes, setNotes] = useState(existing?.notes || '');
+  // Auto-request defaults ON for new bills (the whole point) — but
+  // only meaningful for the cadences the generator handles in v1.
+  const [autoRequest, setAutoRequest] = useState<boolean>(existing?.autoRequest ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const isSalary = category === 'salary';
+  // Auto-request only fires for monthly + 2×-a-month in v1.
+  const autoEligible = cadence === 'monthly' || cadence === 'semimonthly';
 
   const submit = async () => {
     setError('');
@@ -808,6 +813,9 @@ function UtilityForm({
         preferredSupplierId: supplierId,
         notes: notes.trim(),
         active: true,
+        // Auto-request only stored as true when the cadence supports it
+        // (monthly / 2× a month) AND a salary row never auto-requests.
+        autoRequest: autoEligible && !isSalary ? autoRequest : false,
       };
       if (existing) {
         await updateUtility(familyId, existing.id, payload);
@@ -921,6 +929,33 @@ function UtilityForm({
           />
         </div>
       </div>
+
+      {/* Auto-request toggle — only for cadences the generator handles
+          (monthly / 2× a month) and never for salary rows. (Utilities v2) */}
+      {!isSalary && autoEligible && (
+        <button
+          type="button"
+          onClick={() => setAutoRequest((v) => !v)}
+          className={`w-full flex items-center gap-3 rounded-[12px] border p-3 text-left transition-colors ${
+            autoRequest ? 'border-hive-blue bg-[#E5EFF8]' : 'border-hive-line bg-hive-cream'
+          }`}
+        >
+          <div className={`w-9 h-5 rounded-full flex-shrink-0 relative transition-colors ${autoRequest ? 'bg-hive-blue' : 'bg-hive-line'}`}>
+            <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${autoRequest ? 'right-0.5' : 'left-0.5'}`} />
+          </div>
+          <div className="min-w-0">
+            <div className="font-nunito font-extrabold text-[12px] text-hive-ink">⚡ Auto-create request + email me</div>
+            <div className="text-[10.5px] text-hive-muted leading-snug">
+              On the {dueDay > 0 ? ordinal(dueDay) : 'due day'}{cadence === 'semimonthly' ? ' (1st & 15th)' : ''}, Kaya makes the payment request + emails the parents.
+            </div>
+          </div>
+        </button>
+      )}
+      {!isSalary && !autoEligible && (
+        <p className="text-[10.5px] text-hive-muted leading-snug px-1">
+          Auto-request is available on Monthly + 2× a month cadences. This bill still rolls into the budget.
+        </p>
+      )}
 
       <div>
         <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
