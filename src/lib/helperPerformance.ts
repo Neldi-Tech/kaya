@@ -19,7 +19,7 @@
 'use client';
 
 import {
-  getDoc, doc, collection, query, where, getDocs, orderBy, limit, Timestamp,
+  getDoc, doc, collection, query, where, getDocs, orderBy, limit,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
@@ -97,11 +97,16 @@ export interface HelperPerformanceWindow {
 export async function getHelperPerformance(
   familyId: string,
   helperUid: string,
-  opts: { days?: number; from?: Date } = {},
+  opts: { days?: number; from?: Date; includeToday?: boolean } = {},
 ): Promise<HelperPerformanceWindow> {
   const policy = await getPerformancePolicy(familyId);
   const days = opts.days ?? policy.windowDays;
   const from = opts.from ?? new Date();
+  // includeToday (2026-05-20) — the "Today" period needs the live,
+  // in-progress day INCLUDED (so today's ratings/tasks show). The
+  // historical periods (7d/30d/month) keep excluding today for a fair,
+  // settled score. Defaults to false (historical).
+  const includeToday = opts.includeToday ?? false;
 
   // Fetch everything in parallel — each metric is independent.
   const [
@@ -112,7 +117,7 @@ export async function getHelperPerformance(
   ] = await Promise.all([
     listWorkplanItems(familyId, helperUid),
     getHelperBudgetMetric(familyId, helperUid, { days, from }),
-    getHelperRatingMetric(familyId, helperUid, { days, from }),
+    getHelperRatingMetric(familyId, helperUid, { days, from, includeToday }),
     getHelperFeedbackMetric(familyId, helperUid, { days, from }),
   ]);
 
@@ -141,13 +146,12 @@ export async function getHelperPerformance(
   let tasksDone = 0;
   let tasksScheduled = 0;
   for (let i = 0; i < days; i++) {
-    // 2026-05-20 fix — skip TODAY (i === 0) from the historical tally.
-    // Today's day isn't over: tasks scheduled for later today are "yet
-    // to be completed", and counting them in the denominator dragged
-    // both Tasks-done (e.g. 12/46) and the workplan average unfairly
-    // low. Today is shown on its own (todayPct + "Workplan today" card);
-    // these historical metrics now measure only elapsed, fully-due days.
-    if (i === 0) continue;
+    // 2026-05-20 — skip TODAY (i === 0) from the tally UNLESS the caller
+    // explicitly wants the live "Today" view. Today's day isn't over:
+    // counting later-today tasks in the denominator dragged Tasks-done
+    // (e.g. 12/46) + the workplan average unfairly low. Historical
+    // periods exclude today; the "Today" period includes it on purpose.
+    if (i === 0 && !includeToday) continue;
     const dateStr = datesToRead[i];
     const d = new Date(from);
     d.setDate(d.getDate() - i);
@@ -214,14 +218,21 @@ export async function getHelperBudgetMetric(
   const from = opts.from ?? new Date();
   const since = new Date(from);
   since.setDate(since.getDate() - days);
-  const sinceTs = Timestamp.fromDate(since);
+  const sinceMs = since.getTime();
 
+  // 2026-05-20 fix — query by createdBy (single-field, always indexed)
+  // instead of status+closedAt (composite index that can silently
+  // diverge from prod → metric never shows). We then filter in memory:
+  //   • status ∈ {closed, pending_close} — the helper's shopping +
+  //     reconcile is DONE at pending_close (actuals submitted); waiting
+  //     on the parent's budget approval shouldn't hide it. This is why
+  //     "bought yesterday" didn't show: the submit-for-review flow
+  //     parks shops in pending_close until the parent posts.
+  //   • date (closedAt ?? submittedForCloseAt ?? reconciledAt) in window.
   const q = query(
     collection(db, 'families', familyId, 'purchaseRequests'),
-    where('status', '==', 'closed'),
-    where('closedAt', '>=', sinceTs),
-    orderBy('closedAt', 'desc'),
-    limit(100),
+    where('createdBy', '==', helperUid),
+    limit(200),
   );
   let snaps;
   try {
@@ -233,9 +244,12 @@ export async function getHelperBudgetMetric(
   const helperShops: PurchaseRequest[] = [];
   snaps.forEach((d) => {
     const data = { id: d.id, ...d.data() } as PurchaseRequest;
-    if (data.createdBy === helperUid && data.createdByRole === 'helper') {
-      helperShops.push(data);
-    }
+    if (data.createdByRole !== 'helper') return;
+    if (data.status !== 'closed' && data.status !== 'pending_close') return;
+    const stamp = data.closedAt ?? data.submittedForCloseAt ?? data.reconciledAt;
+    const ms = stamp?.toMillis?.();
+    if (ms == null || ms < sinceMs) return;
+    helperShops.push(data);
   });
 
   if (helperShops.length === 0) {
@@ -288,10 +302,11 @@ export async function getHelperBudgetMetric(
 export async function getHelperRatingMetric(
   familyId: string,
   helperUid: string,
-  opts: { days?: number; from?: Date } = {},
+  opts: { days?: number; from?: Date; includeToday?: boolean } = {},
 ): Promise<HelperRatingCompletionWindow> {
   const days = opts.days ?? 7;
   const from = opts.from ?? new Date();
+  const includeToday = opts.includeToday ?? false;
 
   // Resolve helper-link for expected frequency + formal kid assignment.
   // A missing link (legacy helper) no longer short-circuits to null —
@@ -311,18 +326,18 @@ export async function getHelperRatingMetric(
 
   // Pull the helper's ratings in the window — count logged slots AND
   // the distinct kids she rated (drives effectiveKids when none assigned).
-  // Window ENDS YESTERDAY (excludes the in-progress today) so an
-  // un-filled evening slot today doesn't count against her — matches
-  // the workplan tally. Covers the `days` fully-elapsed days [from-days,
-  // from-1]. (2026-05-20 fix.)
+  // Historical periods END YESTERDAY (exclude the in-progress today) so
+  // an un-filled evening slot today doesn't count against her. The
+  // "Today" period (includeToday) ends TODAY so today's fills show —
+  // this is the view a parent uses to confirm ratings are coming in.
   const sinceIso = (() => {
     const d = new Date(from);
-    d.setDate(d.getDate() - days);
+    d.setDate(d.getDate() - (includeToday ? days - 1 : days));
     return todayDateString(d);
   })();
   const fromIso = (() => {
     const d = new Date(from);
-    d.setDate(d.getDate() - 1);
+    if (!includeToday) d.setDate(d.getDate() - 1);
     return todayDateString(d);
   })();
   let logged = 0;
