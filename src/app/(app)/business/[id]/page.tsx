@@ -9,15 +9,17 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES,
   subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones,
-  setBusinessStatus, requestBusinessLaunch,
+  setBusinessStatus, requestBusinessLaunch, readBusinessConfig,
 } from '@/lib/business';
 import { ApprovalRequest } from '@/lib/hive';
 import { formatCash } from '@/components/hive/format';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
+import AICoachCard from '@/components/business/AICoachCard';
 
 const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
 
@@ -32,7 +34,9 @@ export default function BusinessDashboardPage() {
   const router = useRouter();
   const businessId = String(params?.id || '');
   const { profile } = useAuth();
+  const { family } = useFamily();
   const { config } = useHive();
+  const coachName = readBusinessConfig(family).coachName;
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -304,11 +308,38 @@ export default function BusinessDashboardPage() {
         )}
       </div>
 
+      {/* AI coach (pricing/cost tip from real numbers) + weekly review. */}
+      <div className="space-y-2.5 mb-3">
+        <AICoachCard
+          loop="pricing"
+          coachName={coachName}
+          currency={config.currency}
+          cta={`Ask ${coachName} about your price`}
+          facts={{
+            business: business.name,
+            type: t.label,
+            ...(typeof business.unitPriceCents === 'number'
+              ? { price: `${formatCash(business.unitPriceCents, config.currency)}${business.unitLabel ? ' / ' + business.unitLabel : ''}` }
+              : {}),
+            salesThisMonth: stats.salesCount,
+            monthRevenue: formatCash(stats.monthRevenueCents, config.currency),
+            monthProfit: formatCash(stats.monthProfitCents, config.currency),
+            ...(stats.monthRevenueCents > 0
+              ? { margin: `${Math.round((stats.monthProfitCents / stats.monthRevenueCents) * 100)}%` }
+              : {}),
+          }}
+        />
+        <Link href={`/business/${businessId}/weekly`}
+          className="w-full flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline">
+          🗓️ Weekly review →
+        </Link>
+      </div>
+
       {/* Coming next — what's still ahead. */}
       <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
         <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Coming next</div>
         <p className="text-[13px] text-hive-navy/80 leading-relaxed">
-          🤖 your AI coach · 📈 Junior Investor — landing in the next updates.
+          📈 Junior Investor — landing in the next update.
         </p>
       </div>
     </div>
