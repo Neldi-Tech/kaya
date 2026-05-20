@@ -34,11 +34,27 @@ export default function PerformanceCard({
   const { config } = useHive();
   const currency = config.currency;
 
+  // Period filter (2026-05-20) — lets the parent/helper scope the
+  // metrics to a defined window instead of a fixed "last 7 days", so
+  // the numbers are realistic + comparable. "This month" = days elapsed
+  // so far this month. Defaults to the `days` prop or 7.
+  const PERIODS: { id: string; label: string; days: number }[] = [
+    { id: '7', label: '7 days', days: 7 },
+    { id: '30', label: '30 days', days: 30 },
+    { id: 'month', label: 'This month', days: Math.max(1, new Date().getDate()) },
+  ];
+  const [periodId, setPeriodId] = useState<string>(days === 30 ? '30' : '7');
+  // Compact rows (lists) honour the caller's fixed `days`; the full card
+  // uses the interactive period selector.
+  const periodDays = compact
+    ? (days ?? 7)
+    : (PERIODS.find((p) => p.id === periodId)?.days ?? 7);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const p = await getHelperPerformance(familyId, helperUid, days ? { days } : {});
+        const p = await getHelperPerformance(familyId, helperUid, { days: periodDays });
         if (!cancelled) setPerf(p);
       } catch {
         // Best-effort: a perf card that can't load shouldn't break
@@ -46,7 +62,7 @@ export default function PerformanceCard({
       }
     })();
     return () => { cancelled = true; };
-  }, [familyId, helperUid, days]);
+  }, [familyId, helperUid, periodDays]);
 
   if (!perf) {
     return (
@@ -116,6 +132,23 @@ export default function PerformanceCard({
         </div>
       </div>
 
+      {/* Period filter — scope the window so the metrics are defined +
+          comparable. Excludes the in-progress today everywhere. */}
+      <div className="mt-3 flex gap-1.5">
+        {PERIODS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => setPeriodId(p.id)}
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
+              periodId === p.id
+                ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                : 'bg-white/60 text-kaya-sand border-kaya-warm-dark/40'
+            }`}
+          >{p.label}</button>
+        ))}
+      </div>
+
       {/* Four metric stat rows — 2 × 2 grid on desktop, stacked on
           mobile via flex-wrap. Each card shows its score, the raw
           inputs that produced it, and a small "excluded" pill when
@@ -135,7 +168,9 @@ export default function PerformanceCard({
           icon={<CheckCircle2 size={11} />}
           label="Tasks done"
           value={`${perf.tasksDone} / ${perf.tasksScheduled}`}
-          subtitle={`in last ${perf.days} days`}
+          subtitle={perf.tasksScheduled > 0
+            ? `due over ${perf.scheduledDays} day${perf.scheduledDays === 1 ? '' : 's'} (excl. today)`
+            : 'nothing due yet'}
         />
         <MetricBlock
           icon={<Star size={11} />}
@@ -194,7 +229,7 @@ export default function PerformanceCard({
             <Wallet size={11} /> Grocery budget
           </p>
           <p className="text-[11px] text-kaya-sand mt-0.5">
-            No shops closed in last {perf.days} days — budget metric will appear here
+            No shops closed in this period. Budget adherence (actual vs approved) appears once {name ? name.split(' ')[0] : 'the helper'} closes a shop — setting a budget cap alone doesn't fill it. Try a longer period above.
           </p>
         </div>
       )}
