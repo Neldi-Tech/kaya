@@ -205,7 +205,9 @@ export default function ComposeBudgetPage() {
             id: m.id,
             label: m.label,
             emoji: meterEmoji(m.type),
-            amountCents: 0,
+            // Seed the amount from the meter's estimated top-up (editable
+            // here). (2026-05-20)
+            amountCents: m.estimatedCents ?? 0,
             // Seed cadence from the meter's frequency, mapped to the
             // composer's simpler day/week/month/year scale. Falls back
             // to the type default. (Utilities v2) The parent can fine-

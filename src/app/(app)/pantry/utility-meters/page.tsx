@@ -17,7 +17,10 @@ import {
   METER_TYPES, meterEmoji,
   subscribeToMeters, addMeter, updateMeter, removeMeter,
 } from '@/lib/utilityMeters';
-import { type Cadence, CADENCE_LABEL } from '@/lib/pantry';
+import { type Cadence, CADENCE_LABEL, type Supplier, subscribeToSuppliers } from '@/lib/pantry';
+import { suggestedReminderDays } from '@/lib/utilityReminders';
+import { useHive } from '@/contexts/HiveContext';
+import { formatCents } from '@/components/pantry/format';
 
 // Frequency choices offered for regular top-ups. Ordered most→least
 // frequent. Excludes 'daily' (no meter tops up daily) + the long
@@ -28,6 +31,8 @@ const TOPUP_FREQUENCIES: Cadence[] = ['weekly', 'biweekly', 'semimonthly', 'mont
 export default function UtilityMetersPage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
+  const { config } = useHive();
+  const currency = config.currency;
   const isParent = profile?.role === 'parent';
 
   useEffect(() => {
@@ -36,20 +41,39 @@ export default function UtilityMetersPage() {
   }, [profile, router]);
 
   const [meters, setMeters] = useState<UtilityMeter[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!profile?.familyId) return;
     if (profile.role !== 'parent') return;
     const t = setTimeout(() => setLoading(false), 1500);
     const unsub = subscribeToMeters(profile.familyId, (m) => { setMeters(m); setLoading(false); });
-    return () => { clearTimeout(t); unsub(); };
+    const unsubSup = subscribeToSuppliers(profile.familyId, 'all', setSuppliers);
+    return () => { clearTimeout(t); unsub(); unsubSup(); };
   }, [profile?.familyId, profile?.role]);
 
   const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState<{ type: UtilityMeterType; label: string; providerRef: string; frequency: Cadence }>({
+  const [form, setForm] = useState<{
+    type: UtilityMeterType; label: string; providerRef: string; frequency: Cadence;
+    estimatedMajor: number; preferredSupplierId: string; reminderDays: number[];
+  }>({
     type: 'electric', label: '', providerRef: '', frequency: 'weekly',
+    estimatedMajor: 0, preferredSupplierId: '', reminderDays: [],
   });
   const [saving, setSaving] = useState(false);
+
+  // Changing frequency re-seeds the suggested reminder days (editable).
+  const setFrequency = (frequency: Cadence) => {
+    setForm((f) => ({ ...f, frequency, reminderDays: suggestedReminderDays(frequency) }));
+  };
+  const toggleReminderDay = (day: number) => {
+    setForm((f) => ({
+      ...f,
+      reminderDays: f.reminderDays.includes(day)
+        ? f.reminderDays.filter((d) => d !== day)
+        : [...f.reminderDays, day].sort((a, b) => a - b),
+    }));
+  };
 
   const submit = async () => {
     if (!profile?.familyId || isGuest) return;
@@ -62,8 +86,14 @@ export default function UtilityMetersPage() {
         label,
         providerRef: form.providerRef.trim() || undefined,
         frequency: form.frequency,
+        estimatedCents: form.estimatedMajor > 0 ? Math.round(form.estimatedMajor * 100) : undefined,
+        preferredSupplierId: form.preferredSupplierId || undefined,
+        reminderDays: form.reminderDays.length > 0 ? form.reminderDays : undefined,
       });
-      setForm({ type: 'electric', label: '', providerRef: '', frequency: 'weekly' });
+      setForm({
+        type: 'electric', label: '', providerRef: '', frequency: 'weekly',
+        estimatedMajor: 0, preferredSupplierId: '', reminderDays: [],
+      });
       setAdding(false);
     } finally { setSaving(false); }
   };
@@ -163,7 +193,7 @@ export default function UtilityMetersPage() {
                 <button
                   key={f}
                   type="button"
-                  onClick={() => setForm({ ...form, frequency: f })}
+                  onClick={() => setFrequency(f)}
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-nunito font-extrabold border ${
                     form.frequency === f
                       ? 'bg-hive-honey text-white border-hive-honey'
@@ -175,6 +205,77 @@ export default function UtilityMetersPage() {
               ))}
             </div>
           </div>
+
+          {/* Estimated typical top-up (editable any time) — pre-fills
+              the request + feeds the budget. (2026-05-20) */}
+          <label className="block mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Estimated amount (optional)</span>
+            <div className="flex items-center gap-1 border border-hive-line rounded-lg px-3 py-2 mt-1 focus-within:border-hive-honey">
+              <span className="text-xs text-hive-muted font-bold">{currency}</span>
+              <input
+                type="number" min={0} step="0.01"
+                value={form.estimatedMajor || ''}
+                onChange={(e) => setForm({ ...form, estimatedMajor: Number(e.target.value) })}
+                placeholder="0.00"
+                className="flex-1 text-sm font-nunito font-bold focus:outline-none bg-transparent"
+              />
+              <span className="text-[10px] text-hive-muted font-bold">/ top-up</span>
+            </div>
+          </label>
+
+          {/* Preferred supplier — links to the shared suppliers list. */}
+          {suppliers.length > 0 && (
+            <label className="block mb-2">
+              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Preferred supplier (optional)</span>
+              <select
+                value={form.preferredSupplierId}
+                onChange={(e) => setForm({ ...form, preferredSupplierId: e.target.value })}
+                className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mt-1 bg-white"
+              >
+                <option value="">— None —</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {/* Reminder days — auto-suggested for 2× a month (1st & 15th),
+              editable. Reminder ONLY fires a helper nudge (no auto-
+              request). (2026-05-20) */}
+          {form.frequency !== 'as-needed' && (
+            <div className="mb-2">
+              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">
+                Reminder days {form.frequency === 'semimonthly' ? '(suggested: 1st & 15th)' : '(optional)'}
+              </span>
+              <div className="flex flex-wrap gap-1.5 mt-1 items-center">
+                {form.reminderDays.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => toggleReminderDay(d)}
+                    className="px-2.5 py-1 rounded-full text-xs font-nunito font-extrabold bg-hive-honey text-white border border-hive-honey-dk"
+                  >
+                    {d} ×
+                  </button>
+                ))}
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) toggleReminderDay(Number(e.target.value)); }}
+                  className="border border-dashed border-hive-line rounded-full px-2 py-1 text-xs font-nunito font-bold bg-white text-hive-muted"
+                >
+                  <option value="">＋ day</option>
+                  {Array.from({ length: 28 }, (_, i) => i + 1)
+                    .filter((d) => !form.reminderDays.includes(d))
+                    .map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <p className="text-[10px] text-hive-muted mt-1 leading-snug">
+                On these days the helper gets a nudge to launch a top-up request — reminder only, no auto-request.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-2 mt-2">
             <button onClick={() => setAdding(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
             <button onClick={submit} disabled={saving || !form.label.trim()} className="bg-hive-honey text-white rounded-lg py-2 font-nunito font-black text-sm disabled:opacity-60">
@@ -210,7 +311,7 @@ export default function UtilityMetersPage() {
             </p>
             <div className="flex flex-col gap-2">
               {list.map((m) => (
-                <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} />
+                <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} currency={currency} suppliers={suppliers} />
               ))}
             </div>
           </div>
@@ -220,13 +321,31 @@ export default function UtilityMetersPage() {
   );
 }
 
-function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }) {
+function MeterRow({ meter, familyId, currency, suppliers }: {
+  meter: UtilityMeter; familyId: string; currency: string; suppliers: Supplier[];
+}) {
   const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(meter.label);
   const [providerRef, setProviderRef] = useState(meter.providerRef ?? '');
-  const [frequency, setFrequency] = useState<Cadence>(meter.frequency ?? 'weekly');
+  const [frequency, setFrequencyState] = useState<Cadence>(meter.frequency ?? 'weekly');
+  const [estimatedMajor, setEstimatedMajor] = useState<number>(
+    meter.estimatedCents ? meter.estimatedCents / 100 : 0,
+  );
+  const [supplierId, setSupplierId] = useState<string>(meter.preferredSupplierId ?? '');
+  const [reminderDays, setReminderDays] = useState<number[]>(meter.reminderDays ?? []);
+
+  const setFrequency = (f: Cadence) => {
+    setFrequencyState(f);
+    // Re-seed suggested reminder days only when none are set yet.
+    if (reminderDays.length === 0) setReminderDays(suggestedReminderDays(f));
+  };
+  const toggleReminderDay = (day: number) => {
+    setReminderDays((prev) => prev.includes(day)
+      ? prev.filter((d) => d !== day)
+      : [...prev, day].sort((a, b) => a - b));
+  };
 
   const save = async () => {
     setBusy(true);
@@ -235,6 +354,9 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
         label: label.trim() || meter.label,
         providerRef: providerRef.trim() || undefined,
         frequency,
+        estimatedCents: estimatedMajor > 0 ? Math.round(estimatedMajor * 100) : undefined,
+        preferredSupplierId: supplierId || undefined,
+        reminderDays: reminderDays.length > 0 ? reminderDays : undefined,
       });
       setEditing(false);
     } finally { setBusy(false); }
@@ -286,6 +408,49 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
             ))}
           </div>
         </div>
+        <div className="flex items-center gap-1 border border-hive-line rounded-lg px-3 py-2 mb-2">
+          <span className="text-xs text-hive-muted font-bold">{currency}</span>
+          <input
+            type="number" min={0} step="0.01"
+            value={estimatedMajor || ''}
+            onChange={(e) => setEstimatedMajor(Number(e.target.value))}
+            placeholder="estimated / top-up"
+            className="flex-1 text-sm font-nunito font-bold focus:outline-none bg-transparent"
+          />
+        </div>
+        {suppliers.length > 0 && (
+          <select
+            value={supplierId}
+            onChange={(e) => setSupplierId(e.target.value)}
+            className="w-full border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold mb-2 bg-white"
+          >
+            <option value="">— No supplier —</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        {frequency !== 'as-needed' && (
+          <div className="mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Reminder days</span>
+            <div className="flex flex-wrap gap-1.5 mt-1 items-center">
+              {reminderDays.map((d) => (
+                <button key={d} type="button" onClick={() => toggleReminderDay(d)}
+                  className="px-2.5 py-1 rounded-full text-xs font-nunito font-extrabold bg-hive-honey text-white border border-hive-honey-dk">
+                  {d} ×
+                </button>
+              ))}
+              <select
+                value=""
+                onChange={(e) => { if (e.target.value) toggleReminderDay(Number(e.target.value)); }}
+                className="border border-dashed border-hive-line rounded-full px-2 py-1 text-xs font-nunito font-bold bg-white text-hive-muted"
+              >
+                <option value="">＋ day</option>
+                {Array.from({ length: 28 }, (_, i) => i + 1)
+                  .filter((d) => !reminderDays.includes(d))
+                  .map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setEditing(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
           <button onClick={save} disabled={busy} className="bg-hive-honey text-white rounded-lg py-2 font-nunito font-black text-sm">Save</button>
@@ -308,7 +473,15 @@ function MeterRow({ meter, familyId }: { meter: UtilityMeter; familyId: string }
             : meter.cadenceDays != null
               ? ` · ~${meter.cadenceDays}d cycle`
               : ''}
+          {meter.estimatedCents && meter.estimatedCents > 0
+            ? ` · ≈ ${formatCents(meter.estimatedCents, currency)}`
+            : ''}
         </div>
+        {meter.reminderDays && meter.reminderDays.length > 0 && (
+          <div className="text-[10px] text-hive-honey-dk font-nunito font-extrabold mt-0.5">
+            🔔 Reminds on the {meter.reminderDays.map((d) => ordinalDay(d)).join(', ')}
+          </div>
+        )}
       </div>
       <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-hive-honey-dk px-2">Edit</button>
       <button onClick={remove} disabled={busy} className="text-xs font-nunito font-bold text-hive-rose px-2">Remove</button>
@@ -324,4 +497,11 @@ function META_GROUP(meters: UtilityMeter[]): Record<string, UtilityMeter[]> {
     (out[m.type] ??= []).push(m);
   }
   return out;
+}
+
+/** 1 → "1st", 15 → "15th" — for the reminder-days display. */
+function ordinalDay(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
