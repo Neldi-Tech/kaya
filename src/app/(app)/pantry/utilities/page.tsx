@@ -21,7 +21,7 @@ import {
   UTILITY_PACKS, UtilityPack, DEFAULT_HELPER_SALARY_USD,
   addUtility, updateUtility, deleteUtility,
   seedFromWizard, recordPayment,
-  monthlyEquivalentCents, sumMonthlyUtilities, sumPaidThisPeriod,
+  monthlyEquivalentCents, sumMonthlyUtilities, sumPaidThisPeriod, sumOutstanding,
   currentPeriodKey, periodLabel, paymentStatus,
   Utility, Supplier, UtilityStatus,
 } from '@/lib/pantry';
@@ -80,7 +80,13 @@ export default function UtilitiesPage() {
   const monthlyExpected = useMemo(() => sumMonthlyUtilities(utilities), [utilities]);
   const { paidCents, paidCount } = useMemo(() => sumPaidThisPeriod(utilities), [utilities]);
   const activeCount = useMemo(() => utilities.filter((u) => u.active).length, [utilities]);
-  const outstanding = Math.max(0, monthlyExpected - paidCents);
+  // Outstanding = genuinely OWED now (known-amount bills past their due
+  // day, unpaid) — NOT the whole month's expected. Amount-less bills
+  // inform the budget only. (Elia 2026-05-20: reading the old Expected−
+  // Paid as "outstanding" made wrong assumptions.)
+  const { outstandingCents: outstanding, count: outstandingCount } = useMemo(
+    () => sumOutstanding(utilities), [utilities],
+  );
 
   const showSeedCard = filter === 'all' && utilities.length === 0 && !adding;
 
@@ -177,12 +183,12 @@ export default function UtilitiesPage() {
             </span>
             <span className={outstanding > 0 ? 'text-hive-rose' : 'text-pantry-leaf-dk'}>
               {outstanding > 0
-                ? `Outstanding ${formatCents(outstanding, currency)}`
-                : 'All settled 🎉'}
+                ? `Outstanding ${formatCents(outstanding, currency)} · ${outstandingCount} bill${outstandingCount === 1 ? '' : 's'}`
+                : 'Nothing overdue 🎉'}
             </span>
           </div>
           <p className="text-[10px] text-hive-muted mt-2 leading-relaxed">
-            Non-monthly cadences are normalised to a monthly figure. Payments are recorded via the <strong>Utility request flow</strong> (request → approve → reconcile → close).
+            <strong>Expected</strong> is the budgeted monthly figure (non-monthly cadences normalised). <strong>Outstanding</strong> counts only fixed-amount bills past their due day — amount-less bills inform the budget only. Payments record via the <strong>Utility request flow</strong>.
           </p>
         </div>
       )}
