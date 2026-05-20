@@ -35,7 +35,7 @@
 // `runTransaction` like the Hive does. Every read is guarded for guest mode.
 
 import {
-  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, runTransaction,
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, runTransaction,
   query, where, orderBy, limit, onSnapshot,
   Timestamp, serverTimestamp,
 } from 'firebase/firestore';
@@ -704,4 +704,109 @@ export async function resolveBusinessRequest(
     }
     tx.update(reqRef, { status: 'approved', resolvedAt: now, resolvedBy: approverUid });
   });
+}
+
+// ── Inventory mutations (PR3) ─────────────────────────────────────
+// Items roll up into the denormalized business.stats so the Portfolio +
+// Family Grid read one doc, never the item list. The recompute touches only
+// the inventory fields (dot-path) so it never clobbers the ledger-owned
+// profit/cash figures that arrive in PR4.
+
+export interface NewItemInput {
+  kind: ItemKind;
+  name: string;
+  qty: number;
+  groupId?: string;
+  stage?: string;
+  unitCostCents?: number;
+  unitMarketCents?: number;
+  producing?: boolean;
+  /** Defaults true. Set false for not-yet-sellable stock (e.g. flowering). */
+  countedInWorth?: boolean;
+  notes?: string;
+}
+
+export type ItemPatch = Partial<Pick<BusinessItem,
+  'name' | 'qty' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
+
+/** Recompute assets / stock / worth on business.stats from the current item
+ *  set. Reads items with getDocs (can't run a query inside a txn) then writes
+ *  via dot-paths so the profit/cash fields are left untouched. cashPosition
+ *  (0 until PR4) is folded into worth. */
+export async function recomputeInventoryStats(familyId: string, businessId: string): Promise<void> {
+  if (isGuestActive()) return;
+  const snap = await getDocs(itemsCol(familyId, businessId));
+  const items = snap.docs.map((d) => ({ id: d.id, ...d.data() } as BusinessItem));
+  const { assetsCents, stockMarketCents } = rollUpInventory(items);
+  const bizSnap = await getDoc(businessDoc(familyId, businessId));
+  const cashPos = Number(bizSnap.data()?.stats?.cashPositionCents ?? 0);
+  await updateDoc(businessDoc(familyId, businessId), {
+    'stats.assetsCents': assetsCents,
+    'stats.stockMarketCents': stockMarketCents,
+    'stats.worthCents': assetsCents + stockMarketCents + cashPos,
+    'stats.lastActivityAt': serverTimestamp(),
+  });
+}
+
+/** Add an inventory item (named single, grouped batch, or stock pile), then
+ *  refresh the worth roll-up. */
+export async function addBusinessItem(
+  familyId: string,
+  businessId: string,
+  input: NewItemInput,
+  uid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-item';
+  const now = serverTimestamp();
+  const data: Record<string, unknown> = {
+    businessId,
+    kind: input.kind,
+    name: input.name.trim(),
+    qty: Math.max(0, Math.round(input.qty || 0)),
+    countedInWorth: input.countedInWorth !== false,
+    createdBy: uid,
+    createdAt: now,
+    updatedAt: now,
+  };
+  if (input.groupId?.trim()) data.groupId = input.groupId.trim();
+  if (input.stage?.trim()) data.stage = input.stage.trim();
+  if (typeof input.unitCostCents === 'number') data.unitCostCents = input.unitCostCents;
+  if (typeof input.unitMarketCents === 'number') data.unitMarketCents = input.unitMarketCents;
+  if (typeof input.producing === 'boolean') data.producing = input.producing;
+  if (input.notes?.trim()) data.notes = input.notes.trim();
+  const ref = await addDoc(itemsCol(familyId, businessId), data);
+  await recomputeInventoryStats(familyId, businessId);
+  return ref.id;
+}
+
+export async function updateBusinessItem(
+  familyId: string,
+  businessId: string,
+  itemId: string,
+  patch: ItemPatch,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(itemsCol(familyId, businessId), itemId), {
+    ...patch,
+    updatedAt: serverTimestamp(),
+  } as Record<string, unknown>);
+  await recomputeInventoryStats(familyId, businessId);
+}
+
+/** Spoilage / death write-off — keeps the record so the AI can learn from it,
+ *  but drops it from worth. */
+export async function markItemLoss(familyId: string, businessId: string, itemId: string): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(itemsCol(familyId, businessId), itemId), {
+    loss: true, countedInWorth: false, updatedAt: serverTimestamp(),
+  });
+  await recomputeInventoryStats(familyId, businessId);
+}
+
+/** Hard delete — for a mistaken entry (vs markItemLoss, a real write-off
+ *  worth keeping). */
+export async function removeBusinessItem(familyId: string, businessId: string, itemId: string): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(doc(itemsCol(familyId, businessId), itemId));
+  await recomputeInventoryStats(familyId, businessId);
 }

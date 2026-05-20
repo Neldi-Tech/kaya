@@ -1,12 +1,13 @@
 'use client';
 
 // Kaya Business · Business dashboard (kid screen 3). Identity, status, the
-// headline numbers, and the lifecycle controls. Inventory roll-up (PR3),
-// sales/costs entry + Hive sweep (PR4) and the AI coach (PR5) slot into the
+// headline numbers, lifecycle controls, and the entry point to Inventory.
+// Sales/costs entry + Hive sweep (PR4) and the AI coach (PR5) slot into the
 // marked spots below — kept as honest "coming next" affordances for now so
 // nothing here is a dead button.
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -220,11 +221,20 @@ export default function BusinessDashboardPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
 
+      {/* Inventory — the books that drive worth. */}
+      <Link
+        href={`/business/${businessId}/inventory`}
+        className="w-full flex items-center justify-between gap-2 h-12 px-4 mb-3 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
+      >
+        <span>📦 Inventory &amp; worth</span>
+        <span className="text-hive-honey-soft">{formatCash(stats.worthCents, config.currency)} →</span>
+      </Link>
+
       {/* Coming next — honest placeholders for the books, not dead buttons. */}
       <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
         <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Coming next</div>
         <p className="text-[13px] text-hive-navy/80 leading-relaxed">
-          📦 Inventory &amp; worth · 💵 log sales · 🧾 log costs · 🐝 profit auto-flows to your Hive ·
+          💵 log sales · 🧾 log costs · 🐝 profit auto-flows to your Hive ·
           🏆 milestones · 📈 Junior Investor — landing in the next updates.
         </p>
       </div>
