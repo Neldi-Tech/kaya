@@ -25,7 +25,7 @@ import {
   type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
   sendForApproval, postDraftToBudget, approveRequest, rejectRequest,
-  startReconcile, deleteRequest,
+  startReconcile, deleteRequest, reopenRequest,
   promotePendingStaple, keepAsOneOff,
   renamePendingItem, findStapleConflict, linkPendingToExisting,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
@@ -514,6 +514,40 @@ export default function PurchaseDetailPage() {
     finally { setBusy(false); }
   };
 
+  // Parent reopens a closed request → back to reconciling so actuals
+  // can be fixed (then resubmit) or the request deleted. Unwinds the
+  // close: a linked bill drops back into Outstanding, and the budget
+  // un-counts it. See reopenRequest in lib/purchase.ts. (Reopen v1.)
+  const reopen = async () => {
+    if (!profile?.familyId || !profile.uid) return;
+    const ok = await confirmAction({
+      title: 'Reopen this request?',
+      message: req.module === 'utility'
+        ? 'It goes back to Reconciling so you can fix the actuals or receipt, then resubmit. The linked bill returns to Outstanding and drops out of the budget until you reclose.'
+        : 'It goes back to Reconciling so you can fix the actuals or receipt, then resubmit. It drops out of the budget until you reclose.',
+      confirmLabel: 'Reopen',
+      tone: 'default',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await reopenRequest(profile.familyId, req.id, profile.uid);
+      if (res && !res.ok) {
+        // Refused (e.g. the savings tip was already paid out). Explain
+        // why rather than silently doing nothing.
+        await confirmAction({
+          title: "Can't reopen yet",
+          message: res.reason,
+          confirmLabel: 'OK',
+          tone: 'default',
+        });
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] reopen failed:', e);
+    } finally { setBusy(false); }
+  };
+
   // Staples available to pick — exclude ones already in basket.
   // Inlined (not useMemo) because this code path runs AFTER the
   // `if (loading)` / `if (!req)` early returns above — a hook here
@@ -767,6 +801,16 @@ export default function PurchaseDetailPage() {
       {isRejected && (
         <Banner tone="rose" title="Rejected"
           body={req.rejectionNote || 'No reason given.'} />
+      )}
+
+      {/* Reopened banner — a parent reopened this closed request. Makes
+          it obvious why a linked bill is back in Outstanding and what to
+          do next. (Reopen v1, 2026-05-20) */}
+      {isReconciling && req.reopenedAt && (
+        <Banner tone="amber" title="↩ Reopened"
+          body={req.module === 'utility'
+            ? 'This bill is back in Outstanding. Fix the actuals if needed, then resubmit + reclose to mark it paid again.'
+            : 'Fix the actuals if needed, then resubmit + reclose to post it to the budget again.'} />
       )}
 
       {/* Helper-side waiting banner — shop done, parent reviewing.
@@ -1449,6 +1493,33 @@ export default function PurchaseDetailPage() {
         {isReconciling && (
           <button onClick={submitClose} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
             Submit for review →
+          </button>
+        )}
+        {/* Delete a reopened request — appears only after a parent has
+            reopened a closed request (reopenedAt set). "Reopen first"
+            is the deliberate guard: closed requests can't be deleted
+            outright. (Reopen v1, 2026-05-20) */}
+        {isReconciling && req.reopenedAt && role === 'parent' && (
+          <button
+            type="button"
+            onClick={deleteOwn}
+            disabled={busy}
+            className="text-hive-rose font-nunito font-bold text-xs py-2"
+          >
+            🗑 Delete request
+          </button>
+        )}
+        {/* Reopen a closed request — parent-only, excludes payroll in
+            v1. Flips back to reconciling + unwinds the close (bill back
+            to Outstanding, budget un-counts). (Reopen v1, 2026-05-20) */}
+        {isClosed && role === 'parent' && req.module !== 'payroll' && (
+          <button
+            type="button"
+            onClick={reopen}
+            disabled={busy}
+            className="bg-hive-paper border border-hive-honey text-hive-honey-dk rounded-hive py-3 font-nunito font-black text-sm"
+          >
+            ↩ Reopen to edit
           </button>
         )}
 

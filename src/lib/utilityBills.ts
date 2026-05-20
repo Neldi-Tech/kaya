@@ -115,6 +115,10 @@ export async function runUtilityBillGenerator(
         generatedBy: 'system',
         items: [item],
         context: name,
+        // Back-reference so closeReconcile can mark THIS bill paid for
+        // the period (clears it from the Outstanding banner). Mirror of
+        // the lastGeneratedRequestId pointer stamped just below.
+        utilityId: u.id,
       });
       // Stamp idempotency guard + link before emailing so a failed email
       // can't cause a duplicate request on the next run.
