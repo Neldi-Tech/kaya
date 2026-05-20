@@ -19,7 +19,7 @@
 'use client';
 
 import {
-  getDoc, doc, collection, query, where, getDocs, orderBy, limit,
+  getDoc, doc, collection, query, where, getDocs, limit,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
@@ -343,25 +343,29 @@ export async function getHelperRatingMetric(
   let logged = 0;
   const kidsRated = new Set<string>();
   try {
+    // 2026-05-20 fix — query by DATE RANGE (single-field, auto-indexed)
+    // and filter ratedBy in memory. The prior `where('ratedBy') +
+    // orderBy('date')` needed a composite index that isn't deployed, so
+    // the query threw → caught → null → "Ratings —" even when the helper
+    // logs them daily (the bug Elia hit despite kids assigned). The
+    // window is tiny (≤30 days) so reading all family ratings in it + a
+    // 500 cap is cheap, and it has zero index dependency.
     const q = query(
       collection(db, 'families', familyId, 'dailyRatings'),
-      where('ratedBy', '==', helperUid),
-      orderBy('date', 'desc'),
-      limit(200),
+      where('date', '>=', sinceIso),
+      where('date', '<=', fromIso),
+      limit(500),
     );
     const snap = await getDocs(q);
     snap.forEach((d) => {
-      const data = d.data() as { date?: string; childId?: string };
-      const date = data.date;
-      if (!date) return;
-      if (date >= sinceIso && date <= fromIso) {
-        logged++;
-        if (data.childId) kidsRated.add(data.childId);
-      }
+      const data = d.data() as { date?: string; childId?: string; ratedBy?: string };
+      if (data.ratedBy !== helperUid) return;
+      logged++;
+      if (data.childId) kidsRated.add(data.childId);
     });
   } catch {
-    // Composite index likely missing for (ratedBy + date desc) — fail
-    // soft so the rest of the card still renders.
+    // Even the single-field date query failed — fail soft so the rest
+    // of the card still renders.
     return { scorePct: null, expected: 0, logged: 0, perDayExpected };
   }
 
