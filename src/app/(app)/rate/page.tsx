@@ -16,6 +16,30 @@ const RATING_OPTIONS: { value: RatingValue; label: string; emoji: string; color:
   { value: 'bad',       label: 'Bad',       emoji: '👎', color: '#E74C3C' },
 ];
 
+// Auto-save draft key — scoped to family + child + period + TODAY so a
+// yesterday draft never bleeds into today, and each kid/period has its
+// own in-progress state on the device. (2026-05-20)
+const draftKey = (familyId: string, childId: string, period: string) =>
+  `kaya:ratedraft:${familyId}:${childId}:${period}:${todayString()}`;
+
+interface RatingDraft {
+  ratings?: Record<string, RatingValue>;
+  ratingNotes?: Record<string, string>;
+  comment?: string;
+}
+function readDraft(key: string): RatingDraft | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as RatingDraft) : null;
+  } catch { return null; }
+}
+function writeDraft(key: string, d: RatingDraft) {
+  try { localStorage.setItem(key, JSON.stringify(d)); } catch { /* private mode / quota */ }
+}
+function clearDraft(key: string) {
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
 export default function RatePage() {
   const searchParams = useSearchParams();
   const { profile } = useAuth();
@@ -36,6 +60,12 @@ export default function RatePage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [alreadyRated, setAlreadyRated] = useState(false);
+  // Auto-save (2026-05-20) — ticks persist to the device as she goes, so
+  // an interruption never loses progress; she just submits when done.
+  // `hydrated` gates the save effect until the initial load resolves, so
+  // the empty starting state can't wipe a saved draft on mount.
+  const [hydrated, setHydrated] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
   // Map of `${childId}|${period}` → boolean, used by the desktop kid list to
   // show a "Done" badge next to kids already rated for the chosen period.
   const [ratedMap, setRatedMap] = useState<Record<string, boolean>>({});
@@ -44,23 +74,54 @@ export default function RatePage() {
   const child = children[selectedChild];
 
   // Load the currently selected child's rating + repopulate the form.
+  // If there's no submitted rating yet, restore an auto-saved draft so
+  // an interrupted session picks up where she left off.
   useEffect(() => {
     if (!profile?.familyId || !child) return;
+    const fid = profile.familyId;
+    const cid = child.id;
+    setHydrated(false);
+    setDraftRestored(false);
     (async () => {
-      const existing = await getTodayRatings(profile.familyId, child.id, period);
+      const existing = await getTodayRatings(fid, cid, period);
       if (existing) {
         setRatings(existing.ratings);
         setRatingNotes(existing.ratingNotes || {});
         setOverallComment(existing.comment || '');
         setAlreadyRated(true);
       } else {
-        setRatings({});
-        setRatingNotes({});
-        setOverallComment('');
+        const draft = readDraft(draftKey(fid, cid, period));
+        if (draft && (Object.keys(draft.ratings || {}).length > 0 || (draft.comment || '').trim())) {
+          setRatings(draft.ratings || {});
+          setRatingNotes(draft.ratingNotes || {});
+          setOverallComment(draft.comment || '');
+          setDraftRestored(true);
+        } else {
+          setRatings({});
+          setRatingNotes({});
+          setOverallComment('');
+        }
         setAlreadyRated(false);
       }
+      // Mark hydrated LAST so the auto-save effect can't run with the
+      // empty starting state and wipe the draft we just restored.
+      setHydrated(true);
     })();
   }, [profile?.familyId, child?.id, period]);
+
+  // Auto-save the in-progress ticks/notes to the device as they change.
+  // Gated on `hydrated` (post-load) + skipped once submitted. Removes the
+  // draft when the form is emptied so stale drafts don't linger.
+  useEffect(() => {
+    if (!hydrated || alreadyRated || !profile?.familyId || !child) return;
+    const key = draftKey(profile.familyId, child.id, period);
+    const hasContent =
+      Object.keys(ratings).length > 0 ||
+      Object.keys(ratingNotes).length > 0 ||
+      overallComment.trim().length > 0;
+    if (hasContent) writeDraft(key, { ratings, ratingNotes, comment: overallComment });
+    else clearDraft(key);
+  }, [hydrated, alreadyRated, profile?.familyId, child?.id, period, ratings, ratingNotes, overallComment]);
 
   // Refresh the per-kid "already rated this period today" map for the kid list.
   useEffect(() => {
@@ -170,6 +231,9 @@ export default function RatePage() {
       ...(Object.keys(cleanedNotes).length > 0 ? { ratingNotes: cleanedNotes } : {}),
       ...(trimmedComment ? { comment: trimmedComment } : {}),
     } as any);
+    // Submitted → clear the auto-saved draft for this kid/period/day.
+    clearDraft(draftKey(profile.familyId, child.id, period));
+    setDraftRestored(false);
     setSaved(true);
     setAlreadyRated(true);
     setSaving(false);
@@ -272,6 +336,14 @@ export default function RatePage() {
           <div className="bg-green-50 border border-green-200 rounded-kaya-sm p-3 mb-4 text-center">
             <p className="text-sm text-green-700 font-medium">
               ✅ {child?.name}&apos;s {period} routine already rated today
+            </p>
+          </div>
+        )}
+
+        {draftRestored && !alreadyRated && (
+          <div className="bg-amber-50 border border-amber-200 rounded-kaya-sm p-2.5 mb-4 text-center">
+            <p className="text-xs text-amber-700 font-medium">
+              💾 Draft restored · your ticks auto-save — finish + Submit when done
             </p>
           </div>
         )}
@@ -398,6 +470,15 @@ export default function RatePage() {
                   {child?.name}&apos;s {period} routine already rated today.
                 </p>
                 <span className="text-xs text-green-700 ml-auto">Switch child or period to rate another.</span>
+              </div>
+            )}
+
+            {draftRestored && !alreadyRated && (
+              <div className="bg-amber-50 border border-amber-200 rounded-kaya p-2.5 mb-4 flex items-center gap-2">
+                <span className="text-base">💾</span>
+                <p className="text-xs text-amber-700 font-semibold">
+                  Draft restored · your ticks auto-save — finish + Submit when done.
+                </p>
               </div>
             )}
 
