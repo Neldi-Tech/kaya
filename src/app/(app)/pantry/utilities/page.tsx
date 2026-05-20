@@ -32,12 +32,19 @@ import BackButton from '@/components/ui/BackButton';
 
 type Filter = 'all' | UtilityCategory;
 
+// Cadence choices for recurring bills. Monthly-first (most common),
+// then the two "twice" cadences (2× a month for utilities billed
+// mid-cycle; 2× a week for high-frequency top-ups), then the long
+// cadences for insurance/levies. (Utilities v2, 2026-05-20)
 const CADENCES: { id: Cadence; label: string }[] = [
-  { id: 'monthly',   label: 'Monthly' },
-  { id: 'weekly',    label: 'Weekly' },
-  { id: 'biweekly',  label: '2x / wk' },
-  { id: 'daily',     label: 'Daily' },
-  { id: 'as-needed', label: 'As needed' },
+  { id: 'monthly',     label: 'Monthly' },
+  { id: 'semimonthly', label: '2× a month' },
+  { id: 'quarterly',   label: 'Quarterly' },
+  { id: 'yearly',      label: 'Yearly' },
+  { id: 'weekly',      label: 'Weekly' },
+  { id: 'biweekly',    label: '2× a week' },
+  { id: 'daily',       label: 'Daily' },
+  { id: 'as-needed',   label: 'As needed' },
 ];
 
 export default function UtilitiesPage() {
@@ -125,6 +132,20 @@ export default function UtilitiesPage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+      <Link href="/pantry/utility/setup" className="text-[12px] text-hive-honey-dk font-bold no-underline hover:underline inline-block mb-2">
+        ← Utilities setup
+      </Link>
+      {/* Category banner — makes it unmistakable which of the two
+          utility categories this page configures. (Utilities v2) */}
+      <div className="rounded-hive border border-hive-honey bg-[#FFF3D9] p-3 mb-3">
+        <p className="font-nunito font-black text-hive-honey-dk text-sm flex items-center gap-1.5">
+          🔁 Recurring bills
+        </p>
+        <p className="text-[12px] text-hive-ink mt-0.5 leading-snug">
+          Fixed amount, fixed date (rent, internet, insurance). <strong>You manage these</strong> —
+          Kaya rolls them into the Budget and (soon) auto-creates the payment request on the due day.
+        </p>
+      </div>
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Pantry · Utilities</p>
