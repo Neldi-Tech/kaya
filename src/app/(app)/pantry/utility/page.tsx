@@ -142,11 +142,13 @@ export default function UtilityHomePage() {
     })();
   }, [profile?.familyId, profile?.uid, role, isGuest, currency]);
 
-  // Outstanding = active recurring bills that are OVERDUE this period
-  // (past due day, not paid). Regular top-ups never count — they're
-  // variable + on-demand. (Utilities v2, 2026-05-20)
+  // Outstanding = active recurring bills with a KNOWN amount that are
+  // OVERDUE this period (past due day, not paid). Amount-less bills
+  // inform the budget only — counting them makes wrong assumptions
+  // (Elia 2026-05-20). Regular top-ups never count (variable / on-demand).
   const outstanding = bills.filter((b) => {
     if (!b.active) return false;
+    if (!b.amountCents || b.amountCents <= 0) return false;
     return paymentStatus(b).kind === 'overdue';
   });
   const outstandingCents = outstanding.reduce((sum, b) => sum + (b.amountCents || 0), 0);

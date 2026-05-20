@@ -856,6 +856,35 @@ export function sumPaidThisPeriod(
   return { paidCents, paidCount };
 }
 
+/** Total genuinely OUTSTANDING across recurring bills (2026-05-20).
+ *
+ *  Outstanding = money actually OWED right now, so a bill only counts
+ *  when ALL of these hold:
+ *    1. it has a KNOWN amount (amountCents > 0) — you can't owe an
+ *       unknown figure; amount-less bills inform the budget only;
+ *    2. it's PAST its due day this month (paymentStatus 'overdue') —
+ *       a not-yet-due bill is "upcoming", not outstanding;
+ *    3. it isn't paid this period (folded into the 'overdue' check).
+ *
+ *  Critically, this is NOT (monthly expected − paid): summing the whole
+ *  month's budget as "outstanding" makes wrong assumptions (it reads
+ *  as owed on day 1, and counts variable / amount-less items). */
+export function sumOutstanding(
+  utilities: Utility[],
+  now: Date = new Date(),
+): { outstandingCents: number; count: number } {
+  let outstandingCents = 0;
+  let count = 0;
+  for (const u of utilities) {
+    if (!u.active) continue;
+    if (!u.amountCents || u.amountCents <= 0) continue;     // amount unknown → budget only
+    if (paymentStatus(u, now).kind !== 'overdue') continue; // not actually owed yet
+    outstandingCents += u.amountCents;
+    count += 1;
+  }
+  return { outstandingCents, count };
+}
+
 // ── Seed wizard + payments ───────────────────────────────────────
 
 /** Convert a USD baseline to cents in the family's display currency.
