@@ -347,6 +347,13 @@ export interface PurchaseRequest {
   rejectedAt?: Timestamp;
   reconciledAt?: Timestamp;
   closedAt?: Timestamp;
+
+  /** True when a parent posted the request straight to the budget at
+   *  creation, skipping the approval + reconcile chain (2026-05-20).
+   *  Parents have direct oversight, so they can record their own
+   *  spend in one step. Helpers always go through the full flow.
+   *  Audit-only flag — the detail page badges it as "Posted by parent". */
+  postedDirect?: boolean;
 }
 
 /** Reusable basket template (2026-05-18). Auto-saved on every
@@ -770,6 +777,33 @@ export async function sendForApproval(
     status: 'pending_approval' as PurchaseRequestStatus,
     sentAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  });
+}
+
+/** Parent fast-path: post a draft STRAIGHT to the budget, skipping the
+ *  approval → reconcile → close-review chain (2026-05-20). The parent
+ *  confirms the final amount (defaults to the estimate at the call
+ *  site). We stamp the approval / reconcile / close marks so the
+ *  request lands as an ordinary `closed` row that the finances roll-up
+ *  counts exactly like any other closed request. Parent-only — the
+ *  detail page never offers this to helpers. */
+export async function postDraftToBudget(
+  familyId: string,
+  requestId: string,
+  parentUid: string,
+  actualTotalCents: number,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const now = serverTimestamp();
+  await updateDoc(requestDoc(familyId, requestId), {
+    status: 'closed' as PurchaseRequestStatus,
+    approvedBy: [parentUid],
+    approvedAt: now,
+    reconciledAt: now,
+    closedAt: now,
+    actualTotalCents: Math.max(0, Math.round(actualTotalCents)),
+    postedDirect: true,
+    updatedAt: now,
   });
 }
 

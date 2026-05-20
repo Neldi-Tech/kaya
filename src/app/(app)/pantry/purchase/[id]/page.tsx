@@ -24,7 +24,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
-  sendForApproval, approveRequest, rejectRequest,
+  sendForApproval, postDraftToBudget, approveRequest, rejectRequest,
   startReconcile, deleteRequest,
   promotePendingStaple, keepAsOneOff,
   renamePendingItem, findStapleConflict, linkPendingToExisting,
@@ -96,6 +96,9 @@ export default function PurchaseDetailPage() {
   const [pickerQuery, setPickerQuery] = useState('');
   const [quickAdd, setQuickAdd] = useState<{ name: string; qty: string; cents: string } | null>(null);
   const [rejectNote, setRejectNote] = useState<string | null>(null);
+  // Parent fast-path: post a draft straight to the budget. `null` =
+  // collapsed; a number = the form is open with that amount (cents).
+  const [directCents, setDirectCents] = useState<number | null>(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
   const [receiptError, setReceiptError] = useState('');
 
@@ -275,6 +278,16 @@ export default function PurchaseDetailPage() {
         // eslint-disable-next-line no-console
         console.error('[purchase] notifyApprovalRequested failed:', e);
       }
+    } finally { setBusy(false); }
+  };
+  // Parent fast-path — skip approval + reconcile, post the confirmed
+  // amount straight to the budget. Only ever wired up for parents.
+  const postDirect = async () => {
+    if (!profile?.familyId || !profile.uid || directCents == null) return;
+    setBusy(true);
+    try {
+      await postDraftToBudget(profile.familyId, req.id, profile.uid, directCents);
+      setDirectCents(null);
     } finally { setBusy(false); }
   };
   const approve = async () => {
@@ -1285,6 +1298,58 @@ export default function PurchaseDetailPage() {
             >
               Send for approval →
             </button>
+
+            {/* Parent fast-path: skip approval + reconcile and post the
+                spend straight to the budget. Helpers never see this. */}
+            {role === 'parent' && directCents === null && (
+              <button
+                type="button"
+                onClick={() => setDirectCents(sumEstimated(req.items))}
+                disabled={busy || req.items.length === 0 || isGuest}
+                className="bg-hive-paper border border-pantry-leaf-soft text-pantry-leaf-dk rounded-hive py-3.5 font-nunito font-black text-sm disabled:opacity-60"
+              >
+                Post straight to budget →
+              </button>
+            )}
+            {role === 'parent' && directCents !== null && (
+              <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+                <label className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+                  Amount to post to budget
+                </label>
+                <div className="mt-1 flex items-center gap-1 bg-hive-cream border border-hive-line rounded-lg px-2 py-1.5">
+                  <span className="text-xs text-hive-muted font-bold">{currency}</span>
+                  <NumberInput
+                    value={directCents / 100}
+                    onChange={(n) => setDirectCents(Math.round(n * 100))}
+                    allowDecimal={currencyAllowsDecimals(currency)}
+                    placeholder="0"
+                    ariaLabel="Amount to post to budget"
+                    className="flex-1 bg-transparent font-nunito font-extrabold text-sm focus:outline-none w-0"
+                  />
+                </div>
+                <p className="text-[10px] text-hive-muted font-bold mt-1">
+                  Skips approval + reconcile — records this directly against the budget.
+                </p>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDirectCents(null)}
+                    disabled={busy}
+                    className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={postDirect}
+                    disabled={busy || directCents <= 0}
+                    className="bg-pantry-leaf text-white rounded-lg py-2 font-nunito font-black text-sm disabled:opacity-60"
+                  >
+                    Post to budget →
+                  </button>
+                </div>
+              </div>
+            )}
             {isCreator && (
               <button
                 type="button"
