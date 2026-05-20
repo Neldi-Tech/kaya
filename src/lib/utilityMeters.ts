@@ -11,7 +11,7 @@
 
 import {
   collection, doc, addDoc, updateDoc, deleteDoc, getDocs,
-  Timestamp, serverTimestamp, onSnapshot, query, orderBy,
+  Timestamp, serverTimestamp, onSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -100,10 +100,26 @@ export function subscribeToMeters(
     cb([]);
     return () => {};
   }
-  const q = query(metersCol(familyId), orderBy('type'), orderBy('label'));
-  return onSnapshot(q, (snap) => {
-    cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as UtilityMeter)));
-  });
+  // Sort client-side (type → label) instead of a double orderBy: two
+  // orderBy fields require a composite index, and a missing index makes
+  // the whole subscription fail silently → "No meters yet" even after a
+  // meter saves. The meter list is tiny (<30), so JS sort is free + has
+  // no index dependency. (2026-05-20 bug fix.) Error callback renders
+  // empty rather than hanging on any future permission/index blip.
+  return onSnapshot(
+    metersCol(familyId),
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as UtilityMeter));
+      list.sort((a, b) =>
+        a.type === b.type ? a.label.localeCompare(b.label) : a.type.localeCompare(b.type));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[utilityMeters] subscribe failed:', err);
+      cb([]);
+    },
+  );
 }
 
 /** One-shot read of all meters — used by the top-up reminder generator
