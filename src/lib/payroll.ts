@@ -18,7 +18,7 @@
 'use client';
 
 import {
-  doc, getDoc, updateDoc, serverTimestamp, collection, query, where, orderBy, limit, getDocs,
+  doc, getDoc, updateDoc, serverTimestamp, collection, query, where, limit, getDocs,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -455,12 +455,14 @@ export async function pendingPayrollFor(
 ): Promise<number> {
   if (isGuestActive()) return 0;
   try {
+    // Count only, so no orderBy — 3 equality filters use Firestore's
+    // merge-join (no composite index). Adding orderBy(createdAt) would
+    // need an undeployed composite index and throw.
     const q = query(
       collection(db, 'families', familyId, 'purchaseRequests'),
       where('module', '==', 'payroll'),
       where('helperUid', '==', helperUid),
       where('status', '==', 'pending_approval'),
-      orderBy('createdAt', 'desc'),
       limit(20),
     );
     const snap = await getDocs(q);
