@@ -29,7 +29,7 @@ import {
   promotePendingStaple, keepAsOneOff,
   renamePendingItem, findStapleConflict, linkPendingToExisting,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
-  formatRequestSeq,
+  formatRequestSeq, MODULE_EMOJI, MODULE_LABEL,
   recordSavingsDecision, recommendedSavingsDecision,
   submitForCloseReview, approveCloseAndPost, kickBackToReconcile,
 } from '@/lib/purchase';
@@ -717,9 +717,14 @@ export default function PurchaseDetailPage() {
   // During pending_close the items are frozen actuals — sum them like
   // we do for closed/reconciling so the Total card + comparison strip
   // show the right number to the parent reviewer. (2026-05-19)
-  const total = reconcilable || isClosed || isPendingClose
-    ? sumActual(req.items)
-    : sumEstimated(req.items);
+  // For closed/pending_close, trust the request-level actualTotalCents
+  // when present — a direct-to-budget post sets it without per-item
+  // actuals, so sumActual(items) would read 0 ("-100% saved"). (2026-05-21)
+  const total = isClosed || isPendingClose
+    ? (req.actualTotalCents ?? sumActual(req.items))
+    : reconcilable
+      ? sumActual(req.items)
+      : sumEstimated(req.items);
   const vPct = isClosed ? variancePct(req) : 0;
 
   return (
@@ -908,7 +913,7 @@ export default function PurchaseDetailPage() {
           }`}>
             <div className="flex items-baseline justify-between gap-2">
               <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk">
-                {reqModule === 'pantry' ? '🛒 Pantry' : reqModule === 'outdoor' ? '🌿 Outdoor' : '🚗 Drivers'} cap
+                {MODULE_EMOJI[reqModule]} {MODULE_LABEL[reqModule]} cap
               </p>
               <p className="text-[11px] font-nunito font-extrabold text-hive-navy">
                 {formatCents(est, currency)}
@@ -948,7 +953,7 @@ export default function PurchaseDetailPage() {
             <span className="font-nunito font-extrabold text-pantry-leaf-dk">
               ✨ {pendingCount} new item{pendingCount === 1 ? '' : 's'} to decide.
             </span>
-            {' '}Tap each striped row → <strong>Add to Staples</strong> (keep forever) or <strong>Keep one-off</strong> (this shop only).
+            {' '}Tap each striped row → <strong>Add to {reqModule === 'pantry' ? 'Staples' : 'Regulars'}</strong> (keep forever) or <strong>Keep one-off</strong> (this shop only).
           </div>
         );
       })()}
@@ -983,6 +988,7 @@ export default function PurchaseDetailPage() {
                     staples={staples}
                     setBusy={setBusy}
                     localLanguage={(family?.localLanguage ?? '').trim()}
+                    module={reqModule}
                   />
                 : null
             }
@@ -1178,6 +1184,10 @@ export default function PurchaseDetailPage() {
         const showVariance =
           (reconcilable || isClosed || isPendingClose) &&
           approved > 0 &&
+          // Direct-to-budget posts have no estimate-vs-actual step — the
+          // posted amount IS the spend, so a savings/overrun line is
+          // meaningless. (2026-05-21)
+          !req.postedDirect &&
           // During reconcile, only once the helper has filled actuals
           // for at least one line — avoids a misleading "−100% saved"
           // on an empty actuals page.
@@ -1986,7 +1996,7 @@ function FromTotalCalculator({
 // Lifted into its own component because the rename + cross-check
 // state is local + the JSX is non-trivial. 2026-05-18.
 function PendingDecisionCard({
-  familyId, requestId, item, staples, setBusy, localLanguage,
+  familyId, requestId, item, staples, setBusy, localLanguage, module,
 }: {
   familyId: string;
   requestId: string;
@@ -1996,7 +2006,16 @@ function PendingDecisionCard({
   /** Family-configured local language label ('Swahili', 'Hindi', …)
    *  or '' for none. Drives the secondary-name input copy. */
   localLanguage: string;
+  /** Request module — drives the "regulars" wording (2026-05-21).
+   *  Pantry promotes to "Staples"; other modules promote to their
+   *  "Regulars" list, so "Add to Staples" was wrong everywhere but
+   *  Pantry. */
+  module: PurchaseModule;
 }) {
+  // Module-aware wording for the promote affordance.
+  const savedNoun = module === 'pantry' ? 'Staples' : 'Regulars';
+  const savedKind = module === 'pantry' ? 'Staple' : `${MODULE_LABEL[module]} regular`;
+  const pickFrom = MODULE_LABEL[module];
   const confirmAction = useConfirm();
   // Edit-mode toggle — collapsed by default so the card stays small;
   // tap "✏️ Edit name" to expand the two inputs.
@@ -2089,10 +2108,10 @@ function PendingDecisionCard({
   return (
     <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3">
       <p className="text-[11px] font-nunito font-extrabold text-hive-honey-dk leading-snug">
-        ✨ New item — should this become a regular Staple?
+        ✨ New item — save it as a {savedKind}?
       </p>
       <p className="text-[10px] text-hive-ink/80 mt-1 leading-relaxed">
-        Promote it and helpers can pick it from the Pantry next time.
+        Save it and helpers can pick it from {pickFrom} next time.
         Keep one-off and it stays in this basket only. We&apos;ll check for duplicates before adding.
       </p>
 
@@ -2159,7 +2178,7 @@ function PendingDecisionCard({
           onClick={promote}
           className="bg-pantry-leaf hover:bg-pantry-leaf-dk text-white rounded-lg py-2 font-nunito font-black text-xs"
         >
-          ＋ Add to Staples
+          ＋ Add to {savedNoun}
         </button>
         <button
           type="button"

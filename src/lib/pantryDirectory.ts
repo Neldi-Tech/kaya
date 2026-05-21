@@ -663,6 +663,49 @@ export const DIRECTORY_DRIVERS: DirectoryDriversItem[] = [
   _d('Car mat',               ['car mat','mats'],                   'other',   '🟫', 1,  'set',    'as-needed'),
   _d('Phone holder / charger',['phone holder','car charger'],       'other',   '📱', 1,  'x',      'as-needed'),
   _d('Driver allowance',      ['driver allowance','meal'],          'other',   '🍱', 1,  'day',    'daily',  'Lunch / meal stipend if outside home.'),
+
+  // ── More SERVICE / REPAIRS (2026-05-21) ───────────────────────
+  _d('Major service',         ['major service','big service','60k service'], 'service', '🛠️', 1, 'visit', 'as-needed', 'Bigger interval — plugs, belts, fluids.'),
+  _d('Timing belt change',    ['timing belt','cambelt'],            'service', '⏲️', 1,  'visit',  'as-needed', 'Every ~90k km — critical if it snaps.'),
+  _d('Clutch replacement',    ['clutch','clutch repair'],           'service', '⚙️', 1,  'visit',  'as-needed'),
+  _d('Diagnostics (scan)',    ['diagnostic','obd','scan','fault'],  'service', '💻', 1,  'visit',  'as-needed', 'Read engine fault codes.'),
+  _d('Suspension repair',     ['suspension'],                       'service', '🔧', 1,  'visit',  'as-needed'),
+  _d('Exhaust repair',        ['exhaust','silencer','muffler'],     'service', '🔧', 1,  'visit',  'as-needed'),
+  _d('Gearbox service',       ['gearbox','transmission service'],   'service', '⚙️', 1,  'visit',  'as-needed'),
+  _d('Windscreen replacement',['windscreen','windshield'],          'service', '🪟', 1,  'visit',  'as-needed'),
+  _d('Panel beating / dent',  ['panel beating','dent','bodywork'],  'service', '🔨', 1,  'visit',  'as-needed'),
+  _d('Respray / paint',       ['respray','paint','spray'],          'service', '🎨', 1,  'visit',  'as-needed'),
+  _d('Tyre puncture fix',     ['puncture','flat','viraka'],         'service', '🩹', 1,  'visit',  'as-needed'),
+
+  // ── More SPARE PARTS (2026-05-21) ─────────────────────────────
+  _d('Clutch kit',            ['clutch kit'],                       'parts',   '⚙️', 1,  'set',    'as-needed'),
+  _d('Water pump',            ['water pump'],                       'parts',   '💧', 1,  'x',      'as-needed'),
+  _d('Alternator',            ['alternator'],                       'parts',   '🔌', 1,  'x',      'as-needed'),
+  _d('Starter motor',         ['starter','starter motor'],          'parts',   '🔌', 1,  'x',      'as-needed'),
+  _d('Radiator',              ['radiator'],                         'parts',   '♨️', 1,  'x',      'as-needed'),
+  _d('Drive / serpentine belt',['drive belt','serpentine'],         'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('CV joint / drive shaft',['cv joint','drive shaft','axle'],    'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('Wheel bearing',         ['wheel bearing','bearing'],          'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('Ball joint',            ['ball joint'],                       'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('Tie rod end',           ['tie rod','track rod'],              'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('Engine mount',          ['engine mount'],                     'parts',   '⚙️', 1,  'x',      'as-needed'),
+  _d('Thermostat',            ['thermostat'],                       'parts',   '🌡️', 1,  'x',      'as-needed'),
+  _d('Radiator hose',         ['radiator hose','hose'],             'parts',   '🧵', 1,  'x',      'as-needed'),
+  _d('Fuse set',              ['fuse','fuses'],                     'parts',   '🔌', 1,  'set',    'as-needed'),
+  _d('Side mirror',           ['side mirror','wing mirror'],        'parts',   '🪞', 1,  'x',      'as-needed'),
+  _d('Tail / brake bulb',     ['tail bulb','brake bulb','rear bulb'],'parts',  '💡', 1,  'x',      'as-needed'),
+  _d('Number plate',          ['number plate','plate'],             'parts',   '🔢', 1,  'x',      'as-needed'),
+
+  // ── More OTHER (2026-05-21) ───────────────────────────────────
+  _d('Jump start / boost',    ['jump start','boost','jumpstart'],   'other',   '🔋', 1,  'visit',  'as-needed'),
+  _d('Reflective triangle',   ['triangle','reflector'],             'other',   '🔺', 1,  'x',      'as-needed', 'Often legally required.'),
+  _d('Fire extinguisher',     ['extinguisher'],                     'other',   '🧯', 1,  'x',      'as-needed', 'Often legally required.'),
+  _d('First aid kit',         ['first aid'],                        'other',   '🩹', 1,  'x',      'as-needed'),
+  _d('Seat covers',           ['seat cover','seat covers'],         'other',   '💺', 1,  'set',    'as-needed'),
+  _d('Sun shade',             ['sun shade','windscreen shade'],     'other',   '🌞', 1,  'x',      'as-needed'),
+  _d('Dashcam',               ['dashcam','dash cam'],               'other',   '📹', 1,  'x',      'as-needed'),
+  _d('GPS tracker',           ['tracker','gps'],                    'other',   '📡', 1,  'x',      'monthly',  'Device or monthly subscription.'),
+  _d('Spare wheel / jack',    ['spare wheel','jack','spanner'],     'other',   '🛞', 1,  'set',    'as-needed'),
 ];
 
 // ── Utilities catalogue ───────────────────────────────────────────
