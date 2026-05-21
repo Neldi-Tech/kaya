@@ -76,5 +76,15 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if belongsToFamily(familyId);
     }
+
+    // ── Kids Projects → product/build photos (2026-05-21) ──
+    //   families/{f}/projects/{projectId}/photos/{photoId}.jpg
+    match /families/{familyId}/projects/{projectId}/photos/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
   }
 }

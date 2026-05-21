@@ -60,6 +60,19 @@ export async function uploadBusinessPhoto(familyId: string, businessId: string, 
   return getDownloadURL(ref);
 }
 
+const projectPhotosPath = (familyId: string, projectId: string, photoId: string) =>
+  `families/${familyId}/projects/${projectId}/photos/${photoId}.jpg`;
+
+/** Downscale + upload a Kids-Project photo; returns the download URL. */
+export async function uploadProjectPhoto(familyId: string, projectId: string, file: File): Promise<string> {
+  if (isGuestActive()) return '';
+  const blob = await processPhoto(file);
+  const photoId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const ref = storageRef(storage, projectPhotosPath(familyId, projectId, photoId));
+  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  return getDownloadURL(ref);
+}
+
 /** Best-effort delete by download URL (cleanup; failures swallowed). */
 export async function deleteBusinessPhoto(downloadUrl: string): Promise<void> {
   if (!downloadUrl) return;
