@@ -819,9 +819,22 @@ export async function postDraftToBudget(
   actualTotalCents: number,
 ): Promise<void> {
   if (isGuestActive()) return;
+  const reqRef = requestDoc(familyId, requestId);
+  const snap = await getDoc(reqRef);
+  const data = snap.exists() ? (snap.data() as PurchaseRequest) : null;
   const now = serverTimestamp();
-  await updateDoc(requestDoc(familyId, requestId), {
+  // 2026-05-21 — a direct post has no separate reconcile, so the amount
+  // posted IS the spend. Mirror each item's estimate into its actuals so
+  // sumActual(items) == the basket and the closed request reads "actual =
+  // amount spent, no savings" instead of the bogus "actual 0 · -100%".
+  const items = (data?.items ?? []).map((it) => ({
+    ...it,
+    actualCents: it.estimatedCents ?? 0,
+    actualQty: it.qty,
+  }));
+  await updateDoc(reqRef, {
     status: 'closed' as PurchaseRequestStatus,
+    items,
     approvedBy: [parentUid],
     approvedAt: now,
     reconciledAt: now,
