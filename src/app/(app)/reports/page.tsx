@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { getRecentRatings, getRecentAwards, DailyRating, Award } from '@/lib/firestore';
+import { getRecentRatings, getRecentAwards, readPointSystemConfig, DailyRating, Award } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -50,9 +50,27 @@ function lastTwelveMonths(): Array<{ key: string; label: string }> {
   return out;
 }
 
+// Adaptive "how long has this family been rating" label — days while
+// short, years once it crosses a year. No denominator / coverage %
+// (that read as "0% coverage" which looked broken on lifetime ranges).
+function spanLabel(days: number): string {
+  if (days >= 365) {
+    const yrs = days / 365;
+    return `${yrs.toFixed(1)} yr${yrs >= 2 ? 's' : ''}`;
+  }
+  return `${days}`;
+}
+
 export default function ReportsPage() {
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { children, family } = useFamily();
+  // House-Point conversion rate (routine points → 1 HP). House Points
+  // are the stable, family-facing currency; raw routine points are NOT
+  // additively comparable to award HP, so we convert before summing.
+  const ppHP = useMemo(
+    () => Math.max(1, readPointSystemConfig(family).routines.pointsPerHousePoint),
+    [family],
+  );
   const [ratings, setRatings] = useState<DailyRating[]>([]);
   const [awards, setAwards] = useState<Award[]>([]);
   const [mode, setMode] = useState<RangeMode>('lifetime');
@@ -121,9 +139,14 @@ export default function ReportsPage() {
   const childStats = children.map((child) => {
     const childRatings = ratingsInRange.filter((r) => r.childId === child.id);
     const childAwards = awardsInRange.filter((a) => a.childId === child.id);
-    const routinePoints = childRatings.reduce((s, r) => s + r.totalPoints, 0);
-    const awardPoints = childAwards.reduce((s, a) => s + a.points, 0);
+    const routinePoints = childRatings.reduce((s, r) => s + r.totalPoints, 0); // raw RP
+    const awardPoints = childAwards.reduce((s, a) => s + a.points, 0);          // HP from parents
     const totalDays = new Set(childRatings.map((r) => r.date)).size;
+
+    // House Points = converted routine HP + award HP. This is the
+    // stable headline number (RP and HP can't be added directly).
+    const houseFromRoutine = Math.floor(routinePoints / ppHP);
+    const housePoints = houseFromRoutine + awardPoints;
 
     const dailyTotals = dateList.map((date) => {
       const r = childRatings.filter((x) => x.date === date).reduce((s, x) => s + x.totalPoints, 0);
@@ -135,7 +158,9 @@ export default function ReportsPage() {
 
     return {
       child, routinePoints, awardPoints, totalDays,
-      total: routinePoints + awardPoints,
+      houseFromRoutine,
+      housePoints,        // the headline HP figure
+      total: housePoints, // alias kept so existing sorts/widths read HP
       dailyTotals, peakDay,
     };
   });
@@ -150,12 +175,13 @@ export default function ReportsPage() {
   // Family-level totals.
   const familyTotals = childStats.reduce(
     (acc, s) => ({
-      total:   acc.total   + s.total,
-      routine: acc.routine + s.routinePoints,
-      award:   acc.award   + s.awardPoints,
+      total:   acc.total   + s.housePoints,      // HP, the headline
+      houseFromRoutine: acc.houseFromRoutine + s.houseFromRoutine,
+      routine: acc.routine + s.routinePoints,    // raw RP (commentary)
+      award:   acc.award   + s.awardPoints,      // award HP (commentary)
       days:    Math.max(acc.days, s.totalDays),
     }),
-    { total: 0, routine: 0, award: 0, days: 0 },
+    { total: 0, houseFromRoutine: 0, routine: 0, award: 0, days: 0 },
   );
   const top = [...childStats].sort((a, b) => b.total - a.total)[0];
 
@@ -247,16 +273,17 @@ export default function ReportsPage() {
           </div>
           <div className="relative mt-3 pt-3 border-t border-white/15 grid grid-cols-3 gap-2 text-center">
             <div>
-              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Routine</p>
-              <p className="font-display font-extrabold text-base mt-0.5">{fmt(familyTotals.routine)}</p>
+              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Routine → HP</p>
+              <p className="font-display font-extrabold text-base mt-0.5">{fmt(familyTotals.houseFromRoutine)}</p>
+              <p className="text-[8px] opacity-55 leading-tight">{fmt(familyTotals.routine)} pts</p>
             </div>
             <div>
-              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Awards</p>
+              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Award HP</p>
               <p className="font-display font-extrabold text-base mt-0.5">{fmt(familyTotals.award)}</p>
             </div>
             <div>
-              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">Days</p>
-              <p className="font-display font-extrabold text-base mt-0.5">{familyTotals.days}<span className="text-[10px] opacity-70 ml-0.5">/{spanDays}</span></p>
+              <p className="text-[9px] uppercase tracking-[0.12em] opacity-70 font-bold">{familyTotals.days >= 365 ? 'Years rated' : 'Days rated'}</p>
+              <p className="font-display font-extrabold text-base mt-0.5">{spanLabel(familyTotals.days)}</p>
             </div>
           </div>
           {top && top.total > 0 && (
@@ -267,7 +294,7 @@ export default function ReportsPage() {
           )}
         </div>
 
-        {childStats.map(({ child, routinePoints, awardPoints, totalDays, total }) => (
+        {childStats.map(({ child, routinePoints, awardPoints, totalDays, houseFromRoutine, housePoints }) => (
           <Link
             key={child.id}
             href={`/profiles?child=${child.id}`}
@@ -280,33 +307,33 @@ export default function ReportsPage() {
                 <p className="text-xs text-kaya-sand">{child.houseName}</p>
               </div>
               <div className="text-right">
-                <p className="text-lg font-display font-black" style={{ color: child.houseColor }}>{fmt(total)}</p>
-                <p className="text-[10px] text-kaya-sand">points earned</p>
+                <p className="text-lg font-display font-black" style={{ color: child.houseColor }}>{fmt(housePoints)}</p>
+                <p className="text-[10px] text-kaya-sand">House Points</p>
               </div>
               <span className="text-kaya-sand-light text-lg shrink-0" aria-hidden>›</span>
             </div>
 
             <div className="grid grid-cols-3 gap-2 mb-3">
               <div className="bg-kaya-cream rounded-kaya-sm p-2.5 text-center">
-                <p className="text-sm font-bold">{fmt(routinePoints)}</p>
-                <p className="text-[10px] text-kaya-sand">Routine</p>
+                <p className="text-sm font-bold">{fmt(houseFromRoutine)} <span className="text-[10px] text-kaya-sand font-normal">HP</span></p>
+                <p className="text-[10px] text-kaya-sand">from {fmt(routinePoints)} routine</p>
               </div>
               <div className="bg-kaya-cream rounded-kaya-sm p-2.5 text-center">
                 <p className="text-sm font-bold">{fmt(awardPoints)}</p>
-                <p className="text-[10px] text-kaya-sand">Awards</p>
+                <p className="text-[10px] text-kaya-sand">Award HP</p>
               </div>
               <div className="bg-kaya-cream rounded-kaya-sm p-2.5 text-center">
-                <p className="text-sm font-bold">{totalDays}</p>
-                <p className="text-[10px] text-kaya-sand">Days Rated</p>
+                <p className="text-sm font-bold">{spanLabel(totalDays)}</p>
+                <p className="text-[10px] text-kaya-sand">{totalDays >= 365 ? 'Years rated' : 'Days rated'}</p>
               </div>
             </div>
 
             <div className="h-2 bg-kaya-warm rounded-full overflow-hidden flex">
-              {routinePoints > 0 && (
-                <div className="h-full" style={{ width: `${(routinePoints / Math.max(total, 1)) * 100}%`, backgroundColor: child.houseColor }} />
+              {houseFromRoutine > 0 && (
+                <div className="h-full" style={{ width: `${(houseFromRoutine / Math.max(housePoints, 1)) * 100}%`, backgroundColor: child.houseColor }} />
               )}
               {awardPoints > 0 && (
-                <div className="h-full bg-kaya-gold" style={{ width: `${(awardPoints / Math.max(total, 1)) * 100}%` }} />
+                <div className="h-full bg-kaya-gold" style={{ width: `${(awardPoints / Math.max(housePoints, 1)) * 100}%` }} />
               )}
             </div>
             <div className="flex gap-4 mt-1.5">
@@ -348,22 +375,24 @@ export default function ReportsPage() {
               </p>
               <p className="font-display font-black text-5xl leading-none tracking-tight">{fmt(familyTotals.total)}</p>
 
-              {/* Commentary — routine / awards / days as supporting stats */}
+              {/* Commentary — how the HP headline breaks down. Routine
+                  points are shown as their CONVERTED HP (with the raw
+                  pts as subtext) so the three figures are all in HP and
+                  actually add up to the headline. */}
               <div className="mt-4 pt-4 border-t border-white/15 flex gap-8">
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Routine</p>
-                  <p className="font-display font-extrabold text-xl mt-0.5">{fmt(familyTotals.routine)}</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Routine → HP</p>
+                  <p className="font-display font-extrabold text-xl mt-0.5">{fmt(familyTotals.houseFromRoutine)}</p>
+                  <p className="text-[10px] opacity-55 mt-0.5">from {fmt(familyTotals.routine)} routine pts</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Awards</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Award HP</p>
                   <p className="font-display font-extrabold text-xl mt-0.5">{fmt(familyTotals.award)}</p>
+                  <p className="text-[10px] opacity-55 mt-0.5">given by parents</p>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">Days rated</p>
-                  <p className="font-display font-extrabold text-xl mt-0.5">
-                    {familyTotals.days}<span className="text-sm opacity-70 font-semibold ml-1">/ {spanDays}</span>
-                  </p>
-                  <p className="text-[10px] opacity-70 mt-0.5">{Math.round((familyTotals.days / Math.max(1, spanDays)) * 100)}% coverage</p>
+                  <p className="text-[10px] uppercase tracking-[0.14em] opacity-70 font-bold">{familyTotals.days >= 365 ? 'Years rated' : 'Days rated'}</p>
+                  <p className="font-display font-extrabold text-xl mt-0.5">{spanLabel(familyTotals.days)}</p>
                 </div>
               </div>
             </div>
@@ -379,7 +408,7 @@ export default function ReportsPage() {
               <div className="font-display font-extrabold text-[15px] leading-tight">{top.child.name}</div>
               <div className="text-[11px] text-kaya-sand mt-0.5">{top.child.houseName} House</div>
               <div className="font-display font-black text-2xl mt-2" style={{ color: top.child.houseColor }}>{fmt(top.total)}</div>
-              <div className="text-[10px] text-kaya-sand">points</div>
+              <div className="text-[10px] text-kaya-sand">House Points</div>
             </Link>
           )}
         </div>
@@ -387,7 +416,7 @@ export default function ReportsPage() {
         {/* Per-child cards with daily bars */}
         <h2 className="font-display text-base font-bold mb-3">Per child <span className="text-[11px] text-kaya-sand font-normal ml-1">· click for full profile</span></h2>
         <div className="grid grid-cols-3 gap-4 mb-8">
-          {childStats.map(({ child, routinePoints, awardPoints, totalDays, total, dailyTotals, peakDay }) => (
+          {childStats.map(({ child, routinePoints, awardPoints, totalDays, houseFromRoutine, housePoints, dailyTotals, peakDay }) => (
             <Link
               key={child.id}
               href={`/profiles?child=${child.id}`}
@@ -400,23 +429,23 @@ export default function ReportsPage() {
                   <p className="text-[11px] text-kaya-sand truncate">{child.houseName} House</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-display font-black text-2xl" style={{ color: child.houseColor }}>{fmt(total)}</p>
-                  <p className="text-[10px] text-kaya-sand">earned</p>
+                  <p className="font-display font-black text-2xl" style={{ color: child.houseColor }}>{fmt(housePoints)}</p>
+                  <p className="text-[10px] text-kaya-sand">House Points</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2 mb-4">
                 <div className="bg-kaya-cream rounded-kaya-sm p-2.5 text-center">
-                  <p className="text-sm font-bold">{fmt(routinePoints)}</p>
-                  <p className="text-[10px] text-kaya-sand">Routine</p>
+                  <p className="text-sm font-bold">{fmt(houseFromRoutine)} <span className="text-[10px] text-kaya-sand font-normal">HP</span></p>
+                  <p className="text-[10px] text-kaya-sand">from {fmt(routinePoints)} routine</p>
                 </div>
                 <div className="bg-kaya-cream rounded-kaya-sm p-2.5 text-center">
                   <p className="text-sm font-bold">{fmt(awardPoints)}</p>
-                  <p className="text-[10px] text-kaya-sand">Awards</p>
+                  <p className="text-[10px] text-kaya-sand">Award HP</p>
                 </div>
                 <div className="bg-kaya-cream rounded-kaya-sm p-2.5 text-center">
-                  <p className="text-sm font-bold">{totalDays}</p>
-                  <p className="text-[10px] text-kaya-sand">Days</p>
+                  <p className="text-sm font-bold">{spanLabel(totalDays)}</p>
+                  <p className="text-[10px] text-kaya-sand">{totalDays >= 365 ? 'Years' : 'Days'}</p>
                 </div>
               </div>
 
@@ -461,22 +490,23 @@ export default function ReportsPage() {
                 <p className="text-[10px] text-kaya-sand-light italic">Daily chart hidden for ranges over 31 days — switch to 7d / 14d / 30d to see bars.</p>
               )}
 
-              {/* Routine vs award split bar */}
+              {/* Routine-HP vs award-HP split bar — both sides in HP so
+                  the proportions are honest. */}
               <div className="mt-3">
                 <div className="h-2 bg-kaya-warm rounded-full overflow-hidden flex">
-                  {routinePoints > 0 && (
-                    <div className="h-full" style={{ width: `${(routinePoints / Math.max(total, 1)) * 100}%`, backgroundColor: child.houseColor }} />
+                  {houseFromRoutine > 0 && (
+                    <div className="h-full" style={{ width: `${(houseFromRoutine / Math.max(housePoints, 1)) * 100}%`, backgroundColor: child.houseColor }} />
                   )}
                   {awardPoints > 0 && (
-                    <div className="h-full bg-kaya-gold" style={{ width: `${(awardPoints / Math.max(total, 1)) * 100}%` }} />
+                    <div className="h-full bg-kaya-gold" style={{ width: `${(awardPoints / Math.max(housePoints, 1)) * 100}%` }} />
                   )}
                 </div>
                 <div className="flex gap-4 mt-1.5">
                   <span className="flex items-center gap-1 text-[10px] text-kaya-sand">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: child.houseColor }} /> Routine
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: child.houseColor }} /> Routine HP
                   </span>
                   <span className="flex items-center gap-1 text-[10px] text-kaya-sand">
-                    <span className="w-2 h-2 rounded-full bg-kaya-gold" /> Awards
+                    <span className="w-2 h-2 rounded-full bg-kaya-gold" /> Award HP
                   </span>
                 </div>
               </div>
