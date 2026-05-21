@@ -13,7 +13,7 @@ export const runtime = 'nodejs';
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const client = apiKey ? new Anthropic({ apiKey }) : null;
 
-type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly';
+type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly' | 'design';
 
 interface CoachBody {
   loop: Loop;
@@ -30,9 +30,10 @@ const LOOP_BRIEF: Record<Loop, string> = {
   pricing: 'Coach the kid on PRICE. Using their cost and current price, say whether the price looks healthy and suggest a fair number if it is below cost or very thin. Keep the math kid-simple. Suggestions = e.g. "Raise to X", "Keep it", "Why?".',
   cost_flag: 'A COST looks high or margin dropped. Gently flag it (never shame) and offer options to look into — bigger pack, different supplier, or a small price nudge. Suggestions = 2-3 options to explore.',
   weekly: 'Write a short, warm WEEKLY recap a kid can share with a parent: best moment, biggest cost, and one thing to try next week. Use their real numbers. Suggestions = 1-2 things to try next week.',
+  design: 'The kid is making a MAKER PROJECT (a craft / build / art / recipe), not a business. Help them DESIGN it: reflect their idea back warmly, suggest one fun improvement or next build step, and (if useful) what simple materials they might need. No money talk. Suggestions = 2-3 tiny next steps or ideas to try.',
 };
 
-const SYSTEM = `You are a kid-friendly business coach inside the Kaya family app. A CHILD runs a tiny real micro-business (lemonade, eggs, a car-wash, crafts) with simple books, and you help them learn money by doing.
+const SYSTEM = `You are a kid-friendly coach inside the Kaya family app. A CHILD is either running a tiny real micro-business (lemonade, eggs, a car-wash, crafts) or making a creative maker project — and you help them learn by doing.
 
 Hard rules:
 - You ADVISE, you never INSTRUCT or act. Always propose, never command. Nothing you say is executed.

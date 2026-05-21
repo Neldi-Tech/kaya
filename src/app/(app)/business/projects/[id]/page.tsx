@@ -7,20 +7,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import {
   Project, ProjectStatus, PROJECT_STATUS_META,
   subscribeToProject, updateProject, addProjectPhotoUrl, removeProjectPhotoUrl,
+  shareProjectToMoments, setProjectCollaborator,
 } from '@/lib/projects';
+import { readBusinessConfig } from '@/lib/business';
 import { uploadProjectPhoto, deleteBusinessPhoto } from '@/lib/businessPhoto';
+import AICoachCard from '@/components/business/AICoachCard';
 
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
   const projectId = String(params?.id || '');
   const { profile } = useAuth();
+  const { family, children } = useFamily();
   const familyId = profile?.familyId;
+  const coachName = readBusinessConfig(family).coachName;
 
   const [project, setProject] = useState<Project | null>(null);
+  const [sharing, setSharing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -60,6 +67,23 @@ export default function ProjectDetailPage() {
     if (!familyId) return;
     try { await removeProjectPhotoUrl(familyId, projectId, url); void deleteBusinessPhoto(url); }
     catch (e: any) { setError(e?.message || 'Could not remove.'); }
+  };
+
+  const share = async () => {
+    if (!familyId || !project || !profile?.uid) return;
+    if (!project.photoUrls?.length) { setError('Add a photo first, then share it.'); return; }
+    setSharing(true); setError('');
+    try {
+      const kidName = children.find((c) => c.id === project.ownerId)?.name || 'A kid';
+      await shareProjectToMoments(familyId, project, { uid: profile.uid, name: profile.displayName || 'Parent' }, kidName);
+    } catch (e: any) { setError(e?.message || 'Could not share.'); }
+    finally { setSharing(false); }
+  };
+
+  const toggleCollaborator = async (childId: string, add: boolean) => {
+    if (!familyId) return;
+    try { await setProjectCollaborator(familyId, projectId, childId, add); }
+    catch (e: any) { setError(e?.message || 'Could not update.'); }
   };
 
   if (loading) return <div className="mx-auto max-w-md lg:max-w-3xl px-4 lg:px-8 pt-10 text-center text-hive-muted text-sm">Loading…</div>;
@@ -140,12 +164,70 @@ export default function ProjectDetailPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
 
-      {/* Coming next (B2) */}
-      <div className="bg-[#F4ECD8] border border-hive-line rounded-hive p-4">
-        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Coming next</div>
-        <p className="text-[13px] text-hive-navy/80 leading-relaxed">
-          🤖 AI design help · 🤝 invite a sibling · 📸 share your best photo to Moments — landing in the next update.
-        </p>
+      {/* AI design help */}
+      {canEdit && (
+        <div className="mb-3">
+          <AICoachCard
+            loop="design"
+            coachName={coachName}
+            cta={`Ask ${coachName} for design help`}
+            facts={{
+              project: project.title,
+              kind: project.category || 'project',
+              status: PROJECT_STATUS_META[project.status].label,
+              ...(project.description ? { idea: project.description } : {}),
+              photos: project.photoUrls?.length || 0,
+            }}
+          />
+        </div>
+      )}
+
+      {/* Teammates (parent-gated add) */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+        <h3 className="font-nunito font-extrabold text-[14px] mb-2">🤝 Teammates</h3>
+        {(project.collaboratorIds?.length ?? 0) > 0 ? (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {project.collaboratorIds!.map((cid) => {
+              const c = children.find((k) => k.id === cid);
+              return <span key={cid} className="px-2.5 py-1 rounded-hive-pill bg-hive-cream text-[12px] font-nunito font-bold">{c?.avatarEmoji} {c?.name || 'Teammate'}</span>;
+            })}
+          </div>
+        ) : (
+          <p className="text-[12px] text-hive-muted mb-2">Just you for now.</p>
+        )}
+        {isParent ? (
+          <div className="flex flex-wrap gap-2">
+            {children.filter((c) => c.id !== project.ownerId).map((c) => {
+              const on = project.collaboratorIds?.includes(c.id);
+              return (
+                <button key={c.id} onClick={() => toggleCollaborator(c.id, !on)}
+                  className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition ${on ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>
+                  {on ? '✓ ' : '+ '}{c.avatarEmoji} {c.name}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-[11px] text-hive-muted">Ask a parent to add a sibling teammate.</p>
+        )}
+      </div>
+
+      {/* Share to Moments — parent OK (per the locked decision) */}
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
+        <h3 className="font-nunito font-extrabold text-[14px] mb-1">📸 Share to Moments</h3>
+        {project.sharedMomentPostId ? (
+          <p className="text-[12.5px] text-[#2F7D32] font-nunito font-bold">✓ Shared to the family feed — the memory lasts!</p>
+        ) : isParent ? (
+          <>
+            <p className="text-[12px] text-hive-muted mb-2">Post this project&apos;s photos to the family Moments feed.</p>
+            <button onClick={share} disabled={sharing || !project.photoUrls?.length}
+              className="w-full h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+              {sharing ? 'Sharing…' : project.photoUrls?.length ? 'Share to Moments' : 'Add a photo first'}
+            </button>
+          </>
+        ) : (
+          <p className="text-[12px] text-hive-muted">Ask a parent to share your favourite photo to Moments. 💛</p>
+        )}
       </div>
     </div>
   );

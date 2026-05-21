@@ -16,6 +16,7 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
+import { createPost } from './moments';
 
 export type ProjectStatus = 'idea' | 'building' | 'done';
 
@@ -142,4 +143,31 @@ export function subscribeToKidProjects(familyId: string, kidId: string, cb: (pro
 export function subscribeToFamilyProjects(familyId: string, cb: (projects: Project[]) => void): () => void {
   if (isGuestActive()) { cb([]); return () => {}; }
   return onSnapshot(projectsCol(familyId), (s) => cb(sortByUpdatedDesc(s.docs.map((d) => ({ id: d.id, ...d.data() } as Project)))));
+}
+
+/** Share a project's photos to the family Moments feed (parent action, per the
+ *  locked decision). Reuses the Moments createPost; project photos are single
+ *  JPEGs so all three size slots point at the same URL. Stores the post id back
+ *  on the project so the UI can show "shared". */
+export async function shareProjectToMoments(
+  familyId: string,
+  project: Project,
+  author: { uid: string; name: string; avatar?: string },
+  kidName: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-post';
+  const photos = (project.photoUrls || []).slice(0, 4).map((url, i) => ({
+    id: `${project.id}-${i}`, thumbUrl: url, feedUrl: url, fullUrl: url, width: 1000, height: 1000,
+  }));
+  const postId = await createPost(familyId, {
+    authorUid: author.uid,
+    authorName: author.name,
+    ...(author.avatar ? { authorAvatar: author.avatar } : {}),
+    caption: `${kidName}'s project — ${project.title} 🎨`,
+    photos,
+    kidTags: [project.ownerId],
+    visibility: 'family',
+  });
+  await updateProject(familyId, project.id, { sharedMomentPostId: postId });
+  return postId;
 }

@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 
-type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly';
+type Loop = 'idea' | 'pricing' | 'cost_flag' | 'weekly' | 'design';
 
 export default function AICoachCard({
   loop,
