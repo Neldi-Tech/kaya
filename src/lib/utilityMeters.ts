@@ -67,6 +67,17 @@ export interface UtilityMeter {
    *  estimate + feeds the Budget composer's per-meter line. Variable
    *  by nature, so it's a guide, not a fixed bill amount. */
   estimatedCents?: number;
+  /** Price per unit of consumption, in display-currency cents — e.g.
+   *  cents per kWh of electricity, per litre of water. Tariffs change,
+   *  so this is editable from time to time. When set, a Utility request
+   *  pinned to this meter shows a READ-ONLY "≈ N {unit}" estimate of how
+   *  much consumption the top-up buys (request total ÷ pricePerUnitCents),
+   *  updating live as the helper edits the amount. Groundwork for the
+   *  future Kaya Pulse units-threshold pipeline. Optional. (2026-05-21) */
+  pricePerUnitCents?: number;
+  /** Unit label paired with `pricePerUnitCents` — "kWh", "litre",
+   *  "unit". Drives the "≈ N {unit}" hint. Optional. (2026-05-21) */
+  unit?: string;
   /** Days of the month a reminder fires for this top-up (1–31). When
    *  set, Kaya nudges the helper on those days to launch a top-up
    *  request — REMINDER ONLY, never auto-creates a request (top-ups

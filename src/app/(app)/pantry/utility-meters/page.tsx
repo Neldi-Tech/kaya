@@ -55,10 +55,12 @@ export default function UtilityMetersPage() {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<{
     type: UtilityMeterType; label: string; providerRef: string; frequency: Cadence;
-    estimatedMajor: number; preferredSupplierId: string; reminderDays: number[];
+    estimatedMajor: number; pricePerUnitMajor: number; unit: string;
+    preferredSupplierId: string; reminderDays: number[];
   }>({
     type: 'electric', label: '', providerRef: '', frequency: 'weekly',
-    estimatedMajor: 0, preferredSupplierId: '', reminderDays: [],
+    estimatedMajor: 0, pricePerUnitMajor: 0, unit: '',
+    preferredSupplierId: '', reminderDays: [],
   });
   const [saving, setSaving] = useState(false);
 
@@ -87,12 +89,15 @@ export default function UtilityMetersPage() {
         providerRef: form.providerRef.trim() || undefined,
         frequency: form.frequency,
         estimatedCents: form.estimatedMajor > 0 ? Math.round(form.estimatedMajor * 100) : undefined,
+        pricePerUnitCents: form.pricePerUnitMajor > 0 ? Math.round(form.pricePerUnitMajor * 100) : undefined,
+        unit: form.unit.trim() || undefined,
         preferredSupplierId: form.preferredSupplierId || undefined,
         reminderDays: form.reminderDays.length > 0 ? form.reminderDays : undefined,
       });
       setForm({
         type: 'electric', label: '', providerRef: '', frequency: 'weekly',
-        estimatedMajor: 0, preferredSupplierId: '', reminderDays: [],
+        estimatedMajor: 0, pricePerUnitMajor: 0, unit: '',
+        preferredSupplierId: '', reminderDays: [],
       });
       setAdding(false);
     } finally { setSaving(false); }
@@ -223,6 +228,36 @@ export default function UtilityMetersPage() {
             </div>
           </label>
 
+          {/* Price per unit (editable any time — tariffs change). When
+              set, the request shows a read-only "≈ N {unit}" estimate of
+              how much consumption the top-up buys. (2026-05-21) */}
+          <label className="block mb-2">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Price per unit (optional)</span>
+            <div className="flex items-center gap-2 mt-1">
+              <div className="flex items-center gap-1 border border-hive-line rounded-lg px-3 py-2 flex-1 focus-within:border-hive-honey">
+                <span className="text-xs text-hive-muted font-bold">{currency}</span>
+                <input
+                  type="number" min={0} step="0.01"
+                  value={form.pricePerUnitMajor || ''}
+                  onChange={(e) => setForm({ ...form, pricePerUnitMajor: Number(e.target.value) })}
+                  placeholder="0.00"
+                  className="flex-1 min-w-0 text-sm font-nunito font-bold focus:outline-none bg-transparent"
+                />
+              </div>
+              <span className="text-xs text-hive-muted font-bold">/</span>
+              <input
+                type="text"
+                value={form.unit}
+                onChange={(e) => setForm({ ...form, unit: e.target.value })}
+                placeholder="kWh"
+                className="w-24 border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold focus:outline-none focus:border-hive-honey"
+              />
+            </div>
+            <p className="text-[10px] text-hive-muted mt-1 leading-snug">
+              e.g. cost per kWh / litre. Shows the helper an estimated units figure on each top-up.
+            </p>
+          </label>
+
           {/* Preferred supplier — links to the shared suppliers list. */}
           {suppliers.length > 0 && (
             <label className="block mb-2">
@@ -333,6 +368,10 @@ function MeterRow({ meter, familyId, currency, suppliers }: {
   const [estimatedMajor, setEstimatedMajor] = useState<number>(
     meter.estimatedCents ? meter.estimatedCents / 100 : 0,
   );
+  const [pricePerUnitMajor, setPricePerUnitMajor] = useState<number>(
+    meter.pricePerUnitCents ? meter.pricePerUnitCents / 100 : 0,
+  );
+  const [unit, setUnit] = useState<string>(meter.unit ?? '');
   const [supplierId, setSupplierId] = useState<string>(meter.preferredSupplierId ?? '');
   const [reminderDays, setReminderDays] = useState<number[]>(meter.reminderDays ?? []);
 
@@ -355,6 +394,8 @@ function MeterRow({ meter, familyId, currency, suppliers }: {
         providerRef: providerRef.trim() || undefined,
         frequency,
         estimatedCents: estimatedMajor > 0 ? Math.round(estimatedMajor * 100) : undefined,
+        pricePerUnitCents: pricePerUnitMajor > 0 ? Math.round(pricePerUnitMajor * 100) : undefined,
+        unit: unit.trim() || undefined,
         preferredSupplierId: supplierId || undefined,
         reminderDays: reminderDays.length > 0 ? reminderDays : undefined,
       });
@@ -418,6 +459,27 @@ function MeterRow({ meter, familyId, currency, suppliers }: {
             className="flex-1 text-sm font-nunito font-bold focus:outline-none bg-transparent"
           />
         </div>
+        {/* Price per unit — editable any time (tariffs change). */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-1 border border-hive-line rounded-lg px-3 py-2 flex-1 focus-within:border-hive-honey">
+            <span className="text-xs text-hive-muted font-bold">{currency}</span>
+            <input
+              type="number" min={0} step="0.01"
+              value={pricePerUnitMajor || ''}
+              onChange={(e) => setPricePerUnitMajor(Number(e.target.value))}
+              placeholder="price / unit"
+              className="flex-1 min-w-0 text-sm font-nunito font-bold focus:outline-none bg-transparent"
+            />
+          </div>
+          <span className="text-xs text-hive-muted font-bold">/</span>
+          <input
+            type="text"
+            value={unit}
+            onChange={(e) => setUnit(e.target.value)}
+            placeholder="kWh"
+            className="w-20 border border-hive-line rounded-lg px-3 py-2 text-sm font-nunito font-bold focus:outline-none focus:border-hive-honey"
+          />
+        </div>
         {suppliers.length > 0 && (
           <select
             value={supplierId}
@@ -475,6 +537,9 @@ function MeterRow({ meter, familyId, currency, suppliers }: {
               : ''}
           {meter.estimatedCents && meter.estimatedCents > 0
             ? ` · ≈ ${formatCents(meter.estimatedCents, currency)}`
+            : ''}
+          {meter.pricePerUnitCents && meter.pricePerUnitCents > 0
+            ? ` · ${formatCents(meter.pricePerUnitCents, currency)}/${meter.unit || 'unit'}`
             : ''}
         </div>
         {meter.reminderDays && meter.reminderDays.length > 0 && (
