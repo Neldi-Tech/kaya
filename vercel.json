@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/market-quotes",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/business-reminders",
+      "schedule": "0 * * * *"
     }
   ]
 }
