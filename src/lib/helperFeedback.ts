@@ -75,13 +75,16 @@ export async function listRecentFeedback(
   return snap.docs.map((d) => ({ ...(d.data() as HelperFeedbackNote) }));
 }
 
-/** Today's note (if any) for the quick-toggle UI on /pantry/workplan. */
+/** Feedback note (if any) for a given day — defaults to today. Used by
+ *  the quick-toggle strip on /pantry/workplan (today) and its read-only
+ *  variant when the day-stepper is pointed at a past day. */
 export async function getTodaysFeedback(
   familyId: string,
   helperUid: string,
+  date: string = todayDateString(),
 ): Promise<HelperFeedbackNote | null> {
   if (isGuestActive()) return null;
-  const ref = feedbackDoc(familyId, helperUid, todayDateString());
+  const ref = feedbackDoc(familyId, helperUid, date);
   const snap = await getDoc(ref);
   return snap.exists() ? (snap.data() as HelperFeedbackNote) : null;
 }
