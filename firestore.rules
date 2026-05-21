@@ -460,6 +460,20 @@ service cloud.firestore {
         }
       }
 
+      // ── Kids Projects (Phase 2 · Cluster B) ───────────────────────
+      // Maker-space projects under Kaya Business. Read: the whole family
+      // (so siblings/collaborators + parents see them). Write: a parent or
+      // the owner kid. No client hard-delete (archive via status instead).
+      match /projects/{projectId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if request.resource.data.ownerId != null
+          && (isParentInFamily(familyId)
+              || isThisKid(familyId, request.resource.data.ownerId));
+        allow update: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.ownerId);
+        allow delete: if false;
+      }
+
       // ── The Pantry · staples ─────────────────────────────────────
       // Master list of recurring household items. Parents + helpers
       // (with the `household` module) edit; kids read only (suggest

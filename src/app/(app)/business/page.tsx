@@ -171,12 +171,20 @@ export default function BusinessPortfolioPage() {
             ＋ Start a new business
           </Link>
 
-          <Link
-            href="/business/invest"
-            className="w-full flex items-center justify-center gap-2 h-11 mt-2.5 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
-          >
-            📈 Junior Investor
-          </Link>
+          <div className="grid grid-cols-2 gap-2.5 mt-2.5">
+            <Link
+              href="/business/invest"
+              className="flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
+            >
+              📈 Junior Investor
+            </Link>
+            <Link
+              href="/business/projects"
+              className="flex items-center justify-center gap-2 h-11 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[13px] hover:bg-hive-cream active:scale-[0.99] transition no-underline"
+            >
+              🎨 Kids Projects
+            </Link>
+          </div>
         </>
       )}
     </div>
