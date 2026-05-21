@@ -65,5 +65,16 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if belongsToFamily(familyId);
     }
+
+    // ── Kaya Business → stock-take + product/project photos (2026-05-21) ──
+    // One folder per business. Family-scoped (parent + owner kid both upload).
+    //   families/{f}/businesses/{businessId}/photos/{photoId}.jpg
+    match /families/{familyId}/businesses/{businessId}/photos/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
   }
 }

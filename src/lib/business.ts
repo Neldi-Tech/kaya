@@ -1060,3 +1060,88 @@ export async function runThresholdMilestones(
   }
   return newlyUnlocked;
 }
+
+// ── Daily stock-take (Phase 2 · A1) ───────────────────────────────
+// A kid's once-a-day update of a business: tap counts (via updateBusinessItem,
+// which already recomputes worth) + an always-required photo + an optional
+// note. One record per business per day (doc id = YYYY-MM-DD) powers the
+// streak + the weekly effort summary that drives House-Points awards (A3).
+
+export interface StockTake {
+  id: string;            // = date (YYYY-MM-DD)
+  businessId: string;
+  ownerId: string;
+  date: string;          // YYYY-MM-DD (local)
+  note?: string;
+  photoUrl?: string;
+  itemsTouched: number;  // how many inventory items the kid updated
+  byUid: string;
+  at: Timestamp;
+}
+
+export interface StockTakeInput {
+  date: string;          // YYYY-MM-DD
+  ownerId: string;
+  itemsTouched: number;
+  note?: string;
+  photoUrl?: string;
+}
+
+const stockTakesCol = (familyId: string, businessId: string) =>
+  collection(db, 'families', familyId, 'businesses', businessId, 'stockTakes');
+
+/** Local date as YYYY-MM-DD. */
+export function todayKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Record (or overwrite) a day's stock-take. Item count/stage edits flow
+ *  through updateBusinessItem separately; this captures the daily snapshot. */
+export async function saveStockTake(
+  familyId: string,
+  businessId: string,
+  input: StockTakeInput,
+  uid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const data: Record<string, unknown> = {
+    businessId,
+    ownerId: input.ownerId,
+    date: input.date,
+    itemsTouched: Math.max(0, Math.round(input.itemsTouched || 0)),
+    byUid: uid,
+    at: serverTimestamp(),
+  };
+  if (input.note?.trim()) data.note = input.note.trim();
+  if (input.photoUrl) data.photoUrl = input.photoUrl;
+  await setDoc(doc(stockTakesCol(familyId, businessId), input.date), data, { merge: true });
+  await updateDoc(businessDoc(familyId, businessId), { 'stats.lastActivityAt': serverTimestamp() });
+}
+
+/** Recent stock-takes (newest first) for the streak + weekly view. Single-
+ *  field order — no composite index. */
+export function subscribeToStockTakes(
+  familyId: string,
+  businessId: string,
+  cb: (takes: StockTake[]) => void,
+  max = 30,
+): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  const q = query(stockTakesCol(familyId, businessId), orderBy('date', 'desc'), limit(max));
+  return onSnapshot(q, (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as StockTake))));
+}
+
+/** Consecutive-day streak ending today (or yesterday, so a not-yet-done today
+ *  doesn't break it). Pure — safe to unit test. */
+export function stockTakeStreak(takes: Pick<StockTake, 'date'>[], today: string = todayKey()): number {
+  const done = new Set(takes.map((t) => t.date));
+  let streak = 0;
+  const d = new Date(`${today}T12:00:00`);
+  if (!done.has(today)) d.setDate(d.getDate() - 1); // today not done yet → count from yesterday
+  for (;;) {
+    if (!done.has(todayKey(d))) break;
+    streak++;
+    d.setDate(d.getDate() - 1);
+  }
+  return streak;
+}
