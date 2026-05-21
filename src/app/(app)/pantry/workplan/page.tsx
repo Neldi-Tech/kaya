@@ -33,6 +33,7 @@ import BackButton from '@/components/ui/BackButton';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import PerformanceCard from '@/components/helpers/PerformanceCard';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
+import DayStepper from '@/components/helpers/DayStepper';
 import { listHelpers, getHelperLink } from '@/lib/helpers';
 import { getHelperPerformance, perfFace, type HelperPerformanceWindow } from '@/lib/helperPerformance';
 import {
@@ -76,6 +77,14 @@ export default function PantryWorkplanPage() {
   // not a hierarchy. Chevron toggles add/remove from this set so a
   // parent can hide a row that's getting in the way.
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+  // Day-stepper (2026-05-21) — which calendar day the page is showing.
+  // Defaults to today at local midnight; drives the workplan / feedback /
+  // completion views inside each helper card. Local time → correct in
+  // every timezone (Kaya helpers span the globe).
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const n = new Date();
+    return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+  });
 
   const reload = useCallback(async () => {
     if (!family) return;
@@ -114,15 +123,8 @@ export default function PantryWorkplanPage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
-      <div className="mb-4 flex items-baseline justify-between gap-3">
-        <div>
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Household · Workplan</p>
-          <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">
-            {visibleHelpers === null
-              ? 'Today'
-              : `Today · ${visibleHelpers.length} ${visibleHelpers.length === 1 ? 'helper' : 'helpers'}`}
-          </h1>
-        </div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">Household · Workplan</p>
         {profile?.role === 'parent' && (
           <Link
             href="/settings/helpers"
@@ -132,6 +134,14 @@ export default function PantryWorkplanPage() {
           </Link>
         )}
       </div>
+
+      {/* Day navigator — step back to Yesterday / ahead to Tomorrow.
+          Drives every helper card's workplan / feedback / completion. */}
+      <DayStepper
+        selectedDate={selectedDate}
+        onChange={setSelectedDate}
+        helperCount={visibleHelpers === null ? null : visibleHelpers.length}
+      />
 
       <p className="text-[12px] text-hive-muted mb-4">
         {profile?.role === 'parent'
@@ -170,6 +180,7 @@ export default function PantryWorkplanPage() {
             helper={h}
             familyId={family.id}
             isParent={profile?.role === 'parent'}
+            selectedDate={selectedDate}
             expanded={!collapsedIds.has(h.uid)}
             onToggle={() => setCollapsedIds((prev) => {
               const next = new Set(prev);
@@ -205,7 +216,7 @@ export default function PantryWorkplanPage() {
 }
 
 // ── Single person row ────────────────────────────────
-function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
+function PersonCard({ helper, familyId, expanded, onToggle, isParent, selectedDate }: {
   helper: HelperLink;
   familyId: string;
   expanded: boolean;
@@ -213,7 +224,15 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
   /** Parent-only affordances inside the expanded card (e.g. the
    *  quick feedback strip — helpers can't write feedback on themselves). */
   isParent: boolean;
+  /** Calendar day chosen in the page's day-stepper. */
+  selectedDate: Date;
 }) {
+  // past / today / future drives which surfaces show + whether they're
+  // editable. String compare on local YYYY-MM-DD keys (timezone-safe).
+  const selStr = todayDateString(selectedDate);
+  const todayStr = todayDateString();
+  const dayKind: 'past' | 'today' | 'future' =
+    selStr < todayStr ? 'past' : selStr > todayStr ? 'future' : 'today';
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive-lg overflow-hidden">
       {/* Row header — always visible. Big emoji + name + role +
@@ -247,15 +266,28 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
 
       {expanded && (
         <div className="border-t border-hive-line p-4 space-y-3 bg-hive-cream/30">
-          {/* Quick feedback strip — parent-only. One tap registers
-              👍 / 😐 / 👎 for today (upserts the day's note). Feeds
-              the new parentFeedback metric in PerformanceCard. v3
-              2026-05-18. */}
-          {isParent && <FeedbackStrip familyId={familyId} helperUid={helper.uid} />}
+          {/* Future preview banner — nothing's happened yet (2026-05-21). */}
+          {dayKind === 'future' && (
+            <div className="rounded-hive border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-snug text-blue-800">
+              <span className="font-nunito font-black">📅 Coming up.</span> The plan for this day. Nothing&apos;s been done yet — performance &amp; feedback appear once the day arrives.
+            </div>
+          )}
 
-          {/* Pay check-in approvals — only relevant for helpers on
-              hourly/daily payroll. v3 2026-05-19. */}
-          {isParent && (helper.payrollConfig?.basis === 'hourly' || helper.payrollConfig?.basis === 'daily') && (
+          {/* Quick feedback strip — parent-only.
+              · today → live, one tap sets 👍 / 😐 / 👎 (feeds the
+                parentFeedback metric in PerformanceCard).
+              · past  → that day's feedback, read-only.
+              · future → hidden (handled by the banner above). */}
+          {isParent && dayKind === 'today' && (
+            <FeedbackStrip familyId={familyId} helperUid={helper.uid} />
+          )}
+          {isParent && dayKind === 'past' && (
+            <FeedbackStrip familyId={familyId} helperUid={helper.uid} date={selectedDate} readOnly />
+          )}
+
+          {/* Pay check-in approvals — today-only: it's a live to-approve
+              queue, not a per-day record. v3 2026-05-19. */}
+          {isParent && dayKind === 'today' && (helper.payrollConfig?.basis === 'hourly' || helper.payrollConfig?.basis === 'daily') && (
             <CheckInApprovals
               familyId={familyId}
               helperUid={helper.uid}
@@ -263,30 +295,43 @@ function PersonCard({ helper, familyId, expanded, onToggle, isParent }: {
             />
           )}
 
-          {/* Performance card — big, icon-first, top of expanded view */}
-          <PerformanceCard
-            familyId={familyId}
-            helperUid={helper.uid}
-            name={helper.displayName}
-          />
-
-          {/* Role-aware workplan view (2026-05-19) — parents get the
-              full editor for managing recurring + ad-hoc items; helpers
-              see the same daily check-off card as on /helper, so they
-              can tick off today's tasks here too instead of being
-              dropped into the parent's editor UI. */}
-          {isParent ? (
-            <WorkplanEditor
+          {/* Performance card — full rolling card on today. Off-today the
+              slim per-day result lives in the workplan card header
+              instead (Decision B, 2026-05-21). */}
+          {dayKind === 'today' && (
+            <PerformanceCard
               familyId={familyId}
               helperUid={helper.uid}
-              helperName={helper.displayName}
-              presetHint={helper.preset}
-              defaultOpen={true}
+              name={helper.displayName}
             />
+          )}
+
+          {/* Workplan view.
+              · today → parent gets the full editor; helper gets the
+                tap-to-tick daily card.
+              · off-today → read-only per-day view for BOTH roles
+                (a settled record for past, a preview for future). */}
+          {dayKind === 'today' ? (
+            isParent ? (
+              <WorkplanEditor
+                familyId={familyId}
+                helperUid={helper.uid}
+                helperName={helper.displayName}
+                presetHint={helper.preset}
+                defaultOpen={true}
+              />
+            ) : (
+              <TodaysWorkplanCard
+                familyId={familyId}
+                helperUid={helper.uid}
+              />
+            )
           ) : (
             <TodaysWorkplanCard
               familyId={familyId}
               helperUid={helper.uid}
+              date={selectedDate}
+              readOnly
             />
           )}
         </div>
@@ -346,7 +391,14 @@ function PerfInline({ familyId, helperUid }: { familyId: string; helperUid: stri
 // tapping again switches the sentiment; tapping the active one
 // removes the note. Inline optional comment ("Was late twice"). Feeds
 // the parentFeedback metric in PerformanceCard.
-function FeedbackStrip({ familyId, helperUid }: { familyId: string; helperUid: string }) {
+function FeedbackStrip({ familyId, helperUid, date, readOnly = false }: {
+  familyId: string;
+  helperUid: string;
+  /** Day to show; defaults to today. */
+  date?: Date;
+  /** Read-only display of a past day's feedback (no editing). */
+  readOnly?: boolean;
+}) {
   const { profile } = useAuth();
   const [today, setToday] = useState<HelperFeedbackNote | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -356,11 +408,11 @@ function FeedbackStrip({ familyId, helperUid }: { familyId: string; helperUid: s
 
   const reload = useCallback(async () => {
     try {
-      const t = await getTodaysFeedback(familyId, helperUid);
+      const t = await getTodaysFeedback(familyId, helperUid, todayDateString(date));
       setToday(t);
       setNoteDraft(t?.note ?? '');
     } catch { /* swallow */ } finally { setLoaded(true); }
-  }, [familyId, helperUid]);
+  }, [familyId, helperUid, date]);
   useEffect(() => { reload(); }, [reload]);
 
   const setSentiment = async (sentiment: FeedbackSentiment | null) => {
@@ -400,6 +452,32 @@ function FeedbackStrip({ familyId, helperUid }: { familyId: string; helperUid: s
     { id: 'neutral',  emoji: '😐', label: 'Okay',        bg: 'bg-kaya-cream text-kaya-chocolate border-kaya-warm-dark' },
     { id: 'negative', emoji: '👎', label: 'Concern',     bg: 'bg-red-50 text-red-700 border-red-300' },
   ];
+
+  // Read-only variant (a past day via the day-stepper) — show the
+  // recorded sentiment + note, no editing controls. Decision A
+  // (2026-05-21): only today is editable.
+  if (readOnly) {
+    const picked = today ? OPTS.find((o) => o.id === today.sentiment) : null;
+    return (
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
+        <p className="text-[10px] uppercase tracking-wider text-hive-muted font-bold inline-flex items-center gap-1.5">
+          👍 Feedback{date ? ` · ${toDisplayDate(todayDateString(date))}` : ''}
+        </p>
+        {picked ? (
+          <div className="mt-2">
+            <span className={`inline-block text-[12px] font-nunito font-extrabold px-3 py-1.5 rounded-full border-2 ${picked.bg}`}>
+              {picked.emoji} {picked.label}
+            </span>
+            {today?.note && (
+              <p className="mt-2 text-[11px] text-hive-muted italic">&ldquo;{today.note}&rdquo;</p>
+            )}
+          </div>
+        ) : (
+          <p className="mt-1.5 text-[11px] text-hive-muted italic">No feedback logged that day.</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-3">
