@@ -240,6 +240,14 @@ export default function BusinessDashboardPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold mb-3">{error}</p>}
 
+      {/* Daily stock-take — the everyday habit (counts + a photo). */}
+      {canAct && business.status !== 'closed' && (
+        <Link href={`/business/${businessId}/stocktake`}
+          className="w-full flex items-center justify-center gap-2 h-12 mb-3 rounded-hive bg-hive-honey text-hive-navy font-nunito font-black text-[14px] hover:brightness-105 active:scale-[0.99] transition no-underline">
+          📋 Daily stock-take
+        </Link>
+      )}
+
       {/* Log sale / cost — 1-tap entry. A paid sale sweeps to the kid's Hive. */}
       {canAct && business.status !== 'closed' && (
         <div className="grid grid-cols-2 gap-2.5 mb-3">

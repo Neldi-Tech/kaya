@@ -446,6 +446,18 @@ service cloud.firestore {
             || isThisKid(familyId, bizOwnerId());
           allow update, delete: if false;
         }
+
+        // Daily stock-takes — one doc per day (id = YYYY-MM-DD). Parent or the
+        // owner kid record them; never client-deleted (the streak is history).
+        match /stockTakes/{date} {
+          function bizOwnerId() {
+            return get(/databases/$(database)/documents/families/$(familyId)/businesses/$(businessId)).data.ownerId;
+          }
+          allow read: if belongsToFamily(familyId);
+          allow create, update: if isParentInFamily(familyId)
+            || isThisKid(familyId, bizOwnerId());
+          allow delete: if false;
+        }
       }
 
       // ── The Pantry · staples ─────────────────────────────────────
