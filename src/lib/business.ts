@@ -282,6 +282,14 @@ export interface BusinessConfig {
     dualParentAboveCents: number;
     menu: string[];             // Instrument.symbol allow-list
   };
+  /** House Points for stock-take effort (Phase 2 · A3). 'parent_review' (default):
+   *  a parent awards weekly from the effort summary. 'auto': a weekly cron awards
+   *  perDayHp × stock-take days, capped at weeklyCapHp. */
+  hpAward: {
+    mode: 'parent_review' | 'auto';
+    perDayHp: number;
+    weeklyCapHp: number;
+  };
   /** Asset Type Library starter set (keys from ASSET_LIBRARY). Parent-managed. */
   assetLibrary?: string[];
 }
@@ -300,6 +308,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     dualParentAboveCents: 5000_00,
     menu: ['LEGO_INDEX', 'DIS', 'KO', 'SP500', 'BANKS_FUND'],
   },
+  hpAward: { mode: 'parent_review', perDayHp: 5, weeklyCapHp: 40 },
   assetLibrary: ['passion_fruit', 'eggs', 'chickens', 'vegetables', 'service_generic'],
 };
 
@@ -449,6 +458,7 @@ export function readBusinessConfig(family: { businessConfig?: Partial<BusinessCo
     // Merge nested objects so a partial override doesn't wipe sibling defaults.
     defaultHiveSplit: { ...DEFAULT_HIVE_SPLIT, ...(f.defaultHiveSplit || {}) },
     investing: { ...DEFAULT_BUSINESS_CONFIG.investing, ...(f.investing || {}) },
+    hpAward: { ...DEFAULT_BUSINESS_CONFIG.hpAward, ...(f.hpAward || {}) },
   };
 }
 
@@ -1164,4 +1174,32 @@ export function stockTakeStreak(takes: Pick<StockTake, 'date'>[], today: string 
     d.setDate(d.getDate() - 1);
   }
   return streak;
+}
+
+/** This-week stock-take effort for a kid across their businesses: the count of
+ *  distinct calendar days they did any stock-take (last 7 days). On-demand
+ *  read (not a subscription) — used by the parent's weekly HP award. */
+export async function getKidWeeklyEffort(
+  familyId: string,
+  kidId: string,
+): Promise<{ stockTakeDays: number; businessCount: number }> {
+  if (isGuestActive()) return { stockTakeDays: 0, businessCount: 0 };
+  const weekDates = new Set<string>();
+  const t = new Date();
+  for (let i = 0; i < 7; i++) { const d = new Date(t); d.setDate(t.getDate() - i); weekDates.add(todayKey(d)); }
+  const bizSnap = await getDocs(query(businessesCol(familyId), where('ownerId', '==', kidId)));
+  const days = new Set<string>();
+  for (const b of bizSnap.docs) {
+    const stSnap = await getDocs(stockTakesCol(familyId, b.id));
+    stSnap.docs.forEach((s) => {
+      const date = (s.data() as StockTake).date;
+      if (weekDates.has(date)) days.add(date);
+    });
+  }
+  return { stockTakeDays: days.size, businessCount: bizSnap.size };
+}
+
+/** Suggested weekly HP from effort, capped. Pure. */
+export function suggestedWeeklyHp(stockTakeDays: number, perDayHp: number, weeklyCapHp: number): number {
+  return Math.min(weeklyCapHp, stockTakeDays * perDayHp);
 }
