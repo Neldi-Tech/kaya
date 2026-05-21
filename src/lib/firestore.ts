@@ -1102,7 +1102,10 @@ export interface Notification {
     | 'purchase-approved'
     | 'purchase-rejected'
     | 'purchase-reconciled'
-    | 'utility-topup-reminder';
+    | 'utility-topup-reminder'
+    // Kaya Business → daily stock-take nudge (Phase 2 · A2). Links to the
+    // business's stock-take screen; sent to the owner kid + parents.
+    | 'business-stocktake-reminder';
   title: string;
   message: string;
   read: boolean;

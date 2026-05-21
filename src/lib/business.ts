@@ -99,6 +99,12 @@ export const EMPTY_STATS: BusinessStats = {
   salesCount: 0,
 };
 
+export interface BusinessReminder {
+  enabled: boolean;
+  hourUtc: number;     // 0–23, computed client-side from the local pick
+  localLabel: string;  // display only, e.g. "6:00 PM"
+}
+
 export interface Business {
   id: string;
   /** Child.id of the sole owner. Phase 2 co-ops add `ownerIds[]`; until then
@@ -125,6 +131,10 @@ export interface Business {
   stats: BusinessStats;
   // ── Ad-hoc lifecycle ──
   autoCloseAfterDays?: number;  // default from config (14)
+  /** Daily stock-take reminder (Phase 2 · A2). hourUtc is computed from the
+   *  parent's local pick on the client, so the hourly cron needs no per-family
+   *  timezone; localLabel is just for display. */
+  reminder?: BusinessReminder;
   createdBy: string;
   createdAt: Timestamp;
   startedAt?: Timestamp;        // idea → pilot/active
@@ -640,6 +650,16 @@ export async function setBusinessStatus(
   const patch: Record<string, unknown> = { status };
   if (status === 'closed') patch.closedAt = serverTimestamp();
   await updateDoc(businessDoc(familyId, businessId), patch);
+}
+
+/** Set (or clear) the daily stock-take reminder. */
+export async function setBusinessReminder(
+  familyId: string,
+  businessId: string,
+  reminder: BusinessReminder,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(businessDoc(familyId, businessId), { reminder });
 }
 
 /** Light edits to a business's identity / pricing. Kept narrow on purpose —

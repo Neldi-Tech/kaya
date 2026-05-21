@@ -119,7 +119,12 @@ export default function BusinessDashboardPage() {
             {t.label} · since {fmtDate(business.startedAt) || fmtDate(business.createdAt)}
           </div>
         </div>
-        <span className={`text-[11px] font-nunito font-black px-2.5 py-1 rounded-hive-pill ${s.pill}`}>{s.label}</span>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span className={`text-[11px] font-nunito font-black px-2.5 py-1 rounded-hive-pill ${s.pill}`}>{s.label}</span>
+          {canAct && (
+            <Link href={`/business/${businessId}/settings`} aria-label="Business settings" className="text-hive-honey-soft text-[15px] leading-none hover:text-hive-honey">⚙️</Link>
+          )}
+        </div>
       </div>
 
       {business.mission && (
