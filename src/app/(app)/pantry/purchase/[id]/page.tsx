@@ -879,7 +879,12 @@ export default function PurchaseDetailPage() {
           above the basket so the helper sees what they're paying
           for without scrolling. */}
       {req.module === 'utility' && req.meterId && (
-        <UtilityMeterBanner familyId={profile!.familyId!} meterId={req.meterId} />
+        <UtilityMeterBanner
+          familyId={profile!.familyId!}
+          meterId={req.meterId}
+          totalCents={total}
+          currency={currency}
+        />
       )}
       {/* Drivers requests pin to a vehicle (2026-05-18). Same idea
           as the meter banner — surface what the request is FOR so
@@ -2197,7 +2202,9 @@ function PendingDecisionCard({
 // the helper always sees which meter the request is for. Kept here
 // (vs imported as a shared component) to avoid creating one-off
 // shared modules.
-function UtilityMeterBanner({ familyId, meterId }: { familyId: string; meterId: string }) {
+function UtilityMeterBanner({ familyId, meterId, totalCents, currency }: {
+  familyId: string; meterId: string; totalCents: number; currency: string;
+}) {
   const [meter, setMeter] = useState<UtilityMeter | null>(null);
   useEffect(() => {
     // We don't have a single-doc subscribe helper for meters; cheap
@@ -2209,6 +2216,14 @@ function UtilityMeterBanner({ familyId, meterId }: { familyId: string; meterId: 
     });
   }, [familyId, meterId]);
   if (!meter) return null;
+  // Read-only consumption estimate: how many units the current top-up
+  // amount buys (total ÷ price per unit). Updates live as the helper
+  // edits the amount. Only shown when the parent set a price/unit on
+  // the meter. (2026-05-21 — Kaya Pulse groundwork.)
+  const pricePerUnit = meter.pricePerUnitCents;
+  const showUnits = pricePerUnit != null && pricePerUnit > 0 && totalCents > 0;
+  const estUnits = showUnits ? totalCents / pricePerUnit! : 0;
+  const unitLabel = meter.unit || 'units';
   return (
     <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3 mb-3 flex items-center gap-3">
       <div className="w-10 h-10 rounded-xl bg-white/70 flex items-center justify-center text-lg flex-shrink-0">
@@ -2222,6 +2237,16 @@ function UtilityMeterBanner({ familyId, meterId }: { familyId: string; meterId: 
           {meter.cadenceDays != null && ` · ~${meter.cadenceDays}d cycle`}
         </p>
       </div>
+      {showUnits && (
+        <div className="text-right flex-shrink-0">
+          <p className="font-nunito font-black text-sm text-hive-honey-dk leading-tight">
+            ≈ {estUnits.toLocaleString(undefined, { maximumFractionDigits: 1 })} {unitLabel}
+          </p>
+          <p className="text-[10px] text-hive-muted font-bold">
+            {formatCents(pricePerUnit!, currency)}/{meter.unit || 'unit'}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

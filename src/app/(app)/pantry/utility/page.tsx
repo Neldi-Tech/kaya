@@ -194,12 +194,27 @@ export default function UtilityHomePage() {
         });
         setPendingTemplateId(null);
       } else {
+        // Auto-seed a "Prepaid top-up" line so the helper lands on a
+        // request that already has the thing they're paying for — no
+        // hunting the catalogue for "Prepaid LUKU". Default amount =
+        // the meter's working estimate (editable on the request; the
+        // helper keeps/changes the amount). Only when a meter is picked
+        // (free-form requests stay empty). (2026-05-21)
         id = await createDraftRequest(profile.familyId, {
           context: meter?.label,
           createdBy: profile.uid,
           createdByRole: role,
           module: 'utility',
           meterId: meter?.id,
+          items: meter
+            ? [{
+                id: cryptoRandomId(),
+                name: 'Prepaid top-up',
+                qty: 1,
+                unit: 'top-up',
+                estimatedCents: meter.estimatedCents ?? 0,
+              }]
+            : undefined,
         });
       }
       router.push(`/pantry/purchase/${id}`);
@@ -541,4 +556,12 @@ function RequestRow({
       )}
     </div>
   );
+}
+
+/** Stable client-side id for a seeded request item. Mirrors the helper
+ *  in the purchase detail page (kept local to avoid a one-off shared
+ *  module). */
+function cryptoRandomId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return (crypto as Crypto).randomUUID();
+  return Math.random().toString(36).slice(2, 10);
 }
