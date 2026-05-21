@@ -583,6 +583,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
   };
+  // Force a section open (used when navigating into it via the header
+  // link) so a previously-collapsed section springs open + the user
+  // lands inside it.
+  const openSection = (id: string) => {
+    const next = { ...storedOpen, [id]: true };
+    setStoredOpen(next);
+    try {
+      localStorage.setItem(OPEN_SECTIONS_LS_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
   const isSectionOpen = (s: Extract<SidebarRow, { kind: 'section' }>) => {
     const stored = storedOpen[s.id];
     if (stored === true) return true;
@@ -670,13 +682,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <span className="text-left flex-1 truncate">{row.label}</span>
         </>
       );
+      // Effective destination — explicit landing page (Household →
+      // /pantry) OR the first sub-item's route. This makes EVERY section
+      // header navigate + light up on tap, instead of collapsible-only
+      // sections (Stats, Kaya, …) staying dark until a sub-item is
+      // clicked. Navigating also forces the section open.
+      const headerHref = row.href ?? row.items[0]?.path;
       return (
         <div key={row.id}>
           <div className="flex items-stretch gap-1">
-            {row.href ? (
+            {headerHref ? (
               <Link
-                href={row.href}
-                onClick={() => setOpenSheetId(null)}
+                href={headerHref}
+                onClick={() => { setOpenSheetId(null); openSection(row.id); }}
                 className={headerClasses}
               >
                 {headerInner}
