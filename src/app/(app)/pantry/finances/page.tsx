@@ -173,11 +173,16 @@ export default function FinancesPage() {
           </span>
         </p>
         {totalCap > 0 && (
-          <div className="mt-3 h-2 bg-white/70 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full ${totalOver ? 'bg-hive-rose' : 'bg-pantry-leaf-dk'}`}
-              style={{ width: `${totalPct}%` }}
-            />
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex-1 h-2 bg-white/70 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${totalOver ? 'bg-hive-rose' : 'bg-pantry-leaf-dk'}`}
+                style={{ width: `${totalPct}%` }}
+              />
+            </div>
+            <span className={`text-sm font-nunito font-black tabular-nums flex-shrink-0 ${totalOver ? 'text-hive-rose' : 'text-hive-ink'}`}>
+              {totalPct}%
+            </span>
           </div>
         )}
         <p className="text-[11px] text-hive-muted mt-2 font-bold">
@@ -213,11 +218,16 @@ export default function FinancesPage() {
                 </span>
               </p>
               {cap > 0 && (
-                <div className="mt-2 h-1.5 bg-white/70 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full ${over ? 'bg-hive-rose' : tint.bar}`}
-                    style={{ width: `${pct}%` }}
-                  />
+                <div className="mt-2 flex items-center gap-2">
+                  <div className="flex-1 h-1.5 bg-white/70 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${over ? 'bg-hive-rose' : tint.bar}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <span className={`text-[11px] font-nunito font-black tabular-nums flex-shrink-0 ${over ? 'text-hive-rose' : 'text-hive-ink'}`}>
+                    {pct}%
+                  </span>
                 </div>
               )}
               {cap === 0 && (
@@ -256,11 +266,16 @@ export default function FinancesPage() {
             </span>
           </p>
           {utilitiesCap > 0 && (
-            <div className="mt-2 h-1.5 bg-white/70 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${utilitiesOver ? 'bg-hive-rose' : 'bg-hive-honey-dk'}`}
-                style={{ width: `${utilitiesPct}%` }}
-              />
+            <div className="mt-2 flex items-center gap-2">
+              <div className="flex-1 h-1.5 bg-white/70 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${utilitiesOver ? 'bg-hive-rose' : 'bg-hive-honey-dk'}`}
+                  style={{ width: `${utilitiesPct}%` }}
+                />
+              </div>
+              <span className={`text-[11px] font-nunito font-black tabular-nums flex-shrink-0 ${utilitiesOver ? 'text-hive-rose' : 'text-hive-ink'}`}>
+                {utilitiesPct}%
+              </span>
             </div>
           )}
           {utilitiesCap === 0 && (
