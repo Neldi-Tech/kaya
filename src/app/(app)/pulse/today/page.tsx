@@ -75,6 +75,9 @@ export default function PulseTodayPage() {
       </div>
       <h1 className="font-nunito font-black text-2xl text-pulse-joy-ink mt-1">Your day</h1>
       <p className="text-hive-muted text-sm mt-0.5 mb-4">{toDisplayDate(dayKey)}</p>
+      {profile?.role === 'kid' && (
+        <Link href="/pulse/ledger" className="inline-flex items-center gap-1 text-[12px] font-nunito font-black text-pulse-joy-purple mb-3">🏆 See standings →</Link>
+      )}
 
       {isOwnerRole && streakProfile && streakProfile.currentStreak > 0 && (
         <div

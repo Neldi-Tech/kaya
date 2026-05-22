@@ -44,6 +44,11 @@ export default function TrackableDetailPage() {
   const { config } = useHive();
   const currency = config.currency;
 
+  // Parent-only finance detail — kids/helpers go to their Today.
+  useEffect(() => {
+    if (profile && profile.role !== 'parent') router.replace('/pulse/today');
+  }, [profile, router]);
+
   const [trackables, setTrackables] = useState<Trackable[]>([]);
   const [readings, setReadings] = useState<PulseReading[]>([]);
   const [alerts, setAlerts] = useState<PulseAlert[]>([]);
