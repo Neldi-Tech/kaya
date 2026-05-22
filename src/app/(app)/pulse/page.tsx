@@ -20,6 +20,7 @@ import {
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
+import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import {
   type PulseReading, type Trackable,
   subscribeToReadingsInMonth, subscribeToTrackables,
@@ -105,34 +106,35 @@ export default function PulseDashboardPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="text-[10px] font-nunito font-black uppercase tracking-[2px] text-pulse-gold-dk">Kaya Pulse · Dashboard</div>
-      <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight text-pulse-navy">{monthLabel()}</h1>
+      <PulseHeader eyebrow="Dashboard" title={monthLabel()} subtitle="Spend, savings pace + metered consumption" />
 
       {/* Hero — cash lens (savings basis) */}
-      <div className="mt-4 rounded-2xl p-5 text-white relative overflow-hidden" style={{ background: 'linear-gradient(135deg,#0F1F44,#1c3566)' }}>
-        <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent this month</div>
-        <div className="text-3xl font-nunito font-black mt-1">
-          {formatCentsBudgetNeat(totalSpent, currency)}
-          <span className="text-sm opacity-80 font-bold"> / {totalCap > 0 ? formatCentsBudgetNeat(totalCap, currency) : '—'}</span>
-        </div>
-        {totalCap > 0 ? (
-          <>
-            <div className="text-[12px] opacity-90 mt-1">
-              {savings > 0 ? `On pace to save ${formatCentsBudgetNeat(savings, currency)}` : 'Over cap this month'}
-            </div>
-            <div className="h-2 bg-white/20 rounded-full mt-3 overflow-hidden">
-              <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#D4A847' }} />
-            </div>
-            <div className="flex justify-between text-[10px] font-black mt-2 opacity-90">
-              <span>{pct}% of cap</span>
-              <span>Day {dayOfMonth} / {daysInMonth}</span>
-            </div>
-          </>
-        ) : (
-          <div className="text-[12px] opacity-90 mt-1">
-            Set caps in <Link href="/pantry/budget" className="underline">Budget</Link> to track savings.
+      <div className="mt-4">
+        <PulseHero>
+          <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent this month</div>
+          <div className="text-3xl font-nunito font-black mt-1">
+            {formatCentsBudgetNeat(totalSpent, currency)}
+            <span className="text-sm opacity-80 font-bold"> / {totalCap > 0 ? formatCentsBudgetNeat(totalCap, currency) : '—'}</span>
           </div>
-        )}
+          {totalCap > 0 ? (
+            <>
+              <div className="text-[12px] opacity-90 mt-1">
+                {savings > 0 ? `On pace to save ${formatCentsBudgetNeat(savings, currency)}` : 'Over cap this month'}
+              </div>
+              <div className="h-2 bg-white/20 rounded-full mt-3 overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#D4A847' }} />
+              </div>
+              <div className="flex justify-between text-[10px] font-black mt-2 opacity-90">
+                <span>{pct}% of cap</span>
+                <span>Day {dayOfMonth} / {daysInMonth}</span>
+              </div>
+            </>
+          ) : (
+            <div className="text-[12px] opacity-90 mt-1">
+              Set caps in <Link href="/pantry/budget" className="underline">Budget</Link> to track savings.
+            </div>
+          )}
+        </PulseHero>
       </div>
 
       {/* Top buckets — cash */}
@@ -180,10 +182,10 @@ export default function PulseDashboardPage() {
           </div>
           <div className="flex flex-col gap-1.5">
             {consumption.rows.map((row) => (
-              <div key={row.id} className="flex items-center justify-between text-[12px]">
+              <Link key={row.id} href={`/pulse/trackable/${row.id}`} className="flex items-center justify-between text-[12px] no-underline">
                 <span className="font-bold text-pulse-navy">{row.tk?.emoji ?? '📊'} {row.tk?.name ?? 'Trackable'}</span>
-                <span className="font-nunito font-black text-pulse-navy">{formatCents(row.cents, currency)}</span>
-              </div>
+                <span className="font-nunito font-black text-pulse-navy">{formatCents(row.cents, currency)} ›</span>
+              </Link>
             ))}
           </div>
           <p className="text-[10px] text-hive-muted mt-2 leading-snug">

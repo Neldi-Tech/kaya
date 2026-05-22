@@ -746,3 +746,83 @@ export function subscribeToReadingsInMonth(
     },
   );
 }
+
+/** All readings for one trackable, newest first (single-field query + JS sort).
+ *  Powers Trackable Detail's chart + recent-readings list. */
+export function subscribeToReadingsForTrackable(
+  fid: string,
+  trackableId: string,
+  cb: (r: PulseReading[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(readingsCol(fid), where('trackableId', '==', trackableId)),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as PulseReading))
+        .sort((a, b) => (b.capturedAt?.toMillis?.() ?? 0) - (a.capturedAt?.toMillis?.() ?? 0));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] trackable readings subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
+/** Unacknowledged anomaly alerts for one trackable, newest first. */
+export function subscribeToTrackableAlerts(
+  fid: string,
+  trackableId: string,
+  cb: (a: PulseAlert[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(pulseAlertsCol(fid), where('trackableId', '==', trackableId)),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as PulseAlert))
+        .filter((a) => !a.acknowledged)
+        .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] trackable alerts subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
+export async function acknowledgeAlert(fid: string, alertId: string, byUid: string): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(pulseAlertDoc(fid, alertId), { acknowledged: true, acknowledgedBy: byUid });
+}
+
+/** Live Pulse streak/profile for one owner (Child id or helper uid). */
+export function subscribeToPulseProfile(
+  fid: string,
+  ownerId: string,
+  cb: (p: PulseProfile | null) => void,
+): () => void {
+  if (isGuestActive() || !ownerId) {
+    cb(null);
+    return () => {};
+  }
+  return onSnapshot(
+    pulseProfileDoc(fid, ownerId),
+    (snap) => cb(snap.exists() ? ({ id: snap.id, ...snap.data() } as PulseProfile) : null),
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] profile subscribe failed:', err);
+      cb(null);
+    },
+  );
+}
