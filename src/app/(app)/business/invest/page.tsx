@@ -16,6 +16,7 @@ import {
   requestInvestmentBuy,
 } from '@/lib/business';
 import { formatCash, formatCashClean } from '@/components/hive/format';
+import { formatWorth } from '@/components/business/money';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 
 export default function JuniorInvestorPage() {
@@ -104,7 +105,7 @@ export default function JuniorInvestorPage() {
             <div className="text-[11px] uppercase tracking-wider font-nunito font-extrabold text-hive-honey-soft">
               {activeKid ? `${activeKid.name}'s portfolio` : 'Your portfolio'}
             </div>
-            <div className="font-nunito font-black text-[30px] leading-tight mt-1">{formatCash(portfolio.value, cur)}</div>
+            <div className="font-nunito font-black text-[30px] leading-tight mt-1">{formatWorth(portfolio.value, cur, bizConfig.displayRounding)}</div>
             <div className={`text-[12px] mt-0.5 ${portfolio.gain >= 0 ? 'text-[#6DBA72]' : 'text-hive-rose'}`}>
               {portfolio.gain >= 0 ? '+' : '−'}{formatCash(Math.abs(portfolio.gain), cur)} since you started
             </div>

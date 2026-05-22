@@ -5,11 +5,12 @@
 // (zero for a fresh pilot — the books fill it in from PR4).
 
 import Link from 'next/link';
-import { Business } from '@/lib/business';
+import { Business, DisplayRounding } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
+import { formatWorth } from './money';
 import { typeMeta, TYPE_GRADIENT, STATUS_META } from './meta';
 
-export default function BusinessCard({ business, currency }: { business: Business; currency: string }) {
+export default function BusinessCard({ business, currency, rounding = 'whole' }: { business: Business; currency: string; rounding?: DisplayRounding }) {
   const t = typeMeta(business.type);
   const s = STATUS_META[business.status];
   const profit = business.stats?.monthProfitCents ?? 0;
@@ -34,7 +35,7 @@ export default function BusinessCard({ business, currency }: { business: Busines
         {business.emoji} {business.name}
       </h4>
       <p className="text-[12px] text-hive-navy/70">
-        {worth > 0 ? `Worth ${formatCash(worth, currency)}` : 'New — set up your books'}
+        {worth > 0 ? `Worth ${formatWorth(worth, currency, rounding)}` : 'New — set up your books'}
         {sales > 0 ? ` · ${sales} ${sales === 1 ? 'sale' : 'sales'}` : ''}
       </p>
     </Link>

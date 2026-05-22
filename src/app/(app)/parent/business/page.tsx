@@ -13,12 +13,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, subscribeToFamilyBusinesses, subscribeToBusinessRequests, resolveBusinessRequest,
+  Business, DisplayRounding, subscribeToFamilyBusinesses, subscribeToBusinessRequests, resolveBusinessRequest,
   readBusinessConfig, setBusinessConfig, getKidWeeklyEffort, suggestedWeeklyHp,
 } from '@/lib/business';
 import { ApprovalRequest } from '@/lib/hive';
 import { giveAward, Child } from '@/lib/firestore';
 import { formatCash } from '@/components/hive/format';
+import { formatWorth, ROUNDING_LABEL } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
 
 export default function ParentBusinessConsolePage() {
@@ -77,6 +78,9 @@ export default function ParentBusinessConsolePage() {
 
       {/* House Points for stock-take effort — parent reviews weekly, or auto. */}
       <HpAwardSettings familyId={familyId!} hpAward={bizConfig.hpAward} />
+
+      {/* How worth/value numbers are shown — readability vs precision. */}
+      <DisplayRoundingSettings familyId={familyId!} value={bizConfig.displayRounding} currency={config.currency} />
 
       {/* Approvals first — the thing a parent comes here to do. */}
       <h2 className="font-nunito font-extrabold text-[14px] mb-2">Approvals</h2>
@@ -330,6 +334,41 @@ function KidWeeklyAward({ familyId, kid, hpAward, awarder }: {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Number style — how worth/value numbers round (kid readability) ──
+function DisplayRoundingSettings({ familyId, value, currency }: { familyId: string; value: DisplayRounding; currency: string }) {
+  const [mode, setMode] = useState<DisplayRounding>(value);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const SAMPLE = 50011420; // $500,114.20 in cents — the example you flagged
+  const opts: DisplayRounding[] = ['exact', 'whole', 'ten', 'hundred'];
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try { await setBusinessConfig(familyId, { displayRounding: mode }); setSaved(true); }
+    finally { setSaving(false); }
+  };
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-6">
+      <div className="flex items-baseline justify-between mb-2">
+        <h2 className="font-nunito font-extrabold text-[14px]">Number style</h2>
+        <span className="text-[11px] text-hive-muted">how worth is shown to kids</span>
+      </div>
+      <div className="grid grid-cols-4 gap-2 mb-2">
+        {opts.map((o) => (
+          <button key={o} onClick={() => { setMode(o); setSaved(false); }}
+            className={`h-9 rounded-hive-pill text-[11.5px] font-nunito font-extrabold border transition ${mode === o ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>
+            {ROUNDING_LABEL[o]}
+          </button>
+        ))}
+      </div>
+      <p className="text-[12px] text-hive-muted">Preview: <span className="font-nunito font-extrabold text-hive-navy">{formatWorth(SAMPLE, currency, mode)}</span> <span className="opacity-60">· prices &amp; sales always show exact</span></p>
+      <button onClick={save} disabled={saving || mode === value}
+        className="w-full mt-3 h-10 rounded-hive-pill bg-hive-navy text-hive-honey font-nunito font-black text-[12.5px] disabled:opacity-40">
+        {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save number style'}
+      </button>
     </div>
   );
 }

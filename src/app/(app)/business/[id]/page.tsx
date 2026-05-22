@@ -18,6 +18,7 @@ import {
 } from '@/lib/business';
 import { ApprovalRequest } from '@/lib/hive';
 import { formatCash } from '@/components/hive/format';
+import { formatWorth } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
 import AICoachCard from '@/components/business/AICoachCard';
 
@@ -36,7 +37,8 @@ export default function BusinessDashboardPage() {
   const { profile } = useAuth();
   const { family } = useFamily();
   const { config } = useHive();
-  const coachName = readBusinessConfig(family).coachName;
+  const bizConfig = readBusinessConfig(family);
+  const coachName = bizConfig.coachName;
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [loading, setLoading] = useState(true);
@@ -142,7 +144,7 @@ export default function BusinessDashboardPage() {
       <div className="grid grid-cols-2 gap-2.5 mb-3">
         <div className={statCard}>
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">Worth</div>
-          <div className="font-nunito font-black text-[22px] mt-0.5">{formatCash(stats.worthCents, config.currency)}</div>
+          <div className="font-nunito font-black text-[22px] mt-0.5">{formatWorth(stats.worthCents, config.currency, bizConfig.displayRounding)}</div>
         </div>
         <div className={statCard}>
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">This month profit</div>
@@ -273,7 +275,7 @@ export default function BusinessDashboardPage() {
         className="w-full flex items-center justify-between gap-2 h-12 px-4 mb-3 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition no-underline"
       >
         <span>📦 Inventory &amp; worth</span>
-        <span className="text-hive-honey-soft">{formatCash(stats.worthCents, config.currency)} →</span>
+        <span className="text-hive-honey-soft">{formatWorth(stats.worthCents, config.currency, bizConfig.displayRounding)} →</span>
       </Link>
 
       {/* Milestones unlocked for this business */}

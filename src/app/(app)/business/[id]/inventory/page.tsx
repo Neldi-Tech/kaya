@@ -9,13 +9,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   Business, BusinessItem, ItemKind, NewItemInput,
   subscribeToBusiness, subscribeToBusinessItems,
-  addBusinessItem, markItemLoss, removeBusinessItem, itemWorthCents,
+  addBusinessItem, markItemLoss, removeBusinessItem, itemWorthCents, readBusinessConfig,
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
+import { formatWorth } from '@/components/business/money';
 import { typeMeta, TYPE_GRADIENT } from '@/components/business/meta';
 
 function centsFrom(input: string): number | undefined {
@@ -28,7 +30,9 @@ export default function InventoryPage() {
   const params = useParams();
   const businessId = String(params?.id || '');
   const { profile } = useAuth();
+  const { family } = useFamily();
   const { config } = useHive();
+  const rounding = readBusinessConfig(family).displayRounding;
   const familyId = profile?.familyId;
 
   const [business, setBusiness] = useState<Business | null>(null);
@@ -84,7 +88,7 @@ export default function InventoryPage() {
               {business ? `${business.name} is worth` : 'This business is worth'}
             </div>
             <div className="font-nunito font-black text-[30px] leading-tight mt-0.5">
-              {formatCash(stats?.worthCents ?? 0, currency)}
+              {formatWorth(stats?.worthCents ?? 0, currency, rounding)}
             </div>
           </div>
           <div className="text-[34px] leading-none">💰</div>
@@ -92,15 +96,15 @@ export default function InventoryPage() {
         <div className="mt-2 space-y-1.5 text-[13px]">
           <div className="flex items-center justify-between border-b border-dashed border-black/10 pb-1.5">
             <span>🌳 Assets (keep working for you)</span>
-            <span className="font-nunito font-extrabold">{formatCash(stats?.assetsCents ?? 0, currency)}</span>
+            <span className="font-nunito font-extrabold">{formatWorth(stats?.assetsCents ?? 0, currency, rounding)}</span>
           </div>
           <div className="flex items-center justify-between border-b border-dashed border-black/10 pb-1.5">
             <span>📦 Stock at market value</span>
-            <span className="font-nunito font-extrabold">{formatCash(stats?.stockMarketCents ?? 0, currency)}</span>
+            <span className="font-nunito font-extrabold">{formatWorth(stats?.stockMarketCents ?? 0, currency, rounding)}</span>
           </div>
           <div className="flex items-center justify-between">
             <span className="text-hive-navy/60">🧾 Cost of stock (what you spent)</span>
-            <span className="text-hive-navy/60">{formatCash(costOfStock, currency)}</span>
+            <span className="text-hive-navy/60">{formatWorth(costOfStock, currency, rounding)}</span>
           </div>
         </div>
       </div>
