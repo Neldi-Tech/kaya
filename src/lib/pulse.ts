@@ -16,7 +16,7 @@
 //     Savings → Wealth is computed from the CASH lens only.
 
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, query, where,
+  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, serverTimestamp, query, where,
 } from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
@@ -650,4 +650,61 @@ export function subscribeToOwnerTasks(
       cb([]);
     },
   );
+}
+
+/* ============================================================
+   READING — one-shot reads + the log write path
+   ============================================================ */
+export async function getPulseTask(fid: string, taskId: string): Promise<PulseTask | null> {
+  if (isGuestActive()) return null;
+  const snap = await getDoc(pulseTaskDoc(fid, taskId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as PulseTask) : null;
+}
+
+/** Latest reading for a trackable (one-shot). Single-field query + JS sort —
+ *  no composite index. Quick Entry uses it to show "yesterday's value". */
+export async function getLatestReading(fid: string, trackableId: string): Promise<PulseReading | null> {
+  if (isGuestActive()) return null;
+  const snap = await getDocs(query(readingsCol(fid), where('trackableId', '==', trackableId)));
+  const list = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() } as PulseReading))
+    .sort((a, b) => (b.capturedAt?.toMillis?.() ?? 0) - (a.capturedAt?.toMillis?.() ?? 0));
+  return list[0] ?? null;
+}
+
+export interface LogReadingInput {
+  familyId: string;
+  taskId: string;
+  value: number;
+}
+export interface LogReadingResult {
+  ok: boolean;
+  alreadyLogged?: boolean;
+  consumedUnits: number;
+  deltaCost: number;
+  event: ReadingEvent;
+  points: number;
+  isAnomaly: boolean;
+  streak?: number;
+}
+
+/** The reading write path runs server-side (Admin SDK) at /api/pulse/log so the
+ *  privileged bits — points, child totals, streak — work no matter who logs (a
+ *  kid can't write awards/child docs under the rules). The client renders a live
+ *  delta preview with the pure helpers above; the server is the source of truth
+ *  on save. Online-only for now (offline queueing is a later refinement). */
+export async function logReading(input: LogReadingInput): Promise<LogReadingResult> {
+  if (isGuestActive()) {
+    return { ok: true, consumedUnits: 0, deltaCost: 0, event: 'normal', points: 0, isAnomaly: false };
+  }
+  const res = await fetch('/api/pulse/log', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`logReading failed (${res.status}): ${detail}`);
+  }
+  return res.json() as Promise<LogReadingResult>;
 }
