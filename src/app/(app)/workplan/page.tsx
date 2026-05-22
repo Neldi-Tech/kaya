@@ -99,6 +99,7 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
               childId={selected.id}
               childName={selected.name}
               parentUid={parentUid}
+              allChildren={children.map((c) => ({ id: c.id, name: c.name }))}
             />
           )}
         </>
