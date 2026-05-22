@@ -9,7 +9,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import { Business, subscribeToBusiness, setBusinessReminder } from '@/lib/business';
+import { useHive } from '@/contexts/HiveContext';
+import { Business, subscribeToBusiness, setBusinessReminder, updateBusiness, UNIT_SUGGESTIONS } from '@/lib/business';
 
 function labelForHour(h: number): string {
   const d = new Date(); d.setHours(h, 0, 0, 0);
@@ -24,15 +25,20 @@ export default function BusinessSettingsPage() {
   const params = useParams();
   const businessId = String(params?.id || '');
   const { profile } = useAuth();
+  const { config } = useHive();
   const familyId = profile?.familyId;
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [hour, setHour] = useState(18); // local hour (default 6pm)
+  const [unit, setUnit] = useState('');
+  const [price, setPrice] = useState('');
   const [init, setInit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
+  const [priceSaving, setPriceSaving] = useState(false);
+  const [priceSaved, setPriceSaved] = useState(false);
 
   useEffect(() => {
     if (!familyId || !businessId) return;
@@ -45,10 +51,30 @@ export default function BusinessSettingsPage() {
           const offset = new Date().getTimezoneOffset() / 60; // UTC = local + offset
           setHour(((b.reminder.hourUtc - offset) % 24 + 24) % 24);
         }
+        setUnit(b.unitLabel ?? '');
+        if (typeof b.unitPriceCents === 'number') setPrice((b.unitPriceCents / 100).toString());
         setInit(true);
       }
     });
   }, [familyId, businessId, init]);
+
+  const savePrice = async () => {
+    if (!familyId) return;
+    setPriceSaved(false); setPriceSaving(true);
+    try {
+      const n = parseFloat(price.replace(/,/g, ''));
+      const cents = !Number.isNaN(n) && n > 0 ? Math.round(n * 100) : 0;
+      await updateBusiness(familyId, businessId, {
+        unitLabel: unit.trim() || undefined,
+        unitPriceCents: cents > 0 ? cents : undefined,
+      });
+      setPriceSaved(true);
+    } catch (e: any) {
+      setError(e?.message || 'Could not save the price.');
+    } finally {
+      setPriceSaving(false);
+    }
+  };
 
   const isParent = profile?.role === 'parent';
   const isOwner = profile?.role === 'kid' && profile?.childId === business?.ownerId;
@@ -87,6 +113,34 @@ export default function BusinessSettingsPage() {
       {!canEdit ? (
         <p className="text-hive-muted text-sm text-center py-8">Only the owner or a parent can change settings.</p>
       ) : (
+        <div className="space-y-3">
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
+          <h3 className="font-nunito font-extrabold text-[14px] mb-2">Pricing</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Unit</div>
+              <input value={unit} onChange={(e) => { setUnit(e.target.value); setPriceSaved(false); }} maxLength={20} placeholder="pcs, kg, wash"
+                className="w-full h-11 px-3 bg-hive-cream rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
+            </div>
+            <div>
+              <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Price / unit ({config.currency})</div>
+              <input value={price} onChange={(e) => { setPrice(e.target.value); setPriceSaved(false); }} inputMode="decimal" placeholder="0"
+                className="w-full h-11 px-3 bg-hive-cream rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            {UNIT_SUGGESTIONS.map((u) => (
+              <button key={u} type="button" onClick={() => { setUnit(u); setPriceSaved(false); }}
+                className={`px-2.5 py-1 rounded-hive-pill text-[11.5px] font-nunito font-bold border transition ${unit === u ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>{u}</button>
+            ))}
+          </div>
+          <p className="text-[11px] text-hive-muted mt-2">Change the price anytime — new sales use it; past sales keep what they sold for.</p>
+          <button onClick={savePrice} disabled={priceSaving}
+            className="w-full mt-3 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+            {priceSaving ? 'Saving…' : priceSaved ? '✓ Saved' : 'Save price'}
+          </button>
+        </div>
+
         <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
           <div className="flex items-center justify-between">
             <div>
@@ -123,6 +177,7 @@ export default function BusinessSettingsPage() {
             className="w-full mt-4 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
             {saving ? 'Saving…' : 'Save reminder'}
           </button>
+        </div>
         </div>
       )}
     </div>

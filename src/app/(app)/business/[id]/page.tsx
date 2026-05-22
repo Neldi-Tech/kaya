@@ -119,6 +119,7 @@ export default function BusinessDashboardPage() {
           <div className="font-nunito font-black text-[16px] truncate">{business.name}</div>
           <div className="text-[11px] text-hive-honey-soft/80">
             {t.label} · since {fmtDate(business.startedAt) || fmtDate(business.createdAt)}
+            {business.createdByName ? ` · ${business.createdByRole === 'parent' ? 'set up by' : 'started by'} ${business.createdByName}` : ''}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1.5 shrink-0">

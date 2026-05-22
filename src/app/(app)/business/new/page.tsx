@@ -12,7 +12,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   BUSINESS_TYPES, BusinessType, CustomerChannel, PHASE1_BUSINESS_TYPES,
-  CUSTOMER_CHANNELS, createBusiness, readBusinessConfig,
+  CUSTOMER_CHANNELS, UNIT_SUGGESTIONS, createBusiness, readBusinessConfig,
 } from '@/lib/business';
 import AICoachCard from '@/components/business/AICoachCard';
 
@@ -64,7 +64,7 @@ export default function NewBusinessPage() {
           unitPriceCents: typeof cents === 'number' && !Number.isNaN(cents) && cents > 0 ? cents : undefined,
           hiveSplit: bizConfig.defaultHiveSplit,
         },
-        { uid: profile.uid, ownerId, isParent },
+        { uid: profile.uid, ownerId, isParent, name: profile.displayName || undefined },
       );
       router.push(id.startsWith('guest') ? '/business' : `/business/${id}`);
     } catch (e: any) {
@@ -197,6 +197,20 @@ export default function NewBusinessPage() {
             className="w-full h-11 px-3 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
           />
         </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {UNIT_SUGGESTIONS.map((u) => (
+          <button
+            key={u}
+            type="button"
+            onClick={() => setUnitLabel(u)}
+            className={`px-2.5 py-1 rounded-hive-pill text-[11.5px] font-nunito font-bold border transition ${
+              unitLabel === u ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'
+            }`}
+          >
+            {u}
+          </button>
+        ))}
       </div>
 
       {type && name.trim().length > 1 && (
