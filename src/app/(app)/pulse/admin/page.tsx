@@ -46,6 +46,7 @@ export default function PulseAdminPage() {
   const router = useRouter();
   const { profile } = useAuth();
   const { config } = useHive();
+  const { children: kids } = useFamily();
   const currency = config.currency;
 
   useEffect(() => {
@@ -100,6 +101,14 @@ export default function PulseAdminPage() {
     }
   };
 
+  const kidName = (id?: string) => kids.find((k) => k.id === id)?.name ?? 'someone';
+  const readerLabelForTrackable = (tid: string): string | undefined => {
+    const tpl = templates.find((t) => t.trackableId === tid);
+    if (!tpl) return undefined;
+    if (tpl.ownerType === 'fixed') return kidName(tpl.ownerId);
+    return `Rotating: ${(tpl.rotationPool ?? []).map(kidName).join(' / ')}`;
+  };
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <Link href="/pulse" className="text-[12px] text-pulse-gold-dk font-bold no-underline hover:underline inline-block mb-2">← Kaya Pulse</Link>
@@ -107,6 +116,13 @@ export default function PulseAdminPage() {
       <p className="text-hive-muted text-sm mt-1">
         Turn a meter into a Pulse trackable, then schedule who reads it. Kids earn points; consumption becomes priced data.
       </p>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-nunito font-black text-pulse-gold-dk mt-2">
+        <span className="bg-pulse-gold/15 px-2 py-0.5 rounded-full">1 · Track a meter</span>
+        <span className="text-hive-muted">→</span>
+        <span className="bg-pulse-gold/15 px-2 py-0.5 rounded-full">2 · Assign a reader</span>
+        <span className="text-hive-muted">→</span>
+        <span className="bg-pulse-gold/15 px-2 py-0.5 rounded-full">3 · Tasks start each morning</span>
+      </div>
 
       {/* ── Section 1 · Trackables (utility meters) ───────────────── */}
       <h2 className="font-nunito font-black text-pulse-navy text-base mt-7 mb-1">1 · Trackables</h2>
@@ -126,7 +142,7 @@ export default function PulseAdminPage() {
       ) : (
         <div className="flex flex-col gap-2">
           {meters.filter((m) => m.active).map((m) => (
-            <MeterPulseRow key={m.id} meter={m} familyId={fid} currency={currency} />
+            <MeterPulseRow key={m.id} meter={m} familyId={fid} currency={currency} readerLabel={readerLabelForTrackable(m.id)} />
           ))}
           <Link href="/pantry/utility-meters" className="text-[12px] text-pulse-gold-dk font-bold text-center mt-1 hover:underline">Manage meters (price, unit) →</Link>
         </div>
@@ -148,13 +164,13 @@ export default function PulseAdminPage() {
           <button
             onClick={runGenerate}
             disabled={genBusy}
-            className="w-full mt-3 border-2 border-pulse-navy text-pulse-navy rounded-2xl py-2.5 font-nunito font-black text-sm disabled:opacity-50"
+            className="w-full mt-3 bg-pulse-navy text-pulse-gold rounded-2xl py-3 font-nunito font-black text-sm disabled:opacity-50"
           >
-            {genBusy ? 'Generating…' : "Generate today's tasks"}
+            {genBusy ? 'Starting…' : "▶ Start today's tracking"}
           </button>
           {genMsg && <p className="text-[12px] text-center text-hive-muted font-bold mt-2">{genMsg}</p>}
           <p className="text-[11px] text-hive-muted text-center mt-1 leading-snug">
-            Tasks auto-generate each morning — use this to create today's now (setup/testing).
+            Creates today's reading tasks for the assigned kids — they appear on each kid's Today. Tasks also generate automatically every morning.
           </p>
         </>
       )}
@@ -163,13 +179,14 @@ export default function PulseAdminPage() {
 }
 
 /* ── A meter row with Pulse enable + direction + threshold ───────── */
-function MeterPulseRow({ meter, familyId, currency }: { meter: UtilityMeter; familyId: string; currency: string }) {
+function MeterPulseRow({ meter, familyId, currency, readerLabel }: { meter: UtilityMeter; familyId: string; currency: string; readerLabel?: string }) {
   const enabled = !!meter.pulseEnabled;
   const [dir, setDir] = useState<MeterDir>(meter.direction ?? (meter.type === 'water' ? 'up' : 'down'));
   const [thresholdMajor, setThresholdMajor] = useState<string>(
     meter.minUnitsThreshold != null ? String(meter.minUnitsThreshold) : '',
   );
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
 
   const hasPrice = !!meter.pricePerUnitCents && meter.pricePerUnitCents > 0;
 
@@ -180,6 +197,7 @@ function MeterPulseRow({ meter, familyId, currency }: { meter: UtilityMeter; fam
         pulseEnabled: !enabled,
         direction: !enabled ? dir : meter.direction,
       });
+      setOpen(!enabled); // expand settings when turning on, collapse when off
     } finally { setBusy(false); }
   };
 
@@ -217,54 +235,79 @@ function MeterPulseRow({ meter, familyId, currency }: { meter: UtilityMeter; fam
           <div className="text-[11px] text-hive-muted font-bold">
             {hasPrice ? `${formatCents(meter.pricePerUnitCents!, currency)}/${meter.unit || 'unit'}` : 'No unit price set'}
           </div>
+          {enabled && (
+            readerLabel ? (
+              <div className="text-[10px] font-bold text-pulse-gold-dk mt-0.5">👤 {readerLabel}</div>
+            ) : (
+              <div className="text-[10px] font-bold text-pulse-coral mt-0.5">No reader yet — add a reading task below ↓</div>
+            )
+          )}
         </div>
-        <button
-          onClick={toggle}
-          disabled={busy}
-          className={`text-xs font-nunito font-black px-3 py-1.5 rounded-full border flex-shrink-0 ${
-            enabled ? 'bg-white text-hive-muted border-pulse-gold/40' : 'bg-pulse-navy text-pulse-gold border-pulse-navy'
-          }`}
-        >{enabled ? 'Untrack' : '＋ Track'}</button>
+        {/* Toggle switch — the clear "tracked or not" control */}
+        <div className="flex flex-col items-center gap-0.5 flex-shrink-0">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            onClick={toggle}
+            disabled={busy}
+            className={`relative w-12 h-7 rounded-full transition-colors ${enabled ? 'bg-pulse-navy' : 'bg-gray-300'} disabled:opacity-60`}
+          >
+            <span className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-all ${enabled ? 'right-1' : 'left-1'}`} />
+          </button>
+          <span className="text-[8px] font-nunito font-black uppercase tracking-wide text-hive-muted">{enabled ? 'Tracked' : 'Track'}</span>
+        </div>
       </div>
 
       {enabled && (
-        <div className="mt-3 pt-3 border-t border-pulse-gold/30">
-          {!hasPrice && (
-            <p className="text-[11px] text-pulse-coral font-bold mb-2">
-              ⚠ Set a price/unit in <Link href="/pantry/utility-meters" className="underline">Manage meters</Link> so cost can be computed.
-            </p>
-          )}
-          <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Reading direction</span>
-          <div className="flex gap-2 mt-1 mb-2">
-            {([['down', 'Prepaid · counts down'], ['up', 'Postpaid · counts up']] as [MeterDir, string][]).map(([d, lbl]) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => { setDir(d); saveConfig(d, thresholdMajor); }}
-                className={`flex-1 text-[11px] font-nunito font-extrabold px-2 py-2 rounded-xl border ${
-                  dir === d ? 'bg-pulse-navy text-pulse-gold border-pulse-navy' : 'bg-white text-pulse-navy border-pulse-gold/40'
-                }`}
-              >{lbl}</button>
-            ))}
-          </div>
-          {dir === 'down' && (
-            <label className="block">
-              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Auto top-up below (units)</span>
-              <div className="flex items-center gap-2 mt-1">
-                <input
-                  type="number" min={0} step="1"
-                  value={thresholdMajor}
-                  onChange={(e) => setThresholdMajor(e.target.value)}
-                  onBlur={() => saveConfig(dir, thresholdMajor)}
-                  placeholder="e.g. 20"
-                  className="flex-1 border border-pulse-gold/40 rounded-lg px-3 py-2 text-sm font-nunito font-bold focus:outline-none focus:border-pulse-gold"
-                />
-                <span className="text-[11px] text-hive-muted font-bold">{meter.unit || 'units'} left</span>
+        <>
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="mt-2 text-[11px] font-nunito font-black text-pulse-gold-dk"
+          >⚙ Reading settings {open ? '⌃' : '⌄'}</button>
+
+          {open && (
+            <div className="mt-2 pt-3 border-t border-pulse-gold/30">
+              {!hasPrice && (
+                <p className="text-[11px] text-pulse-coral font-bold mb-2">
+                  ⚠ Set a price/unit in <Link href="/pantry/utility-meters" className="underline">Manage meters</Link> so cost can be computed.
+                </p>
+              )}
+              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Reading direction</span>
+              <div className="flex gap-2 mt-1 mb-2">
+                {([['down', 'Prepaid · counts down'], ['up', 'Postpaid · counts up']] as [MeterDir, string][]).map(([d, lbl]) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => { setDir(d); saveConfig(d, thresholdMajor); }}
+                    className={`flex-1 text-[11px] font-nunito font-extrabold px-2 py-2 rounded-xl border ${
+                      dir === d ? 'bg-pulse-navy text-pulse-gold border-pulse-navy' : 'bg-white text-pulse-navy border-pulse-gold/40'
+                    }`}
+                  >{lbl}</button>
+                ))}
               </div>
-              <p className="text-[10px] text-hive-muted mt-1 leading-snug">When the balance drops below this, Pulse files a top-up request for your approval.</p>
-            </label>
+              {dir === 'down' && (
+                <label className="block">
+                  <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Auto top-up below (units)</span>
+                  <div className="flex items-center gap-2 mt-1">
+                    <input
+                      type="number" min={0} step="1"
+                      value={thresholdMajor}
+                      onChange={(e) => setThresholdMajor(e.target.value)}
+                      onBlur={() => saveConfig(dir, thresholdMajor)}
+                      placeholder="e.g. 20"
+                      className="flex-1 border border-pulse-gold/40 rounded-lg px-3 py-2 text-sm font-nunito font-bold focus:outline-none focus:border-pulse-gold"
+                    />
+                    <span className="text-[11px] text-hive-muted font-bold">{meter.unit || 'units'} left</span>
+                  </div>
+                  <p className="text-[10px] text-hive-muted mt-1 leading-snug">When the balance drops below this, Pulse files a top-up request for your approval.</p>
+                </label>
+              )}
+              <button type="button" onClick={() => setOpen(false)} className="mt-3 w-full border border-pulse-gold/40 rounded-xl py-2 text-[12px] font-nunito font-black text-pulse-navy">Done</button>
+            </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );
