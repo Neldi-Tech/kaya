@@ -353,6 +353,7 @@ const HELPER_SIDEBAR: SidebarRow[] = [
 const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/kid',       icon: '🏠', label: 'Home' },
+  { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'workplan',  path: '/workplan',  icon: '🗓️', label: 'My Workplan' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
