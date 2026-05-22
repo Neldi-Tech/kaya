@@ -936,7 +936,11 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
               className="w-full flex items-center justify-between gap-2 text-left mb-2"
             >
               <span className="text-xs font-bold uppercase tracking-wider text-kaya-sand">Areas this helper can access</span>
-              {areasOpen ? <ChevronUp size={16} className="text-kaya-sand shrink-0" /> : <ChevronDown size={16} className="text-kaya-sand shrink-0" />}
+              {/* Visible circular chevron button — matches the Settings
+                  collapsibles so the expand affordance is obvious. */}
+              <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-kaya-warm border border-kaya-warm-dark text-kaya-chocolate">
+                {areasOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
             </button>
             {areasOpen && (
               <>
