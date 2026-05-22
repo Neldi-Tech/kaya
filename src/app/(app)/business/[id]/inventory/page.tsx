@@ -173,16 +173,24 @@ function ItemRow({ item, currency, canEdit, familyId, businessId }: {
   if (item.loss) subBits.push('written off');
   else if (!item.countedInWorth) subBits.push('not counted yet');
 
+  const showQty = item.qty !== 1 || !!item.unitLabel;
+  const qtyBit = showQty ? `${item.qty}${item.unitLabel ? ` ${item.unitLabel}` : ''}` : '';
+  const priceBit = unit > 0 ? `${formatCash(unit, currency)}${item.unitLabel ? ` / ${item.unitLabel}` : ''}` : '';
+  const metaParts = [qtyBit, priceBit, ...subBits].filter(Boolean);
+
   return (
     <div className={`flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0 ${dimmed ? 'opacity-50' : ''}`}>
-      <div className="min-w-0">
-        <div className="font-nunito font-bold text-[13px] truncate">{item.name}</div>
-        {(subBits.length > 0 || item.qty > 1) && (
-          <div className="text-[11px] text-hive-muted truncate">
-            {item.qty > 1 ? `${item.qty} × ${formatCash(unit, currency)}` : (unit > 0 ? formatCash(unit, currency) : '')}
-            {subBits.length > 0 ? `${item.qty > 1 || unit > 0 ? ' · ' : ''}${subBits.join(' · ')}` : ''}
-          </div>
+      <div className="flex items-center gap-2.5 min-w-0">
+        {item.photoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.photoUrl} alt={item.name} className="w-9 h-9 rounded-hive object-cover bg-hive-cream shrink-0" />
         )}
+        <div className="min-w-0">
+          <div className="font-nunito font-bold text-[13px] truncate">{item.name}</div>
+          {metaParts.length > 0 && (
+            <div className="text-[11px] text-hive-muted truncate">{metaParts.join(' · ')}</div>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
         <span className={`font-nunito font-extrabold text-[13px] ${item.loss ? 'text-hive-rose' : ''}`}>
@@ -216,6 +224,7 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
   const [kind, setKind] = useState<ItemKind>('stock');
   const [name, setName] = useState('');
   const [qty, setQty] = useState('1');
+  const [unitLabel, setUnitLabel] = useState('');
   const [stage, setStage] = useState('');
   const [cost, setCost] = useState('');
   const [market, setMarket] = useState('');
@@ -224,7 +233,7 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const reset = () => { setName(''); setQty('1'); setStage(''); setCost(''); setMarket(''); setCounted(true); setProducing(false); };
+  const reset = () => { setName(''); setQty('1'); setUnitLabel(''); setStage(''); setCost(''); setMarket(''); setCounted(true); setProducing(false); };
 
   const submit = async () => {
     setError('');
@@ -234,6 +243,7 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
       kind,
       name: name.trim(),
       qty: Math.max(1, Math.round(parseFloat(qty) || 1)),
+      unitLabel: unitLabel.trim() || undefined,
       stage: stage.trim() || undefined,
       unitCostCents: centsFrom(cost),
       unitMarketCents: centsFrom(market),
@@ -284,15 +294,20 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
       <input className={field} value={name} onChange={(e) => setName(e.target.value)} maxLength={50}
         placeholder={kind === 'asset' ? 'e.g. “Big Mama” the hen' : 'e.g. Eggs — ready'} />
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div>
           <div className={label}>Quantity</div>
           <input className={field} value={qty} onChange={(e) => setQty(e.target.value)} inputMode="numeric" />
         </div>
         <div>
-          <div className={label}>Stage (optional)</div>
+          <div className={label}>Unit</div>
+          <input className={field} value={unitLabel} onChange={(e) => setUnitLabel(e.target.value)} maxLength={20}
+            placeholder="kg, pcs" />
+        </div>
+        <div>
+          <div className={label}>Stage</div>
           <input className={field} value={stage} onChange={(e) => setStage(e.target.value)} maxLength={20}
-            placeholder={kind === 'asset' ? 'layer, tool' : 'ready, ripening'} />
+            placeholder={kind === 'asset' ? 'layer' : 'ready'} />
         </div>
       </div>
 
