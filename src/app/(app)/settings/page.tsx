@@ -830,6 +830,22 @@ export default function SettingsPage() {
     setSavingKidModule(null);
   };
 
+  // Privacy — may a kid open a sibling's profile? Absent ⇒ on (matches
+  // the behaviour before this toggle). When off, the Kid profiles page
+  // locks each kid to their own card; Reports + Family tree are
+  // unaffected. Only meaningful when the Stats module (which holds the
+  // Kid profiles page) is granted — the toggle is surfaced there.
+  const siblingProfilesOn = family?.kidsCanSeeSiblingProfiles !== false;
+  const [savingSiblingProfiles, setSavingSiblingProfiles] = useState(false);
+  const toggleSiblingProfiles = async () => {
+    if (!profile?.familyId || !family || isGuest || savingSiblingProfiles) return;
+    setSavingSiblingProfiles(true);
+    try {
+      await updateFamily(profile.familyId, { kidsCanSeeSiblingProfiles: !siblingProfilesOn } as any);
+    } catch {}
+    setSavingSiblingProfiles(false);
+  };
+
   // Earning-method picker. Fall back to the Phase-1 default for families that
   // existed before this feature so their UX doesn't suddenly empty out.
   const selectedMethods = family?.earningMethods ?? DEFAULT_EARNING_METHODS;
@@ -2279,6 +2295,44 @@ export default function SettingsPage() {
                   );
                 })}
               </div>
+
+              {/* Privacy — sibling profile visibility. Surfaced only
+                  when Stats (which contains the Kid profiles page) is
+                  on, so the toggle never appears for something the kid
+                  can't reach. */}
+              {selectedKidModules.includes('stats') && (
+                <div className="mt-4 pt-4 border-t border-kaya-warm-dark/50">
+                  <p className="text-[10px] text-kaya-sand font-semibold uppercase tracking-wider mb-2">Privacy</p>
+                  <button
+                    onClick={toggleSiblingProfiles}
+                    disabled={isGuest || savingSiblingProfiles}
+                    className={`w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
+                      siblingProfilesOn
+                        ? 'border-kaya-gold bg-kaya-gold/5'
+                        : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
+                    } ${savingSiblingProfiles ? 'opacity-60' : ''} ${isGuest ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  >
+                    <span className="text-2xl shrink-0 leading-none">👀</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold leading-tight">Kids can see each other&apos;s profiles</p>
+                      <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                        {siblingProfilesOn
+                          ? 'On — any kid can open a sibling profile from the Kid profiles page.'
+                          : 'Off — each kid sees only their own profile card. Reports and Family tree are unaffected.'}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                        siblingProfilesOn
+                          ? 'bg-kaya-gold border-kaya-gold text-white'
+                          : 'border-kaya-warm-dark bg-white text-transparent'
+                      }`}
+                    >
+                      {siblingProfilesOn ? '✓' : ''}
+                    </span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

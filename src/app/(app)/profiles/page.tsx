@@ -73,19 +73,40 @@ export default function ProfilesPage() {
   const [wishUrl, setWishUrl] = useState('');
   const [savingWish, setSavingWish] = useState(false);
 
+  // Privacy lock — when a parent turns off sibling-profile visibility,
+  // a kid is pinned to their own profile and the sibling switcher is
+  // hidden. Computed before the effects below so it can gate the
+  // deep-link handler + dependency arrays without a TDZ. Absent flag ⇒
+  // unlocked (kids can see each other, the pre-toggle behaviour).
+  const lockToOwn =
+    profile?.role === 'kid' && family?.kidsCanSeeSiblingProfiles === false;
+
   // Honor ?child=<id> for deep links from the dashboard / Family Tree.
+  // Skipped when locked so a kid can't jump to a sibling via the URL.
   useEffect(() => {
+    if (lockToOwn) return;
     const childId = searchParams.get('child');
     if (!childId || children.length === 0) return;
     const idx = children.findIndex((c) => c.id === childId);
     if (idx >= 0) setSelected(idx);
-  }, [searchParams, children]);
+  }, [searchParams, children, lockToOwn]);
+
+  // Pin the selection to the kid's own profile while locked.
+  useEffect(() => {
+    if (!lockToOwn) return;
+    const idx = children.findIndex((c) => c.id === profile?.childId);
+    if (idx >= 0) setSelected(idx);
+  }, [lockToOwn, children, profile?.childId]);
 
   // Honor ?edit=<section> deep link so a tap from the Family Tree lands
   // straight in the editor for that kid without an extra "Edit" tap.
   // Supported values today: 'identity' (the About editor — birthday, email,
   // handle), 'photo' (avatar picker).
-  const child = children[selected];
+  // While locked, resolve directly to the kid's own child so a sibling
+  // can never render even for a frame before the pin effect runs.
+  const child = lockToOwn
+    ? (children.find((c) => c.id === profile?.childId) ?? children[selected])
+    : children[selected];
   useEffect(() => {
     if (!child || isGuest || profile?.role !== 'parent') return;
     const editMode = searchParams.get('edit');
@@ -375,21 +396,23 @@ export default function ProfilesPage() {
         <p className="hidden lg:block text-sm text-kaya-sand mt-1">Per-child progress, badges, and recent awards.</p>
       </div>
 
-      {/* Child selector */}
-      <div className="flex gap-2 mb-5 lg:mb-6 overflow-x-auto pb-1">
-        {children.map((c, i) => (
-          <button
-            key={c.id}
-            onClick={() => setSelected(i)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition-all ${
-              selected === i ? 'text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand'
-            }`}
-            style={selected === i ? { backgroundColor: c.houseColor } : {}}
-          >
-            {c.avatarEmoji} {c.name}
-          </button>
-        ))}
-      </div>
+      {/* Child selector — hidden when a kid is locked to their own profile. */}
+      {!lockToOwn && (
+        <div className="flex gap-2 mb-5 lg:mb-6 overflow-x-auto pb-1">
+          {children.map((c, i) => (
+            <button
+              key={c.id}
+              onClick={() => setSelected(i)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap border transition-all ${
+                selected === i ? 'text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand'
+              }`}
+              style={selected === i ? { backgroundColor: c.houseColor } : {}}
+            >
+              {c.avatarEmoji} {c.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
         <div className="lg:col-span-5 mb-5 lg:mb-0 lg:sticky lg:top-20">
