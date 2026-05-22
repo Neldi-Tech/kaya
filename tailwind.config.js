@@ -46,6 +46,25 @@ module.exports = {
           'leaf-dk': '#3F7A66',
           'leaf-soft': '#C9E5D7',
         },
+        // ── Kaya Pulse · scoped tokens (2026-05-22). Premium navy/gold for
+        //    parent finance surfaces; the `joy-*` playful set for kid/helper
+        //    logging screens. Scoped like hive-*/pantry-* — never overwrites
+        //    kaya-*. Use only inside /pulse routes + Pulse components.
+        pulse: {
+          navy: '#0F1F44',
+          gold: '#D4A847',
+          'gold-dk': '#B58A2F',
+          cream: '#FBF7EE',
+          bone: '#FFFCF5',
+          coral: '#E85C5C',
+          green: '#2E7D34',
+          'joy-coral': '#FF6B6B',
+          'joy-yellow': '#FFD93D',
+          'joy-green': '#6BCB77',
+          'joy-purple': '#9B5DE5',
+          'joy-mint': '#4ECDC4',
+          'joy-ink': '#2D1B5E',
+        },
       },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],

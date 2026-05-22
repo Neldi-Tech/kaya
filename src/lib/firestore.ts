@@ -13,6 +13,10 @@ import { FOUNDING_FAMILY_LIMIT, generateReferralCode } from './referral';
 // Type-only import — business.ts never imports firestore.ts, so this adds no
 // runtime cycle. Lets Family.businessConfig stay in sync with the canonical shape.
 import type { BusinessConfig } from './business';
+// Type-only — pulse.ts imports firestore types (Role) only as types, so this
+// adds no runtime cycle. Keeps Family.pulsePlan/pulseConfig in sync with the
+// canonical shapes in lib/pulse.ts. (2026-05-22, Kaya Pulse.)
+import type { PulsePlan, PulseConfig } from './pulse';
 
 // ── Types ──────────────────────────────────────────
 // `guest` is the most restricted role — added so families can hand out
@@ -276,6 +280,15 @@ export interface Family {
     drivers?: number;
     utility?: number;
   };
+  // ── Kaya Pulse (2026-05-22) ──────────────────────────────────
+  /** Savings plan — the parent's intent (% to cut/keep OR an absolute amount
+   *  to save). The system auto-suggests focus buckets + a cut %, the parent
+   *  overrides; both modes resolve to per-module caps in householdBudgets.
+   *  See lib/pulse.ts `PulsePlan`. */
+  pulsePlan?: PulsePlan;
+  /** Per-family Pulse tunables (anomaly multiplier, streak bonuses, default
+   *  Wealth allocation). Partial — merged with DEFAULT_PULSE_CONFIG. */
+  pulseConfig?: Partial<PulseConfig>;
   // ── Meeting setup ────────────────────────────────────────────
   // Parent-controlled configuration the presenter reads on meeting
   // night. Optional — absent = sensible defaults (every step in the
