@@ -290,9 +290,17 @@ export interface BusinessConfig {
     perDayHp: number;
     weeklyCapHp: number;
   };
+  /** How big "worth / value" numbers are shown (Portfolio worth, business
+   *  worth, inventory roll-up, investor portfolio). Kid-readability vs
+   *  precision — parent picks. Transaction amounts (prices/sales/costs) stay
+   *  exact regardless. Default 'whole' (no cents). */
+  displayRounding: DisplayRounding;
   /** Asset Type Library starter set (keys from ASSET_LIBRARY). Parent-managed. */
   assetLibrary?: string[];
 }
+
+/** Worth-display rounding: exact (with cents) · whole unit · nearest 10 · 100. */
+export type DisplayRounding = 'exact' | 'whole' | 'ten' | 'hundred';
 
 export const DEFAULT_HIVE_SPLIT: HiveSplit = { spend: 40, save: 25, goal: 20, invest: 15 };
 
@@ -309,6 +317,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     menu: ['LEGO_INDEX', 'DIS', 'KO', 'SP500', 'BANKS_FUND'],
   },
   hpAward: { mode: 'parent_review', perDayHp: 5, weeklyCapHp: 40 },
+  displayRounding: 'whole',
   assetLibrary: ['passion_fruit', 'eggs', 'chickens', 'vegetables', 'service_generic'],
 };
 

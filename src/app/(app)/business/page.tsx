@@ -111,6 +111,7 @@ export default function BusinessPortfolioPage() {
               investedCents={investedValue}
               businessCount={open.length}
               currency={config.currency}
+              rounding={bizConfig.displayRounding}
             />
           </div>
 
@@ -159,7 +160,7 @@ export default function BusinessPortfolioPage() {
           ) : (
             <div className="space-y-2.5 mb-4">
               {businesses.map((b) => (
-                <BusinessCard key={b.id} business={b} currency={config.currency} />
+                <BusinessCard key={b.id} business={b} currency={config.currency} rounding={bizConfig.displayRounding} />
               ))}
             </div>
           )}
