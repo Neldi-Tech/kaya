@@ -17,6 +17,48 @@ export function todayKey(): string {
   return dayKeyInTZ(new Date(), PULSE_TZ);
 }
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
+
+/** Resolve the owner's login uid (helper = the id itself; kid = the user whose
+ *  childId matches) and drop a Pulse reminder into their feed + a push. Used by
+ *  the generate cron (due) and the scan cron (missed). Best-effort — never throws. */
+export async function notifyPulseOwner(
+  famRef: FirebaseFirestore.DocumentReference,
+  owner: { kind?: string; id: string },
+  note: { type: string; title: string; message: string; link: string },
+): Promise<void> {
+  try {
+    let uid: string | undefined;
+    if (owner.kind === 'helper') {
+      uid = owner.id;
+    } else {
+      const us = await famRef.firestore
+        .collection('users')
+        .where('familyId', '==', famRef.id)
+        .where('childId', '==', owner.id)
+        .get();
+      uid = us.docs[0]?.id;
+    }
+    if (!uid) return; // kid with no login → nothing to notify
+    await famRef.collection('notifications').add({
+      type: note.type,
+      title: note.title,
+      message: note.message,
+      read: false,
+      forUserId: uid,
+      link: note.link,
+      createdAt: new Date(),
+    });
+    void fetch(`${APP_URL}/api/push`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ uid, title: note.title, body: note.message, url: note.link, tag: note.type }),
+    }).catch(() => {});
+  } catch {
+    /* best-effort */
+  }
+}
+
 function weekdayOf(dayKey: string): number {
   return new Date(`${dayKey}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
 }
@@ -79,6 +121,12 @@ export async function generateForFamily(
         pointsValue: Number(tpl.pointsValue ?? 0),
       });
       created++;
+      await notifyPulseOwner(famRef, { kind: tpl.ownerKind, id: ownerId }, {
+        type: 'pulse-reading-due',
+        title: '📈 Reading to log',
+        message: 'You have a meter reading to log today.',
+        link: `/pulse/log/${tplDoc.id}_${dayKey}`,
+      });
     } catch {
       // ALREADY_EXISTS → idempotent no-op (already generated today).
     }
