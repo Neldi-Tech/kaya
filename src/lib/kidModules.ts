@@ -83,6 +83,11 @@ export const KID_MODULES: KidModule[] = [
   { id: 'wealth',    label: 'Kaya Wealth',    icon: '💎', path: '/wealth',   soon: true },
   { id: 'wellness',  label: 'Kaya Wellness',  icon: '🧘', path: '/wellness', soon: true },
   { id: 'chef',      label: 'Kaya Chef',      icon: '🍳', path: '/chef',     soon: true },
+  // Stats — Reports / Kid profiles / Family tree. Defined WITHOUT
+  // subModules (extraPaths instead) so all three pages gate on the
+  // single top-level `stats` id — granting `stats` unlocks the whole
+  // section without per-page sub-grants.
+  { id: 'stats',     label: 'Stats',          icon: '📊', path: '/reports', extraPaths: ['/profiles', '/family-tree'] },
   // ── Phased-out (OFF by default) ───────────────────────────────────
   { id: 'discover',  label: 'Discover',       icon: '🔎', path: '/',        isLegacy: true },
   { id: 'badges',    label: 'Badges',         icon: '🏆', path: '/badges',  isLegacy: true },
@@ -91,7 +96,16 @@ export const KID_MODULES: KidModule[] = [
 
 // Default set granted to kids when `Family.kidModules` is undefined.
 // Slim by design — parents opt their kids into more via Settings.
-export const DEFAULT_KID_MODULES = ['home', 'moments', 'kaya', 'hive', 'fun'];
+// `kaya:meetings` + `kaya:rewards` light up the kid-safe Kaya surfaces
+// (Family meeting + Rewards) while leaving Rate/Award parent-only;
+// `badges` rounds out the kid Kaya section; `stats` opens Reports /
+// Kid profiles / Family tree (one grant, all three via extraPaths);
+// `discover` brings back the Discover landing.
+export const DEFAULT_KID_MODULES = [
+  'home', 'moments',
+  'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
+  'hive', 'fun', 'discover', 'stats',
+];
 
 /** Resolve the granted module-id set for a family. Adds `home`
  *  unconditionally and falls back to {@link DEFAULT_KID_MODULES} when
