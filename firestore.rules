@@ -592,6 +592,85 @@ service cloud.firestore {
           || isLegacyHelperWithoutLink(familyId);
       }
 
+      // ════════════════════════════════════════════════════════════
+      // Kaya Pulse (2026-05-22) — finance/task module folded into the
+      // app. Trackables + templates are parent-managed config. Readings
+      // are an immutable, append-only ledger (corrections = new docs).
+      // Helpers act when granted the 'pulse' module; a kid acts on their
+      // own tasks/readings. Crons write via the Admin SDK (bypass rules).
+      // ════════════════════════════════════════════════════════════
+
+      // Non-meter trackables (fuel / generator / odometer / custom).
+      // Utility trackables reuse /utilityMeters above. Config = parent.
+      match /trackables/{trackableId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
+      }
+
+      // Immutable consumption ledger. Anyone who can log — a parent, a
+      // pulse-granted helper, or the kid logging their OWN reading — may
+      // CREATE; nobody may edit or delete (a correction is a new doc
+      // referencing the original via correctionOf).
+      match /readings/{readingId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if isParentInFamily(familyId)
+          || helperCanActOnModule(familyId, 'pulse')
+          || isThisKid(familyId, request.resource.data.capturedBy);
+        allow update, delete: if false;
+      }
+
+      // Task templates — parent-managed config (admin-only writes).
+      match /pulseTemplates/{templateId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
+      }
+
+      // Daily task instances. Created by the generator cron (Admin SDK)
+      // or a parent; the OWNER flips their own task to logged/closed, and
+      // a parent can override any task.
+      match /pulseTasks/{taskId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if isParentInFamily(familyId);
+        allow update: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.ownerId)
+          || (helperCanActOnModule(familyId, 'pulse') && resource.data.ownerId == request.auth.uid);
+        allow delete: if isParentInFamily(familyId);
+      }
+
+      // Savings → Wealth pending-deposit pool (one doc per month). Created
+      // by the month-end cron; parents approve/deposit. Never deleted.
+      match /wealthPool/{monthKey} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId);
+        allow delete: if false;
+      }
+
+      // Frozen month-end budget aggregate (cron-written; parent fallback).
+      match /budgetSnapshots/{monthKey} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId);
+        allow delete: if false;
+      }
+
+      // Anomaly alerts — created as part of logging; acknowledged by a
+      // parent. Never deleted (audit trail).
+      match /pulseAlerts/{alertId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if belongsToFamily(familyId);
+        allow update: if isParentInFamily(familyId);
+        allow delete: if false;
+      }
+
+      // Pulse-scoped streak per owner (doc id = Child id or helper uid).
+      // The owner updates their own; a parent updates any.
+      match /pulseProfiles/{ownerId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId)
+          || isThisKid(familyId, ownerId)
+          || (helperCanActOnModule(familyId, 'pulse') && ownerId == request.auth.uid);
+        allow delete: if false;
+      }
+
       // ── Counters (2026-05-18) ──────────────────────────────────
       // Per-family monotonic counters for things like the
       // per-module request sequence (`PNT-0042`). One doc per

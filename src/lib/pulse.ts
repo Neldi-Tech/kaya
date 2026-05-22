@@ -15,13 +15,16 @@
 //   • CASH         = closed purchaseRequests vs householdBudgets → real money.
 //     Savings → Wealth is computed from the CASH lens only.
 
-import { collection, doc } from 'firebase/firestore';
+import {
+  collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, serverTimestamp, query, where,
+} from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
+import { isGuestActive } from './mockFamily';
 import type { Role } from './firestore';
 import type { PurchaseModule } from './purchase';
 import type { UtilityMeter } from './utilityMeters';
-import { meterEmoji } from './utilityMeters';
+import { meterEmoji, subscribeToMeters } from './utilityMeters';
 
 /* ============================================================
    OWNERS — Pulse references real people, never a synthetic id
@@ -483,3 +486,168 @@ export const budgetSnapshotDoc = (fid: string, monthKey: string) => doc(db, 'fam
 export const pulseAlertsCol = (fid: string) => collection(db, 'families', fid, 'pulseAlerts');
 export const pulseAlertDoc = (fid: string, id: string) => doc(db, 'families', fid, 'pulseAlerts', id);
 export const pulseProfileDoc = (fid: string, ownerId: string) => doc(db, 'families', fid, 'pulseProfiles', ownerId);
+
+/* ============================================================
+   TRACKABLES — CRUD (new non-meter collection) + merged view
+   ============================================================ */
+export function subscribeToTrackableDocs(fid: string, cb: (t: TrackableDoc[]) => void): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  // Single-field collection read + JS sort (no composite index needed) — the
+  // same convention utilityMeters uses so a missing index can't blank the list.
+  return onSnapshot(
+    trackablesCol(fid),
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as TrackableDoc));
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] trackable docs subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
+export async function addTrackable(
+  fid: string,
+  data: Omit<TrackableDoc, 'id' | 'createdAt' | 'active'> & { active?: boolean },
+): Promise<string> {
+  if (isGuestActive()) return 'guest-trackable';
+  const ref = await addDoc(trackablesCol(fid), {
+    ...data,
+    active: data.active ?? true,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function updateTrackable(
+  fid: string,
+  id: string,
+  patch: Partial<Omit<TrackableDoc, 'id' | 'createdAt'>>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(trackableDoc(fid, id), { ...patch, updatedAt: serverTimestamp() });
+}
+
+export async function removeTrackable(fid: string, id: string): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(trackableDoc(fid, id));
+}
+
+/** Unified, live trackable list (pulse-enabled utility meters + non-meter
+ *  trackables) merged into one `Trackable[]` for dashboards, Today + the
+ *  template picker. Combines two subscriptions and emits once both arrive. */
+export function subscribeToTrackables(fid: string, cb: (t: Trackable[]) => void): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  let meters: UtilityMeter[] = [];
+  let docs: TrackableDoc[] = [];
+  let gotMeters = false;
+  let gotDocs = false;
+  const emit = () => {
+    if (!gotMeters || !gotDocs) return;
+    cb([
+      ...meters.filter((m) => m.pulseEnabled && m.active).map(meterToTrackable),
+      ...docs.filter((t) => t.active).map(trackableDocToTrackable),
+    ]);
+  };
+  const unsubMeters = subscribeToMeters(fid, (m) => {
+    meters = m;
+    gotMeters = true;
+    emit();
+  });
+  const unsubDocs = subscribeToTrackableDocs(fid, (d) => {
+    docs = d;
+    gotDocs = true;
+    emit();
+  });
+  return () => {
+    unsubMeters();
+    unsubDocs();
+  };
+}
+
+/* ============================================================
+   TEMPLATES — CRUD
+   ============================================================ */
+export function subscribeToTemplates(fid: string, cb: (t: PulseTemplate[]) => void): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    pulseTemplatesCol(fid),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PulseTemplate))),
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] templates subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
+export async function addTemplate(
+  fid: string,
+  data: Omit<PulseTemplate, 'id' | 'createdAt' | 'active'> & { active?: boolean },
+): Promise<string> {
+  if (isGuestActive()) return 'guest-template';
+  const ref = await addDoc(pulseTemplatesCol(fid), {
+    ...data,
+    active: data.active ?? true,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function updateTemplate(
+  fid: string,
+  id: string,
+  patch: Partial<Omit<PulseTemplate, 'id' | 'createdAt'>>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(pulseTemplateDoc(fid, id), patch);
+}
+
+export async function removeTemplate(fid: string, id: string): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(pulseTemplateDoc(fid, id));
+}
+
+/* ============================================================
+   TASKS — read (an owner's tasks for a given day)
+   ============================================================ */
+/** The "Today" feed for one person: query by ownerId (auto single-field
+ *  index) then filter the day + sort by dueAt in memory — no composite index. */
+export function subscribeToOwnerTasks(
+  fid: string,
+  ownerId: string,
+  dayKey: string,
+  cb: (t: PulseTask[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(pulseTasksCol(fid), where('ownerId', '==', ownerId)),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as PulseTask))
+        .filter((t) => t.dayKey === dayKey)
+        .sort((a, b) => (a.dueAt?.toMillis() ?? 0) - (b.dueAt?.toMillis() ?? 0));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] owner tasks subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
