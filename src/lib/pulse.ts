@@ -53,9 +53,10 @@ export type MeterDirection = 'up' | 'down';
  *  collection. One view-model (`Trackable`) merges both for the UI. */
 export type TrackableSource = 'meter' | 'trackable';
 
-export type NonMeterTrackableType = 'fuel' | 'generator' | 'odometer' | 'gas' | 'custom';
+export type NonMeterTrackableType = 'water' | 'fuel' | 'generator' | 'odometer' | 'gas' | 'custom';
 
 export const NON_METER_TYPES: { id: NonMeterTrackableType; emoji: string; label: string }[] = [
+  { id: 'water', emoji: '💧', label: 'Water' },
   { id: 'fuel', emoji: '⛽', label: 'Fuel' },
   { id: 'generator', emoji: '⚙️', label: 'Generator' },
   { id: 'odometer', emoji: '🚗', label: 'Odometer' },
