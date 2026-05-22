@@ -29,6 +29,7 @@ import {
   type OwnerType, type RotationPeriod,
   subscribeToTrackables, subscribeToTemplates, addTemplate, removeTemplate, generateTasksNow,
 } from '@/lib/pulse';
+import { PulseMark } from '@/components/pulse/ui';
 
 const CADENCE_OPTS: { id: PulseCadence; label: string }[] = [
   { id: 'daily', label: 'Daily' },
@@ -196,9 +197,23 @@ function MeterPulseRow({ meter, familyId, currency }: { meter: UtilityMeter; fam
   return (
     <div className={`rounded-2xl p-3 border ${enabled ? 'bg-pulse-bone border-pulse-gold' : 'bg-white border-pulse-gold/30'}`}>
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{meterEmoji(meter.type)}</div>
+        <div className="relative w-9 h-9 flex-shrink-0">
+          <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{meterEmoji(meter.type)}</div>
+          {enabled && (
+            <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white border border-pulse-gold flex items-center justify-center shadow-sm">
+              <PulseMark className="w-2.5 h-2.5" />
+            </div>
+          )}
+        </div>
         <div className="flex-1 min-w-0">
-          <div className="font-nunito font-extrabold text-sm text-pulse-navy truncate">{meter.label}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-nunito font-extrabold text-sm text-pulse-navy truncate">{meter.label}</span>
+            {enabled && (
+              <span className="flex-shrink-0 inline-flex items-center gap-0.5 text-[9px] font-nunito font-black uppercase tracking-wide text-pulse-gold-dk bg-pulse-gold/15 px-1.5 py-0.5 rounded-full">
+                ✓ Tracked
+              </span>
+            )}
+          </div>
           <div className="text-[11px] text-hive-muted font-bold">
             {hasPrice ? `${formatCents(meter.pricePerUnitCents!, currency)}/${meter.unit || 'unit'}` : 'No unit price set'}
           </div>
@@ -206,10 +221,10 @@ function MeterPulseRow({ meter, familyId, currency }: { meter: UtilityMeter; fam
         <button
           onClick={toggle}
           disabled={busy}
-          className={`text-xs font-nunito font-black px-3 py-1.5 rounded-full border ${
-            enabled ? 'bg-pulse-navy text-pulse-gold border-pulse-navy' : 'bg-white text-pulse-navy border-pulse-gold'
+          className={`text-xs font-nunito font-black px-3 py-1.5 rounded-full border flex-shrink-0 ${
+            enabled ? 'bg-white text-hive-muted border-pulse-gold/40' : 'bg-pulse-navy text-pulse-gold border-pulse-navy'
           }`}
-        >{enabled ? '✓ In Pulse' : '＋ Track'}</button>
+        >{enabled ? 'Untrack' : '＋ Track'}</button>
       </div>
 
       {enabled && (
