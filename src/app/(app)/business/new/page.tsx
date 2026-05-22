@@ -38,7 +38,10 @@ export default function NewBusinessPage() {
   // Only Goods / Service / Advice / Sport / Learning / Ad-hoc in the picker
   // (co-op is Phase 2 and created differently). Phase-2 types render disabled.
   const pickable = BUSINESS_TYPES.filter((t) => t.key !== 'coop');
-  const ownerId = isParent ? forKid : (profile?.childId ?? null);
+  // For a parent, fall back to the first kid so a not-yet-resolved activeKidId
+  // can't leave the form with no owner (which silently disables Create).
+  const effectiveKid = isParent ? (forKid ?? children[0]?.id ?? null) : null;
+  const ownerId = isParent ? effectiveKid : (profile?.childId ?? null);
 
   const toggleChannel = (c: CustomerChannel) => {
     setChannels((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
@@ -94,7 +97,7 @@ export default function NewBusinessPage() {
           <div className={label}>Whose business?</div>
           <div className="flex flex-wrap gap-2">
             {children.map((c) => (
-              <button key={c.id} type="button" onClick={() => setForKid(c.id)} className={seg(forKid === c.id)}>
+              <button key={c.id} type="button" onClick={() => setForKid(c.id)} className={seg(effectiveKid === c.id)}>
                 {c.avatarEmoji} {c.name}
               </button>
             ))}
@@ -113,9 +116,9 @@ export default function NewBusinessPage() {
               type="button"
               disabled={!enabled}
               onClick={() => setType(t.key)}
-              className={`relative rounded-hive p-3 text-center border transition ${
-                active ? 'border-hive-navy bg-hive-paper' : 'border-hive-line bg-hive-paper'
-              } ${enabled ? 'hover:border-hive-honey' : 'opacity-45 cursor-not-allowed'}`}
+              className={`relative rounded-hive p-3 text-center border-2 transition ${
+                active ? 'border-hive-navy bg-hive-navy text-hive-honey shadow-sm' : 'border-hive-line bg-hive-paper text-hive-navy'
+              } ${enabled ? 'hover:border-hive-honey active:scale-[0.98]' : 'opacity-45 cursor-not-allowed'}`}
             >
               <div className="text-[22px] leading-none">{t.emoji}</div>
               <div className="text-[11px] font-nunito font-extrabold mt-1">{t.label}</div>
@@ -240,6 +243,14 @@ export default function NewBusinessPage() {
       >
         {saving ? 'Creating…' : isParent ? 'Create business' : 'Start as Pilot →'}
       </button>
+      {!canSubmit && !saving && (
+        <p className="text-[12px] text-[#B25E16] text-center mt-2 font-nunito font-bold">
+          {!type ? '👆 Pick a type to start'
+            : name.trim().length < 2 ? '✏️ Give it a name'
+            : !ownerId ? 'Pick whose business it is'
+            : 'Choose who can buy'}
+        </p>
+      )}
       {!isParent && (
         <p className="text-[11px] text-hive-muted text-center mt-2 leading-relaxed">
           Pilots run free. When you&apos;re ready to go <b>Active</b>, you&apos;ll send a quick launch request
