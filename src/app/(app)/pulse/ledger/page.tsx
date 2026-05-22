@@ -5,6 +5,7 @@
 // (a placeholder until helper owners land with the assignment engine).
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { getAwardsInDateRange } from '@/lib/firestore';
@@ -18,8 +19,14 @@ import {
 const PULSE_TZ = 'Africa/Dar_es_Salaam';
 
 export default function PulseLedgerPage() {
+  const router = useRouter();
   const { profile } = useAuth();
   const { children: kids } = useFamily();
+
+  // Standings are for parents + kids (their leaderboard). Helpers log from Today.
+  useEffect(() => {
+    if (profile && profile.role === 'helper') router.replace('/pulse/today');
+  }, [profile, router]);
   const [tab, setTab] = useState<'kids' | 'helpers'>('kids');
   const thisMonth = dayKeyInTZ(new Date(), PULSE_TZ).slice(0, 7);
 

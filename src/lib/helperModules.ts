@@ -148,7 +148,6 @@ export function helperModuleKeyForPath(pathname: string): string | undefined {
     '/business': 'business',
     '/pulse/today': 'pulse',
     '/pulse/log': 'pulse',
-    '/pulse/ledger': 'pulse',
     '/directory': 'household:directory',
     '/profiles': 'profiles',
     '/videos':  'fun',
