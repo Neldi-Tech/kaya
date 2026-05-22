@@ -630,6 +630,10 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
   // Collapsed by default so the access list reads as a calm summary —
   // the parent taps a chevron to reveal + allocate that area's subs.
   const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
+  // Master collapse for the whole "Areas this helper can access" block —
+  // parity with the kids' "What kids see" global collapse. Collapsed by
+  // default; the per-area chevrons inside still work once it's open.
+  const [areasOpen, setAreasOpen] = useState(false);
   const toggleAreaExpand = (id: string) =>
     setExpandedAreas((prev) => {
       const next = new Set(prev);
@@ -925,11 +929,21 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
               act implies view. Cards rule-enforced through
               firestore.rules' helperCanViewModule / helperCanActOnModule. */}
           <div>
-            <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Areas this helper can access</p>
-            <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
-              <span className="inline-flex items-center gap-1 mr-2"><Eye size={11} /> <span className="font-bold">View</span> = can see the data</span>
-              <span className="inline-flex items-center gap-1"><Pencil size={11} /> <span className="font-bold">Act</span> = can add / edit / delete</span>
-            </p>
+            <button
+              type="button"
+              onClick={() => setAreasOpen((o) => !o)}
+              aria-expanded={areasOpen}
+              className="w-full flex items-center justify-between gap-2 text-left mb-2"
+            >
+              <span className="text-xs font-bold uppercase tracking-wider text-kaya-sand">Areas this helper can access</span>
+              {areasOpen ? <ChevronUp size={16} className="text-kaya-sand shrink-0" /> : <ChevronDown size={16} className="text-kaya-sand shrink-0" />}
+            </button>
+            {areasOpen && (
+              <>
+                <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
+                  <span className="inline-flex items-center gap-1 mr-2"><Eye size={11} /> <span className="font-bold">View</span> = can see the data</span>
+                  <span className="inline-flex items-center gap-1"><Pencil size={11} /> <span className="font-bold">Act</span> = can add / edit / delete</span>
+                </p>
             <div className="space-y-2">
               {moduleOptions.map((m) => {
                 const agg = parentAggregate(m);
@@ -1035,6 +1049,8 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
             <p className="text-[10px] text-kaya-sand mt-2">
               Turning <span className="font-bold">Act</span> on auto-enables <span className="font-bold">View</span>. Turning View off auto-disables Act. Grandparents default to View-only across everything.
             </p>
+              </>
+            )}
           </div>
 
           {/* Workplan — recurring tasks per day. Inline so it lives

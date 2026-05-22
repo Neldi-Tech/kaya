@@ -1949,8 +1949,7 @@ export default function SettingsPage() {
           {/* Family options — small toggles that change what kids and
               parents see when editing their profiles. */}
           {isParent && family && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Family options</p>
+            <CollapsibleSection title="Family options">
               <button
                 onClick={toggleAllowGenderOther}
                 disabled={savingGenderOption || isGuest}
@@ -1970,7 +1969,7 @@ export default function SettingsPage() {
                   </p>
                 </div>
               </button>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Inline referral panel — mobile only (desktop renders it in the right column) */}
@@ -1985,11 +1984,7 @@ export default function SettingsPage() {
               as. Always visible (no Show/Hide gate) so parents don't
               hunt for them when inviting a kid mid-conversation. */}
           {isParent && family && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-baseline justify-between mb-1">
-                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Invite codes</p>
-                <span className="text-[10px] text-kaya-sand-light">3 codes · 1 per role</span>
-              </div>
+            <CollapsibleSection title="Invite codes" summary="3 codes · 1 per role">
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Share the matching code so each person joins with the right access. The code itself sets the role at sign-up.
               </p>
@@ -2082,7 +2077,7 @@ export default function SettingsPage() {
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
                 Codes auto-deactivate after one successful join. Re-activate or regenerate any time. Inviting <em>other</em> families to start their own? Use the referral link instead.
               </p>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Helpers — Tier A login + per-kid scope. Separate page so
@@ -2119,13 +2114,10 @@ export default function SettingsPage() {
               member detaches them from this family but keeps their
               account so they can rejoin with a fresh code. */}
           {isParent && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-baseline justify-between mb-1">
-                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Family members</p>
-                <span className="text-[10px] text-kaya-sand-light">
-                  {members === null ? '…' : `${members.length} ${members.length === 1 ? 'person' : 'people'}`}
-                </span>
-              </div>
+            <CollapsibleSection
+              title="Family members"
+              summary={members === null ? '…' : `${members.length} ${members.length === 1 ? 'person' : 'people'}`}
+            >
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Everyone with access to your family right now. Remove anyone you didn&apos;t intend to add — they keep their account but lose access until you invite them again.
               </p>
@@ -2201,7 +2193,7 @@ export default function SettingsPage() {
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
                 Kids&apos; profiles (the children themselves) are managed separately under the section below — these are people with sign-in access.
               </p>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* What kids see — module visibility toggles. Drives the
@@ -2384,13 +2376,10 @@ export default function SettingsPage() {
 
           {/* How kids earn points */}
           {isParent && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-baseline justify-between mb-1">
-                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">How kids earn points</p>
-                <span className="text-[10px] text-kaya-sand-light">
-                  {selectedMethods.length}/{FREE_EARNING_METHOD_LIMIT} active
-                </span>
-              </div>
+            <CollapsibleSection
+              title="How kids earn points"
+              summary={`${selectedMethods.length}/${FREE_EARNING_METHOD_LIMIT} active`}
+            >
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Pick up to {FREE_EARNING_METHOD_LIMIT} ways your family runs. Extras are part of the Pro plan.
               </p>
@@ -2453,20 +2442,18 @@ export default function SettingsPage() {
               <p className="text-[10px] text-kaya-sand-light mt-3 leading-relaxed">
                 The roadmap items show up here so you know what&apos;s next. We&apos;ll switch them on as they ship.
               </p>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Point system rules — tier caps, reducing on/off, Kudos +
               Improvement Note thresholds. Only relevant when the family
               uses "Bonus awards" (the awards module). */}
           {isParent && selectedMethods.includes('awards') && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 space-y-4">
-              <div>
-                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Point system rules</p>
-                <p className="text-[11px] text-kaya-sand mt-1 leading-relaxed">
+            <CollapsibleSection title="Point system rules">
+              <div className="space-y-4">
+                <p className="text-[11px] text-kaya-sand leading-relaxed">
                   Tune the limits and special award types. Defaults work well — tweak only what your family needs.
                 </p>
-              </div>
 
               {/* Routine Points → House Points conversion */}
               <div className="border-t border-kaya-warm-dark/40 pt-3">
@@ -2797,7 +2784,8 @@ export default function SettingsPage() {
                   </div>
                 )}
               </div>
-            </div>
+              </div>
+            </CollapsibleSection>
           )}
 
           {/* Daily routines editor — the morning / evening checklist
@@ -2810,8 +2798,7 @@ export default function SettingsPage() {
               ratings). Surfaced as a link rather than inline so the
               dense mapping UI lives on its own page. */}
           {isParent && !isGuest && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">Import past ratings</p>
+            <CollapsibleSection title="Import past ratings">
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Bringing data from a Google Sheet or spreadsheet log? Paste it once, map the columns, and we&apos;ll
                 back-fill the daily ratings (comments included). Re-running is safe — existing rows for the same
@@ -2823,13 +2810,12 @@ export default function SettingsPage() {
               >
                 📥 Open importer
               </a>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Points Mode */}
           {isParent && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Points mode</p>
+            <CollapsibleSection title="Points mode">
               <div className="space-y-2">
                 {[
                   { value: 'full' as PointsMode, label: 'Full Points', desc: 'Show all points and rankings' },
@@ -2848,7 +2834,7 @@ export default function SettingsPage() {
                   </button>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Device push notifications (FCM). Sits above the email
@@ -2858,8 +2844,7 @@ export default function SettingsPage() {
 
           {/* Notifications */}
           {!isGuest && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Email notifications</p>
+            <CollapsibleSection title="Email notifications">
               <div className="space-y-2">
                 {[
                   { key: 'rating' as const, on: notifyOnRating, label: 'When a routine is rated', desc: 'Email me when someone in the family rates a kid’s morning or evening routine.' },
@@ -2887,15 +2872,14 @@ export default function SettingsPage() {
               <p className="text-[11px] text-kaya-sand-light mt-3 leading-relaxed">
                 Emails are sent from <strong>noreply@ourkaya.com</strong>. Toggle these any time.
               </p>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Family contacts — email-only recipients (e.g. grandparents,
               godparents, tutors) who get the same notifications as the
               parents/helpers in the family. Parents only. */}
           {!isGuest && isParent && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Family contacts</p>
+            <CollapsibleSection title="Family contacts" summary={externalContacts.length > 0 ? `${externalContacts.length}` : undefined}>
               <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
                 Email-only people (grandparents, godparents, tutors…) who get the same rating + award emails as the family. They don&apos;t need a Kaya account.
               </p>
@@ -2982,7 +2966,7 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Add child */}
@@ -3079,6 +3063,41 @@ const APPROVAL_CATEGORIES: Array<{
   { key: 'payrollAdvance', emoji: '💵', label: 'Payroll advances',   hint: 'Helpers requesting an advance on next pay.',                        live: false },
   { key: 'payrollLoan',    emoji: '🏦', label: 'Payroll loans',      hint: 'Helpers requesting a loan with a repayment schedule.',              live: false },
 ];
+
+// Generic collapsible settings card — renders the standard white card
+// chrome with a tappable header (title + optional right-aligned summary
+// + chevron) and hides its body until expanded. Collapsed by default to
+// keep the Settings page short; each instance keeps its own open state.
+function CollapsibleSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-2 text-left"
+      >
+        <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{title}</p>
+        <span className="flex items-center gap-2 shrink-0">
+          {summary != null && <span className="text-[10px] text-kaya-sand-light">{summary}</span>}
+          <span className={`inline-block text-sm text-kaya-sand transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
+        </span>
+      </button>
+      {open && <div className="mt-3">{children}</div>}
+    </div>
+  );
+}
 
 function ApprovalPoliciesCard({ familyId, family }: {
   familyId?: string;
