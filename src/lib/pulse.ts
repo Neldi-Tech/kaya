@@ -708,3 +708,19 @@ export async function logReading(input: LogReadingInput): Promise<LogReadingResu
   }
   return res.json() as Promise<LogReadingResult>;
 }
+
+/** Parent "generate today's tasks" — materialises today's pulseTasks from the
+ *  active templates on demand. The daily cron does this automatically; this
+ *  backs the one-tap button in Task setup (initial setup + testing). */
+export async function generateTasksNow(
+  familyId: string,
+): Promise<{ created: number; scanned: number; dayKey: string }> {
+  if (isGuestActive()) return { created: 0, scanned: 0, dayKey: '' };
+  const res = await fetch('/api/pulse/generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ familyId }),
+  });
+  if (!res.ok) throw new Error(`generate failed (${res.status})`);
+  return res.json();
+}

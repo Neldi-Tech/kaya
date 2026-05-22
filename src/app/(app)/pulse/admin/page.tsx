@@ -27,7 +27,7 @@ import {
 import {
   type Trackable, type MeterDirection as MeterDir, type PulseTemplate, type PulseCadence,
   type OwnerType, type RotationPeriod,
-  subscribeToTrackables, subscribeToTemplates, addTemplate, removeTemplate,
+  subscribeToTrackables, subscribeToTemplates, addTemplate, removeTemplate, generateTasksNow,
 } from '@/lib/pulse';
 
 const CADENCE_OPTS: { id: PulseCadence; label: string }[] = [
@@ -56,6 +56,8 @@ export default function PulseAdminPage() {
   const [trackables, setTrackables] = useState<Trackable[]>([]);
   const [templates, setTemplates] = useState<PulseTemplate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [genBusy, setGenBusy] = useState(false);
+  const [genMsg, setGenMsg] = useState('');
 
   useEffect(() => {
     if (!profile?.familyId || profile.role !== 'parent') return;
@@ -78,6 +80,24 @@ export default function PulseAdminPage() {
   }
 
   const fid = profile?.familyId ?? '';
+
+  const runGenerate = async () => {
+    if (!fid) return;
+    setGenBusy(true);
+    setGenMsg('');
+    try {
+      const r = await generateTasksNow(fid);
+      setGenMsg(
+        r.created > 0
+          ? `✓ Created ${r.created} task${r.created === 1 ? '' : 's'} for today.`
+          : 'No tasks due today (or already generated).',
+      );
+    } catch {
+      setGenMsg('Could not generate — try again.');
+    } finally {
+      setGenBusy(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -118,11 +138,24 @@ export default function PulseAdminPage() {
       <NewTemplate familyId={fid} trackables={trackables.filter((t) => t.active)} />
 
       {templates.length > 0 && (
-        <div className="flex flex-col gap-2 mt-4">
-          {templates.map((tpl) => (
-            <TemplateRow key={tpl.id} tpl={tpl} familyId={fid} trackables={trackables} />
-          ))}
-        </div>
+        <>
+          <div className="flex flex-col gap-2 mt-4">
+            {templates.map((tpl) => (
+              <TemplateRow key={tpl.id} tpl={tpl} familyId={fid} trackables={trackables} />
+            ))}
+          </div>
+          <button
+            onClick={runGenerate}
+            disabled={genBusy}
+            className="w-full mt-3 border-2 border-pulse-navy text-pulse-navy rounded-2xl py-2.5 font-nunito font-black text-sm disabled:opacity-50"
+          >
+            {genBusy ? 'Generating…' : "Generate today's tasks"}
+          </button>
+          {genMsg && <p className="text-[12px] text-center text-hive-muted font-bold mt-2">{genMsg}</p>}
+          <p className="text-[11px] text-hive-muted text-center mt-1 leading-snug">
+            Tasks auto-generate each morning — use this to create today's now (setup/testing).
+          </p>
+        </>
       )}
     </div>
   );
