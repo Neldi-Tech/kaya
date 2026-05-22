@@ -9,11 +9,13 @@ import { useEffect, useState } from 'react';
 import type { DayOfWeek } from '@/lib/firestore';
 import {
   type KidWorkplanItem, type KidTaskCategory, type KidTaskKind,
-  subscribeKidWorkplanItems, addKidWorkplanItem, updateKidWorkplanItem, deleteKidWorkplanItem,
+  subscribeKidWorkplanItems, listKidWorkplanItems, addKidWorkplanItem, updateKidWorkplanItem, deleteKidWorkplanItem,
   KID_CATEGORIES, categoryMeta, KID_DAY_LABELS, KID_SCHOOL_STARTER,
   sortKidItemsByTime, formatTimeLocal, todayDateString,
 } from '@/lib/kidWorkplan';
-import { Trash2, Plus, Sparkles } from 'lucide-react';
+import { Trash2, Plus, Sparkles, Check } from 'lucide-react';
+
+export interface ChildRef { id: string; name: string }
 
 const NAVY = '#0F1F44';
 const GOLD = '#D4A847';
@@ -47,11 +49,14 @@ function draftFromItem(i: KidWorkplanItem): Draft {
   };
 }
 
-export default function KidWorkplanEditor({ familyId, childId, childName, parentUid }: {
+export default function KidWorkplanEditor({ familyId, childId, childName, parentUid, allChildren = [] }: {
   familyId: string;
   childId: string;
   childName: string;
   parentUid: string;
+  /** Full sibling list — enables "apply to all / multi-select" when
+   *  creating tasks or seeding (plans are mostly the same across kids). */
+  allChildren?: ChildRef[];
 }) {
   const [items, setItems] = useState<KidWorkplanItem[] | null>(null);
   const [adding, setAdding] = useState(false);
@@ -59,8 +64,22 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Draft>(EMPTY);
   const [busy, setBusy] = useState(false);
+  // Which kids a NEW task / seed applies to. Defaults to the child whose
+  // plan you're viewing; resets when you switch child. Editing an
+  // existing task always stays per-child (independent docs).
+  const [applyTo, setApplyTo] = useState<Set<string>>(() => new Set([childId]));
+  const [flash, setFlash] = useState<string | null>(null);
 
   useEffect(() => subscribeKidWorkplanItems(familyId, childId, setItems), [familyId, childId]);
+  useEffect(() => { setApplyTo(new Set([childId])); setFlash(null); }, [childId]);
+
+  // Resolve the target kids for a create/seed (never empty).
+  const targets = (): string[] => (applyTo.size ? Array.from(applyTo) : [childId]);
+  const flashFor = (ids: string[], verb: string) => {
+    if (ids.length <= 1) { setFlash(null); return; }
+    setFlash(`${verb} for ${ids.length} kids`);
+    setTimeout(() => setFlash(null), 3500);
+  };
 
   // Returns everything except createdBy (the add path stamps that;
   // edits must never rewrite it).
@@ -82,11 +101,16 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
 
   const submitNew = async () => {
     if (!draft.label.trim()) return;
+    const ids = targets();
     setBusy(true);
     try {
-      await addKidWorkplanItem(familyId, childId, { ...buildPayload(draft), createdBy: parentUid });
+      const payload = buildPayload(draft);
+      for (const id of ids) {
+        await addKidWorkplanItem(familyId, id, { ...payload, createdBy: parentUid });
+      }
       setDraft(EMPTY);
       setAdding(false);
+      flashFor(ids, 'Added');
     } finally { setBusy(false); }
   };
 
@@ -106,11 +130,23 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
   };
 
   const seedStarter = async () => {
+    const ids = targets();
     setBusy(true);
     try {
-      for (const s of KID_SCHOOL_STARTER) {
-        await addKidWorkplanItem(familyId, childId, { ...s, createdBy: parentUid });
+      const seeded: string[] = [];
+      for (const id of ids) {
+        // Skip kids who already have a plan so a multi-seed never
+        // duplicates onto a child who's already set up.
+        if (id !== childId) {
+          const existing = await listKidWorkplanItems(familyId, id);
+          if (existing.length > 0) continue;
+        }
+        for (const s of KID_SCHOOL_STARTER) {
+          await addKidWorkplanItem(familyId, id, { ...s, createdBy: parentUid });
+        }
+        seeded.push(id);
       }
+      flashFor(seeded, 'Seeded a plan');
     } finally { setBusy(false); }
   };
 
@@ -118,6 +154,9 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
 
   return (
     <div>
+      {flash && (
+        <div className="mb-2 rounded-hive bg-green-50 border border-green-300 text-green-800 text-[12px] font-extrabold px-3 py-2">✓ {flash}</div>
+      )}
       {items === null ? (
         <p className="text-[13px] text-hive-muted">Loading…</p>
       ) : items.length === 0 && !adding ? (
@@ -125,6 +164,12 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
           <div className="text-3xl mb-2">🗓️</div>
           <p className="font-nunito font-extrabold text-[14px]">No tasks for {childName} yet</p>
           <p className="text-[12px] text-hive-muted mt-1 mb-4">Seed a school-day plan with times, then tweak — or add tasks one by one.</p>
+          {allChildren.length > 1 && (
+            <div className="max-w-xs mx-auto text-left mb-3">
+              <ApplyToRow allChildren={allChildren} applyTo={applyTo} setApplyTo={setApplyTo} currentId={childId} />
+              <p className="text-[10px] text-hive-muted -mt-1">Seeding skips any kid who already has a plan.</p>
+            </div>
+          )}
           <div className="flex flex-col sm:flex-row gap-2 justify-center">
             <button onClick={seedStarter} disabled={busy}
               className="inline-flex items-center justify-center gap-1.5 h-10 px-4 rounded-hive-pill text-white font-nunito font-extrabold text-[12px] disabled:opacity-50"
@@ -186,12 +231,17 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
 
           {adding ? (
             <div className="rounded-hive-lg border-2 border-hive-honey bg-hive-cream/40 p-3">
+              {allChildren.length > 1 && (
+                <ApplyToRow allChildren={allChildren} applyTo={applyTo} setApplyTo={setApplyTo} currentId={childId} />
+              )}
               <DraftForm draft={draft} setDraft={setDraft} />
               <div className="mt-3 flex justify-end gap-2">
                 <button onClick={() => { setAdding(false); setDraft(EMPTY); }} className="text-[12px] font-bold text-hive-muted px-2">Cancel</button>
                 <button onClick={submitNew} disabled={busy || !draft.label.trim()}
                   className="h-9 px-4 rounded-hive-pill text-white font-nunito font-extrabold text-[12px] disabled:opacity-50"
-                  style={{ background: NAVY }}>Assign task</button>
+                  style={{ background: NAVY }}>
+                  {applyTo.size > 1 ? `Assign to ${applyTo.size} kids` : 'Assign task'}
+                </button>
               </div>
             </div>
           ) : (
@@ -215,6 +265,50 @@ function daysSummary(days: DayOfWeek[]): string {
   if (wd.every((d) => set.has(d)) && !we.some((d) => set.has(d))) return 'Mon–Fri';
   if (we.every((d) => set.has(d)) && !wd.some((d) => set.has(d))) return 'Weekends';
   return KID_DAY_LABELS.filter((d) => set.has(d.id)).map((d) => d.short).join(' ');
+}
+
+// ── Apply-to multi-select (create / seed only) ────
+// Lets the parent fan a new task or the starter plan out to several
+// kids at once — plans are mostly the same. Per-child edits afterward
+// stay independent (separate docs). Always keeps ≥1 child selected.
+function ApplyToRow({ allChildren, applyTo, setApplyTo, currentId }: {
+  allChildren: ChildRef[];
+  applyTo: Set<string>;
+  setApplyTo: (s: Set<string>) => void;
+  currentId: string;
+}) {
+  if (allChildren.length <= 1) return null;
+  const allOn = allChildren.every((c) => applyTo.has(c.id));
+  const toggle = (id: string) => {
+    const next = new Set(applyTo);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    if (next.size === 0) next.add(currentId);
+    setApplyTo(next);
+  };
+  const toggleAll = () => setApplyTo(allOn ? new Set([currentId]) : new Set(allChildren.map((c) => c.id)));
+  const pill = (on: boolean) => (on
+    ? { background: NAVY, borderColor: NAVY, color: '#fff' }
+    : { background: '#fff', borderColor: '#E8DEC9', color: '#5C6975' });
+  return (
+    <div className="mb-2.5">
+      <p className="text-[9px] font-black uppercase tracking-wider text-hive-muted mb-1.5">Apply to</p>
+      <div className="flex flex-wrap gap-1.5">
+        <button type="button" onClick={toggleAll}
+          className="text-[11px] font-extrabold px-2.5 py-1 rounded-lg border inline-flex items-center gap-1" style={pill(allOn)}>
+          {allOn && <Check size={11} />}All kids
+        </button>
+        {allChildren.map((c) => {
+          const on = applyTo.has(c.id);
+          return (
+            <button key={c.id} type="button" onClick={() => toggle(c.id)}
+              className="text-[11px] font-extrabold px-2.5 py-1 rounded-lg border inline-flex items-center gap-1" style={pill(on)}>
+              {on && <Check size={11} />}{c.name.split(' ')[0]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ── Shared draft form (add + edit) ────────────────
