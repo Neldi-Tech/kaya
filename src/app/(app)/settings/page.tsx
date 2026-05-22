@@ -827,6 +827,11 @@ export default function SettingsPage() {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  // Master collapse for the whole "What kids see" block — collapsed by
+  // default so the Settings page stays short; the header summary still
+  // shows the "N on" count. Mirrors how a helper card tucks its access
+  // list away until tapped.
+  const [kidVisibilityOpen, setKidVisibilityOpen] = useState(false);
   const toggleKidModule = async (id: string) => {
     if (!profile?.familyId || !family || isGuest || savingKidModule) return;
     const isOn = selectedKidModules.includes(id);
@@ -2204,15 +2209,25 @@ export default function SettingsPage() {
               Home is always granted and not shown as a toggle. */}
           {isParent && (
             <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-baseline justify-between mb-1">
+              <button
+                type="button"
+                onClick={() => setKidVisibilityOpen((o) => !o)}
+                aria-expanded={kidVisibilityOpen}
+                className="w-full flex items-center justify-between gap-2 text-left"
+              >
                 <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">What kids see</p>
-                <span className="text-[10px] text-kaya-sand-light">
-                  {selectedKidModules.filter((id) => id !== 'home').length} on
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-[10px] text-kaya-sand-light">
+                    {selectedKidModules.filter((id) => id !== 'home').length} on
+                  </span>
+                  <span className={`inline-block text-sm text-kaya-sand transition-transform ${kidVisibilityOpen ? 'rotate-180' : ''}`}>⌄</span>
                 </span>
-              </div>
-              <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
-                Pick which modules show up in your kid&apos;s menu. Home is always there. Anything you turn off is hidden from their sidebar and bounces back to Home if they try the URL directly.
-              </p>
+              </button>
+              {kidVisibilityOpen && (
+                <>
+                  <p className="text-[11px] text-kaya-sand mb-3 mt-3 leading-relaxed">
+                    Pick which modules show up in your kid&apos;s menu. Home is always there. Anything you turn off is hidden from their sidebar and bounces back to Home if they try the URL directly.
+                  </p>
               <div className="space-y-2">
                 {KID_MODULES.filter((m) => !m.alwaysOn).map((m) => {
                   const sel = selectedKidModules.includes(m.id);
@@ -2361,6 +2376,8 @@ export default function SettingsPage() {
                     </span>
                   </button>
                 </div>
+              )}
+                </>
               )}
             </div>
           )}
