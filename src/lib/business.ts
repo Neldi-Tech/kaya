@@ -163,6 +163,9 @@ export interface BusinessItem {
   name: string;
   groupId?: string;             // optional grouping key/label for batches
   qty: number;
+  /** Per-product unit label (e.g. "kg", "bunch"). Products in one business can
+   *  differ; the business-level unitLabel is just the headline default. */
+  unitLabel?: string;
   /** Business-defined lifecycle stage. Free-form so each business type names
    *  its own: fruit → ready|ripening|flowering|spoiled; eggs → eggsToday|…;
    *  orchids → mature-blooming|young|seedling. Assets often have no stage. */
@@ -614,6 +617,17 @@ export function subscribeToBusinessRequests(
 // buyInvestment, the milestone engine) land in PR3/PR4/PR6. PR2 ships the
 // business lifecycle: create, status flips, and the launch approval loop.
 
+/** A product the kid lists at creation. For inventory-keeping types (goods)
+ *  each becomes a stock BusinessItem seeded at qty 0 — its worth fills in at
+ *  the first stock-take. priceCents is the per-unit sale/market price. */
+export interface ProductDraft {
+  name: string;
+  unit: string;
+  priceCents: number;
+  /** Already-uploaded (https) product picture, optional. */
+  photoUrl?: string;
+}
+
 export interface NewBusinessInput {
   type: BusinessType;
   name: string;
@@ -622,6 +636,10 @@ export interface NewBusinessInput {
   customerChannels: CustomerChannel[];
   unitLabel?: string;
   unitPriceCents?: number;
+  /** Per-product rows. For goods these seed Inventory items (qty 0). The first
+   *  product also fills the headline unitLabel/unitPriceCents when those aren't
+   *  set explicitly. */
+  products?: ProductDraft[];
   /** Effective split — caller resolves it from BusinessConfig.defaultHiveSplit. */
   hiveSplit: HiveSplit;
   reinvestPct?: number;
@@ -639,18 +657,39 @@ export interface BusinessActor {
   name?: string;
 }
 
+/** Allocate a business id without writing. Lets the caller upload product
+ *  pictures to the right Storage path (which needs the id) BEFORE the doc is
+ *  created, then pass the same id into {@link createBusiness} as `presetId`. */
+export function newBusinessId(familyId: string): string {
+  return doc(businessesCol(familyId)).id;
+}
+
 /** Create a business. A parent's goes live immediately (the parent IS the
  *  approver); a kid's starts as a 'pilot' sandbox — taking it 'active'
- *  ("launch") needs a parent OK via {@link requestBusinessLaunch}. Returns
- *  the new business id. */
+ *  ("launch") needs a parent OK via {@link requestBusinessLaunch}.
+ *
+ *  Products: for inventory-keeping types (goods) every product in
+ *  `input.products` is seeded as a stock item at qty 0 — the worth fills in at
+ *  the first stock-take. The first product also fills the headline
+ *  unit/price when those aren't set explicitly. Pass `presetId` (from
+ *  {@link newBusinessId}) when product pictures were uploaded ahead of time.
+ *  Returns the business id. */
 export async function createBusiness(
   familyId: string,
   input: NewBusinessInput,
   actor: BusinessActor,
+  presetId?: string,
 ): Promise<string> {
   if (isGuestActive()) return 'guest-business';
   const status: BusinessStatus = actor.isParent ? 'active' : 'pilot';
   const now = serverTimestamp();
+  const products = (input.products || []).filter((p) => p.name?.trim());
+  const head = products[0];
+  // Headline unit/price: explicit input wins, else fall back to the first product.
+  const headUnit = input.unitLabel?.trim() || head?.unit?.trim();
+  const headPrice = typeof input.unitPriceCents === 'number'
+    ? input.unitPriceCents
+    : (typeof head?.priceCents === 'number' && head.priceCents > 0 ? head.priceCents : undefined);
   // Build with no `undefined` fields — Firestore rejects them.
   const data: Record<string, unknown> = {
     ownerId: actor.ownerId,
@@ -668,12 +707,44 @@ export async function createBusiness(
   };
   if (actor.name?.trim()) data.createdByName = actor.name.trim();
   if (input.mission?.trim()) data.mission = input.mission.trim();
-  if (input.unitLabel?.trim()) data.unitLabel = input.unitLabel.trim();
-  if (typeof input.unitPriceCents === 'number') data.unitPriceCents = input.unitPriceCents;
+  if (headUnit) data.unitLabel = headUnit;
+  if (typeof headPrice === 'number') data.unitPriceCents = headPrice;
   if (typeof input.reinvestPct === 'number') data.reinvestPct = input.reinvestPct;
   if (typeof input.autoCloseAfterDays === 'number') data.autoCloseAfterDays = input.autoCloseAfterDays;
-  const ref = await addDoc(businessesCol(familyId), data);
-  return ref.id;
+
+  let businessId: string;
+  if (presetId) {
+    await setDoc(businessDoc(familyId, presetId), data);
+    businessId = presetId;
+  } else {
+    const ref = await addDoc(businessesCol(familyId), data);
+    businessId = ref.id;
+  }
+
+  // Seed inventory for inventory-keeping types (goods): one stock item per
+  // product at qty 0. Worth stays 0 (so stats need no recompute) until the
+  // first stock-take. Each item carries its own unit + per-unit market price
+  // and an optional AI/uploaded picture.
+  const keepsInventory = !!BUSINESS_TYPES.find((t) => t.key === input.type)?.shape.includes('inventory');
+  if (keepsInventory && products.length) {
+    for (const p of products) {
+      const item: Record<string, unknown> = {
+        businessId,
+        kind: 'stock',
+        name: p.name.trim(),
+        qty: 0,
+        countedInWorth: true,
+        createdBy: actor.uid,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (p.unit?.trim()) item.unitLabel = p.unit.trim();
+      if (typeof p.priceCents === 'number' && p.priceCents > 0) item.unitMarketCents = p.priceCents;
+      if (p.photoUrl) item.photoUrl = p.photoUrl;
+      await addDoc(itemsCol(familyId, businessId), item);
+    }
+  }
+  return businessId;
 }
 
 /** Lifecycle flip — pilot/idea → active, active ↔ paused, → closed. `startedAt`
@@ -849,6 +920,7 @@ export interface NewItemInput {
   kind: ItemKind;
   name: string;
   qty: number;
+  unitLabel?: string;
   groupId?: string;
   stage?: string;
   unitCostCents?: number;
@@ -860,7 +932,7 @@ export interface NewItemInput {
 }
 
 export type ItemPatch = Partial<Pick<BusinessItem,
-  'name' | 'qty' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
+  'name' | 'qty' | 'unitLabel' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
 
 /** Recompute assets / stock / worth on business.stats from the current item
  *  set. Reads items with getDocs (can't run a query inside a txn) then writes
@@ -901,6 +973,7 @@ export async function addBusinessItem(
     createdAt: now,
     updatedAt: now,
   };
+  if (input.unitLabel?.trim()) data.unitLabel = input.unitLabel.trim();
   if (input.groupId?.trim()) data.groupId = input.groupId.trim();
   if (input.stage?.trim()) data.stage = input.stage.trim();
   if (typeof input.unitCostCents === 'number') data.unitCostCents = input.unitCostCents;
