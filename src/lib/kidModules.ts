@@ -78,6 +78,9 @@ export const KID_MODULES: KidModule[] = [
   },
   { id: 'hive',      label: 'The Hive',       icon: '🍯', path: '/hive' },
   { id: 'business',  label: 'Kaya Business',  icon: '💼', path: '/business' },
+  // Kaya Pulse — kid surface is Today + Quick Entry + the points Ledger.
+  // The parent Dashboard (/pulse) redirects non-parents, so it isn't gated here.
+  { id: 'pulse',     label: 'Kaya Pulse',     icon: '📈', path: '/pulse/today', extraPaths: ['/pulse/log', '/pulse/ledger'] },
   { id: 'directory', label: 'Directory',      icon: '📞', path: '/directory' },
   { id: 'fun',       label: 'Fun',            icon: '🎮', path: '/videos', extraPaths: ['/games'] },
   { id: 'wealth',    label: 'Kaya Wealth',    icon: '💎', path: '/wealth',   soon: true },

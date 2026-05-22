@@ -9,6 +9,7 @@ import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import { getHelperLink } from '@/lib/helpers';
 import { subscribeToUnreadNotificationCount } from '@/lib/firestore';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
+import { PulseMark } from '@/components/pulse/ui';
 import GuestBanner from './GuestBanner';
 import InfoIcon from '@/components/ui/InfoIcon';
 
@@ -308,7 +309,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
-  { kind: 'section', id: 'pulse',     icon: '📈', label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
+  { kind: 'section', id: 'pulse',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: FUN_NAV },
@@ -331,6 +332,7 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   // layout refocus. Still gated by isHelperPathAllowed so a helper
   // without the grant doesn't see it. Self-service flow is unchanged.
   { kind: 'link', id: 'payroll',  path: '/pantry/payroll',  icon: '🤝', label: 'Payroll' },
+  { kind: 'link', id: 'pulse',    path: '/pulse/today',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
   { kind: 'link', id: 'profiles', path: '/profiles',        icon: '👧', label: 'Kids' },
 ];
 
@@ -354,6 +356,7 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
   { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
   { kind: 'link',    id: 'business',  path: '/business',  icon: '💼', label: 'Kaya Business' },
+  { kind: 'link',    id: 'pulse',     path: '/pulse/today', iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
   { kind: 'link',    id: 'directory', path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: KID_STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
