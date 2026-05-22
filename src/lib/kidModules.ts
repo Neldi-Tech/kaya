@@ -46,6 +46,10 @@ export interface KidModule {
 
 export const KID_MODULES: KidModule[] = [
   { id: 'home',      label: 'Home',           icon: '🏠', path: '/kid', alwaysOn: true },
+  // My Workplan — the kid's repeatable daily plan (school times, homework,
+  // chores, play) that they tick off + earn points. Parent assigns from
+  // the parent /workplan view. Also feeds the kid "My Day" aggregator.
+  { id: 'workplan',  label: 'My Workplan',    icon: '🗓️', path: '/workplan' },
   { id: 'moments',   label: 'Moments',        icon: '📸', path: '/moments' },
   {
     // Kaya · the point system. Parent surface lives in /rate /award
@@ -105,7 +109,7 @@ export const KID_MODULES: KidModule[] = [
 // Kid profiles / Family tree (one grant, all three via extraPaths);
 // `discover` brings back the Discover landing.
 export const DEFAULT_KID_MODULES = [
-  'home', 'moments',
+  'home', 'workplan', 'moments',
   'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
   'hive', 'fun', 'discover', 'stats',
 ];

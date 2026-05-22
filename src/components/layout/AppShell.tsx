@@ -311,6 +311,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
   { kind: 'section', id: 'pulse',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
+  { kind: 'link',    id: 'kidsworkplan', path: '/workplan', icon: '🗓️', label: "Kids' Workplan" },
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: FUN_NAV },
@@ -352,6 +353,7 @@ const HELPER_SIDEBAR: SidebarRow[] = [
 const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/kid',       icon: '🏠', label: 'Home' },
+  { kind: 'link',    id: 'workplan',  path: '/workplan',  icon: '🗓️', label: 'My Workplan' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
