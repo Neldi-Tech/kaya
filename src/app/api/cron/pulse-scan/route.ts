@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { notifyPulseOwner } from '@/lib/pulseGenerate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,6 +55,15 @@ async function run(req: NextRequest) {
         // Kid: missing an owned task breaks the streak.
         if (t.ownerKind === 'kid' && t.ownerId) {
           await fam.ref.collection('pulseProfiles').doc(t.ownerId).set({ currentStreak: 0 }, { merge: true });
+        }
+        // Nudge the reader that they missed it.
+        if (t.ownerId) {
+          await notifyPulseOwner(fam.ref, { kind: t.ownerKind, id: t.ownerId }, {
+            type: 'pulse-missed',
+            title: '⚠ Missed reading',
+            message: 'A reading task was missed today.',
+            link: '/pulse/today',
+          });
         }
         // Helper: performance ding lands with helper owners (next engine piece).
       } catch {

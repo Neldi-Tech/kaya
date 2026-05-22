@@ -1124,7 +1124,11 @@ export interface Notification {
     | 'utility-topup-reminder'
     // Kaya Business → daily stock-take nudge (Phase 2 · A2). Links to the
     // business's stock-take screen; sent to the owner kid + parents.
-    | 'business-stocktake-reminder';
+    | 'business-stocktake-reminder'
+    // Kaya Pulse — a reading task is due today (links to Quick Entry) or was
+    // missed (links to Today). Sent to the assigned reader (kid or helper).
+    | 'pulse-reading-due'
+    | 'pulse-missed';
   title: string;
   message: string;
   read: boolean;
