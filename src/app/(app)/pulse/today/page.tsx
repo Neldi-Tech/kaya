@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { toDisplayDate, dayKeyInTZ } from '@/lib/dates';
 import {
   type PulseTask, type Trackable, type PulseProfile,
@@ -29,8 +30,10 @@ function dueLabel(task: PulseTask): string {
 
 export default function PulseTodayPage() {
   const { profile } = useAuth();
+  const { children: kids } = useFamily();
   const isOwnerRole = profile?.role === 'kid' || profile?.role === 'helper';
   const ownerId = profile?.role === 'kid' ? profile.childId ?? '' : profile?.uid ?? '';
+  const firstName = profile?.role === 'kid' ? (kids.find((k) => k.id === ownerId)?.name?.split(' ')[0] ?? '') : '';
   const dayKey = useMemo(() => dayKeyInTZ(new Date(), PULSE_TZ), []);
 
   const [tasks, setTasks] = useState<PulseTask[]>([]);
@@ -66,6 +69,7 @@ export default function PulseTodayPage() {
 
   const pending = tasks.filter((t) => t.status === 'pending' || t.status === 'review');
   const done = tasks.filter((t) => t.status === 'logged' || t.status === 'closed');
+  const ptsToday = done.reduce((s, t) => s + (t.pointsValue || 0), 0);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -73,8 +77,17 @@ export default function PulseTodayPage() {
         <PulseMark className="w-4 h-4" />
         <span className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-pulse-joy-purple">Kaya Pulse</span>
       </div>
-      <h1 className="font-nunito font-black text-2xl text-pulse-joy-ink mt-1">Your day</h1>
-      <p className="text-hive-muted text-sm mt-0.5 mb-4">{toDisplayDate(dayKey)}</p>
+      <h1 className="font-nunito font-black text-2xl text-pulse-joy-ink mt-1">
+        {firstName ? `Habari, ${firstName} 👋` : 'Your day'}
+      </h1>
+      <div className="flex items-center flex-wrap gap-2 mt-0.5 mb-3">
+        <span className="text-hive-muted text-sm">{toDisplayDate(dayKey)}</span>
+        {isOwnerRole && tasks.length > 0 && (
+          <span className="text-[11px] font-nunito font-black text-pulse-joy-green bg-pulse-joy-green/15 px-2 py-0.5 rounded-full">
+            {done.length}/{tasks.length} done
+          </span>
+        )}
+      </div>
       {profile?.role === 'kid' && (
         <Link href="/pulse/ledger" className="inline-flex items-center gap-1 text-[12px] font-nunito font-black text-pulse-joy-purple mb-3">🏆 See standings →</Link>
       )}
@@ -106,6 +119,13 @@ export default function PulseTodayPage() {
         </div>
       ) : (
         <>
+          {pending.length === 0 && (
+            <div className="rounded-2xl p-4 mb-3 text-center text-white shadow-[0_8px_20px_rgba(107,203,119,0.3)]" style={{ background: 'linear-gradient(135deg,#6BCB77,#4ECDC4)' }}>
+              <div className="text-2xl">🎉</div>
+              <div className="font-nunito font-black text-[15px] mt-1">All done today!</div>
+              <div className="text-[12px] opacity-95 font-bold">+{ptsToday} pts earned{streakProfile?.currentStreak ? ` · 🔥 ${streakProfile.currentStreak}-day streak` : ''}</div>
+            </div>
+          )}
           {pending.length > 0 && (
             <>
               <div className="text-[11px] font-nunito font-black text-pulse-joy-ink mb-2">To do</div>
