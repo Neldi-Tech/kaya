@@ -27,6 +27,7 @@ import {
   subscribeToRecentRequestsByModule,
   createDraftRequest,
   createDraftFromTemplate,
+  createDraftFromRequest,
   deleteRequest,
 } from '@/lib/purchase';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
@@ -49,6 +50,10 @@ export default function PurchaseHomePage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // Per-row "recycle" in flight (the closed-invoice → fresh-draft
+  // shortcut). Keyed by source request id so only that row's button
+  // shows the busy state.
+  const [recyclingId, setRecyclingId] = useState<string | null>(null);
   // 2026-05-19 — Recent list collapses to 3 with a "+ See more"
   // toggle. Keeps the actionable piles (pending / drafts / in progress)
   // closer to the top of a long page.
@@ -129,6 +134,25 @@ export default function PurchaseHomePage() {
       // eslint-disable-next-line no-console
       console.error('[purchase] startDraft failed:', e);
       setCreating(false);
+    }
+  };
+
+  // Recycle a closed invoice straight from its list row — re-buy the
+  // same basket without opening it first. Seeds from last actuals (see
+  // createDraftFromRequest) and jumps into the new draft.
+  const recycle = async (sourceId: string) => {
+    if (!profile?.familyId || !profile.uid || isGuest || recyclingId) return;
+    setRecyclingId(sourceId);
+    try {
+      const id = await createDraftFromRequest(profile.familyId, sourceId, {
+        createdBy: profile.uid,
+        createdByRole: role,
+      });
+      router.push(`/pantry/purchase/${id}`);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] recycle failed:', e);
+      setRecyclingId(null);
     }
   };
 
@@ -241,7 +265,14 @@ export default function PurchaseHomePage() {
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
           {(showAllRecent ? recent : recent.slice(0, RECENT_DEFAULT_LIMIT)).map((r) => (
-            <RequestRow key={r.id} req={r} currency={currency} dimmed />
+            <RequestRow
+              key={r.id}
+              req={r}
+              currency={currency}
+              dimmed
+              onRecycle={r.status === 'closed' && !isGuest ? () => recycle(r.id) : undefined}
+              recycling={recyclingId === r.id}
+            />
           ))}
           {recent.length > RECENT_DEFAULT_LIMIT && (
             <button
@@ -305,7 +336,7 @@ function Section({
 }
 
 function RequestRow({
-  req, currency, dimmed, onDelete,
+  req, currency, dimmed, onDelete, onRecycle, recycling,
 }: {
   req: PurchaseRequest;
   currency: string;
@@ -313,6 +344,11 @@ function RequestRow({
   /** Render an inline × delete button at the end of the row when set.
    *  Only passed for draft rows so non-drafts stay click-through-only. */
   onDelete?: () => void | Promise<void>;
+  /** Render an inline ♻️ recycle button when set. Only passed for
+   *  closed rows — re-buys the basket without opening the invoice. */
+  onRecycle?: () => void | Promise<void>;
+  /** This row's recycle is in flight (shows a spinner, disables tap). */
+  recycling?: boolean;
 }) {
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
@@ -345,6 +381,18 @@ function RequestRow({
           </div>
         </div>
       </Link>
+      {onRecycle && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onRecycle(); }}
+          disabled={recycling}
+          className="flex-shrink-0 bg-hive-paper border border-hive-line rounded-hive px-3 text-pantry-leaf-dk font-nunito font-black hover:bg-pantry-leaf-soft hover:border-pantry-leaf disabled:opacity-50"
+          aria-label="Recycle — re-buy these items"
+          title="Recycle · re-buy these items"
+        >
+          {recycling ? '…' : '♻️'}
+        </button>
+      )}
       {onDelete && (
         <button
           type="button"
