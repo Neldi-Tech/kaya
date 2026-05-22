@@ -18,7 +18,7 @@ const MAX_INPUT_BYTES = 25 * 1024 * 1024; // 25 MB raw cap (pre-resize)
 const LONG_EDGE = 1280;
 const JPEG_QUALITY = 0.85;
 
-function loadImage(file: File): Promise<HTMLImageElement> {
+function loadImage(file: Blob): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -28,7 +28,7 @@ function loadImage(file: File): Promise<HTMLImageElement> {
   });
 }
 
-async function processPhoto(file: File): Promise<Blob> {
+async function processPhoto(file: Blob): Promise<Blob> {
   if (!file.type.startsWith('image/')) throw new Error("That doesn't look like an image file.");
   if (file.size > MAX_INPUT_BYTES) throw new Error('Photo is too large — please pick something under 25 MB.');
   const img = await loadImage(file);
@@ -71,6 +71,28 @@ export async function uploadProjectPhoto(familyId: string, projectId: string, fi
   const ref = storageRef(storage, projectPhotosPath(familyId, projectId, photoId));
   await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
   return getDownloadURL(ref);
+}
+
+async function uploadProcessed(path: string, blob: Blob): Promise<string> {
+  const processed = await processPhoto(blob);
+  const ref = storageRef(storage, path);
+  await uploadBytes(ref, processed, { contentType: 'image/jpeg' });
+  return getDownloadURL(ref);
+}
+const newPhotoId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+/** Upload an AI-generated (base64 data URL) business logo/photo to Storage. */
+export async function uploadBusinessPhotoFromDataUrl(familyId: string, businessId: string, dataUrl: string): Promise<string> {
+  if (isGuestActive() || !dataUrl) return '';
+  const blob = await (await fetch(dataUrl)).blob();
+  return uploadProcessed(photosPath(familyId, businessId, newPhotoId()), blob);
+}
+
+/** Upload an AI-generated (base64 data URL) project photo to Storage. */
+export async function uploadProjectPhotoFromDataUrl(familyId: string, projectId: string, dataUrl: string): Promise<string> {
+  if (isGuestActive() || !dataUrl) return '';
+  const blob = await (await fetch(dataUrl)).blob();
+  return uploadProcessed(projectPhotosPath(familyId, projectId, newPhotoId()), blob);
 }
 
 /** Best-effort delete by download URL (cleanup; failures swallowed). */

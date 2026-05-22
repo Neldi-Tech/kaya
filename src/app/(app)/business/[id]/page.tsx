@@ -14,13 +14,15 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES,
   subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones,
-  setBusinessStatus, requestBusinessLaunch, readBusinessConfig,
+  setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
 } from '@/lib/business';
+import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
 import { ApprovalRequest } from '@/lib/hive';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
 import AICoachCard from '@/components/business/AICoachCard';
+import AIImageButton from '@/components/business/AIImageButton';
 
 const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
 
@@ -89,6 +91,12 @@ export default function BusinessDashboardPage() {
     finally { setBusy(false); }
   };
 
+  const acceptLogo = async (dataUrl: string) => {
+    if (!familyId) return;
+    const url = await uploadBusinessPhotoFromDataUrl(familyId, businessId, dataUrl);
+    if (url) await updateBusiness(familyId, businessId, { logoUrl: url });
+  };
+
   if (loading) {
     return <div className="mx-auto max-w-md lg:max-w-3xl px-4 lg:px-8 pt-10 text-center text-hive-muted text-sm">Loading…</div>;
   }
@@ -114,7 +122,12 @@ export default function BusinessDashboardPage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       {/* Identity */}
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
-        <div className="text-[24px] leading-none">{business.emoji || t.emoji}</div>
+        {business.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={business.logoUrl} alt="" className="w-10 h-10 rounded-[10px] object-cover shrink-0" />
+        ) : (
+          <div className="text-[24px] leading-none">{business.emoji || t.emoji}</div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="font-nunito font-black text-[16px] truncate">{business.name}</div>
           <div className="text-[11px] text-hive-honey-soft/80">
@@ -132,6 +145,19 @@ export default function BusinessDashboardPage() {
 
       {business.mission && (
         <p className="text-[13px] text-hive-navy/80 italic mb-3 px-1">“{business.mission}”</p>
+      )}
+
+      {/* AI logo — give the business a friendly face (off until OPENAI_API_KEY set). */}
+      {canAct && (
+        <div className="mb-3">
+          <AIImageButton
+            kind="logo"
+            subject={business.name}
+            detail={`${t.label}${business.unitLabel ? ', sells ' + business.unitLabel : ''}`}
+            cta={business.logoUrl ? '✨ New AI logo' : '✨ Generate a logo (AI)'}
+            onAccept={acceptLogo}
+          />
+        </div>
       )}
 
       {/* Pending launch banner */}

@@ -116,6 +116,9 @@ export interface Business {
   name: string;
   mission?: string;
   emoji: string;
+  /** AI-generated (or uploaded) logo image. When set, shown instead of the
+   *  emoji on the dashboard + cards. */
+  logoUrl?: string;
   customerChannels: CustomerChannel[];
   // ── Pricing ──
   unitLabel?: string;           // "fruit", "wash", "session"
@@ -702,7 +705,7 @@ export async function setBusinessReminder(
 export async function updateBusiness(
   familyId: string,
   businessId: string,
-  patch: Partial<Pick<Business, 'name' | 'mission' | 'emoji' | 'unitLabel' | 'unitPriceCents' | 'customerChannels' | 'hiveSplit' | 'reinvestPct'>>,
+  patch: Partial<Pick<Business, 'name' | 'mission' | 'emoji' | 'logoUrl' | 'unitLabel' | 'unitPriceCents' | 'customerChannels' | 'hiveSplit' | 'reinvestPct'>>,
 ): Promise<void> {
   if (isGuestActive()) return;
   await updateDoc(businessDoc(familyId, businessId), patch as Record<string, unknown>);

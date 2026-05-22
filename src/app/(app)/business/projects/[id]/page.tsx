@@ -14,8 +14,9 @@ import {
   shareProjectToMoments, setProjectCollaborator,
 } from '@/lib/projects';
 import { readBusinessConfig } from '@/lib/business';
-import { uploadProjectPhoto, deleteBusinessPhoto } from '@/lib/businessPhoto';
+import { uploadProjectPhoto, uploadProjectPhotoFromDataUrl, deleteBusinessPhoto } from '@/lib/businessPhoto';
 import AICoachCard from '@/components/business/AICoachCard';
+import AIImageButton from '@/components/business/AIImageButton';
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -61,6 +62,12 @@ export default function ProjectDetailPage() {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = '';
     }
+  };
+
+  const acceptProductImage = async (dataUrl: string) => {
+    if (!familyId) return;
+    const url = await uploadProjectPhotoFromDataUrl(familyId, projectId, dataUrl);
+    if (url) await addProjectPhotoUrl(familyId, projectId, url);
   };
 
   const removePhoto = async (url: string) => {
@@ -149,13 +156,21 @@ export default function ProjectDetailPage() {
           </div>
         )}
         {canEdit && (
-          <>
+          <div className="space-y-2">
             <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={pickPhoto} className="hidden" />
             <button onClick={() => fileRef.current?.click()} disabled={uploading}
               className="w-full h-11 rounded-hive border-2 border-dashed border-hive-honey bg-[#FFFBEE] text-[13px] font-nunito font-bold text-[#B25E16] disabled:opacity-50">
               {uploading ? 'Adding…' : '📷 Add a photo'}
             </button>
-          </>
+            {/* AI product image — off until OPENAI_API_KEY is set. */}
+            <AIImageButton
+              kind="product"
+              subject={project.title}
+              detail={project.category || project.description}
+              cta="✨ Make a product image (AI)"
+              onAccept={acceptProductImage}
+            />
+          </div>
         )}
         {(!project.photoUrls || project.photoUrls.length === 0) && !canEdit && (
           <p className="text-[12px] text-hive-muted text-center py-3">No photos yet.</p>
