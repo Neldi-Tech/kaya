@@ -20,18 +20,21 @@ import {
   type KidWorkplanItem, type KidWorkplanCompletion,
   subscribeKidWorkplanItems, subscribeKidCompletion,
   kidItemsScheduledOn, completeKidTask, categoryMeta, todayDateString,
+  listKidWorkplanItems, getKidCompletion,
 } from '@/lib/kidWorkplan';
 import {
   subscribeToOwnerTasks, subscribeToTrackables,
   type PulseTask, type Trackable,
 } from '@/lib/pulse';
-import { subscribeToKidRequests } from '@/lib/hive';
+import { subscribeToKidRequests, subscribeToPendingApprovals } from '@/lib/hive';
 import type { ApprovalRequest } from '@/lib/hive';
+import { subscribeToOpenRequests } from '@/lib/purchase';
+import type { PurchaseRequest } from '@/lib/purchase';
 import { getNotifications } from '@/lib/firestore';
 import type { Notification } from '@/lib/firestore';
 
-export type MyDaySource = 'workplan' | 'pulse' | 'request' | 'reminder';
-export type MyDayGroup = 'do' | 'headsup' | 'done';
+export type MyDaySource = 'workplan' | 'pulse' | 'request' | 'reminder' | 'approval';
+export type MyDayGroup = 'do' | 'headsup' | 'done' | 'approve';
 export type MyDayPeriod = 'morning' | 'anytime' | 'evening';
 
 export interface MyDayItem {
@@ -238,4 +241,132 @@ export function useKidMyDay(familyId: string, childId: string, userUid: string):
   };
 
   return { loading, items: built, doItems, headsUp, doneItems, total, doneCount, pct, tickWorkplan };
+}
+
+/* ============================================================
+   SHARED — reminders (helper + parent Heads-up)
+   ============================================================ */
+function reminderItem(n: Notification): MyDayItem {
+  return {
+    id: `nt_${n.id}`, source: 'reminder', group: 'headsup', period: 'anytime',
+    icon: reminderIcon(n.type), label: n.title, sublabel: n.message,
+    badge: 'reminder', href: n.link,
+  };
+}
+
+/** Unread reminders for a user as Heads-up rows (one-shot, indexed
+ *  query). Pulse due/missed are dropped — their Do rows already cover
+ *  them. Used by helper + parent My Day. */
+export function useReminders(familyId: string, uid: string): MyDayItem[] {
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    if (!uid) { setNotifs([]); return; }
+    getNotifications(familyId, uid)
+      .then((n) => { if (!cancelled) setNotifs(n); })
+      .catch(() => { if (!cancelled) setNotifs([]); });
+    return () => { cancelled = true; };
+  }, [familyId, uid]);
+  return notifs
+    .filter((n) => !n.read && n.type !== 'pulse-reading-due' && n.type !== 'pulse-missed')
+    .map(reminderItem);
+}
+
+/* ============================================================
+   PARENT — approvals + reminders + family glance
+   ============================================================ */
+const PURCHASE_MODULE_META: Record<string, { label: string; path: string; icon: string }> = {
+  purchase: { label: 'Pantry',    path: '/pantry/purchase', icon: '🧾' },
+  utility:  { label: 'Utilities', path: '/pantry/utility',  icon: '⚡' },
+  outdoor:  { label: 'Outdoor',   path: '/pantry/outdoor',  icon: '🌿' },
+  drivers:  { label: 'Drivers',   path: '/pantry/drivers',  icon: '🚗' },
+  payroll:  { label: 'Payroll',   path: '/pantry/payroll',  icon: '🤝' },
+};
+function moneyShort(cents: number, currency: string): string {
+  return `${currency} ${Math.round((cents ?? 0) / 100).toLocaleString()}`;
+}
+
+export interface ParentGlanceChild { id: string; name: string; done: number; total: number; }
+export interface UseParentMyDay {
+  loading: boolean;
+  approve: MyDayItem[];
+  headsUp: MyDayItem[];
+  glance: ParentGlanceChild[];
+  glanceDone: number;
+  glanceTotal: number;
+  approveCount: number;
+}
+
+export function useParentMyDay(
+  familyId: string,
+  parentUid: string,
+  children: { id: string; name: string }[],
+  currency: string,
+): UseParentMyDay {
+  const [purchases, setPurchases] = useState<PurchaseRequest[] | null>(null);
+  const [pending, setPending] = useState<ApprovalRequest[] | null>(null);
+  const reminders = useReminders(familyId, parentUid);
+  const [glance, setGlance] = useState<ParentGlanceChild[]>([]);
+
+  useEffect(() => {
+    const u1 = subscribeToOpenRequests(familyId, setPurchases);
+    const u2 = subscribeToPendingApprovals(familyId, setPending);
+    return () => { u1(); u2(); };
+  }, [familyId]);
+
+  // Family glance — one-shot per child (workplan tasks done today).
+  const childKey = children.map((c) => c.id).join(',');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await Promise.all(children.map(async (c) => {
+        try {
+          const [its, comp] = await Promise.all([
+            listKidWorkplanItems(familyId, c.id),
+            getKidCompletion(familyId, c.id),
+          ]);
+          const scheduled = kidItemsScheduledOn(its);
+          const doneSet = new Set(comp?.completedItemIds ?? []);
+          return { id: c.id, name: c.name, done: scheduled.filter((i) => doneSet.has(i.id)).length, total: scheduled.length };
+        } catch {
+          return { id: c.id, name: c.name, done: 0, total: 0 };
+        }
+      }));
+      if (!cancelled) setGlance(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [familyId, childKey]);
+
+  const approve: MyDayItem[] = [];
+  for (const r of purchases ?? []) {
+    if (r.status !== 'pending_approval' && r.status !== 'pending_close') continue;
+    const m = PURCHASE_MODULE_META[r.module] ?? { label: r.module, path: '/pantry/purchase', icon: '🧾' };
+    approve.push({
+      id: `pu_${r.id}`, source: 'approval', group: 'approve', period: 'anytime',
+      icon: m.icon,
+      label: r.name || `${m.label} request`,
+      sublabel: `${m.label} · ${moneyShort(r.estimatedTotalCents ?? 0, currency)}`,
+      badge: r.status === 'pending_close' ? 'close' : 'approve',
+      href: m.path,
+    });
+  }
+  for (const r of pending ?? []) {
+    if (r.status !== 'pending') continue;
+    const isBiz = r.module === 'business';
+    const amt = r.amountCents != null ? ` · ${moneyShort(r.amountCents, currency)}` : '';
+    approve.push({
+      id: `ap_${r.id}`, source: 'approval', group: 'approve', period: 'anytime',
+      icon: isBiz ? '💼' : '💸',
+      label: r.description?.trim() || String(r.type).replace(/_/g, ' '),
+      sublabel: `${isBiz ? 'Business' : 'Hive'}${amt}`,
+      badge: 'approve',
+      href: isBiz ? '/parent/business' : '/parent/approvals',
+    });
+  }
+
+  const glanceDone = glance.reduce((s, g) => s + g.done, 0);
+  const glanceTotal = glance.reduce((s, g) => s + g.total, 0);
+  const loading = purchases === null || pending === null;
+
+  return { loading, approve, headsUp: reminders, glance, glanceDone, glanceTotal, approveCount: approve.length };
 }
