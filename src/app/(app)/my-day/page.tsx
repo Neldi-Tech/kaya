@@ -6,12 +6,13 @@
 // (see lib/myDay.ts). Phase 3 of "My Day + Kids' Workplan"; parent +
 // helper My Day land in Phase 4, and Phase 5 promotes this to Home.
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
-import { useKidMyDay, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
+import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
+import { useKidMyDay, useParentMyDay, useReminders, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
 import { ChevronRight } from 'lucide-react';
 
 const JOY = { purple: '#9B5DE5', green: '#6BCB77', coral: '#FF6B6B', yellow: '#FFD93D', ink: '#2D1B5E', border: '#F0E8FF' };
@@ -23,23 +24,34 @@ const PERIOD_LABEL: Record<MyDayPeriod, string> = {
 };
 
 export default function MyDayPage() {
-  const router = useRouter();
   const { profile } = useAuth();
   const { family, children } = useFamily();
   const role = profile?.role;
 
-  // Phase 3 is kid-only. Parent/helper My Day arrives in Phase 4.
-  useEffect(() => {
-    if (role && role !== 'kid') router.replace(role === 'helper' ? '/helper' : '/home');
-  }, [role, router]);
+  if (!family || !profile) return null;
 
-  if (!family || !profile || role !== 'kid' || !profile.childId) return null;
+  if (role === 'kid') {
+    if (!profile.childId) return null;
+    const me = children.find((c) => c.id === profile.childId);
+    const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
+    return <MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} />;
+  }
 
-  const me = children.find((c) => c.id === profile.childId);
-  const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
+  if (role === 'helper') {
+    const first = (profile.displayName ?? 'there').split(' ')[0];
+    return <MyDayHelper familyId={family.id} uid={profile.uid} name={first} />;
+  }
 
+  // Parent
+  const first = (profile.displayName ?? 'there').split(' ')[0];
   return (
-    <MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} />
+    <MyDayParent
+      familyId={family.id}
+      parentUid={profile.uid}
+      name={first}
+      kids={children.map((c) => ({ id: c.id, name: c.name }))}
+      currency={family.hiveConfig?.currency ?? 'TZS'}
+    />
   );
 }
 
@@ -196,4 +208,173 @@ function badgeStyle(item: MyDayItem): React.CSSProperties {
   if (item.badge === 'missed') return { background: '#FDE6E6', color: JOY.coral };
   if (item.points) return { background: `linear-gradient(135deg, ${JOY.purple}, #6A4FCF)`, color: '#fff' };
   return { background: '#F0E8FF', color: JOY.ink };
+}
+
+/* ============================================================
+   HELPER + PARENT — premium (navy/gold) My Day
+   ============================================================ */
+const NAVY = '#0F1F44';
+const GOLD = '#D4A847';
+
+function premiumBadge(b?: string): React.CSSProperties {
+  if (b === 'approve') return { background: NAVY, color: GOLD };
+  if (b === 'close') return { background: '#FFF3D9', color: '#B58A2F' };
+  if (b === 'reminder') return { background: '#EEF3FB', color: '#264B6E' };
+  if (b === 'pending') return { background: '#EEF3FB', color: '#264B6E' };
+  return { background: '#F0EBE0', color: '#5C6975' };
+}
+
+function PremiumRow({ item, onTap }: { item: MyDayItem; onTap: (i: MyDayItem) => void }) {
+  const tappable = !!item.href;
+  return (
+    <button
+      type="button"
+      disabled={!tappable}
+      onClick={() => onTap(item)}
+      className={`w-full flex items-center gap-3 rounded-hive-lg border p-3 text-left ${
+        item.done ? 'bg-green-50 border-green-200' : 'bg-hive-paper border-hive-line'
+      } ${tappable ? 'hover:bg-hive-cream/40' : 'cursor-default'}`}
+    >
+      <span className="text-2xl flex-shrink-0" aria-hidden>{item.icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-nunito font-extrabold text-[13px] truncate">{item.label}</span>
+        <span className="block text-[11px] text-hive-muted truncate">{item.sublabel}</span>
+      </span>
+      {item.badge && (
+        <span className="flex-shrink-0 text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide" style={premiumBadge(item.badge)}>
+          {item.badge}
+        </span>
+      )}
+      {tappable && <ChevronRight size={15} className="text-hive-muted flex-shrink-0" />}
+    </button>
+  );
+}
+
+function todayLabel() {
+  return new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; name: string }) {
+  const router = useRouter();
+  const reminders = useReminders(familyId, uid);
+  return (
+    <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
+      <div className="lg:hidden"><BackButton /></div>
+      <div className="rounded-hive-lg p-4 mb-4 text-white" style={{ background: `linear-gradient(135deg, ${NAVY}, #1c3566)` }}>
+        <p className="text-[10px] font-black uppercase tracking-[2px]" style={{ color: GOLD }}>My Day</p>
+        <p className="font-nunito font-black text-[18px] leading-tight mt-0.5">Habari, {name}</p>
+        <p className="text-[12px] font-bold opacity-80 mt-0.5">{todayLabel()} · your work + readings, one place</p>
+      </div>
+
+      {/* Do — workplan + Pulse readings, with combined % (reused card) */}
+      <TodaysWorkplanCard familyId={familyId} helperUid={uid} />
+
+      {/* Heads-up */}
+      {reminders.length > 0 && (
+        <div className="mt-1">
+          <p className="text-[10px] font-black uppercase tracking-wider mb-2 text-hive-navy">📨 Heads-up</p>
+          <div className="space-y-2">
+            {reminders.map((i) => <PremiumRow key={i.id} item={i} onTap={(x) => x.href && router.push(x.href)} />)}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MyDayParent({ familyId, parentUid, name, kids, currency }: {
+  familyId: string;
+  parentUid: string;
+  name: string;
+  kids: { id: string; name: string }[];
+  currency: string;
+}) {
+  const router = useRouter();
+  const { loading, approve, headsUp, glance, glanceDone, glanceTotal, approveCount } =
+    useParentMyDay(familyId, parentUid, kids, currency);
+  const onTap = (i: MyDayItem) => { if (i.href) router.push(i.href); };
+
+  return (
+    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <div className="lg:hidden"><BackButton /></div>
+
+      {/* Hero */}
+      <div className="rounded-hive-lg p-4 mb-4 text-white" style={{ background: `linear-gradient(135deg, ${NAVY}, #1c3566)` }}>
+        <p className="text-[10px] font-black uppercase tracking-[2px]" style={{ color: GOLD }}>My Day</p>
+        <div className="flex items-end justify-between gap-3 mt-0.5">
+          <div>
+            <p className="font-nunito font-black text-[18px] leading-tight">Hello, {name}</p>
+            <p className="text-[12px] font-bold opacity-80 mt-0.5">{todayLabel()} · {approveCount > 0 ? `${approveCount} need${approveCount === 1 ? 's' : ''} you` : 'all caught up'}</p>
+          </div>
+          {approveCount > 0 && (
+            <div className="text-right">
+              <p className="font-nunito font-black text-[26px] leading-none" style={{ color: GOLD }}>{approveCount}</p>
+              <p className="text-[9px] font-bold uppercase tracking-wide opacity-80">to approve</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-center text-[13px] text-hive-muted py-8">Loading…</p>
+      ) : (
+        <>
+          {/* Approve */}
+          <div className="mb-4">
+            <p className="text-[10px] font-black uppercase tracking-wider mb-2 text-hive-navy">✅ Approve</p>
+            {approve.length > 0 ? (
+              <div className="space-y-2">{approve.map((i) => <PremiumRow key={i.id} item={i} onTap={onTap} />)}</div>
+            ) : (
+              <div className="rounded-hive-lg border border-hive-line bg-hive-paper p-5 text-center">
+                <p className="text-[13px] font-nunito font-extrabold">Nothing waiting 🎉</p>
+                <p className="text-[11px] text-hive-muted mt-0.5">Purchase, Hive &amp; Business approvals will land here.</p>
+              </div>
+            )}
+          </div>
+
+          {/* Heads-up */}
+          {headsUp.length > 0 && (
+            <div className="mb-4">
+              <p className="text-[10px] font-black uppercase tracking-wider mb-2 text-hive-navy">📨 Heads-up</p>
+              <div className="space-y-2">{headsUp.map((i) => <PremiumRow key={i.id} item={i} onTap={onTap} />)}</div>
+            </div>
+          )}
+
+          {/* Family glance */}
+          {glance.length > 0 && (
+            <div className="mb-4">
+              <p className="text-[10px] font-black uppercase tracking-wider mb-2 text-hive-navy">
+                👀 Family glance{glanceTotal > 0 ? ` · ${glanceDone}/${glanceTotal} tasks done` : ''}
+              </p>
+              <div className="space-y-2">
+                {glance.map((g) => (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => router.push(`/profiles?child=${g.id}`)}
+                    className="w-full flex items-center gap-3 rounded-hive-lg border border-hive-line bg-hive-paper p-3 text-left hover:bg-hive-cream/40"
+                  >
+                    <span className="text-2xl flex-shrink-0" aria-hidden>👦</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-nunito font-extrabold text-[13px] truncate">{g.name}</span>
+                      <span className="block text-[11px] text-hive-muted">
+                        {g.total > 0 ? `${g.done}/${g.total} workplan tasks today` : 'No tasks today'}
+                      </span>
+                    </span>
+                    {g.total > 0 && (
+                      <span className="flex-shrink-0 text-[11px] font-black px-2 py-1 rounded-lg"
+                        style={g.done === g.total ? { background: '#E3F2E6', color: '#2E7D34' } : { background: '#FFF3D9', color: '#B58A2F' }}>
+                        {Math.round((g.done / g.total) * 100)}%
+                      </span>
+                    )}
+                    <ChevronRight size={15} className="text-hive-muted flex-shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }

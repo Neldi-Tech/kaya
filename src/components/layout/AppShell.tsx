@@ -305,6 +305,7 @@ const KID_STATS_NAV: NavItem[] = [
 const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/home',      icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KAYA_NAV },
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
@@ -325,6 +326,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
 const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'discover', path: '/',                icon: '🔎', label: 'Discover' },
   { kind: 'link', id: 'home',     path: '/home',            icon: '🏠', label: 'Home' },
+  { kind: 'link', id: 'myday',    path: '/my-day',          icon: '🌟', label: 'My Day' },
   { kind: 'link', id: 'rate',     path: '/rate',            icon: '📋', label: 'Rate' },
   { kind: 'link', id: 'award',    path: '/award',           icon: '🎖️', label: 'Award' },
   { kind: 'link', id: 'moments',  path: '/moments',         icon: '📸', label: 'Moments' },
