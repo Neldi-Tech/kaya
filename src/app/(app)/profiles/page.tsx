@@ -28,6 +28,7 @@ import { notifyInvite } from '@/lib/notify';
 import { useRef } from 'react';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import KidWorkplanAccomplishment from '@/components/workplan/KidWorkplanAccomplishment';
 
 export default function ProfilesPage() {
   const { profile, isGuest } = useAuth();
@@ -1130,6 +1131,11 @@ export default function ProfilesPage() {
           ))}
         </div>
       </div>
+
+      {/* Workplan accomplishment — gamified streak + points + view-previous-days */}
+      {profile?.familyId && (
+        <KidWorkplanAccomplishment familyId={profile.familyId} childId={child.id} childName={child.name} />
+      )}
 
       {/* Badges */}
       <div>
