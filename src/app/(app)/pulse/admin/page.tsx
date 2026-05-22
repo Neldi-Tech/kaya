@@ -18,7 +18,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 import { formatCents } from '@/components/pantry/format';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
-import type { PurchaseModule } from '@/lib/purchase';
+import { type PurchaseModule, MODULE_LABEL } from '@/lib/purchase';
 import {
   type UtilityMeter,
   subscribeToMeters, updateMeter, meterEmoji,
@@ -46,10 +46,10 @@ const ROTATION_OPTS: { id: RotationPeriod; label: string }[] = [
   { id: 'monthly', label: 'Monthly' },
 ];
 const MODULE_OPTS: { id: PurchaseModule; label: string }[] = [
-  { id: 'drivers', label: 'Transport' },
-  { id: 'utility', label: 'Utilities' },
-  { id: 'outdoor', label: 'Outdoor' },
-  { id: 'pantry', label: 'Pantry' },
+  { id: 'drivers', label: MODULE_LABEL.drivers },
+  { id: 'utility', label: MODULE_LABEL.utility },
+  { id: 'outdoor', label: MODULE_LABEL.outdoor },
+  { id: 'pantry', label: MODULE_LABEL.pantry },
 ];
 const HELPER_EMOJI: Record<string, string> = {
   nanny: '🧑‍🍼', tutor: '📚', driver: '🚗', grandparent: '👵', gardener: '🌿', custom: '🧑‍🔧',
@@ -74,8 +74,6 @@ export default function PulseAdminPage() {
   const [templates, setTemplates] = useState<PulseTemplate[]>([]);
   const [helpers, setHelpers] = useState<HelperLink[]>([]);
   const [loading, setLoading] = useState(true);
-  const [genBusy, setGenBusy] = useState(false);
-  const [genMsg, setGenMsg] = useState('');
 
   useEffect(() => {
     if (!profile?.familyId || profile.role !== 'parent') return;
@@ -105,20 +103,6 @@ export default function PulseAdminPage() {
 
   const fid = profile?.familyId ?? '';
   const templateFor = (trackableId: string) => templates.find((t) => t.trackableId === trackableId);
-
-  const runGenerate = async () => {
-    if (!fid) return;
-    setGenBusy(true);
-    setGenMsg('');
-    try {
-      const r = await generateTasksNow(fid);
-      setGenMsg(r.created > 0 ? `✓ Created ${r.created} task${r.created === 1 ? '' : 's'} for today.` : 'No tasks due today (or already generated).');
-    } catch {
-      setGenMsg('Could not generate — try again.');
-    } finally {
-      setGenBusy(false);
-    }
-  };
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -168,17 +152,6 @@ export default function PulseAdminPage() {
             ))}
             <AddCustomTrackable familyId={fid} currency={currency} />
           </div>
-
-          {/* ── Start ── */}
-          {templates.length > 0 && (
-            <>
-              <button onClick={runGenerate} disabled={genBusy} className="w-full mt-6 bg-pulse-navy text-pulse-gold rounded-2xl py-3 font-nunito font-black text-sm disabled:opacity-50">
-                {genBusy ? 'Starting…' : "▶ Start today's tracking"}
-              </button>
-              {genMsg && <p className="text-[12px] text-center text-hive-muted font-bold mt-2">{genMsg}</p>}
-              <p className="text-[11px] text-hive-muted text-center mt-1 leading-snug">Creates today's reading tasks for the assigned readers — they appear on each person's Today. Tasks also generate automatically every morning.</p>
-            </>
-          )}
         </>
       )}
     </div>
@@ -502,6 +475,9 @@ function ReaderAssign({ familyId, trackableId, source, owners, template, created
       };
       if (template) await updateTemplate(familyId, template.id, data);
       else await addTemplate(familyId, data);
+      // Assigning a reader starts tracking: materialise today's task now
+      // (it also regenerates automatically each morning).
+      await generateTasksNow(familyId).catch(() => {});
       setSaved(true);
     } finally { setSaving(false); }
   };
@@ -559,8 +535,9 @@ function ReaderAssign({ familyId, trackableId, source, owners, template, created
         </label>
       </div>
       <button type="button" onClick={save} disabled={!canSave || saving} className="w-full mt-3 bg-pulse-gold text-pulse-navy rounded-xl py-2 font-nunito font-black text-[12px] disabled:opacity-50">
-        {saving ? 'Saving…' : saved ? '✓ Reader saved' : template ? 'Update reader' : 'Save reader'}
+        {saving ? 'Saving…' : saved ? '✓ Saved · tracking on' : template ? 'Update reader' : 'Save reader'}
       </button>
+      {saved && <p className="text-[10px] text-hive-muted text-center mt-1 leading-snug">Today's task was created (if due today) and appears on the reader's Today; it repeats per the cadence.</p>}
     </div>
   );
 }
