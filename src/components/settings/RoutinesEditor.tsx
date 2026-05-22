@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { updateFamily, Routine } from '@/lib/firestore';
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 
 type Period = 'morning' | 'evening';
 
@@ -109,21 +110,17 @@ export default function RoutinesEditor() {
 
   if (isGuest) {
     return (
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-        <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">Daily routines</p>
+      <CollapsibleSection title="Daily routines">
         <p className="text-[11px] text-kaya-sand">Routine editing is disabled in the demo. Sign up to manage your own list.</p>
-      </div>
+      </CollapsibleSection>
     );
   }
 
   return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-      <div className="flex items-baseline justify-between mb-2">
-        <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Daily routines</p>
-        <span className="text-[10px] text-kaya-sand-light">
-          {working.filter((r) => r.active).length} active · {working.length} total
-        </span>
-      </div>
+    <CollapsibleSection
+      title="Daily routines"
+      summary={`${working.filter((r) => r.active).length} active · ${working.length} total`}
+    >
       <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
         The tasks scored on the Rate page. Set Excellent / Good / Bad points per task. Toggle inactive to hide without deleting.
       </p>
@@ -191,7 +188,7 @@ export default function RoutinesEditor() {
           <span className="text-[11px] text-kaya-sand-light">No unsaved changes.</span>
         )}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }
 

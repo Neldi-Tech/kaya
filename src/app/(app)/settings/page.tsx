@@ -45,6 +45,7 @@ import {
 } from '@/lib/referral';
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
 import NotificationSettings from '@/components/settings/NotificationSettings';
 
@@ -1487,15 +1488,16 @@ export default function SettingsPage() {
 
           {/* Born on this day (parent) */}
           {!isGuest && profile?.birthday && (profile?.birthdayPrivacy || 'partial') !== 'private' && myBornToday.length > 0 && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-baseline justify-between mb-3">
-                <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">
+            <CollapsibleSection
+              title={
+                <>
                   Born on the same day
                   {profile.gender === 'female' && <span className="ml-1 text-kaya-sand-light normal-case">· women</span>}
                   {profile.gender === 'male' && <span className="ml-1 text-kaya-sand-light normal-case">· men</span>}
-                </h3>
-                <span className="text-[10px] text-kaya-sand-light">via Wikipedia</span>
-              </div>
+                </>
+              }
+              summary="via Wikipedia"
+            >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {myBornToday.map((p) => (
                   <a
@@ -1518,16 +1520,12 @@ export default function SettingsPage() {
                   </a>
                 ))}
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Inspiring innovations on this day (parent) */}
           {!isGuest && profile?.birthday && (profile?.birthdayPrivacy || 'partial') !== 'private' && myEventsToday.length > 0 && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <div className="flex items-baseline justify-between mb-3">
-                <h3 className="text-xs font-semibold text-kaya-sand uppercase tracking-wider">Inspiring on this day</h3>
-                <span className="text-[10px] text-kaya-sand-light">curated · Wikipedia</span>
-              </div>
+            <CollapsibleSection title="Inspiring on this day" summary="curated · Wikipedia">
               <ul className="space-y-2">
                 {myEventsToday.map((e, idx) => {
                   const inner = (
@@ -1555,7 +1553,7 @@ export default function SettingsPage() {
                   );
                 })}
               </ul>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Family identity — name, handle, photo. Anchored at #family so
@@ -3064,41 +3062,6 @@ const APPROVAL_CATEGORIES: Array<{
   { key: 'payrollLoan',    emoji: '🏦', label: 'Payroll loans',      hint: 'Helpers requesting a loan with a repayment schedule.',              live: false },
 ];
 
-// Generic collapsible settings card — renders the standard white card
-// chrome with a tappable header (title + optional right-aligned summary
-// + chevron) and hides its body until expanded. Collapsed by default to
-// keep the Settings page short; each instance keeps its own open state.
-function CollapsibleSection({
-  title,
-  summary,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  summary?: React.ReactNode;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center justify-between gap-2 text-left"
-      >
-        <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{title}</p>
-        <span className="flex items-center gap-2 shrink-0">
-          {summary != null && <span className="text-[10px] text-kaya-sand-light">{summary}</span>}
-          <span className={`inline-block text-sm text-kaya-sand transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
-        </span>
-      </button>
-      {open && <div className="mt-3">{children}</div>}
-    </div>
-  );
-}
-
 function ApprovalPoliciesCard({ familyId, family }: {
   familyId?: string;
   family: { approvalMode?: 'either' | 'both'; approvalModes?: Partial<Record<ApprovalCategoryKey, 'either' | 'both'>> } | null;
@@ -3119,8 +3082,7 @@ function ApprovalPoliciesCard({ familyId, family }: {
     modes[k] ?? legacy ?? 'either';
 
   return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-      <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Approval policies</p>
+    <CollapsibleSection title="Approval policies">
       <p className="text-[11px] text-kaya-sand mb-3 leading-relaxed">
         Choose whether each Household request type needs one parent or both. Defaults to "Either"; the legacy family-wide setting still applies to anything not explicitly set here.
       </p>
@@ -3165,6 +3127,6 @@ function ApprovalPoliciesCard({ familyId, family }: {
           );
         })}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }
