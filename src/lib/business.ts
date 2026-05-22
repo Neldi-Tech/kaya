@@ -136,6 +136,10 @@ export interface Business {
    *  timezone; localLabel is just for display. */
   reminder?: BusinessReminder;
   createdBy: string;
+  /** Who set it up — a parent (for/with a kid) or the kid themselves. Drives
+   *  the "started by …" attribution. createdByName is a display snapshot. */
+  createdByRole?: 'parent' | 'kid';
+  createdByName?: string;
   createdAt: Timestamp;
   startedAt?: Timestamp;        // idea → pilot/active
   closedAt?: Timestamp;
@@ -340,6 +344,13 @@ export const BUSINESS_TYPES: BusinessTypeMeta[] = [
   { key: 'sport',    label: 'Sport / Coaching', emoji: '⚽', shape: ['sales', 'costs', 'profit'],              phase: 2 },
   { key: 'learning', label: 'Learning-for-pay', emoji: '🎯', shape: ['milestones', 'reward'],                  phase: 2 },
   { key: 'coop',     label: 'Co-op',            emoji: '🤝', shape: ['sharedBooks', 'profitSplit'],            phase: 2 },
+];
+
+/** Common units a kid can tap when naming what they sell (free text still
+ *  allowed). Goods-leaning first, then service. */
+export const UNIT_SUGGESTIONS: string[] = [
+  'pcs', 'kg', 'g', 'litre', 'bunch', 'dozen', 'pack', 'box', 'plate', 'cup',
+  'wash', 'session', 'hour', 'job',
 ];
 
 /** Currently creatable types + channels. Phase 2 widens these. */
@@ -620,6 +631,9 @@ export interface BusinessActor {
    *  parent creating → the kid they're setting it up for. */
   ownerId: string;
   isParent: boolean;
+  /** Display name of the creator, snapshotted onto the business for the
+   *  "started by …" attribution. */
+  name?: string;
 }
 
 /** Create a business. A parent's goes live immediately (the parent IS the
@@ -645,9 +659,11 @@ export async function createBusiness(
     hiveSplit: input.hiveSplit,
     stats: EMPTY_STATS,
     createdBy: actor.uid,
+    createdByRole: actor.isParent ? 'parent' : 'kid',
     createdAt: now,
     startedAt: now,
   };
+  if (actor.name?.trim()) data.createdByName = actor.name.trim();
   if (input.mission?.trim()) data.mission = input.mission.trim();
   if (input.unitLabel?.trim()) data.unitLabel = input.unitLabel.trim();
   if (typeof input.unitPriceCents === 'number') data.unitPriceCents = input.unitPriceCents;
