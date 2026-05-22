@@ -981,6 +981,67 @@ export async function createDraftFromTemplate(
   return draftId;
 }
 
+/** Recycle a past invoice into a fresh draft — the per-invoice
+ *  counterpart to {@link createDraftFromTemplate}. Reads the source
+ *  request and seeds the new draft with what was ACTUALLY bought last
+ *  time (actualQty / actualCents), falling back to the original
+ *  estimate where no actual was recorded. Reconcile-only fields
+ *  (actuals, ad-hoc + pending-promote flags) are dropped so the draft
+ *  starts clean, and module pins (meter / vehicle / helper / utility)
+ *  carry over so the recycled draft targets the same surface. Lines
+ *  that netted zero (requested but not bought) are skipped. Returns the
+ *  new draft id. */
+export async function createDraftFromRequest(
+  familyId: string,
+  sourceRequestId: string,
+  args: {
+    createdBy: string;
+    createdByRole: 'parent' | 'helper';
+    /** Optional explicit name; otherwise a fresh auto-name is built. */
+    nameOverride?: string;
+  },
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const snap = await getDoc(requestDoc(familyId, sourceRequestId));
+  if (!snap.exists()) throw new Error('Request not found');
+  const src = { id: snap.id, ...snap.data() } as PurchaseRequest;
+  const freshId = () =>
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? (crypto as Crypto).randomUUID()
+      : Math.random().toString(36).slice(2, 10);
+  // Seed from last actuals, fall back to the estimate. Build each clone
+  // field-by-field so we never write `undefined` into Firestore (which
+  // rejects it) and so reconcile-only fields are intentionally left off.
+  const items: PurchaseRequestItem[] = (src.items ?? [])
+    .map((it) => {
+      const qty = it.actualQty != null ? it.actualQty : it.qty;
+      const estimatedCents = it.actualCents != null ? it.actualCents : it.estimatedCents;
+      const clone: PurchaseRequestItem = {
+        id: freshId(),
+        name: it.name,
+        qty,
+        unit: it.unit,
+      };
+      if (it.stapleId != null) clone.stapleId = it.stapleId;
+      if (it.name2 != null) clone.name2 = it.name2;
+      if (it.category != null) clone.category = it.category;
+      if (estimatedCents != null) clone.estimatedCents = estimatedCents;
+      return clone;
+    })
+    .filter((it) => (it.qty ?? 0) > 0);
+  return createDraftRequest(familyId, {
+    name: args.nameOverride,
+    createdBy: args.createdBy,
+    createdByRole: args.createdByRole,
+    module: src.module,
+    items,
+    helperUid: src.helperUid,
+    meterId: src.meterId,
+    utilityId: src.utilityId,
+    vehicleId: src.vehicleId,
+  });
+}
+
 /** Remove a template — used by a future Templates management UI. */
 export async function deleteTemplate(
   familyId: string,
