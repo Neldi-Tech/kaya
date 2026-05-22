@@ -724,3 +724,25 @@ export async function generateTasksNow(
   if (!res.ok) throw new Error(`generate failed (${res.status})`);
   return res.json();
 }
+
+/** All readings whose dayKey falls in a given month (`YYYY-MM`). Single-field
+ *  range on dayKey — no composite index. Powers the Dashboard consumption lens. */
+export function subscribeToReadingsInMonth(
+  fid: string,
+  monthKey: string,
+  cb: (r: PulseReading[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(readingsCol(fid), where('dayKey', '>=', `${monthKey}-01`), where('dayKey', '<=', `${monthKey}-31`)),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PulseReading))),
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] month readings subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
