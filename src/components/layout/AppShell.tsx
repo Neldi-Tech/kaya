@@ -247,6 +247,7 @@ const BUSINESS_NAV: NavItem[] = [
 // today; kid/helper Today + the dashboards land as the slice fills in.
 const PULSE_NAV: NavItem[] = [
   { path: '/pulse',       icon: '📈', label: 'Overview' },
+  { path: '/pulse/today', icon: '✅', label: 'Today' },
   { path: '/pulse/admin', icon: '⚙️', label: 'Trackables & tasks' },
 ];
 
