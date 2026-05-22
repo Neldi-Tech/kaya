@@ -243,6 +243,14 @@ const BUSINESS_NAV: NavItem[] = [
   { path: '/parent/business', icon: '🧭', label: 'Family console' },
 ];
 
+// Kaya Pulse · finance intelligence. Overview hub + parent task setup
+// today; kid/helper Today + the dashboards land as the slice fills in.
+const PULSE_NAV: NavItem[] = [
+  { path: '/pulse',       icon: '📈', label: 'Overview' },
+  { path: '/pulse/today', icon: '✅', label: 'Today' },
+  { path: '/pulse/admin', icon: '⚙️', label: 'Trackables & tasks' },
+];
+
 // Stats · reports & trends. Collapsed by default to keep the menu calm.
 const STATS_NAV: NavItem[] = [
   { path: '/reports',       icon: '📊', label: 'Reports' },
@@ -299,6 +307,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
+  { kind: 'section', id: 'pulse',     icon: '📈', label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: FUN_NAV },

@@ -90,3 +90,16 @@ function parseIso(iso: string): Date | null {
   if (!m) return null;
   return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
 }
+
+// "YYYY-MM-DD" for a given instant in a specific IANA timezone. Kaya Pulse
+// uses this so the daily task generator (server, UTC) and the Today screen
+// (client) agree on which calendar day "today" is, regardless of where the
+// server or device sits. en-CA formats as ISO (YYYY-MM-DD).
+export function dayKeyInTZ(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}

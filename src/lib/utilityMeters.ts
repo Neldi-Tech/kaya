@@ -16,6 +16,9 @@ import {
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { Cadence } from './pantry';
+// Type-only — pulse.ts imports meterEmoji from here at runtime, so keeping
+// this a type import avoids a runtime cycle. (2026-05-22, Kaya Pulse.)
+import type { MeterDirection } from './pulse';
 
 /** Meter type drives the emoji + picker chip colour + default
  *  cadence guess. Keep short on purpose — most families have
@@ -88,6 +91,22 @@ export interface UtilityMeter {
   /** Idempotency guard for the reminder generator — "YYYY-MM-DD" of the
    *  last reminder fired, so a re-open on the same day is a no-op. */
   lastRemindedKey?: string;
+  // ── Kaya Pulse (2026-05-22) ─────────────────────────────────────
+  /** Reading direction. 'down' = prepaid/depleting (LUKU electricity, gas):
+   *  the reading IS the remaining balance, ticks toward 0, and a jump up = a
+   *  top-up (not usage). 'up' = postpaid/cumulative totalizer (city water,
+   *  odometer): only climbs, consumption = curr − prev. Drives the Pulse
+   *  delta engine. Absent on legacy meters → the mapper defaults (water →
+   *  'up', everything else → 'down'); the Admin form sets it explicitly. */
+  direction?: MeterDirection;
+  /** Remaining units on a 'down' meter (= the latest reading value). Pulse
+   *  sets this on each reading; powers the auto-top-up threshold. 'down' only. */
+  balanceUnits?: number;
+  /** When balanceUnits falls below this, Pulse auto-creates a utility top-up
+   *  purchaseRequest — the Kaya Plus seam. 'down' meters only. */
+  minUnitsThreshold?: number;
+  /** Surfaced as a Kaya Pulse trackable (gets a reading task + history). */
+  pulseEnabled?: boolean;
   /** Pause without deleting. False meters don't appear in the
    *  request picker but their history stays for Finances. */
   active: boolean;
