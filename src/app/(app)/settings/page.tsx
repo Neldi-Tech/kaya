@@ -817,6 +817,16 @@ export default function SettingsPage() {
   // toggle in the UI below.
   const selectedKidModules = family?.kidModules ?? DEFAULT_KID_MODULES;
   const [savingKidModule, setSavingKidModule] = useState<string | null>(null);
+  // Which kid-module accordions are expanded (only modules with
+  // sub-pages have one). Collapsed by default to keep the list calm —
+  // parents tap the chevron to reveal + allocate sub-pages.
+  const [expandedKidMods, setExpandedKidMods] = useState<Set<string>>(new Set());
+  const toggleKidModExpand = (id: string) =>
+    setExpandedKidMods((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   const toggleKidModule = async (id: string) => {
     if (!profile?.familyId || !family || isGuest || savingKidModule) return;
     const isOn = selectedKidModules.includes(id);
@@ -2207,56 +2217,75 @@ export default function SettingsPage() {
                 {KID_MODULES.filter((m) => !m.alwaysOn).map((m) => {
                   const sel = selectedKidModules.includes(m.id);
                   const disabled = isGuest;
+                  const expanded = expandedKidMods.has(m.id);
                   return (
                     <div key={m.id}>
-                      {/* Parent module row */}
-                      <button
-                        onClick={() => toggleKidModule(m.id)}
-                        disabled={disabled || savingKidModule === m.id}
-                        className={`w-full flex items-start gap-3 p-3 rounded-kaya-sm border-2 text-left transition-all ${
+                      {/* Parent module row — the wide area toggles the
+                          module on/off; modules with sub-pages get a
+                          chevron (right) to expand + allocate them.
+                          Border lives on this wrapper so the chevron
+                          shares the selected styling. */}
+                      <div
+                        className={`flex items-stretch rounded-kaya-sm border-2 transition-all ${
                           sel
                             ? 'border-kaya-gold bg-kaya-gold/5'
-                            : 'border-kaya-warm-dark hover:border-kaya-sand-light bg-white'
-                        } ${savingKidModule === m.id ? 'opacity-60' : ''} ${disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
+                            : 'border-kaya-warm-dark bg-white'
+                        } ${savingKidModule === m.id ? 'opacity-60' : ''} ${disabled ? 'opacity-70' : ''}`}
                       >
-                        <span className="text-2xl shrink-0 leading-none">{m.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-baseline gap-2 flex-wrap">
-                            <p className="text-sm font-bold leading-tight">{m.label}</p>
-                            {m.soon && (
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/40 text-kaya-sand">
-                                Coming soon
-                              </span>
-                            )}
-                            {m.isLegacy && (
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/30 text-kaya-sand">
-                                Legacy
-                              </span>
-                            )}
-                            {m.subModules && sel && (
-                              <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-gold/20 text-kaya-chocolate">
-                                {selectedKidModules.filter((id) => id.startsWith(`${m.id}:`)).length}/{m.subModules.length} sub-pages
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <span
-                          className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
-                            sel
-                              ? 'bg-kaya-gold border-kaya-gold text-white'
-                              : 'border-kaya-warm-dark bg-white text-transparent'
-                          }`}
+                        <button
+                          onClick={() => toggleKidModule(m.id)}
+                          disabled={disabled || savingKidModule === m.id}
+                          className={`flex-1 min-w-0 flex items-start gap-3 p-3 text-left ${disabled ? 'cursor-not-allowed' : ''}`}
                         >
-                          {sel ? '✓' : ''}
-                        </span>
-                      </button>
+                          <span className="text-2xl shrink-0 leading-none">{m.icon}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <p className="text-sm font-bold leading-tight">{m.label}</p>
+                              {m.soon && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/40 text-kaya-sand">
+                                  Coming soon
+                                </span>
+                              )}
+                              {m.isLegacy && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/30 text-kaya-sand">
+                                  Legacy
+                                </span>
+                              )}
+                              {m.subModules && sel && (
+                                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-gold/20 text-kaya-chocolate">
+                                  {selectedKidModules.filter((id) => id.startsWith(`${m.id}:`)).length}/{m.subModules.length} sub-pages
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <span
+                            className={`shrink-0 mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center text-[11px] font-bold transition-colors ${
+                              sel
+                                ? 'bg-kaya-gold border-kaya-gold text-white'
+                                : 'border-kaya-warm-dark bg-white text-transparent'
+                            }`}
+                          >
+                            {sel ? '✓' : ''}
+                          </span>
+                        </button>
+                        {m.subModules && sel && (
+                          <button
+                            type="button"
+                            onClick={() => toggleKidModExpand(m.id)}
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${m.label} sub-pages`}
+                            className="shrink-0 w-10 flex items-center justify-center text-kaya-sand border-l-2 border-kaya-warm-dark/30 hover:bg-white/60"
+                          >
+                            <span className={`inline-block text-sm transition-transform ${expanded ? 'rotate-180' : ''}`}>⌄</span>
+                          </button>
+                        )}
+                      </div>
 
-                      {/* Sub-modules — only when parent is on. Each
-                          sub uses the composite id "{parent}:{sub}" so
-                          the existing toggleKidModule handler works
-                          unchanged. Indented + smaller to visually
-                          group them under their parent. */}
-                      {m.subModules && sel && (
+                      {/* Sub-modules — only when parent is on AND the
+                          accordion is expanded. Each sub uses the
+                          composite id "{parent}:{sub}" so the existing
+                          toggleKidModule handler works unchanged. */}
+                      {m.subModules && sel && expanded && (
                         <div className="mt-2 ml-6 pl-3 border-l-2 border-kaya-warm-dark/40 space-y-1.5">
                           <p className="text-[10px] text-kaya-sand-light leading-relaxed mb-1">
                             Sub-pages your kid can open inside {m.label}. Off by default — turn on the ones you want them to access.

@@ -626,6 +626,16 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
   const kidNames =
     helper.kidIds.map((id) => childNameById[id]).filter(Boolean).join(', ') || 'No kids assigned';
   const [expanded, setExpanded] = useState(false);
+  // Which access-area accordions are open (modules with sub-items).
+  // Collapsed by default so the access list reads as a calm summary —
+  // the parent taps a chevron to reveal + allocate that area's subs.
+  const [expandedAreas, setExpandedAreas] = useState<Set<string>>(new Set());
+  const toggleAreaExpand = (id: string) =>
+    setExpandedAreas((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   const [nameDraft, setNameDraft] = useState(helper.displayName);
   useEffect(() => { setNameDraft(helper.displayName); }, [helper.displayName]);
 
@@ -924,6 +934,7 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
               {moduleOptions.map((m) => {
                 const agg = parentAggregate(m);
                 const hasSubs = !!m.subModules && m.subModules.length > 0;
+                const areaExpanded = expandedAreas.has(m.id);
                 // Parent card visual treatment by module lifecycle +
                 // whether the helper has any grant inside this module.
                 const anyGranted = agg.view !== 'none' || agg.act !== 'none';
@@ -972,11 +983,22 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
                             : toggleModuleTier(m.id, 'act')}
                         />
                       </div>
+                      {hasSubs && (
+                        <button
+                          type="button"
+                          onClick={() => toggleAreaExpand(m.id)}
+                          aria-expanded={areaExpanded}
+                          aria-label={`${areaExpanded ? 'Collapse' : 'Expand'} ${m.label} sub-pages`}
+                          className="flex-shrink-0 w-7 h-7 -mr-1 flex items-center justify-center rounded-md text-kaya-sand hover:bg-kaya-warm/60"
+                        >
+                          {areaExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
+                      )}
                     </div>
 
                     {/* Sub-rows — indented; each has its own View/Act
                         toggles. Only render when the parent has subs. */}
-                    {hasSubs && (
+                    {hasSubs && areaExpanded && (
                       <div className="border-t border-kaya-warm-dark/30 bg-white/40 px-3 py-2 space-y-1.5">
                         {m.subModules!.map((sub) => {
                           const key = `${m.id}:${sub.id}`;
