@@ -266,6 +266,27 @@ const KID_FUN_NAV: NavItem[] = [
   { path: '/games',  icon: '🎮', label: 'Games',  mobileLabel: 'Games',  soon: true },
 ];
 
+// Kid Kaya section — the point-system surfaces a kid can use. Rate +
+// Award are parent/helper actions, so they're deliberately omitted;
+// kids get the family ritual (Meeting), the payoff (Rewards) and their
+// trophy shelf (Badges). Each route is still gated by its own module
+// grant (kaya:meetings / kaya:rewards / badges) — see kidModules.ts.
+const KID_KAYA_NAV: NavItem[] = [
+  { path: '/meetings', icon: '👨‍👩‍👧‍👦', label: 'Family meeting', mobileLabel: 'Meet' },
+  { path: '/rewards',  icon: '🎁',          label: 'Rewards',        mobileLabel: 'Rewards' },
+  { path: '/badges',   icon: '🏆',          label: 'Badges',         mobileLabel: 'Badges' },
+];
+
+// Kid Stats section — Reports / Kid profiles / Family tree. All three
+// gate on the single `stats` grant (extraPaths in kidModules.ts). The
+// pages render read-only for kids (no edit controls), so this is a
+// view-only window into the family's numbers + tree.
+const KID_STATS_NAV: NavItem[] = [
+  { path: '/reports',     icon: '📊', label: 'Reports',      mobileLabel: 'Reports' },
+  { path: '/profiles',    icon: '👧', label: 'Kid profiles', mobileLabel: 'Kids' },
+  { path: '/family-tree', icon: '🌳', label: 'Family tree',  mobileLabel: 'Tree' },
+];
+
 // ── Sidebars per role ────────────────────────────────────────────────
 // Parents · 13 rows in the design-proposal order (Discover + 12 modules).
 // Container sections (Kaya, Household, Hive, Business, Stats, Fun) are
@@ -303,27 +324,32 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'profiles', path: '/profiles',        icon: '👧', label: 'Kids' },
 ];
 
-// Full kid menu in canonical order. Filtered at render time through
+// Full kid menu in canonical order, mirroring the parent shape:
+// Discover · Home · Moments · Kaya · Household · Hive · Business ·
+// Directory · Stats · Fun · (Soon ×3). Filtered at render time through
 // `family.kidModules` (see `resolveKidModules`) — rows whose `id`
 // isn't in the granted set are dropped. Home is always granted.
-// Discover/Badges/Rewards are legacy modules and OFF by default for
-// new families, but kept as toggleable so households who liked the old
-// shape can re-enable them. Wealth/Wellness/Chef render with a SOON
-// pill until their pages ship.
+//   • Kaya (section) — kid-safe point-system surfaces: Family meeting,
+//     Rewards, Badges. Rate/Award are parent-only and live nowhere in
+//     the kid nav. Badges + Rewards used to be standalone rows; they're
+//     folded in here so the kid menu reads like the parent's.
+//   • Stats (section) — Reports / Kid profiles / Family tree, view-only
+//     for kids (the pages hide their edit controls by role).
+// Wealth/Wellness/Chef render with a SOON pill until their pages ship.
 const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/kid',       icon: '🏠', label: 'Home' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
+  { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
   { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
   { kind: 'link',    id: 'business',  path: '/business',  icon: '💼', label: 'Kaya Business' },
   { kind: 'link',    id: 'directory', path: '/directory', icon: '📞', label: 'Directory' },
+  { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: KID_STATS_NAV },
   { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
-  { kind: 'link',    id: 'badges',    path: '/badges',    icon: '🏆', label: 'Badges' },
-  { kind: 'link',    id: 'rewards',   path: '/rewards',   icon: '🎁', label: 'Rewards' },
 ];
 
 // ── Mobile bottom-bar groups ─────────────────────────────────────────
@@ -671,6 +697,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (row.kind === 'section') {
       const active = isSectionActive(row);
       const open = isSectionOpen(row);
+      // Per-item gating for kids: a section's sub-items each map to their
+      // own module grant (e.g. Kaya → kaya:meetings / kaya:rewards /
+      // badges). Drop the rows a family hasn't granted so the kid never
+      // sees a link that just bounces to Home. Items whose path isn't
+      // gated, and all rows for non-kid roles, pass through untouched.
+      const visibleItems =
+        role === 'kid'
+          ? row.items.filter((item) => {
+              const mid = moduleIdForPath(item.path);
+              return !mid || grantedKidModules.has(mid);
+            })
+          : row.items;
+      // Nothing left to show (e.g. parent kept `kaya` on but turned every
+      // sub-route off) → skip the whole section rather than render an
+      // empty, un-openable header.
+      if (visibleItems.length === 0) return null;
       const headerClasses = `flex-1 flex items-center gap-3 px-3 py-2.5 rounded-kaya-sm text-[13px] transition-colors text-left ${
         active
           ? 'bg-kaya-chocolate text-white font-semibold'
@@ -687,7 +729,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       // header navigate + light up on tap, instead of collapsible-only
       // sections (Stats, Kaya, …) staying dark until a sub-item is
       // clicked. Navigating also forces the section open.
-      const headerHref = row.href ?? row.items[0]?.path;
+      const headerHref = row.href ?? visibleItems[0]?.path;
       return (
         <div key={row.id}>
           <div className="flex items-stretch gap-1">
@@ -728,7 +770,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
           {open && (
             <div className="ml-3 mt-1 mb-1 pl-3 border-l-2 border-kaya-warm-dark space-y-0.5">
-              {row.items.map((item) => {
+              {visibleItems.map((item) => {
                 const itemActive = isActive(item.path);
                 const itemClasses = `w-full flex items-center gap-3 px-3 py-2 rounded-kaya-sm text-[12.5px] transition-colors ${
                   itemActive
