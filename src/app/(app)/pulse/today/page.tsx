@@ -10,9 +10,10 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { toDisplayDate, dayKeyInTZ } from '@/lib/dates';
 import {
-  type PulseTask, type Trackable,
-  subscribeToOwnerTasks, subscribeToTrackables,
+  type PulseTask, type Trackable, type PulseProfile,
+  subscribeToOwnerTasks, subscribeToTrackables, subscribeToPulseProfile,
 } from '@/lib/pulse';
+import { PulseMark } from '@/components/pulse/ui';
 
 const PULSE_TZ = 'Africa/Dar_es_Salaam'; // Phase 1 single-family tz; multi-tz later
 
@@ -34,6 +35,7 @@ export default function PulseTodayPage() {
 
   const [tasks, setTasks] = useState<PulseTask[]>([]);
   const [trackables, setTrackables] = useState<Trackable[]>([]);
+  const [streakProfile, setStreakProfile] = useState<PulseProfile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -47,10 +49,12 @@ export default function PulseTodayPage() {
       setLoading(false);
     });
     const unsubTr = subscribeToTrackables(profile.familyId, setTrackables);
+    const unsubProf = subscribeToPulseProfile(profile.familyId, ownerId, setStreakProfile);
     return () => {
       clearTimeout(t);
       unsubTasks();
       unsubTr();
+      unsubProf();
     };
   }, [profile?.familyId, ownerId, dayKey]);
 
@@ -65,9 +69,21 @@ export default function PulseTodayPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <div className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-pulse-joy-purple">Kaya Pulse</div>
-      <h1 className="font-nunito font-black text-2xl text-pulse-joy-ink">Your day</h1>
+      <div className="flex items-center gap-1.5">
+        <PulseMark className="w-4 h-4" />
+        <span className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-pulse-joy-purple">Kaya Pulse</span>
+      </div>
+      <h1 className="font-nunito font-black text-2xl text-pulse-joy-ink mt-1">Your day</h1>
       <p className="text-hive-muted text-sm mt-0.5 mb-4">{toDisplayDate(dayKey)}</p>
+
+      {isOwnerRole && streakProfile && streakProfile.currentStreak > 0 && (
+        <div
+          className="rounded-2xl px-4 py-2.5 mb-4 flex items-center gap-2 text-[#5A3D00] font-nunito font-black text-[13px] shadow-[0_6px_16px_rgba(255,170,51,0.3)]"
+          style={{ background: 'linear-gradient(135deg,#FFD93D,#FFAA33)' }}
+        >
+          🔥 {streakProfile.currentStreak}-day streak — log today to keep it going!
+        </div>
+      )}
 
       {loading ? (
         <p className="text-hive-muted text-sm">Loading…</p>
