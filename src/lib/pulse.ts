@@ -83,6 +83,10 @@ export interface TrackableDoc {
   balanceUnits?: number;
   /** For direction:'down' — below this, auto-create a top-up request. */
   minUnitsThreshold?: number;
+  /** For odometer/service trackables: distance between services (e.g. 5000 km). */
+  serviceIntervalUnits?: number;
+  /** Reading at the last service — "to next service" = serviceIntervalUnits − (latest − this). */
+  serviceBaselineUnits?: number;
   active: boolean;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
