@@ -23,6 +23,14 @@
     {
       "path": "/api/cron/pulse-generate",
       "schedule": "5 21 * * *"
+    },
+    {
+      "path": "/api/cron/pulse-rotate",
+      "schedule": "55 20 * * 0"
+    },
+    {
+      "path": "/api/cron/pulse-scan",
+      "schedule": "0 * * * *"
     }
   ]
 }
