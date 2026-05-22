@@ -13,14 +13,24 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import type { WorkplanItem, WorkplanCompletion, WorkplanPeriod } from '@/lib/firestore';
 import {
   listWorkplanItems, itemsScheduledOn, groupItemsByPeriod, partitionByKind,
-  getCompletion, toggleItemCompletion, setEodNote, dailyCompletionPct,
+  getCompletion, toggleItemCompletion, setEodNote,
   todayDateString,
 } from '@/lib/workplan';
+import {
+  subscribeToOwnerTasks, subscribeToTrackables,
+  type PulseTask, type Trackable,
+} from '@/lib/pulse';
 import { toDisplayDate } from '@/lib/dates';
-import { ClipboardList, Check, CalendarDays } from 'lucide-react';
+import { ClipboardList, Check, CalendarDays, Gauge, ChevronRight } from 'lucide-react';
+
+// A Pulse reading task counts as "done" once it's been logged (or has
+// since moved through review/closed in the reconcile loop).
+const PULSE_DONE: ReadonlyArray<PulseTask['status']> = ['logged', 'review', 'closed'];
+const isPulseDone = (t: PulseTask) => PULSE_DONE.includes(t.status);
 
 // ── Today's workplan card ─────────────────────────
 // Icon-first checklist for the helper's day. Loads items + the day's
@@ -49,6 +59,13 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
   const [noteDraft, setNoteDraft] = useState('');
   const [busyItem, setBusyItem] = useState<string | null>(null);
   const [noteSaving, setNoteSaving] = useState(false);
+  // Kaya Pulse reading tasks for this owner + day (2026-05-23). Surfaces
+  // the helper's assigned utility/meter readings inside the same daily
+  // card so "what do I have to do today" is one place. Realtime so a log
+  // flips the tile to ✓ without a refresh. `trackById` resolves each
+  // task's name + emoji for a friendly tile.
+  const [pulseTasks, setPulseTasks] = useState<PulseTask[] | null>(null);
+  const [trackById, setTrackById] = useState<Record<string, Trackable>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -65,9 +82,21 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
     return () => { cancelled = true; };
   }, [familyId, helperUid, dateStr]);
 
-  if (items === null) return null;
+  useEffect(() => {
+    const unsubTasks = subscribeToOwnerTasks(familyId, helperUid, dateStr, setPulseTasks);
+    const unsubTr = subscribeToTrackables(familyId, (list) => {
+      setTrackById(Object.fromEntries(list.map((t) => [t.id, t])));
+    });
+    return () => { unsubTasks(); unsubTr(); };
+  }, [familyId, helperUid, dateStr]);
+
+  // Wait for BOTH stores so a readings-only helper (no workplan items)
+  // doesn't flash an empty card before their Pulse tasks arrive.
+  if (items === null || pulseTasks === null) return null;
   const scheduled = itemsScheduledOn(items, date);
-  if (scheduled.length === 0) {
+  const pulseForDay = pulseTasks;
+  const pulseDoneCount = pulseForDay.filter(isPulseDone).length;
+  if (scheduled.length === 0 && pulseForDay.length === 0) {
     // Today / helper-home: render nothing rather than an empty card.
     // Read-only day views DO show a friendly note so the card doesn't
     // silently vanish when you step to a day with nothing scheduled.
@@ -90,10 +119,13 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
   const { adhoc: adhocToday, recurring: recurringToday } = partitionByKind(scheduled);
   const grouped = groupItemsByPeriod(recurringToday);
   const done = completion?.completedItemIds ?? [];
-  // Percent + count include adhoc + recurring — they're equally weighted
-  // since the helper has to do both.
-  const pct = dailyCompletionPct(scheduled, completion);
-  const doneCount = scheduled.filter((i) => done.includes(i.id)).length;
+  // Combined progress — workplan items (adhoc + recurring) AND Pulse
+  // readings are equally weighted, since the helper has to do both. This
+  // is the day's single % progress (Elia's addition #1).
+  const workplanDone = scheduled.filter((i) => done.includes(i.id)).length;
+  const totalCount = scheduled.length + pulseForDay.length;
+  const doneCount = workplanDone + pulseDoneCount;
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
   const toggle = async (itemId: string) => {
     if (readOnly) return;
@@ -126,8 +158,11 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
           </p>
           <p className="text-[11px] text-kaya-sand mt-0.5">
             {isFuture
-              ? `${scheduled.length} task${scheduled.length === 1 ? '' : 's'} planned · nothing done yet`
-              : `${doneCount} of ${scheduled.length} done · ${pct}%`}
+              ? `${totalCount} task${totalCount === 1 ? '' : 's'} planned · nothing done yet`
+              : `${doneCount} of ${totalCount} done · ${pct}%`}
+            {pulseForDay.length > 0 && (
+              <span className="text-kaya-sand"> · 📊 {pulseDoneCount}/{pulseForDay.length} readings</span>
+            )}
           </p>
         </div>
         {/* Progress badge — % for today/past; calendar glyph for a future
@@ -148,6 +183,91 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
           </div>
         )}
       </div>
+
+      {/* Slim progress bar — a quick visual of the day's % (Elia's
+          addition #1). Hidden on a future preview (nothing done yet). */}
+      {!isFuture && totalCount > 0 && (
+        <div className="mb-3 h-2 w-full rounded-full bg-kaya-cream overflow-hidden" aria-hidden>
+          <div
+            className={`h-full rounded-full transition-all ${
+              pct === 100 ? 'bg-green-500' : pct >= 50 ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'
+            }`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+
+      {/* ── Kaya Pulse readings ── the helper's assigned meter/utility
+          readings for this day. Navy-tinted strip (Pulse brand) so it
+          reads as distinct from the warm workplan tiles. Pending tiles
+          link to Quick Entry; logged tiles show ✓; missed tiles flag.
+          Closes the gap Elia flagged: utility records now live in the
+          helper's daily plan, not a separate tab. */}
+      {pulseForDay.length > 0 && (
+        <div className="mb-3 -mx-1 px-3 py-2.5 bg-[#0F1F44]/[0.04] border-2 border-[#0F1F44]/15 rounded-kaya">
+          <p className="text-[10px] uppercase tracking-wider font-bold mb-2 inline-flex items-center gap-1.5 text-[#0F1F44]">
+            <Gauge size={12} /> <span>Readings to log</span>
+            <span className="text-[9px] text-kaya-sand normal-case font-normal">
+              ({pulseDoneCount}/{pulseForDay.length} done)
+            </span>
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {pulseForDay.map((t) => {
+              const tr = trackById[t.trackableId];
+              const emoji = tr?.emoji ?? '📊';
+              const name = tr?.name ?? 'Reading';
+              const isDone = isPulseDone(t);
+              const isMissed = t.status === 'missed';
+              const canLog = isToday && !readOnly && !isDone;
+              const inner = (
+                <>
+                  <span className="text-3xl lg:text-4xl">{emoji}</span>
+                  <span className={`text-[10px] lg:text-[11px] font-bold text-center leading-tight line-clamp-2 px-1 ${
+                    isDone ? 'text-green-800' : isMissed ? 'text-red-700' : 'text-[#0F1F44]'
+                  }`}>
+                    {name}
+                  </span>
+                  {isDone ? (
+                    <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center">
+                      <Check size={12} strokeWidth={3} />
+                    </span>
+                  ) : isMissed ? (
+                    <span className="absolute top-1 right-1 text-[8px] uppercase tracking-wider font-black bg-red-500 text-white px-1 rounded">
+                      Missed
+                    </span>
+                  ) : canLog ? (
+                    <span className="absolute top-1 right-1 text-[#D4A847]"><ChevronRight size={14} strokeWidth={3} /></span>
+                  ) : null}
+                  {canLog && (
+                    <span className="text-[9px] font-bold text-[#D4A847] uppercase tracking-wide">Tap to log</span>
+                  )}
+                </>
+              );
+              const tileBase = 'relative aspect-square flex flex-col items-center justify-center gap-0.5 p-2 rounded-kaya border-2 transition-all';
+              const tileTone = isDone
+                ? 'bg-green-50 border-green-400'
+                : isMissed
+                  ? 'bg-red-50 border-red-300'
+                  : isFuture
+                    ? 'bg-[#FCFAF4] border-dashed border-[#0F1F44]/30'
+                    : 'bg-white border-[#0F1F44]/25';
+              return canLog ? (
+                <Link
+                  key={t.id}
+                  href={`/pulse/log/${t.id}`}
+                  className={`${tileBase} ${tileTone} hover:shadow-sm no-underline`}
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <div key={t.id} className={`${tileBase} ${tileTone} cursor-default`} aria-disabled>
+                  {inner}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Ad-hoc one-offs ── parent-assigned tasks for this day,
           honey-tinted strip so the helper notices them. Each tile
