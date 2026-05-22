@@ -172,6 +172,25 @@ service cloud.firestore {
         allow read: if belongsToFamily(familyId);
         allow create: if isParentInFamily(familyId);
         allow update: if isParentOrHelper(familyId);
+
+        // ── Kids' Workplan items (parent-defined, repeatable) ────
+        // Parents author + edit a kid's tasks; the whole family can
+        // read (kid sees their plan; parent/helper can view it).
+        match /workplanItems/{itemId} {
+          allow read: if belongsToFamily(familyId);
+          allow create, update, delete: if isParentInFamily(familyId);
+        }
+
+        // ── Kids' Workplan completions (per-day ticks) ──────────
+        // The kid ticks their own day; the parent can also write
+        // (corrections, or ticking for a young child). Points on a
+        // ticked task are granted server-side (Admin SDK) since a kid
+        // can't write awards — so this rule only covers the tick state.
+        match /workplanCompletions/{date} {
+          allow read: if belongsToFamily(familyId);
+          allow create, update, delete: if isParentInFamily(familyId)
+            || isThisKid(familyId, childId);
+        }
       }
 
       // ── Ratings ──────────────────────────────────
