@@ -197,7 +197,98 @@ export function dailyKidPct(scheduled: KidWorkplanItem[], completion: KidWorkpla
   return Math.round((hit / scheduled.length) * 100);
 }
 
+// ── Accomplishment (gamified profile view) ────────
+export interface KidDayResult {
+  date: string;        // YYYY-MM-DD
+  dow: DayOfWeek;
+  scheduled: number;
+  done: number;
+  pct: number;
+  points: number;      // points earned that day (from completed items)
+  isActive: boolean;   // had ≥1 scheduled task
+}
+
+export interface KidAccomplishment {
+  days: KidDayResult[];  // chronological, oldest → newest (length = window)
+  windowPct: number;     // avg pct over active days in the window
+  streak: number;        // consecutive all-done days ending at the most recent
+  totalDone: number;     // tasks ticked across the window
+  totalPoints: number;   // points earned across the window
+  activeDays: number;    // days with ≥1 scheduled task
+  perfectDays: number;   // days that hit 100%
+}
+
+/** Step a date back `n` days, preserving local time. */
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+/** Build the per-day accomplishment over the last `days` (ending at
+ *  `ref`, default today). NOTE: scheduling uses the CURRENT items, so a
+ *  day's "scheduled" reflects today's plan — fine for a gamified glance,
+ *  not an audit. Completions are historical + accurate. */
+export function computeKidAccomplishment(
+  items: KidWorkplanItem[],
+  completions: KidWorkplanCompletion[],
+  days = 7,
+  ref: Date = new Date(),
+): KidAccomplishment {
+  const byDate = new Map(completions.map((c) => [c.date, c]));
+  const out: KidDayResult[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const d = addDays(ref, -i);
+    const dateStr = todayDateString(d);
+    const scheduled = kidItemsScheduledOn(items, d);
+    const comp = byDate.get(dateStr) ?? null;
+    const doneIds = new Set(comp?.completedItemIds ?? []);
+    const doneItems = scheduled.filter((it) => doneIds.has(it.id));
+    const pct = scheduled.length ? Math.round((doneItems.length / scheduled.length) * 100) : 100;
+    out.push({
+      date: dateStr,
+      dow: todayDayOfWeek(d),
+      scheduled: scheduled.length,
+      done: doneItems.length,
+      pct,
+      points: doneItems.reduce((s, it) => s + (it.pointsValue ?? 0), 0),
+      isActive: scheduled.length > 0,
+    });
+  }
+
+  const active = out.filter((d) => d.isActive);
+  const windowPct = active.length ? Math.round(active.reduce((s, d) => s + d.pct, 0) / active.length) : 0;
+
+  // Streak — walk newest → oldest; skip inactive days (neutral), count
+  // perfect days, stop at the first active day that wasn't 100%.
+  let streak = 0;
+  for (let i = out.length - 1; i >= 0; i--) {
+    const d = out[i];
+    if (!d.isActive) continue;
+    if (d.pct === 100) streak++;
+    else break;
+  }
+
+  return {
+    days: out,
+    windowPct,
+    streak,
+    totalDone: out.reduce((s, d) => s + d.done, 0),
+    totalPoints: out.reduce((s, d) => s + d.points, 0),
+    activeDays: active.length,
+    perfectDays: out.filter((d) => d.isActive && d.pct === 100).length,
+  };
+}
+
 // ── Completions ───────────────────────────────────
+/** All completion docs for a child (doc id = YYYY-MM-DD). Small —
+ *  one per active day — so a single read powers the profile
+ *  accomplishment view + the previous-days history. */
+export async function listKidCompletions(familyId: string, childId: string): Promise<KidWorkplanCompletion[]> {
+  const snap = await getDocs(completionsCol(familyId, childId));
+  return snap.docs.map((d) => ({ date: d.id, ...d.data() } as KidWorkplanCompletion));
+}
+
 export async function getKidCompletion(
   familyId: string, childId: string, date: string = todayDateString(),
 ): Promise<KidWorkplanCompletion | null> {
