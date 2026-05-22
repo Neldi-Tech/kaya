@@ -25,7 +25,7 @@ import {
   type PurchaseRequest, type PurchaseRequestItem, type PurchaseModule,
   subscribeToRequest, updateRequestItems, updateRequestMeta,
   sendForApproval, postDraftToBudget, approveRequest, rejectRequest,
-  startReconcile, deleteRequest, reopenRequest,
+  startReconcile, deleteRequest, reopenRequest, createDraftFromRequest,
   promotePendingStaple, keepAsOneOff,
   renamePendingItem, findStapleConflict, linkPendingToExisting,
   sumEstimated, sumActual, variancePct, STATUS_LABEL,
@@ -545,6 +545,39 @@ export default function PurchaseDetailPage() {
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[purchase] reopen failed:', e);
+    } finally { setBusy(false); }
+  };
+
+  // Recycle a closed invoice → spin up a fresh draft pre-filled with
+  // the same basket (seeded from last actuals, see
+  // createDraftFromRequest), then jump straight into the new draft to
+  // tweak + send for approval. Both parents + helpers can recycle since
+  // both create requests. (Recycle v1, 2026-05-22)
+  const recycle = async () => {
+    if (!profile?.familyId || !profile.uid || busy) return;
+    const ok = await confirmAction({
+      title: 'Recycle this invoice?',
+      message: 'Creates a new draft with the same items and the amounts you last bought. You can adjust it before sending for approval.',
+      confirmLabel: 'Recycle',
+      tone: 'default',
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const newId = await createDraftFromRequest(profile.familyId, req.id, {
+        createdBy: profile.uid,
+        createdByRole: role,
+      });
+      router.push(`/pantry/purchase/${newId}`);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[purchase] recycle failed:', e);
+      await confirmAction({
+        title: "Couldn't recycle",
+        message: 'Something went wrong creating the new draft. Please try again.',
+        confirmLabel: 'OK',
+        tone: 'default',
+      });
     } finally { setBusy(false); }
   };
 
@@ -1522,6 +1555,22 @@ export default function PurchaseDetailPage() {
             className="text-hive-rose font-nunito font-bold text-xs py-2"
           >
             🗑 Delete request
+          </button>
+        )}
+        {/* Recycle a closed invoice → re-buy the same basket. Closed
+            invoices only (the "old invoices" you'd re-order), excludes
+            auto-generated payroll. Available to parent + helper since
+            both create requests. Spawns a fresh draft seeded from last
+            actuals and navigates straight into it. (Recycle v1,
+            2026-05-22) */}
+        {isClosed && req.module !== 'payroll' && profile?.familyId && profile?.uid && (
+          <button
+            type="button"
+            onClick={recycle}
+            disabled={busy}
+            className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
+          >
+            ♻️ Recycle · re-buy these items
           </button>
         )}
         {/* Reopen a closed request — parent-only, excludes payroll in
