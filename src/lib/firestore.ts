@@ -140,6 +140,12 @@ export interface Family {
   // — Home is always granted regardless. Routes not in the granted set
   // bounce kids back to /kid via the AppShell route guard.
   kidModules?: string[];
+  // Privacy: may a kid open a *sibling's* profile in the Kid profiles
+  // page? When false, each kid is locked to their own profile card (the
+  // sibling switcher is hidden). Reports (the family roll-up) and the
+  // Family tree are unaffected. Absent ⇒ true (kids can see each other),
+  // which matches the behaviour shipped before this toggle existed.
+  kidsCanSeeSiblingProfiles?: boolean;
   routines: Routine[];
   // Family-configurable point system rules (tier caps, reducing on/off,
   // Kudos / Improvement Note thresholds). Optional — `readPointSystemConfig`
