@@ -826,3 +826,20 @@ export function subscribeToPulseProfile(
     },
   );
 }
+
+/** All Pulse profiles (one per owner) — for the Ledger's streak column. */
+export function subscribeToAllPulseProfiles(fid: string, cb: (p: PulseProfile[]) => void): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    collection(db, 'families', fid, 'pulseProfiles'),
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PulseProfile))),
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] all profiles subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
