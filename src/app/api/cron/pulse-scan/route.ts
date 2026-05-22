@@ -1,0 +1,73 @@
+// Kaya Pulse · missed-task scanner (server cron).
+//
+// Runs hourly. Marks any still-'pending' task whose due time passed more than a
+// 30-min grace ago as 'missed'. For a kid owner, missing an owned task breaks
+// their Pulse streak (reset to 0) — per the engine spec. Each task is processed
+// once (the query only matches 'pending'). No-ops cleanly without admin creds.
+//
+// (Helper performance dinging + the threshold auto-top-up are the next engine
+// pieces and will be added here.)
+
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminFirestore } from '@/lib/firebaseAdmin';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+const GRACE_MS = 30 * 60 * 1000;
+
+async function run(req: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (secret) {
+    const auth = req.headers.get('authorization') || '';
+    if (auth !== `Bearer ${secret}`) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  }
+
+  const db = getAdminFirestore();
+  if (!db) return NextResponse.json({ skipped: true, reason: 'admin-sdk-not-configured' });
+
+  const now = Date.now();
+  let families;
+  try {
+    families = await db.collection('families').get();
+  } catch (e) {
+    return NextResponse.json({ error: 'families-read-failed', detail: String(e) }, { status: 500 });
+  }
+
+  let missed = 0;
+  for (const fam of families.docs) {
+    let taskSnap;
+    try {
+      taskSnap = await fam.ref.collection('pulseTasks').where('status', '==', 'pending').get();
+    } catch {
+      continue;
+    }
+    for (const taskDoc of taskSnap.docs) {
+      const t = taskDoc.data() as { dueAt?: FirebaseFirestore.Timestamp; ownerKind?: string; ownerId?: string };
+      const dueAt = t.dueAt?.toMillis?.();
+      if (!dueAt || dueAt + GRACE_MS >= now) continue; // not overdue past grace yet
+
+      try {
+        await taskDoc.ref.update({ status: 'missed', missedAt: new Date() });
+        missed++;
+        // Kid: missing an owned task breaks the streak.
+        if (t.ownerKind === 'kid' && t.ownerId) {
+          await fam.ref.collection('pulseProfiles').doc(t.ownerId).set({ currentStreak: 0 }, { merge: true });
+        }
+        // Helper: performance ding lands with helper owners (next engine piece).
+      } catch {
+        /* best-effort per task */
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, missed });
+}
+
+export async function GET(req: NextRequest) {
+  return run(req);
+}
+export async function POST(req: NextRequest) {
+  return run(req);
+}
