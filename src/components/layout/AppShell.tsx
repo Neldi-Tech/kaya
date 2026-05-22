@@ -249,6 +249,7 @@ const BUSINESS_NAV: NavItem[] = [
 const PULSE_NAV: NavItem[] = [
   { path: '/pulse',        icon: '📊', label: 'Dashboard' },
   { path: '/pulse/today',  icon: '✅', label: 'Today' },
+  { path: '/pulse/plan',   icon: '🎯', label: 'Savings plan' },
   { path: '/pulse/ledger', icon: '🏆', label: 'Ledger' },
   { path: '/pulse/admin',  icon: '⚙️', label: 'Trackables & tasks' },
 ];

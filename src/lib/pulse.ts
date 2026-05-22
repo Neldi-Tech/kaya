@@ -286,6 +286,9 @@ export interface PulsePlan {
   perModuleCapCents?: Partial<Record<PurchaseModule, number>>;
   // ── system suggestions (parent accepts/overrides) ──
   suggestedFocusModules?: string[]; // auto top-3 by spend
+  /** Snapshot of the per-module baseline (recent avg monthly spend, cents) the
+   *  plan was built against — so tracking + re-edits stay stable as caps change. */
+  baselineByModule?: Partial<Record<PurchaseModule, number>>;
   source: 'suggested' | 'parent';
   planPeriod: PlanPeriod; // 'monthly' default; horizon below extends the framing
   horizonMonths?: number; // parent's longer-term goal framing (e.g. 6 or 18)
