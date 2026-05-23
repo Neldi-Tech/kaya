@@ -18,7 +18,7 @@ import {
   getRecentRatings, getRecentAwards, getMeetings,
   Child, Meeting, Role,
 } from '@/lib/firestore';
-import { subscribeToFeed, Post, PhotoRef } from '@/lib/moments';
+import { subscribeToFeed, Post, PhotoRef, formatDuration } from '@/lib/moments';
 import { subscribeToPendingApprovals } from '@/lib/hive';
 import {
   type PurchaseRequest,
@@ -421,6 +421,16 @@ function MomentsHero({ posts }: { posts: Post[] | null }) {
         className="relative block rounded-kaya overflow-hidden aspect-[16/10] bg-gradient-to-br from-[#F5C465] to-[#D4A017] no-underline group"
       >
         <MomentImage photo={featured.photos?.[0]} caption={featured.caption} className="object-cover group-hover:scale-105 transition-transform duration-300" />
+        {featured.photos?.[0]?.kind === 'video' && (
+          <>
+            <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <span className="w-12 h-12 rounded-full bg-black/50 text-white flex items-center justify-center text-xl pl-0.5">▶</span>
+            </span>
+            {featured.photos[0].durationSec ? (
+              <span className="absolute top-2 left-2 bg-black/55 text-white text-[9px] font-bold rounded px-1.5 py-0.5">{formatDuration(featured.photos[0].durationSec)}</span>
+            ) : null}
+          </>
+        )}
         {featured.eventTag && (
           <span className="absolute top-2 right-2 bg-black/40 text-white font-display font-extrabold text-[9px] px-2 py-0.5 rounded-full backdrop-blur-sm">
             {featured.eventTag.emoji} {featured.eventTag.label}
@@ -446,6 +456,11 @@ function MomentsHero({ posts }: { posts: Post[] | null }) {
               className="relative block rounded-md overflow-hidden aspect-square bg-gradient-to-br from-[#7B9DB7] to-[#2C5C7E] no-underline"
             >
               <MomentImage photo={p.photos?.[0]} caption={p.caption} className="object-cover" />
+              {p.photos?.[0]?.kind === 'video' && (
+                <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="w-6 h-6 rounded-full bg-black/50 text-white flex items-center justify-center text-[10px] pl-0.5">▶</span>
+                </span>
+              )}
             </Link>
           ))}
         </div>

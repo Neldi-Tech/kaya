@@ -31,9 +31,12 @@ service firebase.storage {
     // ── Moments · post photos ──────────────────────────────────
     match /families/{familyId}/posts/{postId}/{photoId}/{file} {
       allow read: if belongsToFamily(familyId);
-      allow write: if belongsToFamily(familyId)
-        && request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+      // Photos (image, <10 MB) + video clips (<100 MB, 2026-05-21). A
+      // video's poster still is an image variant under the same path.
+      allow write: if belongsToFamily(familyId) && (
+        (request.resource.contentType.matches('image/.*') && request.resource.size < 10 * 1024 * 1024)
+        || (request.resource.contentType.matches('video/.*') && request.resource.size < 100 * 1024 * 1024)
+      );
       allow delete: if belongsToFamily(familyId);
     }
 

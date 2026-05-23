@@ -20,12 +20,12 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  reservePost, finalizePost, uploadProcessedPhoto, deletePost,
+  reservePost, finalizePost, uploadProcessedPhoto, uploadProcessedVideo, deletePost,
   EVENT_TAGS, EventTag, PhotoRef, Post,
   CUSTOM_TAG_EMOJI, CUSTOM_TAG_MAX_LEN,
 } from '@/lib/moments';
 import {
-  processPhotoForUpload, ProcessedPhoto, MAX_PHOTO_BYTES,
+  processPhotoForUpload, processVideoForUpload, ProcessedPhoto, MAX_PHOTO_BYTES,
 } from '@/lib/photoUpload';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
@@ -60,8 +60,12 @@ interface MentionTarget {
 interface DraftPhoto {
   id: string;             // local-only id for keying + reorder
   fileName: string;
-  processed: ProcessedPhoto;
-  previewUrl: string;     // object URL for the feed-size preview
+  kind: 'photo' | 'video';
+  processed: ProcessedPhoto;   // for video: the poster's 3 variants
+  previewUrl: string;     // object URL for the feed-size preview (poster for video)
+  videoBlob?: Blob;       // present when kind === 'video'
+  videoType?: string;
+  durationSec?: number;
 }
 
 export default function ComposeMomentPage() {
@@ -146,16 +150,32 @@ export default function ComposeMomentPage() {
     const next: DraftPhoto[] = [];
     for (const file of files) {
       try {
-        if (file.size > MAX_PHOTO_BYTES) {
-          throw new Error(`${file.name} is too large (>${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} MB).`);
+        const draftId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        if (file.type.startsWith('video/')) {
+          const v = await processVideoForUpload(file);
+          next.push({
+            id: draftId,
+            fileName: file.name,
+            kind: 'video',
+            processed: v.poster,
+            previewUrl: URL.createObjectURL(v.poster.feedBlob),
+            videoBlob: v.videoBlob,
+            videoType: v.contentType,
+            durationSec: v.durationSec,
+          });
+        } else {
+          if (file.size > MAX_PHOTO_BYTES) {
+            throw new Error(`${file.name} is too large (>${Math.round(MAX_PHOTO_BYTES / 1024 / 1024)} MB).`);
+          }
+          const processed = await processPhotoForUpload(file);
+          next.push({
+            id: draftId,
+            fileName: file.name,
+            kind: 'photo',
+            processed,
+            previewUrl: URL.createObjectURL(processed.feedBlob),
+          });
         }
-        const processed = await processPhotoForUpload(file);
-        next.push({
-          id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-          fileName: file.name,
-          processed,
-          previewUrl: URL.createObjectURL(processed.feedBlob),
-        });
       } catch (err: any) {
         setError(err?.message || `Couldn't process ${file.name}.`);
       }
@@ -291,7 +311,14 @@ export default function ComposeMomentPage() {
       // Sequential uploads — friendlier on slow mobile connections than
       // a 10-way fan-out, and keeps the progress counter monotonic.
       for (const d of drafts) {
-        const ref = await uploadProcessedPhoto(profile.familyId, postId, d.processed);
+        const ref = d.kind === 'video' && d.videoBlob
+          ? await uploadProcessedVideo(profile.familyId, postId, {
+              poster: d.processed,
+              videoBlob: d.videoBlob,
+              contentType: d.videoType || 'video/mp4',
+              durationSec: d.durationSec || 0,
+            })
+          : await uploadProcessedPhoto(profile.familyId, postId, d.processed);
         uploaded.push(ref);
         setProgress((p) => ({ ...p, done: p.done + 1 }));
       }
@@ -345,7 +372,7 @@ export default function ComposeMomentPage() {
         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Moments</p>
         <h1 className="font-display text-2xl lg:text-[34px] font-black tracking-tight">Share a moment</h1>
         <p className="text-sm text-kaya-sand mt-1">
-          Up to {MAX_PHOTOS} photos. The whole family sees it on the feed.
+          Up to {MAX_PHOTOS} photos or videos. The whole family sees it on the feed.
         </p>
       </div>
 
@@ -355,6 +382,11 @@ export default function ComposeMomentPage() {
           {drafts.map((d, i) => (
             <div key={d.id} className="relative aspect-square rounded-kaya-sm overflow-hidden bg-kaya-warm">
               <img src={d.previewUrl} alt={d.fileName} className="w-full h-full object-cover" />
+              {d.kind === 'video' && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="w-9 h-9 rounded-full bg-black/55 text-white flex items-center justify-center text-sm pl-0.5">▶</span>
+                </div>
+              )}
               <div className="absolute top-1 left-1 bg-black/60 text-white text-[10px] font-bold rounded px-1.5 py-0.5">
                 {i + 1}
               </div>
@@ -395,7 +427,7 @@ export default function ComposeMomentPage() {
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           multiple
           className="hidden"
           onChange={onPickFiles}
