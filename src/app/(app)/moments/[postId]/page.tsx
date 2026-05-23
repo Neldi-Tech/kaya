@@ -248,11 +248,12 @@ export default function PostDetailPage() {
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-3">
         <p className="text-[10px] text-kaya-sand-light font-bold uppercase tracking-wider mb-3">
           Comments ({comments.length})
+          {comments.length === 0 && (
+            <span className="ml-1.5 normal-case font-normal tracking-normal">· be the first to comment</span>
+          )}
         </p>
 
-        {comments.length === 0 ? (
-          <p className="text-[12px] text-kaya-sand-light text-center py-4">Be the first to comment.</p>
-        ) : (
+        {comments.length === 0 ? null : (
           <div className="space-y-3">
             {comments.map((c) => {
               const canDelete = c.byUid === profile?.uid || isParent;
@@ -289,7 +290,7 @@ export default function PostDetailPage() {
         )}
 
         {!isGuest && (
-          <div className="mt-3 pt-3 border-t border-kaya-warm-dark/60">
+          <div className={comments.length > 0 ? 'mt-3 pt-3 border-t border-kaya-warm-dark/60' : 'mt-2'}>
             <div className="flex items-end gap-2">
               <textarea
                 value={commentDraft}
