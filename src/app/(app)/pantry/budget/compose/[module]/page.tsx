@@ -44,7 +44,7 @@ const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint
   utility: { emoji: '⚡', label: 'Utility', tint: 'bg-[#FFF3D9]',         border: 'border-hive-honey',  eyebrow: 'text-hive-honey-dk'  },
   payroll: { emoji: '🤝', label: 'Payroll', tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',   eyebrow: 'text-[#5E4A8F]'      },
   dineOut: { emoji: '🍽️', label: 'Dine Out', tint: 'bg-[#FBEAE0]',        border: 'border-[#E8C3AE]',   eyebrow: 'text-[#C2562E]'      },
-  home:    { emoji: '🛋️', label: 'Home',    tint: 'bg-[#F6EBDD]',         border: 'border-[#E0C4A3]',   eyebrow: 'text-[#9B6B3F]'      },
+  home:    { emoji: '🛋️', label: 'Home & Wellness', tint: 'bg-[#F6EBDD]', border: 'border-[#E0C4A3]', eyebrow: 'text-[#9B6B3F]' },
 };
 
 const CADENCE_LABELS: Record<BudgetCadence, string> = {

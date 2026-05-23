@@ -3061,7 +3061,7 @@ const APPROVAL_CATEGORIES: Array<{
   { key: 'payrollAdvance', emoji: '💵', label: 'Payroll advances',   hint: 'Helpers requesting an advance on next pay.',                        live: false },
   { key: 'payrollLoan',    emoji: '🏦', label: 'Payroll loans',      hint: 'Helpers requesting a loan with a repayment schedule.',              live: false },
   { key: 'dineOut',        emoji: '🍽️', label: 'Dine Out',           hint: 'Meals out — restaurants, takeaway, delivery, coffee. Parent-logged.', live: true  },
-  { key: 'home',           emoji: '🛋️', label: 'Home purchases',     hint: 'Furniture, appliances, décor, fittings — mostly parent buys.',       live: true  },
+  { key: 'home',           emoji: '🛋️', label: 'Home & Wellness',     hint: 'Furniture, appliances, décor, fittings + self-care — mostly parent buys.', live: true  },
 ];
 
 function ApprovalPoliciesCard({ familyId, family }: {

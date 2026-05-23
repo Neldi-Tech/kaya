@@ -58,7 +58,7 @@ const MODULE_CARDS: {
   { id: 'utility', emoji: '⚡', label: 'Utility',  tint: 'bg-[#FFF3D9]',         border: 'border-hive-honey',            eyebrow: 'text-hive-honey-dk'  },
   { id: 'payroll', emoji: '🤝', label: 'Payroll',  tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',             eyebrow: 'text-[#5E4A8F]'      },
   { id: 'dineOut', emoji: '🍽️', label: 'Dine Out', tint: 'bg-[#FBEAE0]',         border: 'border-[#E8C3AE]',             eyebrow: 'text-[#C2562E]'      },
-  { id: 'home',    emoji: '🛋️', label: 'Home',     tint: 'bg-[#F6EBDD]',         border: 'border-[#E0C4A3]',             eyebrow: 'text-[#9B6B3F]'      },
+  { id: 'home',    emoji: '🛋️', label: 'Home & Wellness', tint: 'bg-[#F6EBDD]', border: 'border-[#E0C4A3]', eyebrow: 'text-[#9B6B3F]' },
 ];
 
 export default function BudgetPage() {
