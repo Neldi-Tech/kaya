@@ -417,12 +417,20 @@ export default function DineOutPage() {
       </div>
 
       {/* ── Places to go ───────────────────────────────────────── */}
-      {venues.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
-            <h2 className="font-nunito font-black text-[15px]">📍 Places to go</h2>
-            <span className="text-[11px] text-hive-muted">{venues.length} saved</span>
+      <div className="mt-6">
+        <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
+          <h2 className="font-nunito font-black text-[15px]">📍 Places to go</h2>
+          {venues.length > 0 && <span className="text-[11px] text-hive-muted">{venues.length} saved</span>}
+        </div>
+        {venues.length === 0 ? (
+          <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-5 text-center">
+            <div className="text-2xl mb-1">📍</div>
+            <p className="text-[13px] text-hive-muted font-bold">
+              Log a meal above with a <strong>venue name</strong> and it’ll appear here — your filterable list of places, with ★ ratings, 💎 Diamond picks and photos.
+            </p>
           </div>
+        ) : (
+          <>
           <div className="flex flex-wrap gap-1.5 mb-3">
             {[
               { id: 'all', label: 'All' },
@@ -482,8 +490,9 @@ export default function DineOutPage() {
               <p className="text-[12px] text-hive-muted italic text-center py-3">No places match this filter.</p>
             )}
           </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {/* ── Photo lightbox ─────────────────────────────────────── */}
       {lightbox && (
