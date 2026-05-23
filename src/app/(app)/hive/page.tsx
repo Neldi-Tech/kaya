@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { subscribeToKidBusinesses } from '@/lib/business';
+import { subscribeToKidBusinesses, readBusinessConfig } from '@/lib/business';
 import HoneyPotHero from '@/components/hive/HoneyPotHero';
 import WealthCard from '@/components/hive/WealthCard';
 import HpValueCommentary from '@/components/hive/HpValueCommentary';
@@ -32,7 +32,8 @@ const ACTIONS = [
 
 export default function HiveHomePage() {
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { children, family } = useFamily();
+  const wealthRounding = readBusinessConfig(family).displayRounding;
   const { activeKidId, wallet, transactions, config, weeklyEarningsCents, fxUsdToFamily } = useHive();
   const activeKid = children.find((c) => c.id === activeKidId);
 
@@ -86,6 +87,7 @@ export default function HiveHomePage() {
           honeyToCashRate={config.honeyToCashRate}
           currency={config.currency}
           fxUsdToFamily={fxUsdToFamily ?? 1}
+          rounding={wealthRounding}
         />
       </div>
 
