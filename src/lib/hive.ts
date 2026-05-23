@@ -35,6 +35,7 @@ export type TxStatus = 'completed' | 'pending_approval' | 'approved' | 'rejected
 
 export type ApprovalType =
   | 'hp_to_honey' | 'cash_out' | 'spend'
+  | 'treasury_to_cash'       // parent turns the kid's Treasury Reserve (Honey Pot) into real Cash
   // ── Kaya Business ──────────────────────────────────────────────
   // Business reuses this one queue so the parent inbox stays unified
   // (the Business console renders a filtered view via `module`). The
@@ -101,6 +102,9 @@ export interface HiveConfig {
    *  reset doesn't drop them to zero. Cash redemptions are unaffected
    *  (only Honey converts to cash; HP never converts directly). */
   minHpReserve: number;
+  /** How many distinct parents must approve a Treasury Reserve → Cash transfer.
+   *  1 = single-parent (default); 2 = both parents. */
+  treasuryCashApprovers: 1 | 2;
   autoAllowance?: {
     enabled: boolean;
     kidId?: string;
@@ -120,6 +124,7 @@ export const DEFAULT_HIVE_CONFIG: HiveConfig = {
   requireApprovalForHpToHoney: true,
   spendAutoApproveBelowCents: 0,
   minHpReserve: 0,
+  treasuryCashApprovers: 1,
 };
 
 /**
@@ -739,6 +744,77 @@ export async function requestCashOut(
   return ref.id;
 }
 
+/** Kid asks a parent to turn part of their Treasury Reserve (Honey Pot) into
+ *  real Cash. The balance move happens on approval — single- or both-parent per
+ *  `config.treasuryCashApprovers`. `amountCents` is family-currency cents. */
+export async function requestTreasuryToCash(
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  createdBy: string,
+  requiredApprovals: number = 1,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
+  const ref = await addDoc(requestCol(familyId), {
+    kidId,
+    type: 'treasury_to_cash' as ApprovalType,
+    amountCents,
+    description: 'Turn Honey Pot into Cash',
+    requiredApprovals: requiredApprovals >= 2 ? 2 : 1,
+    approvals: [] as string[],
+    status: 'pending' as ApprovalStatus,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+  return ref.id;
+}
+
+/** Kid moves Coins (Honey) into their Treasury Reserve (Honey Pot). Instant —
+ *  pooling their own earned value needs no parent OK; only the Pot → Cash step
+ *  is gated. Coins convert to family cents at the current rate + FX. */
+export async function convertCoinsToTreasury(
+  familyId: string,
+  kidId: string,
+  honeyAmount: number,
+  cfg: HiveConfig,
+  createdBy: string,
+  fxUsdToFamily: number = 1,
+): Promise<void> {
+  if (isGuestActive()) return;
+  if (!Number.isInteger(honeyAmount) || honeyAmount <= 0) throw new Error('Pick a positive 🪙 amount.');
+  const cents = honeyToFamilyCents(honeyAmount, cfg, fxUsdToFamily);
+  await runTransaction(db, async (tx) => {
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await tx.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised.');
+    const wallet = wSnap.data() as Wallet;
+    if (wallet.honeyCoins < honeyAmount) throw new Error('Not enough Coins.');
+    const link = doc(txCol(familyId, kidId)).id;
+    const outRef = doc(txCol(familyId, kidId), `${link}-out`);
+    const inRef = doc(txCol(familyId, kidId), `${link}-in`);
+    const now = serverTimestamp();
+    tx.set(wRef, {
+      ...wallet,
+      honeyCoins: wallet.honeyCoins - honeyAmount,
+      treasuryCents: (wallet.treasuryCents || 0) + cents,
+      updatedAt: now,
+    });
+    tx.set(outRef, {
+      layer: 'honey', direction: 'out', amount: honeyAmount, category: 'convert',
+      description: `Moved ${honeyAmount} 🪙 into the Honey Pot`,
+      status: 'completed', linkedTxId: link,
+      createdBy, approvedBy: createdBy, createdAt: now, completedAt: now,
+    });
+    tx.set(inRef, {
+      layer: 'treasury', direction: 'in', amount: cents, category: 'convert',
+      description: `From ${honeyAmount} 🪙`,
+      status: 'completed', linkedTxId: link,
+      createdBy, approvedBy: createdBy, createdAt: now, completedAt: now,
+    });
+  });
+}
+
 export async function requestSpend(
   familyId: string,
   kidId: string,
@@ -965,6 +1041,51 @@ export async function resolveApprovalRequest(
       });
       tx.update(reqRef, {
         status: 'approved' as ApprovalStatus,
+        resolvedAt: now,
+        resolvedBy: approverUid,
+        resultingTxIds: [`${link}-out`, `${link}-in`],
+      });
+    } else if (req.type === 'treasury_to_cash') {
+      const cents = req.amountCents ?? 0;
+      if ((wallet.treasuryCents || 0) < cents) throw new Error('Not enough in the Honey Pot.');
+      const required = req.requiredApprovals && req.requiredApprovals >= 2 ? 2 : 1;
+      const already = Array.isArray(req.approvals) ? req.approvals : [];
+      if (already.includes(approverUid)) throw new Error('You already approved this — it needs the other parent.');
+      const nextApprovals = [...already, approverUid];
+      if (nextApprovals.length < required) {
+        // First of two parents — record the approval, keep it pending for the second.
+        tx.update(reqRef, { approvals: nextApprovals });
+        return;
+      }
+      // Threshold met — move Honey Pot → Cash. (Already counted as earned when it
+      // entered the Pot, so we don't re-add to lifetime earnings here.)
+      const link = doc(txCol(familyId, req.kidId)).id;
+      const outRef = doc(txCol(familyId, req.kidId), `${link}-out`);
+      const inRef = doc(txCol(familyId, req.kidId), `${link}-in`);
+      const now = serverTimestamp();
+      tx.set(wRef, {
+        ...wallet,
+        treasuryCents: (wallet.treasuryCents || 0) - cents,
+        cashCents: wallet.cashCents + cents,
+        updatedAt: now,
+      });
+      tx.set(outRef, {
+        layer: 'treasury', direction: 'out', amount: cents, category: 'convert',
+        description: 'Honey Pot → Cash',
+        status: 'completed', linkedTxId: link, requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      tx.set(inRef, {
+        layer: 'cash', direction: 'in', amount: cents, category: 'convert',
+        description: 'From your Honey Pot',
+        status: 'completed', linkedTxId: link, requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        approvals: nextApprovals,
         resolvedAt: now,
         resolvedBy: approverUid,
         resultingTxIds: [`${link}-out`, `${link}-in`],
