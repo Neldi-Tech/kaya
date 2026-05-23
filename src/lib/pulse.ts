@@ -289,6 +289,9 @@ export interface PulsePlan {
   /** Snapshot of the per-module baseline (recent avg monthly spend, cents) the
    *  plan was built against — so tracking + re-edits stay stable as caps change. */
   baselineByModule?: Partial<Record<PurchaseModule, number>>;
+  /** Round auto-suggested caps to a clean step in MAJOR currency units
+   *  (e.g. 1000 = nearest 1,000). 0 / undefined = no rounding. */
+  roundToMajorUnits?: number;
   source: 'suggested' | 'parent';
   planPeriod: PlanPeriod; // 'monthly' default; horizon below extends the framing
   horizonMonths?: number; // parent's longer-term goal framing (e.g. 6 or 18)
@@ -385,9 +388,35 @@ export interface ResolvedPlan {
   targetSavingsCents: number; // baseline − caps
 }
 
+/* ── Cap rounding (clean auto-distributed caps) ───────────────────── */
+/** Round-off steps the parent can pick, in MAJOR currency units. 0 = off. */
+export const ROUND_STEPS: number[] = [0, 10, 100, 1000, 10000, 100000, 500000];
+
+/** Round a cents amount to the nearest `stepMajorUnits` (major units, e.g.
+ *  1000 → nearest 1,000). step ≤ 0 returns the amount unchanged. */
+export function roundCentsTo(cents: number, stepMajorUnits: number): number {
+  if (!stepMajorUnits || stepMajorUnits <= 0) return cents;
+  const stepCents = stepMajorUnits * 100;
+  return Math.max(0, Math.round(cents / stepCents) * stepCents);
+}
+
+/** Sensible default round-off for a total baseline (major units) — scales
+ *  with magnitude so big budgets round coarser. Snaps to {@link ROUND_STEPS}. */
+export function suggestRoundStep(totalBaselineMajorUnits: number): number {
+  const t = totalBaselineMajorUnits;
+  if (t >= 5_000_000) return 100000;
+  if (t >= 1_000_000) return 10000;
+  if (t >= 100_000) return 1000;
+  if (t >= 10_000) return 100;
+  if (t >= 1_000) return 10;
+  return 0;
+}
+
 /** Resolve a PulsePlan against a per-module spending baseline (recent monthly
  *  average, cents) into concrete per-module target caps. Both input modes
- *  converge on the same output you write to householdBudgets. */
+ *  converge on the same output you write to householdBudgets. When the plan
+ *  carries `roundToMajorUnits`, each suggested cap is rounded to that clean
+ *  step (parent-set; explicit per-module caps are left exactly as typed). */
 export function resolvePlan(
   plan: PulsePlan,
   baselineByModule: Partial<Record<PurchaseModule, number>>,
@@ -395,15 +424,16 @@ export function resolvePlan(
   const modules = Object.keys(baselineByModule) as PurchaseModule[];
   const totalBaseline = modules.reduce((s, m) => s + (baselineByModule[m] ?? 0), 0);
   const caps: Partial<Record<PurchaseModule, number>> = {};
+  const step = plan.roundToMajorUnits ?? 0;
 
   if (plan.savingsMode === 'percent') {
     for (const m of modules) {
       const base = baselineByModule[m] ?? 0;
       const cutPct = plan.perModuleCutPct?.[m] ?? plan.overallCutPct ?? 0;
-      caps[m] = Math.max(0, Math.round(base * (1 - cutPct / 100)));
+      caps[m] = roundCentsTo(Math.max(0, Math.round(base * (1 - cutPct / 100))), step);
     }
   } else if (plan.perModuleCapCents && Object.keys(plan.perModuleCapCents).length > 0) {
-    // amount mode, explicit per-module caps
+    // amount mode, explicit per-module caps — keep exactly as the parent set them.
     for (const m of modules) caps[m] = plan.perModuleCapCents[m] ?? baselineByModule[m] ?? 0;
   } else {
     // amount mode, single savings target distributed proportionally across modules
@@ -411,7 +441,7 @@ export function resolvePlan(
     const ratio = totalBaseline > 0 ? Math.min(1, target / totalBaseline) : 0;
     for (const m of modules) {
       const base = baselineByModule[m] ?? 0;
-      caps[m] = Math.max(0, Math.round(base * (1 - ratio)));
+      caps[m] = roundCentsTo(Math.max(0, Math.round(base * (1 - ratio))), step);
     }
   }
 
