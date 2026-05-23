@@ -31,10 +31,13 @@ export function CollapsibleSection({
         <span className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{title}</span>
         <span className="flex items-center gap-2 shrink-0">
           {summary != null && <span className="text-[10px] text-kaya-sand-light">{summary}</span>}
-          {/* Visible circular chevron button so the expand affordance
-              reads clearly against the card (the bare glyph was easy to
-              miss). Rotates 180° when open. */}
-          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full bg-kaya-warm border border-kaya-warm-dark text-kaya-chocolate text-sm leading-none transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
+          {/* Labelled Show/Hide pill — a clear, high-contrast expand
+              affordance (gold-light fill, gold border, chocolate text).
+              The near-white circle before this was too easy to miss. */}
+          <span className="inline-flex items-center gap-1 rounded-full bg-kaya-gold-light border border-kaya-gold px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-kaya-chocolate">
+            {open ? 'Hide' : 'Show'}
+            <span className={`inline-block leading-none transition-transform ${open ? 'rotate-180' : ''}`}>⌄</span>
+          </span>
         </span>
       </button>
       {open && <div className="mt-3">{children}</div>}

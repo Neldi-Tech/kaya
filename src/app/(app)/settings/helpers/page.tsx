@@ -936,10 +936,11 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
               className="w-full flex items-center justify-between gap-2 text-left mb-2"
             >
               <span className="text-xs font-bold uppercase tracking-wider text-kaya-sand">Areas this helper can access</span>
-              {/* Visible circular chevron button — matches the Settings
-                  collapsibles so the expand affordance is obvious. */}
-              <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-kaya-warm border border-kaya-warm-dark text-kaya-chocolate">
-                {areasOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {/* Labelled Show/Hide pill — matches the shared
+                  CollapsibleSection so the expand affordance is obvious. */}
+              <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-kaya-gold-light border border-kaya-gold px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-kaya-chocolate">
+                {areasOpen ? 'Hide' : 'Show'}
+                <span className={`inline-block leading-none transition-transform ${areasOpen ? 'rotate-180' : ''}`}>⌄</span>
               </span>
             </button>
             {areasOpen && (
