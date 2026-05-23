@@ -57,13 +57,13 @@ export default function PantryHomePage() {
   // the rules would deny the listener. Helpers see their workload on
   // each module's home page directly.
   const [openByModule, setOpenByModule] = useState<Record<PurchaseModule, number>>({
-    pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0,
+    pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, home: 0,
   });
   useEffect(() => {
     if (!profile?.familyId || !isParent) return;
     return subscribeToOpenRequests(profile.familyId, (reqs) => {
       const counts: Record<PurchaseModule, number> = {
-        pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0,
+        pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, home: 0,
       };
       for (const r of reqs) {
         // 'draft' isn't a notification — it's the author's own scratch
@@ -216,6 +216,12 @@ export default function PantryHomePage() {
             tint="bg-[#F4EFFB] border-[#C9B8E5] hover:border-[#8A6FBF] col-span-2" subColor="text-[#5E4A8F]"
             tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
             badge={openByModule.payroll} />
+        )}
+        {!isHelper && (
+          <Tile href="/pantry/home" emoji="🛋️" label="Home" sub="Furniture · appliances · décor"
+            tint="bg-[#F6EBDD] border-[#E0C4A3] hover:border-[#9B6B3F]" subColor="text-[#9B6B3F]"
+            tooltip="Furniture, appliances, décor, fittings — the bigger household buys, mostly parent."
+            badge={openByModule.home} />
         )}
       </div>
 

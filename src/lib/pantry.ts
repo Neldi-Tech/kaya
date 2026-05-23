@@ -256,7 +256,7 @@ export interface Staple {
    *  use Staple-shaped catalogue data — they read from their own
    *  collections — but the field accepts those values for forward
    *  compatibility. */
-  module?: 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll';
+  module?: 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'home';
   /** Optional supplier this staple usually comes from — drives the
    *  "group by supplier" UX on the active list. */
   preferredSupplierId?: string;

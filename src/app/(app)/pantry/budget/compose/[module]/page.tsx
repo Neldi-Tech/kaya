@@ -43,6 +43,7 @@ const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint
   drivers: { emoji: '🚗', label: 'Drivers', tint: 'bg-[#E5EFF8]',         border: 'border-[#B5CFE5]',   eyebrow: 'text-hive-blue'      },
   utility: { emoji: '⚡', label: 'Utility', tint: 'bg-[#FFF3D9]',         border: 'border-hive-honey',  eyebrow: 'text-hive-honey-dk'  },
   payroll: { emoji: '🤝', label: 'Payroll', tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',   eyebrow: 'text-[#5E4A8F]'      },
+  home:    { emoji: '🛋️', label: 'Home',    tint: 'bg-[#F6EBDD]',         border: 'border-[#E0C4A3]',   eyebrow: 'text-[#9B6B3F]'      },
 };
 
 const CADENCE_LABELS: Record<BudgetCadence, string> = {
@@ -72,7 +73,7 @@ export default function ComposeBudgetPage() {
   const params = useParams();
   const router = useRouter();
   const moduleParam = (params?.module as string) || 'pantry';
-  const module = (['pantry', 'outdoor', 'drivers', 'utility', 'payroll'].includes(moduleParam)
+  const module = (['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'home'].includes(moduleParam)
     ? moduleParam
     : 'pantry') as PurchaseModule;
   const meta = MODULE_LABELS[module];

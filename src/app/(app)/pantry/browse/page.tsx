@@ -31,6 +31,7 @@ const OTHER_TABS: { id: CatalogueModule; emoji: string; label: string }[] = [
   { id: 'outdoor', emoji: '🌿', label: 'Outdoor' },
   { id: 'drivers', emoji: '🚗', label: 'Drivers' },
   { id: 'utility', emoji: '⚡', label: 'Utilities' },
+  { id: 'home',    emoji: '🛋️', label: 'Home' },
 ];
 
 export default function BrowseCataloguePage() {

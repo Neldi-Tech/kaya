@@ -19,7 +19,7 @@ import {
 // ── Types ──────────────────────────────────────────────────────
 
 export type CatalogueSection = 'pantry' | 'other';
-export type CatalogueModule = 'pantry' | 'outdoor' | 'drivers' | 'utility';
+export type CatalogueModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'home';
 
 /** Per-country localisation of a catalogue item. */
 export interface CatalogueLocale {
