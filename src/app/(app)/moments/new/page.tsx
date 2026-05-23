@@ -540,6 +540,7 @@ export default function ComposeMomentPage() {
           value={eventTag}
           onChange={setEventTag}
           disabled={uploading}
+          caption={caption}
         />
       </div>
 

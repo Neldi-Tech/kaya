@@ -9,8 +9,8 @@
 //   • always renders the current value as a selected chip, even if it's
 //     a legacy custom that isn't in the ranked list
 //
-// A ✨ Claude suggestion chip is layered on in a follow-up; this file is
-// the single place it'll live.
+// A ✨ Claude suggestion chip reads the caption and proposes a tag —
+// preferring an existing one, else a fresh {emoji,label} to accept.
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -19,17 +19,22 @@ import {
   CUSTOM_TAG_EMOJI, CUSTOM_TAG_MAX_LEN,
 } from '@/lib/moments';
 
-export default function EventTagPicker({ familyId, value, onChange, disabled }: {
+export default function EventTagPicker({ familyId, value, onChange, disabled, caption }: {
   familyId: string;
   value: EventTag | undefined;
   onChange: (t: EventTag | undefined) => void;
   disabled?: boolean;
+  /** Current caption — drives the ✨ Claude suggestion. */
+  caption?: string;
 }) {
   const [ranked, setRanked] = useState<EventTag[] | null>(null);
   // Customs typed this session — shown straight away, before the next load.
   const [extra, setExtra] = useState<EventTag[]>([]);
   const [customEditing, setCustomEditing] = useState(false);
   const [customDraft, setCustomDraft] = useState('');
+  // ✨ AI suggestion — null until fetched; shown as a gold chip to accept.
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState<EventTag | null>(null);
 
   useEffect(() => {
     if (!familyId) { setRanked([]); return; }
@@ -77,6 +82,40 @@ export default function EventTagPicker({ familyId, value, onChange, disabled }: 
     setCustomEditing(false);
   };
 
+  const captionText = (caption || '').trim();
+
+  const runSuggest = async () => {
+    if (!captionText || suggesting) return;
+    setSuggesting(true);
+    try {
+      const res = await fetch('/api/moments-tag-suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ caption: captionText, tags: chips.map((c) => ({ emoji: c.emoji, label: c.label })) }),
+      });
+      const data = await res.json();
+      const s = data?.suggestion;
+      if (s?.label) {
+        // Reuse an existing chip if the label matches; else a fresh custom.
+        const existing = chips.find((c) => c.label.toLowerCase() === String(s.label).toLowerCase());
+        setSuggestion(existing ?? {
+          id: eventTagId({ id: 'custom', emoji: s.emoji || CUSTOM_TAG_EMOJI, label: s.label }),
+          emoji: s.emoji || CUSTOM_TAG_EMOJI,
+          label: s.label,
+        });
+      }
+    } catch { /* silent — picker still works without the suggestion */ }
+    finally { setSuggesting(false); }
+  };
+
+  const acceptSuggestion = () => {
+    if (!suggestion) return;
+    const already = chips.some((c) => c.id === suggestion.id || c.label.toLowerCase() === suggestion.label.toLowerCase());
+    if (!already) setExtra((prev) => [suggestion, ...prev]);
+    onChange(suggestion);
+    setSuggestion(null);
+  };
+
   return (
     <div className="flex flex-wrap gap-2 items-center">
       {chips.map((t) => {
@@ -95,6 +134,27 @@ export default function EventTagPicker({ familyId, value, onChange, disabled }: 
           </button>
         );
       })}
+
+      {/* ✨ Claude suggestion — only when there's a caption to read. */}
+      {captionText && (
+        suggestion ? (
+          <span className="inline-flex items-center rounded-full border border-kaya-gold bg-[#FBF3DF] text-xs font-bold text-kaya-gold-dark">
+            <button type="button" onClick={acceptSuggestion} disabled={disabled} className="px-3 py-1.5">
+              ✨ {suggestion.emoji} {suggestion.label}
+            </button>
+            <button type="button" onClick={() => setSuggestion(null)} disabled={disabled} className="pr-2 pl-0.5 text-kaya-sand" aria-label="Dismiss suggestion">✕</button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={runSuggest}
+            disabled={disabled || suggesting}
+            className="px-3 py-1.5 rounded-full text-xs font-bold border border-dashed border-kaya-gold bg-[#FBF3DF] text-kaya-gold-dark hover:bg-[#F8ECCB] disabled:opacity-50 transition-colors"
+          >
+            {suggesting ? '✨ Thinking…' : '✨ Suggest a tag'}
+          </button>
+        )
+      )}
 
       {customEditing ? (
         <div className="flex items-center gap-1 px-2 py-1 rounded-full border border-kaya-chocolate bg-white">
