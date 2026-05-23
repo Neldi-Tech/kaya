@@ -170,6 +170,10 @@ export interface BusinessItem {
   /** Per-product unit label (e.g. "kg", "bunch"). Products in one business can
    *  differ; the business-level unitLabel is just the headline default. */
   unitLabel?: string;
+  /** Instant Stock — a regenerating product (veg, eggs): can be sold even at 0
+   *  (it produces again) and a stock-take ADDS new growth rather than only
+   *  reconciling down. Skips the "spoiled?" prompt on a decrease. */
+  instantStock?: boolean;
   /** Business-defined lifecycle stage. Free-form so each business type names
    *  its own: fruit → ready|ripening|flowering|spoiled; eggs → eggsToday|…;
    *  orchids → mature-blooming|young|seedling. Assets often have no stage. */
@@ -206,6 +210,10 @@ export interface LedgerEntry {
   // ── Sale fields ──
   customerRef?: string;         // member uid | contactId | '' for free-text
   customerLabel?: string;       // display name ("Aunty Mary")
+  /** The inventory product this sale was for (links sale → item; powers the
+   *  "% vs your last price" coaching and the stock decrement). */
+  itemId?: string;
+  productName?: string;
   qty?: number;
   unitPriceCents?: number;
   paymentMethod?: PaymentMethod;
@@ -980,6 +988,7 @@ export interface NewItemInput {
   name: string;
   qty: number;
   unitLabel?: string;
+  instantStock?: boolean;
   groupId?: string;
   stage?: string;
   unitCostCents?: number;
@@ -991,7 +1000,7 @@ export interface NewItemInput {
 }
 
 export type ItemPatch = Partial<Pick<BusinessItem,
-  'name' | 'qty' | 'unitLabel' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
+  'name' | 'qty' | 'unitLabel' | 'instantStock' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
 
 /** Recompute assets / stock / worth on business.stats from the current item
  *  set. Reads items with getDocs (can't run a query inside a txn) then writes
@@ -1033,6 +1042,7 @@ export async function addBusinessItem(
     updatedAt: now,
   };
   if (input.unitLabel?.trim()) data.unitLabel = input.unitLabel.trim();
+  if (input.instantStock) data.instantStock = true;
   if (input.groupId?.trim()) data.groupId = input.groupId.trim();
   if (input.stage?.trim()) data.stage = input.stage.trim();
   if (typeof input.unitCostCents === 'number') data.unitCostCents = input.unitCostCents;
@@ -1092,6 +1102,10 @@ const startOfMonthMs = (): number => {
 export interface SaleInput {
   qty: number;
   unitPriceCents: number;
+  /** The inventory product sold — links the sale to an item, decrements its
+   *  stock, and powers the "% vs last price" coaching. */
+  itemId?: string;
+  productName?: string;
   customerRef?: string;          // member uid | contactId | '' (free-text)
   customerLabel?: string;        // display name ("Aunty Mary")
   paymentMethod: PaymentMethod;  // cash | hive_transfer | iou
@@ -1176,13 +1190,35 @@ export async function logSale(
   };
   if (input.customerRef) entry.customerRef = input.customerRef;
   if (input.customerLabel?.trim()) entry.customerLabel = input.customerLabel.trim();
+  if (input.itemId) entry.itemId = input.itemId;
+  if (input.productName?.trim()) entry.productName = input.productName.trim();
   await addDoc(ledgerCol(familyId, businessId), entry);
   if (paymentStatus === 'paid') {
     const note = `${input.customerLabel ? input.customerLabel + ' · ' : ''}${input.description || 'Sale'}`.slice(0, 80);
     await depositToTreasury(familyId, actor.ownerId, amountCents, 'business', note, actor.uid);
   }
+  // Reduce the sold product's stock (floor 0). Instant-stock items can hit 0
+  // and still sell tomorrow (they regrow); this just keeps the count honest.
+  if (input.itemId) {
+    try {
+      const itemSnap = await getDoc(doc(itemsCol(familyId, businessId), input.itemId));
+      if (itemSnap.exists()) {
+        const cur = Number((itemSnap.data() as BusinessItem).qty || 0);
+        await updateBusinessItem(familyId, businessId, input.itemId, { qty: Math.max(0, cur - qty) });
+      }
+    } catch { /* best-effort — the sale is already recorded */ }
+  }
   await recomputeLedgerStats(familyId, businessId);
   await runThresholdMilestones(familyId, businessId, actor.ownerId);
+}
+
+/** The unit price of the most recent paid sale of a product — for the "% vs
+ *  your last price" coaching on the sale screen. Pure over a ledger list. */
+export function lastSaleUnitPriceCents(ledger: LedgerEntry[], itemId: string): number | null {
+  const sales = ledger
+    .filter((e) => e.kind === 'sale' && !e.voided && e.itemId === itemId && typeof e.unitPriceCents === 'number')
+    .sort((a, b) => tsMillis(b.occurredAt) - tsMillis(a.occurredAt));
+  return sales.length ? (sales[0].unitPriceCents as number) : null;
 }
 
 /** Log a cost. Tracked for P&L + margin; under the parent-float default it does

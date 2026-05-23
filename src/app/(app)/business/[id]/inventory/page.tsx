@@ -230,10 +230,11 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
   const [market, setMarket] = useState('');
   const [counted, setCounted] = useState(true);
   const [producing, setProducing] = useState(false);
+  const [instantStock, setInstantStock] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const reset = () => { setName(''); setQty('1'); setUnitLabel(''); setStage(''); setCost(''); setMarket(''); setCounted(true); setProducing(false); };
+  const reset = () => { setName(''); setQty('1'); setUnitLabel(''); setStage(''); setCost(''); setMarket(''); setCounted(true); setProducing(false); setInstantStock(false); };
 
   const submit = async () => {
     setError('');
@@ -249,6 +250,7 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
       unitMarketCents: centsFrom(market),
       countedInWorth: counted,
       producing: kind === 'asset' ? producing : undefined,
+      instantStock: kind === 'stock' ? instantStock : undefined,
     };
     try {
       await addBusinessItem(familyId, businessId, input, uid);
@@ -331,6 +333,12 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
           <label className="flex items-center gap-2 text-[12.5px] font-nunito font-bold">
             <input type="checkbox" checked={producing} onChange={(e) => setProducing(e.target.checked)} className="w-4 h-4 accent-hive-honey" />
             Producing now
+          </label>
+        )}
+        {kind === 'stock' && (
+          <label className="flex items-center gap-2 text-[12.5px] font-nunito font-bold" title="Regrows daily (veg, eggs) — can sell even at 0; stock-take adds new growth.">
+            <input type="checkbox" checked={instantStock} onChange={(e) => setInstantStock(e.target.checked)} className="w-4 h-4 accent-hive-honey" />
+            🌱 Instant stock (regrows)
           </label>
         )}
       </div>
