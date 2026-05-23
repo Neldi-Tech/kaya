@@ -35,7 +35,7 @@ async function run(req: NextRequest) {
 
   const [itemSnap, compSnap] = await Promise.all([itemRef.get(), compRef.get()]);
   if (!itemSnap.exists) return NextResponse.json({ error: 'item-not-found' }, { status: 404 });
-  const item = itemSnap.data() as { label?: string; pointsValue?: number };
+  const item = itemSnap.data() as { label?: string; pointsValue?: number; requiresProof?: boolean };
 
   const comp = compSnap.exists
     ? (compSnap.data() as { completedItemIds?: string[]; awardedItemIds?: string[] })
@@ -45,10 +45,13 @@ async function run(req: NextRequest) {
 
   if (on) completed.add(itemId); else completed.delete(itemId);
 
-  // Award points the first time this item is completed for the day.
+  // Award points the first time this item is completed for the day —
+  // EXCEPT for proof-required tasks, which earn ONLY through the proof
+  // flow (/api/workplan/proof + /review). A plain tick on such a task
+  // toggles its completion state but never awards.
   let pointsAwarded = 0;
   const points = Number(item.pointsValue ?? 0);
-  if (on && points > 0 && !awarded.has(itemId)) {
+  if (on && !item.requiresProof && points > 0 && !awarded.has(itemId)) {
     try {
       await famRef.collection('awards').add({
         childId,

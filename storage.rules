@@ -89,5 +89,22 @@ service firebase.storage {
         && request.resource.contentType.matches('image/.*');
       allow delete: if belongsToFamily(familyId);
     }
+
+    // ── Kids' Workplan → "proof for points" media (2026-05-23) ──
+    // One folder per proof-required task per day:
+    //   families/{f}/children/{childId}/workplanProofs/{date}_{itemId}/{photoId}.<ext>
+    // The KID uploads their own proof here directly (then the server
+    // writes the Firestore proof doc + awards). Family-scoped so parents
+    // can also attach/replace and everyone can view in the review feed.
+    // Photo (image, <10 MB, post-downscale) OR a short video clip
+    // (<60 MB raw) — matching the 60 MB cap in workplanProofUpload.ts.
+    match /families/{familyId}/children/{childId}/workplanProofs/{folder}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId) && (
+        (request.resource.contentType.matches('image/.*') && request.resource.size < 10 * 1024 * 1024)
+        || (request.resource.contentType.matches('video/.*') && request.resource.size < 60 * 1024 * 1024)
+      );
+      allow delete: if belongsToFamily(familyId);
+    }
   }
 }

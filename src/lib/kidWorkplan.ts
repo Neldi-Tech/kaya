@@ -48,6 +48,10 @@ export interface KidWorkplanItem {
   timeLocal?: string;
   active: boolean;               // soft on/off
   pointsValue?: number;          // optional reward, server-awarded on tick
+  /** Opt-in "proof for points" gate. When true the kid must attach a
+   *  NOTE + one media (photo OR video) to earn the task's points — a
+   *  plain tick no longer awards. Absent/false = one-tap as before. */
+  requiresProof?: boolean;
   kind?: KidTaskKind;            // absent = recurring
   scheduledDates?: string[];     // adhoc only: YYYY-MM-DD list
   note?: string;
@@ -64,6 +68,33 @@ export interface KidWorkplanCompletion {
   eodNote?: string;
   updatedAt: Timestamp;
   updatedBy: string;
+}
+
+// ── Proof for points ──────────────────────────────
+// "Show your work": a kid attaches a NOTE + one media (photo OR video)
+// to a proof-required task to earn its points. One doc per task per day
+// at families/{fid}/children/{childId}/workplanProofs/{date}_{itemId}.
+//
+// Proof docs are WRITTEN ONLY by the server (Admin SDK) — the kid client
+// uploads the media to Storage then calls /api/workplan/proof, which
+// writes this doc + awards points. Clients only READ proof docs (their
+// own status / the parent review feed). See the security rules.
+export type WorkplanProofStatus = 'pending' | 'approved' | 'rejected';
+export type WorkplanProofMediaType = 'photo' | 'video';
+
+export interface KidWorkplanProof {
+  /** Composite doc id is `${date}_${itemId}`; these two fields mirror it. */
+  itemId: string;
+  date: string;                       // YYYY-MM-DD
+  note: string;                       // the kid's "show your work" note
+  mediaUrl: string;                   // Storage download URL
+  mediaType: WorkplanProofMediaType;  // photo | video
+  status: WorkplanProofStatus;        // pending until a parent decides (approve mode)
+  pointsValue: number;                // snapshot of the item's points at submit
+  submittedAt: Timestamp;
+  reviewedBy?: string;                // parent uid (on approve/reject)
+  reviewedAt?: Timestamp;
+  reviewNote?: string;                // parent feedback shown to the kid
 }
 
 // ── Category catalogue (playful) ──────────────────
@@ -93,6 +124,9 @@ function itemsCol(familyId: string, childId: string) {
 }
 function completionsCol(familyId: string, childId: string) {
   return collection(db, 'families', familyId, 'children', childId, 'workplanCompletions');
+}
+function proofsCol(familyId: string, childId: string) {
+  return collection(db, 'families', familyId, 'children', childId, 'workplanProofs');
 }
 
 // ── Item CRUD ─────────────────────────────────────
@@ -175,6 +209,7 @@ export async function replicateKidWorkplan(
       createdBy,
       timeLocal: it.timeLocal,
       pointsValue: it.pointsValue,
+      requiresProof: it.requiresProof,
       kind: it.kind,
       scheduledDates: isAdhoc ? futureDates : it.scheduledDates,
       note: it.note,
@@ -388,6 +423,77 @@ export async function setKidEodNote(
     await updateDoc(ref, { eodNote: note, updatedAt: serverTimestamp(), updatedBy: by });
   } else {
     await setDoc(ref, { completedItemIds: [], eodNote: note, updatedAt: serverTimestamp(), updatedBy: by });
+  }
+}
+
+// ── Proof for points: read + submit/review helpers ─
+/** Realtime proofs for one child (doc id = `${date}_${itemId}`). Drives
+ *  both the kid's own per-task status badge and — fanned out over the
+ *  family's children — the parent review feed. Read-only: proof docs are
+ *  written server-side only. Ordered by submittedAt so the parent feed
+ *  shows newest-first; a missing/old doc just sorts last. */
+export function subscribeKidWorkplanProofs(
+  familyId: string, childId: string, cb: (proofs: KidWorkplanProof[]) => void,
+): () => void {
+  return onSnapshot(
+    query(proofsCol(familyId, childId), orderBy('submittedAt', 'desc')),
+    (snap) => cb(snap.docs.map((d) => ({ ...d.data() } as KidWorkplanProof))),
+    () => cb([]),
+  );
+}
+
+export interface SubmitProofResult {
+  ok: boolean;
+  status?: WorkplanProofStatus;
+  pointsAwarded?: number;
+  error?: string;
+}
+
+/** Submit a kid's proof for a task via the server (Admin SDK) — the kid
+ *  can't write the proof doc or awards under the rules. The caller has
+ *  already uploaded the media to Storage (uploadWorkplanProofMedia) and
+ *  passes its download URL + type. In 'instant' mode the server awards
+ *  immediately; in 'approve' mode the proof lands pending. */
+export async function submitKidWorkplanProof(input: {
+  familyId: string; childId: string; itemId: string; date: string;
+  note: string; mediaUrl: string; mediaType: WorkplanProofMediaType;
+}): Promise<SubmitProofResult> {
+  try {
+    const res = await fetch('/api/workplan/proof', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!res.ok) return { ok: false, error: json?.error ?? 'request-failed' };
+    return { ok: true, status: json.status, pointsAwarded: json.pointsAwarded ?? 0 };
+  } catch {
+    return { ok: false, error: 'network' };
+  }
+}
+
+export interface ReviewProofResult { ok: boolean; error?: string }
+
+/** Parent approves/rejects a kid's proof via the server (Admin SDK).
+ *  Both decisions carry a parent note shown to the kid. Approve awards
+ *  points (if any, idempotent); reject in 'instant' mode claws back any
+ *  points already granted. Parents can't write awards under the rules —
+ *  hence the server hop. */
+export async function reviewKidWorkplanProof(input: {
+  familyId: string; childId: string; itemId: string; date: string;
+  decision: 'approve' | 'reject'; note: string; reviewerUid: string;
+}): Promise<ReviewProofResult> {
+  try {
+    const res = await fetch('/api/workplan/proof/review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    const json = await res.json();
+    if (!res.ok) return { ok: false, error: json?.error ?? 'request-failed' };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'network' };
   }
 }
 

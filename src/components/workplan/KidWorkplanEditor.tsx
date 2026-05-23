@@ -30,11 +30,13 @@ interface Draft {
   date: string;       // adhoc one-off date
   timeLocal: string;
   points: string;     // text input
+  requiresProof: boolean;  // "proof for points" — note + photo/video to earn
 }
 
 const EMPTY: Draft = {
   label: '', icon: '', category: 'study', kind: 'recurring',
   daysOfWeek: ['mon', 'tue', 'wed', 'thu', 'fri'], date: todayDateString(), timeLocal: '', points: '',
+  requiresProof: false,
 };
 
 function draftFromItem(i: KidWorkplanItem): Draft {
@@ -47,6 +49,7 @@ function draftFromItem(i: KidWorkplanItem): Draft {
     date: i.scheduledDates?.[0] ?? todayDateString(),
     timeLocal: i.timeLocal ?? '',
     points: i.pointsValue ? String(i.pointsValue) : '',
+    requiresProof: !!i.requiresProof,
   };
 }
 
@@ -108,6 +111,9 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
       icon: d.icon.trim() || cat.icon,
       category: d.category,
       active: true,
+      // Always write the boolean (not conditional) so un-checking on an
+      // EDIT flips it back to false rather than leaving a stale true.
+      requiresProof: d.requiresProof,
       ...(d.timeLocal ? { timeLocal: d.timeLocal } : {}),
       ...(d.points && Number(d.points) > 0 ? { pointsValue: Number(d.points) } : {}),
     };
@@ -278,6 +284,7 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
                       {cat.label} · {(item.kind ?? 'recurring') === 'adhoc'
                         ? `one-off ${item.scheduledDates?.[0] ?? ''}`
                         : daysSummary(item.daysOfWeek)}
+                      {item.requiresProof ? <span className="text-hive-muted"> · 📸 proof</span> : ''}
                     </span>
                   </span>
                   {item.pointsValue ? (
@@ -475,6 +482,27 @@ function DraftForm({ draft, setDraft }: { draft: Draft; setDraft: (d: Draft) => 
             placeholder="0"
             className="w-full h-10 px-3 rounded-hive border border-hive-line bg-white text-[13px] font-bold focus:outline-none focus:border-hive-navy" />
         </div>
+      </div>
+
+      {/* Proof for points — opt-in per task. When on, the kid must
+          attach a note + photo/video to earn this task's points. */}
+      <div>
+        <label className="block text-[9px] font-black uppercase tracking-wider text-hive-muted mb-1">Proof for points</label>
+        <button type="button" onClick={() => set({ requiresProof: !draft.requiresProof })}
+          aria-pressed={draft.requiresProof}
+          className="w-full flex items-center justify-between gap-2 h-11 px-3 rounded-hive border text-left"
+          style={draft.requiresProof ? { borderColor: NAVY, background: 'rgba(15,31,68,0.05)' } : { borderColor: '#E8DEC9', background: '#fff' }}>
+          <span className="min-w-0">
+            <span className="block text-[12px] font-extrabold" style={{ color: draft.requiresProof ? NAVY : '#5C6975' }}>
+              📸 Require proof (note + photo/video)
+            </span>
+            <span className="block text-[10px] font-bold text-hive-muted">Kid earns points only after showing their work.</span>
+          </span>
+          <span className="flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-white text-[13px] font-black"
+            style={{ background: draft.requiresProof ? NAVY : '#D9D2C4' }}>
+            {draft.requiresProof ? <Check size={14} /> : ''}
+          </span>
+        </button>
       </div>
 
       <div>
