@@ -37,11 +37,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   OUTDOOR_CATEGORIES, UTILITY_REQUEST_CATEGORIES, PAYROLL_CATEGORIES,
-  DRIVERS_CATEGORIES, MODULE_EMOJI, MODULE_LABEL,
+  DRIVERS_CATEGORIES, HOME_CATEGORIES, MODULE_EMOJI, MODULE_LABEL,
   type PurchaseModule,
 } from '@/lib/purchase';
 import {
-  DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES,
+  DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES, DIRECTORY_HOME,
   type OutdoorCategoryId, type DriversCategoryId, type UtilitiesCategoryId,
 } from '@/lib/pantryDirectory';
 import {
@@ -56,7 +56,7 @@ import { formatCents } from '@/components/pantry/format';
 import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 
 type OtherModule = Exclude<PurchaseModule, 'pantry'>;
-const ALL_TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll'];
+const ALL_TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll', 'home'];
 
 export default function OtherCataloguePage() {
   const { staples, utilities } = usePantry();
@@ -95,12 +95,13 @@ export default function OtherCataloguePage() {
     if (tab === 'outdoor') return OUTDOOR_CATEGORIES;
     if (tab === 'drivers') return DRIVERS_CATEGORIES;
     if (tab === 'utility') return UTILITY_REQUEST_CATEGORIES;
+    if (tab === 'home') return HOME_CATEGORIES;
     return PAYROLL_CATEGORIES;
   }, [tab]);
 
   // ── Family items (per active tab) ──────────────────────────────
   const familyStaples = useMemo(() => {
-    if (tab !== 'outdoor' && tab !== 'drivers') return [];
+    if (tab !== 'outdoor' && tab !== 'drivers' && tab !== 'home') return [];
     return staples
       .filter((s) => (s.module ?? 'pantry') === tab && s.active !== false)
       .filter((s) => cat === 'all' || s.category === cat)
@@ -137,6 +138,7 @@ export default function OtherCataloguePage() {
     if (tab === 'outdoor') return filter(DIRECTORY_OUTDOOR);
     if (tab === 'drivers') return filter(DIRECTORY_DRIVERS);
     if (tab === 'utility') return filter(DIRECTORY_UTILITIES);
+    if (tab === 'home') return filter(DIRECTORY_HOME);
     return [];
   }, [tab, cat, query, staples, utilities]);
 
@@ -161,6 +163,11 @@ export default function OtherCataloguePage() {
         ...utilities.filter((u) => u.category !== 'salary' && u.active).map((u) => u.category),
         ...DIRECTORY_UTILITIES.map((s) => s.category),
       );
+    } else if (tab === 'home') {
+      sourceCats.push(
+        ...staples.filter((s) => (s.module ?? 'pantry') === 'home' && s.active !== false).map((s) => s.category),
+        ...DIRECTORY_HOME.map((s) => s.category),
+      );
     } else {
       sourceCats.push(...PAYROLL_CATEGORIES.map((c) => c.id));
     }
@@ -180,7 +187,7 @@ export default function OtherCataloguePage() {
     cadence: Cadence,
   ) => {
     if (!profile?.familyId || isGuest) return;
-    if (tab === 'outdoor' || tab === 'drivers') {
+    if (tab === 'outdoor' || tab === 'drivers' || tab === 'home') {
       try {
         await addStaple(profile.familyId, {
           name: label,

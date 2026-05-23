@@ -13,7 +13,7 @@
 
 import type { Cadence } from './pantry';
 import {
-  DIRECTORY_STAPLES, DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES,
+  DIRECTORY_STAPLES, DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES, DIRECTORY_HOME,
 } from './pantryDirectory';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -238,6 +238,16 @@ export function buildCatalogue(): CatalogueItem[] {
       cadence: (u as { cadence?: Cadence }).cadence ?? 'monthly',
       typicalPriceUsd: e?.usd, match: dedupeMatch(u.match, u.label, e),
       locales: curatedLocales(u.label),
+    });
+  }
+  for (const h of DIRECTORY_HOME) {
+    const e = ENRICH[h.label];
+    out.push({
+      id: slugify(h.label), section: 'other', module: 'home',
+      category: h.category, emoji: h.emoji, globalName: h.label,
+      defaultQty: h.defaultQty, unit: h.unit, cadence: h.cadence,
+      typicalPriceUsd: e?.usd, match: dedupeMatch(h.match, h.label, e),
+      locales: curatedLocales(h.label),
     });
   }
   _cache = out;
