@@ -128,7 +128,7 @@ export default function NewBusinessPage() {
   const [loaded, setLoaded] = useState(false);
   const [restored, setRestored] = useState(false);
 
-  const [forKid, setForKid] = useState<string | null>(activeKidId);
+  const [forKid, setForKid] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -139,10 +139,18 @@ export default function NewBusinessPage() {
   const keepsInventory = !!BUSINESS_TYPES.find((t) => t.key === type)?.shape.includes('inventory');
   const typeLabel = BUSINESS_TYPES.find((t) => t.key === type)?.label || 'Business';
 
-  // Parent: fall back to the first kid so a not-yet-resolved activeKidId can't
-  // silently leave the form with no owner.
-  const effectiveKid = isParent ? (forKid ?? children[0]?.id ?? null) : null;
-  const ownerId = isParent ? effectiveKid : (profile?.childId ?? null);
+  // Who owns this business. An explicit pick (forKid) always wins. Otherwise a
+  // kid is themselves (childId), and a parent gets the active/first kid. We fall
+  // back through `activeKidId` (HiveContext resolves it to the kid's own id, or
+  // the family's first kid) so a not-yet-loaded childId can't silently leave the
+  // form with no owner — the bug that made Create stay disabled.
+  const ownerId = forKid
+    ?? (isParent
+      ? (activeKidId ?? children[0]?.id ?? null)
+      : (profile?.childId ?? activeKidId ?? null));
+  // Parents always choose; for a kid the picker only appears as a recovery if we
+  // somehow couldn't resolve their own identity but the family has kids.
+  const showOwnerPicker = children.length > 0 && (isParent || !ownerId);
 
   const visibleRows = keepsInventory ? rows : rows.slice(0, 1);
   const hasProduct = rows.some((r) => r.name.trim());
@@ -369,12 +377,12 @@ export default function NewBusinessPage() {
         </div>
       )}
 
-      {isParent && children.length > 0 && (
+      {showOwnerPicker && (
         <>
           <div className={label}>Whose business?</div>
           <div className="flex flex-wrap gap-2">
             {children.map((c) => (
-              <button key={c.id} type="button" onClick={() => setForKid(c.id)} className={seg(effectiveKid === c.id)}>
+              <button key={c.id} type="button" onClick={() => setForKid(c.id)} className={seg(ownerId === c.id)}>
                 {c.avatarEmoji} {c.name}
               </button>
             ))}
@@ -556,7 +564,7 @@ export default function NewBusinessPage() {
           {!canSubmit && !saving && (
             <p className="text-[12px] text-[#B25E16] text-center mt-2 font-nunito font-bold">
               {name.trim().length < 2 ? '✏️ Give it a name'
-                : !ownerId ? 'Pick whose business it is'
+                : !ownerId ? (children.length === 0 ? '👶 Add a child first in Settings → Family' : 'Pick whose business it is')
                 : channels.length === 0 ? 'Choose who can buy'
                 : keepsInventory && !hasProduct ? 'Add at least one product'
                 : ''}
