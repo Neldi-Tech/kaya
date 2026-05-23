@@ -101,6 +101,8 @@ export default function ComposeBudgetPage() {
   const [perMeter, setPerMeter] = useState<Record<string, BudgetLine>>({});
   const [perHelper, setPerHelper] = useState<Record<string, number>>({});
   const [otherLines, setOtherLines] = useState<BudgetLine[]>([]);
+  // Flat-amount modules (Dine Out, Home & Wellness): one number, no items.
+  const [flatInput, setFlatInput] = useState('');
 
   // Source data for drivers / utility / payroll (auto-listed)
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -172,6 +174,11 @@ export default function ComposeBudgetPage() {
       for (const [k, v] of Object.entries(existing)) ph[k] = v.monthlySalaryCents;
       setPerHelper(ph);
       setOtherLines(c?.payroll?.other?.lines ?? []);
+    } else if (module === 'dineOut' || module === 'home') {
+      // Flat: prefer the saved composer line, else the existing cap.
+      const composed = c?.[module]?.lines?.[0]?.amountCents;
+      const existingCents = composed ?? family.householdBudgets?.[module] ?? 0;
+      setFlatInput(existingCents > 0 ? String(existingCents / 100) : '');
     }
     setBootstrapped(true);
   }, [family, module, bootstrapped]);
@@ -244,7 +251,12 @@ export default function ComposeBudgetPage() {
   }, [module, helpers]);
 
   // ── Computed monthly ────────────────────────────────────────
+  // Dine Out + Home & Wellness are FLAT: the cap is one typed number, no
+  // line items (Elia 2026-05-23). The rest compose from structured lines.
+  const isFlat = module === 'dineOut' || module === 'home';
+  const flatCents = Math.max(0, Math.round((parseFloat(flatInput) || 0) * 100));
   const monthlyCents = useMemo(() => {
+    if (module === 'dineOut' || module === 'home') return flatCents;
     if (module === 'pantry' || module === 'outdoor') return sumMonthlyCents(lines);
     if (module === 'drivers') {
       const perV = Object.values(perVehicle).reduce((acc, ls) => acc + sumMonthlyCents(ls), 0);
@@ -258,13 +270,13 @@ export default function ComposeBudgetPage() {
     // payroll
     const perH = Object.values(perHelper).reduce((acc, c) => acc + (c ?? 0), 0);
     return perH + sumMonthlyCents(otherLines);
-  }, [module, lines, perVehicle, perMeter, perHelper, otherLines, billsMonthly]);
+  }, [module, flatCents, lines, perVehicle, perMeter, perHelper, otherLines, billsMonthly]);
 
   // The SAVED + headline cap is rounded up to a neat budget figure
-  // (nearest 10/100/1000 by magnitude). The raw sum stays visible in
-  // the commentary so the rounding is transparent. (2026-05-20)
-  const roundedCap = roundUpDisplay(monthlyCents);
-  const wasRounded = roundedCap !== monthlyCents;
+  // (nearest 10/100/1000 by magnitude) — EXCEPT flat modules, where the
+  // parent's exact number is the cap (Decision B, 2026-05-23).
+  const roundedCap = isFlat ? monthlyCents : roundUpDisplay(monthlyCents);
+  const wasRounded = !isFlat && roundedCap !== monthlyCents;
 
   // ── Save ────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -291,6 +303,14 @@ export default function ComposeBudgetPage() {
           perHelper: perHelperOut,
           ...(otherLines.length > 0 ? { other: { lines: otherLines } } : {}),
         });
+      } else if (module === 'dineOut' || module === 'home') {
+        // Flat: store as a single month-cadence line so the composer
+        // round-trips, and save the cap EXACTLY (roundCap=false, Decision B).
+        await saveModuleComposer(
+          profile.familyId, module,
+          { lines: flatCents > 0 ? [{ id: `${module}-flat`, label: 'Planned monthly spend', emoji: meta.emoji, amountCents: flatCents, cadence: 'month' }] : [] },
+          0, false,
+        );
       }
       router.push('/pantry/budget');
     } catch (e) {
@@ -319,7 +339,9 @@ export default function ComposeBudgetPage() {
         {meta.emoji} {meta.label} cap
       </h1>
       <p className="text-hive-muted text-sm mt-1">
-        Build the cap from line items in their natural rhythm. Every line normalizes to a per-month total at the top.
+        {isFlat
+          ? `Set what you plan to spend on ${meta.label} each month — one flat number, no item list.`
+          : 'Build the cap from line items in their natural rhythm. Every line normalizes to a per-month total at the top.'}
       </p>
 
       {/* Computed monthly header */}
@@ -404,6 +426,25 @@ export default function ComposeBudgetPage() {
             setOtherLines={setOtherLines}
             currency={currency}
           />
+        )}
+        {isFlat && (
+          <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
+            <label className="block">
+              <span className="text-[10px] uppercase tracking-wider text-hive-muted font-bold">Planned monthly spend</span>
+              <div className={`mt-1 flex items-center gap-2 border-2 rounded-hive px-3 py-2.5 ${meta.border}`}>
+                <span className="text-hive-muted font-bold text-sm">{currency}</span>
+                <input
+                  type="number" inputMode="decimal" min="0"
+                  value={flatInput} onChange={(e) => setFlatInput(e.target.value)}
+                  placeholder="0"
+                  className="flex-1 bg-transparent font-nunito font-black text-2xl focus:outline-none w-full"
+                />
+              </div>
+            </label>
+            <p className="text-[11px] text-hive-muted font-bold mt-2 leading-snug">
+              This is your flat {meta.label} cap — the balance meter on the log screen counts against it. No line items.
+            </p>
+          </div>
         )}
       </div>
 

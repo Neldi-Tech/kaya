@@ -165,6 +165,10 @@ export async function saveModuleComposer(
    *  written to householdBudgets becomes a SNAPSHOT (composer lines +
    *  bills-at-save-time). (Utilities v2, 2026-05-20) */
   extraMonthlyCents = 0,
+  /** When false, save the EXACT computed total (no round-up). Used by the
+   *  flat-amount modules (Dine Out, Home & Wellness): the parent states an
+   *  intentional number, so rounding it up would be a surprise. (2026-05-23) */
+  roundCap = true,
 ): Promise<void> {
   if (isGuestActive()) return;
   const fullComposer = { ...(state ? { [module]: state } : {}) } as BudgetComposer;
@@ -172,8 +176,9 @@ export async function saveModuleComposer(
   // Saved cap is rounded UP to a neat budget figure (Elia 2026-05-20:
   // round UP so the cap is never below reality — safer for projection).
   // The composer state keeps exact line amounts; only the cap cache is
-  // rounded so progress bars + finances read a clean number.
-  const monthlyCents = roundUpDisplay(rawMonthly);
+  // rounded so progress bars + finances read a clean number. Flat modules
+  // opt out (roundCap=false) so the typed number is saved verbatim.
+  const monthlyCents = roundCap ? roundUpDisplay(rawMonthly) : rawMonthly;
   await updateDoc(doc(db, 'families', familyId), {
     [`budgetComposer.${module}`]: state ?? null,
     [`householdBudgets.${module}`]: monthlyCents,
