@@ -28,6 +28,7 @@ export default function ParentRatesPage() {
   const [requireHpToHoney, setRequireHpToHoney] = useState(config.requireApprovalForHpToHoney);
   const [spendApproval, setSpendApproval] = useState(config.spendRequiresApproval);
   const [cashOutApproval, setCashOutApproval] = useState(config.cashOutRequiresApproval);
+  const [treasuryApprovers, setTreasuryApprovers] = useState<1 | 2>(config.treasuryCashApprovers);
   const [currency, setCurrency] = useState(config.currency);
   // Auto-approve threshold is held in dollars (the user-facing unit) and
   // converted to cents on save so the UI can show "$5.00" cleanly.
@@ -45,6 +46,7 @@ export default function ParentRatesPage() {
     setRequireHpToHoney(config.requireApprovalForHpToHoney);
     setSpendApproval(config.spendRequiresApproval);
     setCashOutApproval(config.cashOutRequiresApproval);
+    setTreasuryApprovers(config.treasuryCashApprovers);
     setCurrency(config.currency);
     setAutoApproveDollars((config.spendAutoApproveBelowCents || 0) / 100);
   }, [config]);
@@ -59,6 +61,7 @@ export default function ParentRatesPage() {
     requireHpToHoney !== config.requireApprovalForHpToHoney ||
     spendApproval !== config.spendRequiresApproval ||
     cashOutApproval !== config.cashOutRequiresApproval ||
+    treasuryApprovers !== config.treasuryCashApprovers ||
     currency !== config.currency ||
     autoApproveCents !== (config.spendAutoApproveBelowCents || 0);
 
@@ -79,6 +82,7 @@ export default function ParentRatesPage() {
         requireApprovalForHpToHoney: requireHpToHoney,
         spendRequiresApproval: spendApproval,
         cashOutRequiresApproval: cashOutApproval,
+        treasuryCashApprovers: treasuryApprovers,
         currency,
         spendAutoApproveBelowCents: autoApproveCents,
       });
@@ -98,6 +102,7 @@ export default function ParentRatesPage() {
     setRequireHpToHoney(config.requireApprovalForHpToHoney);
     setSpendApproval(config.spendRequiresApproval);
     setCashOutApproval(config.cashOutRequiresApproval);
+    setTreasuryApprovers(config.treasuryCashApprovers);
     setCurrency(config.currency);
     setAutoApproveDollars((config.spendAutoApproveBelowCents || 0) / 100);
     setError('');
@@ -361,10 +366,16 @@ export default function ParentRatesPage() {
             onChange={setRequireHpToHoney}
           />
           <PolicyToggle
-            label="Approve every cash-out (🍯 → $)"
+            label="Approve every cash-out (🪙 → $)"
             desc="Recommended on. Each request shows up in your Approvals inbox."
             on={cashOutApproval}
             onChange={setCashOutApproval}
+          />
+          <PolicyToggle
+            label="Both parents approve Honey Pot → Cash"
+            desc="Off = one parent can approve. On = both parents must approve before a kid's Treasury Reserve (Honey Pot) is turned into real Cash."
+            on={treasuryApprovers === 2}
+            onChange={(v) => setTreasuryApprovers(v ? 2 : 1)}
           />
           <PolicyToggle
             label="Approve every cash spend"

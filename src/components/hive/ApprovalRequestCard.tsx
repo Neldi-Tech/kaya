@@ -16,9 +16,10 @@ import { formatCash, formatHoney, formatHp } from './format';
 // unknown (business) type here falls back to a neutral label rather than
 // being mislabelled by this Hive card.
 const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }>> = {
-  hp_to_honey: { emoji: '⇆', label: 'Save HP → 🍯',     tone: 'honey' },
-  cash_out:    { emoji: '🍯', label: 'Cash out 🍯 → $', tone: 'green' },
-  spend:       { emoji: '🛒', label: 'Cash spend',      tone: 'rose'  },
+  hp_to_honey:      { emoji: '⇆', label: 'Save HP → 🪙',        tone: 'honey' },
+  cash_out:         { emoji: '🪙', label: 'Cash out 🪙 → $',     tone: 'green' },
+  treasury_to_cash: { emoji: '🍯', label: 'Honey Pot → Cash',   tone: 'green' },
+  spend:            { emoji: '🛒', label: 'Cash spend',         tone: 'rose'  },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
@@ -36,10 +37,17 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
       return `${formatHp(req.hpAmount || 0)} HP → ${formatHoney(req.honeyAmount || 0)} 🍯`;
     }
     if (req.type === 'cash_out') {
-      return `${formatHoney(req.honeyAmount || 0)} 🍯 → ${formatCash(req.amountCents || 0)}`;
+      return `${formatHoney(req.honeyAmount || 0)} 🪙 → ${formatCash(req.amountCents || 0)}`;
+    }
+    if (req.type === 'treasury_to_cash') {
+      return `${formatCash(req.amountCents || 0)} → Cash`;
     }
     return formatCash(req.amountCents || 0);
   })();
+
+  // Dual-parent gate (Honey Pot → Cash can require both parents).
+  const needTwo = (req.requiredApprovals ?? 1) >= 2;
+  const haveOne = needTwo && (req.approvals?.length ?? 0) >= 1;
 
   const dateLine = (() => {
     const ts = (req.createdAt as any)?.toMillis?.();
@@ -77,6 +85,11 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           <p className="text-[11px] text-hive-muted mt-1">
             For <strong className="text-hive-navy">{kid?.name || 'unknown kid'}</strong>
           </p>
+          {needTwo && (
+            <p className="text-[11px] font-nunito font-bold text-hive-honey-dk mt-1">
+              {haveOne ? '🔓 One parent approved — needs the other parent' : '🔒 Both parents must approve'}
+            </p>
+          )}
         </div>
       </div>
 
