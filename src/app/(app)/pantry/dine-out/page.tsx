@@ -30,6 +30,8 @@ import { formatCents } from '@/components/pantry/format';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
 import BackButton from '@/components/ui/BackButton';
 import VenueSheet from '@/components/pantry/VenueSheet';
+import ReceiptScanModal from '@/components/pantry/ReceiptScanModal';
+import type { ScanResult } from '@/lib/receiptScan';
 
 const DINE = '#C2562E';
 const MAX_PHOTOS = 6;
@@ -64,6 +66,7 @@ export default function DineOutPage() {
   const [placesFilter, setPlacesFilter] = useState<'all' | 'diamond' | 'top' | DineOutCategory>('all');
   const [sheetVenue, setSheetVenue] = useState<Venue | null>(null);
   const [noteBusy, setNoteBusy] = useState(false);
+  const [scanFile, setScanFile] = useState<File | null>(null);
 
   // Keep a ref so the AI-search effect can check saved venues without
   // re-firing on every venue-list snapshot.
@@ -127,6 +130,16 @@ export default function DineOutPage() {
     if (!h || highlights.length >= 3 || highlights.includes(h)) { setHlDraft(''); return; }
     setHighlights((p) => [...p, h]);
     setHlDraft('');
+  };
+
+  const onPickReceipt = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (f) setScanFile(f);
+  };
+  // Dine Out is amount-only — take the scanned total as the amount.
+  const applyScan = (r: ScanResult) => {
+    if (r.totalCents > 0) setAmount(String(r.totalCents / 100));
   };
 
   const pickSuggest = (s: VenueSuggestion) => {
@@ -301,9 +314,15 @@ export default function DineOutPage() {
           </div>
         )}
 
-        {/* Amount */}
-        <label className="block mt-3">
-          <span className="text-[10px] uppercase tracking-wider text-hive-muted font-bold">Amount</span>
+        {/* Amount + AI receipt scan */}
+        <div className="mt-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-hive-muted font-bold">Amount</span>
+            <label className="text-[11px] font-nunito font-black px-2.5 py-1 rounded-full border cursor-pointer transition-colors" style={{ borderColor: '#E8C3AE', background: '#FBEAE0', color: DINE }}>
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickReceipt} />
+              📷 Scan receipt
+            </label>
+          </div>
           <div className="mt-1 flex items-center gap-2 border-2 border-hive-line rounded-hive px-3 py-2 focus-within:border-[#C2562E]">
             <span className="text-hive-muted font-bold text-sm">{currency}</span>
             <input
@@ -313,7 +332,7 @@ export default function DineOutPage() {
               className="flex-1 bg-transparent font-nunito font-black text-2xl focus:outline-none w-full"
             />
           </div>
-        </label>
+        </div>
 
         {/* Sub-tag */}
         <div className="mt-3 flex flex-wrap gap-2">
@@ -525,6 +544,17 @@ export default function DineOutPage() {
           familyId={profile?.familyId}
           onClose={() => setSheetVenue(null)}
           onUse={pickVenue}
+        />
+      )}
+
+      {/* Receipt scan → review → fill the amount */}
+      {scanFile && (
+        <ReceiptScanModal
+          file={scanFile}
+          currency={currency}
+          applyLabel="Use total"
+          onApply={applyScan}
+          onClose={() => setScanFile(null)}
         />
       )}
     </div>
