@@ -19,7 +19,7 @@ export default function NewProjectPage() {
   const { activeKidId } = useHive();
   const isParent = profile?.role === 'parent';
 
-  const [forKid, setForKid] = useState<string | null>(activeKidId);
+  const [forKid, setForKid] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('');
   const [description, setDescription] = useState('');
@@ -27,7 +27,19 @@ export default function NewProjectPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const ownerId = isParent ? forKid : (profile?.childId ?? null);
+  // Owner resolution mirrors New Business: an explicit pick wins; a kid is
+  // themselves — empty/missing childId is treated as absent (|| not ??) and
+  // recovered via their sign-in email — and a parent gets the active/first kid.
+  const myChildId = profile?.childId?.trim() || '';
+  const myEmail = profile?.email?.trim().toLowerCase() || '';
+  const emailMatchKidId = (!myChildId && myEmail)
+    ? (children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id || '')
+    : '';
+  const selfKidId = myChildId || emailMatchKidId || null;
+  const ownerId = forKid
+    || (isParent ? (activeKidId || children[0]?.id || null) : selfKidId)
+    || null;
+  const showOwnerPicker = children.length > 0 && (isParent || !ownerId);
   const canSubmit = title.trim().length > 1 && !!ownerId && !saving;
 
   const submit = async () => {
@@ -60,12 +72,12 @@ export default function NewProjectPage() {
         </div>
       </div>
 
-      {isParent && children.length > 0 && (
+      {showOwnerPicker && (
         <>
           <div className={label}>Whose project?</div>
           <div className="flex flex-wrap gap-2">
             {children.map((c) => (
-              <button key={c.id} onClick={() => setForKid(c.id)} className={chip(forKid === c.id)}>{c.avatarEmoji} {c.name}</button>
+              <button key={c.id} onClick={() => setForKid(c.id)} className={chip(ownerId === c.id)}>{c.avatarEmoji} {c.name}</button>
             ))}
           </div>
         </>
@@ -100,6 +112,13 @@ export default function NewProjectPage() {
         className="w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
         {saving ? 'Creating…' : 'Create project'}
       </button>
+      {!canSubmit && !saving && (
+        <p className="text-[12px] text-[#B25E16] text-center mt-2 font-nunito font-bold">
+          {title.trim().length < 2 ? '✏️ Give it a name'
+            : !ownerId ? (children.length === 0 ? '👶 Add a child first in Settings → Family' : 'Pick whose project it is')
+            : ''}
+        </p>
+      )}
     </div>
   );
 }
