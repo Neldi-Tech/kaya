@@ -317,6 +317,11 @@ export async function createPost(
 ): Promise<string> {
   const ref = await addDoc(postsCol(familyId), {
     ...data,
+    // The feed query filters `pending == false`, which EXCLUDES docs that
+    // omit the field. Direct (single-shot) creates have no reserve/finalize
+    // phase, so set it here — otherwise the post never shows in the feed
+    // (this was silently dropping project + venue shares).
+    pending: false,
     reactionCount: 0,
     reactionsByType: Object.fromEntries(REACTION_EMOJIS.map((e) => [e, 0])),
     commentCount: 0,
