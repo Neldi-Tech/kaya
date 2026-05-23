@@ -42,10 +42,15 @@ async function run(req: NextRequest) {
 
   let awarded = 0;
   for (const fam of families.docs) {
-    const hp = (fam.data()?.businessConfig?.hpAward) as { mode?: string; perDayHp?: number; weeklyCapHp?: number } | undefined;
-    if (!hp || hp.mode !== 'auto') continue;
-    const perDay = Number(hp.perDayHp ?? 5);
+    const hp = (fam.data()?.businessConfig?.hpAward) as
+      { mode?: string; cadence?: string; perDayHp?: number; weeklyCapHp?: number; weeklyMinPct?: number } | undefined;
+    // Only weekly-cadence auto families. Instant families grant per stock-take
+    // (client/route), so the weekly batch must skip them to avoid double-paying.
+    if (!hp || hp.mode !== 'auto' || (hp.cadence || 'instant') !== 'weekly') continue;
+    const perDay = Number(hp.perDayHp ?? 1);
     const cap = Number(hp.weeklyCapHp ?? 40);
+    const minPct = Number(hp.weeklyMinPct ?? 80);
+    const needDays = Math.ceil((7 * Math.max(0, Math.min(100, minPct))) / 100);
 
     let bizSnap;
     try { bizSnap = await fam.ref.collection('businesses').get(); }
@@ -68,6 +73,8 @@ async function run(req: NextRequest) {
           st.docs.forEach((s) => { const date = (s.data() as { date?: string }).date; if (date && weekDates.has(date)) days.add(date); });
         } catch { /* skip this business */ }
       }
+      // Weekly minimum: only pay out if the kid hit the threshold % of days.
+      if (days.size < needDays) continue;
       const points = Math.min(cap, days.size * perDay);
       if (points <= 0) continue;
 
