@@ -141,6 +141,47 @@ export async function deleteKidWorkplanItem(
   await deleteDoc(doc(itemsCol(familyId, childId), itemId));
 }
 
+/** Replicate one child's whole plan onto a target child (REPLACE mode):
+ *  the target's existing items are deleted, then fresh copies of the
+ *  source's items are written (new ids, fields copied, createdBy
+ *  re-stamped). Past-dated adhoc one-offs are skipped — copying a
+ *  one-off that already happened is noise; recurring items + any adhoc
+ *  with a today-or-future date carry over. Used by the editor's
+ *  "Copy this plan to…" action so parents set one kid up then mirror. */
+export async function replicateKidWorkplan(
+  familyId: string,
+  sourceChildId: string,
+  targetChildId: string,
+  createdBy: string,
+): Promise<void> {
+  if (sourceChildId === targetChildId) return;
+  const source = await listKidWorkplanItems(familyId, sourceChildId);
+  const todayStr = todayDateString();
+  // Clear the target's current plan first (replace, not merge).
+  const existing = await getDocs(itemsCol(familyId, targetChildId));
+  await Promise.all(existing.docs.map((d) => deleteDoc(d.ref)));
+  // Copy each source item with a fresh id. addKidWorkplanItem strips
+  // any undefined optional fields before writing.
+  for (const it of source) {
+    const isAdhoc = (it.kind ?? 'recurring') === 'adhoc';
+    const futureDates = (it.scheduledDates ?? []).filter((d) => d >= todayStr);
+    if (isAdhoc && futureDates.length === 0) continue; // drop past one-offs
+    await addKidWorkplanItem(familyId, targetChildId, {
+      label: it.label,
+      icon: it.icon,
+      category: it.category,
+      daysOfWeek: it.daysOfWeek,
+      active: it.active,
+      createdBy,
+      timeLocal: it.timeLocal,
+      pointsValue: it.pointsValue,
+      kind: it.kind,
+      scheduledDates: isAdhoc ? futureDates : it.scheduledDates,
+      note: it.note,
+    });
+  }
+}
+
 // ── Scheduling ────────────────────────────────────
 /** Items scheduled on `date`: recurring → match weekday; adhoc → date
  *  is in scheduledDates. Inactive items are dropped. */
