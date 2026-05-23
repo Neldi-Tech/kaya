@@ -57,9 +57,11 @@ export type PurchaseRequestStatus =
  *    utility — electricity / water / internet top-ups + bill payments
  *    payroll — helper-private: advances + loans tied to the helper's
  *              `helperUid` field on the request, parent-only approval
- *  All five modules share the `purchaseRequests` collection;
+ *    home    — durable household goods: furniture, appliances, décor,
+ *              fittings. Mostly parent-bought; sits last (low-frequency).
+ *  All six modules share the `purchaseRequests` collection;
  *  `module` discriminates the surface. */
-export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll';
+export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'home';
 
 /** Categories specific to the Outdoor module. Used in the catalogue
  *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
@@ -123,6 +125,19 @@ export const PAYROLL_CATEGORIES: { id: PayrollCategory; emoji: string; label: st
   { id: 'savings_tip',   emoji: '🌱', label: 'Savings tip' },
 ];
 
+/** Categories specific to the Home module — durable household goods,
+ *  mostly parent-bought (furniture, appliances, décor, fittings). */
+export type HomeCategory =
+  | 'furniture' | 'appliances' | 'decor' | 'fittings' | 'other';
+
+export const HOME_CATEGORIES: { id: HomeCategory; emoji: string; label: string }[] = [
+  { id: 'furniture',  emoji: '🛋️', label: 'Furniture' },
+  { id: 'appliances', emoji: '🔌', label: 'Appliances' },
+  { id: 'decor',      emoji: '🖼️', label: 'Décor' },
+  { id: 'fittings',   emoji: '🔧', label: 'Fittings & repairs' },
+  { id: 'other',      emoji: '📦', label: 'Other' },
+];
+
 /** Module → emoji + label shortcuts for consistent branding across
  *  pickers, tab bars, Finances roll-up, etc. */
 export const MODULE_EMOJI: Record<PurchaseModule, string> = {
@@ -131,6 +146,7 @@ export const MODULE_EMOJI: Record<PurchaseModule, string> = {
   drivers: '🚗',
   utility: '⚡',
   payroll: '🤝',
+  home:    '🛋️',
 };
 
 export const MODULE_LABEL: Record<PurchaseModule, string> = {
@@ -139,6 +155,7 @@ export const MODULE_LABEL: Record<PurchaseModule, string> = {
   drivers: 'Drivers',
   utility: 'Utilities',
   payroll: 'Payroll',
+  home:    'Home',
 };
 
 /** Short module code used in the auto-generated request name +
@@ -153,6 +170,7 @@ export const MODULE_CODE: Record<PurchaseModule, string> = {
   drivers: 'CAR',
   utility: 'UTL',
   payroll: 'PAY',
+  home:    'HOM',
 };
 
 /** Compact date for request names: 18-May-2026 → `180526` (DDMMYY).
@@ -676,6 +694,7 @@ function fallbackDraftName(module: PurchaseModule, context?: string): string {
     drivers: 'drive',
     utility: 'utility',
     payroll: 'payroll',
+    home:    'home',
   };
   const head = `${day} ${noun[module]}`;
   return context?.trim() ? `${head} · ${context.trim()}` : head;
