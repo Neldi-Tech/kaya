@@ -792,6 +792,61 @@ export const DIRECTORY_UTILITIES: DirectoryUtilityItem[] = [
   _u('Insurance · home',        ['home insurance','property bima'], 'other',       '🛡️', 1, 'yr',     'as-needed', 'Yearly.'),
 ];
 
+// ── 🛋️ Home & Wellness ───────────────────────────────────────────
+// Durable household goods + self-care. Mostly one-off parent buys
+// ('as-needed'); a few wellness consumables recur ('monthly').
+export type HomeCategoryId = 'furniture' | 'appliances' | 'decor' | 'fittings' | 'wellness' | 'other';
+
+export interface DirectoryHomeItem {
+  label: string;
+  match: string[];
+  emoji: string;
+  category: HomeCategoryId;
+  defaultQty: number;
+  unit: string;
+  cadence: Cadence;
+  note?: string;
+}
+
+const _hm = (
+  label: string, match: string[], category: HomeCategoryId, emoji: string,
+  qty: number, unit: string, cadence: Cadence, note?: string,
+): DirectoryHomeItem => ({ label, match, category, emoji, defaultQty: qty, unit, cadence, note });
+
+export const DIRECTORY_HOME: DirectoryHomeItem[] = [
+  _hm('Sofa',              ['sofa','couch','settee'],             'furniture',  '🛋️', 1, 'x',     'as-needed'),
+  _hm('Bed frame',         ['bed','bed frame'],                   'furniture',  '🛏️', 1, 'x',     'as-needed'),
+  _hm('Mattress',          ['mattress','godoro'],                 'furniture',  '🛏️', 1, 'x',     'as-needed'),
+  _hm('Dining table',      ['table','dining table','meza'],       'furniture',  '🍽️', 1, 'x',     'as-needed'),
+  _hm('Chairs',            ['chair','chairs','viti'],             'furniture',  '🪑', 4, 'x',     'as-needed'),
+  _hm('Wardrobe',          ['wardrobe','closet','kabati'],        'furniture',  '🚪', 1, 'x',     'as-needed'),
+  _hm('Desk',              ['desk','study table'],                'furniture',  '🪑', 1, 'x',     'as-needed'),
+  _hm('Bookshelf',         ['shelf','bookshelf','rack'],          'furniture',  '📚', 1, 'x',     'as-needed'),
+  _hm('Fridge',            ['fridge','refrigerator','friji'],     'appliances', '🧊', 1, 'x',     'as-needed'),
+  _hm('Washing machine',   ['washing machine','washer'],          'appliances', '🧺', 1, 'x',     'as-needed'),
+  _hm('Microwave',         ['microwave'],                         'appliances', '📟', 1, 'x',     'as-needed'),
+  _hm('Cooker / stove',    ['cooker','stove','gas cooker','jiko'],'appliances', '🍳', 1, 'x',     'as-needed'),
+  _hm('Kettle',            ['kettle'],                            'appliances', '🫖', 1, 'x',     'as-needed'),
+  _hm('Iron',              ['iron','pasi'],                       'appliances', '👔', 1, 'x',     'as-needed'),
+  _hm('Fan',               ['fan','feni'],                        'appliances', '🌀', 1, 'x',     'as-needed'),
+  _hm('TV',                ['tv','television','runinga'],          'appliances', '📺', 1, 'x',     'as-needed'),
+  _hm('Air conditioner',   ['ac','air conditioner','aircon'],     'appliances', '❄️', 1, 'x',     'as-needed'),
+  _hm('Curtains',          ['curtains','pazia'],                  'decor',      '🪟', 2, 'pair',  'as-needed'),
+  _hm('Rug / carpet',      ['rug','carpet','zulia'],              'decor',      '🧶', 1, 'x',     'as-needed'),
+  _hm('Lamp',              ['lamp','table lamp','taa'],           'decor',      '💡', 1, 'x',     'as-needed'),
+  _hm('Bedding set',       ['bedding','sheets','duvet','shuka'],  'decor',      '🛏️', 1, 'set',   'as-needed'),
+  _hm('Wall art',          ['art','frame','picture'],             'decor',      '🖼️', 1, 'x',     'as-needed'),
+  _hm('Light bulbs',       ['bulb','light bulb','globe'],         'fittings',   '💡', 4, 'x',     'monthly'),
+  _hm('Tap / faucet',      ['tap','faucet','mfereji'],            'fittings',   '🚰', 1, 'x',     'as-needed'),
+  _hm('Door handle / lock',['handle','door handle','lock'],       'fittings',   '🚪', 1, 'x',     'as-needed'),
+  _hm('Hooks / brackets',  ['hooks','nails','brackets'],          'fittings',   '🔩', 1, 'pack',  'as-needed'),
+  _hm('Skincare',          ['skincare','lotion','cream'],         'wellness',   '🧴', 1, 'x',     'monthly'),
+  _hm('Vitamins',          ['vitamins','supplements'],            'wellness',   '💊', 1, 'bottle','monthly'),
+  _hm('Toiletries',        ['toiletries','soap','shampoo'],       'wellness',   '🧼', 1, 'set',   'monthly'),
+  _hm('First-aid kit',     ['first aid','medkit','plasters'],     'wellness',   '🩹', 1, 'x',     'as-needed'),
+  _hm('Sunscreen',         ['sunscreen','spf'],                   'wellness',   '🧴', 1, 'x',     'monthly'),
+];
+
 // ── Starter packs ────────────────────────────────────────────────
 // Curated bundles a parent can one-tap to seed their staples list
 // without entering items one-by-one. Each pack lists DIRECTORY_STAPLES
