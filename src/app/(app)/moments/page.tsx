@@ -129,7 +129,7 @@ export default function MomentsFeedPage() {
         {!isGuest && (
           <Link
             href="/moments/new"
-            className="h-10 px-4 bg-kaya-gold text-white rounded-kaya-sm font-bold text-xs flex items-center hover:bg-kaya-gold-dark transition-colors"
+            className="h-10 px-4 bg-kaya-gold text-white rounded-kaya-sm font-bold text-xs flex items-center justify-center whitespace-nowrap shrink-0 hover:bg-kaya-gold-dark transition-colors"
           >
             + New
           </Link>
