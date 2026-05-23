@@ -197,6 +197,10 @@ const HOUSEHOLD_NAV: NavItem[] = [
     tooltip: 'Vehicle fuel · service · spare parts · tolls. Driver-helper scope.' },
   { path: '/pantry/payroll',         icon: '🤝', label: 'Payroll',
     tooltip: 'Self-service: each helper requests their own advance / loan / bonus. Private to them.' },
+  { path: '/pantry/dine-out',        icon: '🍽️', label: 'Dine Out',
+    tooltip: 'Eating out — restaurants, takeaway, delivery, coffee. Parent quick-log against a budget.' },
+  { path: '/pantry/home',            icon: '🛋️', label: 'Home & Wellness',
+    tooltip: 'Furniture, appliances, décor, fittings + self-care / wellness. Mostly parent buys.' },
 
   { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans',
     tooltip: "Your family's curated Pantry regulars. Picked from Browse to your list." },

@@ -228,9 +228,9 @@ export default function PantryHomePage() {
               tint="bg-[#FBEAE0] border-[#E8C3AE] hover:border-[#C2562E]" subColor="text-[#C2562E]"
               tooltip="Meals out — quick-log an amount; tracked against your Dine Out budget."
               badge={openByModule.dineOut} />
-            <Tile href="/pantry/home" emoji="🛋️" label="Home" sub="Furniture · appliances · décor"
+            <Tile href="/pantry/home" emoji="🛋️" label="Home & Wellness" sub="Furniture · appliances · self-care"
               tint="bg-[#F6EBDD] border-[#E0C4A3] hover:border-[#9B6B3F]" subColor="text-[#9B6B3F]"
-              tooltip="Furniture, appliances, décor, fittings — the bigger household buys, mostly parent."
+              tooltip="Furniture, appliances, décor, fittings + self-care / wellness — mostly parent."
               badge={openByModule.home} />
           </>
         )}
@@ -240,7 +240,7 @@ export default function PantryHomePage() {
             onClick={() => setShowMoreModules((v) => !v)}
             className="col-span-2 rounded-hive border border-dashed border-hive-line bg-hive-paper py-3 font-nunito font-extrabold text-[12px] text-hive-muted hover:border-hive-navy hover:text-hive-navy transition-colors"
           >
-            {showMoreModules ? '− Show less' : '··· More · Dine Out, Home'}
+            {showMoreModules ? '− Show less' : '··· More · Dine Out, Home & Wellness'}
           </button>
         )}
       </div>

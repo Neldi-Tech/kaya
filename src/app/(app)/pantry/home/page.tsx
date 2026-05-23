@@ -131,14 +131,14 @@ export default function HomeModulePage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-[#9B6B3F]">
-          Household · Home
+          Household · Home & Wellness
         </p>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {role === 'parent' ? 'Home requests' : 'Home runs'}
+          Home &amp; Wellness
         </h1>
         <p className="text-hive-muted text-sm mt-1">
           {role === 'parent'
-            ? 'Furniture, appliances, décor, fittings — the bigger household buys.'
+            ? 'Furniture, appliances, décor, fittings + self-care & wellness — the bigger home buys.'
             : 'Build a request for home items, send for the nod, then reconcile after.'}
         </p>
       </div>

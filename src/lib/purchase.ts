@@ -139,16 +139,18 @@ export const DINE_OUT_CATEGORIES: { id: DineOutCategory; emoji: string; label: s
   { id: 'other',      emoji: '📦', label: 'Other' },
 ];
 
-/** Categories specific to the Home module — durable household goods,
- *  mostly parent-bought (furniture, appliances, décor, fittings). */
+/** Categories specific to the Home & Wellness module — durable
+ *  household goods + self-care, mostly parent-bought (furniture,
+ *  appliances, décor, fittings, wellness). */
 export type HomeCategory =
-  | 'furniture' | 'appliances' | 'decor' | 'fittings' | 'other';
+  | 'furniture' | 'appliances' | 'decor' | 'fittings' | 'wellness' | 'other';
 
 export const HOME_CATEGORIES: { id: HomeCategory; emoji: string; label: string }[] = [
   { id: 'furniture',  emoji: '🛋️', label: 'Furniture' },
   { id: 'appliances', emoji: '🔌', label: 'Appliances' },
   { id: 'decor',      emoji: '🖼️', label: 'Décor' },
   { id: 'fittings',   emoji: '🔧', label: 'Fittings & repairs' },
+  { id: 'wellness',   emoji: '🧖', label: 'Self-care & wellness' },
   { id: 'other',      emoji: '📦', label: 'Other' },
 ];
 
@@ -171,7 +173,7 @@ export const MODULE_LABEL: Record<PurchaseModule, string> = {
   utility: 'Utilities',
   payroll: 'Payroll',
   dineOut: 'Dine Out',
-  home:    'Home',
+  home:    'Home & Wellness',
 };
 
 /** Short module code used in the auto-generated request name +
