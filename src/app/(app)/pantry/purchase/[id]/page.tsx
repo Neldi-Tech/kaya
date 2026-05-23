@@ -55,6 +55,15 @@ import {
 import { getFamilyMembers } from '@/lib/firestore';
 import { ReconcileTimerBanner } from '@/components/pantry/ReconcileTimer';
 import { uploadReceipt, clearReceipt } from '@/lib/receiptUpload';
+import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
+
+/** Module → its list-page route. dineOut's URL is /pantry/dine-out (not
+ *  /pantry/dineOut), so back-nav can't just template the module id. */
+function moduleListRoute(module?: PurchaseModule): string {
+  if (!module || module === 'pantry') return '/pantry/purchase';
+  if (module === 'dineOut') return '/pantry/dine-out';
+  return `/pantry/${module}`;
+}
 
 // Per-staple icon for picker + basket rows. Pantry staples surface
 // their category emoji (🥬 🥛 🍚 🧴 ✨); Outdoor + Drivers staples
@@ -448,7 +457,7 @@ export default function PurchaseDetailPage() {
         // eslint-disable-next-line no-console
         console.error('[purchase] notifyReconciled failed:', e);
       }
-      router.push(`/pantry/${req.module && req.module !== 'pantry' ? req.module : 'purchase'}`);
+      router.push(moduleListRoute(req.module));
     } finally { setBusy(false); }
   };
 
@@ -510,7 +519,7 @@ export default function PurchaseDetailPage() {
     });
     if (!ok) return;
     setBusy(true);
-    try { await deleteRequest(profile.familyId, req.id); router.push(`/pantry/${req.module === 'pantry' ? 'purchase' : req.module}`); }
+    try { await deleteRequest(profile.familyId, req.id); router.push(moduleListRoute(req.module)); }
     finally { setBusy(false); }
   };
 
@@ -769,7 +778,7 @@ export default function PurchaseDetailPage() {
           Purchase even for utility requests".) */}
       <div className="flex items-center justify-between mb-3">
         <Link
-          href={`/pantry/${reqModule === 'pantry' ? 'purchase' : reqModule}`}
+          href={moduleListRoute(reqModule)}
           className="text-hive-muted text-sm no-underline"
         >
           ‹ {reqModule === 'pantry' ? 'Purchase' : reqModule === 'utility' ? 'Utility' : reqModule === 'outdoor' ? 'Outdoor' : reqModule === 'drivers' ? 'Drivers' : reqModule === 'payroll' ? 'Payroll' : 'Back'}
@@ -798,6 +807,14 @@ export default function PurchaseDetailPage() {
           <span>{req.items.length} {req.items.length === 1 ? 'item' : 'items'} · {STATUS_LABEL[req.status]}</span>
         </p>
       </div>
+
+      {/* Budget balance for this category — stay aware while building +
+          reconciling (2026-05-23). */}
+      <BudgetBalanceMeter
+        module={reqModule}
+        pendingAmountCents={req.status === 'closed' ? 0 : (req.actualTotalCents ?? req.estimatedTotalCents ?? 0)}
+        className="mb-4"
+      />
 
       {/* Banners per status */}
       {isPending && role === 'helper' && (
@@ -1596,7 +1613,7 @@ export default function PurchaseDetailPage() {
         {(isDraft || isReconciling) && (
           <button
             type="button"
-            onClick={() => router.push(`/pantry/${req.module && req.module !== 'pantry' ? req.module : 'purchase'}`)}
+            onClick={() => router.push(moduleListRoute(req.module))}
             className="text-hive-muted text-xs font-nunito font-extrabold underline underline-offset-2 mt-1 self-center"
           >
             💾 Save &amp; exit · pick up later
