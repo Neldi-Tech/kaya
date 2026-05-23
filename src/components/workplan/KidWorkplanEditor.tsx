@@ -49,6 +49,18 @@ function draftFromItem(i: KidWorkplanItem): Draft {
   };
 }
 
+/** Friendly message for a failed write so a save never silently does
+ *  nothing. Permission-denied usually means the kids' workplan rules
+ *  aren't deployed yet. */
+function saveError(e: unknown): string {
+  const code = (e as { code?: string })?.code ?? '';
+  const message = (e as { message?: string })?.message ?? '';
+  if (`${code} ${message}`.toLowerCase().includes('permission')) {
+    return "Couldn't save — kids' workplan rules aren't live yet. Deploy Firestore rules, then try again.";
+  }
+  return "Couldn't save — check your connection and try again.";
+}
+
 export default function KidWorkplanEditor({ familyId, childId, childName, parentUid, allChildren = [] }: {
   familyId: string;
   childId: string;
@@ -69,6 +81,7 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
   // existing task always stays per-child (independent docs).
   const [applyTo, setApplyTo] = useState<Set<string>>(() => new Set([childId]));
   const [flash, setFlash] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => subscribeKidWorkplanItems(familyId, childId, setItems), [familyId, childId]);
   useEffect(() => { setApplyTo(new Set([childId])); setFlash(null); }, [childId]);
@@ -103,6 +116,7 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
     if (!draft.label.trim()) return;
     const ids = targets();
     setBusy(true);
+    setErr(null);
     try {
       const payload = buildPayload(draft);
       for (const id of ids) {
@@ -111,27 +125,35 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
       setDraft(EMPTY);
       setAdding(false);
       flashFor(ids, 'Added');
+    } catch (e) {
+      setErr(saveError(e));
     } finally { setBusy(false); }
   };
 
   const saveEdit = async () => {
     if (!editingId) return;
     setBusy(true);
+    setErr(null);
     try {
       await updateKidWorkplanItem(familyId, childId, editingId, buildPayload(editDraft));
       setEditingId(null);
+    } catch (e) {
+      setErr(saveError(e));
     } finally { setBusy(false); }
   };
 
   const remove = async (id: string) => {
     setBusy(true);
+    setErr(null);
     try { await deleteKidWorkplanItem(familyId, childId, id); }
+    catch (e) { setErr(saveError(e)); }
     finally { setBusy(false); }
   };
 
   const seedStarter = async () => {
     const ids = targets();
     setBusy(true);
+    setErr(null);
     try {
       const seeded: string[] = [];
       for (const id of ids) {
@@ -147,6 +169,8 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
         seeded.push(id);
       }
       flashFor(seeded, 'Seeded a plan');
+    } catch (e) {
+      setErr(saveError(e));
     } finally { setBusy(false); }
   };
 
@@ -156,6 +180,9 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
     <div>
       {flash && (
         <div className="mb-2 rounded-hive bg-green-50 border border-green-300 text-green-800 text-[12px] font-extrabold px-3 py-2">✓ {flash}</div>
+      )}
+      {err && (
+        <div className="mb-2 rounded-hive bg-red-50 border border-red-300 text-red-800 text-[12px] font-extrabold px-3 py-2">⚠ {err}</div>
       )}
       {items === null ? (
         <p className="text-[13px] text-hive-muted">Loading…</p>
