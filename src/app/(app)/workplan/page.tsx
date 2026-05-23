@@ -40,20 +40,76 @@ export default function WorkplanPage() {
 
   // ── Kid view ──────────────────────────────────
   if (role === 'kid') {
-    const me = children.find((c) => c.id === profile.childId);
+    // Resolve the owning child robustly. profile.childId can be an EMPTY
+    // STRING for some kid logins (a known gotcha — see business/new),
+    // which would point the workplan at an invalid path and show empty.
+    // Recover by matching the kid's sign-in email to a child record;
+    // never silently fall back to children[0].
+    const myEmail = profile.email?.toLowerCase() ?? '';
+    const resolvedChildId =
+      (profile.childId?.trim() || '') ||
+      (myEmail ? (children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id ?? '') : '');
+    if (!resolvedChildId) {
+      return (
+        <div className="mx-auto max-w-md w-full px-4 pt-6 pb-32 text-center">
+          <div className="lg:hidden"><BackButton /></div>
+          <div className="text-4xl mb-2">🗓️</div>
+          <p className="font-extrabold text-[15px]" style={{ color: '#2D1B5E' }}>We couldn&apos;t find your plan</p>
+          <p className="text-[12px] text-[#5C6975] mt-1">Ask a grown-up to link your account in Settings → Family.</p>
+        </div>
+      );
+    }
+    const me = children.find((c) => c.id === resolvedChildId);
     const name = me?.name ?? profile.displayName ?? 'friend';
-    if (!profile.childId) return null;
-    return (
-      <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32" style={{ background: 'transparent' }}>
-        <div className="lg:hidden"><BackButton /></div>
-        <p className="text-[11px] font-black uppercase tracking-[3px] mb-2" style={{ color: '#9B5DE5' }}>My Workplan</p>
-        <KidWorkplanToday familyId={family.id} childId={profile.childId} childName={name} />
-      </div>
-    );
+    return <KidWorkplanView familyId={family.id} childId={resolvedChildId} name={name} />;
   }
 
   // ── Parent view ───────────────────────────────
   return <ParentWorkplan familyId={family.id} parentUid={profile.uid} />;
+}
+
+// Kid "My Workplan" with day navigation. Defaults to TODAY; the kid can
+// scroll back/forward to see what's planned on other days (a parent may
+// have assigned tasks for tomorrow). Ticking stays enabled only on today
+// — KidWorkplanToday gates it via isToday; other days are view-only.
+function KidWorkplanView({ familyId, childId, name }: { familyId: string; childId: string; name: string }) {
+  const [offset, setOffset] = useState(0);
+  const date = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + offset);
+    return d;
+  }, [offset]);
+  const PURPLE = '#9B5DE5';
+  const rel = offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : offset === -1 ? 'Yesterday' : null;
+  const dlabel = date.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
+
+  return (
+    <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
+      <div className="lg:hidden"><BackButton /></div>
+      <p className="text-[11px] font-black uppercase tracking-[3px] mb-2" style={{ color: PURPLE }}>My Workplan</p>
+
+      {/* Day navigator — default today, scroll back/forward */}
+      <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
+        <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>‹</button>
+        <button type="button" onClick={() => setOffset(0)} className="flex-1 text-center leading-tight">
+          <span className="block font-black text-[14px]" style={{ color: '#2D1B5E' }}>{rel ?? dlabel}</span>
+          {rel && <span className="block text-[10px] font-bold" style={{ color: '#9B8AA8' }}>{dlabel}</span>}
+        </button>
+        <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next day"
+          className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>›</button>
+      </div>
+      {offset !== 0 && (
+        <button type="button" onClick={() => setOffset(0)}
+          className="mb-3 text-[11px] font-black px-3 py-1 rounded-full" style={{ background: '#F0E8FF', color: PURPLE }}>
+          ↩ Back to today
+        </button>
+      )}
+
+      <KidWorkplanToday familyId={familyId} childId={childId} childName={name} date={date} />
+    </div>
+  );
 }
 
 function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: string }) {
