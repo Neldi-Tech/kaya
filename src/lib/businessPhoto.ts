@@ -60,6 +60,24 @@ export async function uploadBusinessPhoto(familyId: string, businessId: string, 
   return getDownloadURL(ref);
 }
 
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // matches storage.rules
+
+const videoPath = (familyId: string, businessId: string, id: string, ext: string) =>
+  `families/${familyId}/businesses/${businessId}/photos/${id}.${ext}`;
+
+/** Upload a short stock-take video clip as-is (no transcode). Capped at 50 MB
+ *  to match the storage rule. Returns the download URL. */
+export async function uploadBusinessVideo(familyId: string, businessId: string, file: File): Promise<string> {
+  if (isGuestActive()) return '';
+  if (!file.type.startsWith('video/')) throw new Error("That doesn't look like a video.");
+  if (file.size > MAX_VIDEO_BYTES) throw new Error('Clip is too big — keep it short (under ~50 MB / 15s).');
+  const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const ref = storageRef(storage, videoPath(familyId, businessId, id, ext));
+  await uploadBytes(ref, file, { contentType: file.type });
+  return getDownloadURL(ref);
+}
+
 const projectPhotosPath = (familyId: string, projectId: string, photoId: string) =>
   `families/${familyId}/projects/${projectId}/photos/${photoId}.jpg`;
 

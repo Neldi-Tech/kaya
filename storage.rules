@@ -74,9 +74,12 @@ service firebase.storage {
     //   families/{f}/businesses/{businessId}/photos/{photoId}.jpg
     match /families/{familyId}/businesses/{businessId}/photos/{file} {
       allow read: if belongsToFamily(familyId);
+      // Photos (image, <10 MB) + short stock-take video clips (<50 MB).
       allow write: if belongsToFamily(familyId)
-        && request.resource.size < 10 * 1024 * 1024
-        && request.resource.contentType.matches('image/.*');
+        && (
+          (request.resource.contentType.matches('image/.*') && request.resource.size < 10 * 1024 * 1024)
+          || (request.resource.contentType.matches('video/.*') && request.resource.size < 50 * 1024 * 1024)
+        );
       allow delete: if belongsToFamily(familyId);
     }
 

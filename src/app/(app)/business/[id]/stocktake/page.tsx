@@ -10,12 +10,12 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Business, BusinessItem, StockTake,
+  Business, BusinessItem, StockTake, StockMedia,
   subscribeToBusiness, subscribeToBusinessItems, subscribeToStockTakes,
   updateBusinessItem, saveStockTake, todayKey, stockTakeStreak,
   readBusinessConfig, requestStockTakeHp, flagStockTakeHp,
 } from '@/lib/business';
-import { uploadBusinessPhoto } from '@/lib/businessPhoto';
+import { uploadBusinessPhoto, uploadBusinessVideo } from '@/lib/businessPhoto';
 import { auth } from '@/lib/firebase';
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -35,11 +35,15 @@ export default function StockTakePage() {
   // When a (non-instant) product's count drops, the kid says why: sold or spoiled.
   const [reason, setReason] = useState<Record<string, 'sold' | 'spoiled'>>({});
   const [note, setNote] = useState('');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string>('');
+  // Up to a few photos + one short clip. Each holds the File + a local preview.
+  const [media, setMedia] = useState<Array<{ id: string; file: File; preview: string; kind: 'photo' | 'video' }>>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const MAX_PHOTOS = 5;
+  const hasVideo = media.some((m) => m.kind === 'video');
+  const photoCount = media.filter((m) => m.kind === 'photo').length;
   const fileRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!familyId || !businessId) return;
@@ -87,16 +91,30 @@ export default function StockTakePage() {
   const step = (id: string, delta: number) =>
     setQty((p) => ({ ...p, [id]: Math.max(0, (p[id] ?? 0) + delta) }));
 
-  const pickPhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setPhotoFile(f);
-    setPhotoPreview(URL.createObjectURL(f));
+  const rid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const pickPhotos = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setMedia((prev) => {
+      const room = MAX_PHOTOS - prev.filter((m) => m.kind === 'photo').length;
+      const add = files.slice(0, Math.max(0, room)).map((f) => ({ id: rid(), file: f, preview: URL.createObjectURL(f), kind: 'photo' as const }));
+      return [...prev, ...add];
+    });
+    e.target.value = '';
   };
+  const pickVideo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    if (f.size > 50 * 1024 * 1024) { setError('That clip is too big — keep it short (≤15s).'); return; }
+    setError('');
+    setMedia((prev) => [...prev.filter((m) => m.kind !== 'video'), { id: rid(), file: f, preview: URL.createObjectURL(f), kind: 'video' as const }]);
+  };
+  const removeMedia = (id: string) => setMedia((prev) => prev.filter((m) => m.id !== id));
 
   const save = async () => {
     if (!familyId || !business || !profile?.uid) return;
-    if (!photoFile) { setError("Add today's photo first 📷"); return; }
+    if (media.length === 0) { setError("Add at least one photo first 📷"); return; }
     // Spoilage needs an explanation so the AI + parent can learn from it.
     if (Object.values(reason).includes('spoiled') && !note.trim()) {
       setError('Add a quick note about what went bad 🥀');
@@ -113,10 +131,19 @@ export default function StockTakePage() {
           changed++;
         }
       }
-      const photoUrl = await uploadBusinessPhoto(familyId, businessId, photoFile);
+      // Upload all media (photos downscale; video uploads as-is).
+      const uploaded: StockMedia[] = [];
+      for (const m of media) {
+        try {
+          const url = m.kind === 'video'
+            ? await uploadBusinessVideo(familyId, businessId, m.file)
+            : await uploadBusinessPhoto(familyId, businessId, m.file);
+          if (url) uploaded.push({ url, kind: m.kind });
+        } catch (e: any) { setError(e?.message || 'Could not upload a clip.'); setSaving(false); return; }
+      }
       await saveStockTake(familyId, businessId, {
         date: today, ownerId: business.ownerId, itemsTouched: changed,
-        note: note.trim() || undefined, photoUrl: photoUrl || undefined,
+        note: note.trim() || undefined, media: uploaded,
       }, profile.uid);
 
       // Instant-cadence House Points: grant (auto) or ask a parent (review) for
@@ -248,9 +275,9 @@ export default function StockTakePage() {
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} placeholder="e.g. Henrietta laid 2 today!"
             className="w-full h-11 px-3 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40 mb-3" />
 
-          {/* Required photo */}
+          {/* Required photos + optional clip */}
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">
-            Today&apos;s photo · <span className="text-hive-rose">required</span>
+            Today&apos;s photos &amp; clips · <span className="text-hive-rose">1+ required</span>
           </div>
           {live.length >= 2 && (
             <p className="text-[12px] text-hive-navy/70 mb-2 leading-relaxed">
@@ -258,22 +285,36 @@ export default function StockTakePage() {
               {photoFocus.length === 2 ? <> · maybe <b>{photoFocus[0].name}</b> &amp; <b>{photoFocus[1].name}</b> today</> : ''}.
             </p>
           )}
-          <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={pickPhoto} className="hidden" />
-          {photoPreview ? (
-            <button onClick={() => fileRef.current?.click()} className="block w-full rounded-hive overflow-hidden border border-hive-line mb-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photoPreview} alt="Today's stock-take" className="w-full h-44 object-cover" />
-            </button>
-          ) : (
-            <button onClick={() => fileRef.current?.click()}
-              className="w-full rounded-hive border-2 border-dashed border-hive-honey bg-[#FFFBEE] p-6 text-center text-[13px] font-nunito font-bold text-[#B25E16] mb-3">
-              📷 Tap to add today&apos;s photo
-            </button>
-          )}
+          <input ref={fileRef} type="file" accept="image/*" capture="environment" multiple onChange={pickPhotos} className="hidden" />
+          <input ref={videoRef} type="file" accept="video/*" capture="environment" onChange={pickVideo} className="hidden" />
+          <div className="flex flex-wrap gap-2 mb-2">
+            {media.map((m) => (
+              <div key={m.id} className="relative w-[72px] h-[72px] rounded-hive overflow-hidden border border-hive-line bg-hive-cream">
+                {m.kind === 'video' ? (
+                  <video src={m.preview} className="w-full h-full object-cover" muted playsInline />
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.preview} alt="" className="w-full h-full object-cover" />
+                )}
+                {m.kind === 'video' && <span className="absolute bottom-0.5 left-0.5 text-[10px] bg-black/50 text-white px-1 rounded">🎬</span>}
+                <button type="button" onClick={() => removeMedia(m.id)} aria-label="Remove"
+                  className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-hive-rose text-white text-[11px] flex items-center justify-center border-2 border-white">✕</button>
+              </div>
+            ))}
+            {photoCount < MAX_PHOTOS && (
+              <button type="button" onClick={() => fileRef.current?.click()}
+                className="w-[72px] h-[72px] rounded-hive border-2 border-dashed border-hive-honey bg-[#FFFBEE] text-[#B25E16] text-[22px] font-black flex items-center justify-center">＋</button>
+            )}
+            {!hasVideo && (
+              <button type="button" onClick={() => videoRef.current?.click()}
+                className="w-[72px] h-[72px] rounded-hive border-2 border-dashed border-hive-honey bg-[#FFFBEE] text-[#B25E16] text-[11px] font-extrabold flex flex-col items-center justify-center gap-0.5"><span className="text-[18px]">🎬</span>clip</button>
+            )}
+          </div>
+          <p className="text-[11px] text-hive-muted mb-3">Tap ✕ to remove · ＋ photo (up to {MAX_PHOTOS}) · 🎬 one short clip (≤15s).</p>
 
           {error && <p className="text-hive-rose text-[12px] font-bold mb-2">{error}</p>}
 
-          <button onClick={save} disabled={saving || !photoFile}
+          <button onClick={save} disabled={saving || media.length === 0}
             className="w-full h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
             {saving ? 'Saving…' : `Save today's stock-take${touched > 0 ? ` (${touched} updated)` : ''}`}
           </button>
