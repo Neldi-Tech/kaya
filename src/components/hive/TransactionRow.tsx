@@ -21,7 +21,8 @@ const CATEGORY_ICON: Record<string, string> = {
 
 const LAYER_LABEL: Record<HiveTransaction['layer'], string> = {
   house_points: 'HP',
-  honey: '🍯',
+  honey: '🪙',
+  treasury: '🍯',
   cash: '$',
 };
 

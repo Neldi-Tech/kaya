@@ -51,6 +51,7 @@ export default function HiveHomePage() {
 
       <div className="mb-5">
         <HoneyPotHero
+          treasuryCents={wallet.treasuryCents || 0}
           honeyCoins={wallet.honeyCoins}
           housePoints={wallet.housePoints}
           minHpReserve={config.minHpReserve}

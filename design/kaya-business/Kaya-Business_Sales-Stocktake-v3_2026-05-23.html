@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kaya Business · Sales + Stock-take v3 (Elia's 6 asks)</title>
+<style>
+  :root{--cream:#FAF6EC;--cream2:#F4ECD8;--honey:#F5D77A;--honeyDk:#D17F1A;--navy:#1F2D3D;--dark:#1F1A12;--muted:#8A7E66;--line:#E8DFC6;--good:#2F7D32;--warn:#B25E16;--rose:#C0392B;--white:#FFFDF6;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:linear-gradient(180deg,#ECE3CC,#DDD0AE);color:var(--dark);padding:24px 12px 64px;}
+  .wrap{max-width:1180px;margin:0 auto;}
+  h1{text-align:center;font-size:17px;color:#5b513c;margin:0 0 4px;}
+  .sub{text-align:center;font-size:12px;color:#7a6f56;margin:0 0 20px;}
+  .row{display:flex;gap:22px;justify-content:center;flex-wrap:wrap;align-items:flex-start;}
+  .col{width:330px;}
+  .cap{font-size:12px;font-weight:800;color:#5b513c;text-align:center;margin:0 0 8px;}
+  .phone{background:var(--cream);border:11px solid var(--dark);border-radius:36px;overflow:hidden;box-shadow:0 18px 40px rgba(0,0,0,.22);}
+  .screen{height:720px;overflow-y:auto;padding:13px 13px 30px;}
+  .screen::-webkit-scrollbar{width:0;}
+  .hdr{background:var(--navy);color:var(--honey);border-radius:14px;padding:11px 13px;display:flex;gap:9px;align-items:center;margin-bottom:11px;}
+  .hdr .t{font-weight:800;font-size:15px;} .hdr .s{font-size:10.5px;color:#cfc4ad;}
+  .label{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:12px 2px 6px;}
+  .card{background:var(--white);border:1px solid var(--line);border-radius:13px;padding:11px;margin-bottom:9px;}
+  .prod{display:flex;gap:9px;align-items:center;background:var(--white);border:1px solid var(--line);border-radius:12px;padding:9px;margin-bottom:7px;}
+  .prod.sel{border-color:var(--honeyDk);box-shadow:0 0 0 2px rgba(209,127,26,.18);}
+  .img{width:42px;height:42px;border-radius:9px;background:var(--cream2);display:flex;align-items:center;justify-content:center;font-size:21px;flex:0 0 auto;}
+  .nm{font-weight:800;font-size:13.5px;} .meta{font-size:11px;color:var(--muted);margin-top:1px;}
+  .step{display:flex;align-items:center;gap:7px;}
+  .step button{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--white);font-size:17px;cursor:pointer;}
+  .step .n{width:34px;text-align:center;font-weight:900;font-size:15px;}
+  .pencil{font-size:12px;color:var(--honeyDk);font-weight:800;cursor:pointer;}
+  .input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 10px;font-size:13.5px;background:var(--white);}
+  .pricebox{display:flex;align-items:center;gap:8px;}
+  .pricebox .input{flex:1;text-align:right;font-weight:800;}
+  .chip{padding:6px 11px;border-radius:999px;border:1px solid var(--line);background:var(--white);font-size:11.5px;font-weight:800;cursor:pointer;display:inline-block;}
+  .chip.on{background:var(--navy);color:var(--honey);border-color:transparent;}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn{width:100%;border:0;border-radius:12px;padding:12px;font-weight:900;font-size:13.5px;background:var(--navy);color:var(--honey);cursor:pointer;}
+  .btn.ghost{background:var(--white);color:var(--dark);border:1px solid var(--line);}
+  .note{border-radius:11px;padding:9px 10px;font-size:11.5px;line-height:1.45;}
+  .good{background:#E2F0E2;color:#1d5b20;border:1px solid rgba(47,125,50,.3);}
+  .warn{background:#FCEAD6;color:#7a4410;border:1px solid rgba(178,94,22,.3);}
+  .rose{background:#FBE7E4;color:#8c2a1f;border:1px solid rgba(192,57,43,.3);}
+  .ai{background:var(--navy);color:var(--cream);border-radius:13px;padding:10px 11px;font-size:12px;line-height:1.45;}
+  .ai b{color:var(--honey);}
+  .thumb{width:62px;height:62px;border-radius:10px;background:var(--cream2);position:relative;display:flex;align-items:center;justify-content:center;font-size:22px;flex:0 0 auto;}
+  .thumb .x{position:absolute;top:-6px;right:-6px;width:20px;height:20px;border-radius:50%;background:var(--rose);color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;border:2px solid var(--cream);}
+  .addbox{width:62px;height:62px;border-radius:10px;border:2px dashed var(--honey);background:#FFFBEE;color:var(--honeyDk);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;}
+  .toggle{width:42px;height:24px;border-radius:999px;background:var(--good);position:relative;flex:0 0 auto;}
+  .toggle::after{content:"";position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:#fff;}
+  .pill{display:inline-block;background:var(--navy);color:var(--honey);font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;}
+  .legend{max-width:760px;margin:22px auto 0;background:var(--white);border:1px solid var(--line);border-radius:14px;padding:16px 18px;font-size:12.5px;line-height:1.6;color:#4a4334;}
+  .legend h3{margin:0 0 8px;font-size:13px;color:var(--navy);}
+  .legend li{margin-bottom:6px;}
+  .q{color:var(--honeyDk);font-weight:800;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Kaya Business · Sales + Stock-take <b>v3</b></h1>
+  <p class="sub">Mockup for Elia's 6 asks — confirm the flow, then I build PR-by-PR</p>
+
+  <div class="row">
+
+    <!-- ───────────── LOG SALE v2 (asks #1 + #5) ───────────── -->
+    <div class="col">
+      <div class="cap">Log a sale — #1 product list · smart price · #5 customers</div>
+      <div class="phone"><div class="screen">
+        <div class="hdr"><div style="font-size:20px">💵</div><div><div class="t">Log a sale</div><div class="s">Nathan's Produce</div></div></div>
+
+        <div class="label">Pick what you sold</div>
+        <div class="prod sel">
+          <div class="img">🍅</div>
+          <div style="flex:1"><div class="nm">Tomatoes <span style="font-size:9px;color:var(--good)">✓</span></div><div class="meta">in stock: 12 kg · usual TZS 2,000/kg</div></div>
+          <div style="font-size:14px;color:var(--honeyDk)">●</div>
+        </div>
+        <div class="prod"><div class="img">🥬</div><div style="flex:1"><div class="nm">Spinach</div><div class="meta">in stock: 6 bunch · usual TZS 1,000</div></div></div>
+        <div class="prod"><div class="img">🥕</div><div style="flex:1"><div class="nm">Carrots</div><div class="meta">in stock: 0 · usual TZS 1,500</div></div></div>
+
+        <div class="label">How many (kg)?</div>
+        <div class="step"><button>−</button><span class="n">3</span><button>+</button><span class="pencil" style="margin-left:6px">✎ type</span></div>
+
+        <div class="label">Price / kg (TZS)</div>
+        <div class="pricebox"><span style="font-size:11px;color:var(--muted);font-weight:800">TZS</span><div class="input">2,300</div></div>
+        <div class="note good" style="margin-top:7px">📈 <b>+15% above your usual price</b> — 🎉 Bravo, great deal!</div>
+        <div class="note warn" style="margin-top:6px;opacity:.6">…if it were lower: <b>−20% below usual</b> — try to negotiate a bit more? 🤝</div>
+
+        <div class="label">Who bought?</div>
+        <div class="chips">
+          <span class="chip on">👨 Dad</span><span class="chip">👩 Mum</span><span class="chip">🧒 Diella</span><span class="chip">🧒 Daniella</span><span class="chip">➕ Other</span>
+        </div>
+        <div style="margin-top:7px" class="card">
+          <div class="label" style="margin-top:0">Other → who?</div>
+          <div class="chips" style="margin-bottom:7px"><span class="chip on">Relative</span><span class="chip">Family friend</span></div>
+          <input class="input" value="Aunty Mary" />
+        </div>
+
+        <div class="label">Paid in</div>
+        <div class="chips"><span class="chip on">Cash</span><span class="chip">Hive transfer</span><span class="chip">Owe me (IOU)</span></div>
+
+        <div class="card" style="margin-top:10px;background:var(--cream2)">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px"><span>Total</span><b style="color:var(--good)">TZS 6,900</b></div>
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted);margin-top:3px"><span>Tomatoes stock after</span><span>12 → 9 kg</span></div>
+        </div>
+        <button class="btn" style="margin-top:8px">Save sale → Hive</button>
+      </div></div>
+    </div>
+
+    <!-- ───────────── STOCK-TAKE v2 (asks #2 + #3 + #4) ───────────── -->
+    <div class="col">
+      <div class="cap">Stock-take — #2 manual edit · #3 up/down · #4 photos</div>
+      <div class="phone"><div class="screen">
+        <div class="hdr"><div style="font-size:20px">📋</div><div><div class="t">Daily stock-take</div><div class="s">Nathan's Produce · Sat 23 May</div></div></div>
+
+        <div class="label">Update today's counts</div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div class="img">🍅</div>
+            <div style="flex:1"><div class="nm">Tomatoes</div><div class="meta">yesterday: 9 kg</div></div>
+            <div class="step"><button>−</button><span class="n">14</span><button>+</button></div>
+          </div>
+          <div class="note good" style="margin-top:7px">🌱 <b>+5 since yesterday</b> — nice harvest! Worth going up.</div>
+          <div class="pencil" style="margin-top:6px;display:inline-block">✎ Edit stock manually</div>
+        </div>
+
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:9px">
+            <div class="img">🥬</div>
+            <div style="flex:1"><div class="nm">Spinach</div><div class="meta">yesterday: 6 bunch</div></div>
+            <div class="step"><button>−</button><span class="n">2</span><button>+</button></div>
+          </div>
+          <div class="note warn" style="margin-top:7px">📉 <b>−4 since yesterday.</b> What happened?</div>
+          <div class="chips" style="margin-top:6px"><span class="chip">💵 I sold them</span><span class="chip on">🥀 Went bad</span></div>
+          <input class="input" style="margin-top:6px" placeholder="What happened? (needed for spoilage)" value="Left in the sun too long" />
+        </div>
+
+        <div class="label">Today's photos &amp; clips · <span style="color:var(--rose)">1+ required</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="thumb">🍅<span class="x">✕</span></div>
+          <div class="thumb">🥬<span class="x">✕</span></div>
+          <div class="thumb" style="font-size:14px">🎬 0:08<span class="x">✕</span></div>
+          <div class="addbox">＋</div>
+        </div>
+        <div class="meta" style="margin-top:6px">Tap ✕ to remove · ＋ to add a photo or a short clip (≤15s). Tip: with 2+ products snap 2 and rotate daily.</div>
+
+        <button class="btn" style="margin-top:12px">Save stock-take · +1 HP 🏅</button>
+      </div></div>
+    </div>
+
+    <!-- ───────────── PRODUCT SETTING · RECURRING (ask #6) ───────────── -->
+    <div class="col">
+      <div class="cap">Product setting — #6 daily auto-sale</div>
+      <div class="phone"><div class="screen">
+        <div class="hdr"><div style="font-size:20px">🍅</div><div><div class="t">Tomatoes</div><div class="s">Product · Nathan's Produce</div></div></div>
+
+        <div class="label">Unit &amp; price</div>
+        <div class="card"><div style="display:flex;justify-content:space-between;font-size:13px"><span>kg</span><b>TZS 2,000</b></div></div>
+
+        <div class="label">Sold every day?</div>
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px">
+            <div style="flex:1"><div class="nm">Daily harvest sale</div><div class="meta">I sell this most days (e.g. fresh veg)</div></div>
+            <div class="toggle"></div>
+          </div>
+          <div class="note warn" style="margin-top:9px">Each day Kaya pre-fills a sale for <b>Tomatoes</b> at your usual price — you just set the qty &amp; tap <b>Send for approval</b>. No re-typing.</div>
+          <div class="card" style="margin-top:9px;background:var(--cream2);border-color:var(--honey)">
+            <div class="pill">Auto-draft · today</div>
+            <div style="display:flex;align-items:center;gap:9px;margin-top:7px">
+              <div class="img">🍅</div>
+              <div style="flex:1"><div class="nm">Tomatoes · today</div><div class="meta">qty <b>?</b> × TZS 2,000</div></div>
+              <div class="step"><button>−</button><span class="n">5</span><button>+</button></div>
+            </div>
+            <button class="btn" style="margin-top:8px">Send today's sale for approval →</button>
+          </div>
+        </div>
+
+        <div class="ai" style="margin-top:10px">🤖 <b>Kaya Coach</b> · “Daily sellers like veg are perfect for an auto-draft — log fast each morning and watch your streak + worth climb. 🌱”</div>
+      </div></div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <h3>What each screen delivers — and the calls I need from you (in <span class="q">honey</span>)</h3>
+    <ul>
+      <li><b>#1 Smart sale</b> — pick a product from your inventory, price pre-fills from its usual price, edit freely; we show <b>% vs the last sale of that product</b> with “Bravo / negotiate” coaching. <span class="q">Decision A: a sale also <b>reduces that product's stock</b> (12→9 kg) so inventory stays real — OK?</span></li>
+      <li><b>#2 Manual edit</b> — keep −/+ for small tweaks, add “✎ Edit stock manually” to type a number (great for big counts).</li>
+      <li><b>#3 Up/down awareness</b> — at stock-take we compare to yesterday: <b>up</b> = “nice harvest 🌱”; <b>down</b> = “sold or went bad?”. <span class="q">Decision B: choosing <b>Went bad</b> requires a note + writes the drop off as a loss (not counted in worth). OK?</span></li>
+      <li><b>#4 Photos</b> — multiple photos with <b>✕ delete</b> + a <b>＋</b> to add more, plus 1 short <b>video clip</b>. <span class="q">Decision C: cap at ~5 photos + 1 clip ≤15s (~25 MB) to respect storage — OK?</span></li>
+      <li><b>#5 Customers</b> — quick chips for <b>family</b> (Dad, Mum, each sibling) + <b>Other → Relative / Friend</b> with a name.</li>
+      <li><b>#6 Daily auto-sale</b> — a per-product “Sold every day?” toggle pre-drafts today's sale; the kid sets qty and taps <b>Send for approval</b>. <span class="q">Decision D: the daily draft still goes through <b>parent approval</b> each day (not silent auto-post) — OK?</span></li>
+    </ul>
+  </div>
+</div>
+</body>
+</html>

@@ -44,9 +44,10 @@ import { isGuestActive } from './mockFamily';
 // Type-only — Business reuses the Hive's unified `approvalRequests` queue.
 // hive.ts does not import this module, so this is cycle-free.
 import type { ApprovalRequest } from './hive';
-// Runtime — a paid sale's earnings sweep into the kid's Hive Cash wallet via
-// the Hive's own deposit path (one-way dependency: business → hive).
-import { depositCash } from './hive';
+// Runtime — a paid sale's earnings sweep into the kid's Treasury Reserve (the
+// "Honey Pot") via the Hive's own deposit path (one-way dependency: business →
+// hive). A parent later turns the Pot into real Cash.
+import { depositToTreasury } from './hive';
 // Runtime — granting House Points on an approved stock-take. firestore.ts only
 // imports this module's `BusinessConfig` as a *type* (erased), so no cycle.
 import { giveAward } from './firestore';
@@ -1178,7 +1179,7 @@ export async function logSale(
   await addDoc(ledgerCol(familyId, businessId), entry);
   if (paymentStatus === 'paid') {
     const note = `${input.customerLabel ? input.customerLabel + ' · ' : ''}${input.description || 'Sale'}`.slice(0, 80);
-    await depositCash(familyId, actor.ownerId, amountCents, 'business', note, actor.uid);
+    await depositToTreasury(familyId, actor.ownerId, amountCents, 'business', note, actor.uid);
   }
   await recomputeLedgerStats(familyId, businessId);
   await runThresholdMilestones(familyId, businessId, actor.ownerId);
