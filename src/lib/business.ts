@@ -47,6 +47,9 @@ import type { ApprovalRequest } from './hive';
 // Runtime — a paid sale's earnings sweep into the kid's Hive Cash wallet via
 // the Hive's own deposit path (one-way dependency: business → hive).
 import { depositCash } from './hive';
+// Runtime — granting House Points on an approved stock-take. firestore.ts only
+// imports this module's `BusinessConfig` as a *type* (erased), so no cycle.
+import { giveAward } from './firestore';
 
 // ── Business identity ─────────────────────────────────────────────
 
@@ -292,13 +295,21 @@ export interface BusinessConfig {
     dualParentAboveCents: number;
     menu: string[];             // Instrument.symbol allow-list
   };
-  /** House Points for stock-take effort (Phase 2 · A3). 'parent_review' (default):
-   *  a parent awards weekly from the effort summary. 'auto': a weekly cron awards
-   *  perDayHp × stock-take days, capped at weeklyCapHp. */
+  /** House Points for stock-take effort.
+   *  - `mode`: 'parent_review' (a parent OKs each award) vs 'auto' (granted with
+   *    no parent step).
+   *  - `cadence`: 'instant' — perDayHp granted the moment a stock-take is saved
+   *    (once/day per business); 'weekly' — perDayHp × distinct stock-take days,
+   *    granted weekly, only if the week hits `weeklyMinPct` of days.
+   *  - `weeklyCapHp`: weekly ceiling (weekly cadence).
+   *  - `weeklyMinPct`: weekly cadence — min % of the 7-day week that must have a
+   *    stock-take for the weekly award to take effect (e.g. 80). */
   hpAward: {
     mode: 'parent_review' | 'auto';
+    cadence: 'instant' | 'weekly';
     perDayHp: number;
     weeklyCapHp: number;
+    weeklyMinPct: number;
   };
   /** How big "worth / value" numbers are shown (Portfolio worth, business
    *  worth, inventory roll-up, investor portfolio). Kid-readability vs
@@ -326,7 +337,7 @@ export const DEFAULT_BUSINESS_CONFIG: BusinessConfig = {
     dualParentAboveCents: 5000_00,
     menu: ['LEGO_INDEX', 'DIS', 'KO', 'SP500', 'BANKS_FUND'],
   },
-  hpAward: { mode: 'parent_review', perDayHp: 5, weeklyCapHp: 40 },
+  hpAward: { mode: 'parent_review', cadence: 'instant', perDayHp: 1, weeklyCapHp: 40, weeklyMinPct: 80 },
   displayRounding: 'whole',
   assetLibrary: ['passion_fruit', 'eggs', 'chickens', 'vegetables', 'service_generic'],
 };
@@ -808,6 +819,34 @@ export async function requestBusinessLaunch(
   return ref.id;
 }
 
+/** Instant cadence (parent-review): a saved stock-take asks a parent to grant
+ *  the day's House Point(s). The parent approves in the Business console
+ *  ({@link resolveBusinessRequest} → giveAward). One per business per day —
+ *  callers guard with the stock-take's `hpRequested` flag. */
+export async function requestStockTakeHp(
+  familyId: string,
+  business: Pick<Business, 'id' | 'ownerId' | 'name' | 'emoji'>,
+  points: number,
+  date: string,
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const pts = Math.max(0, Math.round(points));
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: business.ownerId,
+    type: 'business_hp',
+    module: 'business',
+    businessId: business.id,
+    points: pts,
+    awardDate: date,
+    description: `${pts} House Point${pts === 1 ? '' : 's'} for today's stock-take of "${business.name}" ${business.emoji}.`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
 /** Parent resolves a business approval. Retained as history (never deleted).
  *  - business_launch → flips the business to 'active'.
  *  - investment_buy  → upserts the simulated holding (virtual money) with the
@@ -822,12 +861,14 @@ export async function resolveBusinessRequest(
 ): Promise<void> {
   if (isGuestActive()) return;
   let investedKidId: string | null = null;
+  let hpKidId: string | null = null;
+  let hpPoints = 0;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(approvalRequestsCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
     if (!reqSnap.exists()) throw new Error('Request not found.');
     const req = reqSnap.data() as Pick<ApprovalRequest,
-      'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents'>;
+      'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     const now = serverTimestamp();
@@ -856,6 +897,9 @@ export async function resolveBusinessRequest(
         updatedAt: now,
       }, { merge: true });
       investedKidId = req.kidId ?? null;
+    } else if (req.type === 'business_hp' && req.kidId && (req.points ?? 0) > 0) {
+      // Points are granted after the transaction (giveAward is non-transactional).
+      hpKidId = req.kidId; hpPoints = req.points ?? 0;
     }
     tx.update(reqRef, { status: 'approved', resolvedAt: now, resolvedBy: approverUid });
   });
@@ -863,6 +907,16 @@ export async function resolveBusinessRequest(
   // Milestone check needs a collection read — run it after the transaction.
   if (investedKidId) {
     try { await unlockInvestingMilestones(familyId, investedKidId); } catch { /* best-effort */ }
+  }
+  // Grant stock-take House Points after the transaction commits.
+  if (hpKidId && hpPoints > 0) {
+    try {
+      await giveAward(familyId, {
+        childId: hpKidId, kind: 'regular', points: hpPoints,
+        reason: 'Kaya Business — stock-take done', category: 'business',
+        awardedBy: approverUid, awardedByName: 'Parent', senderRole: 'parent',
+      });
+    } catch { /* best-effort — request already marked approved */ }
   }
 }
 
@@ -1212,6 +1266,11 @@ export interface StockTake {
   itemsTouched: number;  // how many inventory items the kid updated
   byUid: string;
   at: Timestamp;
+  /** Instant-cadence HP bookkeeping (so a re-save the same day never double-
+   *  awards): set once the day's point was granted (auto) or requested
+   *  (parent-review). */
+  hpGranted?: boolean;
+  hpRequested?: boolean;
 }
 
 export interface StockTakeInput {
@@ -1251,6 +1310,25 @@ export async function saveStockTake(
   if (input.photoUrl) data.photoUrl = input.photoUrl;
   await setDoc(doc(stockTakesCol(familyId, businessId), input.date), data, { merge: true });
   await updateDoc(businessDoc(familyId, businessId), { 'stats.lastActivityAt': serverTimestamp() });
+}
+
+/** Mark a day's stock-take HP bookkeeping (instant cadence) so a same-day
+ *  re-save never double-grants / double-requests. */
+export async function flagStockTakeHp(
+  familyId: string,
+  businessId: string,
+  date: string,
+  patch: { hpGranted?: boolean; hpRequested?: boolean },
+): Promise<void> {
+  if (isGuestActive()) return;
+  await setDoc(doc(stockTakesCol(familyId, businessId), date), patch as Record<string, unknown>, { merge: true });
+}
+
+/** Pure: does this week's distinct stock-take day count meet the weekly minimum
+ *  (% of the 7-day week)? Used by the weekly cadence (cron + console). */
+export function meetsWeeklyMin(stockTakeDays: number, weeklyMinPct: number): boolean {
+  const need = Math.ceil((7 * Math.max(0, Math.min(100, weeklyMinPct))) / 100);
+  return stockTakeDays >= need;
 }
 
 /** Recent stock-takes (newest first) for the streak + weekly view. Single-

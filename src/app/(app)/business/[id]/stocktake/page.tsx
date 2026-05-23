@@ -8,12 +8,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import {
   Business, BusinessItem, StockTake,
   subscribeToBusiness, subscribeToBusinessItems, subscribeToStockTakes,
   updateBusinessItem, saveStockTake, todayKey, stockTakeStreak,
+  readBusinessConfig, requestStockTakeHp, flagStockTakeHp,
 } from '@/lib/business';
 import { uploadBusinessPhoto } from '@/lib/businessPhoto';
+import { auth } from '@/lib/firebase';
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -22,6 +25,7 @@ export default function StockTakePage() {
   const router = useRouter();
   const businessId = String(params?.id || '');
   const { profile } = useAuth();
+  const { family } = useFamily();
   const familyId = profile?.familyId;
 
   const [business, setBusiness] = useState<Business | null>(null);
@@ -107,6 +111,39 @@ export default function StockTakePage() {
         date: today, ownerId: business.ownerId, itemsTouched: changed,
         note: note.trim() || undefined, photoUrl: photoUrl || undefined,
       }, profile.uid);
+
+      // Instant-cadence House Points: grant (auto) or ask a parent (review) for
+      // today's point — once per day. Best-effort: never block the stock-take.
+      const hp = readBusinessConfig(family).hpAward;
+      const prior = takes.find((t) => t.date === today);
+      if (hp.cadence === 'instant' && hp.perDayHp > 0 && !(prior?.hpGranted || prior?.hpRequested)) {
+        const bizRef = { id: businessId, ownerId: business.ownerId, name: business.name, emoji: business.emoji };
+        const askParent = async () => {
+          await requestStockTakeHp(familyId, bizRef, hp.perDayHp, today, profile!.uid);
+          await flagStockTakeHp(familyId, businessId, today, { hpRequested: true });
+        };
+        try {
+          if (hp.mode === 'auto') {
+            let granted = false;
+            try {
+              const tok = await auth.currentUser?.getIdToken();
+              if (tok) {
+                const r = await fetch('/api/business/stocktake-hp', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+                  body: JSON.stringify({ businessId, date: today }),
+                });
+                const j = await r.json();
+                granted = !!j?.ok && !j?.skipped;
+              }
+            } catch { /* fall through */ }
+            if (!granted) await askParent(); // admin path unavailable — don't lose the point
+          } else {
+            await askParent();
+          }
+        } catch { /* best-effort */ }
+      }
+
       router.push(`/business/${businessId}`);
     } catch (e: any) {
       setError(e?.message || 'Could not save the stock-take.');

@@ -134,7 +134,9 @@ export default function ParentBusinessConsolePage() {
                     </Link>
                   );
                 })}
-                <KidWeeklyAward familyId={familyId!} kid={kid} hpAward={bizConfig.hpAward} awarder={profile!} />
+                {bizConfig.hpAward.cadence === 'weekly' && (
+                  <KidWeeklyAward familyId={familyId!} kid={kid} hpAward={bizConfig.hpAward} awarder={profile!} />
+                )}
               </div>
             );
           })}
@@ -183,9 +185,9 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
   return (
     <div className="bg-hive-paper border-2 border-hive-honey/50 rounded-hive-lg p-4">
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-[12px] bg-hive-honey-soft text-hive-honey-dk flex items-center justify-center text-xl shrink-0">{req.type === 'investment_buy' ? '📈' : '🚀'}</div>
+        <div className="w-10 h-10 rounded-[12px] bg-hive-honey-soft text-hive-honey-dk flex items-center justify-center text-xl shrink-0">{req.type === 'investment_buy' ? '📈' : req.type === 'business_hp' ? '🏅' : '🚀'}</div>
         <div className="flex-1 min-w-0">
-          <p className="font-nunito font-extrabold text-[13px]">{req.type === 'investment_buy' ? 'Investment buy' : 'Launch request'}</p>
+          <p className="font-nunito font-extrabold text-[13px]">{req.type === 'investment_buy' ? 'Investment buy' : req.type === 'business_hp' ? 'Stock-take points' : 'Launch request'}</p>
           <p className="text-[12.5px] text-hive-navy mt-0.5 leading-snug">{req.description}</p>
           <p className="text-[11px] text-hive-muted mt-1">For <strong className="text-hive-navy">{kidName || 'unknown kid'}</strong></p>
           {req.aiContext && <p className="text-[11px] text-hive-muted mt-1 italic">AI: {req.aiContext}</p>}
@@ -224,19 +226,25 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
 // ── House Points for effort — family policy (parent reviews vs auto) ──
 function HpAwardSettings({ familyId, hpAward }: {
   familyId: string;
-  hpAward: { mode: 'parent_review' | 'auto'; perDayHp: number; weeklyCapHp: number };
+  hpAward: { mode: 'parent_review' | 'auto'; cadence: 'instant' | 'weekly'; perDayHp: number; weeklyCapHp: number; weeklyMinPct: number };
 }) {
+  const [cadence, setCadence] = useState(hpAward.cadence);
   const [mode, setMode] = useState(hpAward.mode);
   const [perDay, setPerDay] = useState(String(hpAward.perDayHp));
   const [cap, setCap] = useState(String(hpAward.weeklyCapHp));
+  const [minPct, setMinPct] = useState(String(hpAward.weeklyMinPct));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const dirty = () => setSaved(false);
 
   const save = async () => {
     setSaving(true); setSaved(false);
     try {
       await setBusinessConfig(familyId, { hpAward: {
-        mode, perDayHp: Math.max(0, parseInt(perDay) || 0), weeklyCapHp: Math.max(0, parseInt(cap) || 0),
+        mode, cadence,
+        perDayHp: Math.max(0, parseInt(perDay) || 0),
+        weeklyCapHp: Math.max(0, parseInt(cap) || 0),
+        weeklyMinPct: Math.max(0, Math.min(100, parseInt(minPct) || 0)),
       } });
       setSaved(true);
     } finally { setSaving(false); }
@@ -244,29 +252,50 @@ function HpAwardSettings({ familyId, hpAward }: {
 
   const seg = (active: boolean) =>
     `flex-1 h-9 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition ${active ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-paper text-hive-muted border-hive-line'}`;
+  const fLabel = 'flex-1 text-[11px] font-nunito font-bold';
+  const fInput = 'w-full h-9 px-2 mt-0.5 bg-white rounded-hive border border-hive-line text-[13px]';
 
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-6">
       <div className="flex items-baseline justify-between mb-2">
-        <h2 className="font-nunito font-extrabold text-[14px]">House Points for effort</h2>
-        <span className="text-[11px] text-hive-muted">pick what&apos;s simplest</span>
+        <h2 className="font-nunito font-extrabold text-[14px]">House Points for stock-takes</h2>
+        <span className="text-[11px] text-hive-muted">pick what fits</span>
       </div>
-      <div className="flex gap-2 mb-2">
-        <button onClick={() => { setMode('parent_review'); setSaved(false); }} className={seg(mode === 'parent_review')}>Parent reviews weekly</button>
-        <button onClick={() => { setMode('auto'); setSaved(false); }} className={seg(mode === 'auto')}>Auto-award</button>
+
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1">When</div>
+      <div className="flex gap-2 mb-1">
+        <button onClick={() => { setCadence('instant'); dirty(); }} className={seg(cadence === 'instant')}>Instant · per stock-take</button>
+        <button onClick={() => { setCadence('weekly'); dirty(); }} className={seg(cadence === 'weekly')}>Weekly · accumulated</button>
       </div>
-      {mode === 'auto' ? (
-        <div className="bg-hive-cream rounded-hive p-3 text-[12.5px] text-hive-navy/80">
-          Kids earn HP automatically each week from their stock-take days — no tap needed.
-          <div className="flex gap-3 mt-2">
-            <label className="flex-1 text-[11px] font-nunito font-bold">HP / day
-              <input value={perDay} onChange={(e) => { setPerDay(e.target.value); setSaved(false); }} inputMode="numeric" className="w-full h-9 px-2 mt-0.5 bg-white rounded-hive border border-hive-line text-[13px]" /></label>
-            <label className="flex-1 text-[11px] font-nunito font-bold">Weekly cap
-              <input value={cap} onChange={(e) => { setCap(e.target.value); setSaved(false); }} inputMode="numeric" className="w-full h-9 px-2 mt-0.5 bg-white rounded-hive border border-hive-line text-[13px]" /></label>
-          </div>
+
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1 mt-3">Approval</div>
+      <div className="flex gap-2 mb-1">
+        <button onClick={() => { setMode('parent_review'); dirty(); }} className={seg(mode === 'parent_review')}>Parent approves</button>
+        <button onClick={() => { setMode('auto'); dirty(); }} className={seg(mode === 'auto')}>Auto-award</button>
+      </div>
+
+      <div className="bg-hive-cream rounded-hive p-3 text-[12.5px] text-hive-navy/80 mt-2">
+        {cadence === 'instant' ? (
+          <>Kids earn <b>{perDay || 0} HP</b> each time they finish a daily stock-take{mode === 'parent_review' ? ' — after you approve it' : ' — granted instantly'}.</>
+        ) : (
+          <>Kids earn <b>{perDay || 0} HP per stock-take day</b>, totalled weekly (cap {cap || 0}) — but only if they reach <b>{minPct || 0}%</b> of the week{mode === 'parent_review' ? ' — you approve from each kid below' : ' — granted automatically each week'}.</>
+        )}
+        <div className="flex gap-3 mt-2">
+          <label className={fLabel}>{cadence === 'instant' ? 'HP / stock-take' : 'HP / day'}
+            <input value={perDay} onChange={(e) => { setPerDay(e.target.value); dirty(); }} inputMode="numeric" className={fInput} /></label>
+          {cadence === 'weekly' && (
+            <>
+              <label className={fLabel}>Weekly cap
+                <input value={cap} onChange={(e) => { setCap(e.target.value); dirty(); }} inputMode="numeric" className={fInput} /></label>
+              <label className={fLabel}>Min % of week
+                <input value={minPct} onChange={(e) => { setMinPct(e.target.value); dirty(); }} inputMode="numeric" className={fInput} /></label>
+            </>
+          )}
         </div>
-      ) : (
-        <p className="text-[12px] text-hive-muted">You award HP each week from the effort summary on each kid below.</p>
+      </div>
+
+      {mode === 'auto' && (
+        <p className="text-[11px] text-hive-muted mt-2">Auto-award needs the server admin key set on Vercel; otherwise it falls back to parent approval.</p>
       )}
       <button onClick={save} disabled={saving} className="w-full mt-3 h-10 rounded-hive-pill bg-hive-navy text-hive-honey font-nunito font-black text-[12.5px] disabled:opacity-40">
         {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save policy'}
@@ -279,7 +308,7 @@ function HpAwardSettings({ familyId, hpAward }: {
 function KidWeeklyAward({ familyId, kid, hpAward, awarder }: {
   familyId: string;
   kid: Child;
-  hpAward: { perDayHp: number; weeklyCapHp: number };
+  hpAward: { perDayHp: number; weeklyCapHp: number; weeklyMinPct: number };
   awarder: { uid: string; displayName?: string };
 }) {
   const [open, setOpen] = useState(false);
@@ -325,7 +354,10 @@ function KidWeeklyAward({ familyId, kid, hpAward, awarder }: {
         <p className="text-[12px] text-hive-muted">Reading this week&apos;s effort…</p>
       ) : (
         <>
-          <p className="text-[12px] text-hive-navy/80 mb-2">{days} stock-take {days === 1 ? 'day' : 'days'} this week · suggested {suggestedWeeklyHp(days, hpAward.perDayHp, hpAward.weeklyCapHp)} HP</p>
+          <p className="text-[12px] text-hive-navy/80 mb-1">{days} stock-take {days === 1 ? 'day' : 'days'} this week · suggested {suggestedWeeklyHp(days, hpAward.perDayHp, hpAward.weeklyCapHp)} HP</p>
+          {days < Math.ceil((7 * hpAward.weeklyMinPct) / 100) && (
+            <p className="text-[11px] text-[#B25E16] mb-2">Below the {hpAward.weeklyMinPct}% weekly minimum ({days}/{Math.ceil((7 * hpAward.weeklyMinPct) / 100)} days) — you can still award.</p>
+          )}
           <div className="flex items-center gap-2">
             <input value={points} onChange={(e) => setPoints(e.target.value)} inputMode="numeric" className="w-20 h-9 px-2 bg-white rounded-hive border border-hive-line text-[13px] text-center" />
             <span className="text-[12px] text-hive-muted">HP</span>

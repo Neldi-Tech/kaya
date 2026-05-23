@@ -22,6 +22,7 @@
 import { initializeApp, getApps, cert, applicationDefault, type App } from 'firebase-admin/app';
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getAuth, type Auth } from 'firebase-admin/auth';
 
 const APP_NAME = 'kaya-admin';
 
@@ -102,4 +103,12 @@ export function getAdminFirestore(): Firestore | null {
   const app = getAdminApp();
   if (!app) return null;
   return getFirestore(app);
+}
+
+/** Convenience accessor — returns Admin Auth() or null. Used to verify a
+ *  client's Firebase ID token on routes that act on the caller's behalf. */
+export function getAdminAuth(): Auth | null {
+  const app = getAdminApp();
+  if (!app) return null;
+  return getAuth(app);
 }
