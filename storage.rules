@@ -90,6 +90,18 @@ service firebase.storage {
       allow delete: if belongsToFamily(familyId);
     }
 
+    // ── Dine Out → per-venue photo gallery (2026-05-23) ──
+    // Photos taken at a place, kept with the venue (and optionally also
+    // shared to Moments — same blob, the post just references its URL).
+    //   families/{f}/venues/{venueId}/{photoId}/{size}.jpg
+    match /families/{familyId}/venues/{venueId}/{photoId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
+
     // ── Kids' Workplan → "proof for points" media (2026-05-23) ──
     // One folder per proof-required task per day:
     //   families/{f}/children/{childId}/workplanProofs/{date}_{itemId}/{photoId}.<ext>
