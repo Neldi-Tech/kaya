@@ -142,7 +142,7 @@ export default function ComposeMomentPage() {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     if (drafts.length + files.length > MAX_PHOTOS) {
-      setError(`Maximum ${MAX_PHOTOS} photos per post.`);
+      setError(`Maximum ${MAX_PHOTOS} photos or videos per post.`);
       return;
     }
     setError('');
@@ -419,7 +419,7 @@ export default function ComposeMomentPage() {
               className="aspect-square rounded-kaya-sm border-2 border-dashed border-kaya-warm-dark text-kaya-sand text-xs font-bold flex flex-col items-center justify-center gap-1 hover:border-kaya-chocolate hover:text-kaya-chocolate transition-colors disabled:opacity-40"
             >
               <span className="text-2xl">📷</span>
-              <span>{drafts.length === 0 ? 'Add photos' : `${MAX_PHOTOS - drafts.length} more`}</span>
+              <span>{drafts.length === 0 ? 'Add photo or video' : `${MAX_PHOTOS - drafts.length} more`}</span>
             </button>
           )}
         </div>
@@ -434,10 +434,10 @@ export default function ComposeMomentPage() {
         />
 
         {processing && (
-          <p className="text-[11px] text-kaya-sand text-center">Processing photos…</p>
+          <p className="text-[11px] text-kaya-sand text-center">Processing…</p>
         )}
         {!processing && drafts.length === 0 && (
-          <p className="text-[11px] text-kaya-sand text-center">Pick photos from your camera roll. We&apos;ll resize them on the way up so the upload is light.</p>
+          <p className="text-[11px] text-kaya-sand text-center">Pick photos or a video from your camera roll. Photos resize on the way up; a video uploads as-is (max 60s).</p>
         )}
       </div>
 
