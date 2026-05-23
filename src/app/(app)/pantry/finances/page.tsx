@@ -26,7 +26,7 @@ const monthLabel = (d: Date = new Date()) =>
   d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
 // Every Household request module rolled up here. All six live now.
-const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'home'];
+const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
 
 const MODULE_HREF: Record<PurchaseModule, string> = {
   pantry:  '/pantry/purchase',
@@ -34,6 +34,7 @@ const MODULE_HREF: Record<PurchaseModule, string> = {
   drivers: '/pantry/drivers',
   utility: '/pantry/utility',
   payroll: '/pantry/payroll',
+  dineOut: '/pantry/dine-out',
   home:    '/pantry/home',
 };
 
@@ -43,6 +44,7 @@ const MODULE_TINT: Record<PurchaseModule, { card: string; border: string; bar: s
   drivers: { card: 'bg-[#E5EFF8]',        border: 'border-[#B5CFE5]',   bar: 'bg-hive-blue' },
   utility: { card: 'bg-[#FFF3D9]',        border: 'border-hive-honey',  bar: 'bg-hive-honey-dk' },
   payroll: { card: 'bg-[#F4EFFB]',        border: 'border-[#C9B8E5]',   bar: 'bg-[#8A6FBF]' },
+  dineOut: { card: 'bg-[#FBEAE0]',        border: 'border-[#E8C3AE]',   bar: 'bg-[#C2562E]' },
   home:    { card: 'bg-[#F6EBDD]',        border: 'border-[#E0C4A3]',   bar: 'bg-[#9B6B3F]' },
 };
 
@@ -85,6 +87,7 @@ export default function FinancesPage() {
       drivers: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
       utility: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
       payroll: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      dineOut: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
       home:    { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
     };
     for (const r of closedThisMonth) {

@@ -252,6 +252,7 @@ export interface Family {
     drivers?: number;
     utility?: number;
     payroll?: number;
+    dineOut?: number;
     home?: number;
   };
   /** Structured budget breakdowns — line items in their natural

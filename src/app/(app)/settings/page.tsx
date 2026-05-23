@@ -3046,7 +3046,7 @@ export default function SettingsPage() {
 // already so families can set their preferences before the modules
 // land, and so the External/Utility/Payroll surfaces can read from
 // `family.approvalModes` on day one.
-type ApprovalCategoryKey = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'home' | 'payrollAdvance' | 'payrollLoan';
+type ApprovalCategoryKey = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'dineOut' | 'home' | 'payrollAdvance' | 'payrollLoan';
 const APPROVAL_CATEGORIES: Array<{
   key: ApprovalCategoryKey;
   emoji: string;
@@ -3060,6 +3060,7 @@ const APPROVAL_CATEGORIES: Array<{
   { key: 'utility',        emoji: '⚡', label: 'Utility top-ups',    hint: 'Electricity, water, internet, gas refills.',                        live: false },
   { key: 'payrollAdvance', emoji: '💵', label: 'Payroll advances',   hint: 'Helpers requesting an advance on next pay.',                        live: false },
   { key: 'payrollLoan',    emoji: '🏦', label: 'Payroll loans',      hint: 'Helpers requesting a loan with a repayment schedule.',              live: false },
+  { key: 'dineOut',        emoji: '🍽️', label: 'Dine Out',           hint: 'Meals out — restaurants, takeaway, delivery, coffee. Parent-logged.', live: true  },
   { key: 'home',           emoji: '🛋️', label: 'Home purchases',     hint: 'Furniture, appliances, décor, fittings — mostly parent buys.',       live: true  },
 ];
 

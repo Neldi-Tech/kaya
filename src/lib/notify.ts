@@ -438,6 +438,7 @@ function purchaseModuleEmoji(m: string): string {
     case 'drivers': return '🚗';
     case 'utility': return '⚡';
     case 'payroll': return '🤝';
+    case 'dineOut': return '🍽️';
     case 'home':    return '🛋️';
     default:        return '🧾';
   }
@@ -449,6 +450,7 @@ function moduleLabel(m: string): string {
     case 'drivers': return 'Drivers';
     case 'utility': return 'Utility';
     case 'payroll': return 'Payroll';
+    case 'dineOut': return 'Dine Out';
     case 'home':    return 'Home';
     default:        return 'household';
   }

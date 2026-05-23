@@ -61,7 +61,7 @@ export type PurchaseRequestStatus =
  *              fittings. Mostly parent-bought; sits last (low-frequency).
  *  All six modules share the `purchaseRequests` collection;
  *  `module` discriminates the surface. */
-export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'home';
+export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'dineOut' | 'home';
 
 /** Categories specific to the Outdoor module. Used in the catalogue
  *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
@@ -125,6 +125,20 @@ export const PAYROLL_CATEGORIES: { id: PayrollCategory; emoji: string; label: st
   { id: 'savings_tip',   emoji: '🌱', label: 'Savings tip' },
 ];
 
+/** Categories specific to the Dine Out module — meals away from home,
+ *  parent-logged as quick amounts (restaurant / takeaway / delivery /
+ *  coffee). Low-frequency; grouped with Home behind the "More" tiles. */
+export type DineOutCategory =
+  | 'restaurant' | 'takeaway' | 'delivery' | 'coffee' | 'other';
+
+export const DINE_OUT_CATEGORIES: { id: DineOutCategory; emoji: string; label: string }[] = [
+  { id: 'restaurant', emoji: '🍽️', label: 'Restaurant' },
+  { id: 'takeaway',   emoji: '🥡', label: 'Takeaway' },
+  { id: 'delivery',   emoji: '🛵', label: 'Delivery' },
+  { id: 'coffee',     emoji: '☕', label: 'Coffee & snacks' },
+  { id: 'other',      emoji: '📦', label: 'Other' },
+];
+
 /** Categories specific to the Home module — durable household goods,
  *  mostly parent-bought (furniture, appliances, décor, fittings). */
 export type HomeCategory =
@@ -146,6 +160,7 @@ export const MODULE_EMOJI: Record<PurchaseModule, string> = {
   drivers: '🚗',
   utility: '⚡',
   payroll: '🤝',
+  dineOut: '🍽️',
   home:    '🛋️',
 };
 
@@ -155,6 +170,7 @@ export const MODULE_LABEL: Record<PurchaseModule, string> = {
   drivers: 'Drivers',
   utility: 'Utilities',
   payroll: 'Payroll',
+  dineOut: 'Dine Out',
   home:    'Home',
 };
 
@@ -170,6 +186,7 @@ export const MODULE_CODE: Record<PurchaseModule, string> = {
   drivers: 'CAR',
   utility: 'UTL',
   payroll: 'PAY',
+  dineOut: 'DIN',
   home:    'HOM',
 };
 
@@ -694,6 +711,7 @@ function fallbackDraftName(module: PurchaseModule, context?: string): string {
     drivers: 'drive',
     utility: 'utility',
     payroll: 'payroll',
+    dineOut: 'dine-out',
     home:    'home',
   };
   const head = `${day} ${noun[module]}`;

@@ -66,6 +66,7 @@ export interface BudgetComposer {
     perHelper?: Record<string, { monthlySalaryCents: number }>;
     other?: { lines: BudgetLine[] };
   };
+  dineOut?: { lines: BudgetLine[] };
   home?: { lines: BudgetLine[] };
 }
 
@@ -144,6 +145,7 @@ export function computeModuleMonthly(
       const other = sumMonthlyCents(p.other?.lines ?? []);
       return perH + other;
     }
+    case 'dineOut': return sumMonthlyCents(composer.dineOut?.lines ?? []);
     case 'home':    return sumMonthlyCents(composer.home?.lines ?? []);
   }
 }
@@ -186,7 +188,7 @@ export async function saveFullComposer(
   composer: BudgetComposer,
 ): Promise<void> {
   if (isGuestActive()) return;
-  const modules: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'home'];
+  const modules: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
   const patch: Record<string, unknown> = { budgetComposer: composer };
   for (const m of modules) {
     patch[`householdBudgets.${m}`] = roundUpDisplay(computeModuleMonthly(m, composer));
