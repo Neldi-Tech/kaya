@@ -174,6 +174,9 @@ export interface BusinessItem {
    *  (it produces again) and a stock-take ADDS new growth rather than only
    *  reconciling down. Skips the "spoiled?" prompt on a decrease. */
   instantStock?: boolean;
+  /** Sold daily — a product the kid sells most days (fresh veg, eggs). Surfaces
+   *  a one-tap "send today's sale for approval" draft on the dashboard. */
+  soldDaily?: boolean;
   /** Business-defined lifecycle stage. Free-form so each business type names
    *  its own: fruit → ready|ripening|flowering|spoiled; eggs → eggsToday|…;
    *  orchids → mature-blooming|young|seedling. Assets often have no stage. */
@@ -856,6 +859,40 @@ export async function requestStockTakeHp(
   return ref.id;
 }
 
+/** Daily auto-sale (#6): a kid sends today's "sold daily" product to a parent
+ *  for approval. On approve, {@link resolveBusinessRequest} runs the sale
+ *  (sweeps the Honey Pot + decrements stock). One per item per day — callers
+ *  disable while one is pending. */
+export async function requestDailySale(
+  familyId: string,
+  business: Pick<Business, 'id' | 'ownerId' | 'name' | 'emoji'>,
+  item: Pick<BusinessItem, 'id' | 'name' | 'unitLabel'>,
+  qty: number,
+  unitPriceCents: number,
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const q = Math.max(1, Math.round(qty));
+  const price = Math.max(0, Math.round(unitPriceCents));
+  if (price <= 0) throw new Error('Set a price first.');
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: business.ownerId,
+    type: 'business_sale',
+    module: 'business',
+    businessId: business.id,
+    itemId: item.id,
+    productName: item.name,
+    saleQty: q,
+    saleUnitPriceCents: price,
+    amountCents: q * price,
+    description: `Sell ${q}${item.unitLabel ? ' ' + item.unitLabel : ''} of ${item.name} today — ${business.name} ${business.emoji}.`,
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
 /** Parent resolves a business approval. Retained as history (never deleted).
  *  - business_launch → flips the business to 'active'.
  *  - investment_buy  → upserts the simulated holding (virtual money) with the
@@ -872,12 +909,19 @@ export async function resolveBusinessRequest(
   let investedKidId: string | null = null;
   let hpKidId: string | null = null;
   let hpPoints = 0;
+  let saleKidId: string | null = null;
+  let saleBusinessId: string | null = null;
+  let saleItemId = '';
+  let saleProductName = '';
+  let saleQtyN = 0;
+  let salePriceCents = 0;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(approvalRequestsCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
     if (!reqSnap.exists()) throw new Error('Request not found.');
     const req = reqSnap.data() as Pick<ApprovalRequest,
-      'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'>;
+      'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'
+      | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     const now = serverTimestamp();
@@ -909,6 +953,11 @@ export async function resolveBusinessRequest(
     } else if (req.type === 'business_hp' && req.kidId && (req.points ?? 0) > 0) {
       // Points are granted after the transaction (giveAward is non-transactional).
       hpKidId = req.kidId; hpPoints = req.points ?? 0;
+    } else if (req.type === 'business_sale' && req.kidId && req.businessId && (req.saleQty ?? 0) > 0 && (req.saleUnitPriceCents ?? 0) > 0) {
+      // The sale runs after the transaction (logSale isn't transactional).
+      saleKidId = req.kidId; saleBusinessId = req.businessId;
+      saleItemId = req.itemId || ''; saleProductName = req.productName || '';
+      saleQtyN = req.saleQty ?? 0; salePriceCents = req.saleUnitPriceCents ?? 0;
     }
     tx.update(reqRef, { status: 'approved', resolvedAt: now, resolvedBy: approverUid });
   });
@@ -925,6 +974,20 @@ export async function resolveBusinessRequest(
         reason: 'Kaya Business — stock-take done', category: 'business',
         awardedBy: approverUid, awardedByName: 'Parent', senderRole: 'parent',
       });
+    } catch { /* best-effort — request already marked approved */ }
+  }
+  // Run the approved daily sale after the transaction commits (sweeps the Honey
+  // Pot + decrements stock via logSale).
+  if (saleKidId && saleBusinessId && saleQtyN > 0 && salePriceCents > 0) {
+    try {
+      await logSale(familyId, saleBusinessId, {
+        qty: saleQtyN,
+        unitPriceCents: salePriceCents,
+        ...(saleItemId ? { itemId: saleItemId } : {}),
+        ...(saleProductName ? { productName: saleProductName } : {}),
+        paymentMethod: 'hive_transfer',
+        description: saleProductName ? `${saleProductName} (daily sale)` : 'Daily sale',
+      }, { uid: approverUid, ownerId: saleKidId });
     } catch { /* best-effort — request already marked approved */ }
   }
 }
@@ -989,6 +1052,7 @@ export interface NewItemInput {
   qty: number;
   unitLabel?: string;
   instantStock?: boolean;
+  soldDaily?: boolean;
   groupId?: string;
   stage?: string;
   unitCostCents?: number;
@@ -1000,7 +1064,7 @@ export interface NewItemInput {
 }
 
 export type ItemPatch = Partial<Pick<BusinessItem,
-  'name' | 'qty' | 'unitLabel' | 'instantStock' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
+  'name' | 'qty' | 'unitLabel' | 'instantStock' | 'soldDaily' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
 
 /** Recompute assets / stock / worth on business.stats from the current item
  *  set. Reads items with getDocs (can't run a query inside a txn) then writes
@@ -1043,6 +1107,7 @@ export async function addBusinessItem(
   };
   if (input.unitLabel?.trim()) data.unitLabel = input.unitLabel.trim();
   if (input.instantStock) data.instantStock = true;
+  if (input.soldDaily) data.soldDaily = true;
   if (input.groupId?.trim()) data.groupId = input.groupId.trim();
   if (input.stage?.trim()) data.stage = input.stage.trim();
   if (typeof input.unitCostCents === 'number') data.unitCostCents = input.unitCostCents;

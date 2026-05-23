@@ -21,6 +21,7 @@ import { ApprovalRequest } from '@/lib/hive';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import { typeMeta, STATUS_META } from '@/components/business/meta';
+import DailySalesCard from '@/components/business/DailySalesCard';
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
 
@@ -166,6 +167,11 @@ export default function BusinessDashboardPage() {
         <div className="bg-[#FCEAD6] border border-[#B25E16]/30 rounded-hive p-3 mb-3 text-[12.5px] text-[#7a4410] font-nunito font-bold">
           ⏳ Launch request sent — waiting for a parent to approve.
         </div>
+      )}
+
+      {/* Daily auto-sale drafts (products flagged "sold daily") */}
+      {isOwner && familyId && profile?.uid && business.status !== 'closed' && (
+        <DailySalesCard familyId={familyId} business={business} requests={requests} currency={config.currency} uid={profile.uid} />
       )}
 
       {/* Headline numbers */}
