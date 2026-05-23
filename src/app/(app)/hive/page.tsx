@@ -5,10 +5,14 @@
 // until PR-Hive-B wires them up. Numbers come from HiveContext, which
 // listens to Firestore in real time.
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
+import { subscribeToKidBusinesses } from '@/lib/business';
 import HoneyPotHero from '@/components/hive/HoneyPotHero';
+import WealthCard from '@/components/hive/WealthCard';
 import HpValueCommentary from '@/components/hive/HpValueCommentary';
 import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
@@ -27,12 +31,21 @@ const ACTIONS = [
 ];
 
 export default function HiveHomePage() {
+  const { profile } = useAuth();
   const { children } = useFamily();
   const { activeKidId, wallet, transactions, config, weeklyEarningsCents, fxUsdToFamily } = useHive();
   const activeKid = children.find((c) => c.id === activeKidId);
 
   const cashEquivalent = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxUsdToFamily ?? 1);
   const recent = transactions.slice(0, 5);
+
+  // Sum the kid's business worth (inventory + assets) for the Wealth = A + B view.
+  const [businessAssetsCents, setBusinessAssetsCents] = useState(0);
+  useEffect(() => {
+    if (!profile?.familyId || !activeKidId) { setBusinessAssetsCents(0); return; }
+    return subscribeToKidBusinesses(profile.familyId, activeKidId, (bs) =>
+      setBusinessAssetsCents(bs.reduce((s, b) => s + (b.stats?.worthCents || 0), 0)));
+  }, [profile?.familyId, activeKidId]);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
@@ -62,13 +75,25 @@ export default function HiveHomePage() {
         />
       </div>
 
-      {/* Quick commentary — tells the kid in one line what they're
-          looking at. The Guide page has the full story. */}
+      <div className="mb-5">
+        <WealthCard
+          treasuryCents={wallet.treasuryCents || 0}
+          honeyCoins={wallet.honeyCoins}
+          housePoints={wallet.housePoints}
+          cashCents={wallet.cashCents}
+          businessAssetsCents={businessAssetsCents}
+          hpToHoneyRate={config.hpToHoneyRate}
+          honeyToCashRate={config.honeyToCashRate}
+          currency={config.currency}
+          fxUsdToFamily={fxUsdToFamily ?? 1}
+        />
+      </div>
+
+      {/* Quick commentary — the money ladder in one line. */}
       <div className="mb-4 text-center">
         <p className="text-[11px] text-hive-muted leading-relaxed">
-          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> are how you <em>earn</em>.{' '}
-          <span className="font-nunito font-extrabold text-hive-honey-dk">🍯 Honey</span> is what you <em>save</em>.{' '}
-          Only Honey turns into <span className="font-nunito font-extrabold text-hive-honey-dk">💵 cash</span>.{' '}
+          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> → <span className="font-nunito font-extrabold text-hive-honey-dk">🪙 Coins</span> → <span className="font-nunito font-extrabold text-hive-honey-dk">🍯 Honey Pot</span> → <span className="font-nunito font-extrabold text-hive-honey-dk">💵 Cash</span>.{' '}
+          A grown-up turns the Pot into Cash.{' '}
           <Link href="/hive/guide" className="font-nunito font-extrabold text-hive-honey-dk hover:underline whitespace-nowrap">Read the Guide →</Link>
         </p>
       </div>
