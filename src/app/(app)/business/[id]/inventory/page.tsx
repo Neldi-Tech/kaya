@@ -14,7 +14,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   Business, BusinessItem, ItemKind, NewItemInput,
   subscribeToBusiness, subscribeToBusinessItems,
-  addBusinessItem, markItemLoss, removeBusinessItem, itemWorthCents, readBusinessConfig,
+  addBusinessItem, markItemLoss, removeBusinessItem, updateBusinessItem, itemWorthCents, readBusinessConfig,
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
@@ -198,6 +198,14 @@ function ItemRow({ item, currency, canEdit, familyId, businessId }: {
         </span>
         {canEdit && (
           <div className="flex items-center gap-1">
+            {item.kind === 'stock' && !item.loss && (
+              <button
+                onClick={async () => { setBusy(true); try { await updateBusinessItem(familyId, businessId, item.id, { soldDaily: !item.soldDaily }); } finally { setBusy(false); } }}
+                disabled={busy}
+                title={item.soldDaily ? 'Sold daily — tap to turn off' : 'Mark "sold daily" (a one-tap sale draft shows on the dashboard)'}
+                className={`w-7 h-7 rounded-hive-pill text-[12px] disabled:opacity-40 hover:brightness-95 ${item.soldDaily ? 'bg-hive-navy text-hive-honey' : 'bg-hive-cream'}`}
+              >🔁</button>
+            )}
             {!item.loss && (
               <button
                 onClick={async () => { setBusy(true); try { await markItemLoss(familyId, businessId, item.id); } finally { setBusy(false); } }}
@@ -231,10 +239,11 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
   const [counted, setCounted] = useState(true);
   const [producing, setProducing] = useState(false);
   const [instantStock, setInstantStock] = useState(false);
+  const [soldDaily, setSoldDaily] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const reset = () => { setName(''); setQty('1'); setUnitLabel(''); setStage(''); setCost(''); setMarket(''); setCounted(true); setProducing(false); setInstantStock(false); };
+  const reset = () => { setName(''); setQty('1'); setUnitLabel(''); setStage(''); setCost(''); setMarket(''); setCounted(true); setProducing(false); setInstantStock(false); setSoldDaily(false); };
 
   const submit = async () => {
     setError('');
@@ -251,6 +260,7 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
       countedInWorth: counted,
       producing: kind === 'asset' ? producing : undefined,
       instantStock: kind === 'stock' ? instantStock : undefined,
+      soldDaily: kind === 'stock' ? soldDaily : undefined,
     };
     try {
       await addBusinessItem(familyId, businessId, input, uid);
@@ -339,6 +349,12 @@ function AddItemForm({ familyId, businessId, uid, currency }: { familyId: string
           <label className="flex items-center gap-2 text-[12.5px] font-nunito font-bold" title="Regrows daily (veg, eggs) — can sell even at 0; stock-take adds new growth.">
             <input type="checkbox" checked={instantStock} onChange={(e) => setInstantStock(e.target.checked)} className="w-4 h-4 accent-hive-honey" />
             🌱 Instant stock (regrows)
+          </label>
+        )}
+        {kind === 'stock' && (
+          <label className="flex items-center gap-2 text-[12.5px] font-nunito font-bold" title="Sell this most days — get a one-tap 'send for approval' draft on the dashboard.">
+            <input type="checkbox" checked={soldDaily} onChange={(e) => setSoldDaily(e.target.checked)} className="w-4 h-4 accent-hive-honey" />
+            🔁 Sold daily
           </label>
         )}
       </div>

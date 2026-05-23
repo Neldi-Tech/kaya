@@ -48,7 +48,8 @@ export type ApprovalType =
   | 'investment_buy'         // simulated buy (single-parent OK in Phase 1)
   | 'investment_sell'        // simulated sell
   | 'capital_injection'      // parent loan/gift into a kid's business
-  | 'business_hp';           // House Points for a stock-take (instant cadence, parent-review)
+  | 'business_hp'            // House Points for a stock-take (instant cadence, parent-review)
+  | 'business_sale';         // a kid's daily auto-sale, sent for parent approval → logSale on approve
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -461,6 +462,10 @@ export interface ApprovalRequest {
   shares?: number;                  // investment_buy / investment_sell
   points?: number;                  // business_hp — House Points to grant on approve
   awardDate?: string;               // business_hp — the stock-take day (YYYY-MM-DD)
+  itemId?: string;                  // business_sale — the product sold
+  productName?: string;             // business_sale — display name of the product
+  saleQty?: number;                 // business_sale — quantity
+  saleUnitPriceCents?: number;      // business_sale — price per unit
   /** Snapshot of the AI co-pilot context shown to the parent at decide time. */
   aiContext?: string;
   /** Dual-parent gate: distinct parent approvals required (default 1). Phase 1
