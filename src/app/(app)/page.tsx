@@ -18,7 +18,7 @@ import {
   getRecentRatings, getRecentAwards, getMeetings,
   Child, Meeting, Role,
 } from '@/lib/firestore';
-import { subscribeToFeed, Post } from '@/lib/moments';
+import { subscribeToFeed, Post, PhotoRef } from '@/lib/moments';
 import { subscribeToPendingApprovals } from '@/lib/hive';
 import {
   type PurchaseRequest,
@@ -54,7 +54,9 @@ export default function DiscoverPage() {
 
   // ─── Data ──────────────────────────────────────────────────────────
   const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [posts, setPosts] = useState<Post[]>([]);
+  // null = still loading the feed; [] = loaded, no moments yet. The
+  // distinction lets MomentsHero show a skeleton vs the empty invite.
+  const [posts, setPosts] = useState<Post[] | null>(null);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const [nextMeeting, setNextMeeting] = useState<Meeting | null>(null);
 
@@ -169,12 +171,11 @@ export default function DiscoverPage() {
               helperName={isHelper ? firstName : undefined}
             />
 
-            {/* PhotoMosaic — disabled globally on the Discover page
-                2026-05-19. Photos aren't loading reliably in
-                production and the empty mosaic looks broken. Moments
-                feed itself stays reachable via /moments + the mobile
-                bar slot; we'll re-enable the Discover preview when
-                the upstream load is fixed. */}
+            {/* Moments hero — top of Discover for kids + parents
+                (2026-05-21). Reliable-by-design: skeleton while the
+                feed loads, a warm invite when empty, the real hero once
+                moments exist — never the old broken empty grid. */}
+            {!isHelper && <MomentsHero posts={posts} />}
 
             {!isHelper && (
               <ActivityFeed
@@ -372,74 +373,124 @@ function RemindersStrip({
   );
 }
 
-function PhotoMosaic({ posts, familyId }: { posts: Post[]; familyId?: string }) {
-  // 5-cell grid: 1 big + 4 small. Renders gradient placeholders for
-  // empty cells when there aren't enough posts to fill it.
-  const gradients = [
-    'from-[#F5C465] to-[#D4A017]',
-    'from-[#7B9DB7] to-[#2C5C7E]',
-    'from-[#C9E5D7] to-[#5BA88C]',
-    'from-[#9B8EC4] to-[#5A4A8E]',
-    'from-[#F39C2F] to-[#C25A1F]',
-  ];
-  const cells = Array.from({ length: 5 }, (_, i) => posts[i]);
+// Moments hero (2026-05-21) — the family feed, lifted to the top of
+// Discover and made reliable. Replaces the old PhotoMosaic, which was
+// disabled in prod because the empty gradient grid looked broken and
+// photos loaded flakily. Now: a calm skeleton while loading
+// (posts === null), a warm invite when empty, and a featured-photo
+// hero + recent strip once moments exist. Each image fails closed to
+// its gradient (see MomentImage) so one bad URL can't break the row.
+function MomentsHero({ posts }: { posts: Post[] | null }) {
+  if (posts === null) {
+    return (
+      <div>
+        <MomentsHeader showOpen={false} />
+        <div className="rounded-kaya overflow-hidden aspect-[16/10] bg-kaya-warm animate-pulse" />
+      </div>
+    );
+  }
+
+  if (posts.length === 0) {
+    return (
+      <div>
+        <MomentsHeader showOpen={false} />
+        <Link
+          href="/moments/new"
+          className="block text-center rounded-kaya border border-kaya-warm-dark bg-gradient-to-b from-white to-[#FBF3DF] px-4 py-7 no-underline"
+        >
+          <div className="text-3xl">📸</div>
+          <p className="font-display font-black text-[14px] text-kaya-chocolate mt-1">Share your first moment</p>
+          <p className="text-[11px] text-kaya-sand mt-1">A photo or video of today — the family will see it here.</p>
+          <span className="inline-flex items-center gap-1.5 mt-3 bg-kaya-gold text-white font-display font-black text-[11px] px-4 py-2 rounded-full">
+            ＋ Add a moment
+          </span>
+        </Link>
+      </div>
+    );
+  }
+
+  const featured = posts[0];
+  const rest = posts.slice(1, 5);
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-2 px-0.5">
-        <h2 className="font-display font-black text-[14px] flex items-center gap-1.5">
-          📸 Recent Moments
-        </h2>
-        <Link href="/moments" className="font-display font-extrabold text-[10.5px] text-kaya-gold-dark uppercase tracking-wider">
+      <MomentsHeader />
+      {/* Featured — most-recent moment, big. */}
+      <Link
+        href={`/moments/${featured.id}`}
+        className="relative block rounded-kaya overflow-hidden aspect-[16/10] bg-gradient-to-br from-[#F5C465] to-[#D4A017] no-underline group"
+      >
+        <MomentImage photo={featured.photos?.[0]} caption={featured.caption} className="object-cover group-hover:scale-105 transition-transform duration-300" />
+        {featured.eventTag && (
+          <span className="absolute top-2 right-2 bg-black/40 text-white font-display font-extrabold text-[9px] px-2 py-0.5 rounded-full backdrop-blur-sm">
+            {featured.eventTag.emoji} {featured.eventTag.label}
+          </span>
+        )}
+        <div className="absolute left-3 right-3 bottom-2.5 text-white">
+          {featured.caption && (
+            <p className="font-display font-black text-[14px] leading-tight drop-shadow-md line-clamp-2">{featured.caption}</p>
+          )}
+          <p className="text-[10px] mt-1 drop-shadow-md opacity-95">
+            ❤️ {featured.reactionCount ?? 0} · 💬 {featured.commentCount ?? 0}
+          </p>
+        </div>
+      </Link>
+
+      {/* Recent strip — up to four more, each linking to its moment. */}
+      {rest.length > 0 && (
+        <div className="grid grid-cols-4 gap-1.5 mt-1.5">
+          {rest.map((p) => (
+            <Link
+              key={p.id}
+              href={`/moments/${p.id}`}
+              className="relative block rounded-md overflow-hidden aspect-square bg-gradient-to-br from-[#7B9DB7] to-[#2C5C7E] no-underline"
+            >
+              <MomentImage photo={p.photos?.[0]} caption={p.caption} className="object-cover" />
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Share CTA. */}
+      <Link
+        href="/moments/new"
+        className="mt-1.5 flex items-center justify-center gap-1.5 border border-dashed border-kaya-warm-dark rounded-kaya py-2 font-display font-extrabold text-[11px] text-kaya-gold-dark bg-white no-underline hover:border-kaya-gold"
+      >
+        ＋ Share a moment
+      </Link>
+    </div>
+  );
+}
+
+function MomentsHeader({ showOpen = true }: { showOpen?: boolean }) {
+  return (
+    <div className="flex items-end justify-between mb-2 px-0.5">
+      <h2 className="font-display font-black text-[15px] flex items-center gap-1.5">📸 Moments</h2>
+      {showOpen && (
+        <Link href="/moments" className="font-display font-extrabold text-[10.5px] text-kaya-gold-dark uppercase tracking-wider no-underline">
           Open →
         </Link>
-      </div>
-      <div
-        className="grid gap-1.5 rounded-kaya overflow-hidden"
-        style={{
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gridTemplateRows: 'repeat(2, 80px)',
-        }}
-      >
-        {cells.map((post, i) => {
-          const isBig = i === 0;
-          const gradient = gradients[i % gradients.length];
-          const photoUrl = post?.photos?.[0]?.thumbUrl || post?.photos?.[0]?.feedUrl;
-          return (
-            <Link
-              key={post?.id || `ph-${i}`}
-              href={post ? `/moments/${post.id}` : '/moments'}
-              className={`relative overflow-hidden rounded-md group ${
-                isBig ? 'row-span-2 col-span-2' : ''
-              } ${!photoUrl ? `bg-gradient-to-br ${gradient}` : ''}`}
-            >
-              {photoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={photoUrl}
-                  alt={post?.caption || 'Moment'}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                />
-              ) : null}
-              {post && (
-                <>
-                  {post.eventTag && (
-                    <span className="absolute top-1.5 right-1.5 bg-black/40 text-white font-display font-extrabold text-[8.5px] px-1.5 py-0.5 rounded backdrop-blur-sm">
-                      {post.eventTag.emoji} {post.eventTag.label}
-                    </span>
-                  )}
-                  {isBig && post.caption && (
-                    <span className="absolute left-2 right-2 bottom-2 text-white font-display font-black text-[11px] leading-tight drop-shadow-md line-clamp-2">
-                      {post.caption}
-                    </span>
-                  )}
-                </>
-              )}
-            </Link>
-          );
-        })}
-      </div>
+      )}
     </div>
+  );
+}
+
+// One moment photo with graceful fallback — if the image errors (the
+// old prod flakiness), we hide it and let the parent's gradient show
+// through instead of a broken-image icon.
+function MomentImage({ photo, caption, className }: { photo?: PhotoRef; caption?: string; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  const url = photo?.feedUrl || photo?.thumbUrl;
+  if (!url || failed) return null;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt={caption || 'Moment'}
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className={`absolute inset-0 w-full h-full ${className ?? 'object-cover'}`}
+    />
   );
 }
 
