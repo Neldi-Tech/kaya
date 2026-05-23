@@ -32,6 +32,8 @@ export default function StockTakePage() {
   const [items, setItems] = useState<BusinessItem[]>([]);
   const [takes, setTakes] = useState<StockTake[]>([]);
   const [qty, setQty] = useState<Record<string, number>>({});
+  // When a (non-instant) product's count drops, the kid says why: sold or spoiled.
+  const [reason, setReason] = useState<Record<string, 'sold' | 'spoiled'>>({});
   const [note, setNote] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string>('');
@@ -95,6 +97,11 @@ export default function StockTakePage() {
   const save = async () => {
     if (!familyId || !business || !profile?.uid) return;
     if (!photoFile) { setError("Add today's photo first 📷"); return; }
+    // Spoilage needs an explanation so the AI + parent can learn from it.
+    if (Object.values(reason).includes('spoiled') && !note.trim()) {
+      setError('Add a quick note about what went bad 🥀');
+      return;
+    }
     setError(''); setSaving(true);
     try {
       // Apply count changes.
@@ -197,23 +204,43 @@ export default function StockTakePage() {
           <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
             <div className="flex items-baseline justify-between mb-1">
               <h3 className="font-nunito font-extrabold text-[14px]">Update today&apos;s counts</h3>
-              <span className="text-[11px] text-hive-muted">tap +/−</span>
+              <span className="text-[11px] text-hive-muted">tap +/− or type</span>
             </div>
             {live.length === 0 ? (
               <p className="text-[12px] text-hive-muted py-3 text-center">No inventory yet — add items first from Inventory.</p>
-            ) : live.map((it) => (
-              <div key={it.id} className="flex items-center gap-3 py-2 border-b border-dashed border-hive-line last:border-0">
-                <div className="flex-1 min-w-0">
-                  <div className="text-[13px] font-nunito font-bold truncate">{it.name}</div>
-                  {it.stage && <div className="text-[11px] text-hive-muted">{it.stage}</div>}
+            ) : live.map((it) => {
+              const cur = qty[it.id] ?? it.qty;
+              const delta = cur - it.qty;
+              const r = reason[it.id];
+              const miniChip = (on: boolean) => `px-2.5 py-1 rounded-hive-pill text-[11px] font-nunito font-extrabold border ${on ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-white text-hive-muted border-hive-line'}`;
+              return (
+                <div key={it.id} className="py-2 border-b border-dashed border-hive-line last:border-0">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-nunito font-bold truncate">{it.name}{it.instantStock ? ' 🌱' : ''}</div>
+                      <div className="text-[11px] text-hive-muted">yesterday: {it.qty}{it.unitLabel ? ` ${it.unitLabel}` : ''}{it.stage ? ` · ${it.stage}` : ''}</div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => step(it.id, -1)} className="w-8 h-8 rounded-hive border border-hive-line bg-white text-[16px]">−</button>
+                      <input type="number" inputMode="numeric" value={cur} aria-label={`${it.name} count`}
+                        onChange={(e) => setQty((p) => ({ ...p, [it.id]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                        className={`w-14 h-8 text-center font-nunito font-black rounded-hive border border-hive-line bg-white text-[14px] ${delta !== 0 ? 'text-hive-honey-dk' : ''}`} />
+                      <button onClick={() => step(it.id, 1)} className="w-8 h-8 rounded-hive border border-hive-line bg-white text-[16px]">+</button>
+                    </div>
+                  </div>
+                  {delta > 0 && (
+                    <p className="text-[11px] text-[#2F7D32] font-nunito font-bold mt-1">🌱 +{delta} since yesterday — nice {it.instantStock ? 'harvest' : 'gain'}!</p>
+                  )}
+                  {delta < 0 && !it.instantStock && (
+                    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] text-[#B25E16] font-nunito font-bold">📉 {delta} — what happened?</span>
+                      <button onClick={() => setReason((p) => ({ ...p, [it.id]: 'sold' }))} className={miniChip(r === 'sold')}>💵 sold</button>
+                      <button onClick={() => setReason((p) => ({ ...p, [it.id]: 'spoiled' }))} className={miniChip(r === 'spoiled')}>🥀 went bad</button>
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => step(it.id, -1)} className="w-8 h-8 rounded-hive border border-hive-line bg-white text-[16px]">−</button>
-                  <span className={`w-8 text-center font-nunito font-black ${qty[it.id] !== it.qty ? 'text-hive-honey-dk' : ''}`}>{qty[it.id] ?? it.qty}</span>
-                  <button onClick={() => step(it.id, 1)} className="w-8 h-8 rounded-hive border border-hive-line bg-white text-[16px]">+</button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Note */}
