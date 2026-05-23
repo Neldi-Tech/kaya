@@ -20,7 +20,7 @@ import {
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
-import { type PulsePlan, resolvePlan, suggestFocusModules } from '@/lib/pulse';
+import { type PulsePlan, resolvePlan, suggestFocusModules, ROUND_STEPS, suggestRoundStep } from '@/lib/pulse';
 
 const PLAN_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility'];
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -182,16 +182,26 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [open, setOpen] = useState(!existing);
+  // Round-off step for auto-suggested caps (major units). -1 = Auto
+  // (scales with the budget's magnitude). Explicit options come from
+  // ROUND_STEPS (0 = None / exact).
+  const [roundStep, setRoundStep] = useState<number>(existing?.roundToMajorUnits ?? -1);
 
   const totalBaseline = PLAN_MODULES.reduce((s, m) => s + (baseline[m] ?? 0), 0);
+  const totalBaselineMajor = Math.round(totalBaseline / 100);
+  const autoStep = suggestRoundStep(totalBaselineMajor);
+  const effectiveStep = roundStep === -1 ? autoStep : roundStep;
   const focus = useMemo(() => suggestFocusModules(baseline, 3), [baseline]);
 
-  // Recompute suggested caps from the target/cut against the baseline.
-  const suggest = () => {
+  // Recompute suggested caps from the target/cut against the baseline,
+  // rounded to `step` (clean numbers). Pass the step explicitly so a
+  // selector change can re-distribute before state settles.
+  const suggestWith = (step: number) => {
     const draft: PulsePlan = {
       savingsMode: mode,
       overallCutPct: mode === 'percent' ? Number(cutPct) || 0 : undefined,
       targetSavingsCents: mode === 'amount' ? Math.round((Number(targetMajor) || 0) * 100) : undefined,
+      roundToMajorUnits: step > 0 ? step : undefined,
       source: 'suggested',
       planPeriod: 'monthly',
     };
@@ -199,6 +209,7 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
     setCaps(capsByModule);
     setSaved(false);
   };
+  const suggest = () => suggestWith(effectiveStep);
 
   const totalCap = PLAN_MODULES.reduce((s, m) => s + (caps[m] ?? 0), 0);
   const plannedSavings = Math.max(0, totalBaseline - totalCap);
@@ -215,6 +226,7 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
         perModuleCapCents: caps,
         baselineByModule: baseline,
         suggestedFocusModules: focus,
+        roundToMajorUnits: effectiveStep,
         source: 'parent',
         planPeriod: 'monthly',
       };
@@ -269,6 +281,35 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
       <button onClick={suggest} className="w-full mb-3 border border-pulse-gold/40 rounded-lg py-2 text-[12px] font-nunito font-black text-pulse-gold-dk">
         ↻ Suggest caps from your usual spend
       </button>
+
+      {/* Round-off — how clean the auto-suggested caps should be. Picking
+          one re-distributes immediately. "Auto" scales with the budget. */}
+      <div className="mb-3">
+        <div className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px] mb-1.5">Round caps to</div>
+        <div className="flex flex-wrap gap-1.5">
+          {[-1, ...ROUND_STEPS].map((s) => {
+            const on = roundStep === s;
+            const label = s === -1 ? `Auto · ${autoStep > 0 ? autoStep.toLocaleString() : 'exact'}`
+              : s === 0 ? 'None'
+              : s.toLocaleString();
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => { setRoundStep(s); suggestWith(s === -1 ? autoStep : s); }}
+                className={`text-[11px] font-nunito font-black px-2.5 py-1 rounded-lg border ${on ? 'bg-pulse-navy text-pulse-gold border-pulse-navy' : 'bg-white text-hive-muted border-pulse-gold/40'}`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[9px] text-hive-muted mt-1">
+          {effectiveStep > 0
+            ? `Suggested caps round to the nearest ${effectiveStep.toLocaleString()} ${currency}.`
+            : 'Suggested caps are kept exact (no rounding).'}
+        </p>
+      </div>
 
       {focus.length > 0 && (
         <div className="bg-pulse-cream rounded-xl p-2.5 mb-3 text-[11px] text-pulse-navy font-bold">
