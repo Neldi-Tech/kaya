@@ -522,6 +522,7 @@ export default function DineOutPage() {
         <VenueSheet
           venue={sheetVenue}
           currency={currency}
+          familyId={profile?.familyId}
           onClose={() => setSheetVenue(null)}
           onUse={pickVenue}
         />

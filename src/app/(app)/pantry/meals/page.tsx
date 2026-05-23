@@ -53,6 +53,8 @@ export default function MealsPage() {
   const [venues, setVenues] = useState<Venue[]>([]);
   const [sheetVenue, setSheetVenue] = useState<Venue | null>(null);
   const [placesSort, setPlacesSort] = useState<'rating' | 'diamond' | 'visits' | 'spend' | 'cuisine'>('rating');
+  // Top-level view toggle (parents): plan the week vs browse Places to Go.
+  const [view, setView] = useState<'plan' | 'places'>('plan');
   useEffect(() => {
     if (!profile?.familyId || !isParent) { setVenues([]); return; }
     return subscribeToVenues(profile.familyId, setVenues);
@@ -157,6 +159,24 @@ export default function MealsPage() {
         </p>
       </div>
 
+      {/* Top-level view toggle — keeps "Places to Go" one tap from the top
+          instead of buried below the week (parents only; helpers just plan). */}
+      {isParent && (
+        <div className="flex bg-hive-paper border border-hive-line rounded-hive p-1 mb-4">
+          <button
+            type="button" onClick={() => setView('plan')}
+            className={`flex-1 py-2.5 rounded-lg font-nunito font-extrabold text-sm transition-colors ${view === 'plan' ? 'bg-pantry-leaf text-white' : 'text-hive-muted'}`}
+          >📅 Meal Plan</button>
+          <button
+            type="button" onClick={() => setView('places')}
+            className={`flex-1 py-2.5 rounded-lg font-nunito font-extrabold text-sm transition-colors ${view === 'places' ? 'text-white' : 'text-hive-muted'}`}
+            style={view === 'places' ? { background: '#C2562E' } : undefined}
+          >📍 Places to Go{venues.length > 0 ? ` · ${venues.length}` : ''}</button>
+        </div>
+      )}
+
+      {(!isParent || view === 'plan') && (
+        <>
       {/* Preference chips drive the auto-fill suggestions. */}
       <div className="bg-pantry-leaf-soft/50 border border-pantry-leaf/40 rounded-hive-lg p-3 lg:p-4 mb-4">
         <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-pantry-leaf-dk mb-2">
@@ -233,10 +253,12 @@ export default function MealsPage() {
           );
         })}
       </div>
+        </>
+      )}
 
-      {/* ── Places to Go (analysis) — the home for venue history ─── */}
-      {isParent && (
-        <div className="mt-6">
+      {/* ── Places to Go (analysis) — its own view now (top toggle) ─── */}
+      {isParent && view === 'places' && (
+        <div>
           <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
             <h2 className="font-nunito font-black text-[16px]">📍 Places to Go</h2>
             <span className="text-[11px] text-hive-muted">from your Dine Out logs</span>
@@ -326,7 +348,7 @@ export default function MealsPage() {
 
       {/* Venue history sheet (shared with the Dine Out page) */}
       {sheetVenue && (
-        <VenueSheet venue={sheetVenue} currency={currency} onClose={() => setSheetVenue(null)} />
+        <VenueSheet venue={sheetVenue} currency={currency} familyId={profile?.familyId} onClose={() => setSheetVenue(null)} />
       )}
 
       {toast && (

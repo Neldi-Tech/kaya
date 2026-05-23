@@ -8,10 +8,11 @@
 // highlights, and the per-visit history (date · who · ★ · occasion ·
 // what was eaten · spend). `onUse` (optional) surfaces the re-use button.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toDisplayDate } from '@/lib/dates';
 import { formatCents } from '@/components/pantry/format';
-import type { Venue, VenueVisit } from '@/lib/dineOutVenues';
+import { processPhotoForUpload } from '@/lib/photoUpload';
+import { uploadVenuePhoto, addVenuePhotos, type Venue, type VenueVisit } from '@/lib/dineOutVenues';
 import type { PhotoRef } from '@/lib/moments';
 
 const DINE = '#C2562E';
@@ -30,14 +31,48 @@ function Stars({ n }: { n: number }) {
 }
 
 export default function VenueSheet({
-  venue, currency, onClose, onUse,
+  venue, currency, onClose, onUse, familyId,
 }: {
   venue: Venue;
   currency: string;
   onClose: () => void;
   onUse?: (v: Venue) => void;
+  /** When provided (a parent context), enables "Add photos" on the sheet
+   *  so pictures can be attached to this venue directly — including places
+   *  logged before the gallery shipped. */
+  familyId?: string;
 }) {
   const [lightbox, setLightbox] = useState<{ photos: PhotoRef[]; i: number } | null>(null);
+  // Local photo list so adds appear instantly (the `venue` prop is the
+  // snapshot taken when the sheet opened; the Firestore write persists).
+  const [photos, setPhotos] = useState<PhotoRef[]>(venue.photos ?? []);
+  const [addingPhotos, setAddingPhotos] = useState(false);
+  useEffect(() => { setPhotos(venue.photos ?? []); }, [venue.id, venue.photos]);
+
+  const onAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!familyId) return;
+    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
+    e.target.value = '';
+    if (!files.length) return;
+    setAddingPhotos(true);
+    try {
+      const refs: PhotoRef[] = [];
+      for (const f of files) {
+        try {
+          refs.push(await uploadVenuePhoto(familyId, venue.id, await processPhotoForUpload(f)));
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[venue-sheet] photo upload failed:', err);
+        }
+      }
+      if (refs.length) {
+        await addVenuePhotos(familyId, venue.id, refs);
+        setPhotos((prev) => [...prev, ...refs]);
+      }
+    } finally {
+      setAddingPhotos(false);
+    }
+  };
 
   const ratingEntries = Object.values(venue.ratings ?? {}).filter((r) => r.stars > 0 || r.diamond);
   const visits: VenueVisit[] = [...(venue.visits ?? [])].reverse(); // newest first
@@ -105,18 +140,31 @@ export default function VenueSheet({
             </div>
           )}
 
-          {/* Photos */}
-          {venue.photos && venue.photos.length > 0 && (
+          {/* Photos — the moments you took here. "Add photos" lets you
+              attach pictures to any place (incl. ones logged earlier). */}
+          {(familyId || photos.length > 0) && (
             <div className="mt-3">
-              <div className="text-[10px] uppercase tracking-wider text-hive-muted font-bold mb-1">Photos</div>
-              <div className="grid grid-cols-4 gap-1.5">
-                {venue.photos.map((p, i) => (
-                  <button key={p.id} type="button" onClick={() => setLightbox({ photos: venue.photos!, i })} aria-label="Open photo">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={p.thumbUrl} alt="" loading="lazy" className="w-full aspect-square rounded-lg object-cover border border-hive-line" />
-                  </button>
-                ))}
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-[10px] uppercase tracking-wider text-hive-muted font-bold">Photos</div>
+                {familyId && (
+                  <label className="text-[11px] font-nunito font-black px-2.5 py-1 rounded-full border cursor-pointer transition-colors" style={{ borderColor: '#E8C3AE', background: '#FBEAE0', color: DINE }}>
+                    <input type="file" accept="image/*" multiple className="hidden" onChange={onAddPhotos} disabled={addingPhotos} />
+                    {addingPhotos ? 'Adding…' : '＋ Add photos'}
+                  </label>
+                )}
               </div>
+              {photos.length > 0 ? (
+                <div className="grid grid-cols-4 gap-1.5">
+                  {photos.map((p, i) => (
+                    <button key={p.id} type="button" onClick={() => setLightbox({ photos, i })} aria-label="Open photo">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.thumbUrl} alt="" loading="lazy" className="w-full aspect-square rounded-lg object-cover border border-hive-line" />
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] text-hive-muted italic">No photos yet — tap “＋ Add photos” to keep the moments from this place here.</p>
+              )}
             </div>
           )}
 
