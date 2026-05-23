@@ -3,17 +3,23 @@
 // Kaya Business · New business (kid screen 2) — v2, AI-first.
 //
 // "Create with Kaya AI": the child types one line and Kaya drafts the whole
-// business — best type, a standardized name + mission + emoji, and starter
-// products (each a standardized name + unit + starter price). The child tweaks
-// anything, can ✨ draw a picture per product or ask for more, then creates.
-// "Build it myself" is the same editor without the AI draft.
+// business — best type, a standardized name + mission + emoji, starter products
+// (each a standardized name + unit + starter price), AND visuals: a logo plus a
+// picture per product, drawn automatically. The child tweaks anything, can
+// redraw any picture or ask for more, then creates. "Build it myself" is the
+// same editor without the AI draft.
+//
+// Don't-lose-work: the whole in-progress draft (text only) autosaves to this
+// device and is restored if the child leaves and comes back; it clears once the
+// business is created. Pictures aren't autosaved (too big for local storage) —
+// they redraw in a tap.
 //
 // Each product is a row: Name · Unit (selection incl. Other) · Price per unit.
 // For goods these become Inventory items at qty 0 — worth fills in at the first
 // stock-take (see createBusiness in business.ts). AI features degrade silently
 // when their API keys are absent (manual entry always works).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -33,23 +39,22 @@ interface Row {
   customUnit: boolean;   // true → `unit` is free text (the "Other…" path)
   price: string;         // major units, as typed
   imageDataUrl: string;  // AI-generated, uploaded to Storage on submit
+  imgGenerating: boolean; // auto-draw in flight
   showImage: boolean;    // the per-row picture generator is open
 }
 
 const rid = () => Math.random().toString(36).slice(2, 9);
-const newRow = (): Row => ({ id: rid(), name: '', unit: '', customUnit: false, price: '', imageDataUrl: '', showImage: false });
+const newRow = (): Row => ({ id: rid(), name: '', unit: '', customUnit: false, price: '', imageDataUrl: '', imgGenerating: false, showImage: false });
 
 interface DraftProduct { name: string; unit: string; priceCents: number }
 function toRow(p: DraftProduct): Row {
   const known = UNIT_SUGGESTIONS.includes(p.unit);
   return {
-    id: rid(),
+    ...newRow(),
     name: p.name || '',
     unit: p.unit || '',
     customUnit: !!p.unit && !known,
     price: p.priceCents ? String(p.priceCents / 100) : '',
-    imageDataUrl: '',
-    showImage: false,
   };
 }
 
@@ -57,6 +62,37 @@ const parsePriceCents = (s: string): number => {
   const n = parseFloat((s || '').replace(/,/g, ''));
   return Number.isNaN(n) || n <= 0 ? 0 : Math.round(n * 100);
 };
+
+// One image-generation call. Distinguishes "no API key" (skipped) from a plain
+// failure so the UI can hide draw buttons only when the feature is truly off.
+async function genImage(kind: 'logo' | 'product', subject: string, detail: string): Promise<{ image?: string; skipped?: boolean }> {
+  if (!subject.trim()) return {};
+  try {
+    const r = await fetch('/api/business-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, subject: subject.trim(), detail }),
+    });
+    const j = await r.json();
+    if (j?.skipped) return { skipped: true };
+    if (!r.ok || j?.error || !j?.image) return {};
+    return { image: j.image as string };
+  } catch { return {}; }
+}
+
+interface PersistedDraft {
+  v: 1;
+  mode: 'ai' | 'manual';
+  idea: string;
+  showEditor: boolean;
+  type: BusinessType;
+  name: string;
+  emoji: string;
+  mission: string;
+  channels: CustomerChannel[];
+  forKid: string | null;
+  rows: Array<Pick<Row, 'id' | 'name' | 'unit' | 'customUnit' | 'price'>>;
+}
 
 export default function NewBusinessPage() {
   const router = useRouter();
@@ -83,9 +119,20 @@ export default function NewBusinessPage() {
   const [rows, setRows] = useState<Row[]>([newRow()]);
   const [suggesting, setSuggesting] = useState(false);
 
+  // Visuals
+  const [logoDataUrl, setLogoDataUrl] = useState('');
+  const [logoGenerating, setLogoGenerating] = useState(false);
+  const [imagesOff, setImagesOff] = useState(false); // OPENAI key absent
+
+  // Don't-lose-work autosave
+  const [loaded, setLoaded] = useState(false);
+  const [restored, setRestored] = useState(false);
+
   const [forKid, setForKid] = useState<string | null>(activeKidId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const storageKey = profile?.familyId && profile?.uid ? `kaya:newbiz:${profile.familyId}:${profile.uid}` : '';
 
   // Phase-1 creatable types only (goods / service / adhoc).
   const pickable = BUSINESS_TYPES.filter((t) => PHASE1_BUSINESS_TYPES.includes(t.key));
@@ -108,9 +155,87 @@ export default function NewBusinessPage() {
   const toggleChannel = (c: CustomerChannel) =>
     setChannels((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
 
+  // ── Autosave: restore once on mount, then persist text on every change ──
+  useEffect(() => {
+    if (loaded || !storageKey) return;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        const d = JSON.parse(raw) as PersistedDraft;
+        const hydrated = Array.isArray(d.rows) && d.rows.length
+          ? d.rows.map((r) => ({ ...newRow(), id: r.id || rid(), name: r.name || '', unit: r.unit || '', customUnit: !!r.customUnit, price: r.price || '' }))
+          : [newRow()];
+        const hasContent = !!(d.idea?.trim() || d.name?.trim() || d.mission?.trim() || hydrated.some((r) => r.name.trim()));
+        if (hasContent) {
+          if (d.mode) setMode(d.mode);
+          setIdea(d.idea || '');
+          setType((d.type as BusinessType) || 'goods');
+          setName(d.name || '');
+          setEmoji(d.emoji || '');
+          setMission(d.mission || '');
+          if (Array.isArray(d.channels) && d.channels.length) setChannels(d.channels);
+          if (d.forKid !== undefined) setForKid(d.forKid);
+          setRows(hydrated);
+          setShowEditor(!!d.showEditor || !!d.name?.trim() || hydrated.some((r) => r.name.trim()));
+          setRestored(true);
+        }
+      }
+    } catch { /* ignore a corrupt draft */ }
+    setLoaded(true);
+  }, [loaded, storageKey]);
+
+  useEffect(() => {
+    if (!loaded || !storageKey) return;
+    const hasContent = !!(idea.trim() || name.trim() || mission.trim() || rows.some((r) => r.name.trim()));
+    try {
+      if (!hasContent) { localStorage.removeItem(storageKey); return; }
+      const d: PersistedDraft = {
+        v: 1, mode, idea, showEditor, type, name, emoji, mission, channels, forKid,
+        rows: rows.map((r) => ({ id: r.id, name: r.name, unit: r.unit, customUnit: r.customUnit, price: r.price })),
+      };
+      localStorage.setItem(storageKey, JSON.stringify(d));
+    } catch { /* quota / unavailable — best-effort */ }
+  }, [loaded, storageKey, mode, idea, showEditor, type, name, emoji, mission, channels, forKid, rows]);
+
+  const clearDraft = () => { try { if (storageKey) localStorage.removeItem(storageKey); } catch { /* ignore */ } };
+  const startOver = () => {
+    clearDraft();
+    setRestored(false); setMode('ai'); setIdea(''); setShowEditor(false);
+    setType('goods'); setName(''); setEmoji(''); setMission('');
+    setChannels(['family']); setRows([newRow()]);
+    setCoachMsg(''); setLogoDataUrl(''); setLogoGenerating(false);
+    setDraftError(''); setAiOff(false); setError('');
+  };
+
+  // ── Visuals ──
+  const drawLogo = async (bizName: string, tLabel: string, miss: string) => {
+    if (!bizName.trim()) return;
+    setLogoGenerating(true);
+    const res = await genImage('logo', bizName, `${tLabel}${miss ? ` · ${miss}` : ''}`);
+    if (res.skipped) setImagesOff(true);
+    else if (res.image) setLogoDataUrl(res.image);
+    setLogoGenerating(false);
+  };
+
+  const drawProduct = (row: Row, tLabel: string, bizName: string) => {
+    if (!row.name.trim()) return;
+    patchRow(row.id, { imgGenerating: true });
+    genImage('product', row.name, `${tLabel} · ${bizName}`).then((res) => {
+      if (res.skipped) { setImagesOff(true); patchRow(row.id, { imgGenerating: false }); return; }
+      patchRow(row.id, { imageDataUrl: res.image || '', imgGenerating: false });
+    });
+  };
+
+  const autoDrawVisuals = (tKey: BusinessType, bizName: string, miss: string, drawRows: Row[]) => {
+    const tLabel = BUSINESS_TYPES.find((t) => t.key === tKey)?.label || 'Business';
+    void drawLogo(bizName, tLabel, miss);
+    const keeps = !!BUSINESS_TYPES.find((t) => t.key === tKey)?.shape.includes('inventory');
+    if (keeps) drawRows.forEach((r) => drawProduct(r, tLabel, bizName));
+  };
+
   const draft = async () => {
     if (!idea.trim()) return;
-    setDrafting(true); setDraftError(''); setAiOff(false);
+    setDrafting(true); setDraftError(''); setAiOff(false); setRestored(false);
     try {
       const r = await fetch('/api/business-draft', {
         method: 'POST',
@@ -120,14 +245,20 @@ export default function NewBusinessPage() {
       const j = await r.json();
       if (j?.skipped) { setAiOff(true); setShowEditor(true); return; }
       if (!r.ok || j?.error) { setDraftError(j?.error || 'Could not draft just now.'); return; }
-      if (j.type) setType(j.type as BusinessType);
-      setName((j.name || '').toString());
-      setMission((j.mission || '').toString());
+      const draftedType = (j.type as BusinessType) || 'goods';
+      const draftedName = (j.name || '').toString();
+      const draftedMission = (j.mission || '').toString();
+      setType(draftedType);
+      setName(draftedName);
+      setMission(draftedMission);
       setEmoji((j.emoji || '').toString());
       setCoachMsg((j.message || '').toString());
+      setLogoDataUrl('');
       const prods: DraftProduct[] = Array.isArray(j.products) ? j.products : [];
-      setRows(prods.length ? prods.map(toRow) : [newRow()]);
+      const newRows = prods.length ? prods.map(toRow) : [newRow()];
+      setRows(newRows);
       setShowEditor(true);
+      autoDrawVisuals(draftedType, draftedName, draftedMission, newRows.filter((x) => x.name.trim()));
     } catch {
       setDraftError('Could not draft just now.');
     } finally {
@@ -151,18 +282,20 @@ export default function NewBusinessPage() {
       if (!r.ok || j?.error) return;
       const prods: DraftProduct[] = Array.isArray(j.products) ? j.products : [];
       if (prods.length) {
+        const added = prods.map(toRow);
         setRows((prev) => {
           const blanks = prev.filter((p) => !p.name.trim());
           const filled = prev.filter((p) => p.name.trim());
-          return [...filled, ...prods.map(toRow), ...blanks];
+          return [...filled, ...added, ...blanks];
         });
+        if (keepsInventory) added.forEach((r2) => drawProduct(r2, typeLabel, name.trim()));
       }
     } catch { /* soft-fail — suggestions are a bonus */ } finally {
       setSuggesting(false);
     }
   };
 
-  const goManual = () => { setMode('manual'); setShowEditor(true); };
+  const goManual = () => { setMode('manual'); setShowEditor(true); setRestored(false); };
 
   const submit = async () => {
     if (!profile?.familyId || !ownerId) return;
@@ -170,6 +303,10 @@ export default function NewBusinessPage() {
     try {
       const familyId = profile.familyId;
       const businessId = newBusinessId(familyId);
+      let logoUrl: string | undefined;
+      if (logoDataUrl) {
+        try { logoUrl = await uploadBusinessPhotoFromDataUrl(familyId, businessId, logoDataUrl); } catch { /* logo is optional */ }
+      }
       const cleaned = rows.filter((r) => r.name.trim());
       const products: ProductDraft[] = [];
       for (const r of cleaned) {
@@ -194,10 +331,12 @@ export default function NewBusinessPage() {
           customerChannels: channels,
           products,
           hiveSplit: bizConfig.defaultHiveSplit,
+          ...(logoUrl ? { logoUrl } : {}),
         },
         { uid: profile.uid, ownerId, isParent, name: profile.displayName || undefined },
         businessId,
       );
+      clearDraft();
       router.push(created.startsWith('guest') ? '/business' : `/business/${businessId}`);
     } catch (e: any) {
       setError(e?.message || 'Could not create the business.');
@@ -222,6 +361,13 @@ export default function NewBusinessPage() {
           <div className="text-[11px] text-hive-honey-soft/80">Create it with Kaya AI</div>
         </div>
       </div>
+
+      {restored && (
+        <div className="flex items-center justify-between gap-2 bg-hive-cream border border-hive-honey/60 rounded-hive px-3 py-2 mb-3">
+          <span className="text-[12px] text-hive-navy font-nunito font-bold">↩︎ Picked up your unsaved draft</span>
+          <button type="button" onClick={startOver} className="text-[12px] text-[#D17F1A] font-nunito font-extrabold hover:underline shrink-0">Start over</button>
+        </div>
+      )}
 
       {isParent && children.length > 0 && (
         <>
@@ -284,6 +430,33 @@ export default function NewBusinessPage() {
 
       {(mode === 'manual' || showEditor) && (
         <>
+          {/* Logo */}
+          <div className={label}>Logo</div>
+          <div className="flex items-center gap-3">
+            <div className="w-16 h-16 rounded-hive bg-hive-cream border border-hive-line flex items-center justify-center overflow-hidden shrink-0">
+              {logoGenerating ? (
+                <span className="text-[10px] text-hive-muted font-nunito font-bold animate-pulse">✨…</span>
+              ) : logoDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoDataUrl} alt="logo" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-[26px]">{emoji || BUSINESS_TYPES.find((t) => t.key === type)?.emoji || '💼'}</span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              {!imagesOff && (
+                <button type="button" onClick={() => drawLogo(name, typeLabel, mission)} disabled={logoGenerating || !name.trim()}
+                  className="h-10 px-3 rounded-hive bg-hive-paper border border-hive-line text-hive-navy font-nunito font-extrabold text-[12.5px] disabled:opacity-40 hover:bg-hive-cream active:scale-[0.99] transition">
+                  {logoGenerating ? 'Drawing… ✨' : logoDataUrl ? '↻ Redraw logo' : '✨ Draw a logo'}
+                </button>
+              )}
+              {logoDataUrl && !logoGenerating && (
+                <button type="button" onClick={() => setLogoDataUrl('')} className="ml-2 text-[12px] text-hive-muted font-nunito font-bold hover:underline">Remove</button>
+              )}
+              <p className="text-[11px] text-hive-muted mt-1 leading-snug">You can redesign this later on the business page.</p>
+            </div>
+          </div>
+
           {/* Type */}
           <div className={label}>Type of business</div>
           <div className="grid grid-cols-3 gap-2">
@@ -418,7 +591,9 @@ function ProductRowCard({ row, currency, detail, canRemove, onPatch, onRemove }:
     <div className="bg-hive-paper border border-hive-line rounded-hive p-2.5">
       <div className="flex items-center gap-2.5">
         {/* Picture / generate */}
-        {row.imageDataUrl ? (
+        {row.imgGenerating ? (
+          <div className="w-12 h-12 rounded-hive bg-hive-cream shrink-0 flex items-center justify-center text-[10px] text-hive-muted font-nunito font-bold animate-pulse">✨…</div>
+        ) : row.imageDataUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={row.imageDataUrl} alt={row.name || 'product'} onClick={() => onPatch({ showImage: !row.showImage })}
             className="w-12 h-12 rounded-hive object-cover bg-hive-cream shrink-0 cursor-pointer" />
@@ -464,7 +639,7 @@ function ProductRowCard({ row, currency, detail, canRemove, onPatch, onRemove }:
             kind="product"
             subject={row.name}
             detail={detail}
-            cta="✨ Draw this product"
+            cta={row.imageDataUrl ? '↻ Redraw this product' : '✨ Draw this product'}
             onAccept={async (dataUrl) => { onPatch({ imageDataUrl: dataUrl, showImage: false }); }}
           />
           {!row.name.trim() && (

@@ -636,6 +636,9 @@ export interface NewBusinessInput {
   customerChannels: CustomerChannel[];
   unitLabel?: string;
   unitPriceCents?: number;
+  /** AI-generated (or uploaded) logo, already in Storage. Redrawn later on the
+   *  Business Info page. */
+  logoUrl?: string;
   /** Per-product rows. For goods these seed Inventory items (qty 0). The first
    *  product also fills the headline unitLabel/unitPriceCents when those aren't
    *  set explicitly. */
@@ -707,6 +710,7 @@ export async function createBusiness(
   };
   if (actor.name?.trim()) data.createdByName = actor.name.trim();
   if (input.mission?.trim()) data.mission = input.mission.trim();
+  if (input.logoUrl) data.logoUrl = input.logoUrl;
   if (headUnit) data.unitLabel = headUnit;
   if (typeof headPrice === 'number') data.unitPriceCents = headPrice;
   if (typeof input.reinvestPct === 'number') data.reinvestPct = input.reinvestPct;
