@@ -55,6 +55,8 @@ import {
 import { getFamilyMembers } from '@/lib/firestore';
 import { ReconcileTimerBanner } from '@/components/pantry/ReconcileTimer';
 import { uploadReceipt, clearReceipt } from '@/lib/receiptUpload';
+import ReceiptScanModal from '@/components/pantry/ReceiptScanModal';
+import type { ScanResult } from '@/lib/receiptScan';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
 
 /** Module → its list-page route. dineOut's URL is /pantry/dine-out (not
@@ -109,6 +111,7 @@ export default function PurchaseDetailPage() {
   // collapsed; a number = the form is open with that amount (cents).
   const [directCents, setDirectCents] = useState<number | null>(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
+  const [scanFile, setScanFile] = useState<File | null>(null);
   const [receiptError, setReceiptError] = useState('');
 
   useEffect(() => {
@@ -215,6 +218,41 @@ export default function PurchaseDetailPage() {
   };
   const removeItem = (id: string) => {
     patchItems(req.items.filter((i) => i.id !== id));
+  };
+
+  const onPickReceipt = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (f) setScanFile(f);
+  };
+
+  // Apply a scanned + reviewed receipt. During reconcile: match scanned
+  // lines to existing items by name → fill actuals; unmatched → add as
+  // ad-hoc lines. During draft/edit: append scanned lines as estimated.
+  // patchItems writes the right total ('actual' vs 'estimated') by state.
+  const applyScan = async (r: ScanResult) => {
+    if (!profile?.familyId) return;
+    const scanned = r.items;
+    if (reconcilable) {
+      if (scanned.length === 0) return;
+      const used = new Set<number>();
+      const matched = req.items.map((it) => {
+        const mi = scanned.findIndex((s, idx) => !used.has(idx) && s.name.toLowerCase().trim() === it.name.toLowerCase().trim());
+        if (mi < 0) return it;
+        used.add(mi);
+        const s = scanned[mi];
+        return { ...it, actualQty: s.qty, actualCents: s.unitPriceCents };
+      });
+      const extras: PurchaseRequestItem[] = scanned
+        .filter((_, idx) => !used.has(idx))
+        .map((s) => ({ id: cryptoRandomId(), name: s.name, qty: s.qty, unit: 'x', actualQty: s.qty, actualCents: s.unitPriceCents, addedDuringReconcile: true }));
+      await patchItems([...matched, ...extras]);
+    } else {
+      const additions: PurchaseRequestItem[] = scanned.length
+        ? scanned.map((s) => ({ id: cryptoRandomId(), name: s.name, qty: s.qty, unit: 'x', estimatedCents: s.unitPriceCents }))
+        : (r.totalCents > 0 ? [{ id: cryptoRandomId(), name: 'Receipt', qty: 1, unit: 'x', estimatedCents: r.totalCents }] : []);
+      if (additions.length) await patchItems([...req.items, ...additions]);
+    }
   };
 
   const commitQuickAdd = async () => {
@@ -1012,6 +1050,26 @@ export default function PurchaseDetailPage() {
           </div>
         );
       })()}
+
+      {/* AI receipt scan — fills line items (draft) or actuals (reconcile).
+          Shown wherever the basket is editable. (2026-05-23) */}
+      {canAddItems && (
+        <label className="flex items-center justify-center gap-2 border-2 border-dashed rounded-hive py-2.5 mb-3 cursor-pointer font-nunito font-black text-[13px] transition-colors"
+          style={{ borderColor: '#E8C3AE', background: '#FBF3DF', color: '#B8860B' }}>
+          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickReceipt} />
+          📷 Scan receipt {reconcilable ? '· fill actual prices' : '· add items'}
+        </label>
+      )}
+      {scanFile && (
+        <ReceiptScanModal
+          file={scanFile}
+          currency={currency}
+          existingItemNames={req.items.map((i) => i.name)}
+          applyLabel={reconcilable ? 'Fill actuals' : 'Add items'}
+          onApply={applyScan}
+          onClose={() => setScanFile(null)}
+        />
+      )}
 
       {/* Item list */}
       <div className="flex flex-col gap-2">
