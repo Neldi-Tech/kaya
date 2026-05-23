@@ -383,8 +383,7 @@ export default function NewBusinessPage() {
       clearDraft();
       router.push(created.startsWith('guest') ? '/business' : `/business/${businessId}`);
     } catch (e: any) {
-      const dbg = `role=${profile?.role || '∅'} child=${profile?.childId?.trim() || '∅'} owner=${ownerId || '∅'}`;
-      setError(`${e?.message || 'Could not create the business.'}${e?.code ? ` (${e.code})` : ''} · ${dbg}`);
+      setError(e?.message || 'Could not create the business.');
       setSaving(false);
     }
   };
