@@ -18,12 +18,12 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   getPost, updatePost, uploadProcessedPhoto, deleteRemovedPhotos, deletePost,
-  EVENT_TAGS, EventTag, Post, PhotoRef,
-  CUSTOM_TAG_EMOJI, CUSTOM_TAG_MAX_LEN,
+  recordEventTagUse, EventTag, Post, PhotoRef,
 } from '@/lib/moments';
 import {
   processPhotoForUpload, ProcessedPhoto, MAX_PHOTO_BYTES,
 } from '@/lib/photoUpload';
+import EventTagPicker from '@/components/moments/EventTagPicker';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -79,8 +79,6 @@ export default function EditMomentPage() {
   const captionRef = useRef<HTMLTextAreaElement>(null);
   const [showEmojis, setShowEmojis] = useState(false);
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
-  const [customEditing, setCustomEditing] = useState(false);
-  const [customDraft, setCustomDraft] = useState('');
   const [members, setMembers] = useState<UserProfile[]>([]);
 
   useEffect(() => {
@@ -290,14 +288,6 @@ export default function EditMomentPage() {
     });
   };
 
-  const commitCustomChip = () => {
-    const label = customDraft.trim().replace(/\s+/g, ' ').slice(0, CUSTOM_TAG_MAX_LEN);
-    if (!label) { setCustomEditing(false); return; }
-    setEventTag({ id: 'custom', emoji: CUSTOM_TAG_EMOJI, label });
-    setCustomDraft('');
-    setCustomEditing(false);
-  };
-
   const onSave = async () => {
     if (!profile?.familyId || !post) return;
     if (slots.length === 0) {
@@ -348,6 +338,7 @@ export default function EditMomentPage() {
         mentionedUids: finalMentionedUids,
         photos: finalPhotos,
       });
+      if (eventTag) void recordEventTagUse(profile.familyId, eventTag).catch(() => {});
       // Reclaim Storage for dropped photos — best-effort, doesn't
       // block navigation.
       if (removed.length > 0) deleteRemovedPhotos(profile.familyId, post.id, removed);
@@ -563,72 +554,12 @@ export default function EditMomentPage() {
       {/* ── Event tag ────────────────────────────────────────── */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
         <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">When / what (optional)</p>
-        <div className="flex flex-wrap gap-2 items-center">
-          {EVENT_TAGS.map((t) => {
-            const sel = eventTag?.id === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setEventTag(sel ? undefined : t)}
-                disabled={saving}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
-                  sel ? 'bg-kaya-chocolate text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-chocolate'
-                }`}
-              >
-                {t.emoji} {t.label}
-              </button>
-            );
-          })}
-          {eventTag && eventTag.id === 'custom' && (
-            <button
-              type="button"
-              onClick={() => setEventTag(undefined)}
-              disabled={saving}
-              className="px-3 py-1.5 rounded-full text-xs font-bold border bg-kaya-chocolate text-white border-transparent"
-            >
-              {eventTag.emoji} {eventTag.label}
-            </button>
-          )}
-          {customEditing ? (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full border border-kaya-chocolate bg-white">
-              <input
-                autoFocus
-                value={customDraft}
-                onChange={(e) => setCustomDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); commitCustomChip(); }
-                  if (e.key === 'Escape') { setCustomEditing(false); setCustomDraft(''); }
-                }}
-                maxLength={CUSTOM_TAG_MAX_LEN}
-                placeholder="e.g. Sleepover"
-                className="text-xs font-bold bg-transparent focus:outline-none w-28"
-                disabled={saving}
-              />
-              <button
-                type="button"
-                onClick={commitCustomChip}
-                disabled={saving || !customDraft.trim()}
-                className="text-kaya-chocolate font-bold disabled:opacity-30 px-1"
-                aria-label="Add custom tag"
-              >✓</button>
-              <button
-                type="button"
-                onClick={() => { setCustomEditing(false); setCustomDraft(''); }}
-                className="text-kaya-sand px-1"
-                aria-label="Cancel"
-              >✕</button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setCustomEditing(true)}
-              disabled={saving}
-              className="px-3 py-1.5 rounded-full text-xs font-bold border border-dashed border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-chocolate hover:text-kaya-chocolate transition-colors"
-            >
-              + Custom
-            </button>
-          )}
-        </div>
+        <EventTagPicker
+          familyId={profile?.familyId || ''}
+          value={eventTag}
+          onChange={setEventTag}
+          disabled={saving}
+        />
       </div>
 
       {error && (

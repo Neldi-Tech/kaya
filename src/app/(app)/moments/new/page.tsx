@@ -21,12 +21,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   reservePost, finalizePost, uploadProcessedPhoto, uploadProcessedVideo, deletePost,
-  EVENT_TAGS, EventTag, PhotoRef, Post,
-  CUSTOM_TAG_EMOJI, CUSTOM_TAG_MAX_LEN,
+  recordEventTagUse, EventTag, PhotoRef, Post,
 } from '@/lib/moments';
 import {
   processPhotoForUpload, processVideoForUpload, ProcessedPhoto, MAX_PHOTO_BYTES,
 } from '@/lib/photoUpload';
+import EventTagPicker from '@/components/moments/EventTagPicker';
 import { getFamilyMembers, UserProfile } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -89,10 +89,6 @@ export default function ComposeMomentPage() {
   // Active @mention state — `start` is the index of '@' in the caption.
   // null means no mention is being typed.
   const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
-  // Custom event chip — either editing (input visible) or showing the
-  // currently picked custom label as a normal chip.
-  const [customEditing, setCustomEditing] = useState(false);
-  const [customDraft, setCustomDraft] = useState('');
   const [members, setMembers] = useState<UserProfile[]>([]);
 
   // Load parents/helpers once so @mentions have a name list. Kids come
@@ -276,16 +272,6 @@ export default function ComposeMomentPage() {
     });
   };
 
-  // Commit the custom chip the parent is typing. Trims whitespace and
-  // collapses runs of spaces so "  beach  day  " → "Beach Day".
-  const commitCustomChip = () => {
-    const label = customDraft.trim().replace(/\s+/g, ' ').slice(0, CUSTOM_TAG_MAX_LEN);
-    if (!label) { setCustomEditing(false); return; }
-    setEventTag({ id: 'custom', emoji: CUSTOM_TAG_EMOJI, label });
-    setCustomDraft('');
-    setCustomEditing(false);
-  };
-
   const canSubmit = drafts.length > 0 && !processing && !uploading;
 
   const submit = async () => {
@@ -341,6 +327,7 @@ export default function ComposeMomentPage() {
         visibility: 'family',
       };
       await finalizePost(profile.familyId, postId, postData);
+      if (eventTag) void recordEventTagUse(profile.familyId, eventTag).catch(() => {});
       // Revoke local previews before navigating.
       drafts.forEach((d) => URL.revokeObjectURL(d.previewUrl));
       router.replace(`/moments/${postId}`);
@@ -548,77 +535,12 @@ export default function ComposeMomentPage() {
       {/* ── Event tag ────────────────────────────────────────── */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 mb-4">
         <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">When / what (optional)</p>
-        <div className="flex flex-wrap gap-2 items-center">
-          {EVENT_TAGS.map((t) => {
-            const sel = eventTag?.id === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => setEventTag(sel ? undefined : t)}
-                disabled={uploading}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
-                  sel ? 'bg-kaya-chocolate text-white border-transparent' : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-chocolate'
-                }`}
-              >
-                {t.emoji} {t.label}
-              </button>
-            );
-          })}
-          {/* Currently picked custom chip (if any) — sits inline with
-              the builtin chips. Clicking it deselects. */}
-          {eventTag && eventTag.id === 'custom' && (
-            <button
-              type="button"
-              onClick={() => setEventTag(undefined)}
-              disabled={uploading}
-              className="px-3 py-1.5 rounded-full text-xs font-bold border bg-kaya-chocolate text-white border-transparent"
-            >
-              {eventTag.emoji} {eventTag.label}
-            </button>
-          )}
-          {/* Custom chip editor — '+' button toggles into an inline
-              input. Enter / ✓ commits, ✕ cancels. Max 18 chars keeps
-              the chip from blowing out the layout on mobile. */}
-          {customEditing ? (
-            <div className="flex items-center gap-1 px-2 py-1 rounded-full border border-kaya-chocolate bg-white">
-              <input
-                autoFocus
-                value={customDraft}
-                onChange={(e) => setCustomDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') { e.preventDefault(); commitCustomChip(); }
-                  if (e.key === 'Escape') { setCustomEditing(false); setCustomDraft(''); }
-                }}
-                maxLength={CUSTOM_TAG_MAX_LEN}
-                placeholder="e.g. Sleepover"
-                className="text-xs font-bold bg-transparent focus:outline-none w-28"
-                disabled={uploading}
-              />
-              <button
-                type="button"
-                onClick={commitCustomChip}
-                disabled={uploading || !customDraft.trim()}
-                className="text-kaya-chocolate font-bold disabled:opacity-30 px-1"
-                aria-label="Add custom tag"
-              >✓</button>
-              <button
-                type="button"
-                onClick={() => { setCustomEditing(false); setCustomDraft(''); }}
-                className="text-kaya-sand px-1"
-                aria-label="Cancel"
-              >✕</button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setCustomEditing(true)}
-              disabled={uploading}
-              className="px-3 py-1.5 rounded-full text-xs font-bold border border-dashed border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-chocolate hover:text-kaya-chocolate transition-colors"
-            >
-              + Custom
-            </button>
-          )}
-        </div>
+        <EventTagPicker
+          familyId={profile?.familyId || ''}
+          value={eventTag}
+          onChange={setEventTag}
+          disabled={uploading}
+        />
       </div>
 
       {error && (
