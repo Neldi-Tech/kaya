@@ -260,7 +260,25 @@ export default function BrowseCataloguePage() {
       )}
 
       {/* Cards */}
-      {items.length === 0 ? (
+      {section === 'other' && otherModule === 'dineOut' ? (
+        // Dine Out isn't an item catalogue — restaurants are places, kept
+        // as the family's "Places to go" on the dine-out log. Point there
+        // instead of showing an empty "No matches".
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center mt-3">
+          <div className="text-3xl mb-2">🍽️</div>
+          <h3 className="font-nunito font-black text-lg">Restaurants live in Places to go</h3>
+          <p className="text-hive-muted text-sm mt-1 mb-3">
+            Dine Out isn’t an item list — every place you log builds your family’s filterable <strong>Places to go</strong>, with ★ ratings, 💎 Diamond picks, and photos.
+          </p>
+          <Link
+            href="/pantry/dine-out"
+            className="inline-flex items-center gap-1.5 text-white rounded-hive px-4 py-2.5 font-nunito font-black text-sm"
+            style={{ background: '#C2562E' }}
+          >
+            Open Dine Out →
+          </Link>
+        </div>
+      ) : items.length === 0 ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center mt-3">
           <div className="text-3xl mb-2">🔍</div>
           <h3 className="font-nunito font-black text-lg">No matches</h3>
