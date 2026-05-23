@@ -12,7 +12,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { getUserProfile, updateUserProfile, findChildByEmail, UserProfile } from '@/lib/firestore';
+import { getUserProfile, updateUserProfile, getChildren, UserProfile } from '@/lib/firestore';
 import {
   GUEST_FAMILY_ID, GUEST_UID, MOCK_PROFILE,
   setGuestActive, isGuestActive,
@@ -68,17 +68,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let p = await getUserProfile(u.uid);
     // Self-heal a kid whose profile.childId is empty/missing: without it the
     // Firestore `isThisKid` rule rejects every kid-owned write (creating a
-    // business, a project, logging in Pulse…). If their sign-in email matches a
-    // login-enabled child in their own family, link it once so childId is
-    // correct everywhere — server-side rules included.
+    // business, a project, logging in Pulse…). Match their sign-in email to a
+    // child in their own family and link it once, so childId is correct
+    // everywhere — server-side rules included.
+    //
+    // We read the family's children directly (`getChildren`, a plain collection
+    // read) rather than a collection-group email query — the latter needs a
+    // composite index that may not be deployed, which silently no-ops the heal.
     if (p && p.role === 'kid' && !(p.childId && p.childId.trim()) && p.familyId) {
-      const email = u.email || p.email || '';
+      const email = (u.email || p.email || '').trim().toLowerCase();
       if (email) {
         try {
-          const match = await findChildByEmail(email);
-          if (match && match.child?.id && match.familyId === p.familyId) {
-            await updateUserProfile(u.uid, { childId: match.child.id });
-            p = { ...p, childId: match.child.id };
+          const kids = await getChildren(p.familyId);
+          const match = kids.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === email);
+          if (match?.id) {
+            await updateUserProfile(u.uid, { childId: match.id });
+            p = { ...p, childId: match.id };
           }
         } catch { /* best-effort link — kid features still degrade gracefully */ }
       }

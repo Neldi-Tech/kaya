@@ -30,6 +30,7 @@ import {
   createBusiness, newBusinessId, requestBusinessLaunch, readBusinessConfig,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
+import { updateUserProfile } from '@/lib/firestore';
 import AIImageButton from '@/components/business/AIImageButton';
 
 interface Row {
@@ -96,7 +97,7 @@ interface PersistedDraft {
 
 export default function NewBusinessPage() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
   const { family, children } = useFamily();
   const { activeKidId, config } = useHive();
   const isParent = profile?.role === 'parent';
@@ -325,6 +326,17 @@ export default function NewBusinessPage() {
     setError(''); setSaving(true);
     try {
       const familyId = profile.familyId;
+      // Guarantee the create passes the Firestore `isThisKid` rule, which
+      // requires the caller's stored childId to equal the business ownerId. If
+      // this kid's account isn't linked yet (empty childId), link it now to the
+      // resolved owner — a one-time self-link (kids may write their own user
+      // doc). This is what makes creation work even if the on-load heal didn't.
+      if (!isParent && ownerId && !(profile.childId && profile.childId.trim())) {
+        try {
+          await updateUserProfile(profile.uid, { childId: ownerId });
+          await refreshProfile();
+        } catch { /* surfaced below if the create then still fails */ }
+      }
       const businessId = newBusinessId(familyId);
       let logoUrl: string | undefined;
       if (logoDataUrl) {
@@ -371,7 +383,8 @@ export default function NewBusinessPage() {
       clearDraft();
       router.push(created.startsWith('guest') ? '/business' : `/business/${businessId}`);
     } catch (e: any) {
-      setError(e?.message || 'Could not create the business.');
+      const dbg = `role=${profile?.role || '∅'} child=${profile?.childId?.trim() || '∅'} owner=${ownerId || '∅'}`;
+      setError(`${e?.message || 'Could not create the business.'}${e?.code ? ` (${e.code})` : ''} · ${dbg}`);
       setSaving(false);
     }
   };
