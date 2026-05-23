@@ -5,15 +5,16 @@
 // spirit but tuned for kids (time + category + points). Parent-only.
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { DayOfWeek } from '@/lib/firestore';
 import {
   type KidWorkplanItem, type KidTaskCategory, type KidTaskKind,
   subscribeKidWorkplanItems, listKidWorkplanItems, addKidWorkplanItem, updateKidWorkplanItem, deleteKidWorkplanItem,
+  replicateKidWorkplan,
   KID_CATEGORIES, categoryMeta, KID_DAY_LABELS, KID_SCHOOL_STARTER,
   sortKidItemsByTime, formatTimeLocal, todayDateString,
 } from '@/lib/kidWorkplan';
-import { Trash2, Plus, Sparkles, Check } from 'lucide-react';
+import { Trash2, Plus, Sparkles, Check, Copy } from 'lucide-react';
 
 export interface ChildRef { id: string; name: string }
 
@@ -82,6 +83,10 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
   const [applyTo, setApplyTo] = useState<Set<string>>(() => new Set([childId]));
   const [flash, setFlash] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // "Copy this plan to…" — replace-mode replicate onto sibling(s).
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set());
+  useEffect(() => { setCopyOpen(false); setCopyTargets(new Set()); }, [childId]);
 
   useEffect(() => subscribeKidWorkplanItems(familyId, childId, setItems), [familyId, childId]);
   useEffect(() => { setApplyTo(new Set([childId])); setFlash(null); }, [childId]);
@@ -174,6 +179,25 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
     } finally { setBusy(false); }
   };
 
+  // Replace-mode replicate: mirror this child's plan onto the picked
+  // siblings (their current plans are cleared first — see
+  // replicateKidWorkplan). Past-dated one-offs are skipped.
+  const runReplicate = async () => {
+    const ids = Array.from(copyTargets);
+    if (ids.length === 0) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      for (const id of ids) await replicateKidWorkplan(familyId, childId, id, parentUid);
+      setCopyOpen(false);
+      setCopyTargets(new Set());
+      setFlash(`Copied ${childName}'s plan to ${ids.length} kid${ids.length === 1 ? '' : 's'}`);
+      setTimeout(() => setFlash(null), 3500);
+    } catch (e) {
+      setErr(saveError(e));
+    } finally { setBusy(false); }
+  };
+
   const sorted = items ? sortKidItemsByTime(items) : [];
 
   return (
@@ -211,7 +235,7 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
         </div>
       ) : (
         <div className="space-y-2">
-          {sorted.map((item) => {
+          {sorted.map((item, idx) => {
             const cat = categoryMeta(item.category);
             const isEditing = editingId === item.id;
             if (isEditing) {
@@ -233,26 +257,45 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
                 </div>
               );
             }
+            // Insert-between "+": only between two TIMED rows, where a
+            // midpoint clock time is meaningful. Pre-fills the add form
+            // with that time so the new task sorts into the slot.
+            const next = sorted[idx + 1];
+            const insertMid = !adding && !editingId && item.timeLocal && next?.timeLocal
+              ? midpointTime(item.timeLocal, next.timeLocal) : null;
             return (
-              <button key={item.id} type="button"
-                onClick={() => { setEditingId(item.id); setEditDraft(draftFromItem(item)); }}
-                className="w-full flex items-center gap-3 rounded-hive-lg border border-hive-line bg-hive-paper p-3 text-left hover:bg-hive-cream/40">
-                <span className="flex-shrink-0 w-12 text-right text-[11px] font-extrabold" style={{ color: item.timeLocal ? NAVY : '#9aa' }}>
-                  {item.timeLocal ? formatTimeLocal(item.timeLocal) : 'any'}
-                </span>
-                <span className="text-2xl flex-shrink-0">{item.icon || cat.icon}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-nunito font-extrabold text-[13px] truncate">{item.label}</span>
-                  <span className="block text-[10px] font-bold mt-0.5" style={{ color: cat.color }}>
-                    {cat.label} · {(item.kind ?? 'recurring') === 'adhoc'
-                      ? `one-off ${item.scheduledDates?.[0] ?? ''}`
-                      : daysSummary(item.daysOfWeek)}
+              <Fragment key={item.id}>
+                <button type="button"
+                  onClick={() => { setEditingId(item.id); setEditDraft(draftFromItem(item)); }}
+                  className="w-full flex items-center gap-3 rounded-hive-lg border border-hive-line bg-hive-paper p-3 text-left hover:bg-hive-cream/40">
+                  <span className="flex-shrink-0 w-12 text-right text-[11px] font-extrabold" style={{ color: item.timeLocal ? NAVY : '#9aa' }}>
+                    {item.timeLocal ? formatTimeLocal(item.timeLocal) : 'any'}
                   </span>
-                </span>
-                {item.pointsValue ? (
-                  <span className="flex-shrink-0 text-[10px] font-black px-2 py-1 rounded-lg text-white" style={{ background: GOLD }}>+{item.pointsValue}</span>
-                ) : null}
-              </button>
+                  <span className="text-2xl flex-shrink-0">{item.icon || cat.icon}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-nunito font-extrabold text-[13px] truncate">{item.label}</span>
+                    <span className="block text-[10px] font-bold mt-0.5" style={{ color: cat.color }}>
+                      {cat.label} · {(item.kind ?? 'recurring') === 'adhoc'
+                        ? `one-off ${item.scheduledDates?.[0] ?? ''}`
+                        : daysSummary(item.daysOfWeek)}
+                    </span>
+                  </span>
+                  {item.pointsValue ? (
+                    <span className="flex-shrink-0 text-[10px] font-black px-2 py-1 rounded-lg text-white" style={{ background: GOLD }}>+{item.pointsValue}</span>
+                  ) : null}
+                </button>
+                {insertMid && (
+                  <div className="flex items-center gap-2 pl-12">
+                    <button type="button"
+                      onClick={() => { setDraft({ ...EMPTY, timeLocal: insertMid }); setAdding(true); }}
+                      title={`Add a task around ${formatTimeLocal(insertMid)}`}
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-hive-paper border-2 border-dashed border-hive-line text-hive-navy hover:border-hive-honey">
+                      <Plus size={13} />
+                    </button>
+                    <span className="text-[10px] font-bold text-hive-muted">Add here · ~{formatTimeLocal(insertMid)}</span>
+                  </div>
+                )}
+              </Fragment>
             );
           })}
 
@@ -277,10 +320,56 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
               <Plus size={15} /> Add a task
             </button>
           )}
+
+          {/* Replicate — mirror this child's whole plan onto siblings
+              (replace mode). Only when there are other kids to copy to. */}
+          {allChildren.length > 1 && (
+            copyOpen ? (
+              <div className="rounded-hive-lg border-2 border-hive-honey bg-hive-cream/40 p-3">
+                <p className="font-nunito font-extrabold text-[12px]">Copy {childName}&apos;s plan to…</p>
+                <p className="text-[11px] text-hive-muted mt-0.5 mb-2">Replaces their current plan with {childName}&apos;s tasks. Past one-offs are skipped.</p>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {allChildren.filter((c) => c.id !== childId).map((c) => {
+                    const on = copyTargets.has(c.id);
+                    return (
+                      <button key={c.id} type="button"
+                        onClick={() => setCopyTargets((prev) => { const n = new Set(prev); if (n.has(c.id)) n.delete(c.id); else n.add(c.id); return n; })}
+                        className={`text-[12px] font-bold rounded-hive-pill px-3 py-1.5 border ${on ? 'text-white border-transparent' : 'bg-white border-hive-line text-hive-navy'}`}
+                        style={on ? { background: NAVY } : {}}>
+                        {on ? '✓ ' : ''}{c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button onClick={() => { setCopyOpen(false); setCopyTargets(new Set()); }} className="text-[12px] font-bold text-hive-muted px-2">Cancel</button>
+                  <button onClick={runReplicate} disabled={busy || copyTargets.size === 0}
+                    className="h-9 px-4 rounded-hive-pill text-white font-nunito font-extrabold text-[12px] disabled:opacity-50" style={{ background: NAVY }}>
+                    {copyTargets.size > 1 ? `Replace ${copyTargets.size} plans` : 'Replace plan'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setCopyOpen(true)}
+                className="w-full inline-flex items-center justify-center gap-1.5 h-10 rounded-hive-lg border border-hive-line bg-hive-cream/40 text-hive-navy font-nunito font-extrabold text-[12px] hover:bg-hive-cream">
+                <Copy size={14} /> Copy this plan to another kid
+              </button>
+            )
+          )}
         </div>
       )}
     </div>
   );
+}
+
+/** Clock midpoint between two "HH:MM" times, rounded to the minute —
+ *  pre-fills an inserted task's time so it sorts between its neighbours. */
+function midpointTime(a: string, b: string): string {
+  const toMin = (t: string) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const mid = Math.round((toMin(a) + toMin(b)) / 2);
+  const h = Math.floor(mid / 60) % 24;
+  const m = mid % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 function daysSummary(days: DayOfWeek[]): string {
