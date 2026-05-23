@@ -900,6 +900,15 @@ service cloud.firestore {
         allow create, update: if belongsToFamily(familyId);
       }
 
+      // ── Dine Out · venues (2026-05-23) ──────────────────────────
+      // Per-family record of places you eat out (rating, Diamond,
+      // highlights, typical spend). Family members read; only parents
+      // write (parents rate venues; helpers don't).
+      match /venues/{venueId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if isParentInFamily(familyId);
+      }
+
       // ── Moments · family photo feed ──────────────────────────────
       // Posts carry photos uploaded to Firebase Storage at
       // families/{f}/posts/{p}/{photoId}/{size}.jpg (see storage.rules).
