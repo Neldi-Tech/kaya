@@ -27,7 +27,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   BUSINESS_TYPES, BusinessType, CustomerChannel, PHASE1_BUSINESS_TYPES,
   CUSTOMER_CHANNELS, UNIT_SUGGESTIONS, ProductDraft,
-  createBusiness, newBusinessId, readBusinessConfig,
+  createBusiness, newBusinessId, requestBusinessLaunch, readBusinessConfig,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
 import AIImageButton from '@/components/business/AIImageButton';
@@ -124,9 +124,11 @@ export default function NewBusinessPage() {
   const [logoGenerating, setLogoGenerating] = useState(false);
   const [imagesOff, setImagesOff] = useState(false); // OPENAI key absent
 
-  // Don't-lose-work autosave
+  // Don't-lose-work autosave. A saved draft is offered via an explicit
+  // Resume / Start-fresh prompt (not auto-applied) so the kid always sees a
+  // clear way to pick up where they left off.
   const [loaded, setLoaded] = useState(false);
-  const [restored, setRestored] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<PersistedDraft | null>(null);
 
   const [forKid, setForKid] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -169,37 +171,26 @@ export default function NewBusinessPage() {
   const toggleChannel = (c: CustomerChannel) =>
     setChannels((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
 
-  // ── Autosave: restore once on mount, then persist text on every change ──
+  // ── Autosave: offer a saved draft on mount (Resume / Start fresh), then
+  //    persist text on every change once the kid has decided. ──
   useEffect(() => {
     if (loaded || !storageKey) return;
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) {
         const d = JSON.parse(raw) as PersistedDraft;
-        const hydrated = Array.isArray(d.rows) && d.rows.length
-          ? d.rows.map((r) => ({ ...newRow(), id: r.id || rid(), name: r.name || '', unit: r.unit || '', customUnit: !!r.customUnit, price: r.price || '' }))
-          : [newRow()];
-        const hasContent = !!(d.idea?.trim() || d.name?.trim() || d.mission?.trim() || hydrated.some((r) => r.name.trim()));
-        if (hasContent) {
-          if (d.mode) setMode(d.mode);
-          setIdea(d.idea || '');
-          setType((d.type as BusinessType) || 'goods');
-          setName(d.name || '');
-          setEmoji(d.emoji || '');
-          setMission(d.mission || '');
-          if (Array.isArray(d.channels) && d.channels.length) setChannels(d.channels);
-          if (d.forKid !== undefined) setForKid(d.forKid);
-          setRows(hydrated);
-          setShowEditor(!!d.showEditor || !!d.name?.trim() || hydrated.some((r) => r.name.trim()));
-          setRestored(true);
-        }
+        const hasContent = !!(d.idea?.trim() || d.name?.trim() || d.mission?.trim()
+          || (Array.isArray(d.rows) && d.rows.some((r) => r.name?.trim())));
+        if (hasContent) setPendingDraft(d);
       }
     } catch { /* ignore a corrupt draft */ }
     setLoaded(true);
   }, [loaded, storageKey]);
 
+  // Don't persist while a saved draft is still being offered — otherwise the
+  // empty form would overwrite (delete) the very draft we're offering.
   useEffect(() => {
-    if (!loaded || !storageKey) return;
+    if (!loaded || !storageKey || pendingDraft) return;
     const hasContent = !!(idea.trim() || name.trim() || mission.trim() || rows.some((r) => r.name.trim()));
     try {
       if (!hasContent) { localStorage.removeItem(storageKey); return; }
@@ -209,12 +200,30 @@ export default function NewBusinessPage() {
       };
       localStorage.setItem(storageKey, JSON.stringify(d));
     } catch { /* quota / unavailable — best-effort */ }
-  }, [loaded, storageKey, mode, idea, showEditor, type, name, emoji, mission, channels, forKid, rows]);
+  }, [loaded, storageKey, pendingDraft, mode, idea, showEditor, type, name, emoji, mission, channels, forKid, rows]);
 
   const clearDraft = () => { try { if (storageKey) localStorage.removeItem(storageKey); } catch { /* ignore */ } };
+
+  const applyDraft = (d: PersistedDraft) => {
+    if (d.mode) setMode(d.mode);
+    setIdea(d.idea || '');
+    setType((d.type as BusinessType) || 'goods');
+    setName(d.name || '');
+    setEmoji(d.emoji || '');
+    setMission(d.mission || '');
+    if (Array.isArray(d.channels) && d.channels.length) setChannels(d.channels);
+    if (d.forKid !== undefined) setForKid(d.forKid);
+    const hydrated = Array.isArray(d.rows) && d.rows.length
+      ? d.rows.map((r) => ({ ...newRow(), id: r.id || rid(), name: r.name || '', unit: r.unit || '', customUnit: !!r.customUnit, price: r.price || '' }))
+      : [newRow()];
+    setRows(hydrated);
+    setShowEditor(!!d.showEditor || !!d.name?.trim() || hydrated.some((r) => r.name.trim()));
+  };
+  const resumeDraft = () => { if (pendingDraft) applyDraft(pendingDraft); setPendingDraft(null); };
   const startOver = () => {
     clearDraft();
-    setRestored(false); setMode('ai'); setIdea(''); setShowEditor(false);
+    setPendingDraft(null);
+    setMode('ai'); setIdea(''); setShowEditor(false);
     setType('goods'); setName(''); setEmoji(''); setMission('');
     setChannels(['family']); setRows([newRow()]);
     setCoachMsg(''); setLogoDataUrl(''); setLogoGenerating(false);
@@ -249,7 +258,7 @@ export default function NewBusinessPage() {
 
   const draft = async () => {
     if (!idea.trim()) return;
-    setDrafting(true); setDraftError(''); setAiOff(false); setRestored(false);
+    setDrafting(true); setDraftError(''); setAiOff(false);
     try {
       const r = await fetch('/api/business-draft', {
         method: 'POST',
@@ -309,7 +318,7 @@ export default function NewBusinessPage() {
     }
   };
 
-  const goManual = () => { setMode('manual'); setShowEditor(true); setRestored(false); };
+  const goManual = () => { setMode('manual'); setShowEditor(true); };
 
   const submit = async () => {
     if (!profile?.familyId || !ownerId) return;
@@ -335,12 +344,13 @@ export default function NewBusinessPage() {
           ...(photoUrl ? { photoUrl } : {}),
         });
       }
+      const bizEmoji = emoji.trim() || BUSINESS_TYPES.find((t) => t.key === type)?.emoji || '💼';
       const created = await createBusiness(
         familyId,
         {
           type,
           name: name.trim(),
-          emoji: emoji.trim() || BUSINESS_TYPES.find((t) => t.key === type)?.emoji || '💼',
+          emoji: bizEmoji,
           mission: mission.trim() || undefined,
           customerChannels: channels,
           products,
@@ -350,6 +360,14 @@ export default function NewBusinessPage() {
         { uid: profile.uid, ownerId, isParent, name: profile.displayName || undefined },
         businessId,
       );
+      // A kid's business is created as a Pilot — auto-send it to a parent for
+      // launch approval so it always "goes for approval" before it can go
+      // Active (the kid no longer has to hunt for the request button).
+      if (!isParent && !created.startsWith('guest')) {
+        try {
+          await requestBusinessLaunch(familyId, { id: businessId, ownerId, name: name.trim(), emoji: bizEmoji }, profile.uid);
+        } catch { /* best-effort — the kid can still request from the dashboard */ }
+      }
       clearDraft();
       router.push(created.startsWith('guest') ? '/business' : `/business/${businessId}`);
     } catch (e: any) {
@@ -376,13 +394,25 @@ export default function NewBusinessPage() {
         </div>
       </div>
 
-      {restored && (
-        <div className="flex items-center justify-between gap-2 bg-hive-cream border border-hive-honey/60 rounded-hive px-3 py-2 mb-3">
-          <span className="text-[12px] text-hive-navy font-nunito font-bold">↩︎ Picked up your unsaved draft</span>
-          <button type="button" onClick={startOver} className="text-[12px] text-[#D17F1A] font-nunito font-extrabold hover:underline shrink-0">Start over</button>
+      {pendingDraft ? (
+        <div className="bg-hive-cream border border-hive-honey/60 rounded-hive p-4">
+          <div className="text-[14px] font-nunito font-extrabold text-hive-navy">
+            ↩︎ You have a saved draft{pendingDraft.name?.trim() ? ` — “${pendingDraft.name.trim()}”` : ''}
+          </div>
+          <p className="text-[12.5px] text-hive-muted mt-1 leading-relaxed">Pick up right where you left off, or start something new.</p>
+          <div className="flex gap-2 mt-3">
+            <button type="button" onClick={resumeDraft}
+              className="flex-1 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] hover:brightness-110 active:scale-[0.99] transition">
+              ↩︎ Resume my draft
+            </button>
+            <button type="button" onClick={startOver}
+              className="h-12 px-4 rounded-hive bg-hive-paper border border-hive-line text-hive-muted font-nunito font-extrabold text-[13px] hover:bg-white transition">
+              Start fresh
+            </button>
+          </div>
         </div>
-      )}
-
+      ) : (
+       <>
       {showOwnerPicker && (
         <>
           <div className={label}>Whose business?</div>
@@ -582,6 +612,8 @@ export default function NewBusinessPage() {
             </p>
           )}
         </>
+      )}
+       </>
       )}
     </div>
   );

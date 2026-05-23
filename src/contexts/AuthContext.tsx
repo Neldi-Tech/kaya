@@ -12,7 +12,7 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
-import { getUserProfile, UserProfile } from '@/lib/firestore';
+import { getUserProfile, updateUserProfile, findChildByEmail, UserProfile } from '@/lib/firestore';
 import {
   GUEST_FAMILY_ID, GUEST_UID, MOCK_PROFILE,
   setGuestActive, isGuestActive,
@@ -65,7 +65,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isGuest, setIsGuest] = useState(false);
 
   const loadProfile = async (u: User) => {
-    const p = await getUserProfile(u.uid);
+    let p = await getUserProfile(u.uid);
+    // Self-heal a kid whose profile.childId is empty/missing: without it the
+    // Firestore `isThisKid` rule rejects every kid-owned write (creating a
+    // business, a project, logging in Pulse…). If their sign-in email matches a
+    // login-enabled child in their own family, link it once so childId is
+    // correct everywhere — server-side rules included.
+    if (p && p.role === 'kid' && !(p.childId && p.childId.trim()) && p.familyId) {
+      const email = u.email || p.email || '';
+      if (email) {
+        try {
+          const match = await findChildByEmail(email);
+          if (match && match.child?.id && match.familyId === p.familyId) {
+            await updateUserProfile(u.uid, { childId: match.child.id });
+            p = { ...p, childId: match.child.id };
+          }
+        } catch { /* best-effort link — kid features still degrade gracefully */ }
+      }
+    }
     setProfile(p);
   };
 
