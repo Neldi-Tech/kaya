@@ -145,6 +145,31 @@ export async function addVenuePhotos(
   await updateDoc(ref, { photos });
 }
 
+/** Edit the note (occasion) on a logged visit — they're write-once at log
+ *  time, this lets a parent fix/update one later from the venue sheet. The
+ *  visit is keyed by its `atMs` (effectively unique). Empty note clears it. */
+export async function updateVenueVisitNote(
+  familyId: string,
+  venueDocId: string,
+  atMs: number,
+  note: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const ref = doc(venuesCol(familyId), venueDocId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const prev = snap.data() as Venue;
+  const trimmed = note.trim().slice(0, 80);
+  const visits = (prev.visits ?? []).map((v) => {
+    if (v.atMs !== atMs) return v;
+    // Rebuild without `note` (Firestore arrays reject undefined), then
+    // re-add it only when non-empty so clearing actually removes it.
+    const { note: _drop, ...rest } = v;
+    return trimmed ? { ...rest, note: trimmed } : rest;
+  });
+  await updateDoc(ref, { visits });
+}
+
 /** Record a Dine Out visit against a venue: bump count + spend, set this
  *  parent's rating, recompute the star average + family Diamond, merge
  *  highlights, append any new photos. Read-modify-write (a meal log is

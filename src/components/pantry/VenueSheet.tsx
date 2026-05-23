@@ -13,7 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toDisplayDate } from '@/lib/dates';
 import { formatCents } from '@/components/pantry/format';
 import { processPhotoForUpload } from '@/lib/photoUpload';
-import { uploadVenuePhoto, addVenuePhotos, type Venue, type VenueVisit } from '@/lib/dineOutVenues';
+import { uploadVenuePhoto, addVenuePhotos, updateVenueVisitNote, type Venue, type VenueVisit } from '@/lib/dineOutVenues';
 import { createPost, type PhotoRef } from '@/lib/moments';
 
 const DINE = '#C2562E';
@@ -51,7 +51,32 @@ export default function VenueSheet({
   const [addingPhotos, setAddingPhotos] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shared, setShared] = useState(false);
-  useEffect(() => { setPhotos(venue.photos ?? []); setShared(false); }, [venue.id, venue.photos]);
+  // Local visit list so note edits appear instantly (the `venue` prop is
+  // the snapshot from when the sheet opened; the Firestore write persists).
+  const [visitList, setVisitList] = useState<VenueVisit[]>(venue.visits ?? []);
+  const [editingAtMs, setEditingAtMs] = useState<number | null>(null);
+  const [noteDraft, setNoteDraft] = useState('');
+  const [savingNote, setSavingNote] = useState(false);
+  useEffect(() => {
+    setPhotos(venue.photos ?? []); setShared(false);
+    setVisitList(venue.visits ?? []); setEditingAtMs(null);
+  }, [venue.id, venue.photos, venue.visits]);
+
+  const saveVisitNote = async (atMs: number) => {
+    if (!familyId) return;
+    setSavingNote(true);
+    try {
+      const t = noteDraft.trim();
+      await updateVenueVisitNote(familyId, venue.id, atMs, t);
+      setVisitList((prev) => prev.map((v) => (v.atMs === atMs ? { ...v, note: t || undefined } : v)));
+      setEditingAtMs(null);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[venue-sheet] note save failed:', err);
+    } finally {
+      setSavingNote(false);
+    }
+  };
 
   const onAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!familyId) return;
@@ -106,7 +131,7 @@ export default function VenueSheet({
   };
 
   const ratingEntries = Object.values(venue.ratings ?? {}).filter((r) => r.stars > 0 || r.diamond);
-  const visits: VenueVisit[] = [...(venue.visits ?? [])].reverse(); // newest first
+  const visits: VenueVisit[] = [...visitList].reverse(); // newest first
   const avgSpend = venue.count > 0 ? Math.round(venue.totalSpentCents / venue.count) : 0;
   const lbStep = (d: number) => setLightbox((lb) => {
     if (!lb) return lb;
@@ -218,19 +243,45 @@ export default function VenueSheet({
             ) : (
               <div className="flex flex-col">
                 {visits.map((v, i) => (
-                  <div key={i} className="border-t border-hive-line first:border-t-0 py-2">
+                  <div key={v.atMs ?? i} className="border-t border-hive-line first:border-t-0 py-2">
                     <div className="font-nunito font-extrabold text-[12.5px] text-hive-navy">
                       {visitDate(v.atMs)}{v.byName ? ` · ${v.byName}` : ''}
                       {v.stars > 0 && <> · <Stars n={v.stars} /></>}
                       {v.diamond && ' 💎'}
                     </div>
-                    <div className="text-[11.5px] text-hive-muted">
-                      {v.note && <span className="italic">“{v.note}”</span>}
-                      {v.note && (v.highlights?.length || v.spentCents > 0) && ' · '}
-                      {v.highlights?.length ? v.highlights.join(', ') : ''}
-                      {v.highlights?.length && v.spentCents > 0 ? ' · ' : (!v.note && v.spentCents > 0 ? '' : '')}
-                      {v.spentCents > 0 && <>{(v.note || v.highlights?.length) ? ' · ' : ''}{formatCents(v.spentCents, currency)}</>}
-                    </div>
+                    {editingAtMs === v.atMs ? (
+                      <div className="mt-1 flex items-center gap-2">
+                        <input
+                          type="text" value={noteDraft} maxLength={80} autoFocus
+                          onChange={(e) => setNoteDraft(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') saveVisitNote(v.atMs); if (e.key === 'Escape') setEditingAtMs(null); }}
+                          placeholder="Note / occasion"
+                          className="flex-1 bg-transparent border border-hive-line rounded-hive px-2 py-1 text-[12px] font-bold focus:outline-none focus:border-[#C2562E]"
+                        />
+                        <button type="button" onClick={() => saveVisitNote(v.atMs)} disabled={savingNote}
+                          className="text-[11px] font-nunito font-black px-2.5 py-1 rounded-full text-white disabled:opacity-50" style={{ background: DINE }}>
+                          {savingNote ? '…' : 'Save'}
+                        </button>
+                        <button type="button" onClick={() => setEditingAtMs(null)} className="text-[11px] font-bold text-hive-muted px-1">Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="text-[11.5px] text-hive-muted">
+                        {v.note && <span className="italic">“{v.note}”</span>}
+                        {v.note && (v.highlights?.length || v.spentCents > 0) ? ' · ' : ''}
+                        {v.highlights?.length ? v.highlights.join(', ') : ''}
+                        {v.spentCents > 0 && <>{(v.note || v.highlights?.length) ? ' · ' : ''}{formatCents(v.spentCents, currency)}</>}
+                        {familyId && (
+                          <button
+                            type="button"
+                            onClick={() => { setEditingAtMs(v.atMs); setNoteDraft(v.note || ''); }}
+                            className="ml-1.5 font-nunito font-bold whitespace-nowrap"
+                            style={{ color: DINE }}
+                          >
+                            {v.note ? '✎ edit' : '✎ add note'}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
