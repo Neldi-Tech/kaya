@@ -22,7 +22,7 @@ import {
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import { type PulsePlan, resolvePlan, suggestFocusModules, ROUND_STEPS, suggestRoundStep } from '@/lib/pulse';
 
-const PLAN_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'home'];
+const PLAN_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'dineOut', 'home'];
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 const spendOf = (r: PurchaseRequest) => r.actualTotalCents ?? r.estimatedTotalCents ?? 0;

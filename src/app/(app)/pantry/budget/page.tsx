@@ -57,6 +57,7 @@ const MODULE_CARDS: {
   { id: 'drivers', emoji: '🚗', label: 'Drivers',  tint: 'bg-[#E5EFF8]',         border: 'border-[#B5CFE5]',             eyebrow: 'text-hive-blue'      },
   { id: 'utility', emoji: '⚡', label: 'Utility',  tint: 'bg-[#FFF3D9]',         border: 'border-hive-honey',            eyebrow: 'text-hive-honey-dk'  },
   { id: 'payroll', emoji: '🤝', label: 'Payroll',  tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',             eyebrow: 'text-[#5E4A8F]'      },
+  { id: 'dineOut', emoji: '🍽️', label: 'Dine Out', tint: 'bg-[#FBEAE0]',         border: 'border-[#E8C3AE]',             eyebrow: 'text-[#C2562E]'      },
   { id: 'home',    emoji: '🛋️', label: 'Home',     tint: 'bg-[#F6EBDD]',         border: 'border-[#E0C4A3]',             eyebrow: 'text-[#9B6B3F]'      },
 ];
 
@@ -160,7 +161,7 @@ export default function BudgetPage() {
   // compat with very old docs created before the module discriminator.
   const spentByModule = useMemo(() => {
     const acc: Record<PurchaseModule, number> = {
-      pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, home: 0,
+      pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, dineOut: 0, home: 0,
     };
     for (const r of closedThisMonth) {
       const m = (r.module ?? 'pantry') as PurchaseModule;
@@ -192,6 +193,7 @@ export default function BudgetPage() {
     drivers: family?.householdBudgets?.drivers ?? 0,
     utility: family?.householdBudgets?.utility ?? 0,
     payroll: family?.householdBudgets?.payroll ?? 0,
+    dineOut: family?.householdBudgets?.dineOut ?? 0,
     home:    family?.householdBudgets?.home    ?? 0,
   };
 
