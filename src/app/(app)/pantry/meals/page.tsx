@@ -14,9 +14,10 @@
 // current ISO week). When the plan crosses a week boundary the
 // loader resets to a fresh empty plan.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { useHive } from '@/contexts/HiveContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   newWeekPlan, loadWeekPlan, saveWeekPlan,
@@ -28,17 +29,34 @@ import {
   type Region, type Diet, type DirectoryFood,
   type DiningVenue, type DiningCategory,
 } from '@/lib/pantryDirectory';
+import { subscribeToVenues, type Venue } from '@/lib/dineOutVenues';
+import VenueSheet from '@/components/pantry/VenueSheet';
+import { formatCents } from '@/components/pantry/format';
 
 export default function MealsPage() {
   const { profile, isGuest } = useAuth();
   const { children: kids } = useFamily();
+  const { config } = useHive();
+  const currency = config.currency;
   const confirmAction = useConfirm();
+  const isParent = profile?.role === 'parent';
 
   const [plan, setPlan] = useState<WeekPlan>(() => newWeekPlan());
   const [region, setRegion] = useState<Region | 'any'>('any');
   const [diet, setDiet] = useState<Diet | 'any'>('any');
   const [picker, setPicker] = useState<{ dayIdx: number; slot: SlotName } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Family "Places to go" venues (Dine Out) — powers the analysis panel
+  // below + the "your places" shortcut in the dining-out picker. Parent
+  // data (carries spend), so only loaded for parents.
+  const [venues, setVenues] = useState<Venue[]>([]);
+  const [sheetVenue, setSheetVenue] = useState<Venue | null>(null);
+  const [placesSort, setPlacesSort] = useState<'rating' | 'diamond' | 'visits' | 'spend' | 'cuisine'>('rating');
+  useEffect(() => {
+    if (!profile?.familyId || !isParent) { setVenues([]); return; }
+    return subscribeToVenues(profile.familyId, setVenues);
+  }, [profile?.familyId, isParent]);
 
   // Hydrate from localStorage on mount (client-only).
   useEffect(() => {
@@ -100,6 +118,30 @@ export default function MealsPage() {
   };
 
   const familySize = (kids?.length || 0) + 1;
+
+  // Places to Go — sorted/filtered for the analysis panel.
+  const sortedVenues = useMemo(() => {
+    const list = placesSort === 'diamond' ? venues.filter((v) => v.diamond) : [...venues];
+    const cmp: Record<typeof placesSort, (a: Venue, b: Venue) => number> = {
+      rating: (a, b) => b.avgStars - a.avgStars || b.count - a.count,
+      diamond: (a, b) => b.avgStars - a.avgStars || b.count - a.count,
+      visits: (a, b) => b.count - a.count,
+      spend: (a, b) => b.totalSpentCents - a.totalSpentCents,
+      cuisine: (a, b) => (a.subTag || '~').localeCompare(b.subTag || '~') || b.avgStars - a.avgStars,
+    };
+    return list.sort(cmp[placesSort]);
+  }, [venues, placesSort]);
+  const placesSummary = useMemo(() => {
+    const rated = venues.filter((v) => v.avgStars > 0);
+    const avg = rated.length ? Math.round((rated.reduce((s, v) => s + v.avgStars, 0) / rated.length) * 10) / 10 : 0;
+    return {
+      count: venues.length,
+      diamond: venues.filter((v) => v.diamond).length,
+      avg,
+      totalSpent: venues.reduce((s, v) => s + v.totalSpentCents, 0),
+      maxSpent: venues.reduce((m, v) => Math.max(m, v.totalSpentCents), 0),
+    };
+  }, [venues]);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32 lg:pb-12">
@@ -192,17 +234,99 @@ export default function MealsPage() {
         })}
       </div>
 
+      {/* ── Places to Go (analysis) — the home for venue history ─── */}
+      {isParent && (
+        <div className="mt-6">
+          <div className="flex items-baseline justify-between gap-2 mb-2 px-0.5">
+            <h2 className="font-nunito font-black text-[16px]">📍 Places to Go</h2>
+            <span className="text-[11px] text-hive-muted">from your Dine Out logs</span>
+          </div>
+          {venues.length === 0 ? (
+            <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive-lg p-5 text-center">
+              <div className="text-2xl mb-1">📍</div>
+              <p className="text-[13px] text-hive-muted font-bold">
+                Log a meal out (with a venue name) and your rated places land here — sortable by rating, Diamond, visits and spend.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-3 lg:p-4">
+              <div className="flex gap-4 flex-wrap mb-3">
+                <Stat n={String(placesSummary.count)} label="places" />
+                <Stat n={`${placesSummary.diamond} 💎`} label="Diamond" />
+                <Stat n={placesSummary.avg ? `★${placesSummary.avg}` : '—'} label="avg rating" />
+                <Stat n={formatCents(placesSummary.totalSpent, currency)} label="total spent" />
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto pb-1 mb-2 -mx-1 px-1">
+                {[
+                  { id: 'rating', label: 'Top rated' },
+                  { id: 'diamond', label: '💎 Diamond' },
+                  { id: 'visits', label: 'Most visits' },
+                  { id: 'spend', label: 'Biggest spend' },
+                  { id: 'cuisine', label: 'By cuisine' },
+                ].map((c) => (
+                  <button
+                    key={c.id} onClick={() => setPlacesSort(c.id as typeof placesSort)}
+                    className={`shrink-0 px-3 py-1.5 rounded-hive-pill text-[11px] font-nunito font-extrabold border whitespace-nowrap transition-colors ${
+                      placesSort === c.id ? 'bg-[#C2562E] text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                    }`}
+                  >{c.label}</button>
+                ))}
+              </div>
+              {sortedVenues.length === 0 ? (
+                <p className="text-[12px] text-hive-muted italic text-center py-3">No places match this filter.</p>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {sortedVenues.map((v) => (
+                    <button
+                      key={v.id} onClick={() => setSheetVenue(v)}
+                      className="text-left bg-hive-paper border border-hive-line hover:border-[#C2562E] rounded-hive p-2.5 transition-colors w-full"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-xl shrink-0">{v.emoji || '🍽️'}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-nunito font-extrabold text-[13px] truncate flex items-center gap-1.5">
+                            {v.name}{v.diamond && <span title="Family Diamond">💎</span>}
+                          </div>
+                          <div className="text-[11px] text-hive-muted truncate">
+                            {v.avgStars > 0 && <span className="font-bold" style={{ color: '#B8860B' }}>★ {v.avgStars}</span>}
+                            {v.avgStars > 0 && ' · '}{v.count} visit{v.count === 1 ? '' : 's'}
+                            {v.totalSpentCents > 0 && ` · ${formatCents(v.totalSpentCents, currency)}`}
+                            {v.highlights.length > 0 && ` · ${v.highlights.slice(0, 2).join(', ')}`}
+                          </div>
+                        </div>
+                        <span className="text-[11px] font-nunito font-extrabold shrink-0" style={{ color: '#C2562E' }}>Open →</span>
+                      </div>
+                      {placesSummary.maxSpent > 0 && v.totalSpentCents > 0 && (
+                        <div className="mt-1.5 h-1.5 bg-[#EFE7DB] rounded-full overflow-hidden">
+                          <div className="h-full" style={{ width: `${Math.round((v.totalSpentCents / placesSummary.maxSpent) * 100)}%`, background: '#C2562E' }} />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Slot picker — bottom sheet on mobile, centered modal on desktop. */}
       {picker && (
         <SlotPicker
           dayLabel={`${plan.days[picker.dayIdx].dayName} · ${plan.days[picker.dayIdx].dateLabel}`}
           slotLabel={SLOT_NAMES.find((s) => s.id === picker.slot)!.label}
           foods={foodsForSlot(picker.slot, region, diet)}
+          myVenues={isParent ? venues : []}
           onPick={onSlotChosen}
           onDiningOut={onSlotDiningOut}
           onClear={onSlotClear}
           onClose={() => setPicker(null)}
         />
+      )}
+
+      {/* Venue history sheet (shared with the Dine Out page) */}
+      {sheetVenue && (
+        <VenueSheet venue={sheetVenue} currency={currency} onClose={() => setSheetVenue(null)} />
       )}
 
       {toast && (
@@ -278,12 +402,22 @@ function SlotCard({
   );
 }
 
+function Stat({ n, label }: { n: string; label: string }) {
+  return (
+    <div>
+      <div className="font-nunito font-black text-[16px] text-hive-navy leading-tight">{n}</div>
+      <div className="text-[10px] uppercase tracking-wider text-hive-muted font-bold">{label}</div>
+    </div>
+  );
+}
+
 function SlotPicker({
-  dayLabel, slotLabel, foods, onPick, onDiningOut, onClear, onClose,
+  dayLabel, slotLabel, foods, myVenues, onPick, onDiningOut, onClear, onClose,
 }: {
   dayLabel: string;
   slotLabel: string;
   foods: DirectoryFood[];
+  myVenues: Venue[];
   onPick: (food: DirectoryFood, audience: Audience) => void;
   onDiningOut: (opts: { venueId?: string; venue?: string; audience: Audience }) => void;
   onClear: () => void;
@@ -412,6 +546,33 @@ function SlotPicker({
               )
             ) : (
               <>
+                {/* Your real rated places (Dine Out "Places to go") first. */}
+                {myVenues.length > 0 && (
+                  <>
+                    <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.6px] text-[#C2562E] px-2 mt-1 mb-2">
+                      📍 Your places
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5 mb-3">
+                      {myVenues.map((v) => (
+                        <button
+                          key={v.id}
+                          onClick={() => onDiningOut({ venueId: v.id, venue: v.name, audience })}
+                          className="flex items-center gap-3 text-left bg-hive-paper border border-hive-line hover:border-[#C2562E] rounded-hive p-2.5 transition-colors"
+                        >
+                          <span className="text-xl shrink-0">{v.emoji || '🍽️'}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-nunito font-extrabold text-[13px] truncate flex items-center gap-1.5">
+                              {v.name}{v.diamond && <span title="Family Diamond">💎</span>}
+                            </div>
+                            <div className="text-[11px] text-hive-muted truncate">
+                              {v.avgStars > 0 && `★ ${v.avgStars} · `}{v.count} visit{v.count === 1 ? '' : 's'}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 {/* Directory category chips. Tagged "from Directory"
                     so users know where the catalog lives once that
                     module ships in full. */}
