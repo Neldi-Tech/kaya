@@ -9,11 +9,12 @@
 // what was eaten · spend). `onUse` (optional) surfaces the re-use button.
 
 import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { toDisplayDate } from '@/lib/dates';
 import { formatCents } from '@/components/pantry/format';
 import { processPhotoForUpload } from '@/lib/photoUpload';
 import { uploadVenuePhoto, addVenuePhotos, type Venue, type VenueVisit } from '@/lib/dineOutVenues';
-import type { PhotoRef } from '@/lib/moments';
+import { createPost, type PhotoRef } from '@/lib/moments';
 
 const DINE = '#C2562E';
 
@@ -42,12 +43,15 @@ export default function VenueSheet({
    *  logged before the gallery shipped. */
   familyId?: string;
 }) {
+  const { profile } = useAuth();
   const [lightbox, setLightbox] = useState<{ photos: PhotoRef[]; i: number } | null>(null);
   // Local photo list so adds appear instantly (the `venue` prop is the
   // snapshot taken when the sheet opened; the Firestore write persists).
   const [photos, setPhotos] = useState<PhotoRef[]>(venue.photos ?? []);
   const [addingPhotos, setAddingPhotos] = useState(false);
-  useEffect(() => { setPhotos(venue.photos ?? []); }, [venue.id, venue.photos]);
+  const [sharing, setSharing] = useState(false);
+  const [shared, setShared] = useState(false);
+  useEffect(() => { setPhotos(venue.photos ?? []); setShared(false); }, [venue.id, venue.photos]);
 
   const onAddPhotos = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!familyId) return;
@@ -71,6 +75,33 @@ export default function VenueSheet({
       }
     } finally {
       setAddingPhotos(false);
+    }
+  };
+
+  // Push this venue's photos to the family Moments feed. Photos added via
+  // "Add photos" only attach to the venue — this is the explicit share.
+  const onShareToMoments = async () => {
+    if (!familyId || !profile?.uid || photos.length === 0 || sharing) return;
+    setSharing(true);
+    try {
+      const caption = `${venue.name} ${venue.emoji || '🍽️'}`
+        + (venue.avgStars > 0 ? ` · ${'★'.repeat(Math.round(venue.avgStars))}` : '');
+      await createPost(familyId, {
+        authorUid: profile.uid,
+        authorName: profile.displayName,
+        ...(profile.avatarPhoto ? { authorAvatar: profile.avatarPhoto } : {}),
+        caption,
+        photos: photos.slice(0, 10), // Moments posts carry up to 10
+        kidTags: [],
+        eventTag: { id: 'dineout', emoji: '🍽️', label: 'Dine Out' },
+        visibility: 'family',
+      });
+      setShared(true);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[venue-sheet] share to Moments failed:', err);
+    } finally {
+      setSharing(false);
     }
   };
 
@@ -154,14 +185,25 @@ export default function VenueSheet({
                 )}
               </div>
               {photos.length > 0 ? (
-                <div className="grid grid-cols-4 gap-1.5">
-                  {photos.map((p, i) => (
-                    <button key={p.id} type="button" onClick={() => setLightbox({ photos, i })} aria-label="Open photo">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={p.thumbUrl} alt="" loading="lazy" className="w-full aspect-square rounded-lg object-cover border border-hive-line" />
+                <>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {photos.map((p, i) => (
+                      <button key={p.id} type="button" onClick={() => setLightbox({ photos, i })} aria-label="Open photo">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.thumbUrl} alt="" loading="lazy" className="w-full aspect-square rounded-lg object-cover border border-hive-line" />
+                      </button>
+                    ))}
+                  </div>
+                  {familyId && (
+                    <button
+                      type="button" onClick={onShareToMoments} disabled={sharing}
+                      className="mt-2 w-full rounded-hive py-2 font-nunito font-black text-[12px] border transition-colors disabled:opacity-50"
+                      style={{ borderColor: '#9BC4E8', background: '#EAF1F8', color: '#2C6E9E' }}
+                    >
+                      {sharing ? 'Sharing…' : shared ? '✓ Shared to Moments · share again' : '📷 Share these to Moments'}
                     </button>
-                  ))}
-                </div>
+                  )}
+                </>
               ) : (
                 <p className="text-[12px] text-hive-muted italic">No photos yet — tap “＋ Add photos” to keep the moments from this place here.</p>
               )}
