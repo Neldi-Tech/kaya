@@ -26,10 +26,11 @@ import {
   subscribeToOwnerTasks, subscribeToTrackables,
   type PulseTask, type Trackable,
 } from '@/lib/pulse';
-import { subscribeToKidRequests, subscribeToPendingApprovals } from '@/lib/hive';
+import { subscribeToKidRequests, subscribeToPendingApprovals, resolveApprovalRequest } from '@/lib/hive';
 import type { ApprovalRequest } from '@/lib/hive';
-import { subscribeToOpenRequests } from '@/lib/purchase';
+import { subscribeToOpenRequests, approveRequest, rejectRequest } from '@/lib/purchase';
 import type { PurchaseRequest } from '@/lib/purchase';
+import { resolveBusinessRequest } from '@/lib/business';
 import { getNotifications } from '@/lib/firestore';
 import type { Notification } from '@/lib/firestore';
 
@@ -384,4 +385,27 @@ export function useParentMyDay(
   const loading = purchases === null || pending === null;
 
   return { loading, approve, headsUp: reminders, glance, glanceDone, glanceTotal, approveCount: approve.length };
+}
+
+/** Approve/reject an approval directly from My Day — routes to the right
+ *  resolver per source (purchase / Hive / Business). The realtime
+ *  subscriptions then drop the row as its status leaves "pending". This
+ *  is the same money path the detail screens use; My Day just calls it. */
+export async function actOnApproval(input: {
+  familyId: string;
+  kind: 'purchase' | 'hive' | 'business';
+  requestId: string;
+  decision: 'approve' | 'reject';
+  approverUid: string;
+  note?: string;
+}): Promise<void> {
+  const { familyId, kind, requestId, decision, approverUid, note } = input;
+  if (kind === 'purchase') {
+    if (decision === 'approve') await approveRequest(familyId, requestId, approverUid);
+    else await rejectRequest(familyId, requestId, approverUid, note);
+  } else if (kind === 'hive') {
+    await resolveApprovalRequest(familyId, requestId, decision === 'approve' ? 'approved' : 'rejected', approverUid, note);
+  } else {
+    await resolveBusinessRequest(familyId, requestId, decision === 'approve' ? 'approved' : 'rejected', approverUid, note);
+  }
 }

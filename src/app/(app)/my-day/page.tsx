@@ -12,12 +12,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
-import { useKidMyDay, useParentMyDay, useReminders, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
+import { useKidMyDay, useParentMyDay, useReminders, actOnApproval, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
 import { addKidWorkplanItem } from '@/lib/kidWorkplan';
 import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
 import { listHelpers } from '@/lib/helpers';
 import type { WorkplanPeriod } from '@/lib/firestore';
-import { ChevronRight, Plus } from 'lucide-react';
+import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
 const JOY = { purple: '#9B5DE5', green: '#6BCB77', coral: '#FF6B6B', yellow: '#FFD93D', ink: '#2D1B5E', border: '#F0E8FF' };
 
@@ -275,6 +275,102 @@ function approvalAge(createdAtMs?: number): { label: string; over: boolean } | n
   return { label: days >= 1 ? `${days}d` : 'today', over: hrs >= 48 };
 }
 
+/** A parent Approve row that expands to inline ✓ Approve / ✕ Reject /
+ *  Details — so most approvals clear in one or two taps without leaving
+ *  My Day. Reconcile-close rows (badge 'close') route to Details only,
+ *  since closing needs the actuals review on the full screen. The real
+ *  approve/reject runs via actOnApproval; the realtime subscription then
+ *  drops the row as its status leaves "pending". */
+function ApprovalRow({ item, familyId, approverUid, onDetails }: {
+  item: MyDayItem;
+  familyId: string;
+  approverUid: string;
+  onDetails: (i: MyDayItem) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
+  const [rejecting, setRejecting] = useState(false);
+  const [note, setNote] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const a = approvalAge(item.createdAtMs);
+  const canQuick = !!item.approval && item.badge !== 'close'; // close = needs reconcile
+
+  const act = async (decision: 'approve' | 'reject') => {
+    if (!item.approval) return;
+    setBusy(decision); setErr(null);
+    try {
+      await actOnApproval({ familyId, kind: item.approval.kind, requestId: item.approval.requestId, decision, approverUid, note: note.trim() || undefined });
+      // Success: the subscription removes this row. Keep busy until unmount.
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not complete that. Open the details and try there.');
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className={`rounded-hive-lg border ${open ? 'border-pulse-gold' : 'border-hive-line'} bg-hive-paper overflow-hidden`}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="w-full flex items-center gap-3 p-3 text-left hover:bg-hive-cream/40">
+        <span className="text-2xl flex-shrink-0" aria-hidden>{item.icon}</span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-nunito font-extrabold text-[13px] truncate">{item.label}</span>
+          <span className="block text-[11px] text-hive-muted truncate">{item.sublabel}</span>
+        </span>
+        {a && (
+          <span className="flex-shrink-0 text-[9px] font-black px-1.5 py-1 rounded-lg"
+            style={a.over ? { background: '#fde6e6', color: '#E85C5C' } : { background: '#F0EBE0', color: '#5C6975' }}>
+            ⏱ {a.label}
+          </span>
+        )}
+        {item.badge && (
+          <span className="flex-shrink-0 text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide" style={premiumBadge(item.badge)}>{item.badge}</span>
+        )}
+        <ChevronRight size={15} className={`text-hive-muted flex-shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 pt-1 border-t border-hive-line">
+          {err && <p className="text-[11px] font-bold text-pulse-coral mb-2">⚠ {err}</p>}
+          {!canQuick ? (
+            <>
+              <p className="text-[11px] text-hive-muted mb-2">This one needs reconciling — open it to review the actuals and close.</p>
+              <button onClick={() => onDetails(item)} className="w-full rounded-xl py-2.5 font-nunito font-black text-[12px] text-white" style={{ background: NAVY }}>
+                Open to reconcile ›
+              </button>
+            </>
+          ) : rejecting ? (
+            <div>
+              <input value={note} onChange={(e) => setNote(e.target.value)} autoFocus maxLength={140}
+                placeholder="Reason (optional) — the requester sees this"
+                className="w-full h-10 px-3 rounded-hive border border-hive-line bg-white text-[12px] font-bold focus:outline-none focus:border-pulse-coral" />
+              <div className="flex gap-2 mt-2">
+                <button onClick={() => { setRejecting(false); setNote(''); }} className="text-[12px] font-bold text-hive-muted px-2">Cancel</button>
+                <button onClick={() => act('reject')} disabled={busy !== null}
+                  className="flex-1 rounded-xl py-2.5 font-nunito font-black text-[12px] text-white disabled:opacity-50" style={{ background: '#E85C5C' }}>
+                  {busy === 'reject' ? 'Rejecting…' : 'Confirm reject'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <button onClick={() => act('approve')} disabled={busy !== null}
+                className="flex-1 inline-flex items-center justify-center gap-1 rounded-xl py-2.5 font-nunito font-black text-[12px] text-white disabled:opacity-50" style={{ background: '#2E7D34' }}>
+                <Check size={14} /> {busy === 'approve' ? 'Approving…' : 'Approve'}
+              </button>
+              <button onClick={() => setRejecting(true)} disabled={busy !== null}
+                className="inline-flex items-center justify-center gap-1 rounded-xl py-2.5 px-3 font-nunito font-black text-[12px] border disabled:opacity-50" style={{ borderColor: '#E85C5C', color: '#E85C5C' }}>
+                <X size={14} /> Reject
+              </button>
+              <button onClick={() => onDetails(item)} className="inline-flex items-center justify-center rounded-xl py-2.5 px-3 font-nunito font-black text-[12px] border" style={{ borderColor: '#E8DEC9', color: NAVY }}>
+                Details ›
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function todayLabel() {
   return new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
 }
@@ -466,7 +562,9 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
           <div className="mb-4">
             <p className="text-[10px] font-black uppercase tracking-wider mb-2 text-hive-navy">✅ Approve</p>
             {approve.length > 0 ? (
-              <div className="space-y-2">{approve.map((i) => <PremiumRow key={i.id} item={i} onTap={onTap} />)}</div>
+              <div className="space-y-2">{approve.map((i) => (
+                <ApprovalRow key={i.id} item={i} familyId={familyId} approverUid={parentUid} onDetails={onTap} />
+              ))}</div>
             ) : (
               <div className="rounded-hive-lg border border-hive-line bg-hive-paper p-5 text-center">
                 <p className="text-[13px] font-nunito font-extrabold">Nothing waiting 🎉</p>
