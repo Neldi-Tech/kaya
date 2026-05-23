@@ -19,7 +19,7 @@
 // the rate pill and the spending plan card so kids see "what's it worth"
 // right after they see the rates themselves.
 
-import { formatCashClean, formatHoney, formatHp, honeyToCashCents } from './format';
+import { formatCash, formatHoney, formatHp, honeyToCashCents } from './format';
 
 interface Props {
   housePoints: number;
@@ -39,8 +39,10 @@ export default function HpValueCommentary({
   const ppHP = Math.max(1, hpToHoneyRate);
   const usableHp = Math.max(0, housePoints - minHpReserve);
   const potentialHoney = Math.floor(usableHp / ppHP);
-  const potentialCashCents = honeyToCashCents(potentialHoney, honeyToCashRate, fxUsdToFamily);
   const oneHoneyCashCents = honeyToCashCents(1, honeyToCashRate, fxUsdToFamily);
+  // Compose from the per-honey rate so the math ties out exactly with the
+  // RatePill + WealthCard: potentialHoney × per-honey = the shown worth.
+  const potentialCashCents = potentialHoney * oneHoneyCashCents;
   // HP needed to mint the next Honey Coin from the kid's current convertible
   // balance — for the "earn N more" nudge in the sub-Honey state.
   const hpToNextHoney = ppHP - (usableHp % ppHP);
@@ -59,9 +61,9 @@ export default function HpValueCommentary({
     const perHpCents = Math.round(oneHoneyCashCents / ppHP);
     body = (
       <>
-        💡 Every HP you earn ≈ <strong>{formatCashClean(perHpCents, currency)}</strong>.{' '}
+        💡 Every HP you earn ≈ <strong>{formatCash(perHpCents, currency)}</strong>.{' '}
         Earn <strong>{formatHp(ppHP)} HP</strong> for your first 🍯 worth{' '}
-        <strong>{formatCashClean(oneHoneyCashCents, currency)}</strong>.
+        <strong>{formatCash(oneHoneyCashCents, currency)}</strong>.
       </>
     );
   } else if (usableHp === 0 && minHpReserve > 0) {
@@ -78,7 +80,12 @@ export default function HpValueCommentary({
       <>
         💡 Your <strong>{formatHp(usableHp)} HP</strong>{minHpReserve > 0 ? ' usable' : ''}{' '}
         could become <strong>{formatHoney(potentialHoney)} 🍯</strong>{' '}
-        ≈ <strong>{formatCashClean(potentialCashCents, currency)}</strong> if you save it all.
+        ≈ <strong>{formatCash(potentialCashCents, currency)}</strong> if you save it all.
+        <br />
+        <span className="text-[11px] opacity-80">
+          {formatHoney(potentialHoney)} 🍯 × {formatCash(oneHoneyCashCents, currency)} ={' '}
+          {formatCash(potentialCashCents, currency)}
+        </span>
       </>
     );
   } else {
@@ -87,7 +94,7 @@ export default function HpValueCommentary({
     body = (
       <>
         💪 You&apos;re <strong>{formatHp(hpToNextHoney)} HP</strong> away from your{' '}
-        first 🍯 — worth about <strong>{formatCashClean(oneHoneyCashCents, currency)}</strong>.
+        first 🍯 — worth about <strong>{formatCash(oneHoneyCashCents, currency)}</strong>.
         Keep earning!
       </>
     );

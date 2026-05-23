@@ -10,7 +10,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { DisplayRounding } from '@/lib/business';
 import { formatWorth } from '@/components/business/money';
-import { formatHp, formatHoney, honeyToCashCents } from './format';
+import { formatHp, formatHoney, honeyToCashCents, formatCash } from './format';
 
 export default function WealthCard({
   treasuryCents, honeyCoins, housePoints, cashCents, businessAssetsCents,
@@ -32,14 +32,19 @@ export default function WealthCard({
   const money = (cents: number) => formatWorth(cents, currency, rounding);
 
   const coinsCents = honeyToCashCents(honeyCoins, honeyToCashRate, fx);
-  const hpCoins = hpToHoneyRate > 0 ? housePoints / hpToHoneyRate : 0;
-  const hpCents = honeyToCashCents(hpCoins, honeyToCashRate, fx);
+  // HP → cash via the EXACT per-honey rate, computed so the math ties
+  // out: per-HP × HP = the shown worth (transparent "rate × HP = answer",
+  // no 2,585→2,600 drift). Same per-honey value the RatePill shows, so
+  // 193 HP × TZS 2,585 = TZS 498,905 everywhere. 2026-05-23.
+  const perHoneyCents = honeyToCashCents(1, honeyToCashRate, fx);
+  const perHpCents = hpToHoneyRate > 0 ? Math.round(perHoneyCents / hpToHoneyRate) : perHoneyCents;
+  const hpCents = housePoints * perHpCents;
   const moneyA = coinsCents + treasuryCents + cashCents + hpCents;
   const assetsB = Math.max(0, businessAssetsCents || 0);
   const total = moneyA + assetsB;
 
   const tiers: Array<{ emoji: string; name: string; amount: string; sub?: string; def: string; pot?: boolean }> = [
-    { emoji: '🏅', name: 'House Points', amount: `${formatHp(housePoints)} HP`, sub: `≈ ${money(hpCents)}`, def: 'Your effort score — chores, kindness, learning, your business.' },
+    { emoji: '🏅', name: 'House Points', amount: `${formatHp(housePoints)} HP`, sub: `${formatHp(housePoints)} × ${formatCash(perHpCents, currency)} = ${formatCash(hpCents, currency)}`, def: 'Your effort score — chores, kindness, learning, your business.' },
     { emoji: '🪙', name: 'Coins', amount: `${formatHoney(honeyCoins)} 🪙`, sub: `≈ ${money(coinsCents)}`, def: 'Swap House Points for Coins — your in-Kaya money, ready to grow.' },
     { emoji: '🍯', name: 'Honey Pot', amount: money(treasuryCents), def: 'Your Treasury Reserve. Sales land here & Coins flow in — a parent turns it into Cash.', pot: true },
     { emoji: '💵', name: 'Cash', amount: money(cashCents), def: 'Real money to spend. Only a parent adds it — directly or from your Honey Pot.' },

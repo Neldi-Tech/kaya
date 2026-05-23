@@ -12,7 +12,7 @@
 // "1 🍯 = TSh 2,605". For USD families fxUsdToFamily is 1 and the
 // math is a no-op.
 
-import { formatCashClean } from './format';
+import { formatCash } from './format';
 
 export default function RatePill({
   hpToHoneyRate,
@@ -32,10 +32,12 @@ export default function RatePill({
   fxUsdToFamily?: number | null;
 }) {
   const fx = fxUsdToFamily ?? 1;
-  // USD-per-honey × USD-to-family → family-currency-per-honey, then
-  // hand to formatCashClean which applies the bucket rounding.
+  // USD-per-honey × USD-to-family → family-currency-per-honey. Shown
+  // EXACT (not bucket-rounded) so the rate ties out with the HP value:
+  // HP × this rate = the displayed worth (transparent, no 2,585→2,600
+  // drift). 2026-05-23.
   const familyPerHoneyCents = Math.round(honeyToCashRate * fx * 100);
-  const cashSide = formatCashClean(familyPerHoneyCents, currency);
+  const cashSide = formatCash(familyPerHoneyCents, currency);
 
   if (variant === 'hp-to-honey') {
     return (
