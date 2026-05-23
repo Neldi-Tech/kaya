@@ -191,6 +191,19 @@ service cloud.firestore {
           allow create, update, delete: if isParentInFamily(familyId)
             || isThisKid(familyId, childId);
         }
+
+        // ── Kids' Workplan proofs ("proof for points") ──────────
+        // One doc per proof-required task per day (id `{date}_{itemId}`).
+        // The whole family can READ (the kid sees their own status; the
+        // parent sees the review feed). Proof docs are WRITTEN ONLY by
+        // the Admin SDK server (/api/workplan/proof + /review), which
+        // bypasses these rules — so NO client write is granted here.
+        // This is deliberate: it keeps points/award flow server-only,
+        // exactly like awards + completions' points handling.
+        match /workplanProofs/{proofId} {
+          allow read: if belongsToFamily(familyId);
+          allow write: if false;
+        }
       }
 
       // ── Ratings ──────────────────────────────────

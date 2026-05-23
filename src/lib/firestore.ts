@@ -289,6 +289,14 @@ export interface Family {
   /** Per-family Pulse tunables (anomaly multiplier, streak bonuses, default
    *  Wealth allocation). Partial — merged with DEFAULT_PULSE_CONFIG. */
   pulseConfig?: Partial<PulseConfig>;
+  // ── Kids' Workplan · proof for points (2026-05-23) ────────────
+  /** How a proof-required workplan task's points are granted:
+   *   • 'approve' (default when absent) — points stay PENDING until a
+   *     parent approves the kid's submitted proof.
+   *   • 'instant' — points land on submit (revocable: a later parent
+   *     reject claws them back).
+   *  Read via `readWorkplanProofMode(family)`; set via `updateFamily`. */
+  workplanProofMode?: 'instant' | 'approve';
   // ── Meeting setup ────────────────────────────────────────────
   // Parent-controlled configuration the presenter reads on meeting
   // night. Optional — absent = sensible defaults (every step in the
@@ -1534,6 +1542,13 @@ export async function getFamily(familyId: string): Promise<Family | null> {
 export async function updateFamily(familyId: string, data: Partial<Family>) {
   if (isGuestActive()) return;
   await updateDoc(doc(db, 'families', familyId), data);
+}
+
+/** How proof-required workplan tasks award points. Defaults to 'approve'
+ *  (points pending until a parent OKs the proof) when the field is
+ *  absent — the safe default. 'instant' grants on submit, revocable. */
+export function readWorkplanProofMode(family: Pick<Family, 'workplanProofMode'> | null | undefined): 'instant' | 'approve' {
+  return family?.workplanProofMode === 'instant' ? 'instant' : 'approve';
 }
 
 // ── External contact CRUD ────────────────────────────────────────
