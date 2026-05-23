@@ -122,7 +122,7 @@ export default function LogSalePage() {
             <div className="flex justify-between"><span>Unit price</span><span className="font-nunito font-bold">{formatCash(unitCents, config.currency)}</span></div>
             <div className="flex justify-between border-t border-dashed border-black/10 pt-1.5"><span>Total</span><span className="font-nunito font-black text-[#2F7D32]">{formatCash(totalCents, config.currency)}</span></div>
             {method !== 'iou' && (
-              <div className="flex justify-between"><span>→ Hive Cash</span><span className="font-nunito font-extrabold">{formatCash(totalCents, config.currency)}</span></div>
+              <div className="flex justify-between"><span>→ Honey Pot 🍯</span><span className="font-nunito font-extrabold">{formatCash(totalCents, config.currency)}</span></div>
             )}
           </div>
 

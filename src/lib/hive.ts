@@ -29,7 +29,7 @@ import { isGuestActive } from './mockFamily';
 
 // ── Types ─────────────────────────────────────────────────────────
 
-export type HiveLayer = 'house_points' | 'honey' | 'cash';
+export type HiveLayer = 'house_points' | 'honey' | 'treasury' | 'cash';
 export type TxDirection = 'in' | 'out';
 export type TxStatus = 'completed' | 'pending_approval' | 'approved' | 'rejected';
 
@@ -339,6 +339,10 @@ export interface Wallet {
   // doesn't need a second query. If they ever drift, `totalPoints` wins.
   housePoints: number;
   honeyCoins: number;
+  /** Treasury Reserve (the "Honey Pot") — the kid's earned-money pool. Business
+   *  sales (Hive Transfer) land here, and Coins can convert in. A parent turns
+   *  it into real Cash (which reduces it). Stored in family-currency cents. */
+  treasuryCents: number;
   cashCents: number;
   totalLifetimeEarnedCents: number;
   totalLifetimeSpentCents: number;
@@ -348,6 +352,7 @@ export interface Wallet {
 export const EMPTY_WALLET: Wallet = {
   housePoints: 0,
   honeyCoins: 0,
+  treasuryCents: 0,
   cashCents: 0,
   totalLifetimeEarnedCents: 0,
   totalLifetimeSpentCents: 0,
@@ -1025,6 +1030,41 @@ export async function depositCash(
     });
     txn.set(txRef, {
       layer: 'cash', direction: 'in', amount: amountCents, category,
+      description: description.trim() || category, status: 'completed',
+      createdBy: uid, approvedBy: uid,
+      createdAt: now, completedAt: now,
+    });
+  });
+}
+
+/** Pay money into the kid's Treasury Reserve (the "Honey Pot") — this is where
+ *  business sales (Hive Transfer) land. Same shape as {@link depositCash} but
+ *  it credits `treasuryCents`, not real Cash (a parent later turns the Pot into
+ *  Cash). Stored in family-currency cents. */
+export async function depositToTreasury(
+  familyId: string,
+  kidId: string,
+  amountCents: number,
+  category: 'business' | 'other',
+  description: string,
+  uid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Amount must be positive cents.');
+  await runTransaction(db, async (txn) => {
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await txn.get(wRef);
+    const wallet = (wSnap.exists() ? wSnap.data() : EMPTY_WALLET) as Wallet;
+    const txRef = doc(txCol(familyId, kidId));
+    const now = serverTimestamp();
+    txn.set(wRef, {
+      ...wallet,
+      treasuryCents: (wallet.treasuryCents || 0) + amountCents,
+      totalLifetimeEarnedCents: wallet.totalLifetimeEarnedCents + amountCents,
+      updatedAt: now,
+    });
+    txn.set(txRef, {
+      layer: 'treasury', direction: 'in', amount: amountCents, category,
       description: description.trim() || category, status: 'completed',
       createdBy: uid, approvedBy: uid,
       createdAt: now, completedAt: now,
