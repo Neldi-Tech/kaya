@@ -139,17 +139,23 @@ export default function NewBusinessPage() {
   const keepsInventory = !!BUSINESS_TYPES.find((t) => t.key === type)?.shape.includes('inventory');
   const typeLabel = BUSINESS_TYPES.find((t) => t.key === type)?.label || 'Business';
 
-  // Who owns this business. An explicit pick (forKid) always wins. Otherwise a
-  // kid is themselves (childId), and a parent gets the active/first kid. We fall
-  // back through `activeKidId` (HiveContext resolves it to the kid's own id, or
-  // the family's first kid) so a not-yet-loaded childId can't silently leave the
-  // form with no owner — the bug that made Create stay disabled.
+  // Who owns this business. An explicit pick (forKid) always wins. A kid is
+  // themselves — resolved from their profile link, and (because that link is
+  // missing or an empty string on some logins) recovered by matching their
+  // sign-in email to a child record. A parent gets the active/first kid. We use
+  // `||` (not `??`) so an EMPTY-STRING childId — which `??` let through and which
+  // silently disabled Create — falls through to recovery instead.
+  const myChildId = profile?.childId?.trim() || '';
+  const myEmail = profile?.email?.trim().toLowerCase() || '';
+  const emailMatchKidId = (!myChildId && myEmail)
+    ? (children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id || '')
+    : '';
+  const selfKidId = myChildId || emailMatchKidId || null;
   const ownerId = forKid
-    ?? (isParent
-      ? (activeKidId ?? children[0]?.id ?? null)
-      : (profile?.childId ?? activeKidId ?? null));
+    || (isParent ? (activeKidId || children[0]?.id || null) : selfKidId)
+    || null;
   // Parents always choose; for a kid the picker only appears as a recovery if we
-  // somehow couldn't resolve their own identity but the family has kids.
+  // couldn't resolve their own identity (e.g. unlinked login) but the family has kids.
   const showOwnerPicker = children.length > 0 && (isParent || !ownerId);
 
   const visibleRows = keepsInventory ? rows : rows.slice(0, 1);
