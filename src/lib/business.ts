@@ -1293,13 +1293,20 @@ export async function runThresholdMilestones(
 // note. One record per business per day (doc id = YYYY-MM-DD) powers the
 // streak + the weekly effort summary that drives House-Points awards (A3).
 
+export interface StockMedia {
+  url: string;
+  kind: 'photo' | 'video';
+}
+
 export interface StockTake {
   id: string;            // = date (YYYY-MM-DD)
   businessId: string;
   ownerId: string;
   date: string;          // YYYY-MM-DD (local)
   note?: string;
-  photoUrl?: string;
+  photoUrl?: string;     // first photo — back-compat with the dashboard/feed
+  /** All photos + short video clips captured for the day. */
+  media?: StockMedia[];
   itemsTouched: number;  // how many inventory items the kid updated
   byUid: string;
   at: Timestamp;
@@ -1316,6 +1323,7 @@ export interface StockTakeInput {
   itemsTouched: number;
   note?: string;
   photoUrl?: string;
+  media?: StockMedia[];
 }
 
 const stockTakesCol = (familyId: string, businessId: string) =>
@@ -1344,7 +1352,15 @@ export async function saveStockTake(
     at: serverTimestamp(),
   };
   if (input.note?.trim()) data.note = input.note.trim();
-  if (input.photoUrl) data.photoUrl = input.photoUrl;
+  const media = (input.media || []).filter((m) => m.url);
+  if (media.length) {
+    data.media = media;
+    // Back-compat: keep photoUrl pointing at the first photo (the dashboard/feed reads it).
+    const firstPhoto = media.find((m) => m.kind === 'photo')?.url;
+    data.photoUrl = input.photoUrl || firstPhoto || media[0].url;
+  } else if (input.photoUrl) {
+    data.photoUrl = input.photoUrl;
+  }
   await setDoc(doc(stockTakesCol(familyId, businessId), input.date), data, { merge: true });
   await updateDoc(businessDoc(familyId, businessId), { 'stats.lastActivityAt': serverTimestamp() });
 }
