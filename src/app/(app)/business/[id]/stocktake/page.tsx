@@ -69,6 +69,15 @@ export default function StockTakePage() {
   const live = items.filter((i) => !i.loss);
   const touched = live.filter((i) => qty[i.id] !== undefined && qty[i.id] !== i.qty).length;
 
+  // Multi-product photo advice: suggest 2 products to feature today, rotating
+  // by the day so each product gets its turn over the week.
+  const photoFocus = useMemo(() => {
+    const ps = items.filter((i) => !i.loss);
+    if (ps.length < 2) return [] as BusinessItem[];
+    const dayIdx = new Date(`${today}T12:00:00`).getDate();
+    return [ps[dayIdx % ps.length], ps[(dayIdx + 1) % ps.length]].filter(Boolean) as BusinessItem[];
+  }, [items, today]);
+
   const step = (id: string, delta: number) =>
     setQty((p) => ({ ...p, [id]: Math.max(0, (p[id] ?? 0) + delta) }));
 
@@ -179,6 +188,12 @@ export default function StockTakePage() {
           <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">
             Today&apos;s photo · <span className="text-hive-rose">required</span>
           </div>
+          {live.length >= 2 && (
+            <p className="text-[12px] text-hive-navy/70 mb-2 leading-relaxed">
+              📸 You sell <b>{live.length} products</b> — try to snap <b>at least 2</b> today, and rotate which ones each day so all of them get seen
+              {photoFocus.length === 2 ? <> · maybe <b>{photoFocus[0].name}</b> &amp; <b>{photoFocus[1].name}</b> today</> : ''}.
+            </p>
+          )}
           <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={pickPhoto} className="hidden" />
           {photoPreview ? (
             <button onClick={() => fileRef.current?.click()} className="block w-full rounded-hive overflow-hidden border border-hive-line mb-3">

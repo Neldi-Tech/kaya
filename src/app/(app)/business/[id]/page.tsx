@@ -135,10 +135,11 @@ export default function BusinessDashboardPage() {
             {business.createdByName ? ` · ${business.createdByRole === 'parent' ? 'set up by' : 'started by'} ${business.createdByName}` : ''}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <span className={`text-[11px] font-nunito font-black px-2.5 py-1 rounded-hive-pill ${s.pill}`}>{s.label}</span>
           {canAct && (
-            <Link href={`/business/${businessId}/settings`} aria-label="Business settings" className="text-hive-honey-soft text-[15px] leading-none hover:text-hive-honey">⚙️</Link>
+            <Link href={`/business/${businessId}/settings`} aria-label="Business settings"
+              className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-[15px] leading-none text-hive-honey-soft hover:text-hive-honey hover:bg-white/15 transition">⚙️</Link>
           )}
         </div>
       </div>
