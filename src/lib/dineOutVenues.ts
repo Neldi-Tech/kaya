@@ -9,7 +9,7 @@
 'use client';
 
 import {
-  collection, doc, getDoc, setDoc, onSnapshot, query, orderBy, limit,
+  collection, doc, getDoc, setDoc, updateDoc, onSnapshot, query, orderBy, limit,
   serverTimestamp, Timestamp,
 } from 'firebase/firestore';
 import {
@@ -124,6 +124,25 @@ export async function uploadVenuePhoto(
     getDownloadURL(refFull),
   ]);
   return { id: photoId, thumbUrl, feedUrl, fullUrl, width: blobs.width, height: blobs.height };
+}
+
+/** Append photos to an existing venue WITHOUT logging a visit — used by
+ *  the venue sheet's "Add photos" so you can attach pictures to a place
+ *  you logged earlier (e.g. before the gallery shipped) or add more later.
+ *  Merge update (no count/spend/visit change). Caller uploads via
+ *  `uploadVenuePhoto` first. */
+export async function addVenuePhotos(
+  familyId: string,
+  venueDocId: string,
+  newPhotos: PhotoRef[],
+): Promise<void> {
+  if (isGuestActive() || newPhotos.length === 0) return;
+  const ref = doc(venuesCol(familyId), venueDocId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const prev = snap.data() as Venue;
+  const photos = [...(prev.photos ?? []), ...newPhotos].slice(-MAX_VENUE_PHOTOS);
+  await updateDoc(ref, { photos });
 }
 
 /** Record a Dine Out visit against a venue: bump count + spend, set this
