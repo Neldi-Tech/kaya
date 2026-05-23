@@ -21,6 +21,7 @@ import {
 } from '@/lib/purchase';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
+import AskKaya from '@/components/pulse/AskKaya';
 import {
   type PulseReading, type Trackable,
   subscribeToReadingsInMonth, subscribeToTrackables,
@@ -109,6 +110,27 @@ export default function PulseDashboardPage() {
     .sort((a, b) => b.spent - a.spent)
     .slice(0, 5);
 
+  // Pre-formatted facts for the "Ask Kaya" advisor (display strings only —
+  // no PII). Cash buckets + run-rate + top metered consumption.
+  const anomalyCount = readings.filter((r) => r.isAnomaly).length;
+  const askKayaFacts: Record<string, string | number> = {
+    'Total spent vs cap': `${formatCents(totalSpent, currency)} / ${totalCap > 0 ? formatCents(totalCap, currency) : 'no cap'}`,
+    'Projected month-end (run-rate)': formatCents(projectedSpend, currency),
+    'Pace': projectedSavings >= 0
+      ? `on track to save ${formatCents(projectedSavings, currency)}`
+      : `trending ${formatCents(-projectedSavings, currency)} over cap`,
+    'Day of month': `${dayOfMonth} of ${daysInMonth}`,
+  };
+  for (const b of buckets) {
+    const bpct = b.cap > 0 ? Math.round((b.spent / b.cap) * 100) : null;
+    askKayaFacts[`Bucket · ${MODULE_LABEL[b.m]}`] =
+      `${formatCents(b.spent, currency)}${b.cap > 0 ? ` / ${formatCents(b.cap, currency)} (${bpct}% used)` : ' (no cap)'}`;
+  }
+  for (const row of consumption.rows.slice(0, 5)) {
+    askKayaFacts[`Metered · ${row.tk?.name ?? 'trackable'}`] = formatCents(row.cents, currency);
+  }
+  if (anomalyCount > 0) askKayaFacts['Spikes flagged this month'] = anomalyCount;
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <PulseHeader eyebrow="Dashboard" title={monthLabel()} subtitle="Spend, savings pace + metered consumption" />
@@ -144,6 +166,17 @@ export default function PulseDashboardPage() {
           )}
         </PulseHero>
       </div>
+
+      {/* Ask Kaya — on-demand AI advisor (parent-only; this whole page is) */}
+      {profile?.familyId && (
+        <AskKaya
+          familyId={profile.familyId}
+          monthKey={thisMonth}
+          monthLabel={monthLabel()}
+          currency={currency}
+          facts={askKayaFacts}
+        />
+      )}
 
       {/* Top buckets — cash */}
       <div className="flex items-center justify-between mt-6 mb-2">
