@@ -440,6 +440,45 @@ export function computeMonthSavingsCents(totalCapCents: number, actualSpentCents
 }
 
 /* ============================================================
+   RUN-RATE — day-of-month pacing → end-of-month projection (§2a)
+   ============================================================ */
+/** Project full-month spend from spend-so-far by day-of-month pacing:
+ *  projected = spent / daysElapsed × daysInMonth. The Kaya Plus run-rate
+ *  advisory, surfaced on the Dashboard hero + bucket drill-down. */
+export function projectMonthSpendCents(spentCents: number, dayOfMonth: number, daysInMonth: number): number {
+  const elapsed = Math.max(1, Math.min(dayOfMonth, daysInMonth));
+  return Math.round((spentCents / elapsed) * daysInMonth);
+}
+
+export type PacingFlag = 'on_track' | 'behind' | 'over' | 'no_cap';
+
+/** Pace a bucket's spend against its cap: compares the run-rate
+ *  projection to the cap (and whether it's already over). `capPct` is
+ *  spend/cap; `monthPct` is how far through the month we are. */
+export function pacing(
+  spentCents: number,
+  capCents: number,
+  dayOfMonth: number,
+  daysInMonth: number,
+): { flag: PacingFlag; capPct: number; monthPct: number; projectedCents: number } {
+  const monthPct = Math.round((Math.min(dayOfMonth, daysInMonth) / daysInMonth) * 100);
+  const projectedCents = projectMonthSpendCents(spentCents, dayOfMonth, daysInMonth);
+  if (capCents <= 0) return { flag: 'no_cap', capPct: 0, monthPct, projectedCents };
+  const capPct = Math.round((spentCents / capCents) * 100);
+  let flag: PacingFlag = 'on_track';
+  if (spentCents > capCents) flag = 'over';
+  else if (projectedCents > capCents) flag = 'behind';
+  return { flag, capPct, monthPct, projectedCents };
+}
+
+export function pacingLabel(flag: PacingFlag): string {
+  return flag === 'over' ? 'Over cap'
+    : flag === 'behind' ? 'Trending over'
+    : flag === 'on_track' ? 'On track'
+    : 'No cap set';
+}
+
+/* ============================================================
    VIEW-MODEL MAPPERS — meter / trackable → unified Trackable
    ============================================================ */
 export function meterToTrackable(m: UtilityMeter): Trackable {
