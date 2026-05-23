@@ -22,7 +22,7 @@
 import {
   addDoc, collection, deleteDoc, deleteField, doc, getDoc, getDocs,
   onSnapshot, orderBy, query, serverTimestamp, Timestamp,
-  updateDoc, where, writeBatch, increment, limit,
+  setDoc, updateDoc, where, writeBatch, increment, limit,
 } from 'firebase/firestore';
 import {
   deleteObject, getDownloadURL, ref as storageRef, uploadBytes,
@@ -60,6 +60,82 @@ export const EVENT_TAGS: EventTag[] = [
 export const CUSTOM_TAG_EMOJI = '✨';
 /** Max characters allowed in a custom chip label — keeps the chip tight. */
 export const CUSTOM_TAG_MAX_LEN = 18;
+
+// ── Event-tag usage (2026-05-23) ─────────────────────────────────
+// Smart "When / What" chips: remember which tags a family uses + how
+// often so the picker can float frequent ones to the front and keep
+// custom ones around. One doc per tag at families/{f}/eventTags/{tagId},
+// where tagId is the preset id ('school') or a slugged custom
+// ('custom-class-trip'). Presets always render from EVENT_TAGS even at
+// zero use; customs surface top-first and the long tail is hidden — a
+// soft prune (nothing is deleted; retype to bring one back).
+
+export interface EventTagUsage extends EventTag {
+  kind: 'preset' | 'custom';
+  count: number;
+  /** ms epoch of last use, for recency tie-breaks. 0 if never. */
+  lastUsedMs: number;
+}
+
+const eventTagsCol = (familyId: string) =>
+  collection(db, 'families', familyId, 'eventTags');
+
+/** Stable doc id for a tag. Presets keep their builtin id; customs get a
+ *  'custom-' slug so re-typing the same label dedupes to one doc. */
+export function eventTagId(tag: EventTag): string {
+  if (tag.id && tag.id !== 'custom') return tag.id;
+  const slug = tag.label.toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return `custom-${slug || 'tag'}`;
+}
+
+/** Read the family's tag usage (small set — sorted client-side). */
+export async function listEventTagUsage(familyId: string): Promise<EventTagUsage[]> {
+  const snap = await getDocs(eventTagsCol(familyId));
+  return snap.docs.map((d) => {
+    const data = d.data() as Record<string, unknown>;
+    const lu = data.lastUsedAt as Timestamp | undefined;
+    return {
+      id: d.id,
+      emoji: (data.emoji as string) || CUSTOM_TAG_EMOJI,
+      label: (data.label as string) || d.id,
+      kind: data.kind === 'custom' ? 'custom' : 'preset',
+      count: typeof data.count === 'number' ? data.count : 0,
+      lastUsedMs: lu?.toMillis?.() ?? 0,
+    };
+  });
+}
+
+/** Bump a tag's usage when a moment is posted/edited with it. Upsert:
+ *  increment count + stamp lastUsedAt; each write refreshes emoji/label. */
+export async function recordEventTagUse(familyId: string, tag: EventTag): Promise<void> {
+  const id = eventTagId(tag);
+  const kind: 'preset' | 'custom' = id.startsWith('custom-') ? 'custom' : 'preset';
+  await setDoc(doc(eventTagsCol(familyId), id), {
+    emoji: tag.emoji,
+    label: tag.label,
+    kind,
+    count: increment(1),
+    lastUsedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+/** Merge presets (always shown) with stored usage, sort by frequency
+ *  then recency, and cap customs to the top `maxCustom` (soft prune). */
+export function rankedEventTags(usage: EventTagUsage[], maxCustom = 8): EventTag[] {
+  const byId = new Map(usage.map((u) => [u.id, u]));
+  const presets: EventTagUsage[] = EVENT_TAGS.map((p) => {
+    const u = byId.get(p.id);
+    return { ...p, kind: 'preset', count: u?.count ?? 0, lastUsedMs: u?.lastUsedMs ?? 0 };
+  });
+  const customs: EventTagUsage[] = usage
+    .filter((u) => u.kind === 'custom')
+    .sort((a, b) => b.count - a.count || b.lastUsedMs - a.lastUsedMs)
+    .slice(0, maxCustom);
+  return [...presets, ...customs]
+    .sort((a, b) => b.count - a.count || b.lastUsedMs - a.lastUsedMs)
+    .map((t) => ({ id: t.id, emoji: t.emoji, label: t.label }));
+}
 
 export type Visibility = 'family' | 'network';
 

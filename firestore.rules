@@ -877,6 +877,16 @@ service cloud.firestore {
         }
       }
 
+      // ── Moments · event tags (2026-05-23) ───────────────────────
+      // Per-family "When / What" chips with usage counts so the picker
+      // can float frequent ones forward + keep customs. Any family member
+      // can read + upsert (kids post moments too); count bumps via
+      // increment() on the same doc.
+      match /eventTags/{tagId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if belongsToFamily(familyId);
+      }
+
       // ── Moments · family photo feed ──────────────────────────────
       // Posts carry photos uploaded to Firebase Storage at
       // families/{f}/posts/{p}/{photoId}/{size}.jpg (see storage.rules).
