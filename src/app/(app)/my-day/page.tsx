@@ -244,6 +244,18 @@ function PremiumRow({ item, onTap }: { item: MyDayItem; onTap: (i: MyDayItem) =>
         <span className="block font-nunito font-extrabold text-[13px] truncate">{item.label}</span>
         <span className="block text-[11px] text-hive-muted truncate">{item.sublabel}</span>
       </span>
+      {(() => {
+        const a = approvalAge(item.createdAtMs);
+        if (!a) return null;
+        return (
+          <span
+            className="flex-shrink-0 text-[9px] font-black px-1.5 py-1 rounded-lg"
+            style={a.over ? { background: '#fde6e6', color: '#E85C5C' } : { background: '#F0EBE0', color: '#5C6975' }}
+          >
+            ⏱ {a.label}
+          </span>
+        );
+      })()}
       {item.badge && (
         <span className="flex-shrink-0 text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-wide" style={premiumBadge(item.badge)}>
           {item.badge}
@@ -252,6 +264,15 @@ function PremiumRow({ item, onTap }: { item: MyDayItem; onTap: (i: MyDayItem) =>
       {tappable && <ChevronRight size={15} className="text-hive-muted flex-shrink-0" />}
     </button>
   );
+}
+
+/** Days an approval has been waiting + whether it's past the 48h
+ *  standard (→ red). Only approval rows carry createdAtMs. */
+function approvalAge(createdAtMs?: number): { label: string; over: boolean } | null {
+  if (!createdAtMs) return null;
+  const hrs = (Date.now() - createdAtMs) / 3600000;
+  const days = Math.floor(hrs / 24);
+  return { label: days >= 1 ? `${days}d` : 'today', over: hrs >= 48 };
 }
 
 function todayLabel() {

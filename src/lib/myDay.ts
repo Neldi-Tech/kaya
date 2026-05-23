@@ -53,6 +53,15 @@ export interface MyDayItem {
   href?: string;         // tap target for link rows
   /** Workplan tick — present only on workplan Do rows. */
   tickItemId?: string;
+  /** Created-at (ms) for approval rows — drives the "days waiting" age
+   *  chip + recent-up sort. */
+  createdAtMs?: number;
+  /** Approval routing — present only on parent Approve rows, so the row
+   *  can offer inline Approve / Reject without leaving My Day. */
+  approval?: {
+    kind: 'purchase' | 'hive' | 'business';
+    requestId: string;
+  };
 }
 
 const PULSE_DONE: ReadonlyArray<PulseTask['status']> = ['logged', 'review', 'closed'];
@@ -348,6 +357,8 @@ export function useParentMyDay(
       sublabel: `${m.label} · ${moneyShort(r.estimatedTotalCents ?? 0, currency)}`,
       badge: r.status === 'pending_close' ? 'close' : 'approve',
       href: m.path,
+      createdAtMs: r.createdAt?.toMillis?.() ?? 0,
+      approval: { kind: 'purchase', requestId: r.id },
     });
   }
   for (const r of pending ?? []) {
@@ -361,8 +372,12 @@ export function useParentMyDay(
       sublabel: `${isBiz ? 'Business' : 'Hive'}${amt}`,
       badge: 'approve',
       href: isBiz ? '/parent/business' : '/parent/approvals',
+      createdAtMs: r.createdAt?.toMillis?.() ?? 0,
+      approval: { kind: isBiz ? 'business' : 'hive', requestId: r.id },
     });
   }
+  // Recent-up: newest approval first, unified across all sources.
+  approve.sort((a, b) => (b.createdAtMs ?? 0) - (a.createdAtMs ?? 0));
 
   const glanceDone = glance.reduce((s, g) => s + g.done, 0);
   const glanceTotal = glance.reduce((s, g) => s + g.total, 0);
