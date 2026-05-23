@@ -181,14 +181,25 @@ export default function PostDetailPage() {
             className="relative overflow-hidden rounded-kaya bg-kaya-warm-dark/20"
             style={{ aspectRatio: `${p.width} / ${p.height}` }}
           >
-            <a href={p.fullUrl} target="_blank" rel="noopener noreferrer" aria-label="Open full-size">
-              <img
-                src={p.feedUrl}
-                alt=""
-                className="absolute inset-0 w-full h-full object-cover"
-                loading="lazy"
+            {p.kind === 'video' && p.videoUrl ? (
+              <video
+                src={p.videoUrl}
+                poster={p.feedUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="absolute inset-0 w-full h-full object-contain bg-black"
               />
-            </a>
+            ) : (
+              <a href={p.fullUrl} target="_blank" rel="noopener noreferrer" aria-label="Open full-size">
+                <img
+                  src={p.feedUrl}
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover"
+                  loading="lazy"
+                />
+              </a>
+            )}
           </div>
         ))}
       </div>

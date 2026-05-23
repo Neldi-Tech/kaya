@@ -18,6 +18,14 @@ const FEED_EDGE = 1080;
 const FULL_EDGE = 2400;
 const JPEG_QUALITY = 0.85;
 
+// ── Video (2026-05-21) ─────────────────────────────────────────────
+// Stored as-is (no transcoding); a poster frame is grabbed in-browser so
+// the feed paints a still instantly. Caps keep Storage cost + upload time
+// bounded — a minute of phone video is ~50-100× a photo.
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024; // 100 MB
+export const MAX_VIDEO_SECONDS = 60;
+export const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
+
 export interface ProcessedPhoto {
   thumbBlob: Blob;
   feedBlob: Blob;
@@ -49,6 +57,106 @@ export async function processPhotoForUpload(file: File): Promise<ProcessedPhoto>
   ]);
 
   return { thumbBlob, feedBlob, fullBlob, width, height };
+}
+
+export interface ProcessedVideo {
+  videoBlob: Blob;
+  contentType: string;
+  durationSec: number;
+  /** Poster still (3 variants + dimensions) — same shape as a photo so
+   *  the existing upload + render paths paint it with zero changes. */
+  poster: ProcessedPhoto;
+}
+
+/** Validate a video + grab a poster frame, all client-side. The clip
+ *  itself is returned untouched (no transcoding in v1). Throws a
+ *  friendly message if the file is the wrong type / too big / too long. */
+export async function processVideoForUpload(file: File): Promise<ProcessedVideo> {
+  if (!file.type.startsWith('video/')) {
+    throw new Error('That doesn’t look like a video file.');
+  }
+  if (file.size > MAX_VIDEO_BYTES) {
+    throw new Error(`Video is too large — please keep it under ${Math.round(MAX_VIDEO_BYTES / 1024 / 1024)} MB.`);
+  }
+
+  const { video, url } = await loadVideo(file);
+  try {
+    const duration = video.duration;
+    if (isFinite(duration) && duration > MAX_VIDEO_SECONDS + 0.5) {
+      throw new Error(`Video is too long — please keep it under ${MAX_VIDEO_SECONDS} seconds.`);
+    }
+    const posterImg = await capturePosterImage(video);
+    const [thumbBlob, feedBlob, fullBlob] = await Promise.all([
+      resizeToBlob(posterImg, THUMB_EDGE),
+      resizeToBlob(posterImg, FEED_EDGE),
+      resizeToBlob(posterImg, FULL_EDGE),
+    ]);
+    return {
+      videoBlob: file,
+      contentType: file.type || 'video/mp4',
+      durationSec: isFinite(duration) ? Math.round(duration) : 0,
+      poster: {
+        thumbBlob, feedBlob, fullBlob,
+        width: posterImg.naturalWidth,
+        height: posterImg.naturalHeight,
+      },
+    };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function loadVideo(file: File): Promise<{ video: HTMLVideoElement; url: string }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    video.onloadedmetadata = () => resolve({ video, url });
+    video.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that video.')); };
+    video.src = url;
+  });
+}
+
+// Draw an early frame to a canvas → JPEG → HTMLImageElement we can feed
+// to the same resizer photos use. Falls back to a dark still if the
+// browser can't decode the frame (e.g. some iPhone HEVC clips elsewhere).
+async function capturePosterImage(video: HTMLVideoElement): Promise<HTMLImageElement> {
+  const seekTo = Math.min(0.1, (isFinite(video.duration) ? video.duration : 1) / 2);
+  await seekVideo(video, seekTo);
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 720;
+  canvas.height = video.videoHeight || 1280;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not read a video frame in this browser.');
+  try {
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  } catch {
+    ctx.fillStyle = '#1E120B';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+  return loadImageFromUrl(canvas.toDataURL('image/jpeg', JPEG_QUALITY));
+}
+
+function seekVideo(video: HTMLVideoElement, time: number): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => { if (settled) return; settled = true; video.removeEventListener('seeked', done); resolve(); };
+    video.addEventListener('seeked', done);
+    try { video.currentTime = time; } catch { done(); }
+    // Safety net — some browsers won't fire 'seeked' on a metadata-only load.
+    setTimeout(done, 1500);
+  });
+}
+
+function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not build the video poster.'));
+    img.src = url;
+  });
 }
 
 function loadImage(file: File): Promise<HTMLImageElement> {

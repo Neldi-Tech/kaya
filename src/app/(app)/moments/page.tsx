@@ -18,7 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   subscribeToFeed, toggleReaction, subscribeToMyReactions,
-  Post, REACTION_EMOJIS, Reaction,
+  Post, REACTION_EMOJIS, Reaction, formatDuration,
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -261,6 +261,18 @@ function PostCard({
               className="absolute inset-0 w-full h-full object-contain"
               loading="lazy"
             />
+            {photo.kind === 'video' && (
+              <Link
+                href={`/moments/${post.id}`}
+                className="absolute inset-0 flex items-center justify-center"
+                aria-label="Play video"
+              >
+                <span className="w-14 h-14 rounded-full bg-black/55 text-white flex items-center justify-center text-2xl pl-1">▶</span>
+                {photo.durationSec ? (
+                  <span className="absolute bottom-2 right-2 bg-black/65 text-white text-[10px] font-bold rounded px-2 py-0.5">{formatDuration(photo.durationSec)}</span>
+                ) : null}
+              </Link>
+            )}
           </div>
           {post.photos.length > 1 && (
             <>

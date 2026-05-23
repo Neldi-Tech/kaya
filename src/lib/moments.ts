@@ -72,6 +72,14 @@ export interface PhotoRef {
    *  feed doesn't reflow when each image finishes loading. */
   width: number;
   height: number;
+  /** Media kind (2026-05-21). Absent or `'photo'` = a still image
+   *  (every legacy post). `'video'` = thumb/feed/full above are the
+   *  POSTER frame and `videoUrl` is the playable clip. */
+  kind?: 'photo' | 'video';
+  /** Download URL of the stored clip — only when kind === 'video'. */
+  videoUrl?: string;
+  /** Clip length in whole seconds — drives the duration badge. */
+  durationSec?: number;
 }
 
 export interface Post {
@@ -134,6 +142,12 @@ function photoStoragePath(familyId: string, postId: string, photoId: string, siz
   return `families/${familyId}/posts/${postId}/${photoId}/${size}.jpg`;
 }
 
+/** Storage path for a video clip — nests under the same media id as its
+ *  poster (thumb/feed/full .jpg) so deleting the post cleans up both. */
+function videoStoragePath(familyId: string, postId: string, mediaId: string) {
+  return `families/${familyId}/posts/${postId}/${mediaId}/video`;
+}
+
 /** Upload one photo's three variants and return a PhotoRef ready to
  *  embed on the post doc. The caller is responsible for calling
  *  `processPhotoForUpload` first to get the blobs. */
@@ -164,6 +178,59 @@ export async function uploadProcessedPhoto(
     width: blobs.width,
     height: blobs.height,
   };
+}
+
+/** Upload a video clip + its poster (3 image variants) and return a
+ *  PhotoRef tagged `kind: 'video'`. The poster reuses the photo path so
+ *  the feed/hero — which paint feedUrl — show the still automatically;
+ *  `videoUrl` is the playable clip. Caller runs `processVideoForUpload`
+ *  first. No transcoding — the clip is stored as-is (v1). */
+export async function uploadProcessedVideo(
+  familyId: string,
+  postId: string,
+  data: {
+    poster: { thumbBlob: Blob; feedBlob: Blob; fullBlob: Blob; width: number; height: number };
+    videoBlob: Blob;
+    contentType: string;
+    durationSec: number;
+  },
+): Promise<PhotoRef> {
+  const mediaId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const refThumb = storageRef(storage, photoStoragePath(familyId, postId, mediaId, 'thumb'));
+  const refFeed = storageRef(storage, photoStoragePath(familyId, postId, mediaId, 'feed'));
+  const refFull = storageRef(storage, photoStoragePath(familyId, postId, mediaId, 'full'));
+  const refVideo = storageRef(storage, videoStoragePath(familyId, postId, mediaId));
+  await Promise.all([
+    uploadBytes(refThumb, data.poster.thumbBlob, { contentType: 'image/jpeg' }),
+    uploadBytes(refFeed, data.poster.feedBlob, { contentType: 'image/jpeg' }),
+    uploadBytes(refFull, data.poster.fullBlob, { contentType: 'image/jpeg' }),
+    uploadBytes(refVideo, data.videoBlob, { contentType: data.contentType }),
+  ]);
+  const [thumbUrl, feedUrl, fullUrl, videoUrl] = await Promise.all([
+    getDownloadURL(refThumb),
+    getDownloadURL(refFeed),
+    getDownloadURL(refFull),
+    getDownloadURL(refVideo),
+  ]);
+  return {
+    id: mediaId,
+    thumbUrl,
+    feedUrl,
+    fullUrl,
+    width: data.poster.width,
+    height: data.poster.height,
+    kind: 'video',
+    videoUrl,
+    durationSec: data.durationSec,
+  };
+}
+
+/** "1:05" / "0:18" for a clip length in seconds. Empty string for 0. */
+export function formatDuration(sec?: number): string {
+  if (!sec || sec <= 0) return '';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
 }
 
 // ── Post CRUD ────────────────────────────────────────────────────
@@ -326,6 +393,9 @@ export async function deletePost(familyId: string, post: Post): Promise<void> {
     void deleteObject(storageRef(storage, photoStoragePath(familyId, post.id, photo.id, 'thumb'))).catch(() => {});
     void deleteObject(storageRef(storage, photoStoragePath(familyId, post.id, photo.id, 'feed'))).catch(() => {});
     void deleteObject(storageRef(storage, photoStoragePath(familyId, post.id, photo.id, 'full'))).catch(() => {});
+    if (photo.kind === 'video') {
+      void deleteObject(storageRef(storage, videoStoragePath(familyId, post.id, photo.id))).catch(() => {});
+    }
   }
 }
 
