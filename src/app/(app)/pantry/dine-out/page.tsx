@@ -4,30 +4,25 @@
 //
 // Eating out is parent-logged as a single amount — no itemised basket,
 // no approve/reconcile ceremony. We create a draft then post it straight
-// to budget (closed) so it rolls up into Budget / Pulse / Finances like
-// any other module. A live budget meter shows the month's Dine Out
-// balance + what's left after this entry, so the parent stays aware.
+// to budget (closed) so it rolls up into Budget / Pulse / Finances. The
+// shared <BudgetBalanceMeter> shows the month's Dine Out balance + what's
+// left after this entry, so the parent stays aware.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  type PurchaseRequest,
   DINE_OUT_CATEGORIES, type DineOutCategory,
-  createDraftRequest, postDraftToBudget, subscribeToRecentRequests,
+  createDraftRequest, postDraftToBudget,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
+import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
 import BackButton from '@/components/ui/BackButton';
-
-const monthKeyOf = (d: Date = new Date()) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
 export default function DineOutPage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
-  const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
 
@@ -36,7 +31,6 @@ export default function DineOutPage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
-  const [recent, setRecent] = useState<PurchaseRequest[]>([]);
 
   // Parent-only surface — bounce helpers back to the Pantry home.
   useEffect(() => {
@@ -44,35 +38,7 @@ export default function DineOutPage() {
     if (profile.role !== 'parent') router.replace('/pantry');
   }, [profile, router]);
 
-  useEffect(() => {
-    if (!profile?.familyId || profile.role !== 'parent') return;
-    return subscribeToRecentRequests(profile.familyId, setRecent);
-  }, [profile?.familyId, profile?.role]);
-
-  const thisMonth = monthKeyOf();
-  const spentCents = useMemo(() => recent
-    .filter((r) => r.module === 'dineOut' && r.status === 'closed')
-    .filter((r) => { const at = r.closedAt?.toDate?.(); return !!at && monthKeyOf(at) === thisMonth; })
-    .reduce((acc, r) => acc + (r.actualTotalCents ?? r.estimatedTotalCents ?? 0), 0),
-    [recent, thisMonth]);
-
-  const capCents = family?.householdBudgets?.dineOut ?? 0;
   const amountCents = Math.max(0, Math.round((parseFloat(amount) || 0) * 100));
-  const leftCents = capCents - spentCents;
-  const afterCents = leftCents - amountCents;
-  const hasCap = capCents > 0;
-  const tone: 'ok' | 'warn' | 'over' =
-    !hasCap ? 'ok'
-    : afterCents < 0 ? 'over'
-    : spentCents / capCents >= 0.85 ? 'warn'
-    : 'ok';
-  const pct = hasCap ? Math.min(100, Math.round((spentCents / capCents) * 100)) : 0;
-  const tones = {
-    ok:   { card: 'bg-[#EDF8F0] border-[#9FD3BB]', lab: 'text-pantry-leaf-dk', fill: 'bg-pantry-leaf' },
-    warn: { card: 'bg-[#FFF3D9] border-hive-honey', lab: 'text-hive-honey-dk', fill: 'bg-hive-honey' },
-    over: { card: 'bg-[#FCEAEA] border-[#E8B5B5]', lab: 'text-hive-rose',      fill: 'bg-hive-rose' },
-  }[tone];
-
   const canSave = amountCents > 0 && !saving && !isGuest;
 
   const save = async () => {
@@ -142,28 +108,8 @@ export default function DineOutPage() {
           className="mt-3 w-full border border-hive-line rounded-hive px-3 py-2 text-sm font-bold"
         />
 
-        {/* Live budget meter — the awareness piece. */}
-        <div className={`mt-4 rounded-hive border ${tones.card} p-3`}>
-          {hasCap ? (
-            <>
-              <div className="flex items-baseline justify-between">
-                <span className={`text-[9px] font-nunito font-black uppercase tracking-wider ${tones.lab}`}>Dine Out · this month</span>
-                <span className="font-nunito font-black text-sm">{formatCents(Math.max(0, leftCents), currency)} left</span>
-              </div>
-              <div className="h-2 rounded-full bg-white mt-2 overflow-hidden border border-black/5">
-                <div className={`h-full rounded-full ${tones.fill}`} style={{ width: `${pct}%` }} />
-              </div>
-              <div className="text-[10px] text-hive-muted mt-1.5">
-                {formatCents(spentCents, currency)} of {formatCents(capCents, currency)} spent
-                {amountCents > 0 && (
-                  <> · <span className="font-bold text-hive-navy">after this: {afterCents < 0 ? `${formatCents(-afterCents, currency)} over ⚠` : `${formatCents(afterCents, currency)} left`}</span></>
-                )}
-              </div>
-            </>
-          ) : (
-            <p className="text-[11px] text-hive-muted">No Dine Out budget set yet — <a href="/pantry/budget/compose/dineOut" className="font-bold text-[#C2562E] underline">set a cap</a> to track the balance here.</p>
-          )}
-        </div>
+        {/* Live budget meter — the awareness piece (shared component). */}
+        <BudgetBalanceMeter module="dineOut" pendingAmountCents={amountCents} className="mt-4" />
 
         <button
           type="button" onClick={save} disabled={!canSave}
