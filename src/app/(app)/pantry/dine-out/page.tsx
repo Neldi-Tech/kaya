@@ -29,6 +29,7 @@ import { createPost, type PhotoRef } from '@/lib/moments';
 import { formatCents } from '@/components/pantry/format';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
 import BackButton from '@/components/ui/BackButton';
+import VenueSheet from '@/components/pantry/VenueSheet';
 
 const DINE = '#C2562E';
 const MAX_PHOTOS = 6;
@@ -61,7 +62,8 @@ export default function DineOutPage() {
 
   const [venues, setVenues] = useState<Venue[]>([]);
   const [placesFilter, setPlacesFilter] = useState<'all' | 'diamond' | 'top' | DineOutCategory>('all');
-  const [lightbox, setLightbox] = useState<{ photos: PhotoRef[]; i: number } | null>(null);
+  const [sheetVenue, setSheetVenue] = useState<Venue | null>(null);
+  const [noteBusy, setNoteBusy] = useState(false);
 
   // Keep a ref so the AI-search effect can check saved venues without
   // re-firing on every venue-list snapshot.
@@ -182,6 +184,8 @@ export default function DineOutPage() {
           spentCents: amountCents,
           subTag: tag, emoji: effectiveEmoji,
           newPhotos: refs,
+          note: note.trim(),
+          byName: profile.displayName,
         });
         // Optional: also share the photos to the family Moments feed.
         if (shareToMoments && refs.length) {
@@ -231,12 +235,27 @@ export default function DineOutPage() {
     });
   }, [venues, placesFilter]);
 
-  // Lightbox navigation
-  const lbStep = (d: number) => setLightbox((lb) => {
-    if (!lb) return lb;
-    const n = lb.photos.length;
-    return { ...lb, i: (lb.i + d + n) % n };
-  });
+  // AI: help write the note (the "occasion"). Polishes a draft or
+  // suggests one from venue + highlights + rating. No-ops gracefully if
+  // the route is unconfigured (returns an empty note → we keep theirs).
+  const canSuggestNote = !noteBusy && !!(venue.trim() || note.trim() || highlights.length);
+  const suggestNote = async () => {
+    if (!canSuggestNote) return;
+    setNoteBusy(true);
+    try {
+      const res = await fetch('/api/dineout-note', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ venue: venue.trim(), highlights, stars, tag: tagLabel, draft: note.trim() }),
+      });
+      const data = await res.json();
+      if (typeof data?.note === 'string' && data.note.trim()) setNote(data.note.trim());
+    } catch {
+      /* keep the user's note as-is on failure */
+    } finally {
+      setNoteBusy(false);
+    }
+  };
 
   if (profile && profile.role !== 'parent') return null;
 
@@ -359,12 +378,22 @@ export default function DineOutPage() {
           </div>
         </div>
 
-        {/* Optional note */}
-        <input
-          type="text" value={note} onChange={(e) => setNote(e.target.value)} maxLength={80}
-          placeholder="Optional note · e.g. birthday dinner"
-          className="mt-3 w-full border border-hive-line rounded-hive px-3 py-2 text-sm font-bold"
-        />
+        {/* Optional note + AI help */}
+        <div className="mt-3 flex items-center gap-2 border border-hive-line rounded-hive px-3 py-2 focus-within:border-[#C2562E]">
+          <input
+            type="text" value={note} onChange={(e) => setNote(e.target.value)} maxLength={80}
+            placeholder="Optional note · e.g. birthday dinner"
+            className="flex-1 bg-transparent text-sm font-bold focus:outline-none w-full"
+          />
+          <button
+            type="button" onClick={suggestNote} disabled={!canSuggestNote}
+            title="Help me write this note"
+            className="flex-shrink-0 text-[11px] font-nunito font-black px-2.5 py-1 rounded-full border transition-colors disabled:opacity-40"
+            style={{ borderColor: '#E8C3AE', background: '#FBEAE0', color: DINE }}
+          >
+            {noteBusy ? '…' : '✨ Help'}
+          </button>
+        </div>
 
         {/* Photos — stay with this place; optionally share to Moments */}
         {venue.trim() && (
@@ -449,11 +478,11 @@ export default function DineOutPage() {
           </div>
           <div className="flex flex-col gap-2">
             {filteredVenues.map((v) => (
-              <div
-                key={v.id}
-                className="bg-hive-paper border border-hive-line rounded-hive p-3 hover:border-[#C2562E] transition-colors"
+              <button
+                key={v.id} type="button" onClick={() => setSheetVenue(v)}
+                className="bg-hive-paper border border-hive-line rounded-hive p-3 hover:border-[#C2562E] transition-colors text-left w-full"
               >
-                <button type="button" onClick={() => pickVenue(v)} className="w-full flex items-center gap-3 text-left">
+                <div className="flex items-center gap-3">
                   <span className="text-2xl flex-shrink-0">{v.emoji || '🍽️'}</span>
                   <div className="flex-1 min-w-0">
                     <div className="font-nunito font-extrabold text-sm text-hive-navy truncate flex items-center gap-1.5">
@@ -465,26 +494,20 @@ export default function DineOutPage() {
                       {v.avgStars > 0 && ' · '}{v.count} visit{v.count === 1 ? '' : 's'}
                       {v.count > 0 && ` · ~${formatCents(Math.round(v.totalSpentCents / v.count), currency)}`}
                       {v.highlights.length > 0 && ` · ${v.highlights.slice(0, 2).join(', ')}`}
+                      {v.photos && v.photos.length > 0 && ` · 📷 ${v.photos.length}`}
                     </div>
                   </div>
-                  <span className="text-[11px] font-nunito font-extrabold flex-shrink-0" style={{ color: DINE }}>Use →</span>
-                </button>
+                  <span className="text-[11px] font-nunito font-extrabold flex-shrink-0" style={{ color: DINE }}>Open →</span>
+                </div>
                 {v.photos && v.photos.length > 0 && (
                   <div className="mt-2 flex gap-1.5 overflow-x-auto pb-0.5">
-                    {v.photos.slice(0, 8).map((p, i) => (
-                      <button
-                        key={p.id} type="button"
-                        onClick={() => setLightbox({ photos: v.photos!, i })}
-                        className="flex-shrink-0"
-                        aria-label={`Photo from ${v.name}`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={p.thumbUrl} alt="" loading="lazy" className="w-14 h-14 rounded-lg object-cover border border-hive-line" />
-                      </button>
+                    {v.photos.slice(0, 8).map((p) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={p.id} src={p.thumbUrl} alt="" loading="lazy" className="w-14 h-14 rounded-lg object-cover border border-hive-line flex-shrink-0" />
                     ))}
                   </div>
                 )}
-              </div>
+              </button>
             ))}
             {filteredVenues.length === 0 && (
               <p className="text-[12px] text-hive-muted italic text-center py-3">No places match this filter.</p>
@@ -494,41 +517,14 @@ export default function DineOutPage() {
         )}
       </div>
 
-      {/* ── Photo lightbox ─────────────────────────────────────── */}
-      {lightbox && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setLightbox(null)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lightbox.photos[lightbox.i].fullUrl || lightbox.photos[lightbox.i].feedUrl}
-            alt=""
-            className="max-h-[85vh] max-w-full rounded-lg shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            type="button" onClick={() => setLightbox(null)} aria-label="Close"
-            className="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/90 text-hive-navy text-lg font-black flex items-center justify-center"
-          >✕</button>
-          {lightbox.photos.length > 1 && (
-            <>
-              <button
-                type="button" aria-label="Previous"
-                onClick={(e) => { e.stopPropagation(); lbStep(-1); }}
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 text-hive-navy text-2xl font-black flex items-center justify-center"
-              >‹</button>
-              <button
-                type="button" aria-label="Next"
-                onClick={(e) => { e.stopPropagation(); lbStep(1); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 text-hive-navy text-2xl font-black flex items-center justify-center"
-              >›</button>
-              <span className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/90 text-xs font-bold">
-                {lightbox.i + 1} / {lightbox.photos.length}
-              </span>
-            </>
-          )}
-        </div>
+      {/* Venue detail sheet — open & browse the history before re-using */}
+      {sheetVenue && (
+        <VenueSheet
+          venue={sheetVenue}
+          currency={currency}
+          onClose={() => setSheetVenue(null)}
+          onUse={pickVenue}
+        />
       )}
     </div>
   );

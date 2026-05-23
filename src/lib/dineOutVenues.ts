@@ -19,7 +19,23 @@ import { db, storage } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { PhotoRef } from './moments';
 
-export interface VenueRating { stars: number; diamond: boolean }
+export interface VenueRating { stars: number; diamond: boolean; name?: string }
+
+/** One logged visit — the per-visit history (occasion, what was eaten,
+ *  who, when, spend). Aggregates on the Venue summarise across these;
+ *  this array is the "historicals" you scroll. Capped to the most
+ *  recent MAX_VENUE_VISITS. `atMs` is a client epoch (serverTimestamp
+ *  can't be written inside an array element). */
+export interface VenueVisit {
+  atMs: number;
+  byUid: string;
+  byName?: string;
+  stars: number;
+  diamond: boolean;
+  note?: string;          // the "occasion"
+  highlights?: string[];  // what was eaten / liked, this visit
+  spentCents: number;
+}
 
 export interface Venue {
   id: string;            // slug of the name
@@ -41,11 +57,16 @@ export interface Venue {
    *  them. Stored under a venue-specific Storage path (see
    *  uploadVenuePhoto). Optionally also shared to the Moments feed. */
   photos?: PhotoRef[];
+  /** Per-visit history — newest last, capped. Empty for venues last
+   *  logged before this shipped (only the aggregates above exist then). */
+  visits?: VenueVisit[];
   lastVisitAt?: Timestamp;
 }
 
 /** Max photos kept on a venue doc (keeps the doc small + the strip tidy). */
 const MAX_VENUE_PHOTOS = 30;
+/** Max per-visit history rows kept on a venue doc. */
+const MAX_VENUE_VISITS = 50;
 
 const venuesCol = (familyId: string) =>
   collection(db, 'families', familyId, 'venues');
@@ -123,6 +144,8 @@ export async function recordVenueVisit(
     subTag?: string;
     emoji?: string;
     newPhotos?: PhotoRef[];
+    note?: string;
+    byName?: string;
   },
 ): Promise<void> {
   if (isGuestActive()) return;
@@ -133,10 +156,15 @@ export async function recordVenueVisit(
   const snap = await getDoc(ref);
   const prev = snap.exists() ? (snap.data() as Venue) : null;
 
+  const stars = Math.max(0, Math.min(5, Math.round(args.stars || 0)));
+  const cleanHighlights = (args.highlights ?? []).map((h) => h.trim()).filter(Boolean);
+  const note = args.note?.trim() || undefined;
+
   const ratings: Record<string, VenueRating> = { ...(prev?.ratings ?? {}) };
   ratings[args.parentUid] = {
-    stars: Math.max(0, Math.min(5, Math.round(args.stars || 0))),
+    stars,
     diamond: !!args.diamond,
+    ...(args.byName ? { name: args.byName } : prev?.ratings?.[args.parentUid]?.name ? { name: prev.ratings[args.parentUid].name } : {}),
   };
   const starVals = Object.values(ratings).map((r) => r.stars).filter((s) => s > 0);
   const avgStars = starVals.length
@@ -146,7 +174,7 @@ export async function recordVenueVisit(
   const diamond = Object.values(ratings).filter((r) => r.diamond).length >= 2;
   const highlights = Array.from(new Set([
     ...(prev?.highlights ?? []),
-    ...(args.highlights ?? []).map((h) => h.trim()).filter(Boolean),
+    ...cleanHighlights,
   ])).slice(0, 16);
 
   // Carry existing photos forward (full setDoc would otherwise drop them)
@@ -155,6 +183,19 @@ export async function recordVenueVisit(
     ...(prev?.photos ?? []),
     ...(args.newPhotos ?? []),
   ].slice(-MAX_VENUE_PHOTOS);
+
+  // Append this visit to the per-visit history (newest last, capped).
+  const visit: VenueVisit = {
+    atMs: Date.now(),
+    byUid: args.parentUid,
+    ...(args.byName ? { byName: args.byName } : {}),
+    stars,
+    diamond: !!args.diamond,
+    ...(note ? { note } : {}),
+    ...(cleanHighlights.length ? { highlights: cleanHighlights } : {}),
+    spentCents: Math.max(0, args.spentCents ?? 0),
+  };
+  const visits = [...(prev?.visits ?? []), visit].slice(-MAX_VENUE_VISITS);
 
   const subTag = args.subTag ?? prev?.subTag;
   await setDoc(ref, {
@@ -169,6 +210,7 @@ export async function recordVenueVisit(
     diamond,
     highlights,
     ...(photos.length ? { photos } : {}),
+    visits,
     lastVisitAt: serverTimestamp(),
   });
 }
