@@ -6,14 +6,18 @@
 // (see lib/myDay.ts). Phase 3 of "My Day + Kids' Workplan"; parent +
 // helper My Day land in Phase 4, and Phase 5 promotes this to Home.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import { useKidMyDay, useParentMyDay, useReminders, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
-import { ChevronRight } from 'lucide-react';
+import { addKidWorkplanItem } from '@/lib/kidWorkplan';
+import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
+import { listHelpers } from '@/lib/helpers';
+import type { WorkplanPeriod } from '@/lib/firestore';
+import { ChevronRight, Plus } from 'lucide-react';
 
 const JOY = { purple: '#9B5DE5', green: '#6BCB77', coral: '#FF6B6B', yellow: '#FFD93D', ink: '#2D1B5E', border: '#F0E8FF' };
 
@@ -254,6 +258,16 @@ function todayLabel() {
   return new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
+/** Map an optional clock time to a helper Workplan period (helpers use
+ *  morning/anytime/evening buckets, not a clock anchor). */
+function timeToPeriod(hhmm: string): WorkplanPeriod {
+  const h = parseInt(hhmm.split(':')[0] ?? '', 10);
+  if (Number.isNaN(h)) return 'anytime';
+  if (h < 12) return 'morning';
+  if (h < 17) return 'anytime';
+  return 'evening';
+}
+
 function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; name: string }) {
   const router = useRouter();
   const reminders = useReminders(familyId, uid);
@@ -294,6 +308,57 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
     useParentMyDay(familyId, parentUid, kids, currency);
   const onTap = (i: MyDayItem) => { if (i.href) router.push(i.href); };
 
+  // Quick "add a task" — drop a one-off (today) onto a kid or helper
+  // straight from My Day; refine recurrence/points later in the full
+  // editors. Kids → addKidWorkplanItem (adhoc); helpers → addAdhocWorkplanItem.
+  const [helpers, setHelpers] = useState<{ uid: string; name: string }[]>([]);
+  useEffect(() => {
+    let alive = true;
+    listHelpers(familyId)
+      .then((hs) => { if (alive) setHelpers(hs.filter((h) => h.status !== 'removed').map((h) => ({ uid: h.uid, name: h.displayName || 'Helper' }))); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [familyId]);
+
+  const [addOpen, setAddOpen] = useState(false);
+  const [target, setTarget] = useState<{ type: 'kid' | 'helper'; id: string; name: string } | null>(null);
+  const [taskLabel, setTaskLabel] = useState('');
+  const [taskEmoji, setTaskEmoji] = useState('');
+  const [taskTime, setTaskTime] = useState('');
+  const [addBusy, setAddBusy] = useState(false);
+  const [addFlash, setAddFlash] = useState<string | null>(null);
+
+  const submitQuickTask = async () => {
+    if (!target || !taskLabel.trim() || addBusy) return;
+    setAddBusy(true);
+    const label = taskLabel.trim();
+    const icon = taskEmoji.trim() || '⭐';
+    const today = todayDateString();
+    try {
+      if (target.type === 'kid') {
+        await addKidWorkplanItem(familyId, target.id, {
+          label, icon, category: 'other', daysOfWeek: [], active: true,
+          createdBy: parentUid, kind: 'adhoc', scheduledDates: [today],
+          ...(taskTime ? { timeLocal: taskTime } : {}),
+        });
+      } else {
+        await addAdhocWorkplanItem(familyId, target.id, {
+          label, icon,
+          period: taskTime ? timeToPeriod(taskTime) : 'anytime',
+          scheduledDates: [today],
+          assignedBy: parentUid,
+        });
+      }
+      setAddFlash(`Added “${label}” to ${target.name}'s day`);
+      setTimeout(() => setAddFlash(null), 3500);
+      setTarget(null); setTaskLabel(''); setTaskEmoji(''); setTaskTime('');
+      setAddOpen(false);
+    } catch {
+      setAddFlash('Could not add — try again.');
+      setTimeout(() => setAddFlash(null), 3500);
+    } finally { setAddBusy(false); }
+  };
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
@@ -314,6 +379,63 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
           )}
         </div>
       </div>
+
+      {/* Quick add — assign a one-off task to a kid or helper, today */}
+      {addFlash && (
+        <div className="mb-3 rounded-hive bg-green-50 border border-green-300 text-green-800 text-[12px] font-extrabold px-3 py-2">✓ {addFlash}</div>
+      )}
+      {addOpen ? (
+        <div className="rounded-hive-lg border-2 p-3 mb-4" style={{ borderColor: GOLD, background: '#FFFDF7' }}>
+          <p className="font-nunito font-black text-[13px] mb-2" style={{ color: NAVY }}>Add a task for today</p>
+          <p className="text-[10px] font-black uppercase tracking-wider text-hive-muted mb-1">Who</p>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {kids.map((k) => {
+              const on = target?.type === 'kid' && target.id === k.id;
+              return (
+                <button key={`k-${k.id}`} type="button"
+                  onClick={() => setTarget({ type: 'kid', id: k.id, name: k.name })}
+                  className={`text-[12px] font-bold rounded-hive-pill px-3 py-1.5 border ${on ? 'text-white border-transparent' : 'bg-white border-hive-line text-hive-navy'}`}
+                  style={on ? { background: NAVY } : {}}>🧒 {k.name}</button>
+              );
+            })}
+            {helpers.map((h) => {
+              const on = target?.type === 'helper' && target.id === h.uid;
+              return (
+                <button key={`h-${h.uid}`} type="button"
+                  onClick={() => setTarget({ type: 'helper', id: h.uid, name: h.name })}
+                  className={`text-[12px] font-bold rounded-hive-pill px-3 py-1.5 border ${on ? 'text-white border-transparent' : 'bg-white border-hive-line text-hive-navy'}`}
+                  style={on ? { background: NAVY } : {}}>🤝 {h.name}</button>
+              );
+            })}
+            {kids.length === 0 && helpers.length === 0 && (
+              <span className="text-[11px] text-hive-muted">No kids or helpers yet.</span>
+            )}
+          </div>
+          <div className="flex gap-2 mb-2">
+            <input value={taskEmoji} onChange={(e) => setTaskEmoji(e.target.value)} placeholder="⭐" maxLength={2}
+              className="w-12 text-center rounded-hive border border-hive-line px-2 py-2 text-[16px]" aria-label="Emoji" />
+            <input value={taskLabel} onChange={(e) => setTaskLabel(e.target.value)} placeholder="e.g. Tidy the playroom"
+              className="flex-1 min-w-0 rounded-hive border border-hive-line px-3 py-2 text-[13px] font-bold" aria-label="Task" />
+            <input value={taskTime} onChange={(e) => setTaskTime(e.target.value)} type="time"
+              className="rounded-hive border border-hive-line px-2 py-2 text-[12px]" aria-label="Time (optional)" />
+          </div>
+          <p className="text-[10px] text-hive-muted mb-3">One-off for <b>today</b>. Set recurrence / points later in the full Workplan editor.</p>
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setAddOpen(false); setTarget(null); setTaskLabel(''); setTaskEmoji(''); setTaskTime(''); }}
+              className="text-[12px] font-bold text-hive-muted px-2">Cancel</button>
+            <button onClick={submitQuickTask} disabled={!target || !taskLabel.trim() || addBusy}
+              className="h-9 px-4 rounded-hive-pill text-white font-nunito font-extrabold text-[12px] disabled:opacity-50" style={{ background: NAVY }}>
+              {addBusy ? 'Adding…' : 'Add task'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setAddOpen(true)}
+          className="w-full inline-flex items-center justify-center gap-1.5 h-11 rounded-hive-lg border-2 border-dashed mb-4 font-nunito font-extrabold text-[12px] hover:bg-hive-cream/40"
+          style={{ borderColor: GOLD, color: NAVY }}>
+          <Plus size={15} /> Add a task for a kid or helper
+        </button>
+      )}
 
       {loading ? (
         <p className="text-center text-[13px] text-hive-muted py-8">Loading…</p>
