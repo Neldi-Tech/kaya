@@ -32,7 +32,15 @@ export default function PulseTodayPage() {
   const { profile } = useAuth();
   const { children: kids } = useFamily();
   const isOwnerRole = profile?.role === 'kid' || profile?.role === 'helper';
-  const ownerId = profile?.role === 'kid' ? profile.childId ?? '' : profile?.uid ?? '';
+  // A kid's profile.childId can be empty/missing on some logins; treat empty as
+  // absent (|| not ??) and recover by matching their sign-in email to a child
+  // record — mirrors the New Business owner resolution. Non-kids own by uid.
+  const myChildId = profile?.childId?.trim() || '';
+  const myEmail = profile?.email?.trim().toLowerCase() || '';
+  const emailKidId = (profile?.role === 'kid' && !myChildId && myEmail)
+    ? (kids.find((k) => (k.emailLower || k.email?.toLowerCase() || '') === myEmail)?.id || '')
+    : '';
+  const ownerId = profile?.role === 'kid' ? (myChildId || emailKidId) : (profile?.uid ?? '');
   const firstName = profile?.role === 'kid' ? (kids.find((k) => k.id === ownerId)?.name?.split(' ')[0] ?? '') : '';
   const dayKey = useMemo(() => dayKeyInTZ(new Date(), PULSE_TZ), []);
 
