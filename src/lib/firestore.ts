@@ -258,19 +258,7 @@ export interface Family {
   /** Structured budget breakdowns — line items in their natural
    *  cadence (day/week/month/year), normalized to monthly on save.
    *  See `src/lib/budgetComposer.ts` for shape + helpers. (2026-05-19) */
-  budgetComposer?: {
-    pantry?: { lines: import('./budgetComposer').BudgetLine[] };
-    outdoor?: { lines: import('./budgetComposer').BudgetLine[] };
-    drivers?: {
-      perVehicle?: Record<string, { lines: import('./budgetComposer').BudgetLine[] }>;
-      other?: { lines: import('./budgetComposer').BudgetLine[] };
-    };
-    utility?: { perMeter?: Record<string, import('./budgetComposer').BudgetLine> };
-    payroll?: {
-      perHelper?: Record<string, { monthlySalaryCents: number }>;
-      other?: { lines: import('./budgetComposer').BudgetLine[] };
-    };
-  };
+  budgetComposer?: import('./budgetComposer').BudgetComposer;
   /** Per-module carry-forward balance from prior closed requests
    *  where the parent chose "keep as balance" on the savings decision.
    *  Applied as a credit on the NEXT request in the same module
