@@ -559,6 +559,7 @@ export default function EditMomentPage() {
           value={eventTag}
           onChange={setEventTag}
           disabled={saving}
+          caption={caption}
         />
       </div>
 
