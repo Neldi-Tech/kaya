@@ -24,6 +24,7 @@ import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import {
   type PulseReading, type Trackable,
   subscribeToReadingsInMonth, subscribeToTrackables,
+  projectMonthSpendCents,
 } from '@/lib/pulse';
 
 const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll'];
@@ -92,11 +93,15 @@ export default function PulseDashboardPage() {
   }
 
   const { totalSpent, totalCap, per } = cash;
-  const savings = Math.max(0, totalCap - totalSpent);
   const pct = totalCap > 0 ? Math.min(100, Math.round((totalSpent / totalCap) * 100)) : 0;
   const now = new Date();
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  // Run-rate: scale spend-so-far to the full month, then project savings
+  // vs cap (replaces the naive cap−spent, which over-promised early in
+  // the month). §2a.
+  const projectedSpend = projectMonthSpendCents(totalSpent, dayOfMonth, daysInMonth);
+  const projectedSavings = totalCap - projectedSpend;
 
   const buckets = LIVE_MODULES
     .map((m) => ({ m, ...per[m] }))
@@ -119,7 +124,10 @@ export default function PulseDashboardPage() {
           {totalCap > 0 ? (
             <>
               <div className="text-[12px] opacity-90 mt-1">
-                {savings > 0 ? `On pace to save ${formatCentsBudgetNeat(savings, currency)}` : 'Over cap this month'}
+                {projectedSavings >= 0
+                  ? `On track to save ${formatCentsBudgetNeat(projectedSavings, currency)}`
+                  : `Trending ${formatCentsBudgetNeat(-projectedSavings, currency)} over cap`}
+                <span className="opacity-70"> · run-rate</span>
               </div>
               <div className="h-2 bg-white/20 rounded-full mt-3 overflow-hidden">
                 <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#D4A847' }} />
@@ -150,7 +158,7 @@ export default function PulseDashboardPage() {
             const over = b.cap > 0 && b.spent > b.cap;
             const bpct = b.cap > 0 ? Math.min(100, Math.round((b.spent / b.cap) * 100)) : 0;
             return (
-              <div key={b.m} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3">
+              <Link key={b.m} href={`/pulse/bucket/${b.m}`} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40">
                 <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{MODULE_EMOJI[b.m]}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-nunito font-black text-sm text-pulse-navy">{MODULE_LABEL[b.m]}</div>
@@ -161,7 +169,8 @@ export default function PulseDashboardPage() {
                 {b.cap > 0 && (
                   <span className={`text-[9px] font-black px-2 py-1 rounded-lg ${over ? 'bg-[#fde6e6] text-pulse-coral' : 'bg-[#e3f2e6] text-pulse-green'}`}>{bpct}%</span>
                 )}
-              </div>
+                <span className="text-pulse-gold-dk text-sm">›</span>
+              </Link>
             );
           })}
         </div>
