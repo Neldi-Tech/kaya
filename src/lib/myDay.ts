@@ -357,7 +357,9 @@ export function useParentMyDay(
       label: r.name || `${m.label} request`,
       sublabel: `${m.label} · ${moneyShort(r.estimatedTotalCents ?? 0, currency)}`,
       badge: r.status === 'pending_close' ? 'close' : 'approve',
-      href: m.path,
+      // Deep-link straight to the request detail (Approve/Reject live
+      // there) — not the module list, which was a 2nd click away.
+      href: `/pantry/purchase/${r.id}`,
       createdAtMs: r.createdAt?.toMillis?.() ?? 0,
       approval: { kind: 'purchase', requestId: r.id },
     });
