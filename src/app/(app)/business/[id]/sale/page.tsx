@@ -1,10 +1,11 @@
 'use client';
 
-// Kaya Business · Log a sale (kid screen 5). Smart entry: pick the product from
-// your inventory (price pre-fills from its usual price), set qty + price — with
-// "% vs your last price" coaching — pick who bought (family or a relative), and
-// the payment method. A paid sale sweeps into the Honey Pot (Treasury) and
-// reduces that product's stock. See logSale in business.ts.
+// Kaya Business · Log a sale (kid screen 5). Multi-line cart: tap products to
+// add lines (price pre-fills from the usual price, editable), set qty per line
+// with "% vs your last price" coaching, see a running total, and add an
+// optional Tip if the buyer offers one. Pick who bought + how they paid (shared
+// across the cart). Each paid line — and the tip — sweeps into the Honey Pot
+// (Treasury) and reduces that product's stock. See logSale in business.ts.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -18,12 +19,18 @@ import {
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
 
-const QTY_CHIPS = [1, 2, 3, 5, 10];
 const PAY: Array<{ k: PaymentMethod; label: string }> = [
   { k: 'cash', label: 'Cash' },
   { k: 'hive_transfer', label: 'Hive transfer' },
   { k: 'iou', label: 'Owe me (IOU)' },
 ];
+
+const toCents = (s: string): number => {
+  const n = parseFloat((s || '').replace(/,/g, ''));
+  return Number.isNaN(n) ? 0 : Math.round(n * 100);
+};
+
+interface CartLine { itemId: string; qty: number; price: string }
 
 export default function LogSalePage() {
   const params = useParams();
@@ -37,9 +44,8 @@ export default function LogSalePage() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [items, setItems] = useState<BusinessItem[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
-  const [itemId, setItemId] = useState<string>('');
-  const [qty, setQty] = useState(1);
-  const [price, setPrice] = useState('');
+  const [lines, setLines] = useState<CartLine[]>([]);
+  const [tip, setTip] = useState('');
   // Customer: a family chip / Mum / Dad, OR "Other" → relative/friend + name.
   const [customer, setCustomer] = useState('');
   const [otherOpen, setOtherOpen] = useState(false);
@@ -62,42 +68,68 @@ export default function LogSalePage() {
   const canAct = isParent || isOwner;
 
   const sellable = items.filter((i) => i.kind === 'stock' && !i.loss);
-  const selected = sellable.find((i) => i.id === itemId) || null;
+  const itemById = useMemo(() => new Map(sellable.map((i) => [i.id, i])), [sellable]);
+  const capFor = (it: BusinessItem) => (it.instantStock ? Infinity : Math.max(0, it.qty || 0));
 
-  // Pick a product → pre-fill its usual price + unit.
-  const selectProduct = (it: BusinessItem) => {
-    setItemId(it.id);
-    if (typeof it.unitMarketCents === 'number' && it.unitMarketCents > 0) setPrice((it.unitMarketCents / 100).toString());
+  // Tap a product → add a line (auto-price from its usual price) or bump qty.
+  const addProduct = (it: BusinessItem) => {
+    setError('');
+    setLines((prev) => {
+      const existing = prev.find((l) => l.itemId === it.id);
+      if (existing) {
+        const cap = capFor(it);
+        return prev.map((l) => l.itemId === it.id ? { ...l, qty: Math.min(cap, l.qty + 1) } : l);
+      }
+      const auto = typeof it.unitMarketCents === 'number' && it.unitMarketCents > 0 ? (it.unitMarketCents / 100).toString() : '';
+      return [...prev, { itemId: it.id, qty: 1, price: auto }];
+    });
   };
+  const setQty = (itemId: string, qty: number) => {
+    const it = itemById.get(itemId);
+    const cap = it ? capFor(it) : Infinity;
+    setLines((prev) => prev.map((l) => l.itemId === itemId ? { ...l, qty: Math.max(1, Math.min(cap, qty)) } : l));
+  };
+  const setPrice = (itemId: string, price: string) =>
+    setLines((prev) => prev.map((l) => l.itemId === itemId ? { ...l, price } : l));
+  const removeLine = (itemId: string) =>
+    setLines((prev) => prev.filter((l) => l.itemId !== itemId));
 
-  const unitCents = useMemo(() => {
-    const n = parseFloat(price.replace(/,/g, ''));
-    return Number.isNaN(n) ? 0 : Math.round(n * 100);
-  }, [price]);
-  const totalCents = unitCents * qty;
-  const unitLabel = selected?.unitLabel || business?.unitLabel;
-
-  // "% vs your last price" coaching for the selected product.
-  const lastPrice = useMemo(() => (itemId ? lastSaleUnitPriceCents(ledger, itemId) : null), [ledger, itemId]);
-  const pricePct = lastPrice && lastPrice > 0 && unitCents > 0 ? Math.round(((unitCents - lastPrice) / lastPrice) * 100) : null;
+  const subtotalCents = lines.reduce((sum, l) => sum + toCents(l.price) * l.qty, 0);
+  const tipCents = toCents(tip);
+  const totalCents = subtotalCents + tipCents;
+  const inCart = useMemo(() => new Map(lines.map((l) => [l.itemId, l.qty])), [lines]);
 
   const customerLabel = otherOpen ? (otherName.trim() ? `${otherName.trim()} (${otherKind})` : otherKind) : customer;
 
   const submit = async () => {
     if (!familyId || !business || !profile?.uid) return;
-    if (!itemId) { setError('Pick what you sold.'); return; }
-    if (totalCents <= 0) { setError('Enter a price.'); return; }
+    if (lines.length === 0) { setError('Add at least one product.'); return; }
+    if (lines.some((l) => toCents(l.price) <= 0)) { setError('Set a price for every item.'); return; }
     setError(''); setSaving(true);
+    const actor = { uid: profile.uid, ownerId: business.ownerId };
+    const label = customerLabel.trim();
     try {
-      await logSale(familyId, businessId, {
-        qty,
-        unitPriceCents: unitCents,
-        itemId,
-        productName: selected?.name,
-        customerLabel: customerLabel.trim() || undefined,
-        paymentMethod: method,
-        description: customerLabel.trim() ? `${selected?.name || 'Sale'} → ${customerLabel.trim()}` : (selected?.name || 'Sale'),
-      }, { uid: profile.uid, ownerId: business.ownerId });
+      for (const l of lines) {
+        const it = itemById.get(l.itemId);
+        await logSale(familyId, businessId, {
+          qty: l.qty,
+          unitPriceCents: toCents(l.price),
+          itemId: l.itemId,
+          productName: it?.name,
+          customerLabel: label || undefined,
+          paymentMethod: method,
+          description: label ? `${it?.name || 'Sale'} → ${label}` : (it?.name || 'Sale'),
+        }, actor);
+      }
+      if (tipCents > 0) {
+        await logSale(familyId, businessId, {
+          qty: 1,
+          unitPriceCents: tipCents,
+          customerLabel: label || undefined,
+          paymentMethod: method,
+          description: label ? `Tip 💝 from ${label}` : 'Tip 💝',
+        }, actor);
+      }
       router.push(`/business/${businessId}`);
     } catch (e: any) {
       setError(e?.message || 'Could not save the sale.');
@@ -112,7 +144,7 @@ export default function LogSalePage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
-        <div className="text-[22px]">💵</div>
+        <div className="text-[22px]">🛒</div>
         <div className="min-w-0">
           <div className="font-nunito font-black text-[16px]">Log a sale</div>
           <div className="text-[11px] text-hive-honey-soft/80 truncate">{business?.name || 'Loading…'}</div>
@@ -123,68 +155,101 @@ export default function LogSalePage() {
         <p className="text-hive-muted text-sm text-center py-8">Only the owner or a parent can log sales.</p>
       ) : (
         <>
-          <div className={label}>What did you sell?</div>
+          <div className={label}>Add what you sold</div>
           {sellable.length === 0 ? (
             <p className="text-[12.5px] text-hive-muted bg-hive-paper border border-hive-line rounded-hive p-3">No products yet — add some in Inventory first.</p>
           ) : (
             <div className="space-y-2">
               {sellable.map((it) => {
-                const on = it.id === itemId;
-                const out = (it.qty || 0) <= 0;
+                const n = inCart.get(it.id) || 0;
+                const out = capFor(it) <= 0;
                 return (
-                  <button key={it.id} type="button" onClick={() => selectProduct(it)}
-                    className={`w-full flex items-center gap-2.5 rounded-hive p-2.5 border text-left transition ${on ? 'border-hive-navy bg-hive-navy text-hive-honey' : 'border-hive-line bg-hive-paper'}`}>
+                  <button key={it.id} type="button" onClick={() => addProduct(it)} disabled={out && n === 0}
+                    className={`w-full flex items-center gap-2.5 rounded-hive p-2.5 border text-left transition disabled:opacity-50 ${n > 0 ? 'border-hive-navy bg-hive-honey-soft/40' : 'border-hive-line bg-hive-paper'}`}>
                     {it.photoUrl
                       // eslint-disable-next-line @next/next/no-img-element
                       ? <img src={it.photoUrl} alt="" className="w-9 h-9 rounded-hive object-cover bg-hive-cream shrink-0" />
                       : <span className="w-9 h-9 rounded-hive bg-hive-cream flex items-center justify-center text-[16px] shrink-0">🛒</span>}
                     <span className="flex-1 min-w-0">
                       <span className="block font-nunito font-bold text-[13px] truncate">{it.name}</span>
-                      <span className={`block text-[11px] truncate ${on ? 'text-hive-honey-soft/80' : 'text-hive-muted'}`}>
+                      <span className="block text-[11px] truncate text-hive-muted">
                         {it.qty || 0}{it.unitLabel ? ` ${it.unitLabel}` : ''} in stock
                         {typeof it.unitMarketCents === 'number' && it.unitMarketCents > 0 ? ` · usual ${formatCash(it.unitMarketCents, config.currency)}` : ''}
                         {it.instantStock ? ' · 🌱 instant' : out ? ' · out' : ''}
                       </span>
                     </span>
+                    <span className={`shrink-0 text-[12px] font-nunito font-black ${n > 0 ? 'text-hive-honey-dk' : 'text-hive-muted'}`}>{n > 0 ? `+${n} ✓` : '＋ add'}</span>
                   </button>
                 );
               })}
             </div>
           )}
 
-          <div className={label}>How many{unitLabel ? ` (${unitLabel})` : ''}?</div>
-          <div className="flex flex-wrap gap-2">
-            {QTY_CHIPS.map((n) => (
-              <button key={n} onClick={() => setQty(n)} className={chip(qty === n)}>{n}</button>
-            ))}
-            <input type="number" min={1} value={qty} onChange={(e) => setQty(Math.max(1, parseInt(e.target.value) || 1))}
-              className="w-16 h-10 px-2 text-center bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
-          </div>
+          {/* Cart */}
+          {lines.length > 0 && (
+            <>
+              <div className={label}>Your cart</div>
+              <div className="space-y-2">
+                {lines.map((l) => {
+                  const it = itemById.get(l.itemId);
+                  if (!it) return null;
+                  const unitCents = toCents(l.price);
+                  const lineTotal = unitCents * l.qty;
+                  const last = lastSaleUnitPriceCents(ledger, l.itemId);
+                  const pct = last && last > 0 && unitCents > 0 ? Math.round(((unitCents - last) / last) * 100) : null;
+                  const unit = it.unitLabel || business?.unitLabel;
+                  return (
+                    <div key={l.itemId} className="bg-hive-paper border border-hive-line rounded-hive p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-nunito font-extrabold text-[13px] truncate">{it.name}</span>
+                        <button type="button" onClick={() => removeLine(l.itemId)} aria-label="Remove"
+                          className="w-6 h-6 rounded-full bg-hive-cream text-hive-muted text-[12px] flex items-center justify-center shrink-0">✕</button>
+                      </div>
+                      <div className="flex items-center gap-2 mt-2">
+                        <div className="flex items-center gap-1.5">
+                          <button type="button" onClick={() => setQty(l.itemId, l.qty - 1)} className="w-8 h-8 rounded-hive bg-hive-cream font-black text-hive-navy">−</button>
+                          <input type="number" min={1} value={l.qty} onChange={(e) => setQty(l.itemId, parseInt(e.target.value) || 1)}
+                            className="w-12 h-8 text-center bg-white rounded-hive border border-hive-line text-[13px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
+                          <button type="button" onClick={() => setQty(l.itemId, l.qty + 1)} className="w-8 h-8 rounded-hive bg-hive-cream font-black text-hive-navy">＋</button>
+                        </div>
+                        <span className="text-[11px] text-hive-muted">×</span>
+                        <div className="flex items-center gap-1 flex-1">
+                          <input value={l.price} onChange={(e) => setPrice(l.itemId, e.target.value)} inputMode="decimal" placeholder="price"
+                            className="w-full h-8 px-2 bg-white rounded-hive border border-hive-line text-[13px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
+                          <span className="text-[10px] text-hive-muted whitespace-nowrap">/{unit || 'unit'}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[11px] font-nunito font-bold">
+                          {pct !== null && (pct > 0
+                            ? <span className="text-[#2F7D32]">📈 +{pct}% · Bravo!</span>
+                            : pct < 0
+                            ? <span className="text-[#B25E16]">📉 {pct}% · negotiate?</span>
+                            : <span className="text-hive-muted">= last price</span>)}
+                        </span>
+                        <span className="text-[12.5px] font-nunito font-black text-hive-navy">{formatCash(lineTotal, config.currency)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-          <div className={label}>Price per {unitLabel || 'unit'} ({config.currency})</div>
-          <input value={price} onChange={(e) => setPrice(e.target.value)} inputMode="decimal" placeholder="0"
-            className="w-full h-11 px-3 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
-          {pricePct !== null && (
-            pricePct > 0 ? (
-              <p className="text-[12px] font-nunito font-bold text-[#2F7D32] mt-1.5">📈 +{pricePct}% above your last price — 🎉 Bravo, great deal!</p>
-            ) : pricePct < 0 ? (
-              <p className="text-[12px] font-nunito font-bold text-[#B25E16] mt-1.5">📉 {pricePct}% below your last price — try to negotiate a bit more? 🤝</p>
-            ) : (
-              <p className="text-[12px] font-nunito font-bold text-hive-muted mt-1.5">Same as your last price.</p>
-            )
+              {/* Tip */}
+              <div className={label}>Tip? <span className="text-hive-muted normal-case font-bold">(only if the buyer offers — goes to your Honey Pot 🍯)</span></div>
+              <input value={tip} onChange={(e) => setTip(e.target.value)} inputMode="decimal" placeholder="0"
+                className="w-full h-11 px-3 bg-hive-paper rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40" />
+
+              {/* Totals */}
+              <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mt-3 space-y-1.5 text-[13px]">
+                <div className="flex justify-between"><span>Subtotal ({lines.length} item{lines.length === 1 ? '' : 's'})</span><span className="font-nunito font-bold">{formatCash(subtotalCents, config.currency)}</span></div>
+                {tipCents > 0 && <div className="flex justify-between"><span>Tip 💝</span><span className="font-nunito font-bold">{formatCash(tipCents, config.currency)}</span></div>}
+                <div className="flex justify-between border-t border-dashed border-black/10 pt-1.5"><span>Total</span><span className="font-nunito font-black text-[#2F7D32]">{formatCash(totalCents, config.currency)}</span></div>
+                {method !== 'iou' && (
+                  <div className="flex justify-between"><span>→ Honey Pot 🍯</span><span className="font-nunito font-extrabold">{formatCash(totalCents, config.currency)}</span></div>
+                )}
+              </div>
+            </>
           )}
-
-          <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mt-3 space-y-1.5 text-[13px]">
-            <div className="flex justify-between"><span>Quantity</span><span className="font-nunito font-bold">{qty}</span></div>
-            <div className="flex justify-between"><span>Unit price</span><span className="font-nunito font-bold">{formatCash(unitCents, config.currency)}</span></div>
-            <div className="flex justify-between border-t border-dashed border-black/10 pt-1.5"><span>Total</span><span className="font-nunito font-black text-[#2F7D32]">{formatCash(totalCents, config.currency)}</span></div>
-            {method !== 'iou' && (
-              <div className="flex justify-between"><span>→ Honey Pot 🍯</span><span className="font-nunito font-extrabold">{formatCash(totalCents, config.currency)}</span></div>
-            )}
-            {selected && (
-              <div className="flex justify-between text-hive-muted text-[11.5px]"><span>{selected.name} stock after</span><span>{selected.qty || 0} → {Math.max(0, (selected.qty || 0) - qty)}</span></div>
-            )}
-          </div>
 
           <div className={label}>Who bought?</div>
           <div className="flex flex-wrap gap-2">
@@ -218,9 +283,9 @@ export default function LogSalePage() {
 
           {error && <p className="text-hive-rose text-[12px] font-bold mt-3">{error}</p>}
 
-          <button onClick={submit} disabled={saving || totalCents <= 0 || !itemId}
+          <button onClick={submit} disabled={saving || lines.length === 0 || subtotalCents <= 0}
             className="w-full mt-5 h-12 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[14px] disabled:opacity-40 hover:brightness-110 active:scale-[0.99] transition">
-            {saving ? 'Saving…' : 'Save sale → Honey Pot 🍯'}
+            {saving ? 'Saving…' : `Save sale → Honey Pot 🍯 ${totalCents > 0 ? formatCash(totalCents, config.currency) : ''}`}
           </button>
         </>
       )}
