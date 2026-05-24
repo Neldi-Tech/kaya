@@ -38,6 +38,24 @@ module.exports = {
           rose: '#E36F6F',
           blue: '#3F7AAF',
         },
+        // ── Brand · the real Kaya marketing palette (from
+        //    kaya-brand-sheet.svg). Honey/navy/cream — used by the public
+        //    marketing surface (/) and the /login page. Same hexes the
+        //    hive-* tokens carry, but named for the brand so marketing +
+        //    auth read clearly. The landing page itself uses a route-scoped
+        //    stylesheet (see src/app/(marketing)/marketing.css); these
+        //    Tailwind tokens cover login + any utility usage.
+        brand: {
+          honey: '#F39C2F',
+          'honey-dk': '#D17F1A',
+          'honey-soft': '#FBC675',
+          navy: '#1F2D3D',
+          'navy-soft': '#2A3D55',
+          ink: '#0F1822',
+          cream: '#FFF8EC',
+          'cream-warm': '#F8EED4',
+          coral: '#E85C5C',
+        },
         // ── The Pantry (Soko) · leaf-green section accents, sharing the
         //    cream/line/paper neutrals with The Hive so the family of
         //    sections feels cohesive. Pantry-only colour is `leaf-*`.

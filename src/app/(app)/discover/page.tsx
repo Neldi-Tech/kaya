@@ -2,7 +2,7 @@
 
 // Discover · the family's daily welcome page.
 //
-// Lives at `/`. Renders three tier-aware variants from the same shell:
+// Lives at `/discover`. Renders three tier-aware variants from the same shell:
 //   • Parent  — full visibility, money pulse, all kids
 //   • Kid     — personal slice + family-shared blocks
 //   • Helper  — work-only view (chores + group photos + payday)
@@ -708,7 +708,7 @@ function QuickActions({ role }: { role: Role }) {
     // actions. Surfacing Home, Badges, Moments, and Directory so they
     // can keep up with the family without contributing changes.
     guest: [
-      { emoji: '🏠', label: 'Home',    href: '/' },
+      { emoji: '🏠', label: 'Home',    href: '/discover' },
       { emoji: '🏆', label: 'Badges',  href: '/badges' },
       { emoji: '📸', label: 'Moments', href: '/moments' },
       { emoji: '💬', label: 'Family',  href: '/directory' },

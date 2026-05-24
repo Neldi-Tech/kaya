@@ -1,77 +1,81 @@
 import Link from 'next/link';
 import AuthControls from '@/components/auth/AuthControls';
+import KayaIcon from '@/components/marketing/KayaIcon';
 
+// /login — visual alignment to the real Kaya brand (honey/navy/cream,
+// Nunito) per Kaya_Login-Page_Mockup_v2. Single-column layout: top bar →
+// centered auth card → footer. Auth logic is untouched: <AuthControls />
+// still owns Google / Email / waitlist / reset; this file only restyles the
+// shell. Helper sign-in + trust strip kept.
 export default function LoginPage() {
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-kaya-cream">
-      {/* ── Brand panel ───────────────────────────────────────── */}
-      <aside className="md:w-1/2 lg:w-[55%] bg-kaya-chocolate text-kaya-gold-light px-8 md:px-12 lg:px-20 py-10 md:py-16 flex flex-col justify-between relative overflow-hidden">
-        {/* Decorative gold halo */}
-        <div className="absolute -top-40 -right-40 w-[480px] h-[480px] rounded-full bg-kaya-gold/10 blur-3xl pointer-events-none" />
+    <div className="font-nunito relative min-h-screen flex flex-col bg-brand-cream text-brand-ink">
+      {/* Subtle honey dot texture for a premium feel. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-0 z-0"
+        style={{
+          backgroundImage: 'radial-gradient(rgba(243,156,47,0.05) 1px, transparent 1px)',
+          backgroundSize: '24px 24px',
+        }}
+      />
 
-        <div className="relative">
-          <div className="flex items-center gap-3 mb-12 md:mb-20">
-            <div className="w-11 h-11 rounded-[12px] bg-kaya-gold text-kaya-chocolate font-display font-black text-xl flex items-center justify-center">K</div>
-            <span className="font-display font-bold text-xl tracking-tight text-white">Kaya</span>
-          </div>
-
-          <span className="inline-block bg-kaya-gold-light/15 text-kaya-gold-light text-[11px] font-bold uppercase tracking-[0.16em] px-3 py-1.5 rounded-full mb-6">
-            Now in early access
+      {/* ── Top bar ─────────────────────────────────────────────── */}
+      <header className="relative z-10 flex items-center justify-between px-5 sm:px-8 py-5">
+        <Link href="/" className="flex items-center gap-2.5 no-underline">
+          <KayaIcon size={32} />
+          <span className="font-nunito font-bold text-lg text-brand-navy tracking-tight">
+            Kaya
           </span>
+        </Link>
+        <a href="#" className="text-[13px] font-semibold text-[#5C6975] hover:text-brand-navy no-underline">
+          Need help?
+        </a>
+      </header>
 
-          <h1 className="font-display font-extrabold text-white text-4xl md:text-5xl lg:text-[56px] leading-[1.05] tracking-tight mb-5 max-w-[520px]">
-            Where families<br/>grow together.
+      {/* ── Auth card ───────────────────────────────────────────── */}
+      <main className="relative z-[1] flex-1 flex items-center justify-center px-6 pb-14 pt-2">
+        <div className="w-full max-w-[440px]">
+          <div className="text-[12px] font-bold uppercase tracking-[0.18em] text-brand-honey mb-3">
+            Sign In
+          </div>
+          <h1 className="font-nunito font-bold text-brand-navy text-[28px] sm:text-4xl tracking-tight leading-[1.15] mb-2.5">
+            Welcome to Kaya.
           </h1>
-          <p className="text-base md:text-lg text-kaya-sand-light leading-relaxed max-w-[440px]">
-            Daily routines, points and weekly meetings — a calm rhythm that turns parenting chaos into a shared story your kids actually love.
+          <p className="text-[#5C6975] text-base mb-9 leading-relaxed">
+            Sign in to start tracking your family&apos;s week.
           </p>
-        </div>
 
-        <div className="relative mt-12 md:mt-0">
-          <div className="grid grid-cols-3 gap-3 max-w-[440px]">
-            {[
-              { n: '1', t: 'Rate routines' },
-              { n: '2', t: 'Award the wins' },
-              { n: '3', t: 'Meet weekly' },
-            ].map((s) => (
-              <div key={s.n} className="border-t border-kaya-gold-light/25 pt-3">
-                <div className="text-kaya-gold font-display font-extrabold text-sm mb-1">0{s.n}</div>
-                <div className="text-xs text-kaya-sand-light leading-snug">{s.t}</div>
-              </div>
-            ))}
-          </div>
-          <p className="text-[11px] text-kaya-sand-light/60 mt-8">
-            @ourkaya.app · Made with love, by a family.
-          </p>
-        </div>
-      </aside>
-
-      {/* ── Auth panel ────────────────────────────────────────── */}
-      <main className="md:w-1/2 lg:w-[45%] flex items-center justify-center px-6 py-12 md:py-16">
-        <div className="w-full max-w-[380px]">
-          <div className="md:hidden text-center mb-8">
-            <div className="w-14 h-14 rounded-[14px] bg-kaya-chocolate text-kaya-gold font-display font-black text-2xl flex items-center justify-center mx-auto mb-3">K</div>
-          </div>
-          <div className="mb-7">
-            <h2 className="font-display font-extrabold text-2xl tracking-tight mb-1.5">Welcome to Kaya</h2>
-            <p className="text-sm text-kaya-sand">Sign in to start tracking your family&apos;s week.</p>
-          </div>
           <AuthControls />
 
-          {/* Helper sign-in entry point. A helper landing on this page
-              has no email/password account — they sign in with the 3
-              codes their family gave them. Small link, kept out of the
-              way so it doesn't compete with the parent/kid auth flow. */}
-          <div className="mt-8 pt-5 border-t border-kaya-warm-dark/40 text-center">
-            <p className="text-xs text-kaya-sand">
-              Helping a family with their kids?{' '}
-              <Link href="/h/login" className="font-bold text-kaya-chocolate hover:underline">
-                Helper sign-in →
-              </Link>
-            </p>
+          {/* Helper sign-in entry point. A helper has no email/password
+              account — they sign in with the 3 codes their family gave them.
+              Kept distinct from the parent/kid flow. */}
+          <div className="text-center text-[13px] text-[#5C6975] pt-6 mt-8 border-t border-brand-navy/10">
+            Helping a family with their kids?{' '}
+            <Link href="/h/login" className="font-bold text-brand-navy hover:text-brand-honey no-underline">
+              Helper sign-in →
+            </Link>
+          </div>
+
+          {/* Trust strip */}
+          <div className="flex flex-wrap gap-x-4 gap-y-2 justify-center mt-5 text-[11px] uppercase tracking-[0.08em] font-semibold text-[#5C6975]">
+            <span className="inline-flex items-center gap-1">🔒 Private</span>
+            <span className="inline-flex items-center gap-1">👨‍👩‍👧 No ads</span>
+            <span className="inline-flex items-center gap-1">🌍 Built for families</span>
           </div>
         </div>
       </main>
+
+      {/* ── Footer ──────────────────────────────────────────────── */}
+      <footer className="relative z-10 flex flex-col sm:flex-row justify-between items-center gap-3 px-5 sm:px-8 py-6 text-[12px] text-[#5C6975]">
+        <div className="flex gap-4">
+          <a href="#" className="hover:text-brand-navy no-underline">Privacy</a>
+          <a href="#" className="hover:text-brand-navy no-underline">Terms</a>
+          <a href="#" className="hover:text-brand-navy no-underline">Help</a>
+        </div>
+        <div>© 2026 Kaya · Built on love, for families everywhere.</div>
+      </footer>
     </div>
   );
 }

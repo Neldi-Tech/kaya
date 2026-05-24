@@ -428,9 +428,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const role = profile?.role || 'parent';
   const homePath = role === 'kid' ? '/kid' : '/home';
-  // BackBar is suppressed on Discover (`/`) and on the role's Home page —
-  // both are top-level destinations, so a Back affordance would be noise.
-  const isAtHome = pathname === homePath || pathname === '/';
+  // BackBar is suppressed on Discover (`/discover`) and on the role's Home
+  // page — both are top-level destinations, so a Back affordance would be noise.
+  const isAtHome = pathname === homePath || pathname === '/discover';
 
   // Inside /hive/* OR /pantry/* the section renders its own bottom tab
   // bar. Suppress AppShell's mobile bottom nav so the two don't stack.
