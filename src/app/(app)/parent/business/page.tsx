@@ -15,6 +15,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   Business, DisplayRounding, subscribeToFamilyBusinesses, subscribeToBusinessRequests, resolveBusinessRequest,
   readBusinessConfig, setBusinessConfig, getKidWeeklyEffort, suggestedWeeklyHp,
+  getStockTake, StockTake,
 } from '@/lib/business';
 import { ApprovalRequest } from '@/lib/hive';
 import { giveAward, Child } from '@/lib/firestore';
@@ -169,18 +170,39 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
   const [busy, setBusy] = useState<'approve' | 'deny' | null>(null);
   const [showDeny, setShowDeny] = useState(false);
   const [reason, setReason] = useState('');
+  const [comment, setComment] = useState('');
   const [error, setError] = useState('');
+  // For stock-take points: the day's photos/clips + the kid's note, so the
+  // parent can actually see what they're rewarding (#1a).
+  const [take, setTake] = useState<StockTake | null>(null);
+  const [takeLoaded, setTakeLoaded] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (req.type !== 'business_hp' || !req.businessId || !req.awardDate) return;
+    let alive = true;
+    getStockTake(familyId, req.businessId, req.awardDate)
+      .then((t) => { if (alive) { setTake(t); setTakeLoaded(true); } })
+      .catch(() => { if (alive) setTakeLoaded(true); });
+    return () => { alive = false; };
+  }, [req.type, req.businessId, req.awardDate, familyId]);
 
   const act = async (decision: 'approved' | 'rejected') => {
     setError('');
     setBusy(decision === 'approved' ? 'approve' : 'deny');
     try {
-      await resolveBusinessRequest(familyId, req.id, decision, approverUid, decision === 'rejected' ? reason : undefined);
+      // The free-text field is the decline reason when declining, otherwise the
+      // approval comment. Either way it rides along as approvalNote so the kid
+      // sees it (and, for stock-takes, lands on the day as parentNote).
+      const note = (decision === 'rejected' ? reason : comment).trim() || undefined;
+      await resolveBusinessRequest(familyId, req.id, decision, approverUid, decision === 'rejected' ? note : undefined, note);
     } catch (e: any) {
       setError(e?.message || 'Could not resolve.');
       setBusy(null);
     }
   };
+
+  const media = take?.media?.length ? take.media : (take?.photoUrl ? [{ url: take.photoUrl, kind: 'photo' as const }] : []);
 
   return (
     <div className="bg-hive-paper border-2 border-hive-honey/50 rounded-hive-lg p-4">
@@ -193,17 +215,47 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
           {req.aiContext && <p className="text-[11px] text-hive-muted mt-1 italic">AI: {req.aiContext}</p>}
         </div>
       </div>
-      {!showDeny ? (
-        <div className="mt-3 flex items-center gap-2">
-          <button onClick={() => act('approved')} disabled={!!busy}
-            className="flex-1 h-10 rounded-hive-pill bg-[#2F7D32] text-white font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
-            {busy === 'approve' ? 'Approving…' : '✓ Approve'}
-          </button>
-          <button onClick={() => setShowDeny(true)} disabled={!!busy}
-            className="h-10 px-4 rounded-hive-pill bg-[#FCEAEA] text-hive-rose font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-95 transition">
-            Decline
-          </button>
+
+      {req.type === 'business_hp' && (
+        <div className="mt-3 bg-hive-cream/60 rounded-hive p-3">
+          {!takeLoaded ? (
+            <p className="text-[11px] text-hive-muted">Loading today&apos;s photos…</p>
+          ) : media.length ? (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {media.map((m, i) => (
+                  m.kind === 'video'
+                    ? <video key={i} src={m.url} controls playsInline className="w-20 h-20 rounded-hive object-cover bg-black" />
+                    : <button key={i} type="button" onClick={() => setLightbox(m.url)}
+                        className="w-20 h-20 rounded-hive overflow-hidden border border-hive-line hover:brightness-95 transition">
+                        <img src={m.url} alt="Stock-take" className="w-full h-full object-cover" />
+                      </button>
+                ))}
+              </div>
+              {take?.note && <p className="text-[12px] text-hive-navy mt-2 leading-snug">📝 &ldquo;{take.note}&rdquo;</p>}
+            </>
+          ) : (
+            <p className="text-[11px] text-hive-muted">No photos were added for this day.</p>
+          )}
         </div>
+      )}
+
+      {!showDeny ? (
+        <>
+          <textarea value={comment} onChange={(e) => setComment(e.target.value)} rows={2} maxLength={240}
+            placeholder={`Add a note for ${kidName || 'your kid'} (optional)…`}
+            className="w-full mt-3 px-3 py-2 bg-hive-cream rounded-hive text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40 resize-none" />
+          <div className="mt-2 flex items-center gap-2">
+            <button onClick={() => act('approved')} disabled={!!busy}
+              className="flex-1 h-10 rounded-hive-pill bg-[#2F7D32] text-white font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+              {busy === 'approve' ? 'Approving…' : '✓ Approve'}
+            </button>
+            <button onClick={() => setShowDeny(true)} disabled={!!busy}
+              className="h-10 px-4 rounded-hive-pill bg-[#FCEAEA] text-hive-rose font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-95 transition">
+              Decline
+            </button>
+          </div>
+        </>
       ) : (
         <div className="mt-3 space-y-2">
           <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional, kid sees this)" maxLength={120}
@@ -219,6 +271,13 @@ function ApprovalRow({ req, kidName, familyId, approverUid }: { req: ApprovalReq
         </div>
       )}
       {error && <p className="text-hive-rose text-[12px] font-bold mt-2">{error}</p>}
+
+      {lightbox && (
+        <div onClick={() => setLightbox(null)}
+          className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4 cursor-zoom-out">
+          <img src={lightbox} alt="Stock-take" className="max-w-full max-h-full rounded-hive-lg" />
+        </div>
+      )}
     </div>
   );
 }

@@ -904,11 +904,15 @@ export async function resolveBusinessRequest(
   decision: 'approved' | 'rejected',
   approverUid: string,
   reason?: string,
+  approvalNote?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
+  const note = approvalNote?.trim() || '';
   let investedKidId: string | null = null;
   let hpKidId: string | null = null;
   let hpPoints = 0;
+  let hpBusinessId: string | null = null;
+  let hpAwardDate = '';
   let saleKidId: string | null = null;
   let saleBusinessId: string | null = null;
   let saleItemId = '';
@@ -921,12 +925,19 @@ export async function resolveBusinessRequest(
     if (!reqSnap.exists()) throw new Error('Request not found.');
     const req = reqSnap.data() as Pick<ApprovalRequest,
       'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'
-      | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents'>;
+      | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents' | 'awardDate'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
+
+    // Stock-take key (for writing the parent's comment back onto the day) —
+    // captured before the reject early-return so a declined review keeps the note too.
+    if (req.type === 'business_hp') { hpBusinessId = req.businessId || null; hpAwardDate = req.awardDate || ''; }
 
     const now = serverTimestamp();
     if (decision === 'rejected') {
-      tx.update(reqRef, { status: 'rejected', rejectionReason: reason || '', resolvedAt: now, resolvedBy: approverUid });
+      tx.update(reqRef, {
+        status: 'rejected', rejectionReason: reason || '', resolvedAt: now, resolvedBy: approverUid,
+        ...(note ? { approvalNote: note } : {}),
+      });
       return;
     }
 
@@ -959,9 +970,17 @@ export async function resolveBusinessRequest(
       saleItemId = req.itemId || ''; saleProductName = req.productName || '';
       saleQtyN = req.saleQty ?? 0; salePriceCents = req.saleUnitPriceCents ?? 0;
     }
-    tx.update(reqRef, { status: 'approved', resolvedAt: now, resolvedBy: approverUid });
+    tx.update(reqRef, {
+      status: 'approved', resolvedAt: now, resolvedBy: approverUid,
+      ...(note ? { approvalNote: note } : {}),
+    });
   });
 
+  // Save the parent's comment onto the stock-take day so the kid + the history
+  // sheet can see it (applies whether the review was approved or declined).
+  if (note && hpBusinessId && hpAwardDate) {
+    try { await setDoc(doc(stockTakesCol(familyId, hpBusinessId), hpAwardDate), { parentNote: note }, { merge: true }); } catch { /* best-effort */ }
+  }
   // Milestone check needs a collection read — run it after the transaction.
   if (investedKidId) {
     try { await unlockInvestingMilestones(familyId, investedKidId); } catch { /* best-effort */ }
@@ -1380,6 +1399,9 @@ export interface StockTake {
    *  (parent-review). */
   hpGranted?: boolean;
   hpRequested?: boolean;
+  /** Parent's comment left when reviewing this day's points (shown to the kid +
+   *  in the stock-take history). Built so it can also post into messaging. */
+  parentNote?: string;
 }
 
 export interface StockTakeInput {
@@ -1447,6 +1469,18 @@ export async function flagStockTakeHp(
 export function meetsWeeklyMin(stockTakeDays: number, weeklyMinPct: number): boolean {
   const need = Math.ceil((7 * Math.max(0, Math.min(100, weeklyMinPct))) / 100);
   return stockTakeDays >= need;
+}
+
+/** One day's stock-take (doc id = date). On-demand read for the parent's
+ *  approval card + the clickable history sheet. */
+export async function getStockTake(
+  familyId: string,
+  businessId: string,
+  date: string,
+): Promise<StockTake | null> {
+  if (isGuestActive()) return null;
+  const snap = await getDoc(doc(stockTakesCol(familyId, businessId), date));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as StockTake) : null;
 }
 
 /** Recent stock-takes (newest first) for the streak + weekly view. Single-
