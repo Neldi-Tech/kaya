@@ -8,6 +8,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import { getHelperLink } from '@/lib/helpers';
 import { subscribeToUnreadNotificationCount } from '@/lib/firestore';
+import { getOperatorRole } from '@/lib/access';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import { PulseMark } from '@/components/pulse/ui';
 import GuestBanner from './GuestBanner';
@@ -517,6 +518,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return subscribeToUnreadNotificationCount(profile.familyId, profile.uid, setUnreadCount);
   }, [profile?.familyId, profile?.uid]);
 
+  // Closed beta: is this user a Kaya operator? Drives the /admin nav link.
+  const [isOperator, setIsOperator] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    getOperatorRole(profile?.email).then((r) => { if (!cancelled) setIsOperator(!!r); });
+    return () => { cancelled = true; };
+  }, [profile?.email]);
+
   // Visibility predicate for a helper sidebar/mobile row. Walks the
   // path through helperModuleKeyForPath() and checks the helper's
   // granted set with the composite/parent/legacy fallback chain.
@@ -532,12 +541,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [helperModules]);
 
   const sidebar: SidebarRow[] = useMemo(() => {
-    if (role === 'kid') return KID_SIDEBAR.filter((row) => grantedKidModules.has(row.id));
-    if (role === 'helper') {
-      return HELPER_SIDEBAR.filter((row) => row.kind !== 'link' || isHelperRowVisible(row.path));
-    }
-    return PARENT_SIDEBAR;
-  }, [role, grantedKidModules, isHelperRowVisible]);
+    let rows: SidebarRow[];
+    if (role === 'kid') rows = KID_SIDEBAR.filter((row) => grantedKidModules.has(row.id));
+    else if (role === 'helper') rows = HELPER_SIDEBAR.filter((row) => row.kind !== 'link' || isHelperRowVisible(row.path));
+    else rows = PARENT_SIDEBAR;
+    // Operator-only console link (also surfaces in the mobile More sheet,
+    // which renders this sidebar).
+    if (isOperator) rows = [...rows, { kind: 'link', id: 'admin', path: '/admin', icon: '🛠️', label: 'Admin' }];
+    return rows;
+  }, [role, grantedKidModules, isHelperRowVisible, isOperator]);
 
   const mobileGroups: MobileGroup[] = useMemo(() => {
     if (role === 'kid') {

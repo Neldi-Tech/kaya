@@ -1,20 +1,39 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { getUserProfile } from '@/lib/firestore';
+import { getBetaConfig, joinWaitlist } from '@/lib/access';
 
 export default function AuthControls() {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordReset, enterGuestMode } = useAuth();
   const router = useRouter();
-  const [mode, setMode] = useState<'welcome' | 'email' | 'reset'>('welcome');
+  const [mode, setMode] = useState<'welcome' | 'email' | 'reset' | 'waitlist'>('welcome');
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  // Closed beta: null while loading, then whether public sign-up is open.
+  const [betaOpen, setBetaOpen] = useState<boolean | null>(null);
+  const [wlName, setWlName] = useState('');
+  const [wlCountry, setWlCountry] = useState('');
+  const [wlDone, setWlDone] = useState(false);
+
+  useEffect(() => {
+    getBetaConfig().then((c) => setBetaOpen(c.publicSignupOpen)).catch(() => setBetaOpen(false));
+  }, []);
+
+  const handleWaitlist = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true); setError('');
+    const res = await joinWaitlist({ name: wlName, email, country: wlCountry || undefined });
+    if (res.ok) setWlDone(true);
+    else setError('Could not add you to the waitlist — please try again.');
+    setLoading(false);
+  };
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,13 +123,29 @@ export default function AuthControls() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => { enterGuestMode(); router.push('/'); }}
-          className="w-full text-center text-sm font-semibold text-kaya-chocolate underline-offset-4 hover:underline pt-2"
-        >
-          Or try as a guest →
-        </button>
+        {betaOpen && (
+          <button
+            type="button"
+            onClick={() => { enterGuestMode(); router.push('/'); }}
+            className="w-full text-center text-sm font-semibold text-kaya-chocolate underline-offset-4 hover:underline pt-2"
+          >
+            Or try as a guest →
+          </button>
+        )}
+
+        {betaOpen === false && (
+          <div className="bg-white border border-dashed border-kaya-gold rounded-kaya p-3.5 text-center mt-1">
+            <p className="text-sm font-bold">Not invited yet? 🌱</p>
+            <p className="text-xs text-kaya-sand mt-0.5 mb-2.5">Kaya&apos;s in closed beta. Get a heads-up the moment we open.</p>
+            <button
+              type="button"
+              onClick={() => { setMode('waitlist'); setError(''); }}
+              className="w-full h-11 bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors"
+            >
+              Join the waitlist →
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -162,13 +197,15 @@ export default function AuthControls() {
         {loading ? 'Please wait…' : isSignUp ? 'Create Account' : 'Sign In'}
       </button>
 
-      <button
-        type="button"
-        onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
-        className="w-full text-center text-sm text-kaya-gold font-medium"
-      >
-        {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
-      </button>
+      {betaOpen && (
+        <button
+          type="button"
+          onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
+          className="w-full text-center text-sm text-kaya-gold font-medium"
+        >
+          {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
+        </button>
+      )}
 
       {!isSignUp && (
         <button
@@ -180,6 +217,84 @@ export default function AuthControls() {
         </button>
       )}
     </form>
+  );
+
+  // ── Waitlist mode (closed beta) ────────────────────────────
+  if (mode === 'waitlist') return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => { setMode('welcome'); setError(''); }}
+        className="text-sm text-kaya-sand mb-2 flex items-center gap-1"
+      >
+        ← Back
+      </button>
+
+      {wlDone ? (
+        <div className="bg-green-50 border border-green-200 rounded-kaya p-4 text-center">
+          <p className="text-2xl mb-1">🎉</p>
+          <p className="text-sm font-semibold text-green-800">You&apos;re on the list!</p>
+          <p className="text-xs text-green-700 mt-1 leading-relaxed">
+            We&apos;ll email <strong>{email}</strong> the moment Kaya opens up. Talk soon!
+          </p>
+        </div>
+      ) : (
+        <form onSubmit={handleWaitlist} className="space-y-3">
+          <div>
+            <h3 className="font-display font-extrabold text-lg tracking-tight mb-1">Get notified at launch</h3>
+            <p className="text-xs text-kaya-sand">Kaya opens to more families soon. Leave your details and we&apos;ll email you when it&apos;s your turn. 💛</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-kaya-sand mb-1.5 uppercase tracking-wider">Your name</label>
+            <input
+              value={wlName}
+              onChange={(e) => setWlName(e.target.value)}
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              placeholder="e.g. Amani M."
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-kaya-sand mb-1.5 uppercase tracking-wider">Email</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              placeholder="you@example.com"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-kaya-sand mb-1.5 uppercase tracking-wider">
+              Country <span className="normal-case font-normal text-kaya-sand-light">· optional</span>
+            </label>
+            <input
+              value={wlCountry}
+              onChange={(e) => setWlCountry(e.target.value)}
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              placeholder="e.g. Tanzania"
+            />
+          </div>
+
+          {error && (
+            <p className="text-red-500 text-xs bg-red-50 rounded-kaya-sm px-3 py-2">{error}</p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full h-[52px] bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Joining…' : 'Join the waitlist'}
+          </button>
+          <p className="text-center text-xs text-kaya-sand-light">We&apos;ll only email you about launching. No spam.</p>
+        </form>
+      )}
+    </div>
   );
 
   // ── Reset mode ─────────────────────────────────────────────

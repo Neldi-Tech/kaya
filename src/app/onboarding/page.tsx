@@ -9,6 +9,7 @@ import {
   findFamilyByAnyInviteCode, markInviteCodeUsed,
   findChildByEmail, getFamily, updateUserProfile, Role, Family, Child,
 } from '@/lib/firestore';
+import { getBetaConfig, isEmailAllowlisted, joinWaitlist } from '@/lib/access';
 
 const HOUSE_PRESETS = [
   { name: 'Golden House', color: '#D4A017', emoji: '🏅' },
@@ -39,6 +40,11 @@ export default function OnboardingPage() {
   ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Closed beta: may THIS user create a new family? (public sign-up open
+  // OR email allowlisted). Joining by invite code is always allowed.
+  // null = still checking.
+  const [createAllowed, setCreateAllowed] = useState<boolean | null>(null);
+  const [waitlistDone, setWaitlistDone] = useState(false);
 
   // Kids and guests never create families — they always join with a
   // code. The Create/Join toggle is hidden for them in step 2, so
@@ -76,6 +82,38 @@ export default function OnboardingPage() {
     })();
     return () => { cancelled = true; };
   }, [user?.email]);
+
+  // Closed-beta create gate: resolve whether this user may create a new
+  // family. Joining an existing family by invite code stays open to all.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const cfg = await getBetaConfig();
+      if (cfg.publicSignupOpen) { if (!cancelled) setCreateAllowed(true); return; }
+      const ok = await isEmailAllowlisted(user?.email);
+      if (!cancelled) setCreateAllowed(ok);
+    })();
+    return () => { cancelled = true; };
+  }, [user?.email]);
+
+  // If creating isn't allowed, steer the flow to "join" so the wizard
+  // never lands on the create branch.
+  useEffect(() => {
+    if (createAllowed === false && familyMode !== 'join') setFamilyMode('join');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createAllowed]);
+
+  const handleJoinWaitlist = async () => {
+    if (!user?.email) return;
+    setLoading(true); setError('');
+    const res = await joinWaitlist({
+      name: user.displayName || user.email,
+      email: user.email,
+    });
+    if (res.ok) setWaitlistDone(true);
+    else setError('Could not add you to the waitlist — please try again.');
+    setLoading(false);
+  };
 
   const handleLinkAsKid = async () => {
     if (!user || !matched) return;
@@ -134,6 +172,13 @@ export default function OnboardingPage() {
       let finalRole: Role = familyMode === 'create' ? 'parent' : role;
 
       if (familyMode === 'create') {
+        // Defense in depth — the rules also block this, but show a clean
+        // message rather than a permission error.
+        if (createAllowed === false) {
+          setError('Creating a new family is invite-only during the beta.');
+          setLoading(false);
+          return;
+        }
         const pendingRef = typeof window !== 'undefined'
           ? window.localStorage.getItem('kaya.ref') || undefined
           : undefined;
@@ -342,10 +387,35 @@ export default function OnboardingPage() {
             <p className="text-kaya-sand text-sm mb-6">
               {role === 'kid' ? 'Ask your parent for the family invite code'
                 : role === 'guest' ? 'Ask the family for the Guest invite code'
+                : createAllowed === false ? 'Join an existing family with an invite code'
                 : 'Create a new family or join an existing one'}
             </p>
 
-            {role !== 'kid' && role !== 'guest' && (
+            {createAllowed === false && role !== 'kid' && role !== 'guest' && (
+              waitlistDone ? (
+                <div className="bg-green-50 border border-green-200 rounded-kaya p-4 mb-6 text-center">
+                  <p className="text-2xl mb-1">🎉</p>
+                  <p className="text-sm font-semibold text-green-800">You&apos;re on the list!</p>
+                  <p className="text-xs text-green-700 mt-1 leading-relaxed">We&apos;ll email you the moment Kaya opens up. Got an invite code? Enter it below to join now.</p>
+                </div>
+              ) : (
+                <div className="bg-kaya-warm/50 border border-kaya-warm-dark rounded-kaya p-4 mb-6">
+                  <p className="text-2xl mb-1">🔒</p>
+                  <p className="text-sm font-bold mb-1">Kaya is in closed beta</p>
+                  <p className="text-xs text-kaya-sand leading-relaxed mb-3">Creating a brand-new family is invite-only right now. Get notified the moment we open — or enter an invite code below to join an existing family.</p>
+                  <button
+                    type="button"
+                    onClick={handleJoinWaitlist}
+                    disabled={loading}
+                    className="w-full h-11 bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+                  >
+                    {loading ? 'Adding you…' : 'Notify me at launch 🌱'}
+                  </button>
+                </div>
+              )
+            )}
+
+            {role !== 'kid' && role !== 'guest' && createAllowed !== false && (
               <div className="flex gap-2 mb-6">
                 {(['create', 'join'] as const).map((m) => (
                   <button

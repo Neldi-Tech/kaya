@@ -8,6 +8,32 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // ── Closed-beta access (2026-05-24) ────────────────────────────
+    // Email-keyed gates for the invite-only launch. `callerEmail()` is
+    // the signed-in user's email claim (present for Google + email/
+    // password). config/beta holds the runtime switches; a missing doc
+    // is treated as CLOSED (safe default), so the gate fails shut.
+    function betaConfig() {
+      return get(/databases/$(database)/documents/config/beta).data;
+    }
+    function publicSignupOpen() {
+      return exists(/databases/$(database)/documents/config/beta)
+        && betaConfig().publicSignupOpen == true;
+    }
+    function callerEmail() {
+      return request.auth.token.email;
+    }
+    function isAllowlisted() {
+      return isSignedIn()
+        && callerEmail() != null
+        && exists(/databases/$(database)/documents/allowlist/$(callerEmail()));
+    }
+    function isOperator() {
+      return isSignedIn()
+        && callerEmail() != null
+        && exists(/databases/$(database)/documents/operators/$(callerEmail()));
+    }
+
     function getUserProfile() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
@@ -159,8 +185,11 @@ service cloud.firestore {
     match /families/{familyId} {
       // Family members can read
       allow read: if belongsToFamily(familyId);
-      // Any signed-in user can create a family (during onboarding)
-      allow create: if isSignedIn();
+      // Closed beta (2026-05-24): a signed-in user may create a family
+      // only when public sign-up is open (launch mode) OR their email is
+      // on the early-access allowlist. Existing families are unaffected —
+      // their members already carry a familyId and never hit create.
+      allow create: if isSignedIn() && (publicSignupOpen() || isAllowlisted());
       // Only parents can update family settings
       allow update: if isParentInFamily(familyId);
 
@@ -963,6 +992,36 @@ service cloud.firestore {
     // (admin SDK / scheduled job) writes — clients never set prices.
     match /marketQuotes/{symbol} {
       allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // ── Closed-beta access control (2026-05-24) ──────────────────────
+    // Top-level (cross-family) collections behind the invite-only launch
+    // + the operator console at /admin. Doc ids for allowlist/operators
+    // are the lowercased email.
+    //   config/beta   — the two runtime switches; world-readable so the
+    //                   pre-auth login screen can decide what to show.
+    //   allowlist/{e} — approved early-access emails.
+    //   operators/{e} — Kaya staff who can open /admin.
+    //   waitlist/{e}  — interest registrations; written server-side only
+    //                   (/api/waitlist via Admin SDK), read by operators.
+    match /config/beta {
+      allow read: if true;
+      allow write: if isOperator();
+    }
+    match /allowlist/{emailKey} {
+      allow read: if isSignedIn() && (isOperator() || emailKey == callerEmail());
+      allow write: if isOperator();
+    }
+    match /operators/{emailKey} {
+      allow read: if isSignedIn() && (isOperator() || emailKey == callerEmail());
+      allow create, update: if isOperator();
+      // The owner can't be removed from the client.
+      allow delete: if isOperator()
+        && get(/databases/$(database)/documents/operators/$(emailKey)).data.role != 'owner';
+    }
+    match /waitlist/{entryId} {
+      allow read: if isOperator();
       allow write: if false;
     }
   }
