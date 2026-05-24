@@ -201,13 +201,15 @@ export async function sendMessage(
   const attachments = (input.attachments || []).filter((a) => a.url);
   if (!text && attachments.length === 0) return;
 
+  // Note: we deliberately don't denormalise senderAvatar onto each message
+  // (avatars can be data URLs — that would bloat every message doc). The
+  // bubble UI shows the sender's name; the thread header carries the avatar.
   const msg: Record<string, unknown> = {
     senderUid: sender.uid,
     senderName: sender.name,
     senderRole: sender.role,
     createdAt: serverTimestamp(),
   };
-  if (sender.avatar) msg.senderAvatar = sender.avatar;
   if (text) msg.text = text;
   if (attachments.length) msg.attachments = attachments;
   await addDoc(messagesCol(familyId, threadId), msg);
