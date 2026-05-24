@@ -2099,6 +2099,26 @@ export default function SettingsPage() {
             </button>
           )}
 
+          {/* Celebrations — per-kid reward style (animation vs inspiring
+              words), age-aware. Own page to keep this file lean. */}
+          {isParent && (
+            <button
+              onClick={() => router.push('/settings/celebrations')}
+              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-4 text-left hover:border-kaya-chocolate transition-colors"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Celebrations</p>
+                  <p className="font-bold text-sm">🎉 How Kaya cheers each kid on</p>
+                  <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                    Pick a celebration, inspiring words, or a surprise mix — per kid, by age. Preview it too.
+                  </p>
+                </div>
+                <span className="text-kaya-sand text-xl flex-shrink-0">→</span>
+              </div>
+            </button>
+          )}
+
           {/* Household → Approval policies. Per-category choice between
               "Either parent approves" and "Both parents must approve"
               for every Household request flow. Pantry is the only
