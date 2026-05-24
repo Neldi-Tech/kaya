@@ -115,33 +115,41 @@ export default function ReceiptScanModal({
                 {items.map((it, idx) => {
                   const isNew = it.name && !existing.has(it.name.toLowerCase());
                   return (
-                    <div key={idx} className="flex items-center gap-2 bg-white border border-hive-line rounded-hive p-2">
-                      {existingItemNames.length > 0 && (
-                        <span className={`text-[8px] font-nunito font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isNew ? 'text-[#9a6b12] bg-[#FFF3D9] border border-[#E8C3AE]' : 'text-pantry-leaf-dk bg-pantry-leaf-soft'}`}>
-                          {isNew ? 'New' : '✓'}
-                        </span>
-                      )}
-                      <input
-                        type="text" value={it.name} onChange={(e) => setItem(idx, { name: e.target.value.slice(0, 60) })}
-                        className="flex-1 min-w-0 bg-transparent text-[12.5px] font-bold focus:outline-none"
-                        placeholder="Item"
-                      />
-                      <input
-                        type="number" inputMode="numeric" min="1" value={it.qty}
-                        onChange={(e) => setItem(idx, { qty: Math.max(1, Math.round(parseFloat(e.target.value) || 1)) })}
-                        className="w-10 bg-transparent text-[12px] text-hive-muted text-center focus:outline-none"
-                        aria-label="Quantity"
-                      />
-                      <div className="flex items-center gap-1 border border-hive-line rounded px-1.5 py-0.5">
-                        <span className="text-[10px] text-hive-muted font-bold">{currency}</span>
+                    <div key={idx} className="bg-white border border-hive-line rounded-hive p-2">
+                      <div className="flex items-center gap-2">
+                        {existingItemNames.length > 0 && (
+                          <span className={`text-[8px] font-nunito font-black uppercase tracking-wide px-1.5 py-0.5 rounded ${isNew ? 'text-[#9a6b12] bg-[#FFF3D9] border border-[#E8C3AE]' : 'text-pantry-leaf-dk bg-pantry-leaf-soft'}`}>
+                            {isNew ? 'New' : '✓'}
+                          </span>
+                        )}
                         <input
-                          type="number" inputMode="decimal" min="0" value={it.unitPriceCents / 100}
-                          onChange={(e) => setItem(idx, { unitPriceCents: Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100)) })}
-                          className="w-16 bg-transparent text-[12px] font-nunito font-black text-right focus:outline-none"
-                          aria-label="Unit price"
+                          type="text" value={it.name} onChange={(e) => setItem(idx, { name: e.target.value.slice(0, 60) })}
+                          className="flex-1 min-w-0 bg-transparent text-[12.5px] font-bold focus:outline-none"
+                          placeholder="Item"
                         />
+                        <button type="button" onClick={() => removeItem(idx)} aria-label="Remove" className="text-hive-muted text-sm font-black px-0.5">×</button>
                       </div>
-                      <button type="button" onClick={() => removeItem(idx)} aria-label="Remove" className="text-hive-muted text-sm font-black px-0.5">×</button>
+                      {/* qty × unit price = line total (decimals allowed, e.g. 0.23 kg) */}
+                      <div className="mt-1.5 flex items-center gap-1.5 text-[12px]">
+                        <input
+                          type="number" inputMode="decimal" step="any" min="0" value={it.qty}
+                          onChange={(e) => setItem(idx, { qty: Math.max(0, parseFloat(e.target.value) || 0) })}
+                          className="w-14 bg-white border border-hive-line rounded px-1.5 py-0.5 text-center font-bold focus:outline-none focus:border-[#C2562E]"
+                          aria-label="Quantity"
+                        />
+                        <span className="text-hive-muted">×</span>
+                        <div className="flex items-center gap-1 border border-hive-line rounded px-1.5 py-0.5">
+                          <span className="text-[10px] text-hive-muted font-bold">{currency}</span>
+                          <input
+                            type="number" inputMode="decimal" step="any" min="0" value={it.unitPriceCents / 100}
+                            onChange={(e) => setItem(idx, { unitPriceCents: Math.max(0, Math.round((parseFloat(e.target.value) || 0) * 100)) })}
+                            className="w-16 bg-transparent font-nunito font-black text-right focus:outline-none"
+                            aria-label="Unit price"
+                          />
+                        </div>
+                        <span className="text-hive-muted">=</span>
+                        <span className="ml-auto font-nunito font-black text-hive-ink">{formatCents(Math.round(it.unitPriceCents * it.qty), currency)}</span>
+                      </div>
                     </div>
                   );
                 })}

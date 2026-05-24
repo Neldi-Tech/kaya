@@ -58,11 +58,15 @@ export async function scanReceipt(file: File, currency?: string): Promise<ScanRe
   if (!res.ok) throw new Error(data?.error || 'Receipt scan failed');
 
   const items: ScannedItem[] = Array.isArray(data?.items)
-    ? data.items.map((i: { name?: string; qty?: number; unitPrice?: number }) => ({
-        name: String(i?.name || '').slice(0, 60),
-        qty: Math.max(1, Math.round(Number(i?.qty) || 1)),
-        unitPriceCents: Math.max(0, Math.round((Number(i?.unitPrice) || 0) * 100)),
-      })).filter((i: ScannedItem) => i.name)
+    ? data.items.map((i: { name?: string; qty?: number; unitPrice?: number }) => {
+        const q = Number(i?.qty);
+        return {
+          name: String(i?.name || '').slice(0, 60),
+          // Preserve decimals (0.23 kg); fall back to 1, never force ≥1.
+          qty: q > 0 ? Math.round(q * 1000) / 1000 : 1,
+          unitPriceCents: Math.max(0, Math.round((Number(i?.unitPrice) || 0) * 100)),
+        };
+      }).filter((i: ScannedItem) => i.name)
     : [];
   return {
     items,
