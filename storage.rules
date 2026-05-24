@@ -121,5 +121,23 @@ service firebase.storage {
       );
       allow delete: if belongsToFamily(familyId);
     }
+
+    // ── Messaging → attachments (2026-05-24) ──
+    // One folder per thread:
+    //   families/{f}/messages/{threadId}/{fileId}.<ext>
+    // Family-scoped read (the Firestore message doc holds the URL, and
+    // thread membership gates who can read that doc). Write: any family
+    // member — photo (image <10 MB, downscaled), video (<50 MB), voice
+    // note (audio <25 MB), or document (application/* or text/* <25 MB).
+    match /families/{familyId}/messages/{threadId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId) && (
+        (request.resource.contentType.matches('image/.*') && request.resource.size < 10 * 1024 * 1024)
+        || (request.resource.contentType.matches('video/.*') && request.resource.size < 50 * 1024 * 1024)
+        || (request.resource.contentType.matches('audio/.*') && request.resource.size < 25 * 1024 * 1024)
+        || ((request.resource.contentType.matches('application/.*') || request.resource.contentType.matches('text/.*')) && request.resource.size < 25 * 1024 * 1024)
+      );
+      allow delete: if belongsToFamily(familyId);
+    }
   }
 }

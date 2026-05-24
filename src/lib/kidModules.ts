@@ -54,6 +54,10 @@ export const KID_MODULES: KidModule[] = [
   // the parent /workplan view. Also feeds the kid "My Day" aggregator.
   { id: 'workplan',  label: 'My Workplan',    icon: '🗓️', path: '/workplan' },
   { id: 'moments',   label: 'Moments',        icon: '📸', path: '/moments' },
+  // Messages — family-only in-app chat (group + direct). Kid-safe: the
+  // member list is exactly the family's accounts, no external contacts.
+  // Default-on but parent-toggleable like every other kid module.
+  { id: 'messages',  label: 'Messages',       icon: '💬', path: '/messages' },
   {
     // Kaya · the point system. Parent surface lives in /rate /award
     // /meetings /rewards; the kid surface is a view-only roll-up of
@@ -112,7 +116,7 @@ export const KID_MODULES: KidModule[] = [
 // Kid profiles / Family tree (one grant, all three via extraPaths);
 // `discover` brings back the Discover landing.
 export const DEFAULT_KID_MODULES = [
-  'home', 'myday', 'workplan', 'moments',
+  'home', 'myday', 'workplan', 'moments', 'messages',
   'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
   'hive', 'fun', 'discover', 'stats',
 ];
