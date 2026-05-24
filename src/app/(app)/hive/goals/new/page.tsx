@@ -9,7 +9,8 @@ import NumberInput from '@/components/hive/NumberInput';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { addGoal } from '@/lib/hive';
+import { addGoal, currencySymbol } from '@/lib/hive';
+import HoneyCoin from '@/components/hive/HoneyCoin';
 import BackButton from '@/components/ui/BackButton';
 
 const ICONS = ['🚲', '🎧', '🎮', '📱', '⚽', '🎨', '📚', '🧱', '🎸', '🐶', '✈️', '🏕️'];
@@ -112,11 +113,11 @@ export default function NewGoalPage() {
 
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">
-            Target {layer === 'cash' ? 'amount' : 'in 🍯'}
+            Target {layer === 'cash' ? 'amount' : 'in Honey Coins'}
           </p>
           <div className="flex items-baseline gap-2">
-            <span className="font-nunito font-black text-3xl text-hive-muted">
-              {layer === 'cash' ? '$' : '🍯'}
+            <span className="font-nunito font-black text-3xl text-hive-muted flex items-center">
+              {layer === 'cash' ? currencySymbol(config.currency) : <HoneyCoin size={26} />}
             </span>
             <NumberInput
               value={target}

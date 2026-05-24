@@ -12,19 +12,22 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory } from '@/lib/hive';
+import { saveMonthlyPlan, PLAN_CATEGORIES, TxCategory, currencySymbol, CURRENCIES } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
 import { formatCash } from '@/components/hive/format';
-
-const QUICK_AMOUNTS = [500, 1000, 1500, 2000, 3000]; // $5, $10, $15, $20, $30
 
 export default function PlanPage() {
   const { profile, isGuest } = useAuth();
   const {
     activeKidId, monthlyPlan, monthKey, monthSpending, wallet, config,
   } = useHive();
+  // Currency-aware: symbol + quick chips come from the family currency
+  // (smallSpends are major units → store as cents), not a hardcoded $.
+  const sym = currencySymbol(config.currency);
+  const quickAmounts = (CURRENCIES.find((c) => c.code === config.currency)?.smallSpends ?? [5, 10, 15, 20])
+    .map((v) => Math.round(v * 100));
 
   // Local working copy keyed by category id. Initialise from the saved
   // plan when it loads and re-sync if the kid is switched.
@@ -157,7 +160,7 @@ export default function PlanPage() {
                   )}
                 </div>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-hive-muted font-nunito font-bold text-base">$</span>
+                  <span className="text-hive-muted font-nunito font-bold text-base">{sym}</span>
                   <NumberInput
                     value={planned / 100}
                     onChange={(n) => setCategory(c.id, Math.round(n * 100))}
@@ -172,7 +175,7 @@ export default function PlanPage() {
 
               {/* Quick-amount chips */}
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {QUICK_AMOUNTS.map((cents) => (
+                {quickAmounts.map((cents) => (
                   <button
                     key={cents}
                     onClick={() => setCategory(c.id, cents)}
@@ -182,7 +185,7 @@ export default function PlanPage() {
                         : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/40'
                     }`}
                   >
-                    ${cents / 100}
+                    {formatCash(cents, config.currency)}
                   </button>
                 ))}
                 {planned > 0 && (
