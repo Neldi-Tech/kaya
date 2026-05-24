@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
-  effectiveAutoApproveCents,
+  effectiveAutoApproveCents, currencySymbol,
 } from '@/lib/hive';
 import { useFamily } from '@/contexts/FamilyContext';
 import KidSwitcher from '@/components/hive/KidSwitcher';
@@ -176,7 +176,7 @@ export default function CashOutPage() {
           <div>
             <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">Amount</label>
             <div className="flex items-baseline gap-2 mt-1">
-              <span className="font-nunito font-black text-3xl text-hive-muted">$</span>
+              <span className="font-nunito font-black text-3xl text-hive-muted">{currencySymbol(config.currency)}</span>
               <NumberInput
                 value={amountInput}
                 onChange={setAmountInput}
