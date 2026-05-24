@@ -7,6 +7,7 @@
 //   House Points → Coins → Honey Pot (Treasury) → Cash.
 
 import { formatHoney, formatCash, formatCashClean, formatHp } from './format';
+import HoneyCoin from './HoneyCoin';
 
 export default function HoneyPotHero({
   treasuryCents,
@@ -38,7 +39,7 @@ export default function HoneyPotHero({
       {/* Decorative blur */}
       <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-white/30 blur-2xl pointer-events-none" />
       <div className="relative">
-        <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-honey-dk">The Honey Pot · Treasury Reserve</p>
+        <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-honey-dk">Treasury Reserve <span className="opacity-70">(the Honey Pot)</span></p>
         <div className="mt-1 flex items-baseline gap-2">
           <span className="font-nunito font-black text-[52px] leading-none">🍯</span>
           <span className="font-nunito font-black text-[40px] leading-none">{formatCash(treasuryCents, currency)}</span>
@@ -51,7 +52,7 @@ export default function HoneyPotHero({
             className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk"
             title={`${formatHoney(honeyCoins)} Coins ≈ ${formatCashClean(cashEquivalentCents, currency)} if converted`}
           >
-            🪙 {formatHoney(honeyCoins)} Coins
+            <HoneyCoin size={15} /> {formatHoney(honeyCoins)} Coins
           </span>
           <span
             className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk"

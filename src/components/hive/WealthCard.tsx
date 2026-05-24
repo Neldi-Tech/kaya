@@ -6,11 +6,12 @@
 // HP + Coins also show their ≈ cash value so the A·Money total isn't a mystery.
 // All money figures follow the family's display-rounding setting (kid-readable).
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { DisplayRounding } from '@/lib/business';
 import { formatWorth } from '@/components/business/money';
 import { formatHp, formatHoney, honeyToCashCents } from './format';
+import HoneyCoin from './HoneyCoin';
 
 export default function WealthCard({
   treasuryCents, honeyCoins, housePoints, cashCents, businessAssetsCents,
@@ -38,11 +39,11 @@ export default function WealthCard({
   const assetsB = Math.max(0, businessAssetsCents || 0);
   const total = moneyA + assetsB;
 
-  const tiers: Array<{ emoji: string; name: string; amount: string; sub?: string; def: string; pot?: boolean }> = [
-    { emoji: '🏅', name: 'House Points', amount: `${formatHp(housePoints)} HP`, sub: `≈ ${money(hpCents)}`, def: 'Your effort score — chores, kindness, learning, your business.' },
-    { emoji: '🪙', name: 'Coins', amount: `${formatHoney(honeyCoins)} 🪙`, sub: `≈ ${money(coinsCents)}`, def: 'Swap House Points for Coins — your in-Kaya money, ready to grow.' },
-    { emoji: '🍯', name: 'Honey Pot', amount: money(treasuryCents), def: 'Your Treasury Reserve. Sales land here & Coins flow in — a parent turns it into Cash.', pot: true },
-    { emoji: '💵', name: 'Cash', amount: money(cashCents), def: 'Real money to spend. Only a parent adds it — directly or from your Honey Pot.' },
+  const tiers: Array<{ icon: ReactNode; name: string; amount: string; sub?: string; def: string; pot?: boolean }> = [
+    { icon: '🏅', name: 'House Points', amount: `${formatHp(housePoints)} HP`, sub: `≈ ${money(hpCents)}`, def: 'Your effort score — chores, kindness, learning, your business.' },
+    { icon: <HoneyCoin size={18} />, name: 'Honey Coins', amount: `${formatHoney(honeyCoins)} HC`, sub: `≈ ${money(coinsCents)}`, def: 'Swap House Points for Honey Coins — your in-Kaya money, ready to grow.' },
+    { icon: '🍯', name: 'Treasury Reserve (Honey Pot)', amount: money(treasuryCents), def: 'Where your Honey Coins live. Business sales land here too — a parent turns it into Cash.', pot: true },
+    { icon: '💵', name: 'Cash', amount: money(cashCents), def: 'Real money to spend. Only a parent adds it — directly or from your Treasury Reserve.' },
   ];
 
   return (
@@ -73,7 +74,7 @@ export default function WealthCard({
         <div className="mt-3 space-y-2">
           {tiers.map((t) => (
             <div key={t.name} className={`flex items-start gap-2.5 rounded-hive p-2.5 border ${t.pot ? 'border-hive-honey bg-[#FFFBEE]' : 'border-hive-line bg-white'}`}>
-              <span className="text-[18px] leading-none">{t.emoji}</span>
+              <span className="text-[18px] leading-none flex items-center">{t.icon}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="font-nunito font-extrabold text-[13px]">{t.name}</span>
