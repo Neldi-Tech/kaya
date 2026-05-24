@@ -18,6 +18,7 @@ import {
   logSale, lastSaleUnitPriceCents,
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
+import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
 
 const PAY: Array<{ k: PaymentMethod; label: string }> = [
   { k: 'cash', label: 'Cash' },
@@ -39,6 +40,7 @@ export default function LogSalePage() {
   const { profile } = useAuth();
   const { children } = useFamily();
   const { config } = useHive();
+  const celebrate = useCelebrate();
   const familyId = profile?.familyId;
 
   const [business, setBusiness] = useState<Business | null>(null);
@@ -130,6 +132,9 @@ export default function LogSalePage() {
           description: label ? `Tip 💝 from ${label}` : 'Tip 💝',
         }, actor);
       }
+      // 🎉 Celebrate the sale (the overlay lives in the (app) layout, so it
+      // plays over the navigation back to the dashboard).
+      celebrate({ kind: 'sale', subtitle: formatCash(totalCents, config.currency) });
       router.push(`/business/${businessId}`);
     } catch (e: any) {
       setError(e?.message || 'Could not save the sale.');

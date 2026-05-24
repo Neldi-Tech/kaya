@@ -622,6 +622,10 @@ export interface Child {
   weeklyPoints: number;
   streak: number;
   badges: string[];
+  // Per-kid Celebrations preference (Kaya Business · celebrate engine). Shape
+  // mirrors CelebrationSettings in lib/celebrate.ts (inlined to avoid a
+  // circular import). Absent → age-based default.
+  celebration?: { style: 'celebration' | 'inspiring' | 'surprise'; intensity: 'calm' | 'normal' | 'big'; sound: boolean };
   // Running counters for 0-point award kinds. When either hits its family-
   // configured threshold, `giveAward` auto-fires a derived bonus/deduction
   // award and decrements the counter by the threshold (modulo, not reset —
