@@ -22,7 +22,10 @@ import {
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
-import { type PulsePlan, resolvePlan, suggestFocusModules, ROUND_STEPS, suggestRoundStep } from '@/lib/pulse';
+import {
+  type PulsePlan, type BudgetSnapshot, resolvePlan, suggestFocusModules, ROUND_STEPS, suggestRoundStep,
+  subscribeBudgetSnapshots, ensureBudgetSnapshot,
+} from '@/lib/pulse';
 
 const PLAN_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'dineOut', 'home'];
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -46,6 +49,20 @@ export default function PulsePlanPage() {
     if (!profile?.familyId || profile.role !== 'parent') return;
     return subscribeToRecentRequests(profile.familyId, setRecent);
   }, [profile?.familyId, profile?.role]);
+
+  // Frozen month-end snapshots (Phase 2). Once a month is snapshotted its
+  // savings is permanent — a later cap change can't move it.
+  const [snapshots, setSnapshots] = useState<BudgetSnapshot[]>([]);
+  const [snapsLoaded, setSnapsLoaded] = useState(false);
+  useEffect(() => {
+    if (!profile?.familyId || profile.role !== 'parent') return;
+    return subscribeBudgetSnapshots(profile.familyId, (s) => { setSnapshots(s); setSnapsLoaded(true); });
+  }, [profile?.familyId, profile?.role]);
+  const snapByMonth = useMemo(() => {
+    const m: Record<string, BudgetSnapshot> = {};
+    for (const s of snapshots) m[s.monthKey] = s;
+    return m;
+  }, [snapshots]);
 
   // Baseline = recent average monthly spend per module (prior full months).
   const baseline = useMemo(() => {
@@ -86,11 +103,11 @@ export default function PulsePlanPage() {
 
   const plan = family?.pulsePlan;
 
-  // Savings history (phase 1, computed from closed requests — the Wealth
-  // pool isn't populated yet). Per-month saved = Σ over modules of
-  // max(0, current cap − that month's spend), so the by-module drill sums
-  // to the headline. Completed months only. (Elia: trend + drill by line.)
+  // Savings history (Phase 2): use the FROZEN snapshot for a month when one
+  // exists; otherwise compute live (current caps − spend) — those months get
+  // snapshotted on load (backfill below). Completed months only.
   const savings = useMemo(() => {
+    const caps = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
     const spend: Record<string, Partial<Record<PurchaseModule, number>>> = {};
     for (const r of recent) {
       if (r.status !== 'closed') continue;
@@ -101,20 +118,22 @@ export default function PulsePlanPage() {
       const m = (r.module ?? 'pantry') as PurchaseModule;
       (spend[mk] ||= {})[m] = (spend[mk]![m] ?? 0) + spendOf(r);
     }
-    const months = Object.keys(spend).sort((a, b) => b.localeCompare(a)).slice(0, 6); // newest first
-    const caps = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
+    const months = Array.from(new Set([...Object.keys(spend), ...Object.keys(snapByMonth)]))
+      .sort((a, b) => b.localeCompare(a)).slice(0, 6); // newest first
+
     const monthly = months.map((mk) => {
+      const snap = snapByMonth[mk];
+      if (snap) return { mk, spent: snap.totalSpentCents, saved: snap.savingsCents };
       let spent = 0, saved = 0;
-      for (const m of PLAN_MODULES) {
-        const sp = spend[mk]?.[m] ?? 0;
-        spent += sp;
-        saved += Math.max(0, (caps[m] ?? 0) - sp);
-      }
+      for (const m of PLAN_MODULES) { const sp = spend[mk]?.[m] ?? 0; spent += sp; saved += Math.max(0, (caps[m] ?? 0) - sp); }
       return { mk, spent, saved };
     });
+
     const byModule = PLAN_MODULES.map((m) => {
       const cap = caps[m] ?? 0;
       const perMonth = months.map((mk) => {
+        const pm = snapByMonth[mk]?.perModule?.[m];
+        if (pm) return { mk, spent: pm.spentCents, saved: Math.max(0, pm.capCents - pm.spentCents) };
         const sp = spend[mk]?.[m] ?? 0;
         return { mk, spent: sp, saved: Math.max(0, cap - sp) };
       });
@@ -125,8 +144,35 @@ export default function PulsePlanPage() {
         perMonth,
       };
     }).filter((x) => x.cap > 0 || x.totalSpent > 0).sort((a, b) => b.totalSaved - a.totalSaved);
-    return { monthly, byModule };
-  }, [recent, thisMonth, family?.householdBudgets]);
+
+    // Completed months with spend but no frozen snapshot → backfill payloads.
+    const toBackfill = Object.keys(spend).filter((mk) => !snapByMonth[mk]).map((mk) => {
+      const perModule: BudgetSnapshot['perModule'] = {};
+      let totalSpentCents = 0, totalCapCents = 0, savingsCents = 0;
+      for (const m of PLAN_MODULES) {
+        const sp = spend[mk]?.[m] ?? 0;
+        const cap = caps[m] ?? 0;
+        if (sp === 0 && cap === 0) continue;
+        perModule[m] = { spentCents: sp, capCents: cap, deltaPct: cap > 0 ? Math.round(((sp - cap) / cap) * 100) : 0 };
+        totalSpentCents += sp; totalCapCents += cap; savingsCents += Math.max(0, cap - sp);
+      }
+      return { monthKey: mk, totalSpentCents, totalCapCents, perModule, savingsCents, finalized: true } as Omit<BudgetSnapshot, 'id' | 'finalizedAt'>;
+    });
+
+    return { monthly, byModule, toBackfill };
+  }, [recent, thisMonth, family?.householdBudgets, snapByMonth]);
+
+  // Running Wealth balance = all frozen snapshots, all-time.
+  const wealthBalanceCents = useMemo(() => snapshots.reduce((s, x) => s + (x.savingsCents ?? 0), 0), [snapshots]);
+
+  // Freeze completed months not yet snapshotted (idempotent; the lib also
+  // guards with a read so a frozen month is never rewritten).
+  useEffect(() => {
+    if (!profile?.familyId || profile.role !== 'parent' || !snapsLoaded) return;
+    for (const payload of savings.toBackfill) {
+      void ensureBudgetSnapshot(profile.familyId, payload).catch(() => {});
+    }
+  }, [savings.toBackfill, snapsLoaded, profile?.familyId, profile?.role]);
 
   // "Where the money went" — top items by total spend across closed shops.
   const itemSpend = useMemo(() => {
@@ -160,6 +206,16 @@ export default function PulsePlanPage() {
         currentCaps={family?.householdBudgets}
         currency={currency}
       />
+
+      {wealthBalanceCents > 0 && (
+        <div className="mt-5 bg-pulse-navy text-pulse-gold rounded-2xl p-4 flex items-center justify-between">
+          <div>
+            <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">💰 Wealth saved to date</div>
+            <div className="text-2xl font-nunito font-black mt-0.5">{formatCentsBudgetNeat(wealthBalanceCents, currency)}</div>
+          </div>
+          <div className="text-[11px] font-bold opacity-85 text-right leading-tight">{snapshots.length} month{snapshots.length === 1 ? '' : 's'}<br />frozen</div>
+        </div>
+      )}
 
       <SavingsTrend monthly={savings.monthly} currency={currency} />
       <SavingsByModule rows={savings.byModule} currency={currency} />
@@ -218,7 +274,7 @@ function SavingsTrend({ monthly, currency }: { monthly: MonthSaved[]; currency: 
           <span className="text-[15px] font-nunito font-black text-pulse-green">{formatCentsBudgetNeat(total, currency)}</span>
         </div>
       </div>
-      <p className="text-[10px] text-hive-muted mt-1.5">Saved = your current caps − spend that month (completed months). Accurate per-month snapshots coming next.</p>
+      <p className="text-[10px] text-hive-muted mt-1.5">Each completed month is frozen as a permanent record. Past months were backfilled at today’s caps; new months snapshot accurately at close.</p>
     </div>
   );
 }

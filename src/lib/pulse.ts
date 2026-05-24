@@ -16,7 +16,7 @@
 //     Savings → Wealth is computed from the CASH lens only.
 
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, serverTimestamp, query, where,
+  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs, onSnapshot, serverTimestamp, query, where,
 } from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
@@ -560,6 +560,43 @@ export const wealthPoolCol = (fid: string) => collection(db, 'families', fid, 'w
 export const wealthPoolDoc = (fid: string, monthKey: string) => doc(db, 'families', fid, 'wealthPool', monthKey);
 export const budgetSnapshotsCol = (fid: string) => collection(db, 'families', fid, 'budgetSnapshots');
 export const budgetSnapshotDoc = (fid: string, monthKey: string) => doc(db, 'families', fid, 'budgetSnapshots', monthKey);
+
+/* ── Month-end savings snapshots (Phase 2, 2026-05-23) ──────────────
+   Freeze each completed month's caps + spend + savings so the savings
+   trend/drill + the running Wealth balance are stable + permanent (the
+   live compute otherwise shifts when caps change). Idempotent: a frozen
+   month is NEVER re-written. */
+
+/** Live list of frozen month snapshots, newest month first. */
+export function subscribeBudgetSnapshots(fid: string, cb: (snaps: BudgetSnapshot[]) => void): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  return onSnapshot(
+    budgetSnapshotsCol(fid),
+    (snap) => {
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as BudgetSnapshot));
+      list.sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] budgetSnapshots subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
+/** Write a month's snapshot ONCE — never overwrites an existing (frozen)
+ *  one, so a later cap change can't rewrite history. */
+export async function ensureBudgetSnapshot(
+  fid: string,
+  snapshot: Omit<BudgetSnapshot, 'id' | 'finalizedAt'>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const ref = budgetSnapshotDoc(fid, snapshot.monthKey);
+  const existing = await getDoc(ref);
+  if (existing.exists()) return; // frozen — leave it
+  await setDoc(ref, { ...snapshot, finalizedAt: serverTimestamp() });
+}
 export const pulseAlertsCol = (fid: string) => collection(db, 'families', fid, 'pulseAlerts');
 export const pulseAlertDoc = (fid: string, id: string) => doc(db, 'families', fid, 'pulseAlerts', id);
 export const pulseProfileDoc = (fid: string, ownerId: string) => doc(db, 'families', fid, 'pulseProfiles', ownerId);
