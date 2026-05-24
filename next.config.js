@@ -25,6 +25,10 @@ const nextConfig = {
       // /dashboard → /home. Old route renamed when Discover took the
       // root slot — the 301 keeps every existing bookmark working.
       { source: '/dashboard', destination: '/home', permanent: true },
+      // /welcome → /. The marketing surface now lives at the root (server-
+      // rendered). Keep the legacy path working — query strings (e.g. an
+      // invite ?ref=CODE) are preserved by Next on redirect.
+      { source: '/welcome', destination: '/', permanent: true },
     ];
   },
 };

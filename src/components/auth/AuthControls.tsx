@@ -51,7 +51,7 @@ export default function AuthControls() {
 
   const handlePostLogin = async (uid: string) => {
     const profile = await getUserProfile(uid);
-    if (profile?.familyId) router.push('/');
+    if (profile?.familyId) router.push('/discover');
     else router.push('/onboarding');
   };
 
@@ -108,7 +108,7 @@ export default function AuthControls() {
 
         <button
           onClick={() => setMode('email')}
-          className="w-full h-[52px] bg-kaya-chocolate text-white rounded-kaya font-semibold text-sm hover:bg-kaya-chocolate-light transition-colors"
+          className="w-full h-[52px] bg-brand-navy text-brand-cream rounded-kaya font-semibold text-sm hover:bg-brand-navy-soft transition-colors"
         >
           Continue with Email
         </button>
@@ -126,21 +126,21 @@ export default function AuthControls() {
         {betaOpen && (
           <button
             type="button"
-            onClick={() => { enterGuestMode(); router.push('/'); }}
-            className="w-full text-center text-sm font-semibold text-kaya-chocolate underline-offset-4 hover:underline pt-2"
+            onClick={() => { enterGuestMode(); router.push('/discover'); }}
+            className="w-full text-center text-sm font-semibold text-brand-navy underline-offset-4 hover:underline pt-2"
           >
             Or try as a guest →
           </button>
         )}
 
         {betaOpen === false && (
-          <div className="bg-white border border-dashed border-kaya-gold rounded-kaya p-3.5 text-center mt-1">
+          <div className="bg-white border border-dashed border-brand-honey rounded-kaya p-3.5 text-center mt-1">
             <p className="text-sm font-bold">Not invited yet? 🌱</p>
             <p className="text-xs text-kaya-sand mt-0.5 mb-2.5">Kaya&apos;s in closed beta. Get a heads-up the moment we open.</p>
             <button
               type="button"
               onClick={() => { setMode('waitlist'); setError(''); }}
-              className="w-full h-11 bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors"
+              className="w-full h-11 bg-brand-honey text-brand-navy rounded-kaya font-bold text-sm hover:bg-brand-honey-dk transition-colors"
             >
               Join the waitlist →
             </button>
@@ -166,7 +166,7 @@ export default function AuthControls() {
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+          className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-brand-honey/40 focus:border-brand-honey"
           placeholder="you@example.com"
           required
         />
@@ -178,7 +178,7 @@ export default function AuthControls() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+          className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-brand-honey/40 focus:border-brand-honey"
           placeholder="••••••••"
           required
           minLength={6}
@@ -192,7 +192,7 @@ export default function AuthControls() {
       <button
         type="submit"
         disabled={loading}
-        className="w-full h-[52px] bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+        className="w-full h-[52px] bg-brand-navy text-brand-cream rounded-kaya font-bold text-sm hover:bg-brand-navy-soft transition-colors disabled:opacity-50"
       >
         {loading ? 'Please wait…' : isSignUp ? 'Create Account' : 'Sign In'}
       </button>
@@ -201,7 +201,7 @@ export default function AuthControls() {
         <button
           type="button"
           onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
-          className="w-full text-center text-sm text-kaya-gold font-medium"
+          className="w-full text-center text-sm text-brand-navy font-medium"
         >
           {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
         </button>
@@ -241,7 +241,7 @@ export default function AuthControls() {
       ) : (
         <form onSubmit={handleWaitlist} className="space-y-3">
           <div>
-            <h3 className="font-display font-extrabold text-lg tracking-tight mb-1">Get notified at launch</h3>
+            <h3 className="font-nunito font-extrabold text-lg tracking-tight mb-1">Get notified at launch</h3>
             <p className="text-xs text-kaya-sand">Kaya opens to more families soon. Leave your details and we&apos;ll email you when it&apos;s your turn. 💛</p>
           </div>
 
@@ -250,7 +250,7 @@ export default function AuthControls() {
             <input
               value={wlName}
               onChange={(e) => setWlName(e.target.value)}
-              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-brand-honey/40 focus:border-brand-honey"
               placeholder="e.g. Amani M."
               required
             />
@@ -262,7 +262,7 @@ export default function AuthControls() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-brand-honey/40 focus:border-brand-honey"
               placeholder="you@example.com"
               required
             />
@@ -275,7 +275,7 @@ export default function AuthControls() {
             <input
               value={wlCountry}
               onChange={(e) => setWlCountry(e.target.value)}
-              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-brand-honey/40 focus:border-brand-honey"
               placeholder="e.g. Tanzania"
             />
           </div>
@@ -287,7 +287,7 @@ export default function AuthControls() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full h-[52px] bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+            className="w-full h-[52px] bg-brand-honey text-brand-navy rounded-kaya font-bold text-sm hover:bg-brand-honey-dk transition-colors disabled:opacity-50"
           >
             {loading ? 'Joining…' : 'Join the waitlist'}
           </button>
@@ -311,7 +311,7 @@ export default function AuthControls() {
       {!resetSent ? (
         <>
           <div>
-            <h3 className="font-display font-extrabold text-lg tracking-tight mb-1">Reset your password</h3>
+            <h3 className="font-nunito font-extrabold text-lg tracking-tight mb-1">Reset your password</h3>
             <p className="text-xs text-kaya-sand">Enter the email you signed up with — we'll send a reset link.</p>
           </div>
 
@@ -321,7 +321,7 @@ export default function AuthControls() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40 focus:border-kaya-gold"
+              className="w-full h-[48px] px-4 bg-white border border-kaya-warm-dark rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-brand-honey/40 focus:border-brand-honey"
               placeholder="you@example.com"
               required
               autoFocus
@@ -335,7 +335,7 @@ export default function AuthControls() {
           <button
             type="submit"
             disabled={loading || !email}
-            className="w-full h-[52px] bg-kaya-gold text-white rounded-kaya font-bold text-sm hover:bg-kaya-gold-dark transition-colors disabled:opacity-50"
+            className="w-full h-[52px] bg-brand-navy text-brand-cream rounded-kaya font-bold text-sm hover:bg-brand-navy-soft transition-colors disabled:opacity-50"
           >
             {loading ? 'Sending…' : 'Send reset link'}
           </button>
