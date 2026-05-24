@@ -18,10 +18,13 @@
 // All numbers come from HiveContext so a parent rate tweak is reflected
 // the next time the kid opens the page.
 
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { useHive } from '@/contexts/HiveContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { currencySymbol } from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
+import HoneyCoin from '@/components/hive/HoneyCoin';
 import { formatCashClean, formatHp, honeyToCashCents } from '@/components/hive/format';
 
 export default function HiveGuidePage() {
@@ -53,10 +56,10 @@ export default function HiveGuidePage() {
         <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-white/30 blur-2xl pointer-events-none" />
         <div className="relative">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
-            {activeKid ? `${activeKid.name}'s Guide` : 'Honey Pot Guide'}
+            {activeKid ? `${activeKid.name}'s Money Guide` : 'Money Guide'}
           </p>
           <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1 leading-tight">
-            How the Honey Pot works 🍯
+            How your money works 🍯
           </h1>
           <p className="text-[13px] text-hive-ink/70 mt-2 leading-relaxed">
             A quick map of how points become real money. Read once — you&apos;ll know the whole system.
@@ -65,7 +68,7 @@ export default function HiveGuidePage() {
       </div>
 
       {/* The three things */}
-      <h2 className="font-nunito font-black text-xl mb-3">The three things in your pot</h2>
+      <h2 className="font-nunito font-black text-xl mb-3">The three kinds of money</h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-7">
         <ThingCard
           icon="⭐"
@@ -76,38 +79,38 @@ export default function HiveGuidePage() {
           color="bg-gradient-to-br from-[#E5EBF3] to-[#F4F7FB] border-[#D5DEE9]"
         />
         <ThingCard
-          icon="🍯"
+          icon={<HoneyCoin size={34} />}
           label="Honey Coins"
-          shortLabel="🍯"
+          shortLabel="HC"
           tagline="What you SAVE"
-          desc="Every Honey Coin is a chunk of real money set aside for you. Save up for things you want."
+          desc="Each Honey Coin is a chunk of real money saved for you — they live in your Treasury Reserve. Save up for what you want."
           color="bg-gradient-to-br from-[#FFF3D9] to-hive-honey-soft border-hive-honey"
         />
         <ThingCard
           icon="💵"
           label="Cash"
-          shortLabel="$"
+          shortLabel={currencySymbol(config.currency)}
           tagline="What you SPEND"
-          desc="Real money in your family's currency. Only Honey turns into cash — never HP straight."
+          desc="Real money in your family's currency. Only Honey Coins turn into cash — never HP straight."
           color="bg-gradient-to-br from-[#E6F7EE] to-[#C9EBD7] border-[#8FD3AB]"
         />
       </div>
 
       {/* Flow diagram */}
-      <h2 className="font-nunito font-black text-xl mb-3">The journey: HP → 🍯 → 💵</h2>
+      <h2 className="font-nunito font-black text-xl mb-3">The journey: HP → Honey Coins → Cash</h2>
       <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-5 mb-7">
         <div className="flex items-center justify-between gap-2 text-center">
           <FlowStep emoji="⭐" label="HP" tone="hp" />
-          <ArrowWithLabel label={`${config.hpToHoneyRate} HP = 1 🍯`} />
-          <FlowStep emoji="🍯" label="Honey" tone="honey" />
-          <ArrowWithLabel label={`1 🍯 = ${formatCashClean(oneHoneyCents, config.currency)}`} />
+          <ArrowWithLabel label={`${config.hpToHoneyRate} HP = 1 coin`} />
+          <FlowStep emoji={<HoneyCoin size={26} />} label="Coins" tone="honey" />
+          <ArrowWithLabel label={`1 coin = ${formatCashClean(oneHoneyCents, config.currency)}`} />
           <FlowStep emoji="💵" label="Cash" tone="cash" />
         </div>
         <p className="text-[11px] text-hive-muted text-center mt-4 leading-relaxed">
           Today: <strong className="text-hive-ink">{formatHp(exampleHp)} HP</strong> →{' '}
-          <strong className="text-hive-honey-dk">{exampleHoney} 🍯</strong> →{' '}
+          <strong className="text-hive-honey-dk">{exampleHoney} HC</strong> →{' '}
           <strong className="text-hive-green">{formatCashClean(exampleCashCents, config.currency)}</strong>{' '}
-          in your wallet.
+          in your wallet. Your coins wait safely in your Treasury Reserve 🍯 until then.
         </p>
       </div>
 
@@ -148,7 +151,7 @@ export default function HiveGuidePage() {
             </p>
             <div className="bg-hive-cream border border-hive-line rounded-hive p-3 my-2 text-center">
               <p className="font-nunito font-black text-lg">
-                {config.hpToHoneyRate} HP = 1 🍯
+                {config.hpToHoneyRate} HP = 1 Honey Coin
               </p>
             </div>
             {config.minHpReserve > 0 && (
@@ -164,8 +167,8 @@ export default function HiveGuidePage() {
               </div>
             )}
             <p className="mt-2">
-              <strong>Tap Save</strong> on the Honey Pot, pick how many HP to convert,
-              and your parent approves. Done — those HP become Honey, sitting in your pot.
+              <strong>Tap Save</strong> on your Treasury Reserve, pick how many HP to convert,
+              and your parent approves. Done — those HP become Honey Coins, saved in your Treasury Reserve (the Honey Pot 🍯).
             </p>
           </>
         }
@@ -184,7 +187,7 @@ export default function HiveGuidePage() {
             </p>
             <div className="bg-hive-cream border border-hive-line rounded-hive p-3 my-2 text-center">
               <p className="font-nunito font-black text-lg">
-                1 🍯 = {formatCashClean(oneHoneyCents, config.currency)}
+                1 Honey Coin = {formatCashClean(oneHoneyCents, config.currency)}
               </p>
               <p className="text-[11px] text-hive-muted mt-1">
                 in {config.currency}, at today&apos;s rate
@@ -192,12 +195,12 @@ export default function HiveGuidePage() {
             </div>
             {config.minCashOut > 0 && (
               <p className="mt-2">
-                <strong>Minimum cash-out:</strong> {config.minCashOut} 🍯. Saves you from
+                <strong>Minimum cash-out:</strong> {config.minCashOut} Honey Coins. Saves you from
                 cashing out tiny amounts.
               </p>
             )}
             <p className="mt-2">
-              <strong>Tap Spend</strong> on the Honey Pot, pick the Honey amount,
+              <strong>Tap Spend</strong> on your Treasury Reserve, pick the amount,
               parent approves, and the cash lands in your wallet.
             </p>
           </>
@@ -212,7 +215,7 @@ export default function HiveGuidePage() {
         body={
           <>
             <p>
-              Both saves (HP → 🍯) and cash-outs (🍯 → 💵) need a parent tap. Two reasons:
+              Both saves (HP → coins) and cash-outs (coins → cash) need a parent tap. Two reasons:
             </p>
             <ul className="space-y-1 mt-2 pl-1">
               <li>✅ It&apos;s a quick sanity check — &quot;sure, that&apos;s a fair trade.&quot;</li>
@@ -227,8 +230,9 @@ export default function HiveGuidePage() {
       />
 
       {/* Tips */}
-      <h2 className="font-nunito font-black text-xl mb-3 mt-7">Smart Honey Pot tips</h2>
+      <h2 className="font-nunito font-black text-xl mb-3 mt-7">Smart money tips</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-7">
+        <TipCard emoji="💼" title="Business money" body="If you run a Kaya business, your sales land right in your Treasury Reserve — ready to cash out." />
         <TipCard emoji="🎯" title="Set a goal" body="Picking something to save toward (a toy, a trip) makes the wait easier. Use Goals to track it." />
         <TipCard emoji="🗓️" title="Plan your month" body="Decide ahead what you'll save vs. spend on snacks vs. give. Use Plan." />
         <TipCard emoji="📊" title="Check your streaks" body="Insights shows how steady your earning is. Steady > big spikes." />
@@ -241,7 +245,7 @@ export default function HiveGuidePage() {
           href="/hive"
           className="inline-flex items-center gap-2 h-12 px-6 bg-hive-honey hover:bg-hive-honey-dk text-white rounded-hive-pill font-nunito font-black text-sm no-underline shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] transition-colors"
         >
-          ← Back to my Honey Pot
+          ← Back to my Treasury Reserve
         </Link>
       </div>
     </div>
@@ -252,10 +256,10 @@ export default function HiveGuidePage() {
 
 function ThingCard({
   icon, label, tagline, desc, color,
-}: { icon: string; label: string; shortLabel: string; tagline: string; desc: string; color: string }) {
+}: { icon: ReactNode; label: string; shortLabel: ReactNode; tagline: string; desc: string; color: string }) {
   return (
     <div className={`rounded-hive border p-4 ${color}`}>
-      <p className="text-3xl leading-none">{icon}</p>
+      <p className="text-3xl leading-none flex items-center">{icon}</p>
       <p className="font-nunito font-black text-[15px] mt-2">{label}</p>
       <p className="text-[10px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-honey-dk mt-0.5">{tagline}</p>
       <p className="text-[12px] text-hive-ink/80 mt-2 leading-relaxed">{desc}</p>
@@ -263,7 +267,7 @@ function ThingCard({
   );
 }
 
-function FlowStep({ emoji, label, tone }: { emoji: string; label: string; tone: 'hp' | 'honey' | 'cash' }) {
+function FlowStep({ emoji, label, tone }: { emoji: ReactNode; label: string; tone: 'hp' | 'honey' | 'cash' }) {
   const bg = tone === 'hp'
     ? 'bg-[#F4F7FB] border-[#D5DEE9]'
     : tone === 'honey'
@@ -271,7 +275,7 @@ function FlowStep({ emoji, label, tone }: { emoji: string; label: string; tone: 
       : 'bg-[#E6F7EE] border-[#8FD3AB]';
   return (
     <div className={`flex-shrink-0 w-16 h-20 rounded-hive border flex flex-col items-center justify-center gap-1 ${bg}`}>
-      <span className="text-2xl leading-none">{emoji}</span>
+      <span className="text-2xl leading-none flex items-center justify-center">{emoji}</span>
       <span className="font-nunito font-black text-[11px]">{label}</span>
     </div>
   );
