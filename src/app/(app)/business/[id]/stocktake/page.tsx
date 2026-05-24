@@ -18,6 +18,7 @@ import {
 import { uploadBusinessPhoto, uploadBusinessVideo } from '@/lib/businessPhoto';
 import { auth } from '@/lib/firebase';
 import { toDisplayDate } from '@/lib/dates';
+import { useCelebrate } from '@/components/celebrate/CelebrationProvider';
 
 const DOW = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -54,6 +55,7 @@ export default function StockTakePage() {
   // Clickable history: the day being viewed + a full-screen photo zoom.
   const [openTake, setOpenTake] = useState<StockTake | null>(null);
   const [zoom, setZoom] = useState<string | null>(null);
+  const celebrate = useCelebrate();
 
   useEffect(() => {
     if (!familyId || !businessId) return;
@@ -158,6 +160,7 @@ export default function StockTakePage() {
 
       // Instant-cadence House Points: grant (auto) or ask a parent (review) for
       // today's point — once per day. Best-effort: never block the stock-take.
+      let earnedHp = 0; // only counts points actually granted now (auto path)
       const hp = readBusinessConfig(family).hpAward;
       const prior = takes.find((t) => t.date === today);
       if (hp.cadence === 'instant' && hp.perDayHp > 0 && !(prior?.hpGranted || prior?.hpRequested)) {
@@ -182,11 +185,17 @@ export default function StockTakePage() {
               }
             } catch { /* fall through */ }
             if (!granted) await askParent(); // admin path unavailable — don't lose the point
+            else earnedHp = hp.perDayHp;
           } else {
             await askParent();
           }
         } catch { /* best-effort */ }
       }
+
+      // 🎉 Celebrate the effort (the kid showed up). Points only shown when
+      // actually granted now; the overlay lives in the (app) layout so it
+      // persists over the navigation to the dashboard.
+      celebrate({ kind: 'stocktake', points: earnedHp || undefined, streak: doneToday ? streak : streak + 1 });
 
       router.push(`/business/${businessId}`);
     } catch (e: any) {
