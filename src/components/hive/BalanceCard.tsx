@@ -6,6 +6,7 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import HoneyCoin from './HoneyCoin';
 
 type Variant = 'hp' | 'honey' | 'cash';
 
@@ -51,7 +52,7 @@ export default function BalanceCard({
   const inner = (
     <>
       <div className="w-[46px] h-[46px] rounded-[14px] bg-white/60 flex items-center justify-center text-2xl shrink-0">
-        {v.icon}
+        {variant === 'honey' ? <HoneyCoin size={30} /> : v.icon}
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[10px] uppercase tracking-[2px] font-bold text-hive-muted">{v.lbl}</p>

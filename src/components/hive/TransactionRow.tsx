@@ -21,7 +21,7 @@ const CATEGORY_ICON: Record<string, string> = {
 
 const LAYER_LABEL: Record<HiveTransaction['layer'], string> = {
   house_points: 'HP',
-  honey: '🪙',
+  honey: 'HC',
   treasury: '🍯',
   cash: '$',
 };
@@ -42,7 +42,7 @@ export default function TransactionRow({
   const amountText = (() => {
     const sign = isIn ? '+' : '−';
     if (tx.layer === 'cash') return `${sign}${formatCash(tx.amount, currency)}`;
-    if (tx.layer === 'honey') return `${sign}${formatHoney(tx.amount)} 🍯`;
+    if (tx.layer === 'honey') return `${sign}${formatHoney(tx.amount)} HC`;
     return `${sign}${formatHp(tx.amount)} HP`;
   })();
   const dateLine = (() => {
