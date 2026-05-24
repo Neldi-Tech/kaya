@@ -86,27 +86,66 @@ export default function PulsePlanPage() {
 
   const plan = family?.pulsePlan;
 
-  // Savings history — what you saved each COMPLETED month = current total
-  // caps − that month's spend. (Elia: "see how much savings we made over
-  // the months." Computed from closed requests — the Wealth pool isn't
-  // populated yet.)
-  const totalCapNow = PLAN_MODULES.reduce(
-    (s, m) => s + (((family?.householdBudgets ?? {}) as Record<string, number | undefined>)[m] ?? 0), 0);
-  const savingsHistory = useMemo(() => {
-    const byMonth: Record<string, number> = {};
+  // Savings history (phase 1, computed from closed requests — the Wealth
+  // pool isn't populated yet). Per-month saved = Σ over modules of
+  // max(0, current cap − that month's spend), so the by-module drill sums
+  // to the headline. Completed months only. (Elia: trend + drill by line.)
+  const savings = useMemo(() => {
+    const spend: Record<string, Partial<Record<PurchaseModule, number>>> = {};
     for (const r of recent) {
       if (r.status !== 'closed') continue;
       const at = r.closedAt?.toDate?.();
       if (!at) continue;
       const mk = monthKeyOf(at);
       if (mk === thisMonth) continue; // completed months only
-      byMonth[mk] = (byMonth[mk] ?? 0) + spendOf(r);
+      const m = (r.module ?? 'pantry') as PurchaseModule;
+      (spend[mk] ||= {})[m] = (spend[mk]![m] ?? 0) + spendOf(r);
     }
-    return Object.entries(byMonth)
-      .sort((a, b) => b[0].localeCompare(a[0]))
-      .slice(0, 6)
-      .map(([mk, spent]) => ({ mk, spent, saved: Math.max(0, totalCapNow - spent) }));
-  }, [recent, thisMonth, totalCapNow]);
+    const months = Object.keys(spend).sort((a, b) => b.localeCompare(a)).slice(0, 6); // newest first
+    const caps = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
+    const monthly = months.map((mk) => {
+      let spent = 0, saved = 0;
+      for (const m of PLAN_MODULES) {
+        const sp = spend[mk]?.[m] ?? 0;
+        spent += sp;
+        saved += Math.max(0, (caps[m] ?? 0) - sp);
+      }
+      return { mk, spent, saved };
+    });
+    const byModule = PLAN_MODULES.map((m) => {
+      const cap = caps[m] ?? 0;
+      const perMonth = months.map((mk) => {
+        const sp = spend[mk]?.[m] ?? 0;
+        return { mk, spent: sp, saved: Math.max(0, cap - sp) };
+      });
+      return {
+        m, cap,
+        totalSaved: perMonth.reduce((s, x) => s + x.saved, 0),
+        totalSpent: perMonth.reduce((s, x) => s + x.spent, 0),
+        perMonth,
+      };
+    }).filter((x) => x.cap > 0 || x.totalSpent > 0).sort((a, b) => b.totalSaved - a.totalSaved);
+    return { monthly, byModule };
+  }, [recent, thisMonth, family?.householdBudgets]);
+
+  // "Where the money went" — top items by total spend across closed shops.
+  const itemSpend = useMemo(() => {
+    const byItem: Record<string, number> = {};
+    for (const r of recent) {
+      if (r.status !== 'closed') continue;
+      for (const it of r.items ?? []) {
+        const name = (it.name || '').trim();
+        if (!name) continue;
+        const cents = (it.actualCents ?? it.estimatedCents ?? 0) * (it.actualQty ?? it.qty ?? 1);
+        byItem[name] = (byItem[name] ?? 0) + cents;
+      }
+    }
+    return Object.entries(byItem)
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([name, cents]) => ({ name, cents }));
+  }, [recent]);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -122,7 +161,9 @@ export default function PulsePlanPage() {
         currency={currency}
       />
 
-      <SavingsHistory history={savingsHistory} currency={currency} />
+      <SavingsTrend monthly={savings.monthly} currency={currency} />
+      <SavingsByModule rows={savings.byModule} currency={currency} />
+      <SpendByItem items={itemSpend} currency={currency} />
     </div>
   );
 }
@@ -133,28 +174,111 @@ function monthLabelOf(mk: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
 }
 
-function SavingsHistory({ history, currency }: {
-  history: { mk: string; spent: number; saved: number }[]; currency: string;
-}) {
-  if (history.length === 0) return null;
-  const totalSaved = history.reduce((s, r) => s + r.saved, 0);
-  return (
-    <div className="mt-6">
-      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Savings history</div>
-      <div className="bg-white border border-pulse-gold/40 rounded-2xl overflow-hidden">
-        {history.map((r) => (
-          <div key={r.mk} className="flex items-center px-4 py-2.5 border-b border-pulse-gold/15 last:border-b-0">
-            <span className="flex-1 text-[12.5px] font-nunito font-black text-pulse-navy">{monthLabelOf(r.mk)}</span>
-            <span className="text-[11px] text-hive-muted font-bold mr-3">spent {formatCents(r.spent, currency)}</span>
-            <span className="text-[13px] font-nunito font-black text-pulse-green w-24 text-right">+{formatCents(r.saved, currency)}</span>
-          </div>
-        ))}
-        <div className="flex items-center px-4 py-2.5 bg-pulse-cream">
-          <span className="flex-1 text-[12.5px] font-nunito font-black text-pulse-navy">Total saved</span>
-          <span className="text-[14px] font-nunito font-black text-pulse-green">{formatCentsBudgetNeat(totalSaved, currency)}</span>
+/** Compact amount for tight bar labels (no currency symbol): 685k, 1.2M. */
+function compactMajor(cents: number): string {
+  const v = Math.round(cents / 100);
+  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(v >= 10_000_000 ? 0 : 1)}M`;
+  if (v >= 1_000) return `${Math.round(v / 1_000)}k`;
+  return String(v);
+}
+
+interface MonthSaved { mk: string; spent: number; saved: number }
+interface ModuleSaved { m: PurchaseModule; cap: number; totalSaved: number; totalSpent: number; perMonth: MonthSaved[] }
+
+/* Overall savings trendline — bars over the completed months. */
+function SavingsTrend({ monthly, currency }: { monthly: MonthSaved[]; currency: string }) {
+  if (monthly.length === 0) {
+    return (
+      <div className="mt-6">
+        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">📈 Savings trend</div>
+        <div className="bg-white border border-pulse-gold/40 rounded-2xl p-5 text-center text-[12px] text-hive-muted italic">
+          No completed months yet — your savings trend builds as months close.
         </div>
       </div>
-      <p className="text-[10px] text-hive-muted mt-1.5">Saved = your current caps − what you spent that month (completed months only).</p>
+    );
+  }
+  const data = [...monthly].reverse(); // oldest → newest
+  const max = Math.max(1, ...data.map((d) => d.saved));
+  const total = monthly.reduce((s, d) => s + d.saved, 0);
+  return (
+    <div className="mt-6">
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">📈 Savings trend</div>
+      <div className="bg-white border border-pulse-gold/40 rounded-2xl p-4">
+        <div className="flex items-end gap-2" style={{ height: 110 }}>
+          {data.map((d) => (
+            <div key={d.mk} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
+              <div className="text-[9px] font-nunito font-black text-pulse-green">{compactMajor(d.saved)}</div>
+              <div className="w-full rounded-t-md bg-pulse-green/80" style={{ height: Math.max(4, Math.round((d.saved / max) * 80)) }} />
+              <div className="text-[9px] text-hive-muted font-bold truncate w-full text-center">{monthLabelOf(d.mk).split(' ')[0]}</div>
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-pulse-gold/15">
+          <span className="text-[12px] font-nunito font-black text-pulse-navy">Total saved · {data.length} mo</span>
+          <span className="text-[15px] font-nunito font-black text-pulse-green">{formatCentsBudgetNeat(total, currency)}</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-hive-muted mt-1.5">Saved = your current caps − spend that month (completed months). Accurate per-month snapshots coming next.</p>
+    </div>
+  );
+}
+
+/* Drill by budget line (module) — tap to expand per-month. */
+function SavingsByModule({ rows, currency }: { rows: ModuleSaved[]; currency: string }) {
+  const [open, setOpen] = useState<PurchaseModule | null>(null);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mt-4">
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">By budget line</div>
+      <div className="bg-white border border-pulse-gold/40 rounded-2xl overflow-hidden">
+        {rows.map((r) => (
+          <div key={r.m} className="border-b border-pulse-gold/15 last:border-b-0">
+            <button type="button" onClick={() => setOpen(open === r.m ? null : r.m)} className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left">
+              <span className="w-7 h-7 rounded-lg bg-pulse-cream flex items-center justify-center text-sm flex-shrink-0">{MODULE_EMOJI[r.m]}</span>
+              <span className="flex-1 text-[12.5px] font-nunito font-black text-pulse-navy min-w-0 truncate">{MODULE_LABEL[r.m]}</span>
+              <span className="text-[12.5px] font-nunito font-black text-pulse-green">+{formatCents(r.totalSaved, currency)}</span>
+              <span className="text-hive-muted text-[11px] w-3 text-center">{open === r.m ? '▾' : '▸'}</span>
+            </button>
+            {open === r.m && (
+              <div className="px-4 pb-2.5 bg-pulse-cream/40">
+                {r.perMonth.map((pm) => (
+                  <div key={pm.mk} className="flex items-center text-[11px] py-1">
+                    <span className="flex-1 text-hive-muted font-bold">{monthLabelOf(pm.mk)}</span>
+                    <span className="text-hive-muted mr-3">spent {formatCents(pm.spent, currency)}</span>
+                    <span className="text-pulse-green font-nunito font-black w-20 text-right">+{formatCents(pm.saved, currency)}</span>
+                  </div>
+                ))}
+                <div className="text-[10px] text-hive-muted mt-1">Cap {formatCents(r.cap, currency)}/mo · spent {formatCents(r.totalSpent, currency)} over {r.perMonth.length} mo</div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* "Where the money went" — top items by spend (a spend lens, not savings). */
+function SpendByItem({ items, currency }: { items: { name: string; cents: number }[]; currency: string }) {
+  if (items.length === 0) return null;
+  const max = Math.max(1, ...items.map((i) => i.cents));
+  return (
+    <div className="mt-4">
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Where the money went · top items</div>
+      <div className="bg-white border border-pulse-gold/40 rounded-2xl p-3 flex flex-col gap-2">
+        {items.map((it) => (
+          <div key={it.name}>
+            <div className="flex items-center justify-between text-[12px] gap-2">
+              <span className="font-bold text-pulse-navy truncate flex-1">{it.name}</span>
+              <span className="font-nunito font-black text-pulse-navy flex-shrink-0">{formatCents(it.cents, currency)}</span>
+            </div>
+            <div className="h-1.5 bg-pulse-cream rounded-full mt-1 overflow-hidden">
+              <div className="h-full bg-pulse-gold" style={{ width: `${Math.round((it.cents / max) * 100)}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-hive-muted mt-1.5">Total spend per item across all closed shops.</p>
     </div>
   );
 }
