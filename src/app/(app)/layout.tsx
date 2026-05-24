@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { ConfirmProvider } from '@/contexts/ConfirmContext';
+import { CelebrationProvider } from '@/components/celebrate/CelebrationProvider';
 import AppShell from '@/components/layout/AppShell';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -38,7 +39,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // shared across the whole app shell (2026-05-18).
   return (
     <ConfirmProvider>
-      <AppShell>{children}</AppShell>
+      <CelebrationProvider>
+        <AppShell>{children}</AppShell>
+      </CelebrationProvider>
     </ConfirmProvider>
   );
 }
