@@ -535,6 +535,37 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // ── Messaging · family group + direct threads ─────────────────
+      // Threads carry `memberUids`. A member can read/write their own
+      // threads; a parent additionally gets oversight READ on any thread
+      // (it's a family app) and may update read-state — but only members
+      // can POST a message (parents observe kid↔kid DMs, they don't
+      // impersonate). Messages are append-only in v1 (moderation later).
+      match /threads/{threadId} {
+        allow read: if isSignedIn()
+          && ((request.auth.uid in resource.data.memberUids) || isParentInFamily(familyId));
+        // Creator must be a family member and include themselves.
+        allow create: if belongsToFamily(familyId)
+          && (request.auth.uid in request.resource.data.memberUids);
+        // Members update on send (lastAt/reads) + re-merge membership;
+        // a parent may also update (oversight mark-read).
+        allow update: if isSignedIn()
+          && ((request.auth.uid in resource.data.memberUids) || isParentInFamily(familyId));
+        allow delete: if false;
+
+        match /messages/{messageId} {
+          function thread() {
+            return get(/databases/$(database)/documents/families/$(familyId)/threads/$(threadId)).data;
+          }
+          allow read: if isSignedIn()
+            && ((request.auth.uid in thread().memberUids) || isParentInFamily(familyId));
+          // Only a thread member can post, and only as themselves.
+          allow create: if (request.auth.uid in thread().memberUids)
+            && request.resource.data.senderUid == request.auth.uid;
+          allow update, delete: if false;  // append-only
+        }
+      }
+
       // ── The Pantry · staples ─────────────────────────────────────
       // Master list of recurring household items. Parents + helpers
       // (with the `household` module) edit; kids read only (suggest
