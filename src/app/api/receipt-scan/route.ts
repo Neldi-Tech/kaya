@@ -40,6 +40,7 @@ Return:
 - "currency": the ISO code if you can tell (e.g. "TZS", "USD", "AED"), else "".
 
 Rules:
+- Keep DECIMAL quantities for weighed/measured items exactly as printed (e.g. 0.23 kg, 1.5 L, 0.5 dozen) — NEVER round a fractional quantity up to a whole number.
 - Prices are PER UNIT. If a line shows a line-total for qty > 1, divide to get the unit price.
 - Numbers only for qty / unitPrice / total — NEVER include currency symbols, spaces, or thousands separators. Use a decimal point only if the receipt shows decimals.
 - EXCLUDE non-item lines from "items" (subtotal, tax/VAT, service charge, change, rounding, loyalty) — but "total" must still be the final amount paid.
@@ -117,11 +118,16 @@ export async function POST(req: NextRequest) {
     };
     const items = (parsed.items ?? [])
       .filter((i) => i && typeof i.name === 'string' && i.name.trim())
-      .map((i) => ({
-        name: i.name!.trim().slice(0, 60),
-        qty: Math.max(1, Math.round(Number(i.qty) || 1)),
-        unitPrice: Math.max(0, Number(i.unitPrice) || 0),
-      }))
+      .map((i) => {
+        // Preserve decimal quantities (0.23 kg, 1.5 L); round only float
+        // noise to 3 dp. Fall back to 1 when missing/invalid, never force ≥1.
+        const q = Number(i.qty);
+        return {
+          name: i.name!.trim().slice(0, 60),
+          qty: q > 0 ? Math.round(q * 1000) / 1000 : 1,
+          unitPrice: Math.max(0, Number(i.unitPrice) || 0),
+        };
+      })
       .slice(0, 60);
     return NextResponse.json({
       items,
