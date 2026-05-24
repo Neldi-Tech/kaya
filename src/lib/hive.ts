@@ -475,6 +475,10 @@ export interface ApprovalRequest {
   approvals?: string[];
   status: ApprovalStatus;
   rejectionReason?: string;
+  /** Parent's free-text comment left at review time (approve or decline),
+   *  shown to the kid. For business_hp this is also mirrored onto the
+   *  stock-take day's `parentNote`. */
+  approvalNote?: string;
   resultingTxIds?: string[];
   createdAt: Timestamp;
   createdBy: string;
