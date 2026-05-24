@@ -236,6 +236,12 @@ export default function BudgetPage() {
   // Roll-up totals for the header strip.
   const totalSpent = MODULE_CARDS.reduce((sum, m) => sum + spentByModule[m.id], 0);
   const totalCap = MODULE_CARDS.reduce((sum, m) => sum + caps[m.id], 0);
+  // Savings as COMMENTARY (decoupled, 2026-05-23): how much the caps sit
+  // below the family's recent average — i.e. what the budget plan implies
+  // you'll save. Derived only; never changes the caps. (Elia: "given the
+  // budget plans, we are to save x".)
+  const totalBaseline = MODULE_CARDS.reduce((sum, m) => sum + (rollingAverages.averages[m.id] ?? 0), 0);
+  const plannedSavings = Math.max(0, totalBaseline - totalCap);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -269,6 +275,19 @@ export default function BudgetPage() {
           }`}>
             {totalCap > 0 ? Math.round((totalSpent / totalCap) * 100) : 0}%
           </div>
+        </div>
+      )}
+
+      {/* Savings commentary — derived from the budget, doesn't change it. */}
+      {totalCap > 0 && plannedSavings > 0 && rollingAverages.monthsCounted >= 1 && (
+        <div className="mt-2 bg-[#f3faf6] border border-[#bfe0d0] rounded-hive p-3">
+          <p className="text-[12.5px] font-bold text-pantry-leaf-dk leading-snug">
+            💰 Given your budget plans, you’re set to save ≈ <span className="font-nunito font-black">{formatCents(plannedSavings, currency)}/mo</span>
+            <span className="text-hive-muted font-bold"> — your caps sit that much below your recent {rollingAverages.monthsCounted}-month average.</span>
+          </p>
+          <p className="text-[10px] text-hive-muted mt-1">
+            A target, not a cap change. Track what you actually save month-by-month in <Link href="/pulse/plan" className="text-pulse-gold-dk font-bold underline">Pulse · Savings</Link>.
+          </p>
         </div>
       )}
 

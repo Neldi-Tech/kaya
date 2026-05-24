@@ -3,9 +3,11 @@
 // /pulse/plan — Kaya Pulse · Savings plan (parent-only).
 //
 // Set a target — either a TZS amount to save per month or a % to cut — and Kaya
-// resolves it to per-bucket caps (written to householdBudgets) against a recent-
-// spend baseline. Then track against it: saved-so-far (prorated), a run-rate
-// month-end projection vs the goal, and per-bucket pacing flags.
+// suggests per-bucket caps against a recent-spend baseline. The plan is a
+// SAVINGS TARGET and does NOT change the household budget by default (2026-05-23
+// decouple); the parent can opt in to push the suggested caps to it. Then track
+// against it: saved-so-far (prorated), a run-rate month-end projection vs the
+// goal, and per-bucket pacing flags.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -84,6 +86,28 @@ export default function PulsePlanPage() {
 
   const plan = family?.pulsePlan;
 
+  // Savings history — what you saved each COMPLETED month = current total
+  // caps − that month's spend. (Elia: "see how much savings we made over
+  // the months." Computed from closed requests — the Wealth pool isn't
+  // populated yet.)
+  const totalCapNow = PLAN_MODULES.reduce(
+    (s, m) => s + (((family?.householdBudgets ?? {}) as Record<string, number | undefined>)[m] ?? 0), 0);
+  const savingsHistory = useMemo(() => {
+    const byMonth: Record<string, number> = {};
+    for (const r of recent) {
+      if (r.status !== 'closed') continue;
+      const at = r.closedAt?.toDate?.();
+      if (!at) continue;
+      const mk = monthKeyOf(at);
+      if (mk === thisMonth) continue; // completed months only
+      byMonth[mk] = (byMonth[mk] ?? 0) + spendOf(r);
+    }
+    return Object.entries(byMonth)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 6)
+      .map(([mk, spent]) => ({ mk, spent, saved: Math.max(0, totalCapNow - spent) }));
+  }, [recent, thisMonth, totalCapNow]);
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <PulseHeader back={{ href: '/pulse', label: 'Dashboard' }} eyebrow="Savings plan" title="Save with a plan" subtitle="Set a monthly target, then track against it." />
@@ -97,6 +121,40 @@ export default function PulsePlanPage() {
         currentCaps={family?.householdBudgets}
         currency={currency}
       />
+
+      <SavingsHistory history={savingsHistory} currency={currency} />
+    </div>
+  );
+}
+
+function monthLabelOf(mk: string): string {
+  const [y, m] = mk.split('-').map(Number);
+  if (!y || !m) return mk;
+  return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+}
+
+function SavingsHistory({ history, currency }: {
+  history: { mk: string; spent: number; saved: number }[]; currency: string;
+}) {
+  if (history.length === 0) return null;
+  const totalSaved = history.reduce((s, r) => s + r.saved, 0);
+  return (
+    <div className="mt-6">
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Savings history</div>
+      <div className="bg-white border border-pulse-gold/40 rounded-2xl overflow-hidden">
+        {history.map((r) => (
+          <div key={r.mk} className="flex items-center px-4 py-2.5 border-b border-pulse-gold/15 last:border-b-0">
+            <span className="flex-1 text-[12.5px] font-nunito font-black text-pulse-navy">{monthLabelOf(r.mk)}</span>
+            <span className="text-[11px] text-hive-muted font-bold mr-3">spent {formatCents(r.spent, currency)}</span>
+            <span className="text-[13px] font-nunito font-black text-pulse-green w-24 text-right">+{formatCents(r.saved, currency)}</span>
+          </div>
+        ))}
+        <div className="flex items-center px-4 py-2.5 bg-pulse-cream">
+          <span className="flex-1 text-[12.5px] font-nunito font-black text-pulse-navy">Total saved</span>
+          <span className="text-[14px] font-nunito font-black text-pulse-green">{formatCentsBudgetNeat(totalSaved, currency)}</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-hive-muted mt-1.5">Saved = your current caps − what you spent that month (completed months only).</p>
     </div>
   );
 }
@@ -186,6 +244,9 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
   // (scales with the budget's magnitude). Explicit options come from
   // ROUND_STEPS (0 = None / exact).
   const [roundStep, setRoundStep] = useState<number>(existing?.roundToMajorUnits ?? -1);
+  // Decoupled (2026-05-23): the plan is a savings TARGET and no longer
+  // rewrites the budget by default. Tick to also push these caps to it.
+  const [applyToBudget, setApplyToBudget] = useState(false);
 
   const totalBaseline = PLAN_MODULES.reduce((s, m) => s + (baseline[m] ?? 0), 0);
   const totalBaselineMajor = Math.round(totalBaseline / 100);
@@ -231,8 +292,9 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
         planPeriod: 'monthly',
       };
       await updateFamily(familyId, {
-        householdBudgets: { ...(currentCaps ?? {}), ...caps },
         pulsePlan: nextPlan,
+        // Opt-in only — the plan no longer silently rewrites the budget.
+        ...(applyToBudget ? { householdBudgets: { ...(currentCaps ?? {}), ...caps } } : {}),
       });
       setSaved(true);
       setOpen(false);
@@ -343,11 +405,18 @@ function PlanSetup({ familyId, baseline, existing, currentCaps, currency }: {
         Plan saves ≈ {formatCentsBudgetNeat(plannedSavings, currency)} / month
       </div>
 
+      {/* Opt-in: the plan is a target by default; only changes the budget
+          when the parent explicitly asks. (Decouple, 2026-05-23) */}
+      <label className="flex items-start gap-2 mt-3 cursor-pointer select-none">
+        <input type="checkbox" checked={applyToBudget} onChange={(e) => { setApplyToBudget(e.target.checked); setSaved(false); }} className="w-4 h-4 mt-0.5 accent-pulse-navy flex-shrink-0" />
+        <span className="text-[11px] font-bold text-hive-muted leading-snug">Also set these as my budget caps <span className="text-hive-muted/70">— optional; this changes your running budget.</span></span>
+      </label>
+
       <button onClick={save} disabled={saving} className="w-full mt-3 bg-pulse-navy text-pulse-gold rounded-2xl py-3 font-nunito font-black text-sm disabled:opacity-50">
         {saving ? 'Saving…' : saved ? '✓ Plan saved' : 'Save plan'}
       </button>
       <p className="text-[10px] text-hive-muted text-center mt-2 leading-snug">
-        Caps write to your <Link href="/pantry/budget" className="text-pulse-gold-dk font-bold underline">household budget</Link>; tracking uses real spend vs these caps.
+        Your plan is a <strong>savings target</strong> — it won’t touch your <Link href="/pantry/budget" className="text-pulse-gold-dk font-bold underline">household budget</Link> unless you tick the box. Tracking uses real spend vs your caps.
       </p>
     </div>
   );
