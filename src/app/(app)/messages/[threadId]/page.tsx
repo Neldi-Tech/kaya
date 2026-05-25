@@ -8,11 +8,15 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Message, MessageThread, Attachment, ThreadMember,
-  getThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
+  Message, MessageThread, Attachment,
+  subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
+  seenByUids, readAtFor, otherMember,
 } from '@/lib/messaging';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument } from '@/lib/messagingUpload';
 import type { Timestamp } from 'firebase/firestore';
+
+// Curated, kid-friendly emoji set — no heavy picker dependency.
+const EMOJIS = '😀 😄 😁 😆 😂 🤣 😊 🙂 😉 😍 🥰 😘 😋 😎 🤩 🥳 🤗 🤔 😴 😮 😯 😢 😭 😤 😡 👍 👎 👏 🙌 🙏 👌 🤝 💪 ✌️ 🤞 👋 ❤️ 🧡 💛 💚 💙 💜 ✨ ⭐ 🌟 🔥 💯 🎉 🎊 🎁 🐝 🐶 🐱 🦄 🌈 🌸 🌻 ☀️ 🍯 🍅 🍎 🍌 🍓 🍕 🍪 🍦 ⚽ 🏀 🎮 📚 💰 🪙 🛒 ✅'.split(' ');
 
 const clock = (t?: Timestamp): string => {
   const m = (t as Timestamp | undefined)?.toMillis?.();
@@ -40,6 +44,7 @@ export default function MessageThreadPage() {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState<string | null>(null);
 
@@ -47,13 +52,15 @@ export default function MessageThreadPage() {
   const videoRef = useRef<HTMLInputElement>(null);
   const docRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const me = useMemo(() => (profile?.uid ? selfMember(profile, children) : null), [profile, children]);
 
   useEffect(() => {
     if (!familyId || !threadId) return;
-    getThread(familyId, threadId).then(setThread).catch(() => {});
-    return subscribeMessages(familyId, threadId, setMessages);
+    const u1 = subscribeThread(familyId, threadId, setThread);   // live `reads` → receipts
+    const u2 = subscribeMessages(familyId, threadId, setMessages);
+    return () => { u1(); u2(); };
   }, [familyId, threadId]);
 
   // Mark read whenever the latest message isn't mine.
@@ -94,6 +101,24 @@ export default function MessageThreadPage() {
       setError(e?.message || 'Could not send.');
     } finally { setSending(false); }
   };
+
+  const insertEmoji = (e: string) => { setText((t) => (t + e).slice(0, 2000)); inputRef.current?.focus(); };
+
+  // Read receipt for my latest sent message (uses the per-thread `reads` map).
+  const myLastMsg = useMemo(() => [...messages].reverse().find((m) => m.senderUid === uid), [messages, uid]);
+  const receiptText = useMemo(() => {
+    if (!thread || !myLastMsg) return '';
+    const seen = seenByUids(thread, myLastMsg.createdAt, uid);
+    if (thread.kind === 'group') {
+      const others = (thread.memberUids || []).filter((u) => u !== uid);
+      if (others.length === 0) return '';
+      if (seen.length === 0) return 'Sent';
+      return seen.length >= others.length ? 'Seen by all ✓✓' : `Seen by ${seen.length} ✓✓`;
+    }
+    const other = otherMember(thread, uid);
+    if (other && seen.includes(other.uid)) { const t = clock(readAtFor(thread, other.uid)); return t ? `Seen ${t} ✓✓` : 'Seen ✓✓'; }
+    return 'Sent ✓';
+  }, [thread, myLastMsg, uid]);
 
   const Att = ({ a, mine }: { a: Attachment; mine: boolean }) => {
     if (a.kind === 'photo') {
@@ -152,7 +177,10 @@ export default function MessageThreadPage() {
                 )}
                 {m.text && <p className="text-[13px] leading-snug whitespace-pre-wrap break-words">{m.text}</p>}
               </div>
-              <span className="text-[9.5px] text-kaya-sand mt-0.5 mx-1">{clock(m.createdAt)}</span>
+              <span className="text-[9.5px] text-kaya-sand mt-0.5 mx-1">
+                {clock(m.createdAt)}
+                {mine && m.id === myLastMsg?.id && receiptText ? ` · ${receiptText}` : ''}
+              </span>
             </div>
           );
         })}
@@ -194,14 +222,29 @@ export default function MessageThreadPage() {
         </div>
       )}
 
+      {/* Emoji picker */}
+      {emojiOpen && (
+        <div className="py-2 border-t border-kaya-warm-dark/40 max-h-[168px] overflow-y-auto">
+          <div className="grid grid-cols-8 gap-1">
+            {EMOJIS.map((e) => (
+              <button key={e} type="button" onClick={() => insertEmoji(e)}
+                className="h-9 rounded-kaya-sm hover:bg-kaya-warm text-[20px] flex items-center justify-center transition-colors">{e}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Composer */}
       <div className="sticky bottom-0 bg-kaya-cream pt-2 pb-3 flex items-center gap-2">
-        <button type="button" onClick={() => setAttachOpen((v) => !v)}
+        <button type="button" onClick={() => { setAttachOpen((v) => !v); setEmojiOpen(false); }}
           className="w-10 h-10 rounded-full bg-white border border-kaya-warm-dark/60 text-kaya-chocolate text-lg flex items-center justify-center shrink-0">＋</button>
-        <input value={text} onChange={(e) => setText(e.target.value)}
+        <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder="Message…" maxLength={2000}
           className="flex-1 h-11 px-4 bg-white rounded-full border border-kaya-warm-dark/60 text-[13.5px] focus:outline-none focus:ring-2 focus:ring-kaya-gold/50" />
+        <button type="button" onClick={() => { setEmojiOpen((v) => !v); setAttachOpen(false); }}
+          aria-label="Emoji"
+          className={`w-10 h-10 rounded-full border text-lg flex items-center justify-center shrink-0 transition-colors ${emojiOpen ? 'bg-kaya-gold-light border-kaya-gold-dark' : 'bg-white border-kaya-warm-dark/60'}`}>😊</button>
         <button type="button" onClick={send} disabled={sending || (!text.trim() && pending.length === 0)}
           className="w-11 h-11 rounded-full bg-kaya-chocolate text-white text-lg flex items-center justify-center shrink-0 disabled:opacity-40 hover:brightness-110 transition">➤</button>
       </div>
