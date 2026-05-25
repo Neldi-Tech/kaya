@@ -363,3 +363,10 @@ function attachmentLabel(kind?: AttachmentKind): string {
     default: return '';
   }
 }
+
+/** Short preview of a message for notifications / the thread list. */
+export function messagePreview(text?: string, attachments?: Attachment[]): string {
+  const t = (text || '').trim();
+  if (t) return t;
+  return attachmentLabel(attachments?.[0]?.kind) || 'New message';
+}
