@@ -64,6 +64,11 @@ export interface UserProfile {
   // ── Notification preferences (default: opt-in) ──
   notifyOnRating?: boolean; // email when a routine rating is submitted
   notifyOnAward?: boolean;  // email when a bonus award is given
+  // ── Messaging presence + privacy (lib/messaging.ts) ──
+  lastActiveAt?: Timestamp; // heartbeat for online / last-seen
+  // Shape mirrors MessagingPrivacy in lib/messaging.ts (inlined to avoid a
+  // circular import). Undefined fields default to true (share).
+  messagingPrivacy?: { showPresence?: boolean; showTyping?: boolean; showReceipts?: boolean };
   createdAt: Timestamp;
 }
 

@@ -115,10 +115,14 @@ export default function MessagesPage() {
           <h1 className="font-display font-extrabold text-[20px] flex items-center gap-2">💬 Messages</h1>
           <p className="text-[12px] text-kaya-sand mt-0.5">Your family, safely inside Kaya · nobody from outside</p>
         </div>
-        <button type="button" onClick={() => setPicking((v) => !v)}
-          className="h-10 px-4 rounded-kaya-sm bg-kaya-chocolate text-white font-display font-bold text-[13px] hover:brightness-110 transition">
-          {picking ? 'Close' : '＋ New'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => router.push('/messages/settings')} aria-label="Message privacy"
+            className="w-10 h-10 rounded-kaya-sm bg-white border border-kaya-warm-dark text-kaya-chocolate text-base flex items-center justify-center hover:bg-kaya-warm transition">🔒</button>
+          <button type="button" onClick={() => setPicking((v) => !v)}
+            className="h-10 px-4 rounded-kaya-sm bg-kaya-chocolate text-white font-display font-bold text-[13px] hover:brightness-110 transition">
+            {picking ? 'Close' : '＋ New'}
+          </button>
+        </div>
       </div>
 
       {picking && (

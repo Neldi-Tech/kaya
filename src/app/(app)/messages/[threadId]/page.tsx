@@ -10,7 +10,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   Message, MessageThread, Attachment,
   subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
-  seenByUids, readAtFor, otherMember,
+  seenByUids, readAtFor, otherMember, setTyping, typingNames, subscribePresence, lastSeenText, isOnline,
 } from '@/lib/messaging';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import type { Timestamp } from 'firebase/firestore';
@@ -55,6 +55,8 @@ export default function MessageThreadPage() {
   const [zoom, setZoom] = useState<string | null>(null);
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
+  const [otherPresence, setOtherPresence] = useState<{ lastActiveAt?: Timestamp; showPresence: boolean }>({ showPresence: false });
+  const [now, setNow] = useState(() => Date.now());
 
   const photoRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
@@ -67,8 +69,15 @@ export default function MessageThreadPage() {
   const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recStartRef = useRef(0);
   const cancelledRef = useRef(false);
+  const typingSentRef = useRef(0);
 
   const me = useMemo(() => (profile?.uid ? selfMember(profile, children) : null), [profile, children]);
+  const myShareReceipts = profile?.messagingPrivacy?.showReceipts !== false;
+  const myShareTyping = profile?.messagingPrivacy?.showTyping !== false;
+  const otherUid = useMemo(
+    () => (thread?.kind === 'direct' ? thread.members?.find((m) => m.uid !== uid)?.uid : undefined),
+    [thread?.id, thread?.kind, uid], // members are stable per thread
+  );
 
   useEffect(() => {
     if (!familyId || !threadId) return;
@@ -77,12 +86,27 @@ export default function MessageThreadPage() {
     return () => { u1(); u2(); };
   }, [familyId, threadId]);
 
-  // Mark read whenever the latest message isn't mine.
+  // Mark read whenever the latest message isn't mine (respecting my receipt choice).
   useEffect(() => {
     if (!familyId || !threadId || !uid || messages.length === 0) return;
     const last = messages[messages.length - 1];
-    if (last.senderUid !== uid) markThreadRead(familyId, threadId, uid).catch(() => {});
-  }, [familyId, threadId, uid, messages]);
+    if (last.senderUid !== uid) markThreadRead(familyId, threadId, uid, myShareReceipts).catch(() => {});
+  }, [familyId, threadId, uid, messages, myShareReceipts]);
+
+  // Live presence of the other member (direct threads).
+  useEffect(() => {
+    if (!otherUid) { setOtherPresence({ showPresence: false }); return; }
+    return subscribePresence(otherUid, setOtherPresence);
+  }, [otherUid]);
+
+  // Ticker so "typing…" / "last seen" expire + refresh on their own.
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 3000);
+    return () => clearInterval(iv);
+  }, []);
+
+  // Clear my typing marker when I leave the thread.
+  useEffect(() => () => { if (familyId && uid) setTyping(familyId, threadId, uid, false).catch(() => {}); }, [familyId, threadId, uid]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -162,9 +186,19 @@ export default function MessageThreadPage() {
     try {
       await sendMessage(familyId, threadId, { text, attachments: pending }, me);
       setText(''); setPending([]);
+      typingSentRef.current = 0;
+      if (myShareTyping) setTyping(familyId, threadId, uid, false).catch(() => {});
     } catch (e: any) {
       setError(e?.message || 'Could not send.');
     } finally { setSending(false); }
+  };
+
+  // Throttled typing signal (only if I share it).
+  const onChangeText = (v: string) => {
+    setText(v);
+    if (!familyId || !myShareTyping) return;
+    const t = Date.now();
+    if (v.trim() && t - typingSentRef.current > 2500) { typingSentRef.current = t; setTyping(familyId, threadId, uid, true).catch(() => {}); }
   };
 
   const insertEmoji = (e: string) => { setText((t) => (t + e).slice(0, 2000)); inputRef.current?.focus(); };
@@ -214,20 +248,33 @@ export default function MessageThreadPage() {
     );
   };
 
+  const typers = thread ? typingNames(thread, uid, now) : [];
+  const typingLabel = typers.length === 0 ? ''
+    : typers.length === 1 ? `${typers[0]} is typing…`
+    : typers.length === 2 ? `${typers[0]} & ${typers[1]} are typing…`
+    : 'Several people are typing…';
+  const online = !isGroup && otherPresence.showPresence && isOnline(otherPresence.lastActiveAt, now);
+  const headerSubtitle = typingLabel
+    || (isGroup ? `${thread?.memberUids?.length || 0} members`
+                : (otherPresence.showPresence && lastSeenText(otherPresence.lastActiveAt, now)) || 'Direct message · just you two');
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-6 flex flex-col" style={{ minHeight: '60vh' }}>
       {/* Header */}
       <div className="flex items-center gap-3 pb-3 mb-3 border-b border-kaya-warm-dark/50">
-        <div className="w-10 h-10 rounded-[12px] bg-kaya-gold-light flex items-center justify-center text-xl shrink-0 overflow-hidden">
-          {header.avatar.startsWith('http') || header.avatar.startsWith('data:')
-            // eslint-disable-next-line @next/next/no-img-element
-            ? <img src={header.avatar} alt="" className="w-full h-full object-cover" />
-            : <span>{header.avatar}</span>}
+        <div className="relative shrink-0">
+          <div className="w-10 h-10 rounded-[12px] bg-kaya-gold-light flex items-center justify-center text-xl overflow-hidden">
+            {header.avatar.startsWith('http') || header.avatar.startsWith('data:')
+              // eslint-disable-next-line @next/next/no-img-element
+              ? <img src={header.avatar} alt="" className="w-full h-full object-cover" />
+              : <span>{header.avatar}</span>}
+          </div>
+          {online && <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-pantry-leaf border-2 border-kaya-cream" title="Online" />}
         </div>
         <div className="min-w-0">
           <div className="font-display font-bold text-[15px] truncate">{header.title}</div>
-          <div className="text-[11px] text-kaya-sand truncate">
-            {isGroup ? `${thread?.memberUids?.length || 0} members` : 'Direct message · just you two'}
+          <div className={`text-[11px] truncate ${typingLabel ? 'text-pantry-leaf font-bold' : online ? 'text-pantry-leaf font-semibold' : 'text-kaya-sand'}`}>
+            {headerSubtitle}
           </div>
         </div>
       </div>
@@ -326,7 +373,7 @@ export default function MessageThreadPage() {
       <div className="sticky bottom-0 bg-kaya-cream pt-2 pb-3 flex items-center gap-2">
         <button type="button" onClick={() => { setAttachOpen((v) => !v); setEmojiOpen(false); }}
           className="w-10 h-10 rounded-full bg-white border border-kaya-warm-dark/60 text-kaya-chocolate text-lg flex items-center justify-center shrink-0">＋</button>
-        <input ref={inputRef} value={text} onChange={(e) => setText(e.target.value)}
+        <input ref={inputRef} value={text} onChange={(e) => onChangeText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder="Message…" maxLength={2000}
           className="flex-1 h-11 px-4 bg-white rounded-full border border-kaya-warm-dark/60 text-[13.5px] focus:outline-none focus:ring-2 focus:ring-kaya-gold/50" />

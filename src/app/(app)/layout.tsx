@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { ConfirmProvider } from '@/contexts/ConfirmContext';
 import { CelebrationProvider } from '@/components/celebrate/CelebrationProvider';
+import { PresenceHeartbeat } from '@/components/messaging/PresenceHeartbeat';
 import AppShell from '@/components/layout/AppShell';
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -40,6 +41,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <ConfirmProvider>
       <CelebrationProvider>
+        <PresenceHeartbeat />
         <AppShell>{children}</AppShell>
       </CelebrationProvider>
     </ConfirmProvider>
