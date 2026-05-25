@@ -12,8 +12,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES,
-  subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones,
+  Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES, StockTake,
+  subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones, subscribeToStockTakes,
   setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
@@ -24,6 +24,7 @@ import { typeMeta, STATUS_META } from '@/components/business/meta';
 import DailySalesCard from '@/components/business/DailySalesCard';
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
+import StockTakeHistory from '@/components/business/StockTakeHistory';
 
 const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
 
@@ -47,6 +48,7 @@ export default function BusinessDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [takes, setTakes] = useState<StockTake[]>([]);
   const [milestones, setMilestones] = useState<BusinessMilestone[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -58,7 +60,8 @@ export default function BusinessDashboardPage() {
     const u1 = subscribeToBusiness(familyId, businessId, (b) => { setBusiness(b); setLoading(false); });
     const u2 = subscribeToBusinessRequests(familyId, setRequests);
     const u3 = subscribeToLedger(familyId, businessId, setLedger, 50);
-    return () => { u1(); u2(); u3(); };
+    const u4 = subscribeToStockTakes(familyId, businessId, setTakes, 30);
+    return () => { u1(); u2(); u3(); u4(); };
   }, [familyId, businessId]);
 
   // Milestones live under the owner kid — subscribe once we know the owner.
@@ -356,6 +359,10 @@ export default function BusinessDashboardPage() {
           })
         )}
       </div>
+
+      {/* Stock-take history — the daily habit log, same records + detail view as
+          the stock-take page (counts + photos/clips + notes). */}
+      <StockTakeHistory takes={takes} className="mb-3" />
 
       {/* AI coach (pricing/cost tip from real numbers) + weekly review. */}
       <div className="space-y-2.5 mb-3">
