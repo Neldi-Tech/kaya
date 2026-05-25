@@ -161,6 +161,17 @@ export async function getThread(familyId: string, threadId: string): Promise<Mes
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as MessageThread) : null;
 }
 
+/** Live thread doc — header + membership + `reads` (drives read receipts). */
+export function subscribeThread(
+  familyId: string,
+  threadId: string,
+  cb: (thread: MessageThread | null) => void,
+): () => void {
+  if (isGuestActive()) { cb(null); return () => {}; }
+  return onSnapshot(threadDoc(familyId, threadId), (s) =>
+    cb(s.exists() ? ({ id: s.id, ...s.data() } as MessageThread) : null));
+}
+
 /** Threads the user belongs to, newest-activity first (sorted client-side so
  *  no composite index is needed for the array-contains filter). */
 export function subscribeThreads(
@@ -246,6 +257,20 @@ export function isUnread(thread: MessageThread, uid: string): boolean {
 /** The other member's display info for a direct thread (from my POV). */
 export function otherMember(thread: MessageThread, uid: string): ThreadMember | undefined {
   return thread.members?.find((m) => m.uid !== uid);
+}
+
+/** Read-receipt: who (other than the sender) has read up to `at`. Uses the
+ *  per-thread `reads` map (last-read time per uid) — so it's "read this message
+ *  or later", the usual lastRead-based receipt. Returns their uids. */
+export function seenByUids(thread: MessageThread, at: Timestamp | undefined, senderUid: string): string[] {
+  if (!at || !thread.reads) return [];
+  const cutoff = ms(at);
+  return (thread.memberUids || []).filter((u) => u !== senderUid && ms(thread.reads?.[u]) >= cutoff);
+}
+
+/** Read time for a specific member (for "Seen 6:14 PM" on direct threads). */
+export function readAtFor(thread: MessageThread, uid: string): Timestamp | undefined {
+  return thread.reads?.[uid];
 }
 
 /** Title + avatar for a thread row, from my POV. */
