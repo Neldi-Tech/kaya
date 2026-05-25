@@ -214,6 +214,40 @@ export async function notifyAdhocAssigned(args: AdhocAssignedNotify): Promise<vo
   });
 }
 
+interface NewMessageNotify {
+  familyId: string;
+  threadId: string;
+  recipientUids: string[];   // everyone in the thread except the sender
+  senderName: string;
+  preview: string;           // message text or an attachment label
+  isGroup: boolean;
+  groupTitle?: string;
+}
+
+/** Notify the OTHER members of a chat thread about a new message — in-app bell
+ *  (always) + web push (best-effort). Fire-and-forget; never throws. */
+export async function notifyNewMessage(args: NewMessageNotify): Promise<void> {
+  const recipients = Array.from(new Set(args.recipientUids)).filter(Boolean);
+  if (recipients.length === 0) return;
+  const heading = args.isGroup ? `${args.senderName} · ${args.groupTitle || 'Family Group'}` : args.senderName;
+  const title = `💬 ${heading}`;
+  const body = args.preview || 'New message';
+  const link = `/messages/${args.threadId}`;
+  for (const uid of recipients) {
+    try {
+      await createNotification(args.familyId, {
+        type: 'message',
+        title,
+        message: body,
+        read: false,
+        forUserId: uid,
+        link,
+      } as Parameters<typeof createNotification>[1]);
+    } catch { /* swallow — bell is best-effort */ }
+    await pushToUid({ uid, title, body, url: link, tag: `msg-${args.threadId}` });
+  }
+}
+
 // ── Household → Purchase request notifications (2026-05-19) ──────
 // Three events fan out across the request lifecycle:
 //   1. Helper sends draft for approval  → parents notified

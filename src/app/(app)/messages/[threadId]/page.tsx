@@ -11,7 +11,9 @@ import {
   Message, MessageThread, Attachment,
   subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
   seenByUids, readAtFor, otherMember, setTyping, typingNames, subscribePresence, lastSeenText, isOnline,
+  messagePreview,
 } from '@/lib/messaging';
+import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -182,12 +184,24 @@ export default function MessageThreadPage() {
   const send = async () => {
     if (!familyId || !me || sending) return;
     if (!text.trim() && pending.length === 0) return;
+    const sentText = text; const sentAttachments = pending;
     setSending(true); setError('');
     try {
       await sendMessage(familyId, threadId, { text, attachments: pending }, me);
       setText(''); setPending([]);
       typingSentRef.current = 0;
       if (myShareTyping) setTyping(familyId, threadId, uid, false).catch(() => {});
+      // Notify the other members — in-app bell + push (best-effort).
+      if (thread) {
+        notifyNewMessage({
+          familyId, threadId,
+          recipientUids: (thread.memberUids || []).filter((u) => u !== uid),
+          senderName: me.name,
+          preview: messagePreview(sentText, sentAttachments),
+          isGroup: thread.kind === 'group',
+          groupTitle: thread.title,
+        }).catch(() => {});
+      }
     } catch (e: any) {
       setError(e?.message || 'Could not send.');
     } finally { setSending(false); }

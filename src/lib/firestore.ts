@@ -1105,6 +1105,8 @@ export interface Notification {
     | 'moment-comment'
     | 'moment-mention'
     | 'moment-new'
+    // Messaging — a new chat message (in-app bell deep-links to the thread).
+    | 'message'
     // Household → Workplan v3 (v4-final §04 Step 8, 2026-05-18) —
     // parent assigned a one-off task to this helper. `link` deep-links
     // to /helper so the helper lands on their workplan card.
