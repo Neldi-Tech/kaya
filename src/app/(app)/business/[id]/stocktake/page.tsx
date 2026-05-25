@@ -401,13 +401,26 @@ export default function StockTakePage() {
               <button type="button" onClick={() => setOpenTake(null)} className="w-8 h-8 rounded-full bg-hive-cream text-hive-muted font-black">✕</button>
             </div>
             <p className="text-[12px] text-hive-muted mb-3">{openTake.itemsTouched} item{openTake.itemsTouched === 1 ? '' : 's'} updated</p>
+            {openTake.counts && openTake.counts.length > 0 && (
+              <div className="mb-3">
+                <div className="text-[10px] uppercase tracking-wider font-nunito font-extrabold text-hive-muted mb-1">Counts</div>
+                <ul className="divide-y divide-hive-line/60 rounded-hive border border-hive-line bg-hive-cream">
+                  {openTake.counts.map((c) => (
+                    <li key={c.itemId} className="flex items-baseline justify-between gap-3 px-3 py-1.5">
+                      <span className="text-[13px] text-hive-navy truncate">{c.name}</span>
+                      <span className="text-[13px] font-nunito font-extrabold text-hive-navy shrink-0">{c.qty}{c.unitLabel ? ` ${c.unitLabel}` : ''}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {takeMedia(openTake).length ? (
-              <div className="flex flex-wrap gap-2 mb-3">
+              <div className={`grid gap-2 mb-3 ${takeMedia(openTake).length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                 {takeMedia(openTake).map((m, i) => (
                   m.kind === 'video'
-                    ? <video key={i} src={m.url} controls playsInline className="w-[104px] h-[104px] rounded-hive object-cover bg-black" />
+                    ? <video key={i} src={m.url} controls playsInline className="w-full aspect-square rounded-hive object-cover bg-black" />
                     : <button key={i} type="button" onClick={() => setZoom(m.url)}
-                        className="w-[104px] h-[104px] rounded-hive overflow-hidden border border-hive-line hover:brightness-95 transition">
+                        className="w-full aspect-square rounded-hive overflow-hidden border border-hive-line hover:brightness-95 transition">
                         <img src={m.url} alt="Stock-take" className="w-full h-full object-cover" />
                       </button>
                 ))}

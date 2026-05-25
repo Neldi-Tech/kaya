@@ -137,13 +137,13 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
                           ? take.media
                           : (take.photoUrl ? [{ url: take.photoUrl, kind: 'photo' as const }] : []);
                         return media.length > 0 ? (
-                          <div className="mt-2 flex gap-1.5 flex-wrap">
+                          <div className={`mt-2 grid gap-2 ${media.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
                             {media.map((m, i) => (m.kind === 'video' ? (
-                              <video key={i} src={m.url} controls className="w-28 h-28 rounded-lg object-cover border border-hive-line bg-black" />
+                              <video key={i} src={m.url} controls playsInline className="w-full aspect-square rounded-hive object-cover border border-hive-line bg-black" />
                             ) : (
-                              <a key={i} href={m.url} target="_blank" rel="noopener noreferrer">
+                              <a key={i} href={m.url} target="_blank" rel="noopener noreferrer" className="block">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={m.url} alt="" loading="lazy" className="w-16 h-16 rounded-lg object-cover border border-hive-line" />
+                                <img src={m.url} alt="" loading="lazy" className="w-full aspect-square rounded-hive object-cover border border-hive-line" />
                               </a>
                             )))}
                           </div>
