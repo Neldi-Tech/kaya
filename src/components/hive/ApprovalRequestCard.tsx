@@ -120,6 +120,18 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
                         📦 {take.itemsTouched} item{take.itemsTouched === 1 ? '' : 's'} updated
                         {take.note ? ` · “${take.note}”` : ''}
                       </p>
+                      {take.counts && take.counts.length > 0 && (
+                        <ul className="mt-1.5 divide-y divide-hive-line/60 rounded-hive border border-hive-line bg-hive-paper">
+                          {take.counts.map((c) => (
+                            <li key={c.itemId} className="flex items-baseline justify-between gap-3 px-2.5 py-1.5">
+                              <span className="text-[12px] text-hive-ink truncate">{c.name}</span>
+                              <span className="text-[12px] font-nunito font-extrabold text-hive-navy shrink-0">
+                                {c.qty}{c.unitLabel ? ` ${c.unitLabel}` : ''}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                       {(() => {
                         const media = take.media && take.media.length
                           ? take.media

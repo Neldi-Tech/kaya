@@ -367,7 +367,11 @@ export function useParentMyDay(
   for (const r of pending ?? []) {
     if (r.status !== 'pending') continue;
     const isBiz = r.module === 'business';
-    const amt = r.amountCents != null ? ` · ${moneyShort(r.amountCents, currency)}` : '';
+    // Stock-take HP requests carry House Points, not cash — show "+N HP" so the
+    // parent sees what they're granting (mirrors the approval card; no "$0").
+    const amt = r.type === 'business_hp'
+      ? ` · +${(r.points ?? 0).toLocaleString('en-US')} HP`
+      : r.amountCents != null ? ` · ${moneyShort(r.amountCents, currency)}` : '';
     approve.push({
       id: `ap_${r.id}`, source: 'approval', group: 'approve', period: 'anytime',
       icon: isBiz ? '💼' : '💸',

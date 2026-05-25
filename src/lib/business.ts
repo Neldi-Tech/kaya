@@ -1382,6 +1382,16 @@ export interface StockMedia {
   kind: 'photo' | 'video';
 }
 
+/** Per-item count as of a stock-take — the day's stock level for one product.
+ *  Lets the parent approval + history show every item's count, not just how
+ *  many changed. Captured going forward; older takes won't carry it. */
+export interface StockCount {
+  itemId: string;
+  name: string;
+  qty: number;
+  unitLabel?: string;
+}
+
 export interface StockTake {
   id: string;            // = date (YYYY-MM-DD)
   businessId: string;
@@ -1391,6 +1401,8 @@ export interface StockTake {
   photoUrl?: string;     // first photo — back-compat with the dashboard/feed
   /** All photos + short video clips captured for the day. */
   media?: StockMedia[];
+  /** Per-item count snapshot as of this take (every live item's level). */
+  counts?: StockCount[];
   itemsTouched: number;  // how many inventory items the kid updated
   byUid: string;
   at: Timestamp;
@@ -1411,6 +1423,7 @@ export interface StockTakeInput {
   note?: string;
   photoUrl?: string;
   media?: StockMedia[];
+  counts?: StockCount[];
 }
 
 const stockTakesCol = (familyId: string, businessId: string) =>
@@ -1447,6 +1460,16 @@ export async function saveStockTake(
     data.photoUrl = input.photoUrl || firstPhoto || media[0].url;
   } else if (input.photoUrl) {
     data.photoUrl = input.photoUrl;
+  }
+  const counts = (input.counts || []).filter((c) => c.name?.trim());
+  if (counts.length) {
+    // Strip undefined (Firestore rejects it): only spread unitLabel when set.
+    data.counts = counts.map((c) => ({
+      itemId: c.itemId,
+      name: c.name.trim(),
+      qty: Math.max(0, Math.round(c.qty || 0)),
+      ...(c.unitLabel ? { unitLabel: c.unitLabel } : {}),
+    }));
   }
   await setDoc(doc(stockTakesCol(familyId, businessId), input.date), data, { merge: true });
   await updateDoc(businessDoc(familyId, businessId), { 'stats.lastActivityAt': serverTimestamp() });

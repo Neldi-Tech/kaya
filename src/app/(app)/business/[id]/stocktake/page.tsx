@@ -153,9 +153,17 @@ export default function StockTakePage() {
           if (url) uploaded.push({ url, kind: m.kind });
         } catch (e: any) { setError(e?.message || 'Could not upload a clip.'); setSaving(false); return; }
       }
+      // Snapshot every live item's count as of this take, so the parent
+      // approval + history can show the full list (not just how many changed).
+      const counts = live.map((it) => ({
+        itemId: it.id,
+        name: it.name,
+        qty: qty[it.id] ?? it.qty,
+        unitLabel: it.unitLabel || undefined,
+      }));
       await saveStockTake(familyId, businessId, {
         date: today, ownerId: business.ownerId, itemsTouched: changed,
-        note: note.trim() || undefined, media: uploaded,
+        note: note.trim() || undefined, media: uploaded, counts,
       }, profile.uid);
 
       // Instant-cadence House Points: grant (auto) or ask a parent (review) for
