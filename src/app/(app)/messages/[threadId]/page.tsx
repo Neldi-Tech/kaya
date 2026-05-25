@@ -12,7 +12,7 @@ import {
   subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
   seenByUids, readAtFor, otherMember,
 } from '@/lib/messaging';
-import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument } from '@/lib/messagingUpload';
+import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import type { Timestamp } from 'firebase/firestore';
 
 // Curated, kid-friendly emoji set — no heavy picker dependency.
@@ -28,6 +28,12 @@ const prettyBytes = (n?: number): string => {
   if (n < 1024 * 1024) return `${Math.round(n / 1024)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 };
+const mmss = (s?: number): string => {
+  if (!s && s !== 0) return '';
+  const m = Math.floor(s / 60); const sec = s % 60;
+  return `${m}:${String(sec).padStart(2, '0')}`;
+};
+const MAX_VOICE_SECONDS = 120;
 
 export default function MessageThreadPage() {
   const params = useParams();
@@ -47,12 +53,20 @@ export default function MessageThreadPage() {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [recSeconds, setRecSeconds] = useState(0);
 
   const photoRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLInputElement>(null);
   const docRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recStartRef = useRef(0);
+  const cancelledRef = useRef(false);
 
   const me = useMemo(() => (profile?.uid ? selfMember(profile, children) : null), [profile, children]);
 
@@ -74,6 +88,12 @@ export default function MessageThreadPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages.length, pending.length]);
 
+  // Stop recording + free the mic if we leave mid-record.
+  useEffect(() => () => {
+    if (recTimerRef.current) clearInterval(recTimerRef.current);
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+  }, []);
+
   const header = thread ? threadHeader(thread, uid) : { title: 'Messages', avatar: '💬' };
   const isGroup = thread?.kind === 'group';
 
@@ -89,6 +109,51 @@ export default function MessageThreadPage() {
       setError(e?.message || 'Could not attach that file.');
     } finally { setUploading(false); }
   };
+
+  // ── Voice notes (MediaRecorder) ──
+  const stopRecTimer = () => { if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; } };
+  const releaseStream = () => { streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
+
+  const startRecording = async () => {
+    setAttachOpen(false); setEmojiOpen(false); setError('');
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setError('Voice notes aren’t supported on this device.'); return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mr = new MediaRecorder(stream);
+      chunksRef.current = []; cancelledRef.current = false;
+      mr.ondataavailable = (e) => { if (e.data.size) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stopRecTimer(); releaseStream(); setRecording(false);
+        if (cancelledRef.current) { cancelledRef.current = false; chunksRef.current = []; return; }
+        const dur = Math.max(1, Math.round((Date.now() - recStartRef.current) / 1000));
+        const blob = new Blob(chunksRef.current, { type: mr.mimeType || 'audio/webm' });
+        chunksRef.current = [];
+        setUploading(true);
+        try {
+          const att = await uploadMessageVoice(familyId!, threadId, blob, dur);
+          if (att.url) setPending((p) => [...p, att]);
+        } catch (e: any) { setError(e?.message || 'Could not save the voice note.'); }
+        finally { setUploading(false); }
+      };
+      mr.start();
+      recorderRef.current = mr;
+      recStartRef.current = Date.now();
+      setRecSeconds(0); setRecording(true);
+      recTimerRef.current = setInterval(() => {
+        const s = Math.round((Date.now() - recStartRef.current) / 1000);
+        setRecSeconds(s);
+        if (s >= MAX_VOICE_SECONDS && recorderRef.current?.state === 'recording') recorderRef.current.stop();
+      }, 250);
+    } catch {
+      setError('Microphone permission is needed for voice notes.');
+      releaseStream();
+    }
+  };
+  const stopRecording = () => { if (recorderRef.current?.state === 'recording') recorderRef.current.stop(); };
+  const cancelRecording = () => { cancelledRef.current = true; if (recorderRef.current?.state === 'recording') recorderRef.current.stop(); };
 
   const send = async () => {
     if (!familyId || !me || sending) return;
@@ -130,7 +195,13 @@ export default function MessageThreadPage() {
       );
     }
     if (a.kind === 'video') return <video src={a.url} controls playsInline className="rounded-[12px] max-w-[240px] bg-black" />;
-    if (a.kind === 'voice') return <audio src={a.url} controls className="w-[220px]" />;
+    if (a.kind === 'voice') return (
+      <div className="flex items-center gap-2">
+        <span className="text-base shrink-0">🎤</span>
+        <audio src={a.url} controls className="h-9 w-[190px]" />
+        {a.durationSec ? <span className={`text-[10.5px] shrink-0 ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{mmss(a.durationSec)}</span> : null}
+      </div>
+    );
     return (
       <a href={a.url} target="_blank" rel="noopener noreferrer"
         className={`flex items-center gap-2.5 rounded-[12px] p-2.5 max-w-[240px] ${mine ? 'bg-white/15' : 'bg-kaya-warm'}`}>
@@ -195,7 +266,10 @@ export default function MessageThreadPage() {
               {a.kind === 'photo'
                 // eslint-disable-next-line @next/next/no-img-element
                 ? <img src={a.url} alt="" className="w-14 h-14 rounded-kaya-sm object-cover border border-kaya-warm-dark/40" />
-                : <div className="w-14 h-14 rounded-kaya-sm bg-kaya-warm border border-kaya-warm-dark/40 flex items-center justify-center text-xl">{a.kind === 'video' ? '🎬' : '📄'}</div>}
+                : <div className="w-14 h-14 rounded-kaya-sm bg-kaya-warm border border-kaya-warm-dark/40 flex flex-col items-center justify-center text-xl leading-none">
+                    {a.kind === 'video' ? '🎬' : a.kind === 'voice' ? '🎤' : '📄'}
+                    {a.kind === 'voice' && a.durationSec ? <span className="text-[9px] font-bold text-kaya-sand mt-0.5">{mmss(a.durationSec)}</span> : null}
+                  </div>}
               <button type="button" onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
                 className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-hive-rose text-white text-[11px] flex items-center justify-center border-2 border-white">✕</button>
             </div>
@@ -212,6 +286,7 @@ export default function MessageThreadPage() {
           {[
             { ic: '📷', label: 'Photo', on: () => photoRef.current?.click() },
             { ic: '🎬', label: 'Video', on: () => videoRef.current?.click() },
+            { ic: '🎤', label: 'Voice', on: startRecording },
             { ic: '📄', label: 'Document', on: () => docRef.current?.click() },
           ].map((o) => (
             <button key={o.label} type="button" onClick={o.on} className="flex flex-col items-center gap-1 text-[10px] font-bold text-kaya-sand">
@@ -231,6 +306,19 @@ export default function MessageThreadPage() {
                 className="h-9 rounded-kaya-sm hover:bg-kaya-warm text-[20px] flex items-center justify-center transition-colors">{e}</button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Recording bar */}
+      {recording && (
+        <div className="flex items-center gap-3 py-2.5 border-t border-kaya-warm-dark/40">
+          <span className="w-3 h-3 rounded-full bg-hive-rose animate-pulse shrink-0" />
+          <span className="text-[13px] font-bold text-kaya-chocolate">Recording… {mmss(recSeconds)}</span>
+          <span className="flex-1" />
+          <button type="button" onClick={cancelRecording}
+            className="h-9 px-3 rounded-full bg-white border border-kaya-warm-dark/60 text-kaya-sand text-[12px] font-bold">Cancel</button>
+          <button type="button" onClick={stopRecording}
+            className="h-9 px-4 rounded-full bg-kaya-chocolate text-white text-[12px] font-black">Stop &amp; attach</button>
         </div>
       )}
 
