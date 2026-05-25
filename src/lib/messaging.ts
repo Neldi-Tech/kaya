@@ -17,12 +17,24 @@
 
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc,
-  query, where, orderBy, limit, onSnapshot,
+  query, where, orderBy, limit, onSnapshot, deleteField,
   Timestamp, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import { getFamilyMembers, type Role, type Child } from './firestore';
+
+/** Per-user messaging privacy choices (on UserProfile.messagingPrivacy).
+ *  Undefined fields default to true (share). */
+export interface MessagingPrivacy {
+  showPresence?: boolean;   // share online + last-seen
+  showTyping?: boolean;     // share "typing…"
+  showReceipts?: boolean;   // share read receipts ("Seen")
+}
+/** "Online" if active within this window. */
+export const ONLINE_WINDOW_MS = 50_000;
+/** "Typing" if the marker is newer than this. */
+const TYPING_WINDOW_MS = 6_000;
 
 export type ThreadKind = 'group' | 'direct';
 export type AttachmentKind = 'photo' | 'video' | 'voice' | 'document';
@@ -53,7 +65,9 @@ export interface MessageThread {
   lastKind?: 'text' | AttachmentKind | 'event';
   lastSenderUid?: string;
   lastAt?: Timestamp;
-  reads?: Record<string, Timestamp>;    // uid → last-read time
+  reads?: Record<string, Timestamp>;    // uid → last-read time (PRIVATE; drives unread)
+  seen?: Record<string, Timestamp>;     // uid → last-read time SHARED for receipts (gated by showReceipts)
+  typing?: Record<string, Timestamp>;   // uid → last typing heartbeat
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }
@@ -236,12 +250,45 @@ export async function sendMessage(
   });
 }
 
-/** Mark a thread read for a user (called when they open it). */
-export async function markThreadRead(familyId: string, threadId: string, uid: string): Promise<void> {
+/** Mark a thread read for a user (called when they open it). `reads` is always
+ *  written (PRIVATE — drives the unread badge); `seen` is written only when the
+ *  user shares read receipts, and removed when they opt out — so the "Seen"
+ *  others see respects the choice while the unread badge keeps working. */
+export async function markThreadRead(familyId: string, threadId: string, uid: string, shareReceipts = true): Promise<void> {
+  if (isGuestActive() || !uid) return;
+  const patch: Record<string, unknown> = { [`reads.${uid}`]: serverTimestamp() };
+  patch[`seen.${uid}`] = shareReceipts ? serverTimestamp() : deleteField();
+  try { await updateDoc(threadDoc(familyId, threadId), patch); } catch { /* thread may not exist yet — harmless */ }
+}
+
+// ── Typing + presence ─────────────────────────────────────────────
+/** Set/clear my typing marker on a thread (gated by showTyping at the caller). */
+export async function setTyping(familyId: string, threadId: string, uid: string, isTyping: boolean): Promise<void> {
   if (isGuestActive() || !uid) return;
   try {
-    await updateDoc(threadDoc(familyId, threadId), { [`reads.${uid}`]: serverTimestamp() });
-  } catch { /* thread may not exist yet — harmless */ }
+    await updateDoc(threadDoc(familyId, threadId), { [`typing.${uid}`]: isTyping ? serverTimestamp() : deleteField() });
+  } catch { /* harmless */ }
+}
+
+/** Heartbeat my presence (write my own user doc's lastActiveAt). */
+export async function heartbeatPresence(uid: string): Promise<void> {
+  if (isGuestActive() || !uid) return;
+  try { await updateDoc(doc(db, 'users', uid), { lastActiveAt: serverTimestamp() }); } catch { /* harmless */ }
+}
+
+/** Live presence for one user (their lastActiveAt + whether they share it). */
+export function subscribePresence(uid: string, cb: (p: { lastActiveAt?: Timestamp; showPresence: boolean }) => void): () => void {
+  if (isGuestActive() || !uid) { cb({ showPresence: false }); return () => {}; }
+  return onSnapshot(doc(db, 'users', uid), (s) => {
+    const d = s.data() as { lastActiveAt?: Timestamp; messagingPrivacy?: MessagingPrivacy } | undefined;
+    cb({ lastActiveAt: d?.lastActiveAt, showPresence: d?.messagingPrivacy?.showPresence !== false });
+  });
+}
+
+/** Persist a user's messaging privacy choices. */
+export async function setMessagingPrivacy(uid: string, prefs: MessagingPrivacy): Promise<void> {
+  if (isGuestActive() || !uid) return;
+  await updateDoc(doc(db, 'users', uid), { messagingPrivacy: prefs });
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────
@@ -259,18 +306,45 @@ export function otherMember(thread: MessageThread, uid: string): ThreadMember | 
   return thread.members?.find((m) => m.uid !== uid);
 }
 
-/** Read-receipt: who (other than the sender) has read up to `at`. Uses the
- *  per-thread `reads` map (last-read time per uid) — so it's "read this message
- *  or later", the usual lastRead-based receipt. Returns their uids. */
+/** Read-receipt: who (other than the sender) has shared that they read up to
+ *  `at`. Uses the SHARED `seen` map (only set when a member shares receipts),
+ *  so opting out hides you from receipts. Returns their uids. */
 export function seenByUids(thread: MessageThread, at: Timestamp | undefined, senderUid: string): string[] {
-  if (!at || !thread.reads) return [];
+  if (!at || !thread.seen) return [];
   const cutoff = ms(at);
-  return (thread.memberUids || []).filter((u) => u !== senderUid && ms(thread.reads?.[u]) >= cutoff);
+  return (thread.memberUids || []).filter((u) => u !== senderUid && ms(thread.seen?.[u]) >= cutoff);
 }
 
-/** Read time for a specific member (for "Seen 6:14 PM" on direct threads). */
+/** Shared read time for a member (for "Seen 6:14 PM" on direct threads). */
 export function readAtFor(thread: MessageThread, uid: string): Timestamp | undefined {
-  return thread.reads?.[uid];
+  return thread.seen?.[uid];
+}
+
+/** Names of OTHER members currently typing (marker within the typing window). */
+export function typingNames(thread: MessageThread, uid: string, now: number = Date.now()): string[] {
+  if (!thread.typing) return [];
+  const byUid = new Map((thread.members || []).map((m) => [m.uid, m.name]));
+  return Object.entries(thread.typing)
+    .filter(([u, t]) => u !== uid && now - ms(t) < TYPING_WINDOW_MS)
+    .map(([u]) => byUid.get(u) || 'Someone');
+}
+
+/** "online" check from a lastActiveAt timestamp. */
+export function isOnline(lastActiveAt?: Timestamp, now: number = Date.now()): boolean {
+  return !!lastActiveAt && now - ms(lastActiveAt) < ONLINE_WINDOW_MS;
+}
+
+/** "Active now" / "last seen 5m ago" / "last seen 24-May" — '' if unknown. */
+export function lastSeenText(lastActiveAt?: Timestamp, now: number = Date.now()): string {
+  const t = ms(lastActiveAt);
+  if (!t) return '';
+  if (now - t < ONLINE_WINDOW_MS) return 'Active now';
+  const mins = Math.floor((now - t) / 60_000);
+  if (mins < 60) return `last seen ${mins || 1}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `last seen ${hrs}h ago`;
+  const d = new Date(t);
+  return `last seen ${d.getDate()}-${d.toLocaleString('en', { month: 'short' })}`;
 }
 
 /** Title + avatar for a thread row, from my POV. */
