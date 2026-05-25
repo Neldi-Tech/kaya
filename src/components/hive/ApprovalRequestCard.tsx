@@ -6,9 +6,11 @@
 // goes through resolveApprovalRequest in src/lib/hive.ts.
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveApprovalRequest, ApprovalRequest } from '@/lib/hive';
+import { getStockTake, type StockTake } from '@/lib/business';
 import { formatCash, formatHoney, formatHp } from './format';
 
 // Hive-native request types only. Business reuses the same queue (decision
@@ -20,6 +22,7 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
   cash_out:         { emoji: '🪙', label: 'Cash out 🪙 → $',     tone: 'green' },
   treasury_to_cash: { emoji: '🍯', label: 'Honey Pot → Cash',   tone: 'green' },
   spend:            { emoji: '🛒', label: 'Cash spend',         tone: 'rose'  },
+  business_hp:      { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
@@ -31,6 +34,20 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
   const [showReject, setShowReject] = useState(false);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
+  // Stock-take "view details" (business_hp) — lazy-load the day's take.
+  const [showDetails, setShowDetails] = useState(false);
+  const [take, setTake] = useState<StockTake | null>(null);
+  const [takeState, setTakeState] = useState<'idle' | 'loading' | 'loaded'>('idle');
+  const toggleDetails = async () => {
+    const next = !showDetails;
+    setShowDetails(next);
+    if (next && takeState === 'idle' && profile?.familyId && req.businessId && req.awardDate) {
+      setTakeState('loading');
+      try { setTake(await getStockTake(profile.familyId, req.businessId, req.awardDate)); }
+      catch { /* best-effort */ }
+      finally { setTakeState('loaded'); }
+    }
+  };
 
   const amountLine = (() => {
     if (req.type === 'hp_to_honey') {
@@ -41,6 +58,9 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
     }
     if (req.type === 'treasury_to_cash') {
       return `${formatCash(req.amountCents || 0)} → Cash`;
+    }
+    if (req.type === 'business_hp') {
+      return `+${formatHp(req.points || 0)} HP`;
     }
     return formatCash(req.amountCents || 0);
   })();
@@ -85,6 +105,51 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           <p className="text-[11px] text-hive-muted mt-1">
             For <strong className="text-hive-navy">{kid?.name || 'unknown kid'}</strong>
           </p>
+          {req.type === 'business_hp' && req.businessId && (
+            <div className="mt-2">
+              <button type="button" onClick={toggleDetails} className="text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+                {showDetails ? 'Hide details ▴' : '🔎 View stock-take details ▾'}
+              </button>
+              {showDetails && (
+                <div className="mt-2 rounded-hive border border-hive-line bg-hive-cream p-2.5">
+                  {takeState === 'loading' ? (
+                    <p className="text-[12px] text-hive-muted">Loading…</p>
+                  ) : take ? (
+                    <>
+                      <p className="text-[12px] text-hive-ink font-bold">
+                        📦 {take.itemsTouched} item{take.itemsTouched === 1 ? '' : 's'} updated
+                        {take.note ? ` · “${take.note}”` : ''}
+                      </p>
+                      {(() => {
+                        const media = take.media && take.media.length
+                          ? take.media
+                          : (take.photoUrl ? [{ url: take.photoUrl, kind: 'photo' as const }] : []);
+                        return media.length > 0 ? (
+                          <div className="mt-2 flex gap-1.5 flex-wrap">
+                            {media.map((m, i) => (m.kind === 'video' ? (
+                              <video key={i} src={m.url} controls className="w-28 h-28 rounded-lg object-cover border border-hive-line bg-black" />
+                            ) : (
+                              <a key={i} href={m.url} target="_blank" rel="noopener noreferrer">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={m.url} alt="" loading="lazy" className="w-16 h-16 rounded-lg object-cover border border-hive-line" />
+                              </a>
+                            )))}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-hive-muted italic mt-1">No photos on this stock-take.</p>
+                        );
+                      })()}
+                      <Link href={`/business/${req.businessId}`} className="inline-block mt-2 text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+                        Open business →
+                      </Link>
+                    </>
+                  ) : (
+                    <p className="text-[12px] text-hive-muted">Couldn’t load the stock-take.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           {needTwo && (
             <p className="text-[11px] font-nunito font-bold text-hive-honey-dk mt-1">
               {haveOne ? '🔓 One parent approved — needs the other parent' : '🔒 Both parents must approve'}
