@@ -1013,9 +1013,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           className="lg:pb-0"
           style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
         >
-          {!isAtHome && <BackBar onBack={() => router.back()} placement="top" />}
+          {!isAtHome && <BackBar pathname={pathname} homePath={homePath} placement="top" />}
           {children}
-          {!isAtHome && <BackBar onBack={() => router.back()} placement="bottom" />}
+          {!isAtHome && <BackBar pathname={pathname} homePath={homePath} placement="bottom" />}
         </div>
       </div>
 
@@ -1160,27 +1160,78 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Inline Back button used at both ends of {children} on every non-home
-// page. Same look top + bottom — only the vertical margins change so
-// the top instance sits flush under the page header and the bottom
-// instance gets breathing room from the last content card.
-function BackBar({ onBack, placement }: { onBack: () => void; placement: 'top' | 'bottom' }) {
+// Inline Back link used at both ends of {children} on every non-home page.
+// Sleek chevron pill (option B + D from the 2026-05-26 design proposal):
+// names the parent section so the user sees WHERE the back is going. Each
+// instance is a real <Link> to a guaranteed-real destination (section root
+// or home) rather than router.back(), so the label is always accurate.
+function BackBar({ pathname, homePath, placement }: { pathname: string | null; homePath: string; placement: 'top' | 'bottom' }) {
+  const parent = deriveBackParent(pathname, homePath);
+  if (!parent) return null;
   const wrap = placement === 'top'
-    ? 'mt-3 mb-4 px-4 lg:px-8'
+    ? 'mt-3 mb-3 px-4 lg:px-8'
     : 'mt-8 px-4 lg:px-8 pb-2 lg:pb-12';
   return (
     <div className={wrap}>
       <div className="mx-auto max-w-md lg:max-w-3xl">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="Go back to previous page"
-          className="w-full flex items-center justify-center gap-2 h-12 lg:h-14 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[14px] lg:text-[15px] hover:bg-kaya-warm active:scale-[0.99] transition-all shadow-sm"
+        <Link
+          href={parent.href}
+          aria-label={`Back to ${parent.label}`}
+          className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-kaya-warm-dark/40 text-kaya-chocolate font-display font-extrabold text-[12.5px] no-underline hover:bg-kaya-warm-dark/5 hover:border-kaya-warm-dark/70 active:scale-[0.99] transition-all"
         >
-          <span className="text-base leading-none">←</span>
-          <span>Back</span>
-        </button>
+          <span className="text-[14px] leading-none opacity-60">‹</span>
+          <span>{parent.label}</span>
+        </Link>
       </div>
     </div>
   );
+}
+
+// Map a current path → the section root we'd go back to + a human label.
+// We always land on a real page (section root or home), so the label can't
+// lie. /pulse/trackable/abc → "Pulse" → /pulse (not /pulse/trackable which
+// wouldn't render).
+function deriveBackParent(pathname: string | null, homePath: string): { label: string; href: string } | null {
+  if (!pathname) return null;
+  const segs = pathname.split('/').filter(Boolean);
+  if (segs.length === 0) return null;
+  const sectionLabel: Record<string, string> = {
+    pantry: 'Pantry',
+    pulse: 'Pulse',
+    hive: 'The Hive',
+    business: 'Business',
+    admin: 'Admin',
+    settings: 'Settings',
+    sparks: 'Sparks',
+    meetings: 'Meetings',
+    moments: 'Moments',
+    messages: 'Messages',
+    parent: 'Home',
+    profiles: 'Profiles',
+    workplan: 'Workplan',
+    reports: 'Reports',
+    directory: 'Directory',
+    rewards: 'Rewards',
+    notifications: 'Notifications',
+    'my-day': 'My Day',
+    'family-tree': 'Family Tree',
+    games: 'Games',
+    videos: 'Videos',
+    rate: 'Rate',
+    award: 'Award',
+    helper: 'Helper',
+    kid: 'Home',
+    home: 'Home',
+    wealth: 'Kaya Wealth',
+    wellness: 'Kaya Wellness',
+    chef: 'Kaya Chef',
+    badges: 'Badges',
+  };
+  // Section root (e.g. /pantry, /pulse) — back goes Home.
+  if (segs.length === 1) {
+    return { label: 'Home', href: homePath };
+  }
+  // Deeper → land on section root, labelled with the section name.
+  const top = segs[0];
+  return { label: sectionLabel[top] || 'Back', href: '/' + top };
 }
