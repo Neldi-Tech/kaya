@@ -1055,5 +1055,35 @@ service cloud.firestore {
       allow read: if isOperator();
       allow write: if false;
     }
+
+    // ── Kaya Sparks · ideas & help community (2026-05-26) ────────────
+    // Top-level, cross-family. CLIENTS NEVER READ THIS DIRECTLY — the
+    // anonymity model relies on /api/sparks/* stripping author identity
+    // before the wire. Operators can read raw docs for moderation.
+    //   sparks/{sparkId}              — the post itself (full author info)
+    //     /comments/{commentId}        — threaded comments
+    //     /upvotes/{uid}               — one doc per voter (uid keyed)
+    //   config/sparks                  — global settings (roadmap toggle,
+    //                                    reward size, moderation mode…).
+    //                                    Readable by any signed-in user so
+    //                                    UI can react (e.g. show/hide the
+    //                                    roadmap strip) without a round-
+    //                                    trip through /api on every page.
+    match /sparks/{sparkId} {
+      allow read: if isOperator();
+      allow write: if false;
+      match /comments/{commentId} {
+        allow read: if isOperator();
+        allow write: if false;
+      }
+      match /upvotes/{voterUid} {
+        allow read: if isOperator();
+        allow write: if false;
+      }
+    }
+    match /config/sparks {
+      allow read: if isSignedIn();
+      allow write: if isOperator();
+    }
   }
 }
