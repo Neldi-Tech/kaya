@@ -20,6 +20,7 @@ import {
 } from '@/lib/moments';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 
 export default function PostDetailPage() {
   const { postId } = useParams<{ postId: string }>();
@@ -33,6 +34,19 @@ export default function PostDetailPage() {
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const downloadPhoto = async (photoId: string, fullUrl: string) => {
+    if (downloadingId) return;
+    setDownloadingId(photoId);
+    try {
+      await downloadImage(fullUrl, suggestedPhotoFilename(post?.createdAt));
+    } catch {
+      window.open(fullUrl, '_blank', 'noreferrer');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   // Initial post fetch. We could also subscribe but the post fields
   // only change on rare edits — a one-shot fetch + counter increments
@@ -191,14 +205,25 @@ export default function PostDetailPage() {
                 className="absolute inset-0 w-full h-full object-contain bg-black"
               />
             ) : (
-              <a href={p.fullUrl} target="_blank" rel="noopener noreferrer" aria-label="Open full-size">
+              <button
+                type="button"
+                onClick={() => downloadPhoto(p.id, p.fullUrl)}
+                disabled={downloadingId === p.id}
+                aria-label="Download photo"
+                className="absolute inset-0 w-full h-full p-0 border-0 bg-transparent cursor-pointer"
+              >
                 <img
                   src={p.feedUrl}
                   alt=""
                   className="absolute inset-0 w-full h-full object-cover"
                   loading="lazy"
                 />
-              </a>
+                {downloadingId === p.id && (
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-white text-xs font-display font-bold">
+                    Saving…
+                  </span>
+                )}
+              </button>
             )}
           </div>
         ))}
