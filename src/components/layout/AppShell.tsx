@@ -313,7 +313,6 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages', activePrefixes: ['/messages'] },
-  { kind: 'link',    id: 'sparks',    path: '/sparks',    icon: '✨', label: 'Sparks' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KAYA_NAV },
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
@@ -326,6 +325,8 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness', icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',     icon: '🍳', label: 'Kaya Chef',     soon: true },
+  // Sparks stays last — the ideas/help community sits below the apps.
+  { kind: 'link',    id: 'sparks',    path: '/sparks',   icon: '✨', label: 'Sparks' },
 ];
 
 // Helpers and kids — no Soon teasers, no collapsibles (their feature
@@ -338,7 +339,6 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'award',    path: '/award',           icon: '🎖️', label: 'Award' },
   { kind: 'link', id: 'moments',  path: '/moments',         icon: '📸', label: 'Moments' },
   { kind: 'link', id: 'messages', path: '/messages',        icon: '💬', label: 'Messages' },
-  { kind: 'link', id: 'sparks',   path: '/sparks',          icon: '✨', label: 'Sparks' },
   { kind: 'link', id: 'pantry',   path: '/pantry',          icon: '🛒', label: 'Pantry' },
   // 2026-05-19 — Payroll moved out of the /pantry tile grid for helpers
   // and surfaced directly in the sidebar / More mega-sheet, per Elia's
@@ -347,6 +347,8 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'payroll',  path: '/pantry/payroll',  icon: '🤝', label: 'Payroll' },
   { kind: 'link', id: 'pulse',    path: '/pulse/today',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
   { kind: 'link', id: 'profiles', path: '/profiles',        icon: '👧', label: 'Kids' },
+  // Sparks stays last in the helper menu too.
+  { kind: 'link', id: 'sparks',   path: '/sparks',          icon: '✨', label: 'Sparks' },
 ];
 
 // Full kid menu in canonical order, mirroring the parent shape:
@@ -368,7 +370,6 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'workplan',  path: '/workplan',  icon: '🗓️', label: 'My Workplan' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages' },
-  { kind: 'link',    id: 'sparks',    path: '/sparks',    icon: '✨', label: 'Sparks' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
   { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
@@ -380,6 +381,8 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
+  // Sparks stays last in the kid menu — sits under the apps, not above them.
+  { kind: 'link',    id: 'sparks',    path: '/sparks',    icon: '✨', label: 'Sparks' },
 ];
 
 // ── Mobile bottom-bar groups ─────────────────────────────────────────
