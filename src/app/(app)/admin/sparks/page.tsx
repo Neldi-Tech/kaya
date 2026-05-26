@@ -66,20 +66,14 @@ export default function AdminSparksPage() {
         </header>
 
         <section className="rounded-[20px] p-5 border border-white/[0.08]" style={{ background: 'rgba(255,255,255,0.05)' }}>
-          {/* Featured: Roadmap toggle */}
-          <div className="rounded-2xl border p-4 mb-4" style={{ background: 'rgba(212,168,71,0.10)', borderColor: 'rgba(212,168,71,0.30)' }}>
-            <Setting
-              label="🗺 Show 'Roadmap at a glance' to families"
-              description="When on, families see Coming Soon / Building / Just Released columns at the top of /sparks. Off keeps the design preserved but hidden in public view."
-              kind="toggle"
-              value={draft.showRoadmap}
-              onChange={(v) => update('showRoadmap', v as boolean)}
-              accentGold
-            />
-          </div>
-
+          {/* All settings in one consistent 2-column grid. The Roadmap toggle
+              (the "go live to families" switch) leads the left column so it's
+              still the first thing the operator sees, but without the
+              awkward standalone gold-box treatment that misaligned it from
+              the rest. */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
             <div>
+              <Setting label="🗺 Show 'Roadmap at a glance' to families" description="When on, families see Coming Soon / Building / Just Released columns at the top of /sparks. Off keeps the design preserved but hidden in public view." kind="toggle" value={draft.showRoadmap}           onChange={(v) => update('showRoadmap', v as boolean)} accentGold />
               <Setting label="Allow anonymous posts"      description="Families can hide their name on ideas & comments."        kind="toggle" value={draft.allowAnonymous}       onChange={(v) => update('allowAnonymous', v as boolean)} />
               <Setting label="Kids default to anonymous"  description="Kid accounts post anonymously unless parent overrides."   kind="toggle" value={draft.kidsDefaultAnonymous} onChange={(v) => update('kidsDefaultAnonymous', v as boolean)} />
               <Setting label="Auto-publish ideas"         description="Off = admin review queue before going public."           kind="toggle" value={draft.autoPublish}          onChange={(v) => update('autoPublish', v as boolean)} />
