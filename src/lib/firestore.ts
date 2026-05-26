@@ -140,6 +140,30 @@ export interface Family {
   // see `lib/keepsakeLimits.ts` for the limit shape.
   plan?: 'free' | 'family' | 'family_pro';
 
+  // ── Kaya Tiers subscription (2026-05-26) ────────────────────
+  // The seam that gates every module in the app. Three SKUs: Nest
+  // (free), Home ($6/mo), Castle ($14/mo). Family-admin chooses one
+  // at /subscription; founder + operators can override at /admin.
+  //
+  // `subscription.addons` is the à-la-carte list of paid extras for
+  // Home families (e.g. Kaya Business, Kaya Wealth) — Castle implicitly
+  // includes every add-on so its list is always empty.
+  //
+  // Missing field ⇒ treat as Nest (free). See `lib/tiers.ts` for the
+  // resolved-access helper that the gating UI consumes.
+  tierId?: 'nest' | 'home' | 'castle';
+  subscription?: {
+    /** Active add-on IDs from `lib/tiers.ts`. Ignored for Castle. */
+    addons?: string[];
+    billingCycle?: 'monthly' | 'yearly';
+    /** Stripe IDs are absent in closed beta — populated only after the
+     *  paid funnel opens. Leaving the seam here so PR 4 (Stripe) is a
+     *  drop-in once env wiring lands. */
+    stripeSubscriptionId?: string | null;
+    currentPeriodEnd?: Timestamp;
+    status?: 'active' | 'past_due' | 'canceled';
+  };
+
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent
