@@ -35,6 +35,20 @@ function lastNDays(n: number): string[] {
   }
   return out;
 }
+/** "Sun, 25-May-2026" — pairs the weekday with Kaya's DD-Mmm-YYYY date. */
+function dayPlusDate(dayKey: string): string {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  if (!y || !m || !d) return toDisplayDate(dayKey);
+  const dt = new Date(y, m - 1, d);
+  const dow = dt.toLocaleDateString('en-US', { weekday: 'short' });
+  return `${dow}, ${toDisplayDate(dayKey)}`;
+}
+/** Yesterday's dayKey in the Pulse timezone. */
+function yesterdayKey(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return dayKeyInTZ(d, PULSE_TZ);
+}
 
 export default function TrackableDetailPage() {
   const router = useRouter();
@@ -65,6 +79,32 @@ export default function TrackableDetailPage() {
 
   const thisMonth = monthOf(dayKeyInTZ(new Date(), PULSE_TZ));
   const lastMonth = prevMonthKey(thisMonth);
+  const todayKey = dayKeyInTZ(new Date(), PULSE_TZ);
+  const ydayKey = useMemo(() => yesterdayKey(), []);
+
+  // Daily snapshot — today + yesterday + 7-day rolling average. Topups carry
+  // consumedUnits=0 + deltaCost=0, so summing across reading rows is safe.
+  const daily = useMemo(() => {
+    const sumOn = (k: string) => readings
+      .filter((r) => r.dayKey === k)
+      .reduce((acc, r) => ({ units: acc.units + (r.consumedUnits ?? 0), cost: acc.cost + (r.deltaCost ?? 0) }),
+              { units: 0, cost: 0 });
+    const last7 = new Set(lastNDays(7));
+    let sevenUnits = 0, sevenCost = 0;
+    for (const r of readings) {
+      if (last7.has(r.dayKey)) {
+        sevenUnits += r.consumedUnits ?? 0;
+        sevenCost += r.deltaCost ?? 0;
+      }
+    }
+    return {
+      today: sumOn(todayKey),
+      yesterday: sumOn(ydayKey),
+      avg: { units: sevenUnits / 7, cost: Math.round(sevenCost / 7) },
+      hasToday: readings.some((r) => r.dayKey === todayKey),
+      hasYesterday: readings.some((r) => r.dayKey === ydayKey),
+    };
+  }, [readings, todayKey, ydayKey]);
 
   const stats = useMemo(() => {
     let thisCost = 0;
@@ -108,8 +148,43 @@ export default function TrackableDetailPage() {
         subtitle="Last 30 days"
       />
 
+      {/* Daily consumption — today at a glance (+ yesterday + 7-day avg),
+          placed before the monthly summary so the day is easy to read first. */}
+      <div className="bg-white border border-pulse-gold/30 rounded-2xl p-4 mt-4 shadow-[0_4px_16px_rgba(15,31,68,0.06)]">
+        <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mb-2">Daily consumption</div>
+        {daily.hasToday ? (
+          <>
+            <div className="text-2xl font-nunito font-black text-pulse-navy leading-tight">
+              {daily.today.units.toFixed(2)}{trackable?.unit ? ` ${trackable.unit}` : ''}
+              <span className="text-sm font-bold text-hive-muted"> · {formatCents(daily.today.cost, currency)}</span>
+            </div>
+            <div className="text-[11px] text-hive-muted font-bold mt-0.5">{dayPlusDate(todayKey)} · today</div>
+          </>
+        ) : (
+          <div className="text-[13px] text-hive-muted">
+            No reading logged today yet — <span className="font-bold text-pulse-navy">{dayPlusDate(todayKey)}</span>.
+          </div>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-3 text-[11px]">
+          <div>
+            <div className="text-hive-muted uppercase tracking-wider font-black text-[9px]">Yesterday</div>
+            <div className="font-nunito font-black text-pulse-navy mt-0.5">
+              {daily.hasYesterday
+                ? <>{daily.yesterday.units.toFixed(2)}{trackable?.unit ? ` ${trackable.unit}` : ''} <span className="text-hive-muted font-bold">· {formatCents(daily.yesterday.cost, currency)}</span></>
+                : '—'}
+            </div>
+          </div>
+          <div>
+            <div className="text-hive-muted uppercase tracking-wider font-black text-[9px]">7-day avg</div>
+            <div className="font-nunito font-black text-pulse-navy mt-0.5">
+              {daily.avg.units.toFixed(2)}{trackable?.unit ? ` ${trackable.unit}` : ''}/day <span className="text-hive-muted font-bold">· {formatCents(daily.avg.cost, currency)}/day</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Stat hero */}
-      <div className="mt-4">
+      <div className="mt-3">
         <PulseHero>
           <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent this month</div>
           <div className="text-3xl font-nunito font-black mt-1">{formatCents(stats.thisCost, currency)}</div>
@@ -173,11 +248,11 @@ export default function TrackableDetailPage() {
           {recent.map((r) => (
             <div key={r.id} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center justify-between">
               <div className="min-w-0">
-                <div className="text-[13px] font-nunito font-black text-pulse-navy">{toDisplayDate(r.dayKey)}</div>
+                <div className="text-[13px] font-nunito font-black text-pulse-navy">{dayPlusDate(r.dayKey)}</div>
                 <div className="text-[11px] text-hive-muted font-bold">
                   {r.event === 'topup'
-                    ? `Top-up +${r.toppedUpUnits ?? 0} ${trackable?.unit ?? ''}`
-                    : `${r.consumedUnits} ${trackable?.unit ?? ''} used`}
+                    ? `Top-up +${(r.toppedUpUnits ?? 0).toFixed(2)} ${trackable?.unit ?? ''}`
+                    : `${(r.consumedUnits ?? 0).toFixed(2)} ${trackable?.unit ?? ''} used`}
                   {r.isAnomaly && <span className="text-pulse-coral"> · spike</span>}
                 </div>
               </div>
