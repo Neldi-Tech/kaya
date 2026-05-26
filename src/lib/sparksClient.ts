@@ -93,3 +93,14 @@ export async function getSparksSettings(): Promise<SparksSettings> {
   const { settings } = (await res.json()) as { settings: SparksSettings };
   return settings;
 }
+
+export async function saveSparksSettings(patch: Partial<SparksSettings>): Promise<SparksSettings> {
+  const res = await fetch('/api/sparks/settings', {
+    method: 'PATCH',
+    headers: await authHeader(),
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) throw new Error(`save-settings-failed-${res.status}`);
+  const { settings } = (await res.json()) as { settings: SparksSettings };
+  return settings;
+}

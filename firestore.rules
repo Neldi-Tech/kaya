@@ -1085,5 +1085,15 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isOperator();
     }
+
+    // ── Kaya Tiers · subscription plan configs (2026-05-26) ─────────
+    // /config/tiers/plans/{tierId} — per-tier overrides on top of
+    // DEFAULT_TIERS in lib/tiers.ts. Any signed-in user can read (so
+    // the /subscription page + module-gating UI can render without an
+    // /api round-trip on every navigation); only operators write.
+    match /config/tiers/plans/{tierId} {
+      allow read: if isSignedIn();
+      allow write: if isOperator();
+    }
   }
 }
