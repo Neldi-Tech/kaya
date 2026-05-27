@@ -14,7 +14,7 @@ import {
 import { db } from '../firebase';
 import type {
   AcademicTerm, SparksAcademicRecord, SparksItem, SparksItemArea,
-  SparksProfile, SparksSiblingVisibility,
+  SparksProfile, SparksRating, SparksSiblingVisibility,
 } from './schema';
 
 // ── Refs ──────────────────────────────────────────────────────────────
@@ -36,6 +36,12 @@ function academicCol(familyId: string) {
 }
 function academicRef(familyId: string, recordId: string) {
   return doc(db, 'families', familyId, 'sparks_academic', recordId);
+}
+function ratingsCol(familyId: string) {
+  return collection(db, 'families', familyId, 'sparks_ratings');
+}
+function ratingRef(familyId: string, ratingId: string) {
+  return doc(db, 'families', familyId, 'sparks_ratings', ratingId);
 }
 
 // ── Profile · subjects + sibling-visibility + AI toggles ──────────────
@@ -329,6 +335,117 @@ export async function listAcademicRecords(
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as SparksAcademicRecord));
+}
+
+// ── Ratings · parent rates an item (Slice 3) or a task (Slice 3b) ────
+//
+// One doc per rating event in /families/{f}/sparks_ratings/{ratingId}.
+// At least one of stars / percent / custom_value is populated; the
+// rating mode at the call site decides which fields end up on the doc.
+// Dashboard aggregates this by kid + date range (Slice 5).
+
+export interface NewItemRatingInput {
+  kid_id: string;
+  item_id: string;
+  date: string; // YYYY-MM-DD — mirrors the item's date so the dashboard
+                //   buckets ratings against the work, not the rating moment
+  stars?: number;       // 1–5
+  percent?: number;     // 0–100
+  custom_value?: string;
+  notes?: string;
+}
+
+/** Create a rating against a sparks_item. Returns the new id. */
+export async function createItemRating(
+  familyId: string,
+  input: NewItemRatingInput,
+  parentUid: string,
+): Promise<string> {
+  // Strip undefined so Firestore doesn't reject the write — the rules
+  // accept missing fields, but the SDK rejects literal `undefined`.
+  const payload: Record<string, unknown> = {
+    item_id: input.item_id,
+    kid_id: input.kid_id,
+    date: input.date,
+    parent_id: parentUid,
+    created_at: serverTimestamp(),
+  };
+  if (input.stars !== undefined)        payload.stars = input.stars;
+  if (input.percent !== undefined)      payload.percent = input.percent;
+  if (input.custom_value !== undefined && input.custom_value.length > 0) payload.custom_value = input.custom_value;
+  if (input.notes !== undefined && input.notes.length > 0) payload.notes = input.notes;
+  const ref = await addDoc(ratingsCol(familyId), payload);
+  return ref.id;
+}
+
+/** Live subscription to all ratings for a kid, newest first. The kid
+ *  home + area pages share this stream and JOIN per-item via
+ *  `ratingsByItemId(ratings)` to render the chip + bar. */
+export function subscribeToKidRatings(
+  familyId: string,
+  kidId: string,
+  cb: (ratings: SparksRating[]) => void,
+): () => void {
+  const q = query(
+    ratingsCol(familyId),
+    where('kid_id', '==', kidId),
+    orderBy('date', 'desc'),
+    limit(500),
+  );
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as SparksRating))),
+    () => cb([]),
+  );
+}
+
+/** Delete one rating (parent retract). */
+export async function deleteRating(familyId: string, ratingId: string): Promise<void> {
+  await deleteDoc(ratingRef(familyId, ratingId));
+}
+
+/** Group a stream of ratings into a map keyed by item_id. The values
+ *  are sorted newest-first by `date` so callers can pick the latest
+ *  rating per item or aggregate across them. */
+export function ratingsByItemId(ratings: SparksRating[]): Map<string, SparksRating[]> {
+  const m = new Map<string, SparksRating[]>();
+  for (const r of ratings) {
+    if (!r.item_id) continue;
+    const arr = m.get(r.item_id);
+    if (arr) arr.push(r); else m.set(r.item_id, [r]);
+  }
+  return m;
+}
+
+/** Latest rating for an item (or null when unrated). */
+export function latestRatingFor(
+  itemId: string,
+  ratings: SparksRating[] | Map<string, SparksRating[]>,
+): SparksRating | null {
+  const arr = ratings instanceof Map ? ratings.get(itemId) : ratings.filter((r) => r.item_id === itemId);
+  return arr && arr.length > 0 ? arr[0] : null;
+}
+
+export interface RatingAggregate {
+  count: number;
+  avgStars: number | null;   // null when no star ratings
+  avgPercent: number | null; // null when no percent ratings
+}
+
+/** Aggregate ⭐ + % across a list of ratings. Used by kid home /
+ *  parent strip ("Avg ⭐ 4.2 · 87%") and the dashboard later. */
+export function aggregateRatings(ratings: SparksRating[]): RatingAggregate {
+  let starSum = 0, starCount = 0;
+  let pctSum = 0, pctCount = 0;
+  for (const r of ratings) {
+    if (typeof r.stars === 'number') { starSum += r.stars; starCount++; }
+    if (typeof r.percent === 'number') { pctSum += r.percent; pctCount++; }
+  }
+  return {
+    count: ratings.length,
+    avgStars:   starCount > 0 ? +(starSum / starCount).toFixed(1) : null,
+    avgPercent: pctCount  > 0 ? Math.round(pctSum / pctCount)     : null,
+  };
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────

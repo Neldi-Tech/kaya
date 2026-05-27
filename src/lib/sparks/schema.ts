@@ -249,9 +249,15 @@ export interface SparksTask {
 
 export interface SparksRating {
   id: string;
-  task_id: string;
+  /** Set when the rating came from a workplan-wired sparks_task. Slice 3b
+   *  wires this end-to-end; Slice 3 only fills in `item_id`. At least one
+   *  of `task_id` / `item_id` must be set. */
+  task_id?: string;
+  /** Set when the parent rated a sparks_item directly (Slice 3 default).
+   *  Lets the area pages render ⭐ + % on tiles without needing tasks. */
+  item_id?: string;
   kid_id: string;
-  date: string; // YYYY-MM-DD (matches the task's due_date)
+  date: string; // YYYY-MM-DD (the task's due_date, or the item's date)
   stars?: number;       // 1–5
   percent?: number;     // 0–100
   custom_value?: string;
@@ -259,6 +265,11 @@ export interface SparksRating {
   notes?: string;
   created_at: Timestamp;
 }
+
+/** Which input(s) the RatingSheet exposes for a given rating. The
+ *  resulting SparksRating doc populates only the fields enabled by
+ *  the chosen mode (e.g. `stars` mode → only `stars` is set). */
+export type SparksRatingMode = 'stars' | 'percent' | 'both' | 'custom';
 
 // ── Companion ──────────────────────────────────────────────────────────
 //
