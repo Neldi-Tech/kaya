@@ -4,7 +4,7 @@
 // PATCH /api/admin/tiers — operator-only. Body: { tierId, patch }.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { resolveAuth } from '@/lib/sparksServer';
+import { resolveAuth } from '@/lib/buzzServer';
 import { loadAllTiers, saveTierPatch, sanitiseModuleIds, type TierOverrides } from '@/lib/tiersServer';
 import type { SubscriptionTierId, TierConfig } from '@/lib/tiers';
 

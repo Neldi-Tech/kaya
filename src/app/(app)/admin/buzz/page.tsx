@@ -1,17 +1,17 @@
 'use client';
 
-// /admin/sparks — Sparks Settings (premium dark, per design HTML).
-// Operator-only. Drives /config/sparks via /api/sparks/settings (which
-// the public /sparks surface subscribes to live, so flipping the
+// /admin/buzz — Buzz Settings (premium dark, per design HTML).
+// Operator-only. Drives /config/buzz via /api/buzz/settings (which
+// the public /buzz surface subscribes to live, so flipping the
 // roadmap toggle takes effect without a deploy).
 
 import { useEffect, useState } from 'react';
-import { DEFAULT_SPARKS_SETTINGS, type SparksSettings } from '@/lib/sparks';
-import { getSparksSettings, saveSparksSettings } from '@/lib/sparksClient';
+import { DEFAULT_BUZZ_SETTINGS, type BuzzSettings } from '@/lib/buzz';
+import { getBuzzSettings, saveBuzzSettings } from '@/lib/buzzClient';
 
-export default function AdminSparksPage() {
-  const [base, setBase]   = useState<SparksSettings | null>(null);
-  const [draft, setDraft] = useState<SparksSettings | null>(null);
+export default function AdminBuzzPage() {
+  const [base, setBase]   = useState<BuzzSettings | null>(null);
+  const [draft, setDraft] = useState<BuzzSettings | null>(null);
   const [busy, setBusy]   = useState(false);
   const [err, setErr]     = useState<string | null>(null);
 
@@ -19,7 +19,7 @@ export default function AdminSparksPage() {
     let cancelled = false;
     (async () => {
       try {
-        const s = await getSparksSettings();
+        const s = await getBuzzSettings();
         if (cancelled) return;
         setBase(s); setDraft(s);
       } catch (e) {
@@ -29,7 +29,7 @@ export default function AdminSparksPage() {
     return () => { cancelled = true; };
   }, []);
 
-  function update<K extends keyof SparksSettings>(key: K, value: SparksSettings[K]) {
+  function update<K extends keyof BuzzSettings>(key: K, value: BuzzSettings[K]) {
     setDraft((prev) => prev ? ({ ...prev, [key]: value }) : prev);
   }
 
@@ -39,14 +39,14 @@ export default function AdminSparksPage() {
     if (!draft) return;
     setBusy(true); setErr(null);
     try {
-      const next = await saveSparksSettings(draft);
+      const next = await saveBuzzSettings(draft);
       setBase(next); setDraft(next);
     } catch (e) { setErr(String(e instanceof Error ? e.message : e)); }
     finally { setBusy(false); }
   }
 
   function discard() { if (base) setDraft(base); }
-  function reset()   { setDraft(DEFAULT_SPARKS_SETTINGS); }
+  function reset()   { setDraft(DEFAULT_BUZZ_SETTINGS); }
 
   if (!draft) {
     return (
@@ -60,7 +60,7 @@ export default function AdminSparksPage() {
     <div className="min-h-screen text-white" style={{ background: 'linear-gradient(180deg,#0F1F44 0%,#162954 100%)' }}>
       <div className="max-w-[1100px] mx-auto p-5 sm:p-9 pb-32">
         <header className="mb-6">
-          <h2 className="font-display font-extrabold text-2xl text-white tracking-tight m-0 flex items-center gap-2">✨ Sparks settings</h2>
+          <h2 className="font-display font-extrabold text-2xl text-white tracking-tight m-0 flex items-center gap-2">✨ Buzz settings</h2>
           <p className="text-white/70 text-sm mt-1">How the ideas &amp; help community behaves for all invited families.</p>
           {err && <p className="mt-2 text-[12px] text-red-300 font-semibold">{err}</p>}
         </header>
@@ -73,11 +73,11 @@ export default function AdminSparksPage() {
               the rest. */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
             <div>
-              <Setting label="🗺 Show 'Roadmap at a glance' to families" description="When on, families see Coming Soon / Building / Just Released columns at the top of /sparks. Off keeps the design preserved but hidden in public view." kind="toggle" value={draft.showRoadmap}           onChange={(v) => update('showRoadmap', v as boolean)} accentGold />
+              <Setting label="🗺 Show 'Roadmap at a glance' to families" description="When on, families see Coming Soon / Building / Just Released columns at the top of /buzz. Off keeps the design preserved but hidden in public view." kind="toggle" value={draft.showRoadmap}           onChange={(v) => update('showRoadmap', v as boolean)} accentGold />
               <Setting label="Allow anonymous posts"      description="Families can hide their name on ideas & comments."        kind="toggle" value={draft.allowAnonymous}       onChange={(v) => update('allowAnonymous', v as boolean)} />
               <Setting label="Kids default to anonymous"  description="Kid accounts post anonymously unless parent overrides."   kind="toggle" value={draft.kidsDefaultAnonymous} onChange={(v) => update('kidsDefaultAnonymous', v as boolean)} />
               <Setting label="Auto-publish ideas"         description="Off = admin review queue before going public."           kind="toggle" value={draft.autoPublish}          onChange={(v) => update('autoPublish', v as boolean)} />
-              <Setting label="Enable Spark Badge"         description="Public badge on profile when an idea ships."             kind="toggle" value={draft.enableSparkBadge}    onChange={(v) => update('enableSparkBadge', v as boolean)} />
+              <Setting label="Enable Buzz Badge"         description="Public badge on profile when an idea ships."             kind="toggle" value={draft.enableBuzzBadge}    onChange={(v) => update('enableBuzzBadge', v as boolean)} />
             </div>
             <div>
               <Setting label="Honey Coins per shipped idea" description="Credited to contributor's family — split evenly across kids." kind="number" value={draft.honeyCoinsPerShippedIdea} onChange={(v) => update('honeyCoinsPerShippedIdea', v as number)} min={0} max={10000} />

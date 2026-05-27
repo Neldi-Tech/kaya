@@ -17,7 +17,7 @@ export function AdminStub({ title, emoji, summary }: { title: string; emoji: str
             <h3 className="font-display font-bold text-lg text-white m-0">Coming soon</h3>
             <p className="text-white/60 text-[13px] mt-2 max-w-md mx-auto">
               This admin surface ships in v1.1. The data model + matrix that powers it is live now — see
-              <b className="text-[#D4A847]"> Tiers &amp; Modules</b> and <b className="text-[#D4A847]">Sparks Settings</b>.
+              <b className="text-[#D4A847]"> Tiers &amp; Modules</b> and <b className="text-[#D4A847]">Buzz Settings</b>.
             </p>
           </div>
         </section>

@@ -1,8 +1,8 @@
 'use client';
 
-import { avatarStyle } from '@/lib/sparks';
+import { avatarStyle } from '@/lib/buzz';
 
-export function SparkAvatar({
+export function BuzzAvatar({
   avatarKey,
   displayName,
   size = 28,

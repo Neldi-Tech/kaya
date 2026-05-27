@@ -1,9 +1,9 @@
 'use client';
 
-import type { SparkStatus } from '@/lib/sparks';
-import { statusPill } from '@/lib/sparks';
+import type { BuzzStatus } from '@/lib/buzz';
+import { statusPill } from '@/lib/buzz';
 
-export function StatusPill({ status }: { status: SparkStatus }) {
+export function StatusPill({ status }: { status: BuzzStatus }) {
   const p = statusPill(status);
   return (
     <span

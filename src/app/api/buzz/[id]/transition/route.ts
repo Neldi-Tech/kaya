@@ -1,17 +1,17 @@
-// PATCH /api/sparks/[id]/transition — operator-only: change a spark's
+// PATCH /api/buzz/[id]/transition — operator-only: change a buzz's
 // status and optionally credit the Hive reward when it ships.
 //
-// Body: { status: SparkStatus, comingSoonTargetWindow?, confirmReward?: boolean }
+// Body: { status: BuzzStatus, comingSoonTargetWindow?, confirmReward?: boolean }
 //
 // When transitioning to 'live' or 'reward':
 //   • Requires `confirmReward: true` from the client (admin saw the
 //     confirm dialog).
-//   • Splits `honeyCoinsPerShippedIdea` (from /config/sparks settings)
+//   • Splits `honeyCoinsPerShippedIdea` (from /config/buzz settings)
 //     evenly across the contributing family's kids — one Hive
 //     transaction per kid + the wallet's honeyCoins denorm bumped.
 //   • Anonymous posts: still credit coins if settings.anonymousEarnsCoins
 //     is true (default).
-//   • Sets shippedAt + rewardedHoneyCoins on the spark.
+//   • Sets shippedAt + rewardedHoneyCoins on the buzz.
 //
 // If the family has no kids the reward is recorded as 0 (no wallet to
 // credit). The status change still lands.
@@ -19,11 +19,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import {
-  resolveAuth, loadSparksSettings,
+  resolveAuth, loadBuzzSettings,
   VALID_STATUSES, VALID_TARGET_WINDOWS,
-  type RawSpark,
-} from '@/lib/sparksServer';
-import type { SparkStatus, SparkTargetWindow } from '@/lib/sparks';
+  type RawBuzz,
+} from '@/lib/buzzServer';
+import type { BuzzStatus, BuzzTargetWindow } from '@/lib/buzz';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -38,18 +38,18 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
 
-  const nextStatus = body.status as SparkStatus;
+  const nextStatus = body.status as BuzzStatus;
   if (!VALID_STATUSES.has(nextStatus)) return NextResponse.json({ error: 'bad-status' }, { status: 400 });
 
-  const window = (body.comingSoonTargetWindow ?? null) as SparkTargetWindow;
+  const window = (body.comingSoonTargetWindow ?? null) as BuzzTargetWindow;
   if (!VALID_TARGET_WINDOWS.includes(window)) return NextResponse.json({ error: 'bad-window' }, { status: 400 });
 
-  const sparkRef = db.collection('sparks').doc(ctx.params.id);
-  const snap = await sparkRef.get();
+  const buzzRef = db.collection('buzz').doc(ctx.params.id);
+  const snap = await buzzRef.get();
   if (!snap.exists) return NextResponse.json({ error: 'not-found' }, { status: 404 });
-  const raw = snap.data() as RawSpark;
+  const raw = snap.data() as RawBuzz;
 
-  const settings = await loadSparksSettings(db);
+  const settings = await loadBuzzSettings(db);
   const isShipping = (nextStatus === 'live' || nextStatus === 'reward') &&
                      (raw.status !== 'live' && raw.status !== 'reward');
 
@@ -70,7 +70,7 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
     patch.shippedAt = FieldValue.serverTimestamp();
     const shouldPay = !raw.postedAnonymously || settings.anonymousEarnsCoins;
     if (shouldPay) {
-      rewardCredited = await creditSparkReward(
+      rewardCredited = await creditBuzzReward(
         db,
         raw.authorFamilyId,
         settings.honeyCoinsPerShippedIdea,
@@ -82,7 +82,7 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
     patch.rewardedHoneyCoins = rewardCredited;
   }
 
-  await sparkRef.update(patch);
+  await buzzRef.update(patch);
   return NextResponse.json({ ok: true, rewardCredited: isShipping ? rewardCredited : undefined });
 }
 
@@ -92,12 +92,12 @@ export async function PATCH(req: NextRequest, ctx: { params: { id: string } }) {
  *  direction=in, category=gift). Wallet doc's honeyCoins is bumped via
  *  an atomic increment so we don't need a transaction here. Returns the
  *  total honey actually credited (0 if family has no kids). */
-async function creditSparkReward(
+async function creditBuzzReward(
   db: Firestore,
   familyId: string,
   totalHoney: number,
-  sparkId: string,
-  sparkTitle: string,
+  buzzId: string,
+  buzzTitle: string,
   operatorUid: string,
 ): Promise<number> {
   if (totalHoney <= 0) return 0;
@@ -119,7 +119,7 @@ async function creditSparkReward(
       .collection('wallet').doc('balances');
     const txRef = db.collection('families').doc(familyId)
       .collection('kids').doc(kidId)
-      .collection('hiveTransactions').doc(`spark-${sparkId}-${kidId}`);
+      .collection('hiveTransactions').doc(`buzz-${buzzId}-${kidId}`);
 
     batch.set(walletRef, {
       honeyCoins: FieldValue.increment(honey),
@@ -131,7 +131,7 @@ async function creditSparkReward(
       direction: 'in',
       amount: honey,
       category: 'gift',
-      description: `Spark reward: "${sparkTitle.slice(0, 80)}"`,
+      description: `Buzz reward: "${buzzTitle.slice(0, 80)}"`,
       status: 'completed',
       createdBy: operatorUid,
       approvedBy: operatorUid,

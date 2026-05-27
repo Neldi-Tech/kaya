@@ -3,7 +3,7 @@
 // /admin/* — shared operator gate + tab nav. The nav is a thin sticky
 // bar that floats above whatever chrome the child page paints. Existing
 // /admin (closed-beta) keeps its cream theme; new tabs added in PR 2
-// (Tiers & Modules, Sparks Settings) paint a premium navy chrome.
+// (Tiers & Modules, Buzz Settings) paint a premium navy chrome.
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ import { getOperatorRole, type OperatorRole } from '@/lib/access';
 const TABS: { href: string; label: string }[] = [
   { href: '/admin',          label: 'Closed beta' },
   { href: '/admin/tiers',    label: 'Tiers & Modules' },
-  { href: '/admin/sparks',   label: 'Sparks Settings' },
+  { href: '/admin/buzz',     label: 'Buzz Settings' },
   { href: '/admin/pricing',  label: 'Pricing' },
   { href: '/admin/branding', label: 'Branding' },
   { href: '/admin/families', label: 'Families' },

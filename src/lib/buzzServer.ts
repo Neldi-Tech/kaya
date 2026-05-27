@@ -1,4 +1,4 @@
-// Server-only helpers for /api/sparks/*. Centralises Bearer-token
+// Server-only helpers for /api/buzz/*. Centralises Bearer-token
 // verification, operator gating, anonymity sanitization, and the
 // avatar-key derivation so individual routes stay thin.
 //
@@ -9,10 +9,10 @@ import type { NextRequest } from 'next/server';
 import type { Firestore } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from './firebaseAdmin';
 import type {
-  Spark, SparkComment, SparkStatus, SparkCategory, SparkTargetWindow,
-  SparksSettings,
-} from './sparks';
-import { DEFAULT_SPARKS_SETTINGS } from './sparks';
+  Buzz, BuzzComment, BuzzStatus, BuzzCategory, BuzzTargetWindow,
+  BuzzSettings,
+} from './buzz';
+import { DEFAULT_BUZZ_SETTINGS } from './buzz';
 
 // ── Auth context resolved for every request ────────────────────────────
 
@@ -108,12 +108,12 @@ export function avatarInitials(displayName: string): string {
 // Raw Firestore doc shape (what the Admin SDK reads). Real names live
 // here; UI never sees them unless the caller is an operator.
 
-export interface RawSpark {
+export interface RawBuzz {
   title: string;
   body: string;
-  category: SparkCategory;
-  status: SparkStatus;
-  comingSoonTargetWindow: SparkTargetWindow;
+  category: BuzzCategory;
+  status: BuzzStatus;
+  comingSoonTargetWindow: BuzzTargetWindow;
   upvoteCount: number;
   commentCount: number;
   authorUid: string;
@@ -142,14 +142,14 @@ function tsToMs(t: FirebaseFirestore.Timestamp | null | undefined): number {
   return typeof (t as any).toMillis === 'function' ? (t as any).toMillis() : 0;
 }
 
-/** Returns the public-shape Spark. When the caller is an operator we
+/** Returns the public-shape Buzz. When the caller is an operator we
  *  attach the real-name fields for moderation UI. */
-export function sanitizeSpark(id: string, raw: RawSpark, ctx: AuthContext, iVoted: boolean): Spark {
+export function sanitizeBuzz(id: string, raw: RawBuzz, ctx: AuthContext, iVoted: boolean): Buzz {
   const isAnon = raw.postedAnonymously === true;
   const showReal = !isAnon || ctx.isOperator;
   const displayName = showReal ? raw.authorRealName : 'A Kaya family';
   const avatarKey = avatarKeyFor(raw.authorFamilyId, isAnon && !ctx.isOperator);
-  const out: Spark = {
+  const out: Buzz = {
     id,
     title: raw.title,
     body: raw.body,
@@ -176,10 +176,10 @@ export function sanitizeSpark(id: string, raw: RawSpark, ctx: AuthContext, iVote
   return out;
 }
 
-export function sanitizeComment(id: string, raw: RawComment, ctx: AuthContext): SparkComment {
+export function sanitizeComment(id: string, raw: RawComment, ctx: AuthContext): BuzzComment {
   const isAnon = raw.postedAnonymously === true;
   const showReal = !isAnon || ctx.isOperator;
-  const out: SparkComment = {
+  const out: BuzzComment = {
     id,
     body: raw.body,
     authorDisplayName: showReal ? raw.authorRealName : 'A Kaya family',
@@ -195,29 +195,29 @@ export function sanitizeComment(id: string, raw: RawComment, ctx: AuthContext): 
   return out;
 }
 
-// ── Sparks settings (singleton doc) ────────────────────────────────────
+// ── Buzz settings (singleton doc) ──────────────────────────────────────
 
-const SETTINGS_PATH = ['config', 'sparks'] as const;
+const SETTINGS_PATH = ['config', 'buzz'] as const;
 
-export async function loadSparksSettings(db: Firestore): Promise<SparksSettings> {
+export async function loadBuzzSettings(db: Firestore): Promise<BuzzSettings> {
   const snap = await db.collection(SETTINGS_PATH[0]).doc(SETTINGS_PATH[1]).get();
-  if (!snap.exists) return { ...DEFAULT_SPARKS_SETTINGS };
-  const raw = snap.data() as Partial<SparksSettings>;
-  return { ...DEFAULT_SPARKS_SETTINGS, ...raw };
+  if (!snap.exists) return { ...DEFAULT_BUZZ_SETTINGS };
+  const raw = snap.data() as Partial<BuzzSettings>;
+  return { ...DEFAULT_BUZZ_SETTINGS, ...raw };
 }
 
-export async function saveSparksSettings(db: Firestore, patch: Partial<SparksSettings>): Promise<SparksSettings> {
-  const current = await loadSparksSettings(db);
-  const next: SparksSettings = { ...current, ...patch };
+export async function saveBuzzSettings(db: Firestore, patch: Partial<BuzzSettings>): Promise<BuzzSettings> {
+  const current = await loadBuzzSettings(db);
+  const next: BuzzSettings = { ...current, ...patch };
   await db.collection(SETTINGS_PATH[0]).doc(SETTINGS_PATH[1]).set(next, { merge: true });
   return next;
 }
 
 // ── Validation helpers ────────────────────────────────────────────────
 
-export const VALID_CATEGORIES = new Set<SparkCategory>(['idea', 'bug', 'help', 'story']);
-export const VALID_STATUSES = new Set<SparkStatus>(['new', 'review', 'soon', 'building', 'live', 'reward']);
-export const VALID_TARGET_WINDOWS: SparkTargetWindow[] = ['Q3 2026', 'Q4 2026', 'Q1 2027', 'No date yet', null];
+export const VALID_CATEGORIES = new Set<BuzzCategory>(['idea', 'bug', 'help', 'story']);
+export const VALID_STATUSES = new Set<BuzzStatus>(['new', 'review', 'soon', 'building', 'live', 'reward']);
+export const VALID_TARGET_WINDOWS: BuzzTargetWindow[] = ['Q3 2026', 'Q4 2026', 'Q1 2027', 'No date yet', null];
 
 export function trimToLen(s: string, max: number): string {
   return s.trim().slice(0, max);

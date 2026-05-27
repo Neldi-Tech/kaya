@@ -1,10 +1,10 @@
 'use client';
 
-// Kaya Sparks — public surface (cream + bold palette per design HTML).
+// Kaya Buzz — public surface (cream + bold palette per design HTML).
 // Available to every signed-in family member regardless of tier.
 //
-// State is intentionally simple: one /api/sparks fetch driven by the
-// chosen filter + sort, plus the always-loaded /api/sparks/settings to
+// State is intentionally simple: one /api/buzz fetch driven by the
+// chosen filter + sort, plus the always-loaded /api/buzz/settings to
 // know whether to render the roadmap strip. Anonymity is enforced
 // server-side; the client always trusts the doc shape returned.
 
@@ -14,15 +14,15 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { collection, doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
-  DEFAULT_SPARKS_SETTINGS,
-  type Spark, type SparkCategory, type SparkStatus, type SparksSettings,
-} from '@/lib/sparks';
-import { listSparks } from '@/lib/sparksClient';
-import { Composer } from '@/components/sparks/Composer';
-import { IdeaCard } from '@/components/sparks/IdeaCard';
-import { RoadmapStrip } from '@/components/sparks/RoadmapStrip';
+  DEFAULT_BUZZ_SETTINGS,
+  type Buzz, type BuzzCategory, type BuzzStatus, type BuzzSettings,
+} from '@/lib/buzz';
+import { listBuzz } from '@/lib/buzzClient';
+import { Composer } from '@/components/buzz/Composer';
+import { IdeaCard } from '@/components/buzz/IdeaCard';
+import { RoadmapStrip } from '@/components/buzz/RoadmapStrip';
 
-type FilterKey = 'all' | SparkCategory | SparkStatus;
+type FilterKey = 'all' | BuzzCategory | BuzzStatus;
 
 const FILTERS: { key: FilterKey; label: string }[] = [
   { key: 'all',      label: 'All' },
@@ -37,14 +37,14 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 const CATEGORY_KEYS = new Set<FilterKey>(['idea', 'bug', 'help', 'story']);
 const STATUS_KEYS   = new Set<FilterKey>(['new', 'review', 'soon', 'building', 'live', 'reward']);
 
-export default function SparksPage() {
+export default function BuzzPage() {
   const { user, profile } = useAuth();
   const { family } = useFamily();
   const [filter, setFilter] = useState<FilterKey>('all');
   const [sort, setSort] = useState<'hot' | 'new'>('hot');
-  const [sparks, setSparks] = useState<Spark[]>([]);
+  const [buzz, setBuzz] = useState<Buzz[]>([]);
   const [loading, setLoading] = useState(true);
-  const [settings, setSettings] = useState<SparksSettings>(DEFAULT_SPARKS_SETTINGS);
+  const [settings, setSettings] = useState<BuzzSettings>(DEFAULT_BUZZ_SETTINGS);
   const [isOperator, setIsOperator] = useState(false);
 
   const familyDisplayName = family?.name ?? 'My Family';
@@ -55,15 +55,15 @@ export default function SparksPage() {
     return (words[0][0] + words[1][0]).toUpperCase();
   }, [family?.name]);
 
-  // Live settings subscription — clients are allowed to read /config/sparks.
+  // Live settings subscription — clients are allowed to read /config/buzz.
   useEffect(() => {
     if (!user) return;
-    const ref = doc(db, 'config', 'sparks');
+    const ref = doc(db, 'config', 'buzz');
     const unsub = onSnapshot(ref, (snap) => {
       if (snap.exists()) {
-        setSettings({ ...DEFAULT_SPARKS_SETTINGS, ...(snap.data() as Partial<SparksSettings>) });
+        setSettings({ ...DEFAULT_BUZZ_SETTINGS, ...(snap.data() as Partial<BuzzSettings>) });
       } else {
-        setSettings(DEFAULT_SPARKS_SETTINGS);
+        setSettings(DEFAULT_BUZZ_SETTINGS);
       }
     }, () => { /* keep defaults on rule errors */ });
     return () => unsub();
@@ -77,28 +77,28 @@ export default function SparksPage() {
     return () => unsub();
   }, [user?.email]);
 
-  const fetchSparks = useCallback(async () => {
+  const fetchBuzz = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
-      const opts: Parameters<typeof listSparks>[0] = { sort };
-      if (CATEGORY_KEYS.has(filter)) opts.category = filter as SparkCategory;
-      else if (STATUS_KEYS.has(filter)) opts.status = filter as SparkStatus;
-      const list = await listSparks(opts);
-      setSparks(list);
+      const opts: Parameters<typeof listBuzz>[0] = { sort };
+      if (CATEGORY_KEYS.has(filter)) opts.category = filter as BuzzCategory;
+      else if (STATUS_KEYS.has(filter)) opts.status = filter as BuzzStatus;
+      const list = await listBuzz(opts);
+      setBuzz(list);
     } catch (e) {
       // Surface load failures on the empty state so they're discoverable.
-      console.warn('[sparks] list failed', e);
-      setSparks([]);
+      console.warn('[buzz] list failed', e);
+      setBuzz([]);
     } finally {
       setLoading(false);
     }
   }, [user, filter, sort]);
 
-  useEffect(() => { fetchSparks(); }, [fetchSparks]);
+  useEffect(() => { fetchBuzz(); }, [fetchBuzz]);
 
   const kidDefaultAnon = profile?.role === 'kid' && settings.kidsDefaultAnonymous;
-  const counts = useMemo(() => countByFilter(sparks), [sparks]);
+  const counts = useMemo(() => countByFilter(buzz), [buzz]);
 
   if (!user) return null;
 
@@ -106,7 +106,7 @@ export default function SparksPage() {
     <div className="min-h-screen bg-[#F2EEE3] text-[#1A2238] font-body py-10 px-4 sm:px-7 pb-24">
       <div className="max-w-[1240px] mx-auto">
         <header className="mb-8">
-          <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-[#0F1F44] tracking-tight m-0">Kaya Sparks</h1>
+          <h1 className="font-display font-extrabold text-3xl sm:text-4xl text-[#0F1F44] tracking-tight m-0">Kaya Buzz</h1>
           <p className="text-[#6E7791] text-sm mt-1">Ideas &amp; help — for every invited family on Kaya</p>
         </header>
 
@@ -131,7 +131,7 @@ export default function SparksPage() {
               </div>
               <div>
                 <h2 className="font-display font-extrabold text-2xl text-[#0F1F44] m-0 tracking-tight">Light up Kaya.</h2>
-                <p className="text-[13px] text-[#6E7791] mt-0.5">Share an idea, vote on others, get help — your spark becomes our next feature.</p>
+                <p className="text-[13px] text-[#6E7791] mt-0.5">Share an idea, vote on others, get help — your buzz becomes our next feature.</p>
               </div>
             </div>
           </div>
@@ -164,7 +164,7 @@ export default function SparksPage() {
           </div>
 
           {/* Roadmap strip (gated by settings.showRoadmap) */}
-          {settings.showRoadmap && <RoadmapStrip sparks={sparks} />}
+          {settings.showRoadmap && <RoadmapStrip buzz={buzz} />}
 
           {/* Composer */}
           <Composer
@@ -172,20 +172,20 @@ export default function SparksPage() {
             initials={initials}
             defaultAnonymous={kidDefaultAnon}
             storiesEnabled={settings.showStoriesCategory}
-            onPosted={fetchSparks}
+            onPosted={fetchBuzz}
           />
 
           {/* Idea grid */}
-          {loading && sparks.length === 0 ? (
-            <div className="text-[#6E7791] text-sm py-12 text-center relative z-[1]">Loading sparks…</div>
-          ) : sparks.length === 0 ? (
+          {loading && buzz.length === 0 ? (
+            <div className="text-[#6E7791] text-sm py-12 text-center relative z-[1]">Loading…</div>
+          ) : buzz.length === 0 ? (
             <div className="text-[#6E7791] text-sm py-12 text-center relative z-[1]">
-              No sparks here yet. Be the first to share an idea ✨
+              No buzz here yet. Be the first to share an idea ✨
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 relative z-[1]">
-              {sparks.map((s) => (
-                <IdeaCard key={s.id} spark={s} isOperator={isOperator} onChange={fetchSparks} />
+              {buzz.map((s) => (
+                <IdeaCard key={s.id} buzz={s} isOperator={isOperator} onChange={fetchBuzz} />
               ))}
             </div>
           )}
@@ -198,11 +198,11 @@ export default function SparksPage() {
             <div>
               <strong className="font-display text-[#0F1F44] text-lg">Got an idea we ship?</strong>
               <div className="text-[#6E7791] text-[13px] mt-0.5">
-                You earn the Spark Badge, {settings.honeyCoinsPerShippedIdea} Honey Coins, and a thank-you in the changelog.
+                You earn the Buzz Badge, {settings.honeyCoinsPerShippedIdea} Honey Coins, and a thank-you in the changelog.
               </div>
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Chip>🌟 Spark Badge</Chip>
+              <Chip>🌟 Buzz Badge</Chip>
               <Chip>🍯 {settings.honeyCoinsPerShippedIdea} Honey Coins</Chip>
               <Chip>📜 Changelog mention</Chip>
               <Chip>☕ Founder coffee (top {settings.founderCoffeeTopN} / quarter)</Chip>
@@ -255,9 +255,9 @@ function Chip({ children }: { children: React.ReactNode }) {
   );
 }
 
-function countByFilter(sparks: Spark[]): Partial<Record<FilterKey, number>> {
-  const out: Partial<Record<FilterKey, number>> = { all: sparks.length };
-  for (const s of sparks) {
+function countByFilter(buzz: Buzz[]): Partial<Record<FilterKey, number>> {
+  const out: Partial<Record<FilterKey, number>> = { all: buzz.length };
+  for (const s of buzz) {
     out[s.category] = (out[s.category] ?? 0) + 1;
     out[s.status]   = (out[s.status]   ?? 0) + 1;
   }
