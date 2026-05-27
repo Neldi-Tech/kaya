@@ -3,12 +3,17 @@
 // Frequency picker used by both modules. Spec §2 defines the canonical
 // monthly-equivalent conversion table; the helper that uses this value
 // lives in lib/contributions.ts (contribMonthlyEquivalentCents) and
-// lib/subscriptions.ts will get its own in P3.
+// lib/subscriptions.ts (subMonthlyEquivalentCents).
+//
+// Subscriptions have a larger frequency set (daily / weekly / semi_annual)
+// than Contributions (which top out at annual). The picker is generic
+// over the string union — pass the right options list from the caller.
 
 import type { ContributionFrequency } from '@/lib/contributions';
+import type { SubscriptionFrequency } from '@/lib/subscriptions';
 
-// Contributions only use the 5-option set (most are one-off; tithe is
-// monthly). Subscriptions in P3 will add daily/weekly/semi_annual.
+export type AnyFrequency = ContributionFrequency | SubscriptionFrequency;
+
 export const CONTRIB_FREQUENCY_OPTIONS: { id: ContributionFrequency; label: string }[] = [
   { id: 'one_off',   label: 'One-off' },
   { id: 'monthly',   label: 'Monthly' },
@@ -17,15 +22,28 @@ export const CONTRIB_FREQUENCY_OPTIONS: { id: ContributionFrequency; label: stri
   { id: 'custom',    label: 'Every N months' },
 ];
 
-export function FrequencyPicker({
+export const SUB_FREQUENCY_OPTIONS: { id: SubscriptionFrequency; label: string }[] = [
+  { id: 'monthly',     label: 'Monthly' },
+  { id: 'annual',      label: 'Annual' },
+  { id: 'quarterly',   label: 'Quarterly' },
+  { id: 'semi_annual', label: 'Semi-annual' },
+  { id: 'weekly',      label: 'Weekly' },
+  { id: 'daily',       label: 'Daily' },
+  { id: 'one_off',     label: 'One-off' },
+  { id: 'custom',      label: 'Every N months' },
+];
+
+export function FrequencyPicker<T extends AnyFrequency>({
   value,
   customMonths,
   onChange,
+  options,
   label = 'Frequency',
 }: {
-  value: ContributionFrequency;
+  value: T;
   customMonths: number | null;
-  onChange: (v: ContributionFrequency, customMonths: number | null) => void;
+  onChange: (v: T, customMonths: number | null) => void;
+  options: { id: T; label: string }[];
   label?: string;
 }) {
   return (
@@ -36,14 +54,14 @@ export function FrequencyPicker({
       <div className="flex gap-2">
         <select
           value={value}
-          onChange={(e) => onChange(e.target.value as ContributionFrequency, customMonths)}
+          onChange={(e) => onChange(e.target.value as T, customMonths)}
           className="flex-1 rounded-kaya-sm border border-pulse-navy/15 bg-white px-3 py-2 font-semibold text-pulse-navy focus:border-pulse-gold focus:outline-none"
         >
-          {CONTRIB_FREQUENCY_OPTIONS.map((opt) => (
+          {options.map((opt) => (
             <option key={opt.id} value={opt.id}>{opt.label}</option>
           ))}
         </select>
-        {value === 'custom' && (
+        {value === ('custom' as T) && (
           <input
             type="number"
             min={1}

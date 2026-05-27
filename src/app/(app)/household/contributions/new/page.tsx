@@ -26,7 +26,7 @@ import {
   createContribution,
 } from '@/lib/contributions';
 import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/household/CurrencyAmountInput';
-import { FrequencyPicker } from '@/components/household/FrequencyPicker';
+import { FrequencyPicker, CONTRIB_FREQUENCY_OPTIONS } from '@/components/household/FrequencyPicker';
 import { OccasionPicker, type OccasionValue } from '@/components/household/OccasionPicker';
 
 const PAYMENT_METHODS: { id: ContributionPaymentMethod; label: string }[] = [
@@ -297,6 +297,7 @@ export default function NewContributionPage() {
             value={frequency}
             customMonths={customMonths}
             onChange={(f, m) => { setFrequency(f); setCustomMonths(m); }}
+            options={CONTRIB_FREQUENCY_OPTIONS}
           />
           <div className="space-y-1">
             <label className="block text-xs font-bold uppercase tracking-wide text-pulse-navy/65">Date given</label>
