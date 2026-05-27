@@ -68,6 +68,12 @@ export interface BudgetComposer {
   };
   dineOut?: { lines: BudgetLine[] };
   home?: { lines: BudgetLine[] };
+  // Subs + Contribs use the same flat-line shape as dineOut/home for
+  // the composer's "intended monthly" view. Their actuals come from
+  // /families/{f}/spend_ledger (server-written), so the composer here
+  // captures the parent's target cap, not the live spend.
+  subscriptions?: { lines: BudgetLine[] };
+  contributions?: { lines: BudgetLine[] };
 }
 
 // ── Cadence math ───────────────────────────────────────────────
@@ -145,8 +151,10 @@ export function computeModuleMonthly(
       const other = sumMonthlyCents(p.other?.lines ?? []);
       return perH + other;
     }
-    case 'dineOut': return sumMonthlyCents(composer.dineOut?.lines ?? []);
-    case 'home':    return sumMonthlyCents(composer.home?.lines ?? []);
+    case 'dineOut':       return sumMonthlyCents(composer.dineOut?.lines ?? []);
+    case 'home':          return sumMonthlyCents(composer.home?.lines ?? []);
+    case 'subscriptions': return sumMonthlyCents(composer.subscriptions?.lines ?? []);
+    case 'contributions': return sumMonthlyCents(composer.contributions?.lines ?? []);
   }
 }
 

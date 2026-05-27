@@ -38,13 +38,15 @@ import {
 } from '@/lib/pantry';
 
 const MODULE_LABELS: Record<PurchaseModule, { emoji: string; label: string; tint: string; border: string; eyebrow: string }> = {
-  pantry:  { emoji: '🛒', label: 'Pantry',  tint: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', eyebrow: 'text-pantry-leaf-dk' },
-  outdoor: { emoji: '🌿', label: 'Outdoor', tint: 'bg-[#E6F2EC]',         border: 'border-pantry-leaf', eyebrow: 'text-pantry-leaf-dk' },
-  drivers: { emoji: '🚗', label: 'Drivers', tint: 'bg-[#E5EFF8]',         border: 'border-[#B5CFE5]',   eyebrow: 'text-hive-blue'      },
-  utility: { emoji: '⚡', label: 'Utility', tint: 'bg-[#FFF3D9]',         border: 'border-hive-honey',  eyebrow: 'text-hive-honey-dk'  },
-  payroll: { emoji: '🤝', label: 'Payroll', tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',   eyebrow: 'text-[#5E4A8F]'      },
-  dineOut: { emoji: '🍽️', label: 'Dine Out', tint: 'bg-[#FBEAE0]',        border: 'border-[#E8C3AE]',   eyebrow: 'text-[#C2562E]'      },
-  home:    { emoji: '🛋️', label: 'Home & Wellness', tint: 'bg-[#F6EBDD]', border: 'border-[#E0C4A3]', eyebrow: 'text-[#9B6B3F]' },
+  pantry:        { emoji: '🛒',  label: 'Pantry',           tint: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', eyebrow: 'text-pantry-leaf-dk' },
+  outdoor:       { emoji: '🌿',  label: 'Outdoor',          tint: 'bg-[#E6F2EC]',         border: 'border-pantry-leaf', eyebrow: 'text-pantry-leaf-dk' },
+  drivers:       { emoji: '🚗',  label: 'Drivers',          tint: 'bg-[#E5EFF8]',         border: 'border-[#B5CFE5]',   eyebrow: 'text-hive-blue'      },
+  utility:       { emoji: '⚡',  label: 'Utility',          tint: 'bg-[#FFF3D9]',         border: 'border-hive-honey',  eyebrow: 'text-hive-honey-dk'  },
+  payroll:       { emoji: '🤝',  label: 'Payroll',          tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',   eyebrow: 'text-[#5E4A8F]'      },
+  dineOut:       { emoji: '🍽️', label: 'Dine Out',         tint: 'bg-[#FBEAE0]',         border: 'border-[#E8C3AE]',   eyebrow: 'text-[#C2562E]'      },
+  home:          { emoji: '🛋️', label: 'Home & Wellness',  tint: 'bg-[#F6EBDD]',         border: 'border-[#E0C4A3]',   eyebrow: 'text-[#9B6B3F]'      },
+  subscriptions: { emoji: '🔁',  label: 'Subscriptions',    tint: 'bg-pulse-cream',       border: 'border-pulse-navy/20', eyebrow: 'text-pulse-navy'   },
+  contributions: { emoji: '🤲',  label: 'Contributions',    tint: 'bg-pulse-gold/10',     border: 'border-pulse-gold/35', eyebrow: 'text-pulse-gold'   },
 };
 
 const CADENCE_LABELS: Record<BudgetCadence, string> = {

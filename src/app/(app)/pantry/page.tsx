@@ -58,6 +58,7 @@ export default function PantryHomePage() {
   // each module's home page directly.
   const [openByModule, setOpenByModule] = useState<Record<PurchaseModule, number>>({
     pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, dineOut: 0, home: 0,
+    subscriptions: 0, contributions: 0,
   });
   // Dine Out + Home are infrequent — tucked behind a "More" toggle so the
   // frequent module tiles stay front-and-centre (2026-05-23).
@@ -67,6 +68,7 @@ export default function PantryHomePage() {
     return subscribeToOpenRequests(profile.familyId, (reqs) => {
       const counts: Record<PurchaseModule, number> = {
         pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, dineOut: 0, home: 0,
+    subscriptions: 0, contributions: 0,
       };
       for (const r of reqs) {
         // 'draft' isn't a notification — it's the author's own scratch

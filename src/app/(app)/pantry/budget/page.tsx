@@ -162,6 +162,7 @@ export default function BudgetPage() {
   const spentByModule = useMemo(() => {
     const acc: Record<PurchaseModule, number> = {
       pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, dineOut: 0, home: 0,
+      subscriptions: 0, contributions: 0,
     };
     for (const r of closedThisMonth) {
       const m = (r.module ?? 'pantry') as PurchaseModule;
@@ -188,13 +189,15 @@ export default function BudgetPage() {
 
   // Caps map — read from family.householdBudgets, missing keys = 0.
   const caps: Record<PurchaseModule, number> = {
-    pantry:  family?.householdBudgets?.pantry  ?? 0,
-    outdoor: family?.householdBudgets?.outdoor ?? 0,
-    drivers: family?.householdBudgets?.drivers ?? 0,
-    utility: family?.householdBudgets?.utility ?? 0,
-    payroll: family?.householdBudgets?.payroll ?? 0,
-    dineOut: family?.householdBudgets?.dineOut ?? 0,
-    home:    family?.householdBudgets?.home    ?? 0,
+    pantry:        family?.householdBudgets?.pantry        ?? 0,
+    outdoor:       family?.householdBudgets?.outdoor       ?? 0,
+    drivers:       family?.householdBudgets?.drivers       ?? 0,
+    utility:       family?.householdBudgets?.utility       ?? 0,
+    payroll:       family?.householdBudgets?.payroll       ?? 0,
+    dineOut:       family?.householdBudgets?.dineOut       ?? 0,
+    home:          family?.householdBudgets?.home          ?? 0,
+    subscriptions: family?.householdBudgets?.subscriptions ?? 0,
+    contributions: family?.householdBudgets?.contributions ?? 0,
   };
 
   // Open the per-module composer route. Each module has its own
