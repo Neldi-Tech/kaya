@@ -77,7 +77,7 @@ export default function SportsPage() {
             }
           />
         ) : (
-          <div className="space-y-2.5">
+          <div className="space-y-2.5 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3">
             {items.map((it, idx) => {
               const accent = ROW_ACCENTS[idx % ROW_ACCENTS.length];
               return (

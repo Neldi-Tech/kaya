@@ -179,13 +179,15 @@ export default function KidSparksHomePage() {
 
   return (
     <div className="min-h-screen bg-[#FFFBF5] text-[#1B2547]">
-      {/* Phone on mobile, 2xl on tablet, 3xl on desktop — the kid
-          surface gets visual presence on a big monitor without losing
-          the one-thumb rhythm on a phone. */}
-      <div className="mx-auto max-w-md sm:max-w-2xl lg:max-w-3xl">
-        {/* Header — coral → purple gradient · per mockup Step 2. */}
+      {/* Width ladder: phone on mobile, 3xl on tablet, 5xl on desktop,
+          6xl on xl. The kid surface stops being a stranded card and
+          fills the canvas next to the 260px AppShell sidebar. */}
+      <div className="mx-auto max-w-md sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
+        {/* Header — coral → purple gradient · per mockup Step 2.
+            Spans full container width on desktop so the gradient reads
+            as a hero, not a small chip. */}
         <div
-          className="text-white px-5 pt-6 pb-6 lg:px-8 lg:pt-8 lg:pb-7 rounded-b-[24px]"
+          className="text-white px-5 pt-6 pb-6 lg:px-10 lg:pt-10 lg:pb-9 rounded-b-[28px]"
           style={{ background: 'linear-gradient(135deg, #FF6B6B 0%, #A66CFF 100%)' }}
         >
           <div className="text-[12px] lg:text-[13px] opacity-85 mb-1">Kaya › Sparks</div>
@@ -224,10 +226,12 @@ export default function KidSparksHomePage() {
           )}
         </div>
 
-        {/* Body — 5 area cards (single column · the row treatment is
-            the locked design and reads cleanly even at desktop widths)
-            + AI strip. */}
-        <div className="px-4 py-4 lg:px-6 lg:py-5">
+        {/* Body — 5 area cards stack on phone (mockup rhythm) but
+            spread into a 2/3-col grid on tablet+/desktop so the kid
+            surface stops looking like a centered phone on a 1080p+
+            monitor. AI strip + parent action strip stay full width. */}
+        <div className="px-4 py-4 lg:px-8 lg:py-7">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 lg:gap-4">
           {SPARKS_AREA_ORDER.map((areaKey) => {
             const meta = SPARKS_AREA_META[areaKey];
             const accent = AREA_ACCENT[areaKey];
@@ -237,7 +241,7 @@ export default function KidSparksHomePage() {
               <Link
                 key={areaKey}
                 href={`/sparks/${kid.id}/${meta.path}`}
-                className="bg-white rounded-[18px] p-[14px] mb-2.5 flex items-center gap-3 border border-[#ECE4D3] hover:border-[#D4A847] transition-colors no-underline"
+                className="bg-white rounded-[18px] p-[14px] lg:p-[18px] flex items-center gap-3 border border-[#ECE4D3] hover:border-[#D4A847] transition-colors no-underline"
               >
                 <div
                   className="w-11 h-11 rounded-[14px] grid place-items-center text-xl shrink-0"
@@ -271,10 +275,12 @@ export default function KidSparksHomePage() {
               </Link>
             );
           })}
+          </div>
 
-          {/* AI strip — purple → mint gradient per mockup. */}
+          {/* AI strip — purple → mint gradient per mockup. Full-width
+              under the area grid so it reads as the persistent companion. */}
           <div
-            className="text-white px-4 py-3.5 rounded-[16px] mt-3"
+            className="text-white px-4 py-3.5 lg:px-6 lg:py-5 rounded-[16px] mt-3 lg:mt-5"
             style={{ background: 'linear-gradient(135deg, #A66CFF 0%, #4ECDC4 100%)' }}
           >
             <div className="text-[10px] font-extrabold tracking-[1px] opacity-85 mb-1">

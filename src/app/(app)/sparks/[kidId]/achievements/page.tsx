@@ -78,7 +78,7 @@ export default function AchievementsPage() {
             }
           />
         ) : (
-          <ul className="m-0 p-0 list-none">
+          <ul className="m-0 p-0 list-none lg:grid lg:grid-cols-2 lg:gap-x-6">
             {items.map((it, idx) => {
               const photo = it.photo_urls?.[0];
               return (

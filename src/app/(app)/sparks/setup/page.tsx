@@ -67,7 +67,7 @@ export default function SparksSetupPage() {
 
   return (
     <div className="min-h-[80vh] bg-[#FBF7EE] text-[#0F1F44]">
-      <div className="mx-auto max-w-3xl px-5 lg:px-8 pt-8 pb-16">
+      <div className="mx-auto max-w-3xl lg:max-w-5xl px-5 lg:px-10 pt-8 pb-16">
         <div className="flex items-center gap-3 mb-6">
           <span className="text-3xl" aria-hidden>⚙️</span>
           <div>

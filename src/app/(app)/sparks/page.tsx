@@ -217,7 +217,7 @@ export default function SparksLandingPage() {
 
   return (
     <div className="min-h-[80vh] bg-[#FBF7EE] text-[#0F1F44]">
-      <div className="mx-auto max-w-3xl px-5 lg:px-8 pt-8 pb-16">
+      <div className="mx-auto max-w-3xl lg:max-w-5xl xl:max-w-6xl px-5 lg:px-10 pt-8 pb-16">
         {/* 1 · HERO ─────────────────────────────────────────────── */}
         <Hero plan={features.plan} aiUnlocked={features.aiScan} />
 
@@ -274,7 +274,7 @@ export default function SparksLandingPage() {
         {/* 3 · WHAT'S INSIDE — 5 AREAS ─────────────────────────── */}
         <section className="mt-10">
           <SectionTitle eyebrow="Step 2" title="What's inside" lede="Each area combines a capture behaviour (don't lose this) with an action behaviour (do something about it)." />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
             {SPARKS_AREA_ORDER.map((areaKey) => {
               const meta = SPARKS_AREA_META[areaKey];
               const pitch = AREA_PITCH[areaKey];
@@ -368,7 +368,7 @@ export default function SparksLandingPage() {
               AI here is never loud. It works in the background, watches the five areas, and surfaces
               small, well-timed nudges so nothing important slips through.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative">
               {AI_CARDS.map((c) => (
                 <div
                   key={c.title}

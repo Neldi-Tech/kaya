@@ -49,10 +49,10 @@ export default function AreaScreen({
   const meta = SPARKS_AREA_META[area];
   return (
     <div className="min-h-screen bg-[#FFFBF5]">
-      {/* Width steps: mobile = phone (max-w-md keeps the one-thumb rhythm),
-          tablet bumps to 2xl, desktop fills out to 3xl so the area surface
-          doesn't look stranded next to the 260px AppShell sidebar. */}
-      <div className="mx-auto max-w-md sm:max-w-2xl lg:max-w-3xl">
+      {/* Width steps: phone on mobile, 3xl on tablet, 5xl on desktop,
+          6xl on xl — area surfaces fill the canvas next to the 260px
+          AppShell sidebar instead of looking like centred phones. */}
+      <div className="mx-auto max-w-md sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
         {/* Back to kid Sparks home */}
         <div className="px-4 pt-4 lg:px-6">
           <Link
