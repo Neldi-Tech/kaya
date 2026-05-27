@@ -26,15 +26,18 @@
 // sparks_items / sparks_academic / sparks_tasks are empty. Slice 2 wires
 // real counts + makes the area cards clickable.
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useSparksFeatures } from '@/lib/sparks/gating';
 import {
-  SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea,
+  SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea, type SparksItem,
 } from '@/lib/sparks/schema';
+import {
+  countItemsByArea, getAcademicCount, subscribeToAllKidItems,
+} from '@/lib/sparks/firestore';
 
 // Kid palette accents per area — direct from the mockup
 // (Step 2 · Module landing). Coral · Yellow · Green · Purple · Mint
@@ -85,6 +88,37 @@ export default function KidSparksHomePage() {
     if (isKid) return kid ? [kid] : [];
     return children;
   }, [isParent, isKid, children, features.multiKid, kid]);
+
+  // Live area counts — drives the chip on each row + the "Start"
+  // placeholder when an area has nothing yet. Items stream + academic
+  // is a one-shot server-aggregation read on mount + on kid change.
+  const familyId = profile?.familyId;
+  const [items, setItems] = useState<SparksItem[]>([]);
+  const [academicCount, setAcademicCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!familyId || !kidId) return;
+    return subscribeToAllKidItems(familyId, kidId, setItems);
+  }, [familyId, kidId]);
+  useEffect(() => {
+    if (!familyId || !kidId) { setAcademicCount(null); return; }
+    let cancelled = false;
+    setAcademicCount(null);
+    getAcademicCount(familyId, kidId)
+      .then((c) => { if (!cancelled) setAcademicCount(c); })
+      .catch(() => { if (!cancelled) setAcademicCount(0); });
+    return () => { cancelled = true; };
+  }, [familyId, kidId]);
+  const itemCounts = useMemo(() => countItemsByArea(items), [items]);
+  function countForArea(area: SparksArea): number | null {
+    if (area === 'academic') return academicCount;
+    return itemCounts[area];
+  }
+  function chipFor(area: SparksArea): string {
+    const c = countForArea(area);
+    if (c === null) return '…'; // loading
+    if (c === 0) return 'Start';
+    return String(c);
+  }
 
   if (loading) {
     return (
@@ -194,10 +228,13 @@ export default function KidSparksHomePage() {
           {SPARKS_AREA_ORDER.map((areaKey) => {
             const meta = SPARKS_AREA_META[areaKey];
             const accent = AREA_ACCENT[areaKey];
+            const chip = chipFor(areaKey);
+            const isStart = chip === 'Start' || chip === '…';
             return (
-              <div
+              <Link
                 key={areaKey}
-                className="bg-white rounded-[18px] p-[14px] mb-2.5 flex items-center gap-3 border border-[#ECE4D3]"
+                href={`/sparks/${kid.id}/${meta.path}`}
+                className="bg-white rounded-[18px] p-[14px] mb-2.5 flex items-center gap-3 border border-[#ECE4D3] hover:border-[#D4A847] transition-colors no-underline"
               >
                 <div
                   className="w-11 h-11 rounded-[14px] grid place-items-center text-xl shrink-0"
@@ -214,12 +251,21 @@ export default function KidSparksHomePage() {
                     {AREA_SUB[areaKey]}
                   </div>
                 </div>
-                {/* Count chip — placeholder "Start" until Slice 2 wires
-                    sparks_items + sparks_academic + sparks_tasks counts. */}
-                <span className="text-[11px] font-bold text-[#5A6488] bg-[#FBF7EE] px-2 py-1 rounded-full whitespace-nowrap">
-                  Start
+                {/* Count chip — real counts from sparks_items +
+                    sparks_academic. "Start" reads as the muted nudge
+                    when an area is empty; a count chip lights up coloured
+                    once the kid has captured something. */}
+                <span
+                  className="text-[11px] font-extrabold px-2 py-1 rounded-full whitespace-nowrap"
+                  style={
+                    isStart
+                      ? { background: '#FBF7EE', color: '#5A6488' }
+                      : { background: accent.bg, color: accent.fg }
+                  }
+                >
+                  {chip}
                 </span>
-              </div>
+              </Link>
             );
           })}
 
