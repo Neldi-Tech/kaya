@@ -289,7 +289,7 @@ export default function KidSparksHomePage() {
             <div className="text-[12px] leading-snug">
               <strong>Your AI companion will land here.</strong>{' '}
               Reminders · talent spotting · term summaries — refreshed daily for {kid.name}.
-              Wires in with Slice 5.
+              Companion daily refresh lands with Slice 5b; the AI Insights panel is live on the dashboard now.
             </div>
           </div>
         </div>
@@ -309,7 +309,7 @@ export default function KidSparksHomePage() {
                     Progress dashboard
                   </div>
                   <div className="text-[11px] text-[#5A6488] mt-0.5">
-                    Ratings, trends, AI insights — wires in with Slice 5.
+                    KPIs · 10-week trend · category breakdown · AI insights.
                     {!features.familyRollup && ' Family roll-up is Home+.'}
                   </div>
                 </div>

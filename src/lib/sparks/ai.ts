@@ -125,6 +125,52 @@ export type ExtractResult<K extends ExtractKind> =
   | { ok: true;  data: K extends 'achievement' ? AchievementExtract : AcademicExtract }
   | { ok: false; skipped?: boolean; error?: string };
 
+// ── Insights (dashboard) ─────────────────────────────────────────────
+
+export interface InsightCard { title: string; body: string }
+export interface SparksInsights {
+  strength: InsightCard;
+  watch:    InsightCard;
+  trend:    InsightCard;
+  suggest:  InsightCard;
+}
+
+export interface GetInsightsArgs {
+  kidName: string;
+  windowLabel: string;
+  itemCountsByArea: Record<string, number>;
+  recentRatings: Array<{
+    date: string; area: string; title: string;
+    stars?: number; percent?: number; notes?: string;
+  }>;
+  recentItemTitles: Array<{ area: string; title: string; date: string }>;
+  academicSnapshot: Array<{
+    term: string; year: number;
+    subjects: Array<{ name: string; grade?: string; percent?: number }>;
+  }>;
+}
+
+/** Fetch the 4-card AI insights for the dashboard. Returns
+ *  { skipped: true } when the AI route is off — caller renders a
+ *  graceful empty state instead. */
+export async function getSparksInsights(
+  args: GetInsightsArgs,
+): Promise<{ ok: true; data: SparksInsights } | { ok: false; skipped?: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/sparks/ai/insights', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data?.skipped) return { ok: false, skipped: true };
+    return { ok: true, data: data as SparksInsights };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Insights failed' };
+  }
+}
+
 export async function extractFromImage<K extends ExtractKind>(
   file: File,
   kind: K,
