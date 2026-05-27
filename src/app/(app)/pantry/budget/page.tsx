@@ -21,6 +21,7 @@ import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule, subscribeToRecentRequests,
 } from '@/lib/purchase';
+import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import {
   buildStarterComposer, saveFullComposer, computeModuleMonthly,
@@ -59,6 +60,12 @@ const MODULE_CARDS: {
   { id: 'payroll', emoji: '🤝', label: 'Payroll',  tint: 'bg-[#F4EFFB]',         border: 'border-[#C9B8E5]',             eyebrow: 'text-[#5E4A8F]'      },
   { id: 'dineOut', emoji: '🍽️', label: 'Dine Out', tint: 'bg-[#FBEAE0]',         border: 'border-[#E8C3AE]',             eyebrow: 'text-[#C2562E]'      },
   { id: 'home',    emoji: '🛋️', label: 'Home & Wellness', tint: 'bg-[#F6EBDD]', border: 'border-[#E0C4A3]', eyebrow: 'text-[#9B6B3F]' },
+  // Subs + Contribs surfaced 2026-05-27. Spend comes from spend_ledger
+  // (sub cycles marked paid; contributions logged), NOT purchaseRequests
+  // — see spentByModule below. The composer for these is the flat
+  // dineOut/home shape (single monthly number).
+  { id: 'subscriptions', emoji: '🔁', label: 'Subscriptions', tint: 'bg-pulse-cream',   border: 'border-pulse-navy/20', eyebrow: 'text-pulse-navy' },
+  { id: 'contributions', emoji: '🤲', label: 'Contributions', tint: 'bg-pulse-gold/10', border: 'border-pulse-gold/35', eyebrow: 'text-pulse-gold' },
 ];
 
 export default function BudgetPage() {
@@ -79,10 +86,16 @@ export default function BudgetPage() {
   }, [profile, router]);
 
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
+  const [ledger, setLedger] = useState<SpendLedgerEntry[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
     if (profile.role !== 'parent') return; // don't subscribe for non-parents
-    return subscribeToRecentRequests(profile.familyId, setRecent);
+    const u1 = subscribeToRecentRequests(profile.familyId, setRecent);
+    // Spend_ledger carries Subscriptions + Contributions (one entry per
+    // paid cycle / logged contribution). Mirrors the Finances rollup so
+    // the spend bar on those two cards reflects real numbers.
+    const u2 = subscribeToSpendLedger(profile.familyId, setLedger);
+    return () => { u1(); u2(); };
   }, [profile?.familyId, profile?.role]);
 
   // Auto-suggest sheet open state. Reads kids / helpers / vehicles /
@@ -159,6 +172,9 @@ export default function BudgetPage() {
   // Spent per module — sum of actualTotalCents (fallback to estimated
   // when actual is missing). Module field defaults to 'pantry' for back-
   // compat with very old docs created before the module discriminator.
+  // Subscriptions + Contributions don't go through purchaseRequests; we
+  // pull their spend from spend_ledger entries (current month, household-
+  // money only — professional expenses excluded).
   const spentByModule = useMemo(() => {
     const acc: Record<PurchaseModule, number> = {
       pantry: 0, outdoor: 0, drivers: 0, utility: 0, payroll: 0, dineOut: 0, home: 0,
@@ -168,8 +184,15 @@ export default function BudgetPage() {
       const m = (r.module ?? 'pantry') as PurchaseModule;
       acc[m] += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
     }
+    for (const e of ledger) {
+      if (e.isProfessionalExpense) continue;
+      const at = e.occurredOn?.toDate?.();
+      if (!at || monthKey(at) !== thisMonth) continue;
+      const m = e.sourceModule as PurchaseModule;
+      if (m in acc) acc[m] += e.amountHousehold || 0;
+    }
     return acc;
-  }, [closedThisMonth]);
+  }, [closedThisMonth, ledger, thisMonth]);
 
   // Rolling-average spend per module — drives the "reality-check"
   // auto-tune banner under each card. (Phase 2, 2026-05-19.)

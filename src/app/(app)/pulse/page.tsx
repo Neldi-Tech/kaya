@@ -217,11 +217,19 @@ export default function PulseDashboardPage() {
   const projectedSpend = projectMonthSpendCents(totalSpent, dayOfMonth, daysInMonth);
   const projectedSavings = totalCap - projectedSpend;
 
-  const buckets = LIVE_MODULES
+  // Top 5 by spend, then always append Subs + Contribs if they have a
+  // cap or spend (2026-05-27 — keeps Subscriptions / Contributions
+  // visible in this preview even when the top-5 spenders crowd them
+  // out). Empty subs/contribs (no cap, no spend) still stay hidden.
+  const rawBuckets = LIVE_MODULES
     .map((m) => ({ m, ...per[m] }))
     .filter((b) => b.spent > 0 || b.cap > 0)
-    .sort((a, b) => b.spent - a.spent)
-    .slice(0, 5);
+    .sort((a, b) => b.spent - a.spent);
+  const topFive = rawBuckets.slice(0, 5);
+  const extras = (['subscriptions', 'contributions'] as PurchaseModule[])
+    .map((m) => rawBuckets.find((b) => b.m === m))
+    .filter((b): b is typeof rawBuckets[number] => !!b && !topFive.some((t) => t.m === b.m));
+  const buckets = [...topFive, ...extras];
 
   // Pre-formatted facts for the "Ask Kaya" advisor (display strings only —
   // no PII). Cash buckets + run-rate + top metered consumption.

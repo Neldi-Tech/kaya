@@ -76,7 +76,9 @@ export default function ComposeBudgetPage() {
   const params = useParams();
   const router = useRouter();
   const moduleParam = (params?.module as string) || 'pantry';
-  const module = (['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'].includes(moduleParam)
+  // Subscriptions + Contributions added 2026-05-27 — they share the
+  // simple flat composer (single monthly number) used by dineOut/home.
+  const module = (['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home', 'subscriptions', 'contributions'].includes(moduleParam)
     ? moduleParam
     : 'pantry') as PurchaseModule;
   const meta = MODULE_LABELS[module];
@@ -176,7 +178,7 @@ export default function ComposeBudgetPage() {
       for (const [k, v] of Object.entries(existing)) ph[k] = v.monthlySalaryCents;
       setPerHelper(ph);
       setOtherLines(c?.payroll?.other?.lines ?? []);
-    } else if (module === 'dineOut' || module === 'home') {
+    } else if (module === 'dineOut' || module === 'home' || module === 'subscriptions' || module === 'contributions') {
       // Flat: prefer the saved composer line, else the existing cap.
       const composed = c?.[module]?.lines?.[0]?.amountCents;
       const existingCents = composed ?? family.householdBudgets?.[module] ?? 0;
@@ -255,10 +257,10 @@ export default function ComposeBudgetPage() {
   // ── Computed monthly ────────────────────────────────────────
   // Dine Out + Home & Wellness are FLAT: the cap is one typed number, no
   // line items (Elia 2026-05-23). The rest compose from structured lines.
-  const isFlat = module === 'dineOut' || module === 'home';
+  const isFlat = module === 'dineOut' || module === 'home' || module === 'subscriptions' || module === 'contributions';
   const flatCents = Math.max(0, Math.round((parseFloat(flatInput) || 0) * 100));
   const monthlyCents = useMemo(() => {
-    if (module === 'dineOut' || module === 'home') return flatCents;
+    if (module === 'dineOut' || module === 'home' || module === 'subscriptions' || module === 'contributions') return flatCents;
     if (module === 'pantry' || module === 'outdoor') return sumMonthlyCents(lines);
     if (module === 'drivers') {
       const perV = Object.values(perVehicle).reduce((acc, ls) => acc + sumMonthlyCents(ls), 0);
@@ -305,7 +307,7 @@ export default function ComposeBudgetPage() {
           perHelper: perHelperOut,
           ...(otherLines.length > 0 ? { other: { lines: otherLines } } : {}),
         });
-      } else if (module === 'dineOut' || module === 'home') {
+      } else if (module === 'dineOut' || module === 'home' || module === 'subscriptions' || module === 'contributions') {
         // Flat: store as a single month-cadence line so the composer
         // round-trips, and save the cap EXACTLY (roundCap=false, Decision B).
         await saveModuleComposer(
