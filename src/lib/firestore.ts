@@ -377,7 +377,7 @@ export interface HelperLink {
   uid: string;
   helperCode: string;                                        // short handle within the family, e.g. "JANE"
   displayName: string;
-  preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'gardener' | 'custom';
+  preset: 'nanny' | 'tutor' | 'driver' | 'grandparent' | 'gardener' | 'security' | 'cleaner' | 'cook' | 'handyman' | 'custom';
   kidIds: string[];                                          // which kids this helper can act on; [] = none
   // ── Module access (legacy) ───────────────────────────────────
   // Single-tier list of kid-module ids this helper has full access
