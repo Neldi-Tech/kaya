@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveApprovalRequest, ApprovalRequest } from '@/lib/hive';
-import { getStockTake, type StockTake } from '@/lib/business';
+import { getStockTake, resolveBusinessRequest, type StockTake } from '@/lib/business';
 import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 import { formatCash, formatHoney, formatHp } from './format';
 
@@ -86,7 +86,15 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
     setError('');
     setResolving(decision === 'approved' ? 'approve' : 'reject');
     try {
-      await resolveApprovalRequest(profile.familyId, req.id, decision, profile.uid, decision === 'rejected' ? reason : undefined);
+      // Business-module requests (stock-take HP, daily sale, launch, etc.) live
+      // in the same queue but resolve through the Business pipeline — calling
+      // the Hive resolver for them throws "Unknown approval type".
+      const note = decision === 'rejected' ? reason : undefined;
+      if (req.module === 'business') {
+        await resolveBusinessRequest(profile.familyId, req.id, decision, profile.uid, note);
+      } else {
+        await resolveApprovalRequest(profile.familyId, req.id, decision, profile.uid, note);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to resolve.');
       setResolving(null);
