@@ -137,3 +137,38 @@ export function subscribeToCatalogueContribs(
     },
   );
 }
+
+/** Parallel to recordSubCatalogueUse for contributions. Bumps an
+ *  existing recipient's usageCount or writes a fresh row. Best-effort —
+ *  never blocks the parent write. */
+export async function recordContribCatalogueUse(
+  familyId: string,
+  data: Pick<CatalogueContribItem, 'recipientName' | 'recipientType' | 'category' | 'subCategory'>,
+  existingId?: string | null,
+): Promise<string | null> {
+  if (isGuestActive()) return existingId ?? 'guest-cat-contrib';
+  try {
+    if (existingId) {
+      const ref = doc(contribsCatCol(familyId), existingId);
+      const snap = await getDoc(ref);
+      const current = snap.exists() ? (snap.data().usageCount ?? 0) : 0;
+      await updateDoc(ref, { usageCount: current + 1 });
+      return existingId;
+    }
+    const ref = await addDoc(contribsCatCol(familyId), {
+      recipientName: data.recipientName,
+      recipientType: data.recipientType,
+      pageId: null,
+      category: data.category,
+      subCategory: data.subCategory,
+      hideFromSuggestions: false,
+      usageCount: 1,
+      createdAt: Timestamp.now(),
+    });
+    return ref.id;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[catalogue_contribs] recordContribCatalogueUse failed:', e);
+    return null;
+  }
+}
