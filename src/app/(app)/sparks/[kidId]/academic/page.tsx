@@ -5,7 +5,7 @@
 // with subjects + grade pills. Slice 2 ships the basic term entry +
 // view; PTM follow-ups → workplan wiring lands in Slice 3.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -14,6 +14,7 @@ import {
   subscribeToAcademicRecords, subscribeToSparksProfile, upsertAcademicRecord,
   type AcademicSubjectInput,
 } from '@/lib/sparks/firestore';
+import { extractFromImage } from '@/lib/sparks/ai';
 import type {
   AcademicTerm, SparksAcademicRecord, SparksProfile,
 } from '@/lib/sparks/schema';
@@ -61,6 +62,9 @@ export default function AcademicPage() {
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanNote, setScanNote] = useState<string | null>(null);
+  const scanInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!familyId || !kidId) return;
@@ -102,7 +106,57 @@ export default function AcademicPage() {
     setError(null);
   };
 
-  const cancelEdit = () => { setDraft(null); setEditing(null); setError(null); };
+  const cancelEdit = () => { setDraft(null); setEditing(null); setError(null); setScanNote(null); };
+
+  /** Scan a report-card photo → seed the draft form with the
+   *  extracted subjects + grades + percent + term/year. Parent always
+   *  reviews + edits before save. Backed by /api/sparks/ai/extract
+   *  (kind='academic'), Claude Sonnet vision. */
+  const scanReportCard = async (file: File) => {
+    setScanning(true);
+    setScanNote(null);
+    setError(null);
+    try {
+      const out = await extractFromImage(file, 'academic');
+      if ('skipped' in out && out.skipped) {
+        setScanNote('AI is off in this preview — fill in the term manually.');
+        return;
+      }
+      if (!out.ok) {
+        setScanNote(out.error || 'Couldn’t read the report card — fill it in by hand.');
+        return;
+      }
+      const data = out.data;
+      const now = new Date();
+      const year = data.year && data.year > 1900 ? data.year : now.getFullYear();
+      const term = (data.term === 'T1' || data.term === 'T2' || data.term === 'T3')
+        ? data.term
+        : 'T1';
+      const subjects: AcademicSubjectInput[] = (data.subjects ?? [])
+        .filter((s) => s.name?.trim())
+        .map((s) => ({
+          name: s.name.trim(),
+          grade: s.grade?.trim() || undefined,
+          percent: typeof s.percent === 'number' && s.percent >= 0 && s.percent <= 100 ? s.percent : undefined,
+        }));
+      if (subjects.length === 0) {
+        setScanNote('No subjects detected. Try a clearer photo, or fill in by hand.');
+        return;
+      }
+      setDraft({
+        year,
+        term,
+        subjects,
+        ptmNotes: data.teacherNotes?.trim() || '',
+      });
+      setEditing({ year, term });
+      setScanNote(`✨ Scanned ${subjects.length} subjects · review + edit before saving.`);
+    } finally {
+      setScanning(false);
+      // Allow re-scanning the same file
+      if (scanInputRef.current) scanInputRef.current.value = '';
+    }
+  };
 
   const updateSubject = (idx: number, patch: Partial<AcademicSubjectInput>) => {
     if (!draft) return;
@@ -152,14 +206,42 @@ export default function AcademicPage() {
       subtitle={records.length === 0 ? 'No term records yet' : `${records.length} term${records.length === 1 ? '' : 's'} captured`}
       action={
         !editing ? (
-          <AddItemButton onClick={startNewTerm} label="+ Term" />
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => scanInputRef.current?.click()}
+              disabled={scanning}
+              className="px-3 py-1.5 rounded-full text-[12px] font-extrabold whitespace-nowrap disabled:opacity-60"
+              style={{
+                background: 'rgba(255,255,255,0.22)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.35)',
+              }}
+              title="Scan a report-card photo and auto-fill the term form."
+            >
+              {scanning ? '✨ Scanning…' : '✨ Scan report card'}
+            </button>
+            <AddItemButton onClick={startNewTerm} label="+ Term" />
+          </div>
         ) : undefined
       }
     >
-      {/* Slice 2 hint: PTM follow-ups + workplan wiring come with Slice 3. */}
-      {records.length > 0 && !editing && (
-        <div className="bg-[#FFF1A8] border-l-2 border-[#FFD93D] rounded-[8px] px-3 py-2 mb-4 text-[11.5px] text-[#0F1F44]">
-          <strong>Slice 3 next:</strong> PTM follow-ups become tracked tasks that wire into Kids&apos; Workplans automatically.
+      {/* Hidden file input for the Scan Report Card flow. */}
+      <input
+        ref={scanInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) scanReportCard(f);
+        }}
+      />
+
+      {scanNote && (
+        <div className="bg-[#E5D6FF] border border-[#A66CFF]/40 text-[#5A3CB8] rounded-[10px] px-3 py-2 mb-3 text-[12px] font-bold">
+          {scanNote}
         </div>
       )}
 
