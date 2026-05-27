@@ -361,7 +361,21 @@ function AddHelperForm({
   const [helperCode, setHelperCode] = useState('');
   const [password, setPassword] = useState('');
   const [preset, setPreset] = useState<Preset>('nanny');
-  const [selectedKidIds, setSelectedKidIds] = useState<string[]>(childOptions.map((c) => c.id));
+  // Kid-relevant presets (nanny / tutor / grandparent) default to all kids
+  // selected. Driver / gardener / custom / security helpers don't need kid
+  // access, so they default to none — Elia's ask 2026-05-27. The parent can
+  // override either direction with the chips below. Switching preset
+  // resets the picks to the new default (clear intent over preservation).
+  const isKidRelevantPreset = (p: Preset) => p === 'nanny' || p === 'tutor' || p === 'grandparent';
+  const [selectedKidIds, setSelectedKidIds] = useState<string[]>(
+    isKidRelevantPreset('nanny') ? childOptions.map((c) => c.id) : []
+  );
+  useEffect(() => {
+    setSelectedKidIds(isKidRelevantPreset(preset) ? childOptions.map((c) => c.id) : []);
+    // childOptions intentionally omitted — we only react to preset switches;
+    // the family roster is read once at mount via useFamily.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CreateHelperResult | null>(null);
@@ -518,34 +532,56 @@ function AddHelperForm({
         </div>
       </div>
 
-      {/* Kids */}
+      {/* Kids — optional. Some helpers (driver / gardener / security / custom)
+          have nothing to do with kids; only nanny / tutor / grandparent are
+          kid-facing. Empty selection is now allowed at submit. */}
       <div className="mb-4">
-        <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand mb-2">Which kids?</p>
-        {childOptions.length === 0 && (
-          <p className="text-sm text-kaya-sand bg-kaya-cream rounded-kaya p-3">
-            Add a kid first (Settings → Children) before creating a helper.
+        <div className="flex items-baseline justify-between mb-2 gap-3 flex-wrap">
+          <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand">
+            Which kids? <span className="text-kaya-sand/70 normal-case font-semibold">— optional</span>
           </p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          {childOptions.map((c) => {
-            const on = selectedKidIds.includes(c.id);
-            return (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setSelectedKidIds((prev) =>
-                  on ? prev.filter((x) => x !== c.id) : [...prev, c.id]
-                )}
-                className={`px-3 py-1.5 text-sm rounded-full border ${on
-                  ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
-                  : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
-                }`}
-              >
-                {on ? '✓ ' : ''}{c.name}
-              </button>
-            );
-          })}
+          {childOptions.length > 0 && (
+            <div className="flex items-center gap-3 text-[11px] font-bold">
+              <button type="button" onClick={() => setSelectedKidIds(childOptions.map((c) => c.id))}
+                className="text-kaya-chocolate hover:underline">Select all</button>
+              <button type="button" onClick={() => setSelectedKidIds([])}
+                className="text-kaya-sand hover:text-kaya-chocolate hover:underline">Clear</button>
+            </div>
+          )}
         </div>
+        {childOptions.length === 0 ? (
+          <p className="text-sm text-kaya-sand bg-kaya-cream rounded-kaya p-3">
+            No kids in the family yet — that&apos;s fine for a driver / gardener / security helper. You can add kids later from Settings → Children.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2">
+              {childOptions.map((c) => {
+                const on = selectedKidIds.includes(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setSelectedKidIds((prev) =>
+                      on ? prev.filter((x) => x !== c.id) : [...prev, c.id]
+                    )}
+                    className={`px-3 py-1.5 text-sm rounded-full border ${on
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                    }`}
+                  >
+                    {on ? '✓ ' : ''}{c.name}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedKidIds.length === 0 && (
+              <p className="text-[11px] text-kaya-sand mt-2">
+                No kids picked — fine for helpers who don&apos;t work with kids (driver, gardener, security).
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       {error && (
@@ -555,7 +591,10 @@ function AddHelperForm({
       )}
 
       <button
-        disabled={busy || !name.trim() || !helperCode.trim() || !password.trim() || selectedKidIds.length === 0 || existingHelperCodes.includes(helperCode.toUpperCase()) || childOptions.length === 0}
+        // Kids are no longer required — driver / gardener / security helpers
+        // can ship with no kids attached. Only the truly required fields
+        // (name, codes, password) gate the button now.
+        disabled={busy || !name.trim() || !helperCode.trim() || !password.trim() || existingHelperCodes.includes(helperCode.toUpperCase())}
         onClick={async () => {
           setError(null);
           setBusy(true);
