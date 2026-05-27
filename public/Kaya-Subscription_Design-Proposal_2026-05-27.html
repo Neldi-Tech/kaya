@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Kaya Plan — Design Mockup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Nunito', system-ui, -apple-system, sans-serif;
+      background: #FBF7EE;
+      color: #0F1F44;
+      min-height: 100vh;
+    }
+
+    /* ── Nav ── */
+    .nav {
+      position: sticky; top: 0;
+      background: rgba(251,247,238,0.88);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid rgba(15,31,68,0.07);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      z-index: 200;
+    }
+    .nav-back {
+      font-size: 13px; font-weight: 800;
+      color: #6E7791; text-decoration: none;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .nav-back:hover { color: #0F1F44; }
+    .nav-title {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      font-size: 15px; font-weight: 900; color: #0F1F44;
+      pointer-events: none;
+    }
+
+    /* ── Page wrapper ── */
+    .page {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 52px 24px 88px;
+    }
+
+    /* ── Current plan banner ── */
+    .plan-banner {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: white;
+      border: 1.5px solid rgba(15,31,68,0.08);
+      border-radius: 16px;
+      padding: 14px 20px;
+      margin-bottom: 44px;
+      box-shadow: 0 2px 12px rgba(15,31,68,0.04);
+    }
+    .plan-banner-emoji {
+      font-size: 26px; line-height: 1; flex-shrink: 0;
+    }
+    .plan-banner-info { flex: 1; }
+    .plan-banner-label {
+      font-size: 11px; font-weight: 800; color: #6E7791;
+      text-transform: uppercase; letter-spacing: 0.6px;
+      margin-bottom: 1px;
+    }
+    .plan-banner-name {
+      font-size: 16px; font-weight: 900; color: #0F1F44;
+    }
+    .plan-banner-sub {
+      font-size: 12px; font-weight: 600; color: #6E7791;
+    }
+    .plan-banner-badge {
+      background: rgba(91,184,91,0.12);
+      color: #5BB85B;
+      border: 1px solid rgba(91,184,91,0.25);
+      border-radius: 999px;
+      font-size: 11px; font-weight: 800;
+      padding: 4px 12px;
+      flex-shrink: 0;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      text-align: center;
+      margin-bottom: 44px;
+    }
+    .hero h1 {
+      font-size: 34px; font-weight: 900;
+      color: #0F1F44; line-height: 1.22;
+      margin-bottom: 8px;
+    }
+    .hero p {
+      font-size: 15px; color: #6E7791; font-weight: 600;
+    }
+
+    /* Billing toggle */
+    .billing-toggle {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(15,31,68,0.06);
+      border-radius: 999px;
+      padding: 4px;
+      margin-top: 26px;
+    }
+    .billing-btn {
+      padding: 8px 22px;
+      border-radius: 999px;
+      font-size: 13px; font-weight: 800;
+      cursor: pointer; border: none;
+      background: transparent; color: #6E7791;
+      transition: all 0.18s;
+      display: flex; align-items: center; gap: 8px;
+      font-family: inherit;
+    }
+    .billing-btn.active {
+      background: white; color: #0F1F44;
+      box-shadow: 0 2px 10px rgba(15,31,68,0.10);
+    }
+    .save-chip {
+      background: #D4A847;
+      color: white;
+      font-size: 10px; font-weight: 900;
+      padding: 2px 8px;
+      border-radius: 999px;
+      letter-spacing: 0.4px;
+    }
+
+    /* ── Cards row ── */
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1.08fr 1fr;
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 52px;
+    }
+
+    /* Base card */
+    .card {
+      border-radius: 24px;
+      padding: 28px 22px 24px;
+      position: relative;
+    }
+
+    /* Nest */
+    .card-nest {
+      background: white;
+      border: 1.5px solid rgba(15,31,68,0.09);
+      box-shadow: 0 4px 20px rgba(15,31,68,0.04);
+    }
+
+    /* Home — featured */
+    .card-home {
+      background: #0F1F44;
+      color: white;
+      transform: translateY(-10px);
+      box-shadow: 0 28px 72px rgba(15,31,68,0.22);
+    }
+
+    /* Castle */
+    .card-castle {
+      background: linear-gradient(148deg, #14255a 0%, #0F1F44 55%, #0a1837 100%);
+      color: white;
+      border: 1.5px solid rgba(212,168,71,0.28);
+      box-shadow: 0 4px 24px rgba(212,168,71,0.08);
+    }
+
+    /* Ribbon / badge row at top of each card */
+    .card-top-badge {
+      min-height: 28px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+    }
+    .current-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(91,184,91,0.1);
+      color: #4CAF50;
+      border: 1px solid rgba(91,184,91,0.3);
+      border-radius: 999px;
+      font-size: 11px; font-weight: 800;
+      padding: 4px 12px;
+    }
+    .ribbon {
+      display: inline-flex; align-items: center; gap: 5px;
+      border-radius: 999px;
+      font-size: 11px; font-weight: 800;
+      padding: 4px 12px;
+    }
+    .ribbon-home   { background: rgba(212,168,71,0.18); color: #D4A847; }
+    .ribbon-castle { background: rgba(212,168,71,0.12); color: #C89F3A; }
+
+    /* Card header */
+    .card-emoji { font-size: 30px; margin-bottom: 8px; display: block; }
+    .card-name  { font-size: 19px; font-weight: 900; margin-bottom: 1px; }
+    .card-tagline { font-size: 12px; font-weight: 600; opacity: 0.55; margin-bottom: 20px; }
+
+    /* Price */
+    .price-row {
+      display: flex; align-items: baseline; gap: 3px;
+      margin-bottom: 3px;
+    }
+    .price-amount { font-size: 38px; font-weight: 900; line-height: 1; }
+    .price-per    { font-size: 14px; font-weight: 700; opacity: 0.55; }
+    .price-sub    { font-size: 11px; font-weight: 700; opacity: 0.45; margin-bottom: 22px; min-height: 17px; }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      margin: 18px 0 18px;
+    }
+    .card-nest .divider   { background: rgba(15,31,68,0.07); }
+    .card-home .divider   { background: rgba(255,255,255,0.1); }
+    .card-castle .divider { background: rgba(255,255,255,0.08); }
+
+    /* Features */
+    .features { list-style: none; display: flex; flex-direction: column; gap: 9px; margin-bottom: 24px; }
+    .feat {
+      display: flex; align-items: flex-start; gap: 9px;
+      font-size: 12.5px; font-weight: 700; line-height: 1.4;
+    }
+    .feat-icon {
+      width: 18px; height: 18px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; flex-shrink: 0; margin-top: 1px; font-weight: 900;
+    }
+    /* Nest check/cross */
+    .card-nest .feat-icon.yes { background: rgba(91,184,91,0.13); color: #4CAF50; }
+    .card-nest .feat-icon.no  { background: rgba(15,31,68,0.06); color: rgba(15,31,68,0.25); }
+    .card-nest .feat.locked .feat-text { opacity: 0.3; }
+    /* Home / Castle check */
+    .card-home .feat-icon.yes,
+    .card-castle .feat-icon.yes { background: rgba(212,168,71,0.2); color: #D4A847; }
+    .card-home .feat-icon.no,
+    .card-castle .feat-icon.no  { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.25); }
+    .feat-text { opacity: 0.88; }
+
+    /* CTA */
+    .cta {
+      display: block; width: 100%;
+      padding: 13px 16px; border-radius: 14px;
+      font-size: 13.5px; font-weight: 900;
+      text-align: center; text-decoration: none;
+      cursor: pointer; border: none; font-family: inherit;
+      transition: opacity 0.15s, transform 0.12s;
+    }
+    .cta:hover { opacity: 0.88; transform: translateY(-1px); }
+    .cta-nest {
+      background: rgba(15,31,68,0.06);
+      color: rgba(15,31,68,0.35);
+      cursor: default;
+    }
+    .cta-nest:hover { opacity: 1; transform: none; }
+    .cta-home    { background: #D4A847; color: #0F1F44; }
+    .cta-castle  {
+      background: rgba(212,168,71,0.12);
+      color: #D4A847;
+      border: 1px solid rgba(212,168,71,0.32);
+    }
+
+    /* ── Compare table ── */
+    .compare-section {
+      background: white;
+      border: 1.5px solid rgba(15,31,68,0.07);
+      border-radius: 20px;
+      padding: 26px 28px;
+      margin-bottom: 44px;
+      box-shadow: 0 2px 16px rgba(15,31,68,0.04);
+    }
+    .compare-section h3 {
+      font-size: 16px; font-weight: 900; color: #0F1F44;
+      margin-bottom: 18px;
+    }
+    .compare-row {
+      display: grid;
+      grid-template-columns: 1fr 80px 80px 80px;
+      gap: 8px; align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(15,31,68,0.05);
+    }
+    .compare-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .compare-row.header-row { padding-top: 0; }
+    .ch-label { font-size: 12px; font-weight: 900; color: #0F1F44; }
+    .ch-label small { display: block; font-weight: 600; color: #6E7791; font-size: 11px; margin-top: 1px; }
+    .ch { text-align: center; font-size: 12.5px; font-weight: 800; color: #0F1F44; }
+    .ch.col-head { font-size: 11px; font-weight: 900; color: #6E7791; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ch.col-head.gold { color: #D4A847; }
+    .ch .yes { color: #4CAF50; font-size: 14px; }
+    .ch .no  { color: rgba(15,31,68,0.2); font-size: 14px; }
+    .ch .addon-label { color: #D4A847; font-size: 10px; font-weight: 900; }
+
+    /* ── Add-ons section ── */
+    .section-header { margin-bottom: 20px; }
+    .section-header h2 { font-size: 22px; font-weight: 900; color: #0F1F44; margin-bottom: 4px; }
+    .section-header p  { font-size: 14px; font-weight: 600; color: #6E7791; }
+    .section-header p strong { color: #D4A847; }
+
+    .addons-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .addon-card {
+      background: white;
+      border: 1.5px solid rgba(15,31,68,0.08);
+      border-radius: 16px;
+      padding: 16px;
+      transition: box-shadow 0.18s, transform 0.15s;
+    }
+    .addon-card:hover {
+      box-shadow: 0 8px 28px rgba(15,31,68,0.09);
+      transform: translateY(-2px);
+    }
+    .addon-emoji {
+      width: 38px; height: 38px; border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; margin-bottom: 10px;
+    }
+    .addon-name { font-size: 13px; font-weight: 900; color: #0F1F44; margin-bottom: 4px; }
+    .addon-desc { font-size: 11px; font-weight: 600; color: #6E7791; line-height: 1.45; margin-bottom: 10px; }
+    .addon-price { font-size: 14px; font-weight: 900; color: #0F1F44; }
+    .addon-price span { font-size: 11px; font-weight: 600; color: #6E7791; }
+
+    /* ── Footer ── */
+    .footer-note {
+      margin-top: 48px;
+      padding-top: 24px;
+      border-top: 1px solid rgba(15,31,68,0.08);
+      text-align: center;
+      font-size: 13px; font-weight: 600; color: #6E7791;
+      line-height: 1.65;
+    }
+    .footer-note a { color: #D4A847; font-weight: 800; text-decoration: none; }
+
+    /* ── Design watermark ── */
+    .design-tag {
+      position: fixed; bottom: 14px; right: 14px;
+      background: rgba(15,31,68,0.82);
+      backdrop-filter: blur(8px);
+      color: rgba(255,255,255,0.85);
+      font-size: 11px; font-weight: 700;
+      padding: 6px 14px; border-radius: 999px;
+      font-family: 'Nunito', sans-serif;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav class="nav">
+  <a href="#" class="nav-back">← Home</a>
+  <span class="nav-title">Your Kaya Plan</span>
+</nav>
+
+<div class="page">
+
+  <!-- Current plan banner -->
+  <div class="plan-banner">
+    <div class="plan-banner-emoji">🏡</div>
+    <div class="plan-banner-info">
+      <div class="plan-banner-label">Active plan</div>
+      <div class="plan-banner-name">Kaya Nest</div>
+      <div class="plan-banner-sub">Free forever · 4 members · 30-day history</div>
+    </div>
+    <div class="plan-banner-badge">✓ Active</div>
+  </div>
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>Grow your family's Kaya<br>to the next level.</h1>
+    <p>Simple, transparent pricing. Upgrade any time. Cancel any time.</p>
+
+    <div class="billing-toggle">
+      <button class="billing-btn active" id="btn-monthly" onclick="setBilling('monthly')">Monthly</button>
+      <button class="billing-btn" id="btn-yearly" onclick="setBilling('yearly')">
+        Yearly
+        <span class="save-chip">SAVE 17%</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Three tier cards -->
+  <div class="cards">
+
+    <!-- NEST -->
+    <div class="card card-nest">
+      <div class="card-top-badge">
+        <span class="current-badge">✓ Your current plan</span>
+      </div>
+      <span class="card-emoji">🏡</span>
+      <div class="card-name">Kaya Nest</div>
+      <div class="card-tagline">Free forever</div>
+
+      <div class="price-row">
+        <span class="price-amount">$0</span>
+        <span class="price-per">/month</span>
+      </div>
+      <div class="price-sub">&nbsp;</div>
+
+      <div class="divider"></div>
+
+      <ul class="features">
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">4 family members</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">1 helper (nanny, tutor, grandparent)</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">30-day activity history</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">Kaya core, Moments, Fun</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">Kaya Sparks community</span>
+        </li>
+        <li class="feat locked">
+          <span class="feat-icon no">✗</span>
+          <span class="feat-text">The Hive (coins & vault)</span>
+        </li>
+        <li class="feat locked">
+          <span class="feat-icon no">✗</span>
+          <span class="feat-text">Household, Business, Wealth…</span>
+        </li>
+      </ul>
+
+      <button class="cta cta-nest" disabled>You're on Nest ✓</button>
+    </div>
+
+    <!-- HOME — featured -->
+    <div class="card card-home">
+      <div class="card-top-badge">
+        <span class="ribbon ribbon-home">⭐ Most families</span>
+      </div>
+      <span class="card-emoji">🏠</span>
+      <div class="card-name">Kaya Home</div>
+      <div class="card-tagline">The full family plan</div>
+
+      <div class="price-row">
+        <span class="price-amount" id="home-price">$7.20</span>
+        <span class="price-per">/month</span>
+      </div>
+      <div class="price-sub" id="home-sub">&nbsp;</div>
+
+      <div class="divider"></div>
+
+      <ul class="features">
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">8 members · 3 helpers</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">1-year activity history</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">The Hive — Honey Coins & vault</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">Household, Pages & Dreams</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">Everything in Nest</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">À-la-carte add-ons available</span>
+        </li>
+      </ul>
+
+      <a href="mailto:hello@ourkaya.com?subject=Upgrade%20to%20Kaya%20Home" class="cta cta-home">
+        Upgrade to Home →
+      </a>
+    </div>
+
+    <!-- CASTLE -->
+    <div class="card card-castle">
+      <div class="card-top-badge">
+        <span class="ribbon ribbon-castle">🏰 Full access</span>
+      </div>
+      <span class="card-emoji">🏰</span>
+      <div class="card-name">Kaya Castle</div>
+      <div class="card-tagline">Everything Kaya</div>
+
+      <div class="price-row">
+        <span class="price-amount" id="castle-price">$16.80</span>
+        <span class="price-per">/month</span>
+      </div>
+      <div class="price-sub" id="castle-sub">&nbsp;</div>
+
+      <div class="divider"></div>
+
+      <ul class="features">
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">Unlimited members & helpers</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">History forever</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">All 15 modules unlocked</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">All add-ons included free</span>
+        </li>
+        <li class="feat">
+          <span class="feat-icon yes">✓</span>
+          <span class="feat-text">Priority support from us</span>
+        </li>
+      </ul>
+
+      <a href="mailto:hello@ourkaya.com?subject=Upgrade%20to%20Kaya%20Castle" class="cta cta-castle">
+        Go Castle →
+      </a>
+    </div>
+
+  </div>
+
+  <!-- Feature comparison -->
+  <div class="compare-section">
+    <h3>Plan comparison at a glance</h3>
+
+    <div class="compare-row header-row">
+      <div></div>
+      <div class="ch col-head">Nest</div>
+      <div class="ch col-head gold">Home</div>
+      <div class="ch col-head">Castle</div>
+    </div>
+
+    <div class="compare-row">
+      <div class="ch-label">Members</div>
+      <div class="ch">4</div>
+      <div class="ch">8</div>
+      <div class="ch">∞</div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Helpers <small>nanny, tutor, grandparent</small></div>
+      <div class="ch">1</div>
+      <div class="ch">3</div>
+      <div class="ch">∞</div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Activity history</div>
+      <div class="ch">30 days</div>
+      <div class="ch">1 year</div>
+      <div class="ch">Forever</div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Kaya Sparks <small>ideas &amp; help community</small></div>
+      <div class="ch"><span class="yes">✓</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">The Hive <small>Honey Coins &amp; vault</small></div>
+      <div class="ch"><span class="no">—</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Household <small>pantry, utilities, payroll</small></div>
+      <div class="ch"><span class="no">—</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Pages &amp; Dreams</div>
+      <div class="ch"><span class="no">—</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Kaya Business <small>kid micro-enterprises</small></div>
+      <div class="ch"><span class="no">—</span></div>
+      <div class="ch"><span class="addon-label">Add-on $3/mo</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Kaya Wealth <small>asset &amp; property registry</small></div>
+      <div class="ch"><span class="no">—</span></div>
+      <div class="ch"><span class="addon-label">Add-on $4/mo</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+    <div class="compare-row">
+      <div class="ch-label">Chef, Wellness, Grow, Letter…</div>
+      <div class="ch"><span class="no">—</span></div>
+      <div class="ch"><span class="addon-label">From $1/mo</span></div>
+      <div class="ch"><span class="yes">✓</span></div>
+    </div>
+  </div>
+
+  <!-- Add-ons -->
+  <div class="section-header">
+    <h2>Power up with Home add-ons</h2>
+    <p>Add exactly what your family needs. <strong>All included free in Castle.</strong></p>
+  </div>
+
+  <div class="addons-grid">
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#FFE8E5">🐝</div>
+      <div class="addon-name">Kaya Business</div>
+      <div class="addon-desc">Kids run real micro-enterprises — orchard, eggs, crafts &amp; more.</div>
+      <div class="addon-price">$3<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#FFF4D6">💎</div>
+      <div class="addon-name">Kaya Wealth</div>
+      <div class="addon-desc">Family asset &amp; property registry with granular access controls.</div>
+      <div class="addon-price">$4<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#E5F7EF">🥗</div>
+      <div class="addon-name">Kaya Chef</div>
+      <div class="addon-desc">Recipes, meal plans, and family cook-alongs from your kitchen.</div>
+      <div class="addon-price">$2<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#F0E8FB">🌱</div>
+      <div class="addon-name">Kaya Wellness</div>
+      <div class="addon-desc">Sleep, screen-time and mindfulness routines for every kid.</div>
+      <div class="addon-price">$2<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#E2F0FF">📚</div>
+      <div class="addon-name">Kaya Grow</div>
+      <div class="addon-desc">Skill tracks &amp; learning ladders paced by your family's goals.</div>
+      <div class="addon-price">$2<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#FFE8E5">🍯</div>
+      <div class="addon-name">Honey Coin Boost</div>
+      <div class="addon-desc">Higher savings caps and bonus exchange rates on The Hive.</div>
+      <div class="addon-price">$2<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#E5F7EF">👥</div>
+      <div class="addon-name">Extra Helpers</div>
+      <div class="addon-desc">+5 helper slots — expand to include more nannies, tutors &amp; grandparents.</div>
+      <div class="addon-price">$1<span>/month</span></div>
+    </div>
+
+    <div class="addon-card">
+      <div class="addon-emoji" style="background:#FFF4D6">📜</div>
+      <div class="addon-name">Family Letter</div>
+      <div class="addon-desc">Monthly family recap newsletter — printable &amp; shareable.</div>
+      <div class="addon-price">$1<span>/month</span></div>
+    </div>
+
+  </div>
+
+  <!-- Footer -->
+  <div class="footer-note">
+    All prices in USD. Yearly plans billed as a single annual charge.<br/>
+    Questions about upgrading? Email us at <a href="mailto:hello@ourkaya.com">hello@ourkaya.com</a> — we respond same day. 🌻
+  </div>
+
+</div>
+
+<!-- Design watermark -->
+<div class="design-tag">🎨 Design mockup — 2026-05-27</div>
+
+<script>
+  function setBilling(mode) {
+    document.getElementById('btn-monthly').classList.toggle('active', mode === 'monthly');
+    document.getElementById('btn-yearly').classList.toggle('active', mode === 'yearly');
+
+    const yearly = mode === 'yearly';
+
+    document.getElementById('home-price').textContent  = yearly ? '$6'    : '$7.20';
+    document.getElementById('home-sub').textContent    = yearly ? 'billed $72 per year' : ' ';
+
+    document.getElementById('castle-price').textContent = yearly ? '$14'    : '$16.80';
+    document.getElementById('castle-sub').textContent   = yearly ? 'billed $168 per year' : ' ';
+  }
+</script>
+
+</body>
+</html>
