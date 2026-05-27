@@ -20,7 +20,7 @@ import {
 import { KID_MODULES, DEFAULT_KID_MODULES } from '@/lib/kidModules';
 import { HELPER_MODULES } from '@/lib/helperModules';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
-import { setPayrollConfig, clearPayrollConfig, payAnchorLabel } from '@/lib/payroll';
+import { setPayrollConfig, clearPayrollConfig, payAnchorLabel, payExpectationLabel } from '@/lib/payroll';
 import type { HelperPayrollConfig, PayBasis, PayFrequency, PayrollAllowance } from '@/lib/firestore';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
@@ -1261,6 +1261,7 @@ function PayrollConfigSection({
   const [payAnchor, setPayAnchor] = useState<number>(existing?.payAnchor ?? (existing?.frequency === 'monthly' ? 1 : 5)); // 5=Friday default for weekly
   const [startDate, setStartDate] = useState<string>(existing?.startDate ?? new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState<string>(existing?.endDate ?? '');
+  const [payBuffer, setPayBuffer] = useState<number>(existing?.payAnchorBufferDays ?? 0);
   const [allowances, setAllowances] = useState<PayrollAllowance[]>(existing?.allowances ?? []);
   const [allowanceLabel, setAllowanceLabel] = useState('');
   const [allowanceAmt, setAllowanceAmt] = useState<number>(0);
@@ -1289,6 +1290,7 @@ function PayrollConfigSection({
         rateCents: Math.round(rateMajor * 100),
         frequency,
         payAnchor,
+        payAnchorBufferDays: Math.max(0, Math.min(7, Math.round(payBuffer || 0))),
         startDate,
         endDate: endDate || undefined,
         allowances: allowances.length > 0 ? allowances : undefined,
@@ -1335,7 +1337,7 @@ function PayrollConfigSection({
         <p className="text-xs font-bold uppercase tracking-wider text-kaya-sand inline-flex items-center gap-2">
           💼 Auto-payroll
           {existing
-            ? <span className="text-[10px] normal-case tracking-normal font-normal text-pantry-leaf-dk">· active · {formatCents(existing.rateCents, currency)} / {existing.basis} · {payAnchorLabel(existing)}</span>
+            ? <span className="text-[10px] normal-case tracking-normal font-normal text-pantry-leaf-dk">· active · {formatCents(existing.rateCents, currency)} / {existing.basis} · {payExpectationLabel(existing)}</span>
             : <span className="text-[10px] normal-case tracking-normal font-normal text-kaya-sand italic">· not set up</span>
           }
         </p>
@@ -1417,6 +1419,49 @@ function PayrollConfigSection({
             </div>
           </div>
 
+          {/* Buffer days — sets the helper's "paid by" expectation
+              (e.g. "5th + 2 = paid by the 7th"). Display-only — generator
+              still fires on the anchor; this is just the polite upper
+              bound a parent commits to. */}
+          <div>
+            <div className="flex items-baseline justify-between gap-3 flex-wrap mb-1.5">
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold">Expected pay buffer (optional)</p>
+              <p className="text-[10px] text-pantry-leaf-dk font-bold">
+                {(() => {
+                  const buf = Math.max(0, Math.min(7, Math.round(payBuffer || 0)));
+                  if (buf <= 0) return frequency === 'monthly'
+                    ? `Paid on the ${payAnchor}${[11,12,13].includes(payAnchor) ? 'th' : payAnchor % 10 === 1 ? 'st' : payAnchor % 10 === 2 ? 'nd' : payAnchor % 10 === 3 ? 'rd' : 'th'}`
+                    : 'Paid on the chosen day';
+                  if (frequency === 'monthly') {
+                    const by = Math.min(28, payAnchor + buf);
+                    return `Paid by the ${by}${[11,12,13].includes(by) ? 'th' : by % 10 === 1 ? 'st' : by % 10 === 2 ? 'nd' : by % 10 === 3 ? 'rd' : 'th'}`;
+                  }
+                  return `Paid within ${buf} day${buf === 1 ? '' : 's'} of the anchor`;
+                })()}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {[0, 1, 2, 3, 5, 7].map((d) => (
+                <button key={d} type="button" onClick={() => setPayBuffer(d)}
+                  className={`px-3 h-9 rounded-kaya-sm text-sm font-bold border ${
+                    Math.round(payBuffer || 0) === d
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-white border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                  }`}>
+                  {d === 0 ? 'On the dot' : `+${d}d`}
+                </button>
+              ))}
+              <input
+                type="number" min={0} max={7}
+                value={payBuffer}
+                onChange={(e) => setPayBuffer(Math.min(7, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                className="w-16 h-9 px-2 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold text-center focus:outline-none focus:border-kaya-chocolate"
+                aria-label="Buffer days"
+              />
+            </div>
+            <p className="text-[10px] text-kaya-sand mt-1">Sets the helper&apos;s expectation. The pay still triggers on the anchor day — this is the polite upper bound.</p>
+          </div>
+
           {/* Dates */}
           <div className="grid grid-cols-2 gap-2">
             <div>
@@ -1428,12 +1473,21 @@ function PayrollConfigSection({
               />
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">End date (optional)</p>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold">End date (optional)</p>
+                {endDate && (
+                  <button type="button" onClick={() => setEndDate('')}
+                    className="text-[10px] font-bold text-hive-rose hover:underline">
+                    Clear
+                  </button>
+                )}
+              </div>
               <input
                 type="date" value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 className="w-full h-10 px-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-sm font-bold focus:outline-none focus:border-kaya-chocolate"
               />
+              <p className="text-[10px] text-kaya-sand mt-1">Leave blank for an open-ended contract — tap <b>Clear</b> to remove a previously-set date.</p>
             </div>
           </div>
 

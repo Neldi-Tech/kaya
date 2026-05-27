@@ -59,6 +59,7 @@ import { uploadReceipt, clearReceipt } from '@/lib/receiptUpload';
 import ReceiptScanModal from '@/components/pantry/ReceiptScanModal';
 import type { ScanResult } from '@/lib/receiptScan';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
+import { toDisplayDate } from '@/lib/dates';
 
 /** Module → its list-page route. dineOut's URL is /pantry/dine-out (not
  *  /pantry/dineOut), so back-nav can't just template the module id. */
@@ -848,12 +849,16 @@ export default function PurchaseDetailPage() {
       </div>
 
       {/* Budget balance for this category — stay aware while building +
-          reconciling (2026-05-23). */}
-      <BudgetBalanceMeter
-        module={reqModule}
-        pendingAmountCents={req.status === 'closed' ? 0 : (req.actualTotalCents ?? req.estimatedTotalCents ?? 0)}
-        className="mb-4"
-      />
+          reconciling (2026-05-23). Helpers must NOT see family / module
+          budgets — the bar is parent-only across every module, including
+          payroll where a helper sees only their own slip (2026-05-27). */}
+      {role !== 'helper' && (
+        <BudgetBalanceMeter
+          module={reqModule}
+          pendingAmountCents={req.status === 'closed' ? 0 : (req.actualTotalCents ?? req.estimatedTotalCents ?? 0)}
+          className="mb-4"
+        />
+      )}
 
       {/* Banners per status */}
       {isPending && role === 'helper' && (
@@ -2913,26 +2918,29 @@ function PayrollPaystubBanner({
                                 'Monthly fixed';
   return (
     <div className="bg-[#F4EFFB] border border-[#C9B8E5] rounded-hive p-3 mb-3">
-      <p className="text-[10px] uppercase tracking-wider font-bold text-[#5E4A8F] mb-1">
-        🤝 Auto-generated salary · {cycle.periodStart} → {cycle.periodEnd}
+      <p className="text-[10px] uppercase tracking-wider font-bold text-[#5E4A8F] mb-1 break-words">
+        🤝 Auto-generated salary · {toDisplayDate(cycle.periodStart)} → {toDisplayDate(cycle.periodEnd)}
       </p>
       <p className="text-[11px] text-hive-ink mb-2">{basisLine}</p>
-      <div className="grid grid-cols-4 gap-2 text-[11px]">
-        <div>
+      {/* 2-col on phones, 4-col on tablets+. The previous grid-cols-4 ran
+          adjacent TZS values into each other on narrow screens (e.g.
+          "TZS 130,000−TZS 0"). break-words guards long-currency amounts. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+        <div className="min-w-0">
           <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Basic</p>
-          <p className="font-nunito font-extrabold text-sm">{formatCents(cycle.basicCents, currency)}</p>
+          <p className="font-nunito font-extrabold text-sm break-words">{formatCents(cycle.basicCents, currency)}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Allowances</p>
-          <p className="font-nunito font-extrabold text-sm">+{formatCents(cycle.allowancesCents, currency)}</p>
+          <p className="font-nunito font-extrabold text-sm break-words">+{formatCents(cycle.allowancesCents, currency)}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Deductions</p>
-          <p className="font-nunito font-extrabold text-sm text-hive-rose">−{formatCents(cycle.deductionsCents, currency)}</p>
+          <p className="font-nunito font-extrabold text-sm text-hive-rose break-words">−{formatCents(cycle.deductionsCents, currency)}</p>
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Net</p>
-          <p className="font-nunito font-black text-sm text-[#5E4A8F]">{formatCents(cycle.netCents, currency)}</p>
+          <p className="font-nunito font-black text-sm text-[#5E4A8F] break-words">{formatCents(cycle.netCents, currency)}</p>
         </div>
       </div>
     </div>
