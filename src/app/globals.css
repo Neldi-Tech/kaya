@@ -75,3 +75,29 @@ body {
 .house-golden { --house-color: #D4A017; }
 .house-white { --house-color: #7B9DB7; }
 .house-silver { --house-color: #9B8EC4; }
+
+/* Print rules — Kaya Sparks dashboard → browser-native "Save as PDF".
+ *
+ * Hide AppShell chrome (sidebar, top nav, mobile bottom bar, BackBar,
+ * GuestBanner) + anything tagged .print-hide. The dashboard's content
+ * card layout is already print-friendly; this keeps section cards intact
+ * with no page-break-inside surprises. */
+@media print {
+  aside,
+  header,
+  nav,
+  .print-hide {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  /* AppShell wraps content with lg:pl-[260px]; drop the gutter on print. */
+  .lg\:pl-\[260px\] {
+    padding-left: 0 !important;
+  }
+  /* Tighten section margins for paper density. */
+  section, .print-keep {
+    page-break-inside: avoid;
+  }
+}
