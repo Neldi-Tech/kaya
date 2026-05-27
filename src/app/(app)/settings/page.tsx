@@ -48,12 +48,16 @@ import DateSelect from '@/components/ui/DateSelect';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
 import NotificationSettings from '@/components/settings/NotificationSettings';
+import { useTierAccess } from '@/lib/tierAccess';
+import { DEFAULT_TIERS } from '@/lib/tiers';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user, profile, signOut, refreshProfile, isGuest } = useAuth();
   const { family, children, refresh } = useFamily();
   const confirmAction = useConfirm();
+  const tierAccess = useTierAccess();
+  const currentTierConfig = DEFAULT_TIERS[tierAccess.tierId];
 
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -2076,6 +2080,34 @@ export default function SettingsPage() {
                 Codes auto-deactivate after one successful join. Re-activate or regenerate any time. Inviting <em>other</em> families to start their own? Use the referral link instead.
               </p>
             </CollapsibleSection>
+          )}
+
+          {/* Plan & billing — current tier + entry to /settings/subscription.
+              Family-admin (parent) only; helpers and kids don't manage
+              billing. */}
+          {isParent && (
+            <button
+              onClick={() => router.push('/settings/subscription')}
+              className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-4 text-left hover:border-kaya-chocolate transition-colors"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Plan &amp; billing</p>
+                  <p className="font-bold text-sm">
+                    {currentTierConfig.emoji} {currentTierConfig.name}{' '}
+                    <span className="text-kaya-sand font-semibold">· {currentTierConfig.tagline}</span>
+                  </p>
+                  <p className="text-[11px] text-kaya-sand mt-0.5 leading-relaxed">
+                    {tierAccess.tierId === 'castle'
+                      ? 'You have full access to every Kaya module.'
+                      : tierAccess.tierId === 'home'
+                        ? 'See all plans, add-ons, and what Castle unlocks.'
+                        : 'See all plans and what upgrading unlocks for your family.'}
+                  </p>
+                </div>
+                <span className="text-kaya-sand text-xl flex-shrink-0">→</span>
+              </div>
+            </button>
           )}
 
           {/* Helpers — Tier A login + per-kid scope. Separate page so

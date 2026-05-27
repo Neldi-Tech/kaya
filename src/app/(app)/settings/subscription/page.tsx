@@ -1,0 +1,665 @@
+'use client';
+
+// /settings/subscription — read-only Plan & Billing page (PR 4, 2026-05-27).
+//
+// Mailto-only upgrade flow during closed beta — Stripe gets wired in a
+// follow-up. Renders the same 3-tier matrix the admin matrix configures,
+// shows the family's current plan (resolved by useTierAccess), and shows
+// prices in the household's currency with USD as the source of truth.
+
+import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useHive } from '@/contexts/HiveContext';
+import { useTierAccess } from '@/lib/tierAccess';
+import {
+  DEFAULT_TIERS, DEFAULT_ADDONS,
+  type SubscriptionTierId,
+} from '@/lib/tiers';
+import { usdFxRate } from '@/lib/pricing';
+import { roundNeatCents } from '@/lib/format';
+import { formatCents } from '@/components/pantry/format';
+
+type BillingCycle = 'monthly' | 'yearly';
+
+const NAVY = '#0F1F44';
+const GOLD = '#D4A847';
+const CREAM = '#FBF7EE';
+const MUTED = '#6E7791';
+
+export default function SubscriptionPage() {
+  const access = useTierAccess();
+  const { config, fxUsdToFamily } = useHive();
+  const [cycle, setCycle] = useState<BillingCycle>('yearly');
+
+  const currency = config.currency || 'USD';
+  // Live FX is preferred; fall back to the static table in pricing.ts;
+  // last-ditch fall back to 1 so we never crash if both are missing.
+  const fx = fxUsdToFamily ?? usdFxRate(currency) ?? 1;
+
+  // Local helper: USD-cents → family-currency formatted string, rounded
+  // to a neat bucket so 7.20 USD doesn't read as "TSh 19,116".
+  const toLocal = useMemo(() => {
+    return (usdCents: number): string => {
+      if (usdCents === 0) return formatCents(0, currency);
+      const localCents = Math.round(usdCents * fx);
+      return formatCents(roundNeatCents(localCents), currency);
+    };
+  }, [currency, fx]);
+
+  // Per-month price for a tier given the billing cycle, in USD cents.
+  const perMonthCents = (tierId: SubscriptionTierId): number => {
+    const t = DEFAULT_TIERS[tierId];
+    return cycle === 'yearly' ? Math.round(t.priceYearly / 12) : t.priceMonthly;
+  };
+  const yearlyTotalCents = (tierId: SubscriptionTierId): number =>
+    DEFAULT_TIERS[tierId].priceYearly;
+
+  const isCurrent = (tierId: SubscriptionTierId) => access.tierId === tierId;
+  const currentTier = DEFAULT_TIERS[access.tierId];
+
+  return (
+    <div style={{ background: CREAM, minHeight: '100vh', color: NAVY }}>
+      {/* Top nav */}
+      <nav
+        className="sticky top-0 z-40 flex items-center px-5 backdrop-blur-md"
+        style={{
+          background: 'rgba(251,247,238,0.88)',
+          borderBottom: '1px solid rgba(15,31,68,0.07)',
+          height: 56,
+        }}
+      >
+        <Link
+          href="/settings"
+          className="text-[13px] font-extrabold"
+          style={{ color: MUTED }}
+        >
+          ← Settings
+        </Link>
+        <span
+          className="absolute left-1/2 -translate-x-1/2 text-[15px] font-black"
+          style={{ color: NAVY }}
+        >
+          Your Kaya Plan
+        </span>
+      </nav>
+
+      <div className="max-w-[980px] mx-auto px-5 pt-12 pb-20">
+        {/* Current plan banner */}
+        <div
+          className="flex items-center gap-3 mb-11 rounded-2xl px-5 py-3.5"
+          style={{
+            background: 'white',
+            border: '1.5px solid rgba(15,31,68,0.08)',
+            boxShadow: '0 2px 12px rgba(15,31,68,0.04)',
+          }}
+        >
+          <div className="text-[26px] leading-none flex-shrink-0">{currentTier.emoji}</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-extrabold tracking-wider uppercase" style={{ color: MUTED }}>
+              Active plan
+            </div>
+            <div className="text-[16px] font-black truncate" style={{ color: NAVY }}>
+              {currentTier.name}
+            </div>
+            <div className="text-[12px] font-semibold" style={{ color: MUTED }}>
+              {currentTier.tagline} ·{' '}
+              {currentTier.memberLimit === null ? 'Unlimited members' : `${currentTier.memberLimit} members`}
+              {' · '}
+              {currentTier.historyRetentionDays === null
+                ? 'Forever history'
+                : currentTier.historyRetentionDays >= 365
+                  ? '1-year history'
+                  : `${currentTier.historyRetentionDays}-day history`}
+            </div>
+          </div>
+          {(access.isOperatorBypass || access.isFoundingBypass) && (
+            <div
+              className="rounded-full text-[11px] font-extrabold px-3 py-1 flex-shrink-0"
+              style={{
+                background: 'rgba(212,168,71,0.15)',
+                color: '#B8860B',
+                border: '1px solid rgba(212,168,71,0.35)',
+              }}
+            >
+              {access.isOperatorBypass ? '✨ Operator' : '🌟 Founding family'}
+            </div>
+          )}
+          {!access.isOperatorBypass && !access.isFoundingBypass && (
+            <div
+              className="rounded-full text-[11px] font-extrabold px-3 py-1 flex-shrink-0"
+              style={{
+                background: 'rgba(91,184,91,0.12)',
+                color: '#4CAF50',
+                border: '1px solid rgba(91,184,91,0.25)',
+              }}
+            >
+              ✓ Active
+            </div>
+          )}
+        </div>
+
+        {/* Hero */}
+        <div className="text-center mb-11">
+          <h1 className="text-[32px] sm:text-[34px] font-black leading-[1.22] mb-2" style={{ color: NAVY }}>
+            Grow your family&apos;s Kaya<br />to the next level.
+          </h1>
+          <p className="text-[15px] font-semibold" style={{ color: MUTED }}>
+            Simple, transparent pricing. Upgrade any time. Cancel any time.
+          </p>
+
+          {/* Billing toggle */}
+          <div
+            className="inline-flex items-center rounded-full p-1 mt-6"
+            style={{ background: 'rgba(15,31,68,0.06)' }}
+          >
+            <BillingButton active={cycle === 'monthly'} onClick={() => setCycle('monthly')}>
+              Monthly
+            </BillingButton>
+            <BillingButton active={cycle === 'yearly'} onClick={() => setCycle('yearly')}>
+              <span>Yearly</span>
+              <span
+                className="ml-2 rounded-full text-[10px] font-black tracking-wide px-2 py-0.5"
+                style={{ background: GOLD, color: 'white' }}
+              >
+                SAVE 17%
+              </span>
+            </BillingButton>
+          </div>
+        </div>
+
+        {/* Three tier cards */}
+        <div className="grid md:grid-cols-[1fr_1.08fr_1fr] gap-3.5 items-start mb-14">
+          <TierCard
+            tierId="nest"
+            isCurrent={isCurrent('nest')}
+            perMonthLocal={toLocal(perMonthCents('nest'))}
+            perMonthUsdCents={perMonthCents('nest')}
+            yearlyTotalLocal={toLocal(yearlyTotalCents('nest'))}
+            yearlyTotalUsdCents={yearlyTotalCents('nest')}
+            cycle={cycle}
+            currency={currency}
+          />
+          <TierCard
+            tierId="home"
+            isCurrent={isCurrent('home')}
+            perMonthLocal={toLocal(perMonthCents('home'))}
+            perMonthUsdCents={perMonthCents('home')}
+            yearlyTotalLocal={toLocal(yearlyTotalCents('home'))}
+            yearlyTotalUsdCents={yearlyTotalCents('home')}
+            cycle={cycle}
+            currency={currency}
+          />
+          <TierCard
+            tierId="castle"
+            isCurrent={isCurrent('castle')}
+            perMonthLocal={toLocal(perMonthCents('castle'))}
+            perMonthUsdCents={perMonthCents('castle')}
+            yearlyTotalLocal={toLocal(yearlyTotalCents('castle'))}
+            yearlyTotalUsdCents={yearlyTotalCents('castle')}
+            cycle={cycle}
+            currency={currency}
+          />
+        </div>
+
+        {/* Comparison table */}
+        <div
+          className="rounded-2xl mb-12 px-7 py-6"
+          style={{
+            background: 'white',
+            border: '1.5px solid rgba(15,31,68,0.07)',
+            boxShadow: '0 2px 16px rgba(15,31,68,0.04)',
+          }}
+        >
+          <h3 className="text-[16px] font-black mb-4" style={{ color: NAVY }}>
+            Plan comparison at a glance
+          </h3>
+
+          <CompareHeader />
+          <CompareRow label="Members" nest="4" home="8" castle="∞" />
+          <CompareRow
+            label="Helpers"
+            sublabel="nanny, tutor, grandparent"
+            nest="1"
+            home="3"
+            castle="∞"
+          />
+          <CompareRow label="Activity history" nest="30 days" home="1 year" castle="Forever" />
+          <CompareRow label="Kaya Sparks" sublabel="ideas & help community" nest="yes" home="yes" castle="yes" />
+          <CompareRow label="The Hive" sublabel="Honey Coins & vault" nest="no" home="yes" castle="yes" />
+          <CompareRow label="Household" sublabel="pantry, utilities, payroll" nest="no" home="yes" castle="yes" />
+          <CompareRow label="Pages & Dreams" nest="no" home="yes" castle="yes" />
+          <CompareRow label="Kaya Business" sublabel="kid micro-enterprises" nest="no" home={`Add-on ${toLocal(300)}/mo`} castle="yes" />
+          <CompareRow label="Kaya Wealth" sublabel="asset & property registry" nest="no" home={`Add-on ${toLocal(400)}/mo`} castle="yes" />
+          <CompareRow label="Chef, Wellness, Grow, Letter…" nest="no" home={`From ${toLocal(100)}/mo`} castle="yes" last />
+        </div>
+
+        {/* Add-ons */}
+        <div className="mb-5">
+          <h2 className="text-[22px] font-black mb-1" style={{ color: NAVY }}>
+            Power up with Home add-ons
+          </h2>
+          <p className="text-[14px] font-semibold" style={{ color: MUTED }}>
+            Add exactly what your family needs.{' '}
+            <strong style={{ color: GOLD }}>All included free in Castle.</strong>
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {DEFAULT_ADDONS.map((addon) => (
+            <div
+              key={addon.id}
+              className="rounded-2xl p-4 transition-all"
+              style={{
+                background: 'white',
+                border: '1.5px solid rgba(15,31,68,0.08)',
+              }}
+            >
+              <div
+                className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center text-[20px] mb-2.5"
+                style={{ background: addon.emojiBg }}
+              >
+                {addon.emoji}
+              </div>
+              <div className="text-[13px] font-black mb-1" style={{ color: NAVY }}>
+                {addon.name}
+              </div>
+              <p className="text-[11px] font-semibold leading-[1.45] mb-2.5" style={{ color: MUTED }}>
+                {addon.description}
+              </p>
+              <div className="text-[14px] font-black" style={{ color: NAVY }}>
+                {toLocal(addon.priceMonthly)}
+                <span className="text-[11px] font-semibold ml-1" style={{ color: MUTED }}>
+                  /month
+                </span>
+              </div>
+              {currency !== 'USD' && (
+                <div className="text-[10px] font-semibold mt-0.5" style={{ color: MUTED, opacity: 0.7 }}>
+                  ≈ ${(addon.priceMonthly / 100).toFixed(addon.priceMonthly % 100 === 0 ? 0 : 2)} USD
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div
+          className="text-center text-[13px] font-semibold leading-[1.65] pt-6 mt-12"
+          style={{ color: MUTED, borderTop: '1px solid rgba(15,31,68,0.08)' }}
+        >
+          Prices billed in USD; shown in your home currency ({currency}) for reference.
+          <br />
+          Yearly plans billed as a single annual charge.
+          <br />
+          Questions about upgrading?{' '}
+          <a
+            href="mailto:hello@ourkaya.com?subject=Question%20about%20Kaya%20plans"
+            style={{ color: GOLD, fontWeight: 800, textDecoration: 'none' }}
+          >
+            hello@ourkaya.com
+          </a>{' '}
+          — we respond same day. 🌻
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────
+
+function BillingButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-full text-[13px] font-extrabold px-5 py-2 transition-all"
+      style={{
+        background: active ? 'white' : 'transparent',
+        color: active ? NAVY : MUTED,
+        boxShadow: active ? '0 2px 10px rgba(15,31,68,0.1)' : 'none',
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TierCard({
+  tierId,
+  isCurrent,
+  perMonthLocal,
+  perMonthUsdCents,
+  yearlyTotalLocal,
+  yearlyTotalUsdCents,
+  cycle,
+  currency,
+}: {
+  tierId: SubscriptionTierId;
+  isCurrent: boolean;
+  perMonthLocal: string;
+  perMonthUsdCents: number;
+  yearlyTotalLocal: string;
+  yearlyTotalUsdCents: number;
+  cycle: BillingCycle;
+  currency: string;
+}) {
+  const tier = DEFAULT_TIERS[tierId];
+  const isFree = tier.priceMonthly === 0;
+
+  // Style variants per tier
+  const variant = tierId === 'home' ? 'home' : tierId === 'castle' ? 'castle' : 'nest';
+
+  const cardStyle: React.CSSProperties = {
+    nest: {
+      background: 'white',
+      border: '1.5px solid rgba(15,31,68,0.09)',
+      boxShadow: '0 4px 20px rgba(15,31,68,0.04)',
+      color: NAVY,
+    },
+    home: {
+      background: NAVY,
+      color: 'white',
+      transform: 'translateY(-10px)',
+      boxShadow: '0 28px 72px rgba(15,31,68,0.22)',
+    },
+    castle: {
+      background: 'linear-gradient(148deg, #14255a 0%, #0F1F44 55%, #0a1837 100%)',
+      color: 'white',
+      border: '1.5px solid rgba(212,168,71,0.28)',
+      boxShadow: '0 4px 24px rgba(212,168,71,0.08)',
+    },
+  }[variant];
+
+  const textOpacity = variant === 'nest' ? 0.55 : 0.55;
+
+  return (
+    <div
+      className="rounded-3xl px-5 pt-7 pb-6 relative"
+      style={cardStyle}
+    >
+      {/* Top badge slot */}
+      <div className="min-h-[28px] mb-4 flex items-center">
+        {isCurrent && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full text-[11px] font-extrabold px-3 py-1"
+            style={{
+              background: 'rgba(91,184,91,0.12)',
+              color: '#4CAF50',
+              border: '1px solid rgba(91,184,91,0.3)',
+            }}
+          >
+            ✓ Your current plan
+          </span>
+        )}
+        {!isCurrent && variant === 'home' && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full text-[11px] font-extrabold px-3 py-1"
+            style={{ background: 'rgba(212,168,71,0.18)', color: GOLD }}
+          >
+            ⭐ Most families
+          </span>
+        )}
+        {!isCurrent && variant === 'castle' && (
+          <span
+            className="inline-flex items-center gap-1 rounded-full text-[11px] font-extrabold px-3 py-1"
+            style={{ background: 'rgba(212,168,71,0.12)', color: '#C89F3A' }}
+          >
+            🏰 Full access
+          </span>
+        )}
+      </div>
+
+      <span className="text-[30px] mb-2 block leading-none">{tier.emoji}</span>
+      <div className="text-[19px] font-black mb-0.5">{tier.name}</div>
+      <div className="text-[12px] font-semibold mb-5" style={{ opacity: textOpacity }}>
+        {tier.tagline}
+      </div>
+
+      {/* Price */}
+      <div className="flex items-baseline gap-1 mb-1">
+        <span className="text-[32px] sm:text-[36px] font-black leading-none break-words">
+          {isFree ? formatCents(0, currency) : perMonthLocal}
+        </span>
+        <span className="text-[14px] font-bold" style={{ opacity: 0.55 }}>
+          /month
+        </span>
+      </div>
+      {/* Subtext: USD reference + yearly billed total */}
+      <div className="text-[11px] font-bold min-h-[34px] mb-5" style={{ opacity: 0.45 }}>
+        {!isFree && currency !== 'USD' && (
+          <div>
+            ≈ ${(perMonthUsdCents / 100).toFixed(perMonthUsdCents % 100 === 0 ? 0 : 2)} USD
+          </div>
+        )}
+        {!isFree && cycle === 'yearly' && (
+          <div>
+            billed {yearlyTotalLocal}/year
+            {currency !== 'USD' && (
+              <> · ${(yearlyTotalUsdCents / 100).toFixed(yearlyTotalUsdCents % 100 === 0 ? 0 : 2)} USD</>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Divider */}
+      <div
+        className="h-px my-4"
+        style={{
+          background: variant === 'nest' ? 'rgba(15,31,68,0.07)' : 'rgba(255,255,255,0.1)',
+        }}
+      />
+
+      {/* Features */}
+      <Features tierId={tierId} variant={variant} />
+
+      {/* CTA */}
+      <CtaButton tierId={tierId} variant={variant} isCurrent={isCurrent} />
+    </div>
+  );
+}
+
+function Features({ tierId, variant }: { tierId: SubscriptionTierId; variant: 'nest' | 'home' | 'castle' }) {
+  const items: { yes: boolean; text: string }[] =
+    tierId === 'nest'
+      ? [
+          { yes: true, text: '4 family members' },
+          { yes: true, text: '1 helper (nanny, tutor)' },
+          { yes: true, text: '30-day activity history' },
+          { yes: true, text: 'Kaya core, Moments, Fun' },
+          { yes: true, text: 'Kaya Sparks community' },
+          { yes: false, text: 'The Hive (coins & vault)' },
+          { yes: false, text: 'Household, Business, Wealth…' },
+        ]
+      : tierId === 'home'
+        ? [
+            { yes: true, text: '8 members · 3 helpers' },
+            { yes: true, text: '1-year activity history' },
+            { yes: true, text: 'The Hive — Honey Coins & vault' },
+            { yes: true, text: 'Household, Pages & Dreams' },
+            { yes: true, text: 'Everything in Nest' },
+            { yes: true, text: 'À-la-carte add-ons available' },
+          ]
+        : [
+            { yes: true, text: 'Unlimited members & helpers' },
+            { yes: true, text: 'History forever' },
+            { yes: true, text: 'All 15 modules unlocked' },
+            { yes: true, text: 'All add-ons included free' },
+            { yes: true, text: 'Priority support from us' },
+          ];
+
+  return (
+    <ul className="flex flex-col gap-2.5 mb-6 list-none">
+      {items.map((it, i) => (
+        <li key={i} className="flex items-start gap-2 text-[12.5px] font-bold leading-[1.4]">
+          <span
+            className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-black mt-0.5 flex-shrink-0"
+            style={
+              it.yes
+                ? variant === 'nest'
+                  ? { background: 'rgba(91,184,91,0.13)', color: '#4CAF50' }
+                  : { background: 'rgba(212,168,71,0.2)', color: GOLD }
+                : variant === 'nest'
+                  ? { background: 'rgba(15,31,68,0.06)', color: 'rgba(15,31,68,0.25)' }
+                  : { background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.25)' }
+            }
+          >
+            {it.yes ? '✓' : '✗'}
+          </span>
+          <span style={{ opacity: it.yes ? 0.88 : 0.3 }}>{it.text}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CtaButton({
+  tierId,
+  variant,
+  isCurrent,
+}: {
+  tierId: SubscriptionTierId;
+  variant: 'nest' | 'home' | 'castle';
+  isCurrent: boolean;
+}) {
+  const tier = DEFAULT_TIERS[tierId];
+
+  if (isCurrent) {
+    return (
+      <button
+        disabled
+        className="w-full rounded-2xl text-[13.5px] font-black py-3.5 cursor-default"
+        style={
+          variant === 'nest'
+            ? { background: 'rgba(15,31,68,0.06)', color: 'rgba(15,31,68,0.4)' }
+            : { background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.65)' }
+        }
+      >
+        ✓ Your current plan
+      </button>
+    );
+  }
+
+  const subject = `Upgrade to ${tier.name}`;
+  const href = `mailto:hello@ourkaya.com?subject=${encodeURIComponent(subject)}`;
+
+  if (variant === 'home') {
+    return (
+      <a
+        href={href}
+        className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
+        style={{ background: GOLD, color: NAVY }}
+      >
+        Upgrade to Home →
+      </a>
+    );
+  }
+
+  if (variant === 'castle') {
+    return (
+      <a
+        href={href}
+        className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
+        style={{
+          background: 'rgba(212,168,71,0.12)',
+          color: GOLD,
+          border: '1px solid rgba(212,168,71,0.32)',
+        }}
+      >
+        Go Castle →
+      </a>
+    );
+  }
+
+  // Nest CTA (not current) — only shown if family is on a paid tier and viewing
+  // the free option. Treat as a downgrade ("Switch to Nest").
+  return (
+    <a
+      href={`mailto:hello@ourkaya.com?subject=${encodeURIComponent('Switch to Kaya Nest')}`}
+      className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
+      style={{ background: 'rgba(15,31,68,0.07)', color: NAVY }}
+    >
+      Switch to Nest
+    </a>
+  );
+}
+
+// ── Compare table parts ────────────────────────────────────────────
+
+function CompareHeader() {
+  return (
+    <div
+      className="grid items-center gap-2 pb-1"
+      style={{ gridTemplateColumns: '1fr 90px 90px 90px' }}
+    >
+      <div />
+      <div className="text-center text-[11px] font-black uppercase tracking-wider" style={{ color: MUTED }}>
+        Nest
+      </div>
+      <div className="text-center text-[11px] font-black uppercase tracking-wider" style={{ color: GOLD }}>
+        Home
+      </div>
+      <div className="text-center text-[11px] font-black uppercase tracking-wider" style={{ color: MUTED }}>
+        Castle
+      </div>
+    </div>
+  );
+}
+
+function CompareRow({
+  label,
+  sublabel,
+  nest,
+  home,
+  castle,
+  last = false,
+}: {
+  label: string;
+  sublabel?: string;
+  nest: string;
+  home: string;
+  castle: string;
+  last?: boolean;
+}) {
+  const cellRender = (val: string, prominent = false) => {
+    if (val === 'yes') return <span className="text-[14px]" style={{ color: '#4CAF50' }}>✓</span>;
+    if (val === 'no')  return <span className="text-[14px]" style={{ color: 'rgba(15,31,68,0.2)' }}>—</span>;
+    if (val.startsWith('Add-on') || val.startsWith('From')) {
+      return <span className="text-[10px] font-black" style={{ color: GOLD }}>{val}</span>;
+    }
+    return (
+      <span className="text-[12.5px] font-extrabold" style={{ color: prominent ? GOLD : NAVY }}>
+        {val}
+      </span>
+    );
+  };
+
+  return (
+    <div
+      className="grid items-center gap-2 py-2.5"
+      style={{
+        gridTemplateColumns: '1fr 90px 90px 90px',
+        borderBottom: last ? 'none' : '1px solid rgba(15,31,68,0.05)',
+      }}
+    >
+      <div>
+        <div className="text-[12px] font-black" style={{ color: NAVY }}>
+          {label}
+        </div>
+        {sublabel && (
+          <div className="text-[11px] font-semibold" style={{ color: MUTED }}>
+            {sublabel}
+          </div>
+        )}
+      </div>
+      <div className="text-center">{cellRender(nest)}</div>
+      <div className="text-center">{cellRender(home, true)}</div>
+      <div className="text-center">{cellRender(castle)}</div>
+    </div>
+  );
+}

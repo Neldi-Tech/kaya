@@ -40,12 +40,12 @@ function Upsell({ moduleId, currentTierName }: { moduleId: ModuleId; currentTier
             : <>Upgrade to Home or Castle to use it.</>}
         </p>
         <div className="mt-6 flex flex-col gap-2.5">
-          <a
-            href="mailto:hello@ourkaya.com?subject=Upgrade%20my%20Kaya%20plan"
+          <Link
+            href="/settings/subscription"
             className="bg-[#D4A847] text-[#0F1F44] px-5 py-3 rounded-xl font-extrabold text-[14px]"
           >
-            Email us to upgrade →
-          </a>
+            See plans &amp; upgrade →
+          </Link>
           <Link
             href="/home"
             className="text-[#6E7791] font-semibold text-[13px]"
