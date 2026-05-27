@@ -222,8 +222,9 @@ export default function PantryHomePage() {
             tooltip="Self-service: each helper requests their own advance / loan / bonus. Private to them."
             badge={openByModule.payroll} />
         )}
-        {/* Dine Out + Home — infrequent but essential; tucked behind a
-            "More" toggle so the frequent tiles stay front (2026-05-23). */}
+        {/* Dine Out + Home + Subs + Contribs — infrequent but essential;
+            tucked behind a "More" toggle so the frequent tiles stay
+            front (2026-05-23; Subs + Contribs surfaced 2026-05-27). */}
         {!isHelper && showMoreModules && (
           <>
             <Tile href="/pantry/dine-out" emoji="🍽️" label="Dine Out" sub="Restaurants · takeaway · coffee"
@@ -234,6 +235,12 @@ export default function PantryHomePage() {
               tint="bg-[#F6EBDD] border-[#E0C4A3] hover:border-[#9B6B3F]" subColor="text-[#9B6B3F]"
               tooltip="Furniture, appliances, décor, fittings + self-care / wellness — mostly parent."
               badge={openByModule.home} />
+            <Tile href="/household/subscriptions" emoji="🔁" label="Subscriptions" sub="Apps · memberships · streaming"
+              tint="bg-pulse-cream border-pulse-navy/20 hover:border-pulse-navy" subColor="text-pulse-navy"
+              tooltip="Recurring household subscriptions — apps, memberships, streaming, property dues. Auto vs Manual reminders." />
+            <Tile href="/household/contributions" emoji="🤲" label="Contributions" sub="Tithe · msiba · charity"
+              tint="bg-pulse-gold/10 border-pulse-gold/35 hover:border-pulse-gold" subColor="text-pulse-gold"
+              tooltip="Tithes, contributions, charity, family support. Parents-only by default with a tithe-% shortcut." />
           </>
         )}
         {!isHelper && (
@@ -242,7 +249,7 @@ export default function PantryHomePage() {
             onClick={() => setShowMoreModules((v) => !v)}
             className="col-span-2 rounded-hive border border-dashed border-hive-line bg-hive-paper py-3 font-nunito font-extrabold text-[12px] text-hive-muted hover:border-hive-navy hover:text-hive-navy transition-colors"
           >
-            {showMoreModules ? '− Show less' : '··· More · Dine Out, Home & Wellness'}
+            {showMoreModules ? '− Show less' : '··· More · Dine Out, Home, Subs, Contribs'}
           </button>
         )}
       </div>

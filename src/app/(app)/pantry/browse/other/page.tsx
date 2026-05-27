@@ -34,6 +34,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { usePantry } from '@/contexts/PantryContext';
 import { useHive } from '@/contexts/HiveContext';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
   OUTDOOR_CATEGORIES, UTILITY_REQUEST_CATEGORIES, PAYROLL_CATEGORIES,
@@ -52,6 +53,15 @@ import {
 import {
   type Vehicle, subscribeToVehicles,
 } from '@/lib/vehicles';
+import {
+  type CatalogueSubItem, type CatalogueContribItem,
+  subscribeToCatalogueSubs, subscribeToCatalogueContribs,
+  recordSubCatalogueUse, recordContribCatalogueUse,
+} from '@/lib/householdCatalogue';
+import {
+  type GlobalSubItem, type GlobalContribItem,
+  filterGlobalSubsForCountry, filterGlobalContribsForCountry,
+} from '@/lib/globalCatalogue';
 import { formatCents } from '@/components/pantry/format';
 import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 
@@ -62,8 +72,10 @@ export default function OtherCataloguePage() {
   const { staples, utilities } = usePantry();
   const { config } = useHive();
   const { profile, isGuest } = useAuth();
+  const { family } = useFamily();
   const confirmAction = useConfirm();
   const currency = config.currency;
+  const country = family?.location?.country || 'TZ';
   // 2026-05-19 — gate tabs by helper grants so a helper without (e.g.)
   // 'household:drivers' doesn't see the Drivers tab here either. Parents
   // and legacy helpers see all four; loading state hides until resolved.
@@ -80,6 +92,21 @@ export default function OtherCataloguePage() {
     if (!profile?.familyId) return;
     return subscribeToVehicles(profile.familyId, setVehicles);
   }, [profile?.familyId]);
+
+  // ── Family-side catalogue (per-family copies) — used to dedupe the
+  // global suggestions: if Netflix is already in this family's catalogue,
+  // hide it from the global list. Subs are readable by all family
+  // members; contribs are parent-only by Firestore rules.
+  const [familySubs, setFamilySubs] = useState<CatalogueSubItem[]>([]);
+  const [familyContribs, setFamilyContribs] = useState<CatalogueContribItem[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    return subscribeToCatalogueSubs(profile.familyId, setFamilySubs);
+  }, [profile?.familyId]);
+  useEffect(() => {
+    if (!profile?.familyId || profile.role !== 'parent') return;
+    return subscribeToCatalogueContribs(profile.familyId, setFamilyContribs);
+  }, [profile?.familyId, profile?.role]);
 
   // If the current tab is no longer allowed (helper without grant or
   // grants resolved to a smaller set), snap to the first allowed tab.
@@ -352,41 +379,37 @@ export default function OtherCataloguePage() {
         </div>
       </div>
 
-      {/* ── Subscriptions: redirect to the dedicated catalogue ────── */}
-      {tab === 'subscriptions' && (
-        <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-5 text-center">
-          <div className="text-3xl mb-1">🔁</div>
-          <h3 className="font-nunito font-black text-base text-hive-navy">
-            Subscriptions live in their own catalogue
-          </h3>
-          <p className="text-hive-muted text-sm mt-1 mb-3">
-            Apps, memberships, streaming, property dues — managed under <strong>Household → Subscriptions</strong>, with Auto/Manual toggle, catalogue search, and FX-locked entry.
-          </p>
-          <Link
-            href="/household/subscriptions"
-            className="inline-flex items-center gap-1.5 bg-pulse-navy text-pulse-cream rounded-hive px-4 py-2 font-nunito font-black text-sm no-underline"
-          >
-            Open Subscriptions →
-          </Link>
-        </div>
+      {/* ── Subscriptions: country-filtered global library ─────────── */}
+      {tab === 'subscriptions' && profile?.familyId && (
+        <SubscriptionsBrowse
+          familyId={profile.familyId}
+          country={country}
+          query={query}
+          isGuest={isGuest}
+          isParent={profile.role === 'parent'}
+          familySubs={familySubs}
+        />
       )}
 
-      {/* ── Contributions: redirect to the dedicated catalogue ────── */}
-      {tab === 'contributions' && (
+      {/* ── Contributions: parents only · country-filtered global library ── */}
+      {tab === 'contributions' && profile?.familyId && profile.role === 'parent' && (
+        <ContributionsBrowse
+          familyId={profile.familyId}
+          country={country}
+          query={query}
+          isGuest={isGuest}
+          familyContribs={familyContribs}
+        />
+      )}
+      {tab === 'contributions' && profile?.role !== 'parent' && (
         <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-5 text-center">
           <div className="text-3xl mb-1">🤲</div>
           <h3 className="font-nunito font-black text-base text-hive-navy">
-            Contributions live in their own catalogue
+            Parents-only
           </h3>
-          <p className="text-hive-muted text-sm mt-1 mb-3">
-            Tithes, msiba, charity, family support — managed under <strong>Household → Contributions</strong>. Parents-only by default, with the tithe% shortcut and occasion grouping.
+          <p className="text-hive-muted text-sm mt-1">
+            Contributions are private by default — only parents can see the catalogue.
           </p>
-          <Link
-            href="/household/contributions"
-            className="inline-flex items-center gap-1.5 bg-pulse-navy text-pulse-cream rounded-hive px-4 py-2 font-nunito font-black text-sm no-underline"
-          >
-            Open Contributions →
-          </Link>
         </div>
       )}
 
@@ -928,6 +951,256 @@ function ordinalDay(n: number): string {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Global library browsers — Subscriptions + Contributions
+// ─────────────────────────────────────────────────────────────────────
+//
+// Both render the curated GLOBAL_*_ITEMS list filtered to `country`,
+// hide items already in the family's catalogue, search on the existing
+// query box, and copy the picked item into the per-family catalogue
+// via the existing recordSubCatalogueUse / recordContribCatalogueUse
+// helpers. After-add, the subscription appears in the new-entry
+// form's CatalogueSearch dropdown without extra wiring.
+
+function SubscriptionsBrowse({
+  familyId, country, query, isGuest, isParent, familySubs,
+}: {
+  familyId: string;
+  country: string;
+  query: string;
+  isGuest: boolean;
+  isParent: boolean;
+  familySubs: CatalogueSubItem[];
+}) {
+  const list = useMemo(() => {
+    const familyNames = new Set(familySubs.map((s) => s.name.toLowerCase()));
+    const all = filterGlobalSubsForCountry(country)
+      .filter((it) => !familyNames.has(it.name.toLowerCase()));
+    if (!query) return all;
+    return all.filter((it) =>
+      it.name.toLowerCase().includes(query)
+      || it.subCategory.toLowerCase().includes(query)
+      || it.category.toLowerCase().includes(query));
+  }, [country, query, familySubs]);
+
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+        <div className="text-2xl">🔁</div>
+        <div className="flex-1 min-w-0">
+          <p className="font-nunito font-extrabold text-sm text-hive-navy">
+            Common subscriptions worldwide
+          </p>
+          <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+            Tap one to add it to your family catalogue · {familySubs.length} already saved
+          </p>
+        </div>
+        <Link
+          href="/household/subscriptions"
+          className="flex-shrink-0 bg-pulse-navy text-pulse-cream rounded-full px-3 py-1.5 font-nunito font-black text-[11px] no-underline"
+        >
+          Open →
+        </Link>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-5 text-center text-hive-muted text-sm">
+          {query
+            ? <>No matches in the global library. <Link href="/household/subscriptions/new" className="text-pantry-leaf-dk font-bold underline">Add a custom one</Link>.</>
+            : <>Everything common in your country is already in your catalogue 🎉</>}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {list.map((it) => (
+            <GlobalSubRow
+              key={it.id}
+              item={it}
+              familyId={familyId}
+              disabled={isGuest || !isParent}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GlobalSubRow({
+  item, familyId, disabled,
+}: {
+  item: GlobalSubItem;
+  familyId: string;
+  disabled: boolean;
+}) {
+  const { family } = useFamily();
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
+
+  const add = async () => {
+    if (disabled || adding || added) return;
+    setAdding(true);
+    try {
+      await recordSubCatalogueUse(familyId, {
+        name: item.name,
+        category: item.category,
+        subCategory: item.subCategory,
+        defaultCurrency: householdCurrency,
+      });
+      setAdded(true);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[browse-globals] add sub failed:', e);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+      <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">
+        {item.emoji}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{item.name}</div>
+        <div className="text-[11px] text-hive-muted font-bold mt-0.5 truncate">
+          {item.subCategory}
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={disabled || adding || added}
+        onClick={add}
+        className={`flex-shrink-0 rounded-full px-3 py-1.5 text-[11px] font-nunito font-black border disabled:opacity-50 ${
+          added
+            ? 'bg-pantry-leaf text-white border-pantry-leaf'
+            : 'bg-pantry-leaf-soft text-pantry-leaf-dk border-pantry-leaf/30 hover:bg-pantry-leaf/15'
+        }`}
+      >
+        {added ? '✓ Added' : adding ? '…' : '＋ Add'}
+      </button>
+    </div>
+  );
+}
+
+function ContributionsBrowse({
+  familyId, country, query, isGuest, familyContribs,
+}: {
+  familyId: string;
+  country: string;
+  query: string;
+  isGuest: boolean;
+  familyContribs: CatalogueContribItem[];
+}) {
+  const list = useMemo(() => {
+    const familyNames = new Set(familyContribs.map((c) => c.recipientName.toLowerCase()));
+    const all = filterGlobalContribsForCountry(country)
+      .filter((it) => !familyNames.has(it.recipientName.toLowerCase()));
+    if (!query) return all;
+    return all.filter((it) =>
+      it.recipientName.toLowerCase().includes(query)
+      || it.subCategory.toLowerCase().includes(query)
+      || it.category.toLowerCase().includes(query));
+  }, [country, query, familyContribs]);
+
+  return (
+    <div className="mt-3 flex flex-col gap-3">
+      <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+        <div className="text-2xl">🤲</div>
+        <div className="flex-1 min-w-0">
+          <p className="font-nunito font-extrabold text-sm text-hive-navy">
+            Common contributions in {country}
+          </p>
+          <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+            Tap one to add it to your family catalogue · {familyContribs.length} already saved
+          </p>
+        </div>
+        <Link
+          href="/household/contributions"
+          className="flex-shrink-0 bg-pulse-navy text-pulse-cream rounded-full px-3 py-1.5 font-nunito font-black text-[11px] no-underline"
+        >
+          Open →
+        </Link>
+      </div>
+
+      {list.length === 0 ? (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-5 text-center text-hive-muted text-sm">
+          {query
+            ? <>No matches in the global library. <Link href="/household/contributions/new" className="text-pantry-leaf-dk font-bold underline">Add a custom one</Link>.</>
+            : <>Everything common in your country is already in your catalogue 🎉</>}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {list.map((it) => (
+            <GlobalContribRow
+              key={it.id}
+              item={it}
+              familyId={familyId}
+              disabled={isGuest}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GlobalContribRow({
+  item, familyId, disabled,
+}: {
+  item: GlobalContribItem;
+  familyId: string;
+  disabled: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [added, setAdded] = useState(false);
+
+  const add = async () => {
+    if (disabled || adding || added) return;
+    setAdding(true);
+    try {
+      await recordContribCatalogueUse(familyId, {
+        recipientName: item.recipientName,
+        recipientType: item.recipientType,
+        category: item.category,
+        subCategory: item.subCategory,
+      });
+      setAdded(true);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[browse-globals] add contrib failed:', e);
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
+      <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-lg flex-shrink-0">
+        {item.emoji}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{item.recipientName}</div>
+        <div className="text-[11px] text-hive-muted font-bold mt-0.5 truncate">
+          {item.subCategory}
+        </div>
+      </div>
+      <button
+        type="button"
+        disabled={disabled || adding || added}
+        onClick={add}
+        className={`flex-shrink-0 rounded-full px-3 py-1.5 text-[11px] font-nunito font-black border disabled:opacity-50 ${
+          added
+            ? 'bg-pantry-leaf text-white border-pantry-leaf'
+            : 'bg-pantry-leaf-soft text-pantry-leaf-dk border-pantry-leaf/30 hover:bg-pantry-leaf/15'
+        }`}
+      >
+        {added ? '✓ Added' : adding ? '…' : '＋ Add'}
+      </button>
+    </div>
+  );
 }
 
 // Suppress unused-import warnings — these types are used by the

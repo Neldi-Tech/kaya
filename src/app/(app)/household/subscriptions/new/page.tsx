@@ -25,6 +25,8 @@ import {
   subscribeToCatalogueSubs, recordSubCatalogueUse,
   type CatalogueSubItem,
 } from '@/lib/householdCatalogue';
+import { filterGlobalSubsForCountry } from '@/lib/globalCatalogue';
+import { Timestamp } from 'firebase/firestore';
 import { AutoManualToggle } from '@/components/household/AutoManualToggle';
 import { CatalogueSearch, type CatalogueSelection } from '@/components/household/CatalogueSearch';
 import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/household/CurrencyAmountInput';
@@ -77,6 +79,31 @@ export default function NewSubscriptionPage() {
 
   // ── Form state ──
   const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
+  const country = family?.location?.country || 'TZ';
+
+  // Merge family catalogue with the global curated library so users see
+  // common services (Netflix, Spotify, DStv…) on first add. Globals are
+  // tagged with `global:<id>` so the submit handler treats them as new
+  // family entries rather than passing the synthetic id to Firestore.
+  const mergedCatalogue = useMemo<CatalogueSubItem[]>(() => {
+    const familyNames = new Set(catalogue.map((c) => c.name.toLowerCase()));
+    const epoch = Timestamp.fromMillis(0);
+    const globals = filterGlobalSubsForCountry(country)
+      .filter((g) => !familyNames.has(g.name.toLowerCase()))
+      .map<CatalogueSubItem>((g) => ({
+        id: `global:${g.id}`,
+        name: g.name,
+        category: g.category,
+        subCategory: g.subCategory,
+        defaultPlatform: g.defaultPlatform,
+        defaultCurrency: householdCurrency,
+        iconKey: g.emoji,
+        hideFromSuggestions: false,
+        usageCount: 0,
+        createdAt: epoch,
+      }));
+    return [...catalogue, ...globals];
+  }, [catalogue, country, householdCurrency]);
   const [selection, setSelection]   = useState<CatalogueSelection>({ id: null, name: '' });
   const [category, setCategory]     = useState<SubscriptionCategory>('mobile_apps');
   const [subCategory, setSubCategory] = useState<string>(SUBSCRIPTION_SUBCATEGORIES.mobile_apps[0]);
@@ -141,7 +168,13 @@ export default function NewSubscriptionPage() {
     setSubmitting(true);
     setError(null);
     try {
-      // 1. Record catalogue use (best-effort, before parent write)
+      // 1. Record catalogue use (best-effort, before parent write).
+      // A `global:` id means the user picked a curated global suggestion
+      // that doesn't exist in the family catalogue yet — treat it as a
+      // fresh entry (no existingId).
+      const existingId = selection.id && !selection.id.startsWith('global:')
+        ? selection.id
+        : undefined;
       const catId = await recordSubCatalogueUse(
         profile.familyId,
         {
@@ -150,7 +183,7 @@ export default function NewSubscriptionPage() {
           subCategory,
           defaultCurrency: amount.currency,
         },
-        selection.id ?? undefined,
+        existingId,
       );
 
       // 2. Server write of the subscription + first cycle
@@ -207,7 +240,7 @@ export default function NewSubscriptionPage() {
 
         {/* Catalogue search → name */}
         <CatalogueSearch
-          items={catalogue}
+          items={mergedCatalogue}
           value={selection}
           onChange={setSelection}
         />
