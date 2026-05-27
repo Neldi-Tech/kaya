@@ -42,7 +42,7 @@ export default function HouseholdLandingPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <HouseholdCard
           href="/household/contributions"
-          emoji="🤝"
+          emoji="🤲"
           title="Contributions"
           blurb="Gifts, tithes, condolences (msiba), charity, family support."
         />

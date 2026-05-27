@@ -89,7 +89,7 @@ export default function ContributionsListPage() {
 function EmptyState() {
   return (
     <div className="rounded-kaya bg-pulse-cream border border-pulse-navy/10 px-6 py-10 text-center">
-      <div className="text-4xl">🤝</div>
+      <div className="text-4xl">🤲</div>
       <h2 className="mt-3 font-display text-xl font-extrabold text-pulse-navy">
         No contributions logged yet
       </h2>

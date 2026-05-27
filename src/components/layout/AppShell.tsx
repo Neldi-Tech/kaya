@@ -207,7 +207,7 @@ const HOUSEHOLD_NAV: NavItem[] = [
   // Two new top-level Household sub-modules per the 05-27 spec. Contributions
   // sits first per Elia's nav order. Routes live under /household/* (separate
   // from /pantry/* which keeps the existing request → approve loop).
-  { path: '/household/contributions', icon: '🤝', label: 'Contributions',
+  { path: '/household/contributions', icon: '🤲', label: 'Contributions',
     tooltip: 'Gifts, tithes, msiba, charity, family support. Parents-only by default.' },
   { path: '/household/subscriptions', icon: '🔁', label: 'Subscriptions',
     tooltip: 'Recurring + one-off subscriptions — apps, memberships, media, property dues.' },
