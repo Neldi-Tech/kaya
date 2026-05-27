@@ -1,4 +1,4 @@
-// Trigger a real file download from a remote image URL.
+// Trigger a real file download from a remote URL (image, document, etc.).
 //
 // Using a plain `<a href=... target="_blank">` (or `<a download>` on a
 // cross-origin URL) navigates the browser to the Firebase Storage URL,

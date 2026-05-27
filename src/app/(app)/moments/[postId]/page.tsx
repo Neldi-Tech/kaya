@@ -41,8 +41,8 @@ export default function PostDetailPage() {
     setDownloadingId(photoId);
     try {
       await downloadImage(fullUrl, suggestedPhotoFilename(post?.createdAt));
-    } catch {
-      window.open(fullUrl, '_blank', 'noreferrer');
+    } catch (err) {
+      console.error('Photo download failed', err);
     } finally {
       setDownloadingId(null);
     }

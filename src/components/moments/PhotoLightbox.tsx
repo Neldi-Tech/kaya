@@ -41,8 +41,8 @@ export default function PhotoLightbox({ photos, index, onPrev, onNext, onClose }
     setDownloading(true);
     try {
       await downloadImage(photo.fullUrl, suggestedPhotoFilename(photo.uploadedAt));
-    } catch {
-      window.open(photo.fullUrl, '_blank', 'noreferrer');
+    } catch (err) {
+      console.error('Photo download failed', err);
     } finally {
       setDownloading(false);
     }
