@@ -315,6 +315,11 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages', activePrefixes: ['/messages'] },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KAYA_NAV },
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
+  // Kaya Sparks — kids education. Sits between Household and Hive per
+  // the locked nav placement in `Kaya-Sparks_Design-Spec_2026-05-27.md`
+  // (decision #5). Top-level link; sub-routes (5 areas + dashboard +
+  // setup) render inside the /sparks subtree.
+  { kind: 'link',    id: 'sparks',    path: '/sparks', icon: '✨', label: 'Kaya Sparks' },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
   { kind: 'section', id: 'pulse',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
@@ -372,6 +377,8 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
+  // Sparks placement mirrors the parent sidebar — between Household and Hive.
+  { kind: 'link',    id: 'sparks',    path: '/sparks',    icon: '✨', label: 'Kaya Sparks' },
   { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
   { kind: 'link',    id: 'business',  path: '/business',  icon: '💼', label: 'Kaya Business' },
   { kind: 'link',    id: 'pulse',     path: '/pulse/today', iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
@@ -1203,6 +1210,7 @@ function deriveBackParent(pathname: string | null, homePath: string): { label: s
     admin: 'Admin',
     settings: 'Settings',
     buzz: 'Buzz',
+    sparks: 'Sparks',
     meetings: 'Meetings',
     moments: 'Moments',
     messages: 'Messages',
