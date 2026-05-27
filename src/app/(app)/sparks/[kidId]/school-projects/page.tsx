@@ -10,12 +10,17 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  subscribeToAreaItems, subscribeToSparksProfile,
+  ratingsByItemId, subscribeToAreaItems, subscribeToKidRatings,
+  subscribeToSparksProfile,
 } from '@/lib/sparks/firestore';
-import type { SparksItem, SparksProfile } from '@/lib/sparks/schema';
+import type {
+  SparksItem, SparksProfile, SparksRating,
+} from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/AreaScreen';
 import CaptureSheet from '@/components/sparks/CaptureSheet';
+import RatingSheet from '@/components/sparks/RatingSheet';
+import RatingDisplay from '@/components/sparks/RatingDisplay';
 
 // Gradient backdrops for photo-less tiles — rotates so the gallery
 // reads as bright + varied even before photos land. Pulled from the
@@ -38,6 +43,9 @@ export default function SchoolProjectsPage() {
   const [items, setItems] = useState<SparksItem[]>([]);
   const [profile, setProfile] = useState<SparksProfile | null>(null);
   const [openCapture, setOpenCapture] = useState(false);
+  const [ratings, setRatings] = useState<SparksRating[]>([]);
+  const [rateItem, setRateItem] = useState<SparksItem | null>(null);
+  const isParent = authProfile?.role === 'parent';
 
   useEffect(() => {
     if (!familyId || !kidId) return;
@@ -48,6 +56,13 @@ export default function SchoolProjectsPage() {
     if (!familyId || !kidId) return;
     return subscribeToSparksProfile(familyId, kidId, setProfile);
   }, [familyId, kidId]);
+
+  useEffect(() => {
+    if (!familyId || !kidId) return;
+    return subscribeToKidRatings(familyId, kidId, setRatings);
+  }, [familyId, kidId]);
+
+  const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
 
   if (!familyId || !kid) {
     return <div className="min-h-screen bg-[#FFFBF5] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
@@ -119,6 +134,15 @@ export default function SchoolProjectsPage() {
                       {it.subject}
                     </div>
                   )}
+                  {/* Rating — optional on school projects. Most parents
+                      just capture for the gallery; the ones who want to
+                      mark a stand-out can tap. */}
+                  {(() => {
+                    const latest = ratingsMap.get(it.id)?.[0] ?? null;
+                    if (latest) return <RatingDisplay rating={latest} onTap={() => isParent && setRateItem(it)} />;
+                    if (isParent) return <RatingDisplay rating={null} onTap={() => setRateItem(it)} />;
+                    return null;
+                  })()}
                 </div>
               );
             })}
@@ -136,6 +160,17 @@ export default function SchoolProjectsPage() {
         profile={profile}
         uid={authProfile.uid}
       />
+
+      {rateItem && (
+        <RatingSheet
+          open={!!rateItem}
+          onClose={() => setRateItem(null)}
+          familyId={familyId}
+          item={rateItem}
+          parentUid={authProfile.uid}
+          mode="stars"
+        />
+      )}
     </>
   );
 }

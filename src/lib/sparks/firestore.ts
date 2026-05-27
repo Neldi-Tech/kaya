@@ -232,6 +232,110 @@ export async function updateSparksItem(
   await updateDoc(itemRef(familyId, itemId), { ...patch, updated_at: serverTimestamp() });
 }
 
+/** Bump a sports subscription's session counter by `by` (default +1).
+ *  Reads → mutates → writes; not transactional, but sessions are
+ *  user-driven (one click) and contention is effectively zero. */
+export async function bumpSportsSession(
+  familyId: string,
+  itemId: string,
+  by = 1,
+): Promise<number> {
+  const snap = await getDoc(itemRef(familyId, itemId));
+  const data = snap.data() as SparksItem | undefined;
+  const current = data?.sessions?.attended ?? 0;
+  const next = Math.max(0, current + by);
+  await updateDoc(itemRef(familyId, itemId), {
+    'sessions.attended': next,
+    updated_at: serverTimestamp(),
+  });
+  return next;
+}
+
+/** Set the planned session count for a sports subscription. */
+export async function setSportsPlanned(
+  familyId: string,
+  itemId: string,
+  planned: number | null,
+): Promise<void> {
+  await updateDoc(itemRef(familyId, itemId), {
+    'sessions.planned': planned !== null && planned > 0 ? planned : null,
+    updated_at: serverTimestamp(),
+  });
+}
+
+// ── Academic · PTM follow-up helpers (Slice 3b) ──────────────────────
+//
+// Follow-ups live as an embedded array on the academic record (one
+// record per kid-year-term). These helpers do read-modify-write since
+// Firestore can't atomically push into / patch an array element.
+
+export async function addAcademicFollowUp(
+  familyId: string,
+  recordId: string,
+  followUp: { text: string; due_date?: string },
+): Promise<string> {
+  const snap = await getDoc(academicRef(familyId, recordId));
+  const data = snap.data() as SparksAcademicRecord | undefined;
+  const existing = data?.follow_ups ?? [];
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const next = [
+    ...existing,
+    {
+      id,
+      text: followUp.text.trim(),
+      due_date: followUp.due_date,
+      status: 'open' as const,
+    },
+  ];
+  await updateDoc(academicRef(familyId, recordId), {
+    follow_ups: next,
+    updated_at: serverTimestamp(),
+  });
+  return id;
+}
+
+export async function setAcademicFollowUpStatus(
+  familyId: string,
+  recordId: string,
+  followUpId: string,
+  status: 'open' | 'closed',
+  uid: string,
+): Promise<void> {
+  const snap = await getDoc(academicRef(familyId, recordId));
+  const data = snap.data() as SparksAcademicRecord | undefined;
+  const existing = data?.follow_ups ?? [];
+  const next = existing.map((f) =>
+    f.id === followUpId
+      ? {
+          ...f,
+          status,
+          ...(status === 'closed'
+            ? { closed_at: Timestamp.now(), closed_by: uid }
+            : { closed_at: undefined, closed_by: undefined }),
+        }
+      : f,
+  );
+  await updateDoc(academicRef(familyId, recordId), {
+    follow_ups: next,
+    updated_at: serverTimestamp(),
+  });
+}
+
+export async function removeAcademicFollowUp(
+  familyId: string,
+  recordId: string,
+  followUpId: string,
+): Promise<void> {
+  const snap = await getDoc(academicRef(familyId, recordId));
+  const data = snap.data() as SparksAcademicRecord | undefined;
+  const existing = data?.follow_ups ?? [];
+  const next = existing.filter((f) => f.id !== followUpId);
+  await updateDoc(academicRef(familyId, recordId), {
+    follow_ups: next,
+    updated_at: serverTimestamp(),
+  });
+}
+
 // ── Counts · for the kid home chips ───────────────────────────────────
 //
 // `subscribeToAllKidItems` is the cheaper live path (one read stream
