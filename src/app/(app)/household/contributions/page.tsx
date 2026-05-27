@@ -57,7 +57,7 @@ export default function ContributionsListPage() {
     return unsub;
   }, [profile?.familyId]);
 
-  const householdCurrency = (family as { currency?: string } | null)?.currency ?? 'USD';
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
 
   // Derived
   const kpis = useMemo(() => computeContributionKpis(contribs), [contribs]);

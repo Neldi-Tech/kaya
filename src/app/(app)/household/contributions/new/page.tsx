@@ -63,7 +63,7 @@ export default function NewContributionPage() {
   }, [profile, authLoading, router]);
 
   // ── Form state ──
-  const householdCurrency = (family as { currency?: string } | null)?.currency ?? 'USD';
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
   const [recipientName, setRecipientName]   = useState('');
   const [recipientType, setRecipientType]   = useState<ContributionRecipientType>('organization');
   const [category, setCategory]             = useState<ContributionCategory>('faith');
