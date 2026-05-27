@@ -15,6 +15,7 @@ import {
 } from '@/lib/messaging';
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
+import { downloadImage } from '@/lib/downloadImage';
 import type { Timestamp } from 'firebase/firestore';
 
 // Curated, kid-friendly emoji set — no heavy picker dependency.
@@ -251,14 +252,16 @@ export default function MessageThreadPage() {
       </div>
     );
     return (
-      <a href={a.url} target="_blank" rel="noopener noreferrer"
-        className={`flex items-center gap-2.5 rounded-[12px] p-2.5 max-w-[240px] ${mine ? 'bg-white/15' : 'bg-kaya-warm'}`}>
+      <button
+        type="button"
+        onClick={() => downloadImage(a.url, a.name || 'document').catch((err) => console.error('Document download failed', err))}
+        className={`flex items-center gap-2.5 rounded-[12px] p-2.5 max-w-[240px] text-left ${mine ? 'bg-white/15' : 'bg-kaya-warm'}`}>
         <span className="w-9 h-10 rounded-[6px] bg-white border border-kaya-warm-dark/40 flex items-center justify-center text-base shrink-0">📄</span>
         <span className="min-w-0">
           <span className="block text-[12.5px] font-bold truncate">{a.name || 'Document'}</span>
           <span className={`block text-[10.5px] ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{prettyBytes(a.sizeBytes)}</span>
         </span>
-      </a>
+      </button>
     );
   };
 

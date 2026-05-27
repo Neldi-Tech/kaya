@@ -11,6 +11,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveApprovalRequest, ApprovalRequest } from '@/lib/hive';
 import { getStockTake, type StockTake } from '@/lib/business';
+import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 import { formatCash, formatHoney, formatHp } from './format';
 
 // Hive-native request types only. Business reuses the same queue (decision
@@ -141,10 +142,16 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
                             {media.map((m, i) => (m.kind === 'video' ? (
                               <video key={i} src={m.url} controls playsInline className="w-full aspect-square rounded-hive object-cover border border-hive-line bg-black" />
                             ) : (
-                              <a key={i} href={m.url} target="_blank" rel="noopener noreferrer" className="block">
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => downloadImage(m.url, suggestedPhotoFilename()).catch((err) => console.error('Photo download failed', err))}
+                                aria-label="Download photo"
+                                className="block p-0 border-0 bg-transparent cursor-pointer"
+                              >
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={m.url} alt="" loading="lazy" className="w-full aspect-square rounded-hive object-cover border border-hive-line" />
-                              </a>
+                              </button>
                             )))}
                           </div>
                         ) : (

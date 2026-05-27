@@ -5,8 +5,9 @@
 // still sharp on tablets/desktop). Swipe via prev/next buttons; tap
 // the backdrop to close. Keyboard: ← → for nav, Esc to close.
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { AlbumPhoto } from '@/lib/albums';
+import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 
 interface Props {
   photos: AlbumPhoto[];
@@ -17,6 +18,8 @@ interface Props {
 }
 
 export default function PhotoLightbox({ photos, index, onPrev, onNext, onClose }: Props) {
+  const [downloading, setDownloading] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -31,6 +34,19 @@ export default function PhotoLightbox({ photos, index, onPrev, onNext, onClose }
   if (!photo) return null;
   const hasPrev = index > 0;
   const hasNext = index < photos.length - 1;
+
+  const onDownload = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      await downloadImage(photo.fullUrl, suggestedPhotoFilename(photo.uploadedAt));
+    } catch (err) {
+      console.error('Photo download failed', err);
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center">
@@ -86,15 +102,14 @@ export default function PhotoLightbox({ photos, index, onPrev, onNext, onClose }
         <span className="font-display font-bold opacity-80">
           {photo.uploadedAt?.toDate?.()?.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) || ''}
         </span>
-        <a
-          href={photo.fullUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 font-display font-bold transition-colors"
-          onClick={(e) => e.stopPropagation()}
+        <button
+          type="button"
+          onClick={onDownload}
+          disabled={downloading}
+          className="px-3 py-1 rounded-md bg-white/15 hover:bg-white/25 font-display font-bold transition-colors disabled:opacity-60"
         >
-          Open full size ↗
-        </a>
+          {downloading ? 'Saving…' : 'Download ↓'}
+        </button>
       </div>
     </div>
   );
