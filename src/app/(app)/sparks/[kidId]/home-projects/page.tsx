@@ -1,21 +1,28 @@
 'use client';
 
 // Kaya Sparks · Home Projects (/sparks/[kidId]/home-projects).
-// Mockup detail screen styled per `head-yellow`. Tile grid identical
-// in spirit to the rated cards in the mockup (Step 4) — Slice 2 ships
-// the capture + display; Slice 3 wires the ⭐ + % rating + workplan.
+// Mockup detail screen styled per `head-yellow`. Tile grid faithful to
+// the rated cards in the mockup (Step 4) — Slice 2 shipped capture +
+// display; Slice 3 (2026-05-27) wires ⭐ + % rating via the shared
+// RatingSheet + RatingDisplay primitives. Workplan wiring lands in
+// Slice 3b.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  subscribeToAreaItems, subscribeToSparksProfile,
+  ratingsByItemId, subscribeToAreaItems, subscribeToKidRatings,
+  subscribeToSparksProfile,
 } from '@/lib/sparks/firestore';
-import type { SparksItem, SparksProfile } from '@/lib/sparks/schema';
+import type {
+  SparksItem, SparksProfile, SparksRating,
+} from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/AreaScreen';
 import CaptureSheet from '@/components/sparks/CaptureSheet';
+import RatingSheet from '@/components/sparks/RatingSheet';
+import RatingDisplay from '@/components/sparks/RatingDisplay';
 
 const TILE_GRADIENTS = [
   'linear-gradient(135deg,#FFE7E0,#FFD93D)',
@@ -37,6 +44,9 @@ export default function HomeProjectsPage() {
   const [items, setItems] = useState<SparksItem[]>([]);
   const [profile, setProfile] = useState<SparksProfile | null>(null);
   const [openCapture, setOpenCapture] = useState(false);
+  const [ratings, setRatings] = useState<SparksRating[]>([]);
+  const [rateItem, setRateItem] = useState<SparksItem | null>(null);
+  const isParent = authProfile?.role === 'parent';
 
   useEffect(() => {
     if (!familyId || !kidId) return;
@@ -47,6 +57,13 @@ export default function HomeProjectsPage() {
     if (!familyId || !kidId) return;
     return subscribeToSparksProfile(familyId, kidId, setProfile);
   }, [familyId, kidId]);
+
+  useEffect(() => {
+    if (!familyId || !kidId) return;
+    return subscribeToKidRatings(familyId, kidId, setRatings);
+  }, [familyId, kidId]);
+
+  const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
 
   if (!familyId || !kid) {
     return <div className="min-h-screen bg-[#FFFBF5] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
@@ -88,6 +105,7 @@ export default function HomeProjectsPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {items.map((it, idx) => {
               const photo = it.photo_urls?.[0];
+              const latest = ratingsMap.get(it.id)?.[0] ?? null;
               return (
                 <div
                   key={it.id}
@@ -110,11 +128,18 @@ export default function HomeProjectsPage() {
                   <div className="text-[12px] font-extrabold text-[#0F1F44] truncate" title={it.title}>
                     {it.title}
                   </div>
-                  {/* Rating placeholder — Slice 3 fills these with real ⭐ + % */}
-                  <div className="flex items-center gap-1 -mt-0.5">
-                    <span className="text-[10px] opacity-30">⭐⭐⭐⭐⭐</span>
-                    <span className="text-[9.5px] font-bold text-[#5A6488] ml-auto">Unrated</span>
-                  </div>
+                  {/* Rating — Parents rate or re-open via RatingSheet; kids
+                      see the read-only display (or muted "Unrated"). */}
+                  {isParent ? (
+                    <RatingDisplay rating={latest} onTap={() => setRateItem(it)} />
+                  ) : latest ? (
+                    <RatingDisplay rating={latest} onTap={() => {}} />
+                  ) : (
+                    <div className="flex items-center gap-1 -mt-0.5">
+                      <span className="text-[10px] opacity-30">⭐⭐⭐⭐⭐</span>
+                      <span className="text-[9.5px] font-bold text-[#5A6488] ml-auto">Unrated</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -132,6 +157,17 @@ export default function HomeProjectsPage() {
         profile={profile}
         uid={authProfile.uid}
       />
+
+      {rateItem && (
+        <RatingSheet
+          open={!!rateItem}
+          onClose={() => setRateItem(null)}
+          familyId={familyId}
+          item={rateItem}
+          parentUid={authProfile.uid}
+          mode="both"
+        />
+      )}
     </>
   );
 }
