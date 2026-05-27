@@ -41,6 +41,10 @@ const QUICK_LABELS_BY_PRESET: Record<HelperLink['preset'], string[]> = {
   tutor:       ['Bring extra workbook', 'Cover Sunday session', 'Photocopy worksheets'],
   driver:      ['Pick up groceries', 'Top up fuel', 'Wash the car', 'School pickup'],
   gardener:    ['Buy extra chicken', 'Trim front hedge', 'Repair gate hinge', 'Water back garden'],
+  security:    ['Walk the perimeter', 'Lock gate by 10pm', 'Note any visitors', 'Check back gate'],
+  cleaner:     ['Deep-clean kitchen', 'Change bedding', 'Wipe windows', 'Re-stock supplies'],
+  cook:        ['Plan tomorrow\'s menu', 'Prep school lunches', 'Re-stock pantry', 'Marinate chicken'],
+  handyman:    ['Fix the leaking tap', 'Service generator', 'Replace bulbs', 'Patch the gate hinge'],
   grandparent: ['Read bedtime story', 'Take to park', 'Sunday lunch prep'],
   custom:      ['One-off task'],
 };
@@ -55,7 +59,8 @@ const PERIODS: { id: WorkplanPeriod; label: string; emoji: string }[] = [
 
 // Helper avatar emoji per preset — matches /pantry/workplan + Settings.
 const PRESET_EMOJI: Record<HelperLink['preset'], string> = {
-  nanny: '🤱', tutor: '📚', driver: '🚗', gardener: '🌿', grandparent: '👵', custom: '🤝',
+  nanny: '🤱', tutor: '📚', driver: '🚗', gardener: '🌿', security: '🛡️',
+  cleaner: '🧽', cook: '🍳', handyman: '🛠️', grandparent: '👵', custom: '🤝',
 };
 
 // Build the next 7 days as { iso, label } so the date chips give a

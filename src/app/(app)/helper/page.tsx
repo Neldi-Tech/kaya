@@ -32,6 +32,10 @@ const PRESET_LABEL: Record<HelperLink['preset'], string> = {
   tutor: 'Tutor',
   driver: 'Driver',
   gardener: 'Gardener',
+  security: 'Security',
+  cleaner: 'Cleaner',
+  cook: 'Cook',
+  handyman: 'Handyman',
   grandparent: 'Grandparent',
   custom: 'Custom',
 };

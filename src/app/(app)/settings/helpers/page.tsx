@@ -40,12 +40,19 @@ type Frequency = NonNullable<HelperLink['expectedFrequency']>;
 // module grants are derived by `buildModuleAccessFromPreset()` in
 // lib/helpers.ts — these entries carry only the UI shape (label +
 // description + default expected-frequency).
+// Order: kid-facing presets first, then household / grounds helpers, then
+// custom. 2026-05-27: added Security + Cleaner + Cook + Handyman so common
+// non-kid roles have a one-tap setup instead of forcing Custom.
 const PRESETS: { id: Preset; label: string; description: string; frequency: Frequency }[] = [
   { id: 'nanny',       label: 'Nanny',       description: 'Routines, meals, kudos, photos',     frequency: 'both' },
   { id: 'tutor',       label: 'Tutor',       description: 'Homework & study routines',          frequency: 'evening' },
-  { id: 'driver',      label: 'Driver',      description: 'Pickup, dropoff, schedule',          frequency: 'flexible' },
-  { id: 'gardener',    label: 'Gardener',    description: 'Outdoor + grounds tasks',            frequency: 'flexible' },
   { id: 'grandparent', label: 'Grandparent', description: 'View-only across granted modules',   frequency: 'flexible' },
+  { id: 'driver',      label: 'Driver',      description: 'Pickup, dropoff, fuel, service',     frequency: 'flexible' },
+  { id: 'gardener',    label: 'Gardener',    description: 'Outdoor + grounds tasks',            frequency: 'flexible' },
+  { id: 'security',    label: 'Security',    description: 'Gate, perimeter, visitor log',       frequency: 'flexible' },
+  { id: 'cleaner',     label: 'Cleaner',     description: 'Housekeeping + cleaning supplies',   frequency: 'flexible' },
+  { id: 'cook',        label: 'Cook',        description: 'Kitchen — meals, list, staples',     frequency: 'flexible' },
+  { id: 'handyman',    label: 'Handyman',    description: 'Repairs, utilities, parts',          frequency: 'flexible' },
   { id: 'custom',      label: 'Custom',      description: 'Pick everything by hand',            frequency: 'both' },
 ];
 

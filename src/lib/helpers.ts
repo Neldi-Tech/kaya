@@ -259,6 +259,24 @@ export function presetDefaultKeys(preset: HelperLink['preset']): string[] {
       // Gets the Outdoor request flow by default (garden / pool / kuku /
       // pets / repairs), plus the supplier + staples context it needs.
       return ['household:outdoor', 'household:staples', 'household:suppliers', 'household:utilities', PAYROLL_SELF];
+    case 'security':
+      // Guard / askari — gate, perimeter, visitor log. No kid scope by
+      // default. Directory for resident contacts + payroll self-service.
+      return ['household:directory', PAYROLL_SELF];
+    case 'cleaner':
+      // Housekeeping — staples (cleaning supplies) + suppliers (re-stock
+      // contacts). No kid scope. Adds moments only if a parent later
+      // enables it from the access editor.
+      return ['household:staples', 'household:suppliers', 'household:directory', PAYROLL_SELF];
+    case 'cook':
+      // Kitchen — meals plan, shopping list, staples, suppliers. No kid
+      // scope by default (cook isn't a caregiver); parent can add Kaya
+      // surfaces if the cook also helps the kids.
+      return ['household:meals', 'household:list', 'household:staples', 'household:suppliers', PAYROLL_SELF];
+    case 'handyman':
+      // Repairs / maintenance — utilities for meter access + suppliers
+      // for parts/contacts + outdoor for grounds work.
+      return ['household:utilities', 'household:outdoor', 'household:suppliers', 'household:directory', PAYROLL_SELF];
     case 'grandparent':
       // View-only across the kid-facing surfaces.
       return [
