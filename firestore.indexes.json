@@ -159,6 +159,58 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
+    },
+
+    {
+      "collectionGroup": "sparks_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kid_id",     "order": "ASCENDING" },
+        { "fieldPath": "area",       "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sparks_items",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kid_id",     "order": "ASCENDING" },
+        { "fieldPath": "created_at", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sparks_academic",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kid_id", "order": "ASCENDING" },
+        { "fieldPath": "year",   "order": "DESCENDING" },
+        { "fieldPath": "term",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sparks_tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kid_id",   "order": "ASCENDING" },
+        { "fieldPath": "status",   "order": "ASCENDING" },
+        { "fieldPath": "due_date", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sparks_tasks",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kid_id",   "order": "ASCENDING" },
+        { "fieldPath": "due_date", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sparks_ratings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "kid_id", "order": "ASCENDING" },
+        { "fieldPath": "date",   "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

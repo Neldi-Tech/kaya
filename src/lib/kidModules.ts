@@ -91,6 +91,15 @@ export const KID_MODULES: KidModule[] = [
       { id: 'budget',    label: 'Budget',        icon: '💰', path: '/pantry/budget' },
     ],
   },
+  // Kaya Sparks — kids education. Top-level toggle only; per-area
+  // visibility (school projects / home projects / achievements /
+  // academic / sports) is governed by `sparks_profiles.sibling_visibility`
+  // (open / independent / per_area), enforced in firestore.rules — that's
+  // a SIBLING-read concern, not a kid's own nav. Kids always see their
+  // own /sparks subtree when the parent has the module on.
+  // Dashboard + setup live under /sparks/setup + /sparks/[kidId]/dashboard
+  // and are parent-only by route guard (not by kidModules).
+  { id: 'sparks',    label: 'Kaya Sparks',    icon: '✨', path: '/sparks' },
   { id: 'hive',      label: 'The Hive',       icon: '🍯', path: '/hive' },
   { id: 'business',  label: 'Kaya Business',  icon: '💼', path: '/business' },
   // Kaya Pulse — kid surface is Today + Quick Entry + the points Ledger.
@@ -120,7 +129,7 @@ export const KID_MODULES: KidModule[] = [
 // Kid profiles / Family tree (one grant, all three via extraPaths);
 // `discover` brings back the Discover landing.
 export const DEFAULT_KID_MODULES = [
-  'home', 'myday', 'workplan', 'moments', 'messages', 'buzz',
+  'home', 'myday', 'workplan', 'moments', 'messages', 'buzz', 'sparks',
   'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
   'hive', 'fun', 'discover', 'stats',
 ];

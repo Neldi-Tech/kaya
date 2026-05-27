@@ -33,7 +33,11 @@ export type ModuleId =
   | 'wellness'          // Kaya Wellness
   | 'grow'              // Kaya Grow (stub)
   | 'analytics'         // Advanced analytics (stub)
-  | 'letter';           // Family Letter (stub)
+  | 'letter'            // Family Letter (stub)
+  | 'sparks';           // Kaya Sparks — kids education (added 2026-05-27,
+                        //   reusing the freed ID slot from the buzz rename;
+                        //   completely different feature: school projects,
+                        //   home projects, achievements, academic, sports)
 
 export interface ModuleMeta {
   id: ModuleId;
@@ -64,6 +68,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   { id: 'grow',      name: 'Kaya Grow',         emoji: '📚', description: 'Skill tracks & learning',        shipped: false },
   { id: 'analytics', name: 'Advanced analytics',emoji: '📊', description: 'Stats, trends, exports',         shipped: false },
   { id: 'letter',    name: 'Family Letter',     emoji: '📜', description: 'Monthly recap newsletter',       shipped: false },
+  { id: 'sparks',    name: 'Kaya Sparks',       emoji: '✨', description: "Kids' education — projects, achievements, academic, sports", shipped: true,  routePrefix: '/sparks' },
 ];
 
 // ── Tier configs ─────────────────────────────────────────────────────
@@ -111,7 +116,11 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: 1,
     householdLimit: 1,
     historyRetentionDays: 30,
-    modules: ['kaya-core', 'moments', 'fun', 'buzz'],
+    // Sparks Lite is included in Nest — the strongest hook module per the
+    // spec ("keep Lite generous so families fall in love"). Feature-level
+    // gating (no AI scan, 50-item cap, 30-day ratings history, 1 kid) is
+    // enforced in `lib/sparks/gating.ts`, not by withholding the module.
+    modules: ['kaya-core', 'moments', 'fun', 'buzz', 'sparks'],
     addonModules: [],
     isFeatured: false,
   },
@@ -126,7 +135,10 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: 3,
     householdLimit: 2,
     historyRetentionDays: 365,
-    modules: ['kaya-core', 'moments', 'fun', 'buzz', 'hive', 'household', 'pages', 'dreams'],
+    // Home families get Sparks Family by default — full AI scanning,
+    // pre-submission highlights, unlimited items, ≤5 kids, dashboard,
+    // PDF export. Castle gets it implicitly (MODULE_REGISTRY.map below).
+    modules: ['kaya-core', 'moments', 'fun', 'buzz', 'hive', 'household', 'pages', 'dreams', 'sparks'],
     addonModules: ['business', 'wealth', 'chef', 'wellness', 'grow', 'letter'],
     isFeatured: true,
   },

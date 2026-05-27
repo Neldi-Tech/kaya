@@ -1015,6 +1015,127 @@ service cloud.firestore {
                 || isParentInFamily(familyId));
         }
       }
+
+      // ── Kaya Sparks · kids education (2026-05-27) ────────────────────
+      //
+      // Five capture areas (school projects / home projects /
+      // achievements / academic / sports) + workplan-wired tasks + parent
+      // ratings + AI companion state, per child.
+      //
+      // Sibling-visibility model — a kid reading ANOTHER kid's
+      // sparks_items / sparks_academic consults the target kid's
+      // /sparks_profiles/{kidId}.sibling_visibility:
+      //   'open'        → siblings can read  (DEFAULT if doc missing)
+      //   'independent' → siblings cannot read
+      //   'per_area'    → consult per_area.<area> bool  (sparks_items only)
+      // Client also filters as defence-in-depth; the server gate is the
+      // source of truth.
+      //
+      // Helpers (Mage / Jacky / grandparents) get VIEW + UPLOAD when
+      // granted the 'sparks' module on their HelperLink — they can
+      // capture an item but can't author ratings or close PTM follow-ups
+      // (parent-only). Legacy helpers without a HelperLink keep the
+      // family-wide allowance via isLegacyHelperWithoutLink.
+
+      // sparks_profiles · per-kid subjects + sibling_visibility + AI
+      // toggles. One doc per kid (id = kidId). Parent-only writes;
+      // family-wide reads so the visibility rules below can resolve.
+      match /sparks_profiles/{kidId} {
+        allow read:                   if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
+      }
+
+      // sparks_items · gallery uploads for the 4 capture areas.
+      // area ∈ 'school_project' | 'home_project' | 'achievement' | 'sports_subscription'
+      match /sparks_items/{itemId} {
+        // Default to 'open' when the target kid's profile doc is missing
+        // — matches the spec's default sibling visibility.
+        function _vis(kidId) {
+          return exists(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId))
+            ? get(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId)).data.sibling_visibility
+            : 'open';
+        }
+        function _perAreaAllows(kidId, area) {
+          return exists(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId))
+            && 'per_area' in get(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId)).data
+            && get(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId)).data.per_area[area] == true;
+        }
+        function _siblingCanReadArea(kidId, area) {
+          let v = _vis(kidId);
+          return v == 'open' || (v == 'per_area' && _perAreaAllows(kidId, area));
+        }
+        allow read: if isParentInFamily(familyId)
+          || helperCanActOnModule(familyId, 'sparks')
+          || isLegacyHelperWithoutLink(familyId)
+          || isThisKid(familyId, resource.data.kid_id)
+          || (
+              getUserProfile().role == 'kid'
+              && belongsToFamily(familyId)
+              && _siblingCanReadArea(resource.data.kid_id, resource.data.area)
+            );
+        // Capture: parents always; helpers when 'sparks' is in their
+        // act-tier grants; the kid themselves for items they own.
+        allow create: if isParentInFamily(familyId)
+          || helperCanActOnModule(familyId, 'sparks')
+          || isLegacyHelperWithoutLink(familyId)
+          || isThisKid(familyId, request.resource.data.kid_id);
+        // Edit/delete: parent OR the owning kid (e.g. retake a photo).
+        // Helpers can't edit after upload — avoids rating tampering.
+        allow update, delete: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.kid_id);
+      }
+
+      // sparks_academic · term records — sensitive grades + behaviour
+      // flags + PTM follow-ups. Parents only write. Siblings can read
+      // ONLY when target kid's visibility is 'open' (per_area doesn't
+      // apply to grades — too granular to be useful here).
+      match /sparks_academic/{recordId} {
+        function _vis(kidId) {
+          return exists(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId))
+            ? get(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId)).data.sibling_visibility
+            : 'open';
+        }
+        allow read: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.kid_id)
+          || (
+              getUserProfile().role == 'kid'
+              && belongsToFamily(familyId)
+              && _vis(resource.data.kid_id) == 'open'
+            );
+        allow create, update, delete: if isParentInFamily(familyId);
+      }
+
+      // sparks_tasks · workplan-wired tasks. Mirrors workplanItems —
+      // parents author + edit; the kid can flip only the submission
+      // fields when they upload proof; helpers READ-ONLY.
+      match /sparks_tasks/{taskId} {
+        allow read:           if belongsToFamily(familyId);
+        allow create, delete: if isParentInFamily(familyId);
+        allow update: if isParentInFamily(familyId)
+          || (
+              isThisKid(familyId, resource.data.kid_id)
+              && request.resource.data.diff(resource.data)
+                    .affectedKeys()
+                    .hasOnly(['status', 'submitted_photo_url', 'submitted_at'])
+            );
+      }
+
+      // sparks_ratings · parent's rating of a submitted task.
+      // Parents only — kids cannot self-rate or see another sibling's
+      // ratings directly (the dashboard joins via tasks, which the
+      // sibling rules govern).
+      match /sparks_ratings/{ratingId} {
+        allow read:                   if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId);
+      }
+
+      // sparks_companion_state · per-kid AI nudges (Slice 5). Written
+      // only by the scheduled Cloud Function via Admin SDK, which
+      // bypasses these rules. Clients read.
+      match /sparks_companion_state/{kidId} {
+        allow read:  if belongsToFamily(familyId);
+        allow write: if false;
+      }
     }
 
     // ── Kaya Business · market quotes (global, server-written) ───────
