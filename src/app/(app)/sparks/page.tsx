@@ -31,6 +31,7 @@ import {
   SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea,
 } from '@/lib/sparks/schema';
 import KidAvatar from '@/components/ui/KidAvatar';
+import SparksIcon from '@/components/brand/SparksIcon';
 
 // ── Marketing copy data ──────────────────────────────────────────────
 // Pulled from `Kaya-Sparks_Mockup_2026-05-27.html` § Step 3. Each area
@@ -546,12 +547,23 @@ function Hero({ plan, aiUnlocked }: { plan: 'lite' | 'family' | 'pro'; aiUnlocke
         aria-hidden
       />
 
-      <span className="inline-block text-[10.5px] font-extrabold uppercase tracking-[1px] bg-white/15 rounded-full px-3 py-1.5 mb-3 relative">
-        Kaya · Kids Education
-      </span>
-      <h1 className="font-display font-extrabold text-[30px] sm:text-[36px] leading-tight tracking-tight m-0 relative">
-        Kaya Sparks
-      </h1>
+      <div className="flex items-start gap-3 relative">
+        <div
+          className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl grid place-items-center shrink-0"
+          style={{ background: 'rgba(255,255,255,0.12)', backdropFilter: 'blur(4px)' }}
+          aria-hidden
+        >
+          <SparksIcon className="w-10 h-10 sm:w-11 sm:h-11" />
+        </div>
+        <div className="min-w-0">
+          <span className="inline-block text-[10.5px] font-extrabold uppercase tracking-[1px] bg-white/15 rounded-full px-3 py-1.5 mb-2">
+            Kaya · Kids Education
+          </span>
+          <h1 className="font-display font-extrabold text-[30px] sm:text-[36px] leading-tight tracking-tight m-0">
+            Kaya Sparks
+          </h1>
+        </div>
+      </div>
       <p className="text-[15px] sm:text-[16px] opacity-90 max-w-prose m-0 mt-2.5 relative leading-relaxed">
         A keep-and-grow space inside Kaya for everything a child <strong className="font-extrabold">learns, creates, and achieves</strong>
         — school projects, home builds, awards, term grades, PTM follow-ups, and sports —

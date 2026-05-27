@@ -11,6 +11,7 @@ import { subscribeToUnreadNotificationCount } from '@/lib/firestore';
 import { getOperatorRole } from '@/lib/access';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import { PulseMark } from '@/components/pulse/ui';
+import SparksIcon from '@/components/brand/SparksIcon';
 import GuestBanner from './GuestBanner';
 import InfoIcon from '@/components/ui/InfoIcon';
 
@@ -319,7 +320,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   // the locked nav placement in `Kaya-Sparks_Design-Spec_2026-05-27.md`
   // (decision #5). Top-level link; sub-routes (5 areas + dashboard +
   // setup) render inside the /sparks subtree.
-  { kind: 'link',    id: 'sparks',    path: '/sparks', icon: '✨', label: 'Kaya Sparks' },
+  { kind: 'link',    id: 'sparks',    path: '/sparks', iconNode: <SparksIcon className="w-4 h-4" />, label: 'Kaya Sparks' },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
   { kind: 'section', id: 'pulse',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
@@ -378,7 +379,7 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
   // Sparks placement mirrors the parent sidebar — between Household and Hive.
-  { kind: 'link',    id: 'sparks',    path: '/sparks',    icon: '✨', label: 'Kaya Sparks' },
+  { kind: 'link',    id: 'sparks',    path: '/sparks',    iconNode: <SparksIcon className="w-4 h-4" />, label: 'Kaya Sparks' },
   { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
   { kind: 'link',    id: 'business',  path: '/business',  icon: '💼', label: 'Kaya Business' },
   { kind: 'link',    id: 'pulse',     path: '/pulse/today', iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
