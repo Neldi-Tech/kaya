@@ -211,6 +211,95 @@
         { "fieldPath": "kid_id", "order": "ASCENDING" },
         { "fieldPath": "date",   "order": "DESCENDING" }
       ]
+    },
+
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",          "order": "ASCENDING" },
+        { "fieldPath": "nextBillingDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category", "order": "ASCENDING" },
+        { "fieldPath": "status",   "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "subscriptions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "billingMode",     "order": "ASCENDING" },
+        { "fieldPath": "nextBillingDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cycles",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "status",  "order": "ASCENDING" },
+        { "fieldPath": "dueDate", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contributions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category",  "order": "ASCENDING" },
+        { "fieldPath": "dateGiven", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contributions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "subCategory", "order": "ASCENDING" },
+        { "fieldPath": "dateGiven",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "contributions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "taxDeductible", "order": "ASCENDING" },
+        { "fieldPath": "dateGiven",     "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "spend_ledger",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "category",   "order": "ASCENDING" },
+        { "fieldPath": "occurredOn", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "spend_ledger",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sourceModule", "order": "ASCENDING" },
+        { "fieldPath": "occurredOn",   "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "wealth_advisories",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",     "order": "ASCENDING" },
+        { "fieldPath": "detectedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "wealth_advisories",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type",   "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
