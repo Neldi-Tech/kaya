@@ -38,11 +38,18 @@ export default function BudgetBalanceMeter({
   const { config } = useHive();
   const currency = config.currency;
 
+  // Defence in depth (2026-05-27): helpers must never see the family budget
+  // bar — even if a parent component forgets to gate this. Keeps callers
+  // free of role checks and prevents leaks like the payroll detail-page bug.
+  const isHelper = profile?.role === 'helper';
+
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   useEffect(() => {
-    if (!profile?.familyId) return;
+    if (!profile?.familyId || isHelper) return;
     return subscribeToRecentRequests(profile.familyId, setRecent);
-  }, [profile?.familyId]);
+  }, [profile?.familyId, isHelper]);
+
+  if (isHelper) return null;
 
   const thisMonth = monthKeyOf();
   const spentCents = useMemo(() => recent

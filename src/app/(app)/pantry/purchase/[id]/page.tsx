@@ -69,6 +69,41 @@ function moduleListRoute(module?: PurchaseModule): string {
   return `/pantry/${module}`;
 }
 
+/** For monthly-basis salary cycles, expand the stored period to the full
+ *  calendar month containing the pay date — catches legacy narrow rows
+ *  (e.g. "2026-05-01 → 2026-05-05") that pre-date the #289 fix. Weekly /
+ *  biweekly / hourly / daily cycles keep their stored window. */
+function displayPeriod(cycle: { basis: string; periodStart: string; periodEnd: string }): { start: string; end: string } {
+  if (cycle.basis !== 'monthly') return { start: cycle.periodStart, end: cycle.periodEnd };
+  const [y, m] = cycle.periodEnd.split('-').map(Number);
+  if (!y || !m) return { start: cycle.periodStart, end: cycle.periodEnd };
+  const start = `${y}-${String(m).padStart(2, '0')}-01`;
+  const lastDay = new Date(y, m, 0).getDate();
+  const end = `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  return { start, end };
+}
+
+/** Build the display title for a payroll request — pulls the helper's name
+ *  from the stored `name` (everything before the date suffix) and prints the
+ *  display period via toDisplayDate. Falls back to the raw `name` for
+ *  non-payroll requests or when payrollCycle is missing. */
+function displayRequestTitle(r: import('@/lib/purchase').PurchaseRequest): string {
+  const name = r.name || 'Untitled request';
+  if (r.module !== 'payroll' || !r.payrollCycle?.periodStart || !r.payrollCycle?.periodEnd) return name;
+  const { start, end } = displayPeriod(r.payrollCycle);
+  // Try to extract "Salary · {Name}" prefix from the stored name. If it
+  // doesn't match the pattern (parent-renamed), keep the stored name and
+  // append the cleaned period.
+  const parts = name.split(' · ');
+  if (parts.length >= 3 && parts[0] === 'Salary') {
+    return `Salary · ${parts[1]} · ${toDisplayDate(start)} → ${toDisplayDate(end)}`;
+  }
+  // Parent-renamed — keep their text and append the date range underneath
+  // (we strip any trailing ISO date range first to avoid stacking).
+  const stripped = name.replace(/\s*·\s*\d{4}-\d{2}-\d{2}\s*→\s*\d{4}-\d{2}-\d{2}\s*$/, '');
+  return `${stripped} · ${toDisplayDate(start)} → ${toDisplayDate(end)}`;
+}
+
 // Per-staple icon for picker + basket rows. Pantry staples surface
 // their category emoji (🥬 🥛 🍚 🧴 ✨); Outdoor + Drivers staples
 // inherit the module emoji (🌿 / 🚗) — their categories aren't stored
@@ -833,7 +868,7 @@ export default function PurchaseDetailPage() {
             className="bg-transparent font-nunito font-black text-2xl tracking-tight w-full focus:outline-none"
           />
         ) : (
-          <h1 className="font-nunito font-black text-2xl tracking-tight">{req.name}</h1>
+          <h1 className="font-nunito font-black text-2xl tracking-tight">{displayRequestTitle(req)}</h1>
         )}
         <p className="text-hive-muted text-xs mt-1 font-bold flex items-center gap-1.5 flex-wrap">
           {/* Serial pill — stays visible even after a parent renames
@@ -2919,7 +2954,10 @@ function PayrollPaystubBanner({
   return (
     <div className="bg-[#F4EFFB] border border-[#C9B8E5] rounded-hive p-3 mb-3">
       <p className="text-[10px] uppercase tracking-wider font-bold text-[#5E4A8F] mb-1 break-words">
-        🤝 Auto-generated salary · {toDisplayDate(cycle.periodStart)} → {toDisplayDate(cycle.periodEnd)}
+        {(() => {
+          const { start, end } = displayPeriod(cycle);
+          return `🤝 Auto-generated salary · ${toDisplayDate(start)} → ${toDisplayDate(end)}`;
+        })()}
       </p>
       <p className="text-[11px] text-hive-ink mb-2">{basisLine}</p>
       {/* 2-col on phones, 4-col on tablets+. The previous grid-cols-4 ran
