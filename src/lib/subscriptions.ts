@@ -15,7 +15,7 @@
 // + the spend-ledger writer land in P2/P3/P4.
 
 import {
-  collection, doc, getDocs, Timestamp, onSnapshot,
+  collection, doc, getDoc, getDocs, Timestamp, onSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -125,4 +125,179 @@ export async function listSubscriptions(familyId: string): Promise<Subscription[
   if (isGuestActive()) return [];
   const snap = await getDocs(subsCol(familyId));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Subscription));
+}
+
+export async function getSubscription(
+  familyId: string,
+  subId: string,
+): Promise<Subscription | null> {
+  if (isGuestActive()) return null;
+  const snap = await getDoc(doc(db, 'families', familyId, 'subscriptions', subId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() } as Subscription;
+}
+
+// ── Categories + sub-categories (spec §3.1, §3.2) ────────────────────
+
+export const SUBSCRIPTION_CATEGORIES: { id: SubscriptionCategory; emoji: string; label: string }[] = [
+  { id: 'mobile_apps',   emoji: '📱', label: 'Mobile Apps & Software' },
+  { id: 'memberships',   emoji: '🎫', label: 'Memberships' },
+  { id: 'media',         emoji: '🎬', label: 'Media & Entertainment' },
+  { id: 'utilities_sub', emoji: '🔌', label: 'Utilities as Subscription' },
+  { id: 'property_land', emoji: '🏠', label: 'Property & Land' },
+  { id: 'vehicle',       emoji: '🚗', label: 'Vehicle & Transport' },
+  { id: 'education',     emoji: '🎓', label: 'Education & Learning' },
+  { id: 'professional',  emoji: '💼', label: 'Professional & Tools' },
+  { id: 'other',         emoji: '📦', label: 'Other' },
+];
+
+export const SUBSCRIPTION_SUBCATEGORIES: Record<SubscriptionCategory, string[]> = {
+  mobile_apps:   ['iOS App', 'Android App', 'Web/SaaS App', 'Cross-platform', 'Cloud Storage', 'AI Tools'],
+  memberships:   ['Social Club', 'Sports / Gym', 'Business / Professional Body', 'Co-working', 'Loyalty (paid tier)', 'Religious / Spiritual community'],
+  media:         ['Streaming Video', 'Streaming Music', 'Print / Digital News', 'Podcasts (paid)', 'Gaming'],
+  utilities_sub: ['Security monitoring', 'Internet (subscription)', 'Home automation / IoT'],
+  property_land: ['Annual Land Rent', 'Property Tax instalments', 'Body Corporate / HOA fees', 'Borehole servicing'],
+  vehicle:       ['Insurance (annual)', 'Road licence', 'Vehicle tracker', 'Parking lease'],
+  education:     ['School tuition portals', 'Online course subscriptions', 'Tutoring platforms'],
+  professional:  ['Domains & hosting', 'Developer tools', 'Productivity SaaS (work)', 'Trade / industry associations'],
+  other:         ['Other'],
+};
+
+export function subCategoryEmoji(cat: SubscriptionCategory): string {
+  return SUBSCRIPTION_CATEGORIES.find((c) => c.id === cat)?.emoji ?? '📦';
+}
+
+export function subCategoryLabel(cat: SubscriptionCategory): string {
+  return SUBSCRIPTION_CATEGORIES.find((c) => c.id === cat)?.label ?? 'Other';
+}
+
+// ── Frequency → monthly equivalent (spec §2) ─────────────────────────
+
+export function subMonthlyEquivalentCents(
+  amountCents: number,
+  frequency: SubscriptionFrequency,
+  customMonths?: number | null,
+): number {
+  if (amountCents <= 0) return 0;
+  switch (frequency) {
+    case 'daily':       return Math.round(amountCents * 30);
+    case 'weekly':      return Math.round(amountCents * 4.33);
+    case 'monthly':     return amountCents;
+    case 'quarterly':   return Math.round(amountCents / 3);
+    case 'semi_annual': return Math.round(amountCents / 6);
+    case 'annual':      return Math.round(amountCents / 12);
+    case 'one_off':     return 0;
+    case 'custom':      return customMonths && customMonths > 0
+                          ? Math.round(amountCents / customMonths)
+                          : amountCents;
+  }
+}
+
+// ── KPI roll-up (client-side, from subscriptions list) ───────────────
+//
+// "This month due" — sum amountHousehold of subs whose nextBillingDate
+//   falls in this calendar month and status === 'active'.
+// "Monthly equivalent" — sum monthlyEquivalent for all active subs.
+// "Annualized commitment" — monthly equivalent × 12.
+
+export interface SubscriptionKpis {
+  thisMonthDueCents: number;
+  monthlyEquivalentCents: number;
+  annualizedCents: number;
+  activeCount: number;
+  byCategory: Map<SubscriptionCategory, number>;  // category → count, for chips
+}
+
+export function computeSubscriptionKpis(
+  subs: Subscription[],
+  now: Date = new Date(),
+): SubscriptionKpis {
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const monthEnd   = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+
+  let dueThisMonth = 0;
+  let monthlyEq    = 0;
+  let activeCount  = 0;
+  const byCategory = new Map<SubscriptionCategory, number>();
+
+  for (const s of subs) {
+    if (s.status !== 'active' && s.status !== 'trial') continue;
+    activeCount += 1;
+    byCategory.set(s.category, (byCategory.get(s.category) ?? 0) + 1);
+    monthlyEq += s.monthlyEquivalent || 0;
+    const nextMs = s.nextBillingDate?.toMillis?.() ?? 0;
+    if (nextMs >= monthStart && nextMs < monthEnd) {
+      dueThisMonth += s.amountHousehold || 0;
+    }
+  }
+
+  return {
+    thisMonthDueCents: dueThisMonth,
+    monthlyEquivalentCents: monthlyEq,
+    annualizedCents: monthlyEq * 12,
+    activeCount,
+    byCategory,
+  };
+}
+
+// ── Create (server route writes entry + seeds first cycle) ───────────
+
+export interface CreateSubscriptionInput {
+  // Identity
+  name: string;
+  catalogueRef?: string | null;
+
+  // Taxonomy
+  category: SubscriptionCategory;
+  subCategory: string;
+  platform?: SubscriptionPlatform | null;
+
+  // Billing
+  billingMode: SubscriptionBillingMode;
+  status?: SubscriptionStatus;
+  trialEndsOnIso?: string | null;
+
+  // Money — cents in currencyOriginal
+  amountOriginalCents: number;
+  currencyOriginal: string;
+  fxRate: number;
+
+  // Frequency
+  frequency: SubscriptionFrequency;
+  customMonths?: number | null;
+  nextBillingDateIso: string;
+  startedOnIso: string;
+
+  // People
+  accountHolderUid: string;
+  beneficiaryUids?: string[];
+  paymentMethodId?: string;
+
+  // Links
+  vendorSupplierId?: string | null;
+  isProfessionalExpense?: boolean;
+
+  // Reminders (Manual: [7,2,0] default; Auto: [] or [2])
+  reminderDaysBefore?: number[];
+
+  // Audit + idempotency
+  familyId: string;
+  createdByUid: string;
+  clientToken: string;
+}
+
+export async function createSubscription(
+  input: CreateSubscriptionInput,
+): Promise<{ subId: string }> {
+  if (isGuestActive()) return { subId: 'guest-sub' };
+  const res = await fetch('/api/subscriptions/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`createSubscription failed: ${res.status} ${text}`);
+  }
+  return res.json();
 }
