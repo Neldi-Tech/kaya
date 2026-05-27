@@ -10,6 +10,7 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
+  addAcademicFollowUp, removeAcademicFollowUp, setAcademicFollowUpStatus,
   subscribeToAcademicRecords, subscribeToSparksProfile, upsertAcademicRecord,
   type AcademicSubjectInput,
 } from '@/lib/sparks/firestore';
@@ -331,10 +332,167 @@ export default function AcademicPage() {
                   <strong className="text-[#0F1F44]">PTM:</strong> {rec.ptm_notes}
                 </div>
               )}
+              <FollowUps familyId={familyId} record={rec} uid={authProfile.uid} />
             </div>
           ))}
         </div>
       )}
     </AreaScreen>
+  );
+}
+
+// ── PTM follow-ups · inline tracker (Slice 3b) ───────────────────────
+//
+// Each follow-up = a tracked task on the academic record. Add with a
+// quick inline form; tap the circle to close (✓) or reopen; long-press
+// / × to delete. Open follow-ups carry a yellow chip; closed ones grey
+// out. Slice 3b stores them on `record.follow_ups`; the workplan
+// bridge (mirror to /workplanItems) lands with the rest of the
+// workplan wiring in a follow-up slice.
+
+function FollowUps({
+  familyId, record, uid,
+}: {
+  familyId: string;
+  record: SparksAcademicRecord;
+  uid: string;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [due, setDue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const follow_ups = record.follow_ups ?? [];
+  const openCount = follow_ups.filter((f) => f.status === 'open').length;
+
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  const add = async () => {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    try {
+      await addAcademicFollowUp(familyId, record.id, {
+        text: draft.trim(),
+        due_date: due || undefined,
+      });
+      setDraft(''); setDue(''); setAdding(false);
+    } finally { setBusy(false); }
+  };
+  const toggle = async (id: string, current: 'open' | 'closed') => {
+    setBusy(true);
+    try { await setAcademicFollowUpStatus(familyId, record.id, id, current === 'open' ? 'closed' : 'open', uid); }
+    finally { setBusy(false); }
+  };
+  const remove = async (id: string) => {
+    setBusy(true);
+    try { await removeAcademicFollowUp(familyId, record.id, id); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t border-[#ECE4D3]" onClick={stop}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#5A6488]">
+          Follow-ups{openCount > 0 && (
+            <span className="ml-1.5 text-[10px] font-extrabold bg-[#FFF1C9] text-[#8A6800] rounded-full px-1.5 py-0.5">
+              {openCount} open
+            </span>
+          )}
+        </div>
+        {!adding && (
+          <button
+            type="button"
+            onClick={(e) => { stop(e); setAdding(true); }}
+            className="text-[11px] font-bold text-[#5A3CB8] hover:bg-white rounded px-1.5 py-0.5"
+          >
+            + Follow-up
+          </button>
+        )}
+      </div>
+
+      {adding && (
+        <div className="bg-white rounded-lg p-2.5 mb-2 space-y-1.5">
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="e.g. Weekly reading practice"
+            className="w-full bg-[#FBF7EE] border border-[#ECE4D3] rounded px-2 py-1.5 text-[12.5px] text-[#0F1F44]"
+            autoFocus
+          />
+          <div className="flex items-center gap-1.5">
+            <input
+              type="date"
+              value={due}
+              onChange={(e) => setDue(e.target.value)}
+              className="flex-1 bg-[#FBF7EE] border border-[#ECE4D3] rounded px-2 py-1.5 text-[12px] text-[#0F1F44]"
+            />
+            <button
+              type="button"
+              onClick={(e) => { stop(e); add(); }}
+              disabled={!draft.trim() || busy}
+              className="px-2.5 py-1.5 rounded text-[12px] font-extrabold disabled:opacity-40"
+              style={{ background: '#5A3CB8', color: '#fff' }}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={(e) => { stop(e); setAdding(false); setDraft(''); setDue(''); }}
+              className="px-2 py-1.5 text-[12px] text-[#5A6488] font-bold"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
+      {follow_ups.length === 0 && !adding ? (
+        <div className="text-[11.5px] text-[#5A6488] italic">
+          No follow-ups yet. Add reading practice, retests, conversations to remember.
+        </div>
+      ) : (
+        <ul className="m-0 p-0 list-none space-y-1.5">
+          {follow_ups.map((f) => (
+            <li
+              key={f.id}
+              className={`flex items-start gap-2 rounded-lg px-2 py-1.5 ${
+                f.status === 'open' ? 'bg-[#FFF1C9]' : 'bg-white opacity-60'
+              }`}
+            >
+              <button
+                type="button"
+                onClick={(e) => { stop(e); toggle(f.id, f.status); }}
+                disabled={busy}
+                aria-label={f.status === 'open' ? 'Mark closed' : 'Reopen'}
+                className={`w-5 h-5 rounded-full border-2 grid place-items-center text-[10px] font-extrabold shrink-0 mt-0.5 ${
+                  f.status === 'closed' ? 'bg-[#2E7D34] border-[#2E7D34] text-white' : 'bg-white border-[#8A6800] text-[#8A6800]'
+                }`}
+              >
+                {f.status === 'closed' ? '✓' : ''}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className={`text-[12.5px] ${f.status === 'closed' ? 'line-through text-[#5A6488]' : 'text-[#0F1F44]'}`}>
+                  {f.text}
+                </div>
+                {f.due_date && (
+                  <div className="text-[10.5px] text-[#5A6488] mt-0.5">
+                    Due {f.due_date}
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={(e) => { stop(e); remove(f.id); }}
+                disabled={busy}
+                aria-label="Delete follow-up"
+                className="text-[#E85C5C] font-bold px-1.5 text-base hover:bg-white rounded"
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

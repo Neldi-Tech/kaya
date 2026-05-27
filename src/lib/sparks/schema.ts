@@ -148,6 +148,12 @@ export interface SparksItem {
     parent_confirmed?: boolean;
   };
   tags?: string[];
+  /** Sports-specific — only set when `area === 'sports_subscription'`.
+   *  Drives the row's progress bar + the "+ Session" counter (Slice 3b). */
+  sessions?: {
+    attended: number;
+    planned?: number;
+  };
   created_at: Timestamp;
   updated_at: Timestamp;
   created_by: string; // uid (parent / helper / kid)
