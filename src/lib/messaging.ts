@@ -146,30 +146,88 @@ export function selfMember(
 }
 
 // ── Threads ───────────────────────────────────────────────────────
-/** Create/refresh the family group thread (all members). Idempotent.
- *  After 2026-05-27: only sets `title` on first creation (so a custom rename
- *  via setThreadTitle isn't overwritten by the periodic membership refresh).
- *  Always stamps `isFamilyChat: true` so the UI can show the auto default. */
+/** Create the family group thread the first time it's needed. On subsequent
+ *  calls this is a near-no-op: it only stamps `isFamilyChat: true` (so legacy
+ *  threads upgrade once) and never touches `members` / `memberUids` again.
+ *
+ *  Before 2026-05-27 ensureGroupThread auto-synced membership to every
+ *  family-user on every /messages mount, which clobbered any parent
+ *  curation. Now the parent owns the member list — additions/removals via
+ *  addThreadMember() / removeThreadMember() persist. New family signups DO
+ *  NOT auto-join the family chat; a parent invites them. */
 export async function ensureGroupThread(familyId: string, members: ThreadMember[]): Promise<string> {
   if (isGuestActive() || members.length === 0) return GROUP_THREAD_ID;
   const ref = threadDoc(familyId, GROUP_THREAD_ID);
   const snap = await getDoc(ref);
-  const exists = snap.exists();
-  const patch: Record<string, unknown> = {
+  if (snap.exists()) {
+    // Legacy upgrade: stamp isFamilyChat once if missing. Never touch members.
+    const d = snap.data() as MessageThread;
+    if (d.isFamilyChat !== true) {
+      await setDoc(ref, { isFamilyChat: true }, { merge: true });
+    }
+    return GROUP_THREAD_ID;
+  }
+  // First creation only — seed with everyone the caller passed in, empty
+  // title (the UI's familyChatDisplayName() handles the auto default).
+  await setDoc(ref, {
     kind: 'group',
     isFamilyChat: true,
+    title: '',
     memberUids: members.map((m) => m.uid),
     members,
-    updatedAt: exists ? (snap.data().updatedAt ?? serverTimestamp()) : serverTimestamp(),
-  };
-  // First creation only — seed an empty title so the UI can show the default
-  // "[Surname] Family" / "Family Chat" name (controlled by familyChatDisplayName).
-  if (!exists) {
-    patch.createdAt = serverTimestamp();
-    patch.title = '';
-  }
-  await setDoc(ref, patch, { merge: true });
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
   return GROUP_THREAD_ID;
+}
+
+/** Add a member to a group thread. Idempotent (silently skips if already in).
+ *  Strips an undefined avatar so the Firestore write doesn't reject. */
+export async function addThreadMember(familyId: string, threadId: string, member: ThreadMember): Promise<void> {
+  if (isGuestActive() || !member?.uid) return;
+  const ref = threadDoc(familyId, threadId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Chat not found.');
+  const d = snap.data() as MessageThread;
+  if (d.kind !== 'group') throw new Error('Only group chats accept members.');
+  const uids = d.memberUids ?? [];
+  if (uids.includes(member.uid)) return;
+  const cleaned: ThreadMember = {
+    uid: member.uid,
+    name: member.name || 'Member',
+    role: member.role,
+    ...(member.avatar ? { avatar: member.avatar } : {}),
+  };
+  await setDoc(ref, {
+    memberUids: [...uids, member.uid],
+    members: [...(d.members ?? []), cleaned],
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+/** Remove a member from a group thread. Refuses to drop the last parent on
+ *  the Family Chat so the family can't lock itself out of curation. Custom
+ *  groups (created via /messages/new) can drop anyone — the family can
+ *  always make another. */
+export async function removeThreadMember(familyId: string, threadId: string, uid: string): Promise<void> {
+  if (isGuestActive() || !uid) return;
+  const ref = threadDoc(familyId, threadId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error('Chat not found.');
+  const d = snap.data() as MessageThread;
+  if (d.kind !== 'group') throw new Error('Only group chats accept member changes.');
+  const members = d.members ?? [];
+  const target = members.find((m) => m.uid === uid);
+  if (!target) return;
+  if (d.isFamilyChat && target.role === 'parent') {
+    const parentsLeft = members.filter((m) => m.role === 'parent' && m.uid !== uid).length;
+    if (parentsLeft < 1) throw new Error('At least one parent must stay in the Family Chat.');
+  }
+  await setDoc(ref, {
+    memberUids: (d.memberUids ?? []).filter((u) => u !== uid),
+    members: members.filter((m) => m.uid !== uid),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
 
 /** Rename a group thread. Used by both the family-chat ⚙ sheet and the

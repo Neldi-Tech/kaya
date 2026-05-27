@@ -8,10 +8,10 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Message, MessageThread, Attachment,
+  Message, MessageThread, Attachment, ThreadMember,
   subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
   seenByUids, readAtFor, otherMember, setTyping, typingNames, subscribePresence, lastSeenText, isOnline,
-  messagePreview, setThreadTitle,
+  messagePreview, setThreadTitle, messageableMembers, addThreadMember, removeThreadMember,
 } from '@/lib/messaging';
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
@@ -136,11 +136,24 @@ export default function MessageThreadPage() {
   const [editTitle, setEditTitle] = useState('');
   const [savingTitle, setSavingTitle] = useState(false);
   const [titleErr, setTitleErr] = useState('');
+  // Member curation (parent-only) — add/remove flow in the same sheet.
+  const canCurateMembers = isGroup && isParent;
+  const [addingMember, setAddingMember] = useState(false);
+  const [allFamilyMembers, setAllFamilyMembers] = useState<ThreadMember[]>([]);
+  const [memberBusy, setMemberBusy] = useState<string | null>(null); // uid being mutated
+  const [memberErr, setMemberErr] = useState('');
   useEffect(() => {
     // Seed the input from the live thread.title (empty string for the family
     // chat default shows the auto label rather than overwriting it).
     setEditTitle(thread?.title || '');
   }, [thread?.title]);
+  // Load the family roster lazily — only when a parent opens the add-picker.
+  useEffect(() => {
+    if (!familyId || !addingMember) return;
+    let alive = true;
+    messageableMembers(familyId, children).then((mem) => { if (alive) setAllFamilyMembers(mem); }).catch(() => {});
+    return () => { alive = false; };
+  }, [familyId, children, addingMember]);
   const saveTitle = async () => {
     if (!familyId || !thread || !canEditChatInfo) return;
     setSavingTitle(true); setTitleErr('');
@@ -153,6 +166,22 @@ export default function MessageThreadPage() {
       setSavingTitle(false);
     }
   };
+  const onRemoveMember = async (m: ThreadMember) => {
+    if (!familyId || !thread || !canCurateMembers) return;
+    setMemberErr(''); setMemberBusy(m.uid);
+    try { await removeThreadMember(familyId, thread.id, m.uid); }
+    catch (e) { setMemberErr(e instanceof Error ? e.message : 'Could not remove.'); }
+    finally { setMemberBusy(null); }
+  };
+  const onAddMember = async (m: ThreadMember) => {
+    if (!familyId || !thread || !canCurateMembers) return;
+    setMemberErr(''); setMemberBusy(m.uid);
+    try { await addThreadMember(familyId, thread.id, m); setAddingMember(false); }
+    catch (e) { setMemberErr(e instanceof Error ? e.message : 'Could not add.'); }
+    finally { setMemberBusy(null); }
+  };
+  // Family roster minus members already in the thread = the add-picker list.
+  const candidates = allFamilyMembers.filter((m) => !(thread?.memberUids ?? []).includes(m.uid));
 
   const addFiles = async (files: FileList | null, up: (f: File) => Promise<Attachment>) => {
     setAttachOpen(false);
@@ -349,22 +378,79 @@ export default function MessageThreadPage() {
               : 'Up to 60 characters.'}
           </p>
 
-          <div className="mt-3 text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">Members</div>
-          <div className="space-y-1">
-            {(thread.members || []).map((m) => (
-              <div key={m.uid} className="flex items-center gap-2 text-[12.5px]">
-                <span className="w-7 h-7 rounded-[8px] bg-kaya-gold-light flex items-center justify-center text-base overflow-hidden">
-                  {m.avatar && (m.avatar.startsWith('http') || m.avatar.startsWith('data:'))
-                    // eslint-disable-next-line @next/next/no-img-element
-                    ? <img src={m.avatar} alt="" className="w-full h-full object-cover" />
-                    : <span>{m.avatar || '👤'}</span>}
-                </span>
-                <span className="font-semibold">{m.name}</span>
-                <span className="text-kaya-sand capitalize">· {m.role}</span>
-              </div>
-            ))}
+          <div className="mt-3 flex items-baseline justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand">Members</span>
+            <span className="text-[11px] text-kaya-sand">{thread.members?.length ?? 0} in</span>
+          </div>
+          <div className="space-y-1 mt-1.5">
+            {(thread.members || []).map((m) => {
+              const isOnlyParent = thread.isFamilyChat && m.role === 'parent'
+                && (thread.members || []).filter((x) => x.role === 'parent').length <= 1;
+              return (
+                <div key={m.uid} className="flex items-center gap-2 text-[12.5px] p-1.5 rounded-kaya-sm">
+                  <span className="w-7 h-7 rounded-[8px] bg-kaya-gold-light flex items-center justify-center text-base overflow-hidden">
+                    {m.avatar && (m.avatar.startsWith('http') || m.avatar.startsWith('data:'))
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={m.avatar} alt="" className="w-full h-full object-cover" />
+                      : <span>{m.avatar || '👤'}</span>}
+                  </span>
+                  <span className="font-semibold flex-1 min-w-0 truncate">{m.name}</span>
+                  <span className="text-kaya-sand capitalize text-[11px]">· {m.role}</span>
+                  {canCurateMembers && !isOnlyParent && m.uid !== uid && (
+                    <button type="button" onClick={() => onRemoveMember(m)} disabled={memberBusy === m.uid}
+                      aria-label={`Remove ${m.name}`}
+                      className="ml-1 w-6 h-6 rounded-full bg-white border border-kaya-warm-dark/40 text-hive-rose text-[12px] font-bold hover:bg-kaya-warm transition disabled:opacity-50">
+                      {memberBusy === m.uid ? '…' : '×'}
+                    </button>
+                  )}
+                  {canCurateMembers && isOnlyParent && (
+                    <span className="text-[9.5px] text-kaya-sand font-bold uppercase tracking-wider ml-1">last parent</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
+          {canCurateMembers && (
+            <div className="mt-2">
+              {!addingMember ? (
+                <button type="button" onClick={() => setAddingMember(true)}
+                  className="w-full h-10 rounded-kaya-sm bg-white border border-dashed border-kaya-gold/60 text-kaya-chocolate font-display font-bold text-[12.5px] hover:bg-kaya-gold-light/30 transition">
+                  ＋ Add a member
+                </button>
+              ) : (
+                <div className="rounded-kaya-sm border border-kaya-warm-dark/40 bg-kaya-warm/40 p-2">
+                  <div className="flex items-baseline justify-between mb-1.5 px-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand">Add who?</span>
+                    <button type="button" onClick={() => setAddingMember(false)}
+                      className="text-[11px] font-bold text-kaya-sand hover:text-kaya-chocolate">Cancel</button>
+                  </div>
+                  {candidates.length === 0 ? (
+                    <p className="text-[12px] text-kaya-sand text-center py-2">Everyone in the family is already in.</p>
+                  ) : (
+                    <div className="space-y-1">
+                      {candidates.map((m) => (
+                        <button key={m.uid} type="button" onClick={() => onAddMember(m)} disabled={memberBusy === m.uid}
+                          className="w-full flex items-center gap-2 p-1.5 rounded-kaya-sm bg-white border border-kaya-warm-dark/30 hover:bg-kaya-warm text-left transition disabled:opacity-50">
+                          <span className="w-7 h-7 rounded-[8px] bg-kaya-gold-light flex items-center justify-center text-base overflow-hidden">
+                            {m.avatar && (m.avatar.startsWith('http') || m.avatar.startsWith('data:'))
+                              // eslint-disable-next-line @next/next/no-img-element
+                              ? <img src={m.avatar} alt="" className="w-full h-full object-cover" />
+                              : <span>{m.avatar || '👤'}</span>}
+                          </span>
+                          <span className="font-semibold text-[12.5px] flex-1 truncate">{m.name}</span>
+                          <span className="text-kaya-sand capitalize text-[11px]">· {m.role}</span>
+                          <span className="text-kaya-gold-dk font-bold">+</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {memberErr && <p className="text-hive-rose text-[12px] font-bold mt-3">{memberErr}</p>}
           {titleErr && <p className="text-hive-rose text-[12px] font-bold mt-3">{titleErr}</p>}
 
           <div className="flex gap-2 mt-4">
