@@ -19,11 +19,12 @@ import { formatCash, formatHoney, formatHp } from './format';
 // unknown (business) type here falls back to a neutral label rather than
 // being mislabelled by this Hive card.
 const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }>> = {
-  hp_to_honey:      { emoji: '⇆', label: 'Save HP → 🪙',        tone: 'honey' },
-  cash_out:         { emoji: '🪙', label: 'Cash out 🪙 → $',     tone: 'green' },
-  treasury_to_cash: { emoji: '🍯', label: 'Honey Pot → Cash',   tone: 'green' },
-  spend:            { emoji: '🛒', label: 'Cash spend',         tone: 'rose'  },
-  business_hp:      { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
+  hp_to_honey:       { emoji: '⇆', label: 'Save HP → 🪙',         tone: 'honey' },
+  cash_out:          { emoji: '🪙', label: 'Cash out 🪙 → $',      tone: 'green' },
+  treasury_to_cash:  { emoji: '🍯', label: 'Honey Pot → Cash',    tone: 'green' },
+  spend:             { emoji: '🛒', label: 'Cash spend',          tone: 'rose'  },
+  business_hp:       { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
+  create_group_chat: { emoji: '💬', label: 'New group chat',      tone: 'honey' },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
@@ -62,6 +63,10 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
     }
     if (req.type === 'business_hp') {
       return `+${formatHp(req.points || 0)} HP`;
+    }
+    if (req.type === 'create_group_chat') {
+      const n = req.proposedMemberUids?.length ?? 0;
+      return `"${req.proposedTitle || 'New group'}" · ${n} ${n === 1 ? 'member' : 'members'}`;
     }
     return formatCash(req.amountCents || 0);
   })();
@@ -106,6 +111,20 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           <p className="text-[11px] text-hive-muted mt-1">
             For <strong className="text-hive-navy">{kid?.name || 'unknown kid'}</strong>
           </p>
+          {req.type === 'create_group_chat' && req.proposedMembers && req.proposedMembers.length > 0 && (
+            <div className="mt-2 rounded-hive border border-hive-line bg-hive-cream p-2.5">
+              <p className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">Members</p>
+              <div className="flex flex-wrap gap-1.5">
+                {req.proposedMembers.map((m) => (
+                  <span key={m.uid} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-hive-pill bg-hive-paper border border-hive-line text-[11.5px] font-nunito font-bold">
+                    <span>{m.avatar && (m.avatar.startsWith('http') || m.avatar.startsWith('data:')) ? '👤' : (m.avatar || '👤')}</span>
+                    <span>{m.name}</span>
+                    <span className="text-hive-muted text-[10px] capitalize">· {m.role}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           {req.type === 'business_hp' && req.businessId && (
             <div className="mt-2">
               <button type="button" onClick={toggleDetails} className="text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">

@@ -49,7 +49,9 @@ export type ApprovalType =
   | 'investment_sell'        // simulated sell
   | 'capital_injection'      // parent loan/gift into a kid's business
   | 'business_hp'            // House Points for a stock-take (instant cadence, parent-review)
-  | 'business_sale';         // a kid's daily auto-sale, sent for parent approval → logSale on approve
+  | 'business_sale'          // a kid's daily auto-sale, sent for parent approval → logSale on approve
+  // ── Kaya Chat ──────────────────────────────────────────────────
+  | 'create_group_chat';     // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -466,6 +468,9 @@ export interface ApprovalRequest {
   productName?: string;             // business_sale — display name of the product
   saleQty?: number;                 // business_sale — quantity
   saleUnitPriceCents?: number;      // business_sale — price per unit
+  proposedTitle?: string;           // create_group_chat — group name the kid picked
+  proposedMemberUids?: string[];    // create_group_chat — uids the kid asked to include
+  proposedMembers?: Array<{ uid: string; name: string; role: string; avatar?: string }>; // create_group_chat — denormalized for the parent card
   /** Snapshot of the AI co-pilot context shown to the parent at decide time. */
   aiContext?: string;
   /** Dual-parent gate: distinct parent approvals required (default 1). Phase 1
@@ -849,6 +854,40 @@ export async function requestSpend(
   return ref.id;
 }
 
+/** Kid asks a parent to open a new group chat. The approval doc carries the
+ *  proposed title + denormalized member list; on approve the resolver writes
+ *  the thread directly (kids can't write `messageThreads` themselves). */
+export async function requestCreateGroupChat(
+  familyId: string,
+  kidId: string,
+  proposedTitle: string,
+  proposedMembers: Array<{ uid: string; name: string; role: string; avatar?: string }>,
+  createdBy: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const title = (proposedTitle || '').trim().slice(0, 60);
+  if (!title) throw new Error('Pick a name for the group.');
+  if (proposedMembers.length < 2) throw new Error('Add at least one other person.');
+  // Dedupe by uid; strip undefined avatars (Firestore rejects them).
+  const seen = new Set<string>();
+  const members = proposedMembers
+    .filter((m) => m?.uid && !seen.has(m.uid) && (seen.add(m.uid), true))
+    .map((m) => ({ uid: m.uid, name: m.name || 'Member', role: m.role, ...(m.avatar ? { avatar: m.avatar } : {}) }));
+  const memberUids = members.map((m) => m.uid);
+  const ref = await addDoc(requestCol(familyId), {
+    kidId,
+    type: 'create_group_chat' as ApprovalType,
+    description: `New group chat: "${title}" (${members.length} members)`,
+    proposedTitle: title,
+    proposedMemberUids: memberUids,
+    proposedMembers: members,
+    status: 'pending' as ApprovalStatus,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+  return ref.id;
+}
+
 /**
  * Either creates a parent-approval request OR posts the spend straight
  * through to the wallet, depending on `autoApproveBelowCents`. The
@@ -1125,6 +1164,36 @@ export async function resolveApprovalRequest(
         resolvedAt: now,
         resolvedBy: approverUid,
         resultingTxIds: [txRef.id],
+      });
+    } else if (req.type === 'create_group_chat') {
+      // No money flow — write a new thread doc and mark the request approved.
+      // (The wallet load above is wasted work but harmless; keeping the
+      // resolver shape single-transaction so unknown types still throw cleanly.)
+      const title = (req.proposedTitle || '').trim().slice(0, 60);
+      const members = Array.isArray(req.proposedMembers) ? req.proposedMembers : [];
+      if (!title) throw new Error('Group name missing on this request.');
+      if (members.length < 2) throw new Error('This request has too few members.');
+      const newThreadRef = doc(collection(db, 'families', familyId, 'threads'));
+      const now = serverTimestamp();
+      // Dedupe by uid; strip stray undefined avatar fields.
+      const seen = new Set<string>();
+      const cleanMembers = members
+        .filter((m) => m?.uid && !seen.has(m.uid) && (seen.add(m.uid), true))
+        .map((m) => ({ uid: m.uid, name: m.name || 'Member', role: m.role, ...(m.avatar ? { avatar: m.avatar } : {}) }));
+      tx.set(newThreadRef, {
+        kind: 'group',
+        title,
+        memberUids: cleanMembers.map((m) => m.uid),
+        members: cleanMembers,
+        createdByUid: req.createdBy,
+        createdByRole: 'kid',
+        createdAt: now,
+        updatedAt: now,
+      });
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        resolvedAt: now,
+        resolvedBy: approverUid,
       });
     } else {
       throw new Error(`Unknown approval type: ${(req as any).type}`);
