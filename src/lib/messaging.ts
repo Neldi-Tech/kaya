@@ -58,9 +58,18 @@ export interface ThreadMember {
 export interface MessageThread {
   id: string;
   kind: ThreadKind;
-  title?: string;                       // group only
+  title?: string;                       // group only (custom name; empty = use default)
   memberUids: string[];
   members?: ThreadMember[];             // denormalised for the list/header
+  /** Marks the family-wide group (id === GROUP_THREAD_ID). Lets the UI show
+   *  the "[Surname] Family" / "Family Chat" default when `title` is empty,
+   *  without depending on the magic doc id. Set by ensureGroupThread. */
+  isFamilyChat?: boolean;
+  /** Custom groups (created via /messages/new) carry the creator's uid so
+   *  the kid who started one can rename their own thread. Absent on the
+   *  family chat + direct threads. */
+  createdByUid?: string;
+  createdByRole?: Role;
   lastText?: string;
   lastKind?: 'text' | AttachmentKind | 'event';
   lastSenderUid?: string;
@@ -137,20 +146,94 @@ export function selfMember(
 }
 
 // ── Threads ───────────────────────────────────────────────────────
-/** Create/refresh the family group thread (all members). Idempotent. */
+/** Create/refresh the family group thread (all members). Idempotent.
+ *  After 2026-05-27: only sets `title` on first creation (so a custom rename
+ *  via setThreadTitle isn't overwritten by the periodic membership refresh).
+ *  Always stamps `isFamilyChat: true` so the UI can show the auto default. */
 export async function ensureGroupThread(familyId: string, members: ThreadMember[]): Promise<string> {
   if (isGuestActive() || members.length === 0) return GROUP_THREAD_ID;
   const ref = threadDoc(familyId, GROUP_THREAD_ID);
   const snap = await getDoc(ref);
-  await setDoc(ref, {
+  const exists = snap.exists();
+  const patch: Record<string, unknown> = {
     kind: 'group',
-    title: 'Family Group',
+    isFamilyChat: true,
     memberUids: members.map((m) => m.uid),
     members,
-    ...(snap.exists() ? {} : { createdAt: serverTimestamp() }),
-    updatedAt: snap.exists() ? (snap.data().updatedAt ?? serverTimestamp()) : serverTimestamp(),
-  }, { merge: true });
+    updatedAt: exists ? (snap.data().updatedAt ?? serverTimestamp()) : serverTimestamp(),
+  };
+  // First creation only — seed an empty title so the UI can show the default
+  // "[Surname] Family" / "Family Chat" name (controlled by familyChatDisplayName).
+  if (!exists) {
+    patch.createdAt = serverTimestamp();
+    patch.title = '';
+  }
+  await setDoc(ref, patch, { merge: true });
   return GROUP_THREAD_ID;
+}
+
+/** Rename a group thread. Used by both the family-chat ⚙ sheet and the
+ *  group-edit sheet for custom groups. Trims + empties allowed (empty title
+ *  on the family chat reverts to the auto default — by design). */
+export async function setThreadTitle(familyId: string, threadId: string, title: string): Promise<void> {
+  if (isGuestActive()) return;
+  await setDoc(threadDoc(familyId, threadId), {
+    title: title.trim().slice(0, 60),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+/** Create a fresh custom group chat. Used by:
+ *   • parents directly from /messages/new
+ *   • the approval resolver when a kid's create_group_chat request is approved.
+ *  Title is required (max 60 chars, trimmed); the creator is added to
+ *  memberUids defensively in case the caller forgot. */
+export async function createGroupThread(
+  familyId: string,
+  creator: ThreadMember,
+  title: string,
+  members: ThreadMember[],
+): Promise<string> {
+  if (isGuestActive()) return '';
+  const clean = title.trim().slice(0, 60);
+  if (!clean) throw new Error('Group name is required.');
+  // Defensive: ensure the creator is in the member set. Dedupe by uid.
+  const merged: ThreadMember[] = [];
+  const seen = new Set<string>();
+  for (const m of [creator, ...members]) {
+    if (!m?.uid || seen.has(m.uid)) continue;
+    seen.add(m.uid);
+    merged.push(m);
+  }
+  const ref = doc(threadsCol(familyId));
+  await setDoc(ref, {
+    kind: 'group',
+    title: clean,
+    memberUids: merged.map((m) => m.uid),
+    members: merged,
+    createdByUid: creator.uid,
+    createdByRole: creator.role,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+/** Default display name for the family chat when its title is empty.
+ *  Picks the family surname from `familyName` (e.g. "The Timotheo Family"
+ *  → "Timotheo Family") if available, else falls back to "Family Chat". */
+export function familyChatDisplayName(thread: Pick<MessageThread, 'title' | 'isFamilyChat'> | null, familyName?: string | null): string {
+  if (!thread) return 'Messages';
+  if (thread.title && thread.title.trim()) return thread.title.trim();
+  if (!thread.isFamilyChat) return 'Group';
+  // Strip a leading "The " (case-insensitive) + a trailing "Family" (so "The
+  // Timotheo Family" → "Timotheo") and re-suffix " Family" for a consistent
+  // shape. Falls back to "Family Chat" if nothing usable.
+  if (familyName && familyName.trim()) {
+    const surname = familyName.trim().replace(/^the\s+/i, '').replace(/\s+family$/i, '').trim();
+    if (surname) return `${surname} Family`;
+  }
+  return 'Family Chat';
 }
 
 /** Create/refresh a 1:1 thread between two members. Returns its id. */
@@ -348,8 +431,13 @@ export function lastSeenText(lastActiveAt?: Timestamp, now: number = Date.now())
 }
 
 /** Title + avatar for a thread row, from my POV. */
-export function threadHeader(thread: MessageThread, uid: string): { title: string; avatar: string } {
-  if (thread.kind === 'group') return { title: thread.title || 'Family Group', avatar: '🐝' };
+export function threadHeader(thread: MessageThread, uid: string, familyName?: string | null): { title: string; avatar: string } {
+  if (thread.kind === 'group') {
+    return {
+      title: familyChatDisplayName(thread, familyName) || 'Group',
+      avatar: thread.isFamilyChat ? '🐝' : '👥',
+    };
+  }
   const other = otherMember(thread, uid);
   return { title: other?.name || 'Direct message', avatar: other?.avatar || '💬' };
 }

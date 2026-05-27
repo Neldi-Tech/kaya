@@ -11,7 +11,7 @@ import {
   Message, MessageThread, Attachment,
   subscribeThread, subscribeMessages, sendMessage, markThreadRead, selfMember, threadHeader,
   seenByUids, readAtFor, otherMember, setTyping, typingNames, subscribePresence, lastSeenText, isOnline,
-  messagePreview,
+  messagePreview, setThreadTitle,
 } from '@/lib/messaging';
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
@@ -42,9 +42,10 @@ export default function MessageThreadPage() {
   const params = useParams();
   const threadId = String(params?.threadId || '');
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { family, children } = useFamily();
   const familyId = profile?.familyId;
   const uid = profile?.uid || '';
+  const familyName = (family as { name?: string } | null | undefined)?.name;
 
   const [thread, setThread] = useState<MessageThread | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -121,8 +122,37 @@ export default function MessageThreadPage() {
     streamRef.current?.getTracks().forEach((t) => t.stop());
   }, []);
 
-  const header = thread ? threadHeader(thread, uid) : { title: 'Messages', avatar: '💬' };
+  const header = thread ? threadHeader(thread, uid, familyName) : { title: 'Messages', avatar: '💬' };
   const isGroup = thread?.kind === 'group';
+  const isParent = profile?.role === 'parent';
+  const isOwnGroup = thread?.createdByUid && thread.createdByUid === uid;
+  // Parents can rename any group; an owner kid can rename their own custom
+  // group (matches the design — they can't add/remove members without a fresh
+  // approval, but renaming is allowed). Direct threads have no editable name.
+  const canEditChatInfo = isGroup && (isParent || isOwnGroup);
+
+  // "Edit chat info" sheet state.
+  const [infoOpen, setInfoOpen] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [titleErr, setTitleErr] = useState('');
+  useEffect(() => {
+    // Seed the input from the live thread.title (empty string for the family
+    // chat default shows the auto label rather than overwriting it).
+    setEditTitle(thread?.title || '');
+  }, [thread?.title]);
+  const saveTitle = async () => {
+    if (!familyId || !thread || !canEditChatInfo) return;
+    setSavingTitle(true); setTitleErr('');
+    try {
+      await setThreadTitle(familyId, thread.id, editTitle);
+      setInfoOpen(false);
+    } catch (e) {
+      setTitleErr(e instanceof Error ? e.message : 'Could not save the name.');
+    } finally {
+      setSavingTitle(false);
+    }
+  };
 
   const addFiles = async (files: FileList | null, up: (f: File) => Promise<Attachment>) => {
     setAttachOpen(false);
@@ -288,13 +318,67 @@ export default function MessageThreadPage() {
           </div>
           {online && <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-pantry-leaf border-2 border-kaya-cream" title="Online" />}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="font-display font-bold text-[15px] truncate">{header.title}</div>
           <div className={`text-[11px] truncate ${typingLabel ? 'text-pantry-leaf font-bold' : online ? 'text-pantry-leaf font-semibold' : 'text-kaya-sand'}`}>
             {headerSubtitle}
           </div>
         </div>
+        {canEditChatInfo && (
+          <button type="button" onClick={() => setInfoOpen((v) => !v)} aria-label="Edit chat info"
+            className="w-9 h-9 rounded-full bg-white border border-kaya-warm-dark/50 text-kaya-chocolate text-base flex items-center justify-center hover:bg-kaya-warm transition shrink-0">
+            ⚙
+          </button>
+        )}
       </div>
+
+      {/* Edit chat info — rename + member list. Parents on any group; an owner
+          kid on the group they created. Renaming the family chat to an empty
+          string reverts to the auto "[Surname] Family" / "Family Chat" default. */}
+      {infoOpen && thread && (
+        <div className="bg-white border border-kaya-warm-dark/50 rounded-kaya p-4 mb-3">
+          <div className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-2">Edit chat info</div>
+          <label htmlFor="rename-input" className="block text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">Chat name</label>
+          <input id="rename-input" value={editTitle} maxLength={60}
+            onChange={(e) => { setEditTitle(e.target.value); setTitleErr(''); }}
+            placeholder={thread.isFamilyChat ? 'Leave blank for the default' : 'Group name'}
+            className="w-full h-11 px-3 bg-kaya-warm rounded-kaya-sm border border-kaya-warm-dark/40 text-[14px] font-semibold focus:outline-none focus:ring-2 focus:ring-kaya-gold/50" />
+          <p className="text-[11px] text-kaya-sand mt-1.5">
+            {thread.isFamilyChat
+              ? 'Empty = use the family default name. Up to 60 characters.'
+              : 'Up to 60 characters.'}
+          </p>
+
+          <div className="mt-3 text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">Members</div>
+          <div className="space-y-1">
+            {(thread.members || []).map((m) => (
+              <div key={m.uid} className="flex items-center gap-2 text-[12.5px]">
+                <span className="w-7 h-7 rounded-[8px] bg-kaya-gold-light flex items-center justify-center text-base overflow-hidden">
+                  {m.avatar && (m.avatar.startsWith('http') || m.avatar.startsWith('data:'))
+                    // eslint-disable-next-line @next/next/no-img-element
+                    ? <img src={m.avatar} alt="" className="w-full h-full object-cover" />
+                    : <span>{m.avatar || '👤'}</span>}
+                </span>
+                <span className="font-semibold">{m.name}</span>
+                <span className="text-kaya-sand capitalize">· {m.role}</span>
+              </div>
+            ))}
+          </div>
+
+          {titleErr && <p className="text-hive-rose text-[12px] font-bold mt-3">{titleErr}</p>}
+
+          <div className="flex gap-2 mt-4">
+            <button type="button" onClick={() => { setEditTitle(thread.title || ''); setInfoOpen(false); }}
+              className="h-11 px-4 rounded-kaya-sm bg-white border border-kaya-warm-dark/50 text-kaya-chocolate font-display font-bold text-[12.5px] hover:bg-kaya-warm transition">
+              Cancel
+            </button>
+            <button type="button" onClick={saveTitle} disabled={savingTitle}
+              className="flex-1 h-11 rounded-kaya-sm bg-kaya-chocolate text-white font-display font-bold text-[12.5px] hover:brightness-110 transition disabled:opacity-50">
+              {savingTitle ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 space-y-2">

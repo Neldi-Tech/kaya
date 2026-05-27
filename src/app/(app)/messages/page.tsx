@@ -14,6 +14,7 @@ import {
   ensureGroupThread, ensureDirectThread, selfMember, threadHeader, isUnread,
   GROUP_THREAD_ID,
 } from '@/lib/messaging';
+import { subscribeToKidRequests, type ApprovalRequest } from '@/lib/hive';
 import type { Timestamp } from 'firebase/firestore';
 
 function relTime(t?: Timestamp): string {
@@ -41,14 +42,18 @@ function Avatar({ value, size = 'w-11 h-11' }: { value: string; size?: string })
 export default function MessagesPage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { family, children } = useFamily();
   const familyId = profile?.familyId;
   const uid = profile?.uid;
+  const isKid = profile?.role === 'kid';
 
   const [threads, setThreads] = useState<MessageThread[]>([]);
   const [members, setMembers] = useState<ThreadMember[]>([]);
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
+  // For kids: their own pending create_group_chat requests, shown as ghost
+  // tiles in the threads list so they see "waiting for parent" at a glance.
+  const [kidRequests, setKidRequests] = useState<ApprovalRequest[]>([]);
 
   const me = useMemo(() => (profile?.uid ? selfMember(profile, children) : null), [profile, children]);
 
@@ -56,6 +61,12 @@ export default function MessagesPage() {
     if (!familyId || !uid) return;
     return subscribeThreads(familyId, uid, setThreads);
   }, [familyId, uid]);
+
+  // Pending "new group" requests this kid sent (one card per pending request).
+  useEffect(() => {
+    if (!familyId || !uid || !isKid || !profile?.childId) return;
+    return subscribeToKidRequests(familyId, profile.childId, setKidRequests);
+  }, [familyId, uid, isKid, profile?.childId]);
 
   // Load members + keep the family group thread current (idempotent merge).
   useEffect(() => {
@@ -70,8 +81,11 @@ export default function MessagesPage() {
   }, [familyId, uid, children]);
 
   const group = threads.find((t) => t.id === GROUP_THREAD_ID);
+  const customGroups = threads.filter((t) => t.kind === 'group' && t.id !== GROUP_THREAD_ID);
   const directs = threads.filter((t) => t.kind === 'direct');
   const others = members.filter((m) => m.uid !== uid);
+  const pendingGroupRequests = kidRequests.filter((r) => r.type === 'create_group_chat' && r.status === 'pending');
+  const familyName = (family as { name?: string } | null | undefined)?.name;
 
   const startDirect = async (other: ThreadMember) => {
     if (!familyId || !me || busy) return;
@@ -83,21 +97,24 @@ export default function MessagesPage() {
   };
 
   const Row = ({ thread }: { thread: MessageThread }) => {
-    const { title, avatar } = threadHeader(thread, uid || '');
+    const { title, avatar } = threadHeader(thread, uid || '', familyName);
     const unread = isUnread(thread, uid || '');
+    const isFamily = thread.id === GROUP_THREAD_ID;
+    const isCustomGroup = thread.kind === 'group' && !isFamily;
     return (
       <button type="button" onClick={() => router.push(`/messages/${thread.id}`)}
         className={`w-full flex items-center gap-3 p-3 rounded-kaya border text-left transition-colors ${
-          thread.id === GROUP_THREAD_ID ? 'border-kaya-gold bg-kaya-gold-light/40' : 'border-kaya-warm-dark/50 bg-white hover:bg-kaya-warm'
+          isFamily ? 'border-kaya-gold bg-kaya-gold-light/40' : 'border-kaya-warm-dark/50 bg-white hover:bg-kaya-warm'
         }`}>
         <Avatar value={avatar} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={`text-[13.5px] truncate ${unread ? 'font-display font-bold' : 'font-semibold'}`}>{title}</span>
-            {thread.id === GROUP_THREAD_ID && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-gold/40 text-kaya-chocolate">all</span>}
+            {isFamily && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-gold/40 text-kaya-chocolate">all</span>}
+            {isCustomGroup && <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-warm-dark/15 text-kaya-chocolate">group</span>}
           </div>
           <div className={`text-[12px] truncate mt-0.5 ${unread ? 'text-kaya-chocolate font-semibold' : 'text-kaya-sand'}`}>
-            {thread.lastText || 'No messages yet'}
+            {thread.lastText || (isCustomGroup ? `${thread.memberUids?.length ?? 0} members` : 'No messages yet')}
           </div>
         </div>
         <div className="flex flex-col items-end gap-1 shrink-0">
@@ -107,6 +124,22 @@ export default function MessagesPage() {
       </button>
     );
   };
+
+  // Pending tile for a kid's own create_group_chat request — read-only, can't
+  // open (the thread doesn't exist yet). Drops as soon as the parent approves
+  // (the new thread shows up via subscribeThreads) or rejects.
+  const PendingGroupTile = ({ req }: { req: ApprovalRequest }) => (
+    <div className="w-full flex items-center gap-3 p-3 rounded-kaya border border-dashed border-kaya-gold bg-kaya-gold-light/30">
+      <Avatar value="⏳" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[13.5px] truncate font-display font-bold">{req.proposedTitle || 'New group'}</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-kaya-gold/40 text-kaya-chocolate">pending</span>
+        </div>
+        <div className="text-[12px] truncate mt-0.5 text-kaya-sand">Waiting for a parent · {req.proposedMemberUids?.length ?? 0} members</div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
@@ -127,7 +160,20 @@ export default function MessagesPage() {
 
       {picking && (
         <div className="bg-white border border-kaya-warm-dark/60 rounded-kaya p-3 mb-4">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-2">Message someone</div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-2">Start a new chat</div>
+          {/* Lead with the "+ New group" entry — parents create instantly, kids
+              send a request to a parent for approval (same route). */}
+          <button type="button" onClick={() => { setPicking(false); router.push('/messages/new'); }}
+            className="w-full flex items-center gap-3 p-2 rounded-kaya-sm hover:bg-kaya-warm text-left transition-colors mb-2 border border-dashed border-kaya-gold/60 bg-kaya-gold-light/30">
+            <Avatar value="✨" size="w-9 h-9" />
+            <span className="flex-1 min-w-0">
+              <span className="block text-[13px] font-semibold truncate">Start a new group</span>
+              <span className="block text-[11px] text-kaya-sand">{isKid ? 'Send a request to a parent' : 'Name it + pick members'}</span>
+            </span>
+            <span className="text-kaya-gold-dk font-bold">›</span>
+          </button>
+
+          <div className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-2 mt-3">Or message one person</div>
           {others.length === 0 ? (
             <p className="text-[12.5px] text-kaya-sand py-2">No other family members have a login yet.</p>
           ) : (
@@ -150,11 +196,17 @@ export default function MessagesPage() {
 
       <div className="space-y-2">
         {group && <Row thread={group} />}
+        {/* Kid's own pending group-creation requests — drop as the parent decides. */}
+        {pendingGroupRequests.map((r) => <PendingGroupTile key={r.id} req={r} />)}
+        {customGroups.length > 0 && (
+          <div className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand pt-3 pb-1 px-1">Groups</div>
+        )}
+        {customGroups.map((t) => <Row key={t.id} thread={t} />)}
         {directs.length > 0 && (
           <div className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand pt-3 pb-1 px-1">Direct messages</div>
         )}
         {directs.map((t) => <Row key={t.id} thread={t} />)}
-        {!group && directs.length === 0 && (
+        {!group && directs.length === 0 && customGroups.length === 0 && pendingGroupRequests.length === 0 && (
           <p className="text-[13px] text-kaya-sand text-center py-10">No chats yet — tap <b>＋ New</b> to message a family member.</p>
         )}
       </div>
