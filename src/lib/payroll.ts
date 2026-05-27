@@ -19,13 +19,14 @@
 
 import {
   doc, getDoc, updateDoc, serverTimestamp, collection, query, where, limit, getDocs,
+  Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import { todayDateString } from './workplan';
 import {
   type HelperLink, type HelperPayrollConfig, type PayBasis, type PayFrequency,
-  type PayrollDeduction,
+  type PayrollDeduction, type PayrollAllowance,
 } from './firestore';
 import { listHelpers } from './helpers';
 import { createDraftRequest } from './purchase';
@@ -240,6 +241,140 @@ export function payExpectationLabel(config: HelperPayrollConfig): string {
   return `${base} — by ${DAY_NAMES[dow]}`;
 }
 
+// ── Allowance schedule (2026-05-27) ──────────────────────────────
+//
+// Allowances can now ride the salary cycle OR run their own cadence
+// (monthly day-of-month / twice-monthly / weekly / biweekly / one-time).
+// Off-cycle allowances generate their OWN payroll request on the matching
+// date; the salary request only includes salary-bound allowances. The
+// allowance's `lastPaidMonth` / `lastPaidMonthSlots` / `lastPaidWeek` /
+// `paidAt` field prevents same-day double-pay.
+
+/** True when this allowance has its own pay schedule (creates its own
+ *  request). Legacy rows without a cadence are salary-bound — they ride
+ *  the existing salary cycle exactly as before. */
+export function isAllowanceOffCycle(a: PayrollAllowance, config: HelperPayrollConfig): boolean {
+  if (!a.cadence) return false;
+  if (a.cadence === 'monthly') {
+    const day = a.payDay ?? config.payAnchor;
+    return day !== config.payAnchor;       // same day as salary = bundle into salary
+  }
+  return true;                             // twice_monthly / weekly / biweekly / one_time always off-cycle
+}
+
+/** ISO 8601 week key (YYYY-Www) for weekly / biweekly bookkeeping. */
+function isoWeekKey(d: Date): string {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+/** Whether the allowance should fire on `today`. Compares YYYY-MM-DD strings
+ *  (not millisecond timestamps) so DST / timezone wobbles don't double-fire. */
+export function isAllowanceDueOn(
+  a: PayrollAllowance,
+  today: Date,
+  config: HelperPayrollConfig,
+): boolean {
+  if (!isAllowanceOffCycle(a, config)) return false;
+  const todayIso = isoOf(today);
+  if (config.startDate && todayIso < config.startDate) return false;
+  if (config.endDate && todayIso > config.endDate) return false;
+  const todayMonth = todayIso.slice(0, 7);
+  const todayDom = today.getDate();
+  const todayDow = today.getDay();
+  const todayWeek = isoWeekKey(today);
+  switch (a.cadence) {
+    case 'monthly': {
+      const day = Math.min(28, Math.max(1, a.payDay ?? config.payAnchor));
+      if (todayDom < day) return false;
+      if (a.lastPaidMonth === todayMonth) return false;
+      return true;
+    }
+    case 'twice_monthly': {
+      const days = (a.payDaysOfMonth ?? []).map((d) => Math.min(28, Math.max(1, d)));
+      const slots = a.lastPaidMonthSlots ?? {};
+      for (const d of days) {
+        if (todayDom < d) continue;
+        if (slots[String(d)] === todayMonth) continue;
+        return true;
+      }
+      return false;
+    }
+    case 'weekly': {
+      const dow = ((a.payDayOfWeek ?? 5) % 7 + 7) % 7;     // 5 = Friday default
+      if (todayDow !== dow) return false;
+      if (a.lastPaidWeek === todayWeek) return false;
+      return true;
+    }
+    case 'biweekly': {
+      const dow = ((a.payDayOfWeek ?? 5) % 7 + 7) % 7;
+      if (todayDow !== dow) return false;
+      if (a.lastPaidWeek === todayWeek) return false;
+      if (!config.startDate) return true;
+      const start = parseIso(config.startDate);
+      const weeks = Math.floor((today.getTime() - start.getTime()) / (7 * 86400000));
+      return weeks % 2 === 0;                              // pay on the even week from startDate
+    }
+    case 'one_time': {
+      if (!a.payDate || a.paidAt) return false;
+      // Fire on or after the scheduled date (so a missed day still pays the next run).
+      return todayIso >= a.payDate;
+    }
+  }
+  return false;
+}
+
+/** Immutable bookkeeping update for an allowance after it fires today. */
+function markAllowancePaid(a: PayrollAllowance, today: Date): PayrollAllowance {
+  const todayMonth = isoOf(today).slice(0, 7);
+  switch (a.cadence) {
+    case 'monthly':       return { ...a, lastPaidMonth: todayMonth };
+    case 'twice_monthly': {
+      const day = today.getDate();
+      const slots = { ...(a.lastPaidMonthSlots ?? {}) };
+      slots[String(day)] = todayMonth;
+      return { ...a, lastPaidMonthSlots: slots };
+    }
+    case 'weekly':
+    case 'biweekly':      return { ...a, lastPaidWeek: isoWeekKey(today) };
+    case 'one_time':      return { ...a, paidAt: Timestamp.now() };
+    default:              return a;
+  }
+}
+
+/** Create a focused payroll request for a single off-cycle allowance. */
+async function generateAllowanceRequest(
+  familyId: string,
+  helper: HelperLink,
+  allowance: PayrollAllowance,
+  payDate: Date,
+  byUid: string,
+): Promise<void> {
+  const payDateIso = isoOf(payDate);
+  const items: import('./purchase').PurchaseRequestItem[] = [{
+    id: `pay-${Date.now()}-0`,
+    name: `Allowance · ${allowance.label}`,
+    qty: 1,
+    unit: 'cycle',
+    estimatedCents: allowance.amountCents,
+    category: 'other',
+  }];
+  await createDraftRequest(familyId, {
+    name: `${allowance.label} · ${helper.displayName} · ${toDisplayDate(payDateIso)}`,
+    module: 'payroll',
+    helperUid: helper.uid,
+    createdBy: byUid,
+    createdByRole: 'parent',
+    items,
+    initialStatus: 'pending_approval',
+    generatedBy: 'system',
+  });
+}
+
 // ── Generator ────────────────────────────────────────────────────
 
 export interface GeneratorRun {
@@ -293,6 +428,46 @@ export async function runPayrollGenerator(
       });
     }
   }
+
+  // ── Off-cycle allowances (2026-05-27) ──
+  // After the salary cycle, walk every helper's allowances for ones due today
+  // on their own schedule. Each creates its own payroll request, and we
+  // persist bookkeeping back to the helper's config so today doesn't double-fire.
+  for (const helper of helpers) {
+    if (helper.status === 'removed') continue;
+    const config = helper.payrollConfig;
+    if (!config) continue;
+    const due = (config.allowances ?? []).filter((a) => isAllowanceDueOn(a, today, config));
+    if (due.length === 0) continue;
+    let updated: PayrollAllowance[] = (config.allowances ?? []).slice();
+    for (const a of due) {
+      try {
+        await generateAllowanceRequest(familyId, helper, a, today, byUid);
+        updated = updated.map((x) => (x === a ? markAllowancePaid(a, today) : x));
+        run.generated.push({
+          helperUid: helper.uid,
+          helperName: `${helper.displayName} — ${a.label}`,
+          payDate: isoOf(today),
+        });
+      } catch (e) {
+        run.skipped.push({
+          helperUid: helper.uid,
+          helperName: `${helper.displayName} — ${a.label}`,
+          reason: `Allowance generation failed: ${String(e)}`,
+        });
+      }
+    }
+    try {
+      await setPayrollConfig(familyId, helper.uid, { allowances: updated });
+    } catch (e) {
+      run.skipped.push({
+        helperUid: helper.uid,
+        helperName: `${helper.displayName} — bookkeeping`,
+        reason: `Failed to persist allowance bookkeeping: ${String(e)}`,
+      });
+    }
+  }
+
   return run;
 }
 
@@ -327,7 +502,10 @@ async function generateOneRequest(
   }
 
   // ── Allowances ──
-  const allowances = config.allowances ?? [];
+  // Off-cycle allowances (those with their own pay schedule) get their own
+  // payroll request created in runPayrollGenerator's second pass — exclude
+  // them here so they're not double-paid on the salary cycle.
+  const allowances = (config.allowances ?? []).filter((a) => !isAllowanceOffCycle(a, config));
   const allowancesCents = allowances.reduce((acc, a) => acc + (a.amountCents ?? 0), 0);
 
   // ── Deductions ──

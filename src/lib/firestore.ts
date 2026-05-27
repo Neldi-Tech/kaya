@@ -440,6 +440,21 @@ export interface HelperLink {
 export type PayBasis = 'hourly' | 'daily' | 'monthly';
 export type PayFrequency = 'weekly' | 'biweekly' | 'monthly';
 
+/** Allowance type — drives the pill + icon + filterability. Never gates the
+ *  amount or the schedule. Defaults to 'other' when omitted (back-compat). */
+export type PayrollAllowanceType =
+  | 'food' | 'transport' | 'holiday' | 'airtime' | 'housing' | 'medical' | 'other';
+
+/** Allowance cadence (2026-05-27). Old rows without `cadence` are treated as
+ *  `monthly` with `payDay` = helper's salary anchor, preserving existing
+ *  "added to the salary cycle" behaviour. */
+export type PayrollAllowanceCadence =
+  | 'monthly'        // payDay (1–28)
+  | 'twice_monthly'  // payDaysOfMonth: [d1, d2]
+  | 'weekly'         // payDayOfWeek (0=Sun..6=Sat)
+  | 'biweekly'       // payDayOfWeek + biweek offset from startDate
+  | 'one_time';      // payDate (YYYY-MM-DD)
+
 export interface PayrollAllowance {
   /** Free-text label visible on the generated request ("Transport",
    *  "Airtime", "Meals", "Housing", etc.). */
@@ -447,6 +462,30 @@ export interface PayrollAllowance {
   /** Recurring amount in cents added to every pay cycle on top of
    *  the basic rate. */
   amountCents: number;
+  /** Typed category — display only (pill + icon). Optional; defaults to 'other'. */
+  type?: PayrollAllowanceType;
+  /** How often this allowance fires. Optional — absent = 'monthly' with the
+   *  helper's salary anchor, matching pre-2026-05-27 behaviour. */
+  cadence?: PayrollAllowanceCadence;
+  /** Monthly cadence: day of month (1–28). */
+  payDay?: number;
+  /** Twice-monthly cadence: exactly two days of month (1–28), e.g. [1, 15]. */
+  payDaysOfMonth?: number[];
+  /** Weekly / biweekly cadence: 0=Sun .. 6=Sat. */
+  payDayOfWeek?: number;
+  /** One-time cadence: full pay date (YYYY-MM-DD). */
+  payDate?: string;
+  /** Generator bookkeeping — last YYYY-MM the monthly/twice-monthly cycle
+   *  paid. Twice-monthly stores per-slot via `lastPaidMonthSlots` instead. */
+  lastPaidMonth?: string;
+  /** Twice-monthly bookkeeping: map of day-of-month → last YYYY-MM paid for
+   *  THAT specific slot. e.g. { 1: '2026-05', 15: '2026-05' } once both
+   *  halves of May 2026 are paid. */
+  lastPaidMonthSlots?: Record<string, string>;
+  /** Weekly/biweekly bookkeeping — last ISO week (YYYY-Www) paid. */
+  lastPaidWeek?: string;
+  /** One-time bookkeeping — set when paid; never fires again. */
+  paidAt?: Timestamp;
 }
 
 export interface PayrollDeduction {
