@@ -137,6 +137,31 @@ service firebase.storage {
       allow delete: if belongsToFamily(familyId);
     }
 
+    // ── Household → Subscription receipts (2026-05-27) ──
+    // Phase 1 ships ONLY Property-linked Manual subscription receipts —
+    // rent, BC fees, land rates, borehole servicing. These are receipts
+    // the parent OCRs + forwards to Wealth / Property Manager / email
+    // (WhatsApp Soon). Everything else (Netflix etc.) waits for the
+    // full Storage rollout in Phase 2 per spec §3.8.
+    //
+    // Path: families/{f}/subscriptions/{subId}/receipts/{file}
+    //
+    // Family-scoped — anyone in the family can upload (helper captures,
+    // parent reviews). The "Property only" gate is enforced at the
+    // Firestore + UI layer; once a blob is here it's just a file, and
+    // the schema requires a parent receipt doc to mark + reference it.
+    // Image (≤ 10 MB) or PDF (≤ 10 MB).
+    match /families/{familyId}/subscriptions/{subId}/receipts/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+        );
+      allow delete: if belongsToFamily(familyId);
+    }
+
     // ── Messaging → attachments (2026-05-24) ──
     // One folder per thread:
     //   families/{f}/messages/{threadId}/{fileId}.<ext>

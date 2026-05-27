@@ -203,6 +203,15 @@ const HOUSEHOLD_NAV: NavItem[] = [
   { path: '/pantry/home',            icon: '🛋️', label: 'Home & Wellness',
     tooltip: 'Furniture, appliances, décor, fittings + self-care / wellness. Mostly parent buys.' },
 
+  // 2026-05-27 — Subscriptions + Contributions (Household → Subs+Contribs P1).
+  // Two new top-level Household sub-modules per the 05-27 spec. Contributions
+  // sits first per Elia's nav order. Routes live under /household/* (separate
+  // from /pantry/* which keeps the existing request → approve loop).
+  { path: '/household/contributions', icon: '🤲', label: 'Contributions',
+    tooltip: 'Gifts, tithes, msiba, charity, family support. Parents-only by default.' },
+  { path: '/household/subscriptions', icon: '🔁', label: 'Subscriptions',
+    tooltip: 'Recurring + one-off subscriptions — apps, memberships, media, property dues.' },
+
   { path: '/pantry/staples',         icon: '📦', label: 'Staples',     groupStart: 'Catalogues & plans',
     tooltip: "Your family's curated Pantry regulars. Picked from Browse to your list." },
   // 2026-05-20 — Utilities Setup promoted to a top-level sidebar entry,
