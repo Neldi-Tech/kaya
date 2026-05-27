@@ -76,6 +76,33 @@ export default function SparksIcon({
         strokeWidth="0.8"
         strokeLinecap="round"
       />
+
+      {/* ── Sparks · 4-pointed stars radiating around the bulb ───────
+         Gold + yellow, sized + placed so the icon still reads cleanly
+         at 16px (each sparkle is ≥ 2 visual pixels wide at that size). */}
+      <g fill="#FFD93D">
+        {/* big sparkle · top-left, above the cap */}
+        <path d="M9 18 L10.3 20.5 L13 21.5 L10.3 22.5 L9 25 L7.7 22.5 L5 21.5 L7.7 20.5 Z" />
+        {/* medium sparkle · upper-right, by the tassel */}
+        <path d="M56 23 L56.9 25 L58.8 25.7 L56.9 26.4 L56 28.4 L55.1 26.4 L53.2 25.7 L55.1 25 L55.1 25 Z" />
+        {/* small sparkle · bottom-left, by the base */}
+        <path d="M10 49 L10.7 50.5 L12.2 51 L10.7 51.5 L10 53 L9.3 51.5 L7.8 51 L9.3 50.5 Z" />
+      </g>
+
+      {/* matching gold stroke on the big sparkle so it doesn't blow out */}
+      <path
+        d="M9 18 L10.3 20.5 L13 21.5 L10.3 22.5 L9 25 L7.7 22.5 L5 21.5 L7.7 20.5 Z"
+        fill="none"
+        stroke="#D4A847"
+        strokeWidth="0.6"
+        strokeLinejoin="round"
+      />
+
+      {/* tiny gold dots — extra spark dust */}
+      <g fill="#D4A847">
+        <circle cx="54" cy="42" r="1.1" />
+        <circle cx="16" cy="34" r="0.9" />
+      </g>
     </svg>
   );
 }
