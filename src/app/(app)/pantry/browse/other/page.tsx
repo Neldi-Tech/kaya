@@ -56,7 +56,7 @@ import { formatCents } from '@/components/pantry/format';
 import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 
 type OtherModule = Exclude<PurchaseModule, 'pantry'>;
-const ALL_TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll', 'home'];
+const ALL_TABS: OtherModule[] = ['outdoor', 'utility', 'drivers', 'payroll', 'home', 'subscriptions', 'contributions'];
 
 export default function OtherCataloguePage() {
   const { staples, utilities } = usePantry();
@@ -91,11 +91,15 @@ export default function OtherCataloguePage() {
   const switchTab = (t: OtherModule) => { setTab(t); setCat('all'); setEditing(null); };
 
   // ── Tab-aware chips + category set ─────────────────────────────
+  // Subscriptions + Contributions don't use category chips here — their
+  // own catalogues live under /household/* with richer pickers (see the
+  // redirect card rendered below). Return an empty set to skip the chip row.
   const chips = useMemo(() => {
     if (tab === 'outdoor') return OUTDOOR_CATEGORIES;
     if (tab === 'drivers') return DRIVERS_CATEGORIES;
     if (tab === 'utility') return UTILITY_REQUEST_CATEGORIES;
     if (tab === 'home') return HOME_CATEGORIES;
+    if (tab === 'subscriptions' || tab === 'contributions') return [];
     return PAYROLL_CATEGORIES;
   }, [tab]);
 
@@ -347,6 +351,44 @@ export default function OtherCataloguePage() {
           })}
         </div>
       </div>
+
+      {/* ── Subscriptions: redirect to the dedicated catalogue ────── */}
+      {tab === 'subscriptions' && (
+        <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-5 text-center">
+          <div className="text-3xl mb-1">🔁</div>
+          <h3 className="font-nunito font-black text-base text-hive-navy">
+            Subscriptions live in their own catalogue
+          </h3>
+          <p className="text-hive-muted text-sm mt-1 mb-3">
+            Apps, memberships, streaming, property dues — managed under <strong>Household → Subscriptions</strong>, with Auto/Manual toggle, catalogue search, and FX-locked entry.
+          </p>
+          <Link
+            href="/household/subscriptions"
+            className="inline-flex items-center gap-1.5 bg-pulse-navy text-pulse-cream rounded-hive px-4 py-2 font-nunito font-black text-sm no-underline"
+          >
+            Open Subscriptions →
+          </Link>
+        </div>
+      )}
+
+      {/* ── Contributions: redirect to the dedicated catalogue ────── */}
+      {tab === 'contributions' && (
+        <div className="mt-3 bg-hive-paper border border-hive-line rounded-hive p-5 text-center">
+          <div className="text-3xl mb-1">🤲</div>
+          <h3 className="font-nunito font-black text-base text-hive-navy">
+            Contributions live in their own catalogue
+          </h3>
+          <p className="text-hive-muted text-sm mt-1 mb-3">
+            Tithes, msiba, charity, family support — managed under <strong>Household → Contributions</strong>. Parents-only by default, with the tithe% shortcut and occasion grouping.
+          </p>
+          <Link
+            href="/household/contributions"
+            className="inline-flex items-center gap-1.5 bg-pulse-navy text-pulse-cream rounded-hive px-4 py-2 font-nunito font-black text-sm no-underline"
+          >
+            Open Contributions →
+          </Link>
+        </div>
+      )}
 
       {/* ── Drivers: vehicles registry banner ─────────────────────── */}
       {tab === 'drivers' && (

@@ -61,7 +61,7 @@ export type PurchaseRequestStatus =
  *              fittings. Mostly parent-bought; sits last (low-frequency).
  *  All six modules share the `purchaseRequests` collection;
  *  `module` discriminates the surface. */
-export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'dineOut' | 'home';
+export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'dineOut' | 'home' | 'subscriptions' | 'contributions';
 
 /** Categories specific to the Outdoor module. Used in the catalogue
  *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
@@ -157,23 +157,27 @@ export const HOME_CATEGORIES: { id: HomeCategory; emoji: string; label: string }
 /** Module → emoji + label shortcuts for consistent branding across
  *  pickers, tab bars, Finances roll-up, etc. */
 export const MODULE_EMOJI: Record<PurchaseModule, string> = {
-  pantry:  '🛒',
-  outdoor: '🌿',
-  drivers: '🚗',
-  utility: '⚡',
-  payroll: '🤝',
-  dineOut: '🍽️',
-  home:    '🛋️',
+  pantry:         '🛒',
+  outdoor:        '🌿',
+  drivers:        '🚗',
+  utility:        '⚡',
+  payroll:        '🤝',
+  dineOut:        '🍽️',
+  home:           '🛋️',
+  subscriptions:  '🔁',
+  contributions:  '🤲',
 };
 
 export const MODULE_LABEL: Record<PurchaseModule, string> = {
-  pantry:  'Pantry',
-  outdoor: 'Outdoor',
-  drivers: 'Drivers',
-  utility: 'Utilities',
-  payroll: 'Payroll',
-  dineOut: 'Dine Out',
-  home:    'Home & Wellness',
+  pantry:         'Pantry',
+  outdoor:        'Outdoor',
+  drivers:        'Drivers',
+  utility:        'Utilities',
+  payroll:        'Payroll',
+  dineOut:        'Dine Out',
+  home:           'Home & Wellness',
+  subscriptions:  'Subscriptions',
+  contributions:  'Contributions',
 };
 
 /** Short module code used in the auto-generated request name +
@@ -183,13 +187,15 @@ export const MODULE_LABEL: Record<PurchaseModule, string> = {
  *  pinned to a vehicle. Three letters chosen for compact scanning
  *  on mobile + so the pill stays under ~10 chars. */
 export const MODULE_CODE: Record<PurchaseModule, string> = {
-  pantry:  'PNT',
-  outdoor: 'OUT',
-  drivers: 'CAR',
-  utility: 'UTL',
-  payroll: 'PAY',
-  dineOut: 'DIN',
-  home:    'HOM',
+  pantry:         'PNT',
+  outdoor:        'OUT',
+  drivers:        'CAR',
+  utility:        'UTL',
+  payroll:        'PAY',
+  dineOut:        'DIN',
+  home:           'HOM',
+  subscriptions:  'SUB',
+  contributions:  'CTR',
 };
 
 /** Compact date for request names: 18-May-2026 → `180526` (DDMMYY).
@@ -708,13 +714,15 @@ async function nextRequestSeq(familyId: string, module: PurchaseModule): Promise
 function fallbackDraftName(module: PurchaseModule, context?: string): string {
   const day = new Date().toLocaleDateString('en-US', { weekday: 'long' });
   const noun: Record<PurchaseModule, string> = {
-    pantry:  'shop',
-    outdoor: 'outdoor',
-    drivers: 'drive',
-    utility: 'utility',
-    payroll: 'payroll',
-    dineOut: 'dine-out',
-    home:    'home',
+    pantry:         'shop',
+    outdoor:        'outdoor',
+    drivers:        'drive',
+    utility:        'utility',
+    payroll:        'payroll',
+    dineOut:        'dine-out',
+    home:           'home',
+    subscriptions:  'subscription',
+    contributions:  'contribution',
   };
   const head = `${day} ${noun[module]}`;
   return context?.trim() ? `${head} · ${context.trim()}` : head;

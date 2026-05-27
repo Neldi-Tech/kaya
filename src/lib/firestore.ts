@@ -283,6 +283,8 @@ export interface Family {
     payroll?: number;
     dineOut?: number;
     home?: number;
+    subscriptions?: number;
+    contributions?: number;
   };
   /** Structured budget breakdowns — line items in their natural
    *  cadence (day/week/month/year), normalized to monthly on save.

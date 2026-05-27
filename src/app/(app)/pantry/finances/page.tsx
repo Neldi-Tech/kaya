@@ -18,6 +18,7 @@ import {
   subscribeToRecentRequests,
   MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
+import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 
 const monthKey = (d: Date = new Date()) =>
@@ -25,27 +26,39 @@ const monthKey = (d: Date = new Date()) =>
 const monthLabel = (d: Date = new Date()) =>
   d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-// Every Household request module rolled up here. All six live now.
-const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
+// Every Household money bucket rolled up here. Pantry/Outdoor/Drivers/
+// Utility/Payroll/Dine Out/Home come from purchaseRequests; Subscriptions
+// + Contributions come from spend_ledger (the server writes ledger
+// entries when a sub cycle is marked paid or a contribution is logged).
+const LIVE_MODULES: PurchaseModule[] = [
+  'pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home',
+  'subscriptions', 'contributions',
+];
 
 const MODULE_HREF: Record<PurchaseModule, string> = {
-  pantry:  '/pantry/purchase',
-  outdoor: '/pantry/outdoor',
-  drivers: '/pantry/drivers',
-  utility: '/pantry/utility',
-  payroll: '/pantry/payroll',
-  dineOut: '/pantry/dine-out',
-  home:    '/pantry/home',
+  pantry:         '/pantry/purchase',
+  outdoor:        '/pantry/outdoor',
+  drivers:        '/pantry/drivers',
+  utility:        '/pantry/utility',
+  payroll:        '/pantry/payroll',
+  dineOut:        '/pantry/dine-out',
+  home:           '/pantry/home',
+  subscriptions:  '/household/subscriptions',
+  contributions:  '/household/contributions',
 };
 
 const MODULE_TINT: Record<PurchaseModule, { card: string; border: string; bar: string }> = {
-  pantry:  { card: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', bar: 'bg-pantry-leaf-dk' },
-  outdoor: { card: 'bg-[#E6F2EC]',        border: 'border-pantry-leaf', bar: 'bg-pantry-leaf' },
-  drivers: { card: 'bg-[#E5EFF8]',        border: 'border-[#B5CFE5]',   bar: 'bg-hive-blue' },
-  utility: { card: 'bg-[#FFF3D9]',        border: 'border-hive-honey',  bar: 'bg-hive-honey-dk' },
-  payroll: { card: 'bg-[#F4EFFB]',        border: 'border-[#C9B8E5]',   bar: 'bg-[#8A6FBF]' },
-  dineOut: { card: 'bg-[#FBEAE0]',        border: 'border-[#E8C3AE]',   bar: 'bg-[#C2562E]' },
-  home:    { card: 'bg-[#F6EBDD]',        border: 'border-[#E0C4A3]',   bar: 'bg-[#9B6B3F]' },
+  pantry:         { card: 'bg-pantry-leaf-soft', border: 'border-pantry-leaf', bar: 'bg-pantry-leaf-dk' },
+  outdoor:        { card: 'bg-[#E6F2EC]',        border: 'border-pantry-leaf', bar: 'bg-pantry-leaf' },
+  drivers:        { card: 'bg-[#E5EFF8]',        border: 'border-[#B5CFE5]',   bar: 'bg-hive-blue' },
+  utility:        { card: 'bg-[#FFF3D9]',        border: 'border-hive-honey',  bar: 'bg-hive-honey-dk' },
+  payroll:        { card: 'bg-[#F4EFFB]',        border: 'border-[#C9B8E5]',   bar: 'bg-[#8A6FBF]' },
+  dineOut:        { card: 'bg-[#FBEAE0]',        border: 'border-[#E8C3AE]',   bar: 'bg-[#C2562E]' },
+  home:           { card: 'bg-[#F6EBDD]',        border: 'border-[#E0C4A3]',   bar: 'bg-[#9B6B3F]' },
+  // Subs + Contribs use the Premium pulse-* tokens to match their own
+  // surfaces (kept distinct from the leaf-green pantry family).
+  subscriptions:  { card: 'bg-pulse-cream',      border: 'border-pulse-navy/20', bar: 'bg-pulse-navy' },
+  contributions:  { card: 'bg-pulse-gold/10',    border: 'border-pulse-gold/35', bar: 'bg-pulse-gold' },
 };
 
 export default function FinancesPage() {
@@ -63,10 +76,13 @@ export default function FinancesPage() {
   }, [profile, router]);
 
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
+  const [ledger, setLedger] = useState<SpendLedgerEntry[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
     if (profile.role !== 'parent') return;
-    return subscribeToRecentRequests(profile.familyId, setRecent);
+    const u1 = subscribeToRecentRequests(profile.familyId, setRecent);
+    const u2 = subscribeToSpendLedger(profile.familyId, setLedger);
+    return () => { u1(); u2(); };
   }, [profile?.familyId, profile?.role]);
 
   const thisMonth = monthKey();
@@ -79,16 +95,31 @@ export default function FinancesPage() {
     [recent, thisMonth],
   );
 
-  // Per-module roll-up
+  // Ledger entries that fall in the current month, EXCLUDING anything
+  // tagged isProfessionalExpense — per spec §5 those are work expenses
+  // and shouldn't pollute household roll-ups.
+  const ledgerThisMonth = useMemo(
+    () => ledger.filter((e) => {
+      if (e.isProfessionalExpense) return false;
+      const at = e.occurredOn?.toDate?.();
+      return at && monthKey(at) === thisMonth;
+    }),
+    [ledger, thisMonth],
+  );
+
+  // Per-module roll-up — purchaseRequests for the existing 7 modules,
+  // spend_ledger for subscriptions + contributions.
   const perModule = useMemo(() => {
     const result: Record<PurchaseModule, { spent: number; cap: number; count: number; over: boolean; pct: number }> = {
-      pantry:  { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
-      outdoor: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
-      drivers: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
-      utility: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
-      payroll: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
-      dineOut: { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
-      home:    { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      pantry:         { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      outdoor:        { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      drivers:        { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      utility:        { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      payroll:        { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      dineOut:        { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      home:           { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      subscriptions:  { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
+      contributions:  { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
     };
     for (const r of closedThisMonth) {
       const m = (r.module ?? 'pantry') as PurchaseModule;
@@ -96,19 +127,24 @@ export default function FinancesPage() {
       result[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
       result[m].count += 1;
     }
-    const budgets = family?.householdBudgets ?? {};
+    for (const e of ledgerThisMonth) {
+      const m = e.sourceModule as PurchaseModule;
+      if (!result[m]) continue;
+      result[m].spent += e.amountHousehold || 0;
+      result[m].count += 1;
+    }
+    const budgets = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
     for (const m of LIVE_MODULES) {
-      // householdBudgets has a `payroll` field; legacy schema has no
-      // 'utility' explicitly tied to request-module spend — keep the
-      // existing `utility` cap pointing to the same number for now.
-      const capKey = m === 'payroll' ? 'payroll' : (m as 'pantry' | 'outdoor' | 'drivers' | 'utility');
-      result[m].cap = (budgets as Record<string, number | undefined>)[capKey] ?? 0;
+      // Caps live on the family doc as householdBudgets.{module}. New
+      // 'subscriptions' / 'contributions' caps work the same — when a
+      // parent sets them in /pantry/budget they'll just appear here.
+      result[m].cap = budgets[m] ?? 0;
       const { spent, cap } = result[m];
       result[m].over = cap > 0 && spent > cap;
       result[m].pct = cap > 0 ? Math.min(100, Math.round((spent / cap) * 100)) : 0;
     }
     return result;
-  }, [closedThisMonth, family?.householdBudgets]);
+  }, [closedThisMonth, ledgerThisMonth, family?.householdBudgets]);
 
   // NOTE (2026-05-17): The "Utility Bills · Monthly" rollup card was
   // removed from this page. It double-surfaced utility spend alongside
@@ -276,7 +312,8 @@ export default function FinancesPage() {
       </div>
 
       <p className="text-[11px] text-hive-muted text-center mt-8 font-bold">
-        Utility · Payroll roll-ups land as those modules ship.
+        Subscriptions + Contributions feed in from the new Household modules.
+        Professional-tagged subs are excluded from the household roll-up.
       </p>
     </div>
   );

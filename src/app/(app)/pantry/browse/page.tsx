@@ -28,11 +28,18 @@ import { formatCents } from '@/components/pantry/format';
 import { FOOD_CATEGORY_CHIPS, HOUSEHOLD_CATEGORY_CHIPS } from '@/lib/pantryDirectory';
 
 const OTHER_TABS: { id: CatalogueModule; emoji: string; label: string }[] = [
-  { id: 'outdoor', emoji: '🌿', label: 'Outdoor' },
-  { id: 'drivers', emoji: '🚗', label: 'Drivers' },
-  { id: 'utility', emoji: '⚡', label: 'Utilities' },
-  { id: 'dineOut', emoji: '🍽️', label: 'Dine Out' },
-  { id: 'home',    emoji: '🛋️', label: 'Home' },
+  { id: 'outdoor',       emoji: '🌿',  label: 'Outdoor' },
+  { id: 'drivers',       emoji: '🚗',  label: 'Drivers' },
+  { id: 'utility',       emoji: '⚡',  label: 'Utilities' },
+  { id: 'dineOut',       emoji: '🍽️', label: 'Dine Out' },
+  { id: 'home',          emoji: '🛋️', label: 'Home' },
+  // Subscriptions + Contributions live as their own family-scoped
+  // catalogues at /families/{f}/catalogue_subs and /catalogue_contribs.
+  // Picking the tab here points the user at the right surface (like
+  // Dine Out does for "Places to go") rather than reshowing the same
+  // catalogue under a different roof.
+  { id: 'subscriptions', emoji: '🔁',  label: 'Subscriptions' },
+  { id: 'contributions', emoji: '🤲',  label: 'Contributions' },
 ];
 
 export default function BrowseCataloguePage() {
@@ -114,12 +121,17 @@ export default function BrowseCataloguePage() {
 
   const handleAdd = async (item: CatalogueItem) => {
     if (!profile?.familyId || isGuest) return;
+    // subscriptions + contributions don't add to staples — their UI is the
+    // redirect card below; this guard exists for the TS narrowing of
+    // Staple.module which is the original 7-module subset.
+    if (item.module === 'subscriptions' || item.module === 'contributions') return;
     setBusyId(item.id);
     try {
       const payload = catalogueItemToStaplePayload(item, country, currency);
       await addStaple(profile.familyId, {
         ...payload,
         category: payload.category as Staple['category'],
+        module: payload.module as Exclude<CatalogueModule, 'subscriptions' | 'contributions'>,
         active: true,
       });
     } catch (e) {
@@ -276,6 +288,34 @@ export default function BrowseCataloguePage() {
             style={{ background: '#C2562E' }}
           >
             Open Dine Out →
+          </Link>
+        </div>
+      ) : section === 'other' && otherModule === 'subscriptions' ? (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center mt-3">
+          <div className="text-3xl mb-2">🔁</div>
+          <h3 className="font-nunito font-black text-lg">Subscriptions live in their own catalogue</h3>
+          <p className="text-hive-muted text-sm mt-1 mb-3">
+            Apps, memberships, streaming, property dues — each one your family logs adds to a private catalogue under <strong>Household → Subscriptions</strong>. Search-as-you-type as you add.
+          </p>
+          <Link
+            href="/household/subscriptions"
+            className="inline-flex items-center gap-1.5 bg-pulse-navy text-pulse-cream rounded-hive px-4 py-2.5 font-nunito font-black text-sm"
+          >
+            Open Subscriptions →
+          </Link>
+        </div>
+      ) : section === 'other' && otherModule === 'contributions' ? (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-6 text-center mt-3">
+          <div className="text-3xl mb-2">🤲</div>
+          <h3 className="font-nunito font-black text-lg">Contributions live in their own catalogue</h3>
+          <p className="text-hive-muted text-sm mt-1 mb-3">
+            Tithes, msiba, charity, family support — each recipient your family adds builds a private catalogue under <strong>Household → Contributions</strong>. Parents-only by default.
+          </p>
+          <Link
+            href="/household/contributions"
+            className="inline-flex items-center gap-1.5 bg-pulse-navy text-pulse-cream rounded-hive px-4 py-2.5 font-nunito font-black text-sm"
+          >
+            Open Contributions →
           </Link>
         </div>
       ) : items.length === 0 ? (

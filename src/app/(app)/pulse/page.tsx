@@ -19,6 +19,7 @@ import {
   type PurchaseRequest, type PurchaseModule,
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
+import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import AskKaya from '@/components/pulse/AskKaya';
@@ -29,7 +30,13 @@ import {
 } from '@/lib/pulse';
 import { dayKeyInTZ, toDisplayDate } from '@/lib/dates';
 
-const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
+// Cash lens covers all 9 Household buckets. Subscriptions + Contributions
+// come from spend_ledger (server-written when a sub cycle is marked paid
+// or a contribution is logged); the other 7 come from purchaseRequests.
+const LIVE_MODULES: PurchaseModule[] = [
+  'pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home',
+  'subscriptions', 'contributions',
+];
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
@@ -68,6 +75,7 @@ export default function PulseDashboardPage() {
   }, [profile, router]);
 
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
+  const [ledger, setLedger] = useState<SpendLedgerEntry[]>([]);
   const [readings, setReadings] = useState<PulseReading[]>([]);
   const [trackables, setTrackables] = useState<Trackable[]>([]);
   // Daily scrubber state + cache of readings from previous months that the
@@ -84,7 +92,8 @@ export default function PulseDashboardPage() {
     const u1 = subscribeToRecentRequests(profile.familyId, setRecent);
     const u2 = subscribeToReadingsInMonth(profile.familyId, thisMonth, setReadings);
     const u3 = subscribeToTrackables(profile.familyId, setTrackables);
-    return () => { u1(); u2(); u3(); };
+    const u4 = subscribeToSpendLedger(profile.familyId, setLedger);
+    return () => { u1(); u2(); u3(); u4(); };
   }, [profile?.familyId, profile?.role, thisMonth]);
 
   // Lazily subscribe to a previous month's readings when the user scrubs into
@@ -112,6 +121,7 @@ export default function PulseDashboardPage() {
   const cash = useMemo(() => {
     const per: Record<string, { spent: number; cap: number }> = {};
     LIVE_MODULES.forEach((m) => { per[m] = { spent: 0, cap: 0 }; });
+    // purchaseRequests → 7 existing modules
     for (const r of recent) {
       if (r.status !== 'closed') continue;
       const at = r.closedAt?.toDate?.();
@@ -119,12 +129,21 @@ export default function PulseDashboardPage() {
       const m = (r.module ?? 'pantry') as PurchaseModule;
       if (per[m]) per[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
     }
+    // spend_ledger → subscriptions + contributions. Professional-tagged
+    // entries are excluded per spec §5 (work expenses, not household).
+    for (const e of ledger) {
+      if (e.isProfessionalExpense) continue;
+      const at = e.occurredOn?.toDate?.();
+      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      const m = e.sourceModule as PurchaseModule;
+      if (per[m]) per[m].spent += e.amountHousehold || 0;
+    }
     const budgets = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
     LIVE_MODULES.forEach((m) => { per[m].cap = budgets[m] ?? 0; });
     const totalSpent = LIVE_MODULES.reduce((s, m) => s + per[m].spent, 0);
     const totalCap = LIVE_MODULES.reduce((s, m) => s + per[m].cap, 0);
     return { per, totalSpent, totalCap };
-  }, [recent, family?.householdBudgets, thisMonth]);
+  }, [recent, ledger, family?.householdBudgets, thisMonth]);
 
   // CONSUMPTION lens (monthly).
   const consumption = useMemo(() => {
