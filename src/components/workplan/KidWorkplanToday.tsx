@@ -12,14 +12,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   type KidWorkplanItem, type KidWorkplanCompletion, type KidWorkplanProof,
   subscribeKidWorkplanItems, subscribeKidCompletion, completeKidTask,
   subscribeKidWorkplanProofs, submitKidWorkplanProof,
   kidItemsScheduledOn, partitionKidByTime, dailyKidPct,
-  formatTimeLocal, categoryMeta, todayDateString,
+  formatTimeLocal, categoryMeta, todayDateString, todayDayOfWeek,
 } from '@/lib/kidWorkplan';
 import { uploadWorkplanProofMedia } from '@/lib/workplanProofUpload';
+import {
+  type Business,
+  subscribeToKidBusinesses, subscribeToStockTakes,
+  isStockTakeScheduledOn, todayKey,
+} from '@/lib/business';
 
 const JOY = { purple: '#9B5DE5', green: '#6BCB77', coral: '#FF6B6B', yellow: '#FFD93D', ink: '#2D1B5E', border: '#F0E8FF' };
 
@@ -30,6 +36,7 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   date?: Date;
   readOnly?: boolean;
 }) {
+  const router = useRouter();
   const dateStr = todayDateString(date);
   const isToday = dateStr === todayDateString();
 
@@ -42,6 +49,12 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   const [proofs, setProofs] = useState<KidWorkplanProof[]>([]);
   // The proof task whose "Show your work" modal is open (null = closed).
   const [proofFor, setProofFor] = useState<KidWorkplanItem | null>(null);
+  // Businesses the kid owns + whether today's stock-take is already done per
+  // business. Drives the synthetic "Stock-take · [Business]" Workplan rows
+  // (2026-05-26). Synthetic rows never write to workplanCompletions — the
+  // stockTake doc itself is the completion signal.
+  const [ownedBusinesses, setOwnedBusinesses] = useState<Business[]>([]);
+  const [stockTakeDoneToday, setStockTakeDoneToday] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const unsubItems = subscribeKidWorkplanItems(familyId, childId, setItems);
@@ -50,8 +63,54 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
       setOptimistic({}); // server is now source of truth — drop in-flight guesses
     });
     const unsubProofs = subscribeKidWorkplanProofs(familyId, childId, setProofs);
-    return () => { unsubItems(); unsubComp(); unsubProofs(); };
+    const unsubBiz = subscribeToKidBusinesses(familyId, childId, setOwnedBusinesses);
+    return () => { unsubItems(); unsubComp(); unsubProofs(); unsubBiz(); };
   }, [familyId, childId, dateStr]);
+
+  // One subscription per owned business → did a stockTake doc land for today?
+  // The realtime flip is what auto-ticks the synthetic row green when the kid
+  // saves the take from /business/[id]/stocktake and bounces back here.
+  const ownedBizIds = ownedBusinesses.map((b) => b.id).join(',');
+  useEffect(() => {
+    if (!isToday) { setStockTakeDoneToday({}); return; }
+    if (ownedBusinesses.length === 0) { setStockTakeDoneToday({}); return; }
+    const today = todayKey();
+    const unsubs: Array<() => void> = [];
+    for (const b of ownedBusinesses) {
+      const u = subscribeToStockTakes(familyId, b.id, (takes) => {
+        const has = takes.some((t) => t.date === today);
+        setStockTakeDoneToday((prev) => (prev[b.id] === has ? prev : { ...prev, [b.id]: has }));
+      }, 3);
+      unsubs.push(u);
+    }
+    return () => { unsubs.forEach((u) => u()); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyId, ownedBizIds, isToday]);
+
+  // Build synthetic Workplan rows from the kid's businesses + their schedule.
+  // Only injected on the today view; historic days stay clean.
+  const syntheticItems = useMemo<KidWorkplanItem[]>(() => {
+    if (!isToday) return [];
+    const dow = todayDayOfWeek(date);
+    return ownedBusinesses
+      .filter((b) => isStockTakeScheduledOn(b, dow))
+      .map<KidWorkplanItem>((b) => ({
+        id: `stocktake:${b.id}`,
+        label: `Stock-take · ${b.name}`,
+        icon: '📋',
+        category: 'business',
+        daysOfWeek: (b.stockTakeSchedule?.daysOfWeek ?? ['mon','tue','wed','thu','fri','sat','sun']),
+        timeLocal: b.stockTakeSchedule?.timeLocal,
+        active: true,
+        pointsValue: 1,           // display-only; the real HP grant runs on save
+        kind: 'recurring',
+        createdAt: b.createdAt,   // not stored, but the type needs a Timestamp
+        createdBy: 'system',
+      }));
+  }, [ownedBusinesses, isToday, date]);
+
+  const isSyntheticStockTake = (id: string) => id.startsWith('stocktake:');
+  const businessIdFromSynthetic = (id: string) => id.slice('stocktake:'.length);
 
   // This day's proof per item (doc id = `${date}_${itemId}`).
   const proofByItem = useMemo(() => {
@@ -60,7 +119,11 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
     return m;
   }, [proofs, dateStr]);
 
-  const scheduled = useMemo(() => (items ? kidItemsScheduledOn(items, date) : []), [items, date]);
+  // Merge real items + synthetic stock-take rows BEFORE the day-of-week filter
+  // so kidItemsScheduledOn does the usual filter for us. Synthetic rows already
+  // carry their `daysOfWeek` from the business schedule.
+  const allItems = useMemo(() => (items ? [...items, ...syntheticItems] : null), [items, syntheticItems]);
+  const scheduled = useMemo(() => (allItems ? kidItemsScheduledOn(allItems, date) : []), [allItems, date]);
   const { timed, anytime } = useMemo(() => partitionKidByTime(scheduled), [scheduled]);
 
   if (items === null) {
@@ -68,10 +131,17 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   }
 
   const doneSet = new Set(completion?.completedItemIds ?? []);
-  const isDone = (id: string) => optimistic[id] ?? doneSet.has(id);
+  const isDone = (id: string) => {
+    // Synthetic stock-take rows: a stockTake doc landing for today = done.
+    if (isSyntheticStockTake(id)) return !!stockTakeDoneToday[businessIdFromSynthetic(id)];
+    return optimistic[id] ?? doneSet.has(id);
+  };
   const doneCount = scheduled.filter((i) => isDone(i.id)).length;
   const total = scheduled.length;
-  const pct = dailyKidPct(scheduled, completion);
+  // dailyKidPct uses the stored completion doc — bring synthetic rows into the
+  // count so the hero % reflects the kid's full day, including stock-takes.
+  const pctFromAll = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+  const pct = syntheticItems.length > 0 ? pctFromAll : dailyKidPct(scheduled, completion);
   const pointsToday = scheduled
     .filter((i) => isDone(i.id))
     .reduce((s, i) => s + (i.pointsValue ?? 0), 0);
@@ -79,6 +149,13 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
 
   const toggle = async (item: KidWorkplanItem) => {
     if (readOnly || !isToday) return;
+    // Synthetic stock-take rows live outside the workplanCompletions doc — the
+    // stockTake itself IS the completion. Tap routes into the existing flow;
+    // the realtime sub flips this row green when the take saves.
+    if (isSyntheticStockTake(item.id)) {
+      router.push(`/business/${businessIdFromSynthetic(item.id)}/stocktake`);
+      return;
+    }
     // Proof-required tasks earn via the "Show your work" modal, not a
     // plain tick. Tapping one opens the capture flow instead of toggling.
     if (item.requiresProof) {
