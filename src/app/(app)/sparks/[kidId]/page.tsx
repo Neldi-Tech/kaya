@@ -179,19 +179,20 @@ export default function KidSparksHomePage() {
 
   return (
     <div className="min-h-screen bg-[#FFFBF5] text-[#1B2547]">
-      {/* Phone-style content frame — caps width on desktop so the kid
-          surface stays one-thumb-friendly even on a 27" monitor. */}
-      <div className="mx-auto max-w-md">
+      {/* Phone on mobile, 2xl on tablet, 3xl on desktop — the kid
+          surface gets visual presence on a big monitor without losing
+          the one-thumb rhythm on a phone. */}
+      <div className="mx-auto max-w-md sm:max-w-2xl lg:max-w-3xl">
         {/* Header — coral → purple gradient · per mockup Step 2. */}
         <div
-          className="text-white px-5 pt-6 pb-6 rounded-b-[24px]"
+          className="text-white px-5 pt-6 pb-6 lg:px-8 lg:pt-8 lg:pb-7 rounded-b-[24px]"
           style={{ background: 'linear-gradient(135deg, #FF6B6B 0%, #A66CFF 100%)' }}
         >
-          <div className="text-[12px] opacity-85 mb-1">Kaya › Sparks</div>
-          <h1 className="font-display font-extrabold text-[22px] leading-tight tracking-tight m-0">
+          <div className="text-[12px] lg:text-[13px] opacity-85 mb-1">Kaya › Sparks</div>
+          <h1 className="font-display font-extrabold text-[22px] lg:text-[30px] leading-tight tracking-tight m-0">
             {kid.name}&apos;s Sparks
           </h1>
-          <div className="text-[13px] opacity-90 mt-1">
+          <div className="text-[13px] lg:text-[15px] opacity-90 mt-1">
             {kid.houseName ? `${kid.houseName} House` : 'Kaya family'}
           </div>
 
@@ -223,8 +224,10 @@ export default function KidSparksHomePage() {
           )}
         </div>
 
-        {/* Body — 5 area cards + AI strip. */}
-        <div className="px-4 py-4">
+        {/* Body — 5 area cards (single column · the row treatment is
+            the locked design and reads cleanly even at desktop widths)
+            + AI strip. */}
+        <div className="px-4 py-4 lg:px-6 lg:py-5">
           {SPARKS_AREA_ORDER.map((areaKey) => {
             const meta = SPARKS_AREA_META[areaKey];
             const accent = AREA_ACCENT[areaKey];
@@ -288,8 +291,8 @@ export default function KidSparksHomePage() {
         {/* Parent-only action strip — keeps Premium surface so it reads
             as the parent's controls, not the kid's surface. */}
         {isParent && (
-          <div className="px-4 pb-8 mt-4">
-            <div className="border-t border-[#ECE4D3] pt-4 grid grid-cols-1 gap-2.5">
+          <div className="px-4 pb-8 mt-4 lg:px-6 lg:pb-12">
+            <div className="border-t border-[#ECE4D3] pt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <Link
                 href={`/sparks/${kid.id}/dashboard`}
                 className="bg-white border border-[#ECE4D3] rounded-[14px] p-3.5 flex items-center gap-3 hover:border-[#D4A847] transition-colors no-underline"

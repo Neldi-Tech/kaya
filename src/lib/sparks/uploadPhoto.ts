@@ -64,6 +64,20 @@ export async function uploadSparksPhoto(
   return { photoId, thumbUrl, feedUrl, fullUrl, width: blobs.width, height: blobs.height };
 }
 
+/** Upload a batch of photos for a single sparks item in parallel.
+ *  Resolves with the same shape as `uploadSparksPhoto` per file, in
+ *  the order the files were passed. Caller persists `feedUrl`s onto
+ *  the item's `photo_urls` array. Fails fast on the first error —
+ *  callers should rerun the batch on retry (deduplication is cheap:
+ *  each photo gets a fresh photoId). */
+export async function uploadSparksPhotos(
+  familyId: string,
+  itemId: string,
+  files: File[],
+): Promise<SparksPhotoUrls[]> {
+  return Promise.all(files.map((f) => uploadSparksPhoto(familyId, itemId, f)));
+}
+
 /** Best-effort deletion of all three sizes for one photo. Failures are
  *  swallowed — the Firestore doc is the source of truth. */
 export async function deleteSparksPhoto(

@@ -5,29 +5,37 @@
 // achievements · sports subscriptions). Academic records have their own
 // surface (per-term grades), so they don't route through here.
 //
-// UX:
-//   • Photo picker (single photo for v1; multi-photo lands later)
+// UX (Slice 2):
+//   • Photo picker — MULTIPLE photos per item, picker reopens after a
+//     selection so the kid can add another batch. Each photo previews
+//     as a small thumb with its own remove button.
 //   • Title (required)
-//   • Description (optional)
+//   • Description (optional textarea) + "✨ Help me describe" button
+//     that drafts a starter description from area + title + subject +
+//     date. Slice 4 swaps the template seed for real AI generation
+//     read off the uploaded photos.
 //   • Date (defaults to today)
 //   • Subject dropdown (only for school_project; sourced from
 //     sparks_profiles.subjects via prop)
-//   • Save → reserve a sparks_items docId, upload photo, write doc.
-//     Surface inline errors; never lose the user's typed input on
-//     failure.
+//   • "✨ Clean up scans" pill — visible Slice 4 seam. Today it's a
+//     hint pill; Slice 4 wires Vertex AI / Claude vision to deskew +
+//     crop + colour-fix uploaded scans before the save.
+//   • Save → reserve a sparks_items docId, upload all photos in
+//     parallel, write doc with the array of feedUrls.
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { collection, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
   createSparksItem, todayYmd,
 } from '@/lib/sparks/firestore';
 import {
-  uploadSparksPhoto, type SparksPhotoUrls,
+  uploadSparksPhotos, type SparksPhotoUrls,
 } from '@/lib/sparks/uploadPhoto';
 import {
   SPARKS_AREA_META, type SparksItemArea, type SparksProfile,
 } from '@/lib/sparks/schema';
+import { toDisplayDate } from '@/lib/dates';
 
 interface Props {
   open: boolean;
@@ -59,6 +67,33 @@ const AREA_HEAD_TEXT: Record<SparksItemArea, string> = {
   sports_subscription: '#fff',
 };
 
+// Template description seeds — used by the "✨ Help me describe"
+// button. Today these are deterministic templates (no AI); Slice 4
+// will swap them for real generation off the uploaded photos using
+// Claude / Vertex vision. The TEMPLATE_KEY discriminator on each
+// seed makes it easy to filter old template seeds out of training
+// data later.
+function draftDescription(args: {
+  area: SparksItemArea;
+  title: string;
+  subject?: string;
+  date: string;
+  kidName: string;
+  photoCount: number;
+}): string {
+  const { area, title, subject, date, kidName, photoCount } = args;
+  const niceDate = toDisplayDate(date);
+  const photos = photoCount === 0 ? '' : photoCount === 1 ? '1 photo · ' : `${photoCount} photos · `;
+  const base =
+    area === 'school_project'      ? `${kidName}'s ${subject ? subject + ' project — ' : ''}${title}`
+    : area === 'home_project'      ? `${kidName} made ${title} at home`
+    : area === 'achievement'       ? `${kidName} earned: ${title}`
+    : `${kidName} signed up for ${title}`;
+  return `${photos}${base}. Captured ${niceDate}.
+
+(✨ Slice 4 will replace this seed with real AI-generated descriptions read directly from the photos.)`;
+}
+
 export default function CaptureSheet({
   open, onClose, onSaved,
   familyId, kidId, kidName, area, profile, uid,
@@ -67,42 +102,60 @@ export default function CaptureSheet({
   const formId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(todayYmd());
   const [subject, setSubject] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [descTouched, setDescTouched] = useState(false);
 
   // Reset on open/close so a previous draft doesn't leak into the next session.
   useEffect(() => {
     if (!open) return;
-    setPhoto(null);
-    setPreviewUrl(null);
+    setPhotos([]);
     setTitle('');
     setDescription('');
     setDate(todayYmd());
     setSubject('');
     setSaving(false);
     setError(null);
+    setDescTouched(false);
   }, [open]);
 
-  // Manage the object-URL lifecycle so we don't leak blobs.
+  // Object-URL lifecycle for the photo previews. Re-create on photos[]
+  // change; revoke when the component unmounts or photos change.
+  const previewUrls = useMemo(
+    () => photos.map((f) => URL.createObjectURL(f)),
+    [photos],
+  );
   useEffect(() => {
-    if (!photo) { setPreviewUrl(null); return; }
-    const url = URL.createObjectURL(photo);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [photo]);
+    return () => { previewUrls.forEach((u) => URL.revokeObjectURL(u)); };
+  }, [previewUrls]);
 
-  const onPickPhoto: React.ChangeEventHandler<HTMLInputElement> = (e) => {
-    const f = e.target.files?.[0];
-    if (f) setPhoto(f);
+  const onPickPhotos: React.ChangeEventHandler<HTMLInputElement> = (e) => {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length === 0) return;
+    setPhotos((prev) => [...prev, ...picked]);
+    // Reset the input so picking the same file again still fires onChange.
+    if (fileRef.current) fileRef.current.value = '';
+  };
+  const removePhotoAt = (idx: number) => {
+    setPhotos((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const showSubject = area === 'school_project' && (profile?.subjects?.length ?? 0) > 0;
+
+  const fillDescription = () => {
+    setDescription(
+      draftDescription({
+        area, title, subject: subject || undefined, date, kidName,
+        photoCount: photos.length,
+      }),
+    );
+    setDescTouched(true);
+  };
 
   const canSave = !!title.trim() && !saving;
 
@@ -111,39 +164,33 @@ export default function CaptureSheet({
     setSaving(true);
     setError(null);
     try {
-      // Reserve the itemId client-side so the photo write + the
-      // Firestore write share the same path (orphan storage blobs only
-      // happen if the final setDoc fails — rare).
+      // Reserve the itemId client-side so the photo writes + the
+      // Firestore write share the same path. Orphan storage blobs
+      // only happen if the final setDoc fails — rare.
       const reservedRef = doc(collection(db, 'families', familyId, 'sparks_items'));
       const itemId = reservedRef.id;
 
-      let urls: SparksPhotoUrls | null = null;
-      if (photo) {
-        urls = await uploadSparksPhoto(familyId, itemId, photo);
+      let urls: SparksPhotoUrls[] = [];
+      if (photos.length > 0) {
+        urls = await uploadSparksPhotos(familyId, itemId, photos);
       }
 
-      // Use createSparksItem so timestamps + audit fields are stamped
-      // consistently with non-photo writes. NB: this calls `addDoc`
-      // which generates ITS OWN id — we discard the reserved one when
-      // there's no photo. With a photo, we re-route to setDoc with the
-      // reserved id so the storage path matches.
       let finalItemId: string;
-      if (urls) {
-        // Write the doc using the reserved id so storage path lines up.
-        await import('firebase/firestore').then(({ setDoc, serverTimestamp }) =>
-          setDoc(reservedRef, {
-            kid_id: kidId,
-            area,
-            title: title.trim(),
-            description: description.trim() || undefined,
-            photo_urls: [urls!.feedUrl],
-            date,
-            subject: showSubject && subject ? subject : undefined,
-            created_at: serverTimestamp(),
-            updated_at: serverTimestamp(),
-            created_by: uid,
-          }),
-        );
+      if (urls.length > 0) {
+        // Use setDoc against the reserved id so storage path lines up.
+        const { setDoc, serverTimestamp } = await import('firebase/firestore');
+        await setDoc(reservedRef, {
+          kid_id: kidId,
+          area,
+          title: title.trim(),
+          description: description.trim() || undefined,
+          photo_urls: urls.map((u) => u.feedUrl),
+          date,
+          subject: showSubject && subject ? subject : undefined,
+          created_at: serverTimestamp(),
+          updated_at: serverTimestamp(),
+          created_by: uid,
+        });
         finalItemId = itemId;
       } else {
         finalItemId = await createSparksItem(
@@ -182,11 +229,11 @@ export default function CaptureSheet({
         className="absolute inset-0 bg-black/40"
       />
 
-      {/* Sheet */}
+      {/* Sheet — phone-style on mobile, comfortable modal on desktop */}
       <div
         role="dialog"
         aria-labelledby={`${formId}-title`}
-        className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
+        className="relative w-full sm:max-w-lg max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
       >
         {/* Coloured head — matches the area's detail-head gradient. */}
         <div
@@ -202,40 +249,71 @@ export default function CaptureSheet({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Photo picker */}
+          {/* Multi-photo picker */}
           <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
-              Photo
-            </label>
-            {previewUrl ? (
-              <div className="relative rounded-2xl overflow-hidden border border-[#ECE4D3] bg-[#FBF7EE]">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={previewUrl} alt="Selected" className="w-full max-h-64 object-contain" />
-                <button
-                  type="button"
-                  onClick={() => { setPhoto(null); if (fileRef.current) fileRef.current.value = ''; }}
-                  className="absolute top-2 right-2 bg-white/95 text-[#0F1F44] text-[11px] font-bold rounded-full px-2.5 py-1 shadow"
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
+                Photos {photos.length > 0 && <span className="text-[#0F1F44]">· {photos.length}</span>}
+              </label>
+              {photos.length > 0 && (
+                <span
+                  className="text-[10px] font-bold uppercase tracking-wider bg-[#E5D6FF] text-[#5A3CB8] rounded-full px-2 py-0.5"
+                  title="Lands with Slice 4 — AI will deskew, crop, and colour-fix uploaded scans automatically."
                 >
-                  Replace
-                </button>
-              </div>
-            ) : (
+                  ✨ Slice 4: Clean up scans
+                </span>
+              )}
+            </div>
+
+            {photos.length === 0 ? (
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 className="w-full border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] rounded-2xl py-8 text-center hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors"
               >
                 <div className="text-3xl mb-1" aria-hidden>📷</div>
-                <div className="text-[13px] font-bold text-[#0F1F44]">Tap to add a photo</div>
-                <div className="text-[11px] text-[#5A6488] mt-0.5">JPG / PNG · up to 25 MB · resized automatically</div>
+                <div className="text-[13px] font-bold text-[#0F1F44]">Tap to add photos</div>
+                <div className="text-[11px] text-[#5A6488] mt-0.5">JPG / PNG · up to 25 MB each · resized automatically · multi-select</div>
               </button>
+            ) : (
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {previewUrls.map((url, idx) => (
+                  <div
+                    key={url}
+                    className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => removePhotoAt(idx)}
+                      aria-label={`Remove photo ${idx + 1}`}
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 text-[#E85C5C] font-bold text-[12px] grid place-items-center shadow"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="aspect-square rounded-xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors grid place-items-center text-[#5A6488]"
+                  aria-label="Add more photos"
+                >
+                  <div className="text-center">
+                    <div className="text-xl" aria-hidden>＋</div>
+                    <div className="text-[10px] font-bold">More</div>
+                  </div>
+                </button>
+              </div>
             )}
             <input
               ref={fileRef}
               type="file"
               accept="image/*"
+              multiple
               capture="environment"
-              onChange={onPickPhoto}
+              onChange={onPickPhotos}
               className="hidden"
             />
           </div>
@@ -296,20 +374,37 @@ export default function CaptureSheet({
             />
           </div>
 
-          {/* Description */}
+          {/* Description with AI draft helper */}
           <div>
-            <label htmlFor={`${formId}-desc`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
-              Description
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor={`${formId}-desc`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
+                Description
+              </label>
+              <button
+                type="button"
+                onClick={fillDescription}
+                disabled={!title.trim()}
+                className="text-[10.5px] font-extrabold tracking-wide rounded-full px-2.5 py-1 disabled:opacity-40"
+                style={{ background: '#E5D6FF', color: '#5A3CB8' }}
+                title="Drafts a starter description. Slice 4 will swap this template for real AI generation read off your photos."
+              >
+                ✨ Help me describe
+              </button>
+            </div>
             <textarea
               id={`${formId}-desc`}
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={`What's this about? (optional)`}
-              rows={3}
-              maxLength={500}
+              onChange={(e) => { setDescription(e.target.value); setDescTouched(true); }}
+              placeholder={`What's this about? Add details — or tap "Help me describe" to start with a draft you can edit.`}
+              rows={4}
+              maxLength={800}
               className="w-full bg-white border border-[#ECE4D3] rounded-xl px-3.5 py-2.5 text-[14px] text-[#0F1F44] focus:outline-none focus:border-[#D4A847] resize-none"
             />
+            {description && !descTouched && (
+              <div className="text-[10.5px] text-[#5A6488] mt-1">
+                Edit the draft above — it&apos;s just a starting point.
+              </div>
+            )}
           </div>
 
           {error && (

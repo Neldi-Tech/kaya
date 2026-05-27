@@ -49,9 +49,12 @@ export default function AreaScreen({
   const meta = SPARKS_AREA_META[area];
   return (
     <div className="min-h-screen bg-[#FFFBF5]">
-      <div className="mx-auto max-w-md">
+      {/* Width steps: mobile = phone (max-w-md keeps the one-thumb rhythm),
+          tablet bumps to 2xl, desktop fills out to 3xl so the area surface
+          doesn't look stranded next to the 260px AppShell sidebar. */}
+      <div className="mx-auto max-w-md sm:max-w-2xl lg:max-w-3xl">
         {/* Back to kid Sparks home */}
-        <div className="px-4 pt-4">
+        <div className="px-4 pt-4 lg:px-6">
           <Link
             href={`/sparks/${kidId}`}
             className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[#ECE4D3] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline hover:border-[#D4A847] transition-colors"
@@ -62,26 +65,28 @@ export default function AreaScreen({
         </div>
 
         {/* Detail card */}
-        <div className="px-4 pt-3 pb-8">
+        <div className="px-4 pt-3 pb-8 lg:px-6">
           <div className="bg-white rounded-[24px] shadow-[0_8px_24px_rgba(15,31,68,0.08)] overflow-hidden">
-            {/* Detail head — coloured gradient + title + optional subtitle */}
+            {/* Detail head — coloured gradient + title + optional subtitle.
+                Taller / more present on lg+ so the detail-head doesn't read
+                as a tiny strip on a wide canvas. */}
             <div
-              className="px-5 py-4 flex items-start justify-between gap-3"
+              className="px-5 py-4 lg:px-7 lg:py-5 flex items-start justify-between gap-3"
               style={{ background: AREA_HEAD_BG[area], color: AREA_HEAD_FG[area] }}
             >
               <div className="min-w-0">
-                <h1 className="font-display font-extrabold text-[16px] m-0 leading-tight">
+                <h1 className="font-display font-extrabold text-[16px] lg:text-[20px] m-0 leading-tight">
                   {meta.emoji} {meta.label}
                 </h1>
                 {subtitle && (
-                  <div className="text-[12px] opacity-90 mt-0.5">{subtitle}</div>
+                  <div className="text-[12px] lg:text-[13px] opacity-90 mt-0.5">{subtitle}</div>
                 )}
               </div>
               {action}
             </div>
 
             {/* Detail body */}
-            <div className="px-5 py-5">
+            <div className="px-5 py-5 lg:px-7 lg:py-6">
               {children}
             </div>
           </div>
