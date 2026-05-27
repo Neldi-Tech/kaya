@@ -30,6 +30,7 @@ import {
 import { listHelpers } from './helpers';
 import { createDraftRequest } from './purchase';
 import { listApprovedCheckIns, sumApprovedHours, countApprovedDays } from './payCheckIns';
+import { toDisplayDate } from './dates';
 
 // ── Config CRUD ──────────────────────────────────────────────────
 
@@ -47,13 +48,22 @@ export async function setPayrollConfig(
   const ref = helperRef(familyId, helperUid);
   const snap = await getDoc(ref);
   const current = (snap.exists() ? (snap.data().payrollConfig ?? {}) : {}) as Partial<HelperPayrollConfig>;
+  // 2026-05-27 — endDate uses `'endDate' in patch` (not `??`) so a caller
+  // can pass undefined / '' to EXPLICITLY clear it. Before this, clearing
+  // the date in the Settings UI silently preserved the stored value
+  // because nullish-coalescing fell back to current.endDate. Firestore's
+  // ignoreUndefinedProperties drops the field on write, so omitting it
+  // from `next` is enough to clear it on disk.
   const next: HelperPayrollConfig = {
     basis:      patch.basis      ?? current.basis      ?? 'monthly',
     rateCents:  patch.rateCents  ?? current.rateCents  ?? 0,
     frequency:  patch.frequency  ?? current.frequency  ?? 'monthly',
     payAnchor:  patch.payAnchor  ?? current.payAnchor  ?? 1,
     startDate:  patch.startDate  ?? current.startDate  ?? todayDateString(),
-    endDate:    patch.endDate    ?? current.endDate,
+    endDate:    ('endDate' in patch) ? (patch.endDate || undefined) : current.endDate,
+    payAnchorBufferDays: ('payAnchorBufferDays' in patch)
+      ? Math.max(0, Math.min(7, Math.round(patch.payAnchorBufferDays ?? 0)))
+      : current.payAnchorBufferDays,
     allowances: patch.allowances ?? current.allowances,
     deductions: patch.deductions ?? current.deductions,
     lastGeneratedDate: patch.lastGeneratedDate ?? current.lastGeneratedDate,
@@ -107,25 +117,39 @@ export function nextDuePayDate(
 }
 
 /** Compute the period the next due request should cover.
- *  Monthly: from (payDate − 1 month + 1 day) to payDate
- *  Weekly:  from (payDate − 7 days + 1 day)   to payDate
+ *  Monthly: the full calendar month containing the pay date — the pay
+ *           anchor (e.g. "5th of the month") is just when payment happens,
+ *           NOT a period boundary. Before 2026-05-27 we clamped the first
+ *           cycle to startDate, which produced confusing "01-May → 05-May"
+ *           windows for a monthly salary; that's gone now.
+ *  Weekly:  from (payDate − 7 days + 1 day)  to payDate
  *  Biweekly: from (payDate − 14 days + 1 day) to payDate */
 export function periodForPayDate(
   config: HelperPayrollConfig,
   payDate: Date,
 ): { periodStart: Date; periodEnd: Date } {
+  const startBoundary = parseIso(config.startDate);
+  if (config.frequency === 'monthly') {
+    // Full calendar month of the pay date. The pay anchor (e.g. "5th") is
+    // just the payment day; the salary covers the whole month.
+    const y = payDate.getFullYear();
+    const m = payDate.getMonth();
+    const periodStart = startOfDay(new Date(y, m, 1));
+    const periodEnd = startOfDay(new Date(y, m + 1, 0));
+    // First cycle still respects startDate so check-ins from before the
+    // contract began aren't counted (only matters for per-day-worked /
+    // per-hour bases; a fixed-monthly salary doesn't read check-ins).
+    if (periodStart < startBoundary) return { periodStart: startBoundary, periodEnd };
+    return { periodStart, periodEnd };
+  }
+  // Weekly / biweekly stay window-based off the pay date.
   const periodEnd = startOfDay(payDate);
   const periodStart = new Date(periodEnd);
-  if (config.frequency === 'monthly') {
-    periodStart.setMonth(periodStart.getMonth() - 1);
-    periodStart.setDate(periodStart.getDate() + 1);
-  } else if (config.frequency === 'weekly') {
+  if (config.frequency === 'weekly') {
     periodStart.setDate(periodStart.getDate() - 6); // 7-day inclusive
   } else {
     periodStart.setDate(periodStart.getDate() - 13); // 14-day inclusive
   }
-  // Don't go earlier than startDate (first cycle is partial).
-  const startBoundary = parseIso(config.startDate);
   if (periodStart < startBoundary) {
     return { periodStart: startBoundary, periodEnd };
   }
@@ -182,16 +206,38 @@ function isoOf(d: Date): string {
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function ordinal(day: number): string {
+  return day === 1 ? '1st' : day === 2 ? '2nd' : day === 3 ? '3rd' :
+         day === 21 ? '21st' : day === 22 ? '22nd' : day === 23 ? '23rd' :
+         `${day}th`;
+}
+
 export function payAnchorLabel(config: HelperPayrollConfig): string {
   if (config.frequency === 'monthly') {
     const day = Math.min(Math.max(1, config.payAnchor), 28);
-    const ordinal = day === 1 ? '1st' : day === 2 ? '2nd' : day === 3 ? '3rd' :
-                    day === 21 ? '21st' : day === 22 ? '22nd' : day === 23 ? '23rd' :
-                    `${day}th`;
-    return `${ordinal} of each month`;
+    return `${ordinal(day)} of each month`;
   }
   const dow = ((config.payAnchor % 7) + 7) % 7;
   return `Every ${config.frequency === 'biweekly' ? 'other ' : ''}${DAY_NAMES[dow]}`;
+}
+
+/** Human-readable expectation including the optional buffer.
+ *  Monthly with no buffer:  "On the 5th of each month"
+ *  Monthly with buffer 2:   "5th of each month — paid by the 7th"
+ *  Weekly buffer 1:         "Every Friday — by Saturday"
+ *  Used in the helper-facing view so the buffer sets a clear "paid-by". */
+export function payExpectationLabel(config: HelperPayrollConfig): string {
+  const base = payAnchorLabel(config);
+  const buf = Math.max(0, Math.min(7, Math.round(config.payAnchorBufferDays ?? 0)));
+  if (buf <= 0) return base;
+  if (config.frequency === 'monthly') {
+    const anchor = Math.min(Math.max(1, config.payAnchor), 28);
+    const by = Math.min(28, anchor + buf);
+    return `${base} — paid by the ${ordinal(by)}`;
+  }
+  // weekly / biweekly — name the weekday `buf` days later.
+  const dow = ((config.payAnchor + buf) % 7 + 7) % 7;
+  return `${base} — by ${DAY_NAMES[dow]}`;
 }
 
 // ── Generator ────────────────────────────────────────────────────
@@ -362,7 +408,7 @@ async function generateOneRequest(
 
   // ── Create request ──
   await createDraftRequest(familyId, {
-    name: `Salary · ${helper.displayName} · ${periodStartIso} → ${periodEndIso}`,
+    name: `Salary · ${helper.displayName} · ${toDisplayDate(periodStartIso)} → ${toDisplayDate(periodEndIso)}`,
     module: 'payroll',
     helperUid: helper.uid,
     createdBy: byUid,

@@ -476,6 +476,12 @@ export interface HelperPayrollConfig {
    *    weekly/biweekly → day-of-week (0=Sun .. 6=Sat)
    *    monthly         → day-of-month (1..28; capped for safety) */
   payAnchor: number;
+  /** Expectation buffer in days: payment lands on `payAnchor + N` at the
+   *  latest. Display-only — sets the helper's expectation ("paid by the
+   *  7th"). The generator still fires on payAnchor; this is the polite
+   *  upper bound a parent commits to. Default 0 = "paid on day N exactly".
+   *  Cap: 7 days. */
+  payAnchorBufferDays?: number;
   /** ISO YYYY-MM-DD when payroll begins. The generator won't
    *  back-fill before this date. */
   startDate: string;
