@@ -28,6 +28,11 @@ import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
 import { PostDueCheck } from '@/components/household/PostDueCheck';
+import { AdvisoryCard } from '@/components/household/AdvisoryCard';
+import { UtilisationCheckIn } from '@/components/household/UtilisationCheckIn';
+import {
+  subscribeToOpenAdvisories, advisoriesForSub, type WealthAdvisory,
+} from '@/lib/wealthAdvisories';
 
 const STATUS_TONE: Record<Subscription['status'], StatusTone> = {
   active:    'green',
@@ -53,6 +58,7 @@ export default function SubscriptionDetailPage() {
 
   const [sub, setSub] = useState<Subscription | null>(null);
   const [cycles, setCycles] = useState<SubscriptionCycle[]>([]);
+  const [advisories, setAdvisories] = useState<WealthAdvisory[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -75,6 +81,12 @@ export default function SubscriptionDetailPage() {
     if (!profile?.familyId || !subId) return;
     return subscribeToCycles(profile.familyId, subId, setCycles);
   }, [profile?.familyId, subId]);
+
+  // Open advisories — filtered to this sub when rendered.
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    return subscribeToOpenAdvisories(profile.familyId, setAdvisories);
+  }, [profile?.familyId]);
 
   if (authLoading || loading) {
     return <div className="p-6 text-pulse-navy/60">Loading…</div>;
@@ -150,6 +162,38 @@ export default function SubscriptionDetailPage() {
           <DetailRow label="Trial ends"        value={toDisplayDate(tsToIso(sub.trialEndsOn))} />
         )}
       </div>
+
+      {/* Advisory cards — surface any open redirection_opportunity citing this sub */}
+      {profile?.uid && advisoriesForSub(advisories, sub.id).map((adv) => (
+        <div key={adv.id} className="mt-4">
+          <AdvisoryCard
+            familyId={profile.familyId!}
+            uid={profile.uid}
+            advisory={adv}
+            householdCurrency={householdCurrency}
+          />
+        </div>
+      ))}
+
+      {/* Utilisation check-in — surfaces when this sub hasn't been touched
+          in `utilisationCheckDays` days (sticky for Manual subs at 30/60d
+          per cost band). */}
+      {profile?.role === 'parent' && (() => {
+        const lastTouched = (sub.updatedAt?.toMillis?.() ?? sub.createdAt?.toMillis?.() ?? 0);
+        if (!lastTouched) return null;
+        const daysSinceTouch = Math.floor((Date.now() - lastTouched) / 86_400_000);
+        if (daysSinceTouch < sub.utilisationCheckDays) return null;
+        return (
+          <div className="mt-4">
+            <UtilisationCheckIn
+              familyId={profile.familyId!}
+              subId={sub.id}
+              daysSinceTouch={daysSinceTouch}
+              threshold={sub.utilisationCheckDays}
+            />
+          </div>
+        );
+      })()}
 
       {/* Post-due check — Manual subs with an open cycle past dueDate */}
       {sub.billingMode === 'manual' && profile?.uid && (() => {
