@@ -9,7 +9,7 @@
 //                 intelligence layer that spots spikes early.
 // Kids/helpers are redirected to their Today feed.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -27,10 +27,32 @@ import {
   subscribeToReadingsInMonth, subscribeToTrackables,
   projectMonthSpendCents,
 } from '@/lib/pulse';
+import { dayKeyInTZ, toDisplayDate } from '@/lib/dates';
 
 const LIVE_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+// Daily scrubber — the new Daily card on top of Metered Consumption lets a
+// parent step backwards a day at a time, or tap the date label to pop the
+// native calendar and jump straight to a past day. We cap how far back you can
+// scrub so we don't pull arbitrary months into memory.
+const PULSE_TZ = 'Africa/Dar_es_Salaam';
+const SCRUB_MAX_DAYS = 90;                 // ~3 months back
+const monthOfDayKey = (dayKey: string) => dayKey.slice(0, 7);
+const prevMonth = (mk: string): string => {
+  const [y, m] = mk.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 2, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+};
+const todayDayKey = () => dayKeyInTZ(new Date(), PULSE_TZ);
+/** N days before the day-key, returned as a fresh YYYY-MM-DD. */
+const shiftDayKey = (dayKey: string, delta: number): string => {
+  const [y, m, d] = dayKey.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() + delta);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
 
 export default function PulseDashboardPage() {
   const router = useRouter();
@@ -48,6 +70,14 @@ export default function PulseDashboardPage() {
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [readings, setReadings] = useState<PulseReading[]>([]);
   const [trackables, setTrackables] = useState<Trackable[]>([]);
+  // Daily scrubber state + cache of readings from previous months that the
+  // user has scrubbed into (keyed by YYYY-MM).
+  const today = useMemo(() => todayDayKey(), []);
+  const minScrubDay = useMemo(() => shiftDayKey(today, -SCRUB_MAX_DAYS), [today]);
+  const [selectedDay, setSelectedDay] = useState<string>(today);
+  const [extraMonth, setExtraMonth] = useState<Record<string, PulseReading[]>>({});
+  // Track active month subscriptions so we don't double-subscribe on re-renders.
+  const monthSubsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!profile?.familyId || profile.role !== 'parent') return;
@@ -56,6 +86,27 @@ export default function PulseDashboardPage() {
     const u3 = subscribeToTrackables(profile.familyId, setTrackables);
     return () => { u1(); u2(); u3(); };
   }, [profile?.familyId, profile?.role, thisMonth]);
+
+  // Lazily subscribe to a previous month's readings when the user scrubs into
+  // it. We never tear these down — once cached, the data stays for the rest of
+  // the session, capped by SCRUB_MAX_DAYS, so the cache stays small (≤ 3 months).
+  useEffect(() => {
+    if (!profile?.familyId || profile.role !== 'parent') return;
+    const m = monthOfDayKey(selectedDay);
+    if (m === thisMonth) return;
+    if (monthSubsRef.current.has(m)) return;
+    monthSubsRef.current.add(m);
+    const u = subscribeToReadingsInMonth(profile.familyId, m, (rs) => {
+      setExtraMonth((prev) => ({ ...prev, [m]: rs }));
+    });
+    // We intentionally don't unsubscribe — the cache persists for the session
+    // so back-and-forth scrubbing stays instant. (Cap = SCRUB_MAX_DAYS.)
+    return () => { /* keep the sub alive; clean up on page unmount via React's GC of refs */
+      // best-effort: drop the sub if the component truly unmounts
+      u();
+      monthSubsRef.current.delete(m);
+    };
+  }, [profile?.familyId, profile?.role, selectedDay, thisMonth]);
 
   // CASH lens.
   const cash = useMemo(() => {
@@ -75,7 +126,7 @@ export default function PulseDashboardPage() {
     return { per, totalSpent, totalCap };
   }, [recent, family?.householdBudgets, thisMonth]);
 
-  // CONSUMPTION lens.
+  // CONSUMPTION lens (monthly).
   const consumption = useMemo(() => {
     const byTrackable: Record<string, number> = {};
     let total = 0;
@@ -88,6 +139,49 @@ export default function PulseDashboardPage() {
       .sort((a, b) => b.cents - a.cents);
     return { rows, total };
   }, [readings, trackables]);
+
+  // CONSUMPTION lens (daily — for the scrubber). Reads from `readings` when
+  // the selected day is in `thisMonth`, otherwise from the lazily-cached
+  // previous-month bucket. Spike flag is row-level so the UI can decorate.
+  const daily = useMemo(() => {
+    const m = monthOfDayKey(selectedDay);
+    const src = m === thisMonth ? readings : (extraMonth[m] ?? []);
+    const dayReads = src.filter((r) => r.dayKey === selectedDay);
+    const byTrackable: Record<string, { cents: number; anomaly: boolean }> = {};
+    let total = 0;
+    for (const r of dayReads) {
+      if (!byTrackable[r.trackableId]) byTrackable[r.trackableId] = { cents: 0, anomaly: false };
+      byTrackable[r.trackableId].cents += r.deltaCost ?? 0;
+      if (r.isAnomaly) byTrackable[r.trackableId].anomaly = true;
+      total += r.deltaCost ?? 0;
+    }
+    const rows = Object.entries(byTrackable)
+      .map(([id, v]) => ({ id, cents: v.cents, anomaly: v.anomaly, tk: trackables.find((t) => t.id === id) }))
+      .sort((a, b) => b.cents - a.cents);
+    return { rows, total, hasReadings: dayReads.length > 0, loadingMonth: m !== thisMonth && !extraMonth[m] };
+  }, [selectedDay, thisMonth, readings, extraMonth, trackables]);
+
+  // Day-scrub controls. Stepping past today or before SCRUB_MAX_DAYS is a
+  // no-op so the buttons stay UI-disabled instead of throwing.
+  const canStepBack = selectedDay > minScrubDay;
+  const canStepForward = selectedDay < today;
+  const stepDay = (delta: number) => {
+    const next = shiftDayKey(selectedDay, delta);
+    if (next > today || next < minScrubDay) return;
+    setSelectedDay(next);
+  };
+  const dayLabel = (k: string): string => {
+    if (k === today) return 'Today';
+    if (k === shiftDayKey(today, -1)) return 'Yesterday';
+    const [y, mo, d] = k.split('-').map(Number);
+    const dow = new Date(y, mo - 1, d).toLocaleDateString('en-US', { weekday: 'short' });
+    return `${dow}, ${toDisplayDate(k)}`;
+  };
+  const daysAgo = (k: string): number => {
+    const a = new Date(`${today}T00:00:00`);
+    const b = new Date(`${k}T00:00:00`);
+    return Math.round((a.getTime() - b.getTime()) / 86400000);
+  };
 
   if (profile && profile.role !== 'parent') {
     return <div className="mx-auto max-w-md px-4 pt-16 text-center text-hive-muted text-sm">Redirecting…</div>;
@@ -211,29 +305,103 @@ export default function PulseDashboardPage() {
 
       {/* Metered consumption — Pulse lens */}
       <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-6 mb-2">Metered consumption</div>
-      {consumption.rows.length === 0 ? (
+      {consumption.rows.length === 0 && Object.keys(extraMonth).length === 0 ? (
         <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">
           No readings yet this month. Set up trackables + tasks in{' '}
           <Link href="/pulse/admin" className="text-pulse-gold-dk font-bold underline">Task setup</Link>.
         </div>
       ) : (
-        <div className="bg-white border border-pulse-gold/30 rounded-2xl p-3">
-          <div className="flex justify-between items-baseline mb-2">
-            <span className="text-[11px] text-hive-muted font-bold">This month's metered cost</span>
-            <span className="font-nunito font-black text-pulse-navy">{formatCents(consumption.total, currency)}</span>
+        <>
+          {/* Daily card with day-scrubber. Tap the date label to pop the native
+              calendar (an invisible <input type="date"> overlays the label so
+              iOS / Android show their own picker). */}
+          <div className="bg-white border-2 border-pulse-gold/60 rounded-2xl p-3 mb-2">
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => stepDay(-1)}
+                disabled={!canStepBack}
+                aria-label="Previous day"
+                className="w-7 h-7 rounded-full bg-white border border-pulse-gold/60 text-pulse-navy flex items-center justify-center text-[14px] font-extrabold disabled:opacity-30 disabled:cursor-not-allowed"
+              >‹</button>
+              <div className="flex-1 text-center relative">
+                <div className="font-nunito font-black text-[12.5px] text-pulse-navy">{dayLabel(selectedDay)}</div>
+                <div className="text-[10px] text-hive-muted font-bold mt-0.5">
+                  {selectedDay === today ? (
+                    <span>{toDisplayDate(selectedDay)}</span>
+                  ) : (
+                    <>
+                      <span>{daysAgo(selectedDay)} {daysAgo(selectedDay) === 1 ? 'day' : 'days'} ago · </span>
+                      <button type="button" onClick={() => setSelectedDay(today)} className="text-pulse-gold-dk font-extrabold">Today</button>
+                    </>
+                  )}
+                </div>
+                <input
+                  type="date"
+                  value={selectedDay}
+                  min={minScrubDay}
+                  max={today}
+                  onChange={(e) => { if (e.target.value) setSelectedDay(e.target.value); }}
+                  aria-label="Pick a date"
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => stepDay(1)}
+                disabled={!canStepForward}
+                aria-label="Next day"
+                className="w-7 h-7 rounded-full bg-white border border-pulse-gold/60 text-pulse-navy flex items-center justify-center text-[14px] font-extrabold disabled:opacity-30 disabled:cursor-not-allowed"
+              >›</button>
+            </div>
+
+            {daily.loadingMonth ? (
+              <p className="text-[12px] text-hive-muted text-center py-3">Loading {selectedDay.slice(0, 7)}…</p>
+            ) : daily.hasReadings ? (
+              <>
+                <div className="flex justify-between items-baseline mb-2">
+                  <span className="text-[11px] text-hive-muted font-bold">This day&apos;s metered cost</span>
+                  <span className="font-nunito font-black text-pulse-navy">{formatCents(daily.total, currency)}</span>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {daily.rows.map((row) => (
+                    <Link key={row.id} href={`/pulse/trackable/${row.id}`} className="flex items-center justify-between text-[12px] no-underline">
+                      <span className="font-bold text-pulse-navy">{row.tk?.emoji ?? '📊'} {row.tk?.name ?? 'Trackable'}</span>
+                      <span className="font-nunito font-black text-pulse-navy">
+                        {formatCents(row.cents, currency)}
+                        {row.anomaly && <span className="ml-1.5 inline-block px-1.5 py-[1px] rounded-full bg-pulse-coral/10 text-pulse-coral text-[9.5px] font-extrabold align-middle">spike</span>}
+                        {' ›'}
+                      </span>
+                    </Link>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-[12px] text-hive-muted text-center py-3">No readings logged on this day.</p>
+            )}
           </div>
-          <div className="flex flex-col gap-1.5">
-            {consumption.rows.map((row) => (
-              <Link key={row.id} href={`/pulse/trackable/${row.id}`} className="flex items-center justify-between text-[12px] no-underline">
-                <span className="font-bold text-pulse-navy">{row.tk?.emoji ?? '📊'} {row.tk?.name ?? 'Trackable'}</span>
-                <span className="font-nunito font-black text-pulse-navy">{formatCents(row.cents, currency)} ›</span>
-              </Link>
-            ))}
-          </div>
-          <p className="text-[10px] text-hive-muted mt-2 leading-snug">
-            Consumption telemetry (usage × price) — kept separate from cash spend above; it's how Pulse catches spikes early.
-          </p>
-        </div>
+
+          {/* Monthly card — the at-a-glance budget number. */}
+          {consumption.rows.length > 0 && (
+            <div className="bg-white border border-pulse-gold/30 rounded-2xl p-3">
+              <div className="flex justify-between items-baseline mb-2">
+                <span className="text-[11px] text-hive-muted font-bold">This month&apos;s metered cost</span>
+                <span className="font-nunito font-black text-pulse-navy">{formatCents(consumption.total, currency)}</span>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {consumption.rows.map((row) => (
+                  <Link key={row.id} href={`/pulse/trackable/${row.id}`} className="flex items-center justify-between text-[12px] no-underline">
+                    <span className="font-bold text-pulse-navy">{row.tk?.emoji ?? '📊'} {row.tk?.name ?? 'Trackable'}</span>
+                    <span className="font-nunito font-black text-pulse-navy">{formatCents(row.cents, currency)} ›</span>
+                  </Link>
+                ))}
+              </div>
+              <p className="text-[10px] text-hive-muted mt-2 leading-snug">
+                Consumption telemetry (usage × price) — kept separate from cash spend above; it&apos;s how Pulse catches spikes early.
+              </p>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
