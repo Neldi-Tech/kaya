@@ -51,6 +51,7 @@ import { depositToTreasury } from './hive';
 // Runtime — granting House Points on an approved stock-take. firestore.ts only
 // imports this module's `BusinessConfig` as a *type* (erased), so no cycle.
 import { giveAward } from './firestore';
+import type { DayOfWeek } from './firestore';
 
 // ── Business identity ─────────────────────────────────────────────
 
@@ -109,6 +110,16 @@ export interface BusinessReminder {
   localLabel: string;  // display only, e.g. "6:00 PM"
 }
 
+/** Per-business stock-take Workplan schedule (2026-05-26). Surface-only —
+ *  controls when the synthetic "Stock-take · [Business]" item shows up in the
+ *  owner kid's Workplan. Default: enabled daily. HP / streaks / reminders are
+ *  unaffected. */
+export interface StockTakeSchedule {
+  enabled: boolean;
+  daysOfWeek: DayOfWeek[];   // which weekdays the task lands in the Workplan
+  timeLocal?: string;        // optional "HH:MM" — empty = anytime today
+}
+
 export interface Business {
   id: string;
   /** Child.id of the sole owner. Phase 2 co-ops add `ownerIds[]`; until then
@@ -142,6 +153,13 @@ export interface Business {
    *  parent's local pick on the client, so the hourly cron needs no per-family
    *  timezone; localLabel is just for display. */
   reminder?: BusinessReminder;
+  /** Stock-take Workplan schedule — controls which weekdays the synthetic
+   *  "Stock-take · [Business]" row appears in the owner kid's Workplan, and
+   *  an optional time-of-day. Absent / undefined = enabled daily (matches
+   *  pre-2026-05-26 silent behaviour). The schedule has NO effect on HP /
+   *  streaks / cron reminders — those keep running on the existing logic.
+   *  See `isStockTakeScheduledOn()`. */
+  stockTakeSchedule?: StockTakeSchedule;
   createdBy: string;
   /** Who set it up — a parent (for/with a kid) or the kid themselves. Drives
    *  the "started by …" attribution. createdByName is a display snapshot. */
@@ -796,6 +814,42 @@ export async function setBusinessReminder(
 ): Promise<void> {
   if (isGuestActive()) return;
   await updateDoc(businessDoc(familyId, businessId), { reminder });
+}
+
+/** Default Workplan schedule for a new (or pre-2026-05-26) business — enabled
+ *  every day. Keeps the prior silent expectation intact. */
+export const DEFAULT_STOCKTAKE_SCHEDULE: StockTakeSchedule = {
+  enabled: true,
+  daysOfWeek: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+};
+
+/** True when the stock-take should land in the owner kid's Workplan for the
+ *  given weekday. Treats an absent schedule as "enabled daily" so older
+ *  businesses keep showing up without a settings migration. */
+export function isStockTakeScheduledOn(biz: Pick<Business, 'stockTakeSchedule' | 'status'>, dow: DayOfWeek): boolean {
+  // Paused / closed / idea businesses don't trigger a Workplan task.
+  if (biz.status !== 'active' && biz.status !== 'pilot') return false;
+  const s = biz.stockTakeSchedule;
+  if (!s) return true;                       // back-compat: missing field = daily
+  if (s.enabled === false) return false;
+  const days = s.daysOfWeek ?? DEFAULT_STOCKTAKE_SCHEDULE.daysOfWeek;
+  return days.includes(dow);
+}
+
+/** Persist a business's stock-take Workplan schedule. Strips undefined fields
+ *  (Firestore rejects them) so an empty timeLocal clears the slot cleanly. */
+export async function setBusinessStockTakeSchedule(
+  familyId: string,
+  businessId: string,
+  schedule: StockTakeSchedule,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const clean: StockTakeSchedule = {
+    enabled: !!schedule.enabled,
+    daysOfWeek: (schedule.daysOfWeek ?? []).filter((d) => !!d),
+    ...(schedule.timeLocal && /^\d{2}:\d{2}$/.test(schedule.timeLocal) ? { timeLocal: schedule.timeLocal } : {}),
+  };
+  await updateDoc(businessDoc(familyId, businessId), { stockTakeSchedule: clean });
 }
 
 /** Light edits to a business's identity / pricing. Kept narrow on purpose —

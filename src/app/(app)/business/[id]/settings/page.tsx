@@ -10,7 +10,11 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
-import { Business, subscribeToBusiness, setBusinessReminder, updateBusiness, UNIT_SUGGESTIONS } from '@/lib/business';
+import {
+  Business, subscribeToBusiness, setBusinessReminder, updateBusiness, UNIT_SUGGESTIONS,
+  setBusinessStockTakeSchedule, DEFAULT_STOCKTAKE_SCHEDULE, type StockTakeSchedule,
+} from '@/lib/business';
+import type { DayOfWeek } from '@/lib/firestore';
 
 function labelForHour(h: number): string {
   const d = new Date(); d.setHours(h, 0, 0, 0);
@@ -39,6 +43,13 @@ export default function BusinessSettingsPage() {
   const [error, setError] = useState('');
   const [priceSaving, setPriceSaving] = useState(false);
   const [priceSaved, setPriceSaved] = useState(false);
+  // Stock-take Workplan schedule (drives the synthetic kid Workplan row).
+  const [schedEnabled, setSchedEnabled] = useState(true);
+  const [schedDays, setSchedDays] = useState<DayOfWeek[]>(DEFAULT_STOCKTAKE_SCHEDULE.daysOfWeek);
+  const [schedTime, setSchedTime] = useState('');
+  const [schedSaving, setSchedSaving] = useState(false);
+  const [schedSaved, setSchedSaved] = useState(false);
+  const [schedError, setSchedError] = useState('');
 
   useEffect(() => {
     if (!familyId || !businessId) return;
@@ -53,6 +64,11 @@ export default function BusinessSettingsPage() {
         }
         setUnit(b.unitLabel ?? '');
         if (typeof b.unitPriceCents === 'number') setPrice((b.unitPriceCents / 100).toString());
+        // Seed schedule from the stored value or the back-compat default.
+        const s = b.stockTakeSchedule ?? DEFAULT_STOCKTAKE_SCHEDULE;
+        setSchedEnabled(s.enabled !== false);
+        setSchedDays(s.daysOfWeek ?? DEFAULT_STOCKTAKE_SCHEDULE.daysOfWeek);
+        setSchedTime(s.timeLocal ?? '');
         setInit(true);
       }
     });
@@ -97,6 +113,48 @@ export default function BusinessSettingsPage() {
     }
   };
 
+  const ALL_DAYS: DayOfWeek[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+  const WEEKDAYS: DayOfWeek[]  = ['mon', 'tue', 'wed', 'thu', 'fri'];
+  const MWF: DayOfWeek[]       = ['mon', 'wed', 'fri'];
+  const DAY_INITIAL: Record<DayOfWeek, string> = { mon: 'M', tue: 'T', wed: 'W', thu: 'T', fri: 'F', sat: 'S', sun: 'S' };
+  const sameSet = (a: DayOfWeek[], b: DayOfWeek[]) => a.length === b.length && a.every((d) => b.includes(d));
+  const isDaily = sameSet(schedDays, ALL_DAYS);
+  const isWeekdays = sameSet(schedDays, WEEKDAYS);
+  const isMwf = sameSet(schedDays, MWF);
+
+  const toggleSchedDay = (d: DayOfWeek) => {
+    setSchedSaved(false);
+    setSchedDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]));
+  };
+  const applyPreset = (days: DayOfWeek[]) => {
+    setSchedSaved(false);
+    setSchedDays(days);
+  };
+
+  const saveSchedule = async () => {
+    if (!familyId) return;
+    setSchedError(''); setSchedSaved(false); setSchedSaving(true);
+    try {
+      const time = schedTime.trim();
+      // Validate HH:MM if a value was entered. Empty = "anytime today".
+      if (time && !/^\d{2}:\d{2}$/.test(time)) {
+        setSchedError('Time must look like 17:30 — or leave it empty.');
+        return;
+      }
+      const next: StockTakeSchedule = {
+        enabled: schedEnabled,
+        daysOfWeek: schedDays,
+        ...(time ? { timeLocal: time } : {}),
+      };
+      await setBusinessStockTakeSchedule(familyId, businessId, next);
+      setSchedSaved(true);
+    } catch (e: any) {
+      setSchedError(e?.message || 'Could not save the schedule.');
+    } finally {
+      setSchedSaving(false);
+    }
+  };
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="rounded-hive p-3.5 mb-3 flex items-center gap-3 bg-hive-navy text-hive-cream">
@@ -138,6 +196,80 @@ export default function BusinessSettingsPage() {
           <button onClick={savePrice} disabled={priceSaving}
             className="w-full mt-3 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
             {priceSaving ? 'Saving…' : priceSaved ? '✓ Saved' : 'Save price'}
+          </button>
+        </div>
+
+        {/* Stock-take Workplan schedule — drives the synthetic "Stock-take · [Business]"
+            row in the owner kid's /workplan. No HP/streak logic — that's still in the
+            reminder card and the instant-cadence path below. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="font-nunito font-extrabold text-[14px]">📋 Stock-take schedule</h3>
+              <p className="text-[12px] text-hive-muted mt-0.5">Lands as a task in the owner kid&apos;s Workplan on these days.</p>
+            </div>
+            <button
+              onClick={() => { setSchedEnabled((v) => !v); setSchedSaved(false); }}
+              aria-pressed={schedEnabled}
+              aria-label={schedEnabled ? 'Disable schedule' : 'Enable schedule'}
+              className={`w-12 h-7 rounded-full transition-colors relative shrink-0 ${schedEnabled ? 'bg-[#2F7D32]' : 'bg-hive-line'}`}
+            >
+              <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${schedEnabled ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+
+          {schedEnabled && (
+            <>
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {([
+                  { label: 'Daily',         days: ALL_DAYS,  active: isDaily },
+                  { label: 'Weekdays',      days: WEEKDAYS,  active: isWeekdays && !isDaily },
+                  { label: 'Mon · Wed · Fri', days: MWF,     active: isMwf },
+                ] as const).map((p) => (
+                  <button key={p.label} type="button" onClick={() => applyPreset([...p.days])}
+                    className={`px-2.5 py-1 rounded-hive-pill text-[11.5px] font-nunito font-bold border transition ${p.active ? 'bg-hive-honey-soft text-hive-honey-dk border-hive-honey' : 'bg-hive-paper text-hive-muted border-hive-line'}`}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex gap-1.5 mt-3">
+                {ALL_DAYS.map((d) => {
+                  const on = schedDays.includes(d);
+                  return (
+                    <button key={d} type="button" onClick={() => toggleSchedDay(d)}
+                      aria-pressed={on}
+                      className={`w-9 h-9 rounded-hive text-[12px] font-nunito font-extrabold border transition ${on ? 'bg-hive-navy text-hive-honey border-transparent' : 'bg-hive-cream text-hive-muted border-hive-line'}`}>
+                      {DAY_INITIAL[d]}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-3">
+                <div className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted mb-1.5">
+                  Time (optional · empty = anytime today)
+                </div>
+                <input
+                  type="time"
+                  value={schedTime}
+                  onChange={(e) => { setSchedTime(e.target.value); setSchedSaved(false); }}
+                  className="w-full h-11 px-3 bg-hive-cream rounded-hive border border-hive-line text-[14px] focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                />
+              </div>
+
+              <p className="text-[11px] text-hive-muted mt-2 leading-snug">
+                Tapping the Workplan task opens the stock-take page. Saving the take ticks it complete and grants the usual House Points (instant-cadence) — this schedule only controls when the row appears.
+              </p>
+            </>
+          )}
+
+          {schedError && <p className="text-hive-rose text-[12px] font-bold mt-3">{schedError}</p>}
+          {schedSaved && <p className="text-[#2F7D32] text-[12px] font-bold mt-3">✓ Saved</p>}
+
+          <button onClick={saveSchedule} disabled={schedSaving || (schedEnabled && schedDays.length === 0)}
+            className="w-full mt-4 h-11 rounded-hive bg-hive-navy text-hive-honey font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition">
+            {schedSaving ? 'Saving…' : 'Save schedule'}
           </button>
         </div>
 
