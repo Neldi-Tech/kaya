@@ -15,10 +15,33 @@
 // + the spend-ledger writer land in P2/P3/P4.
 
 import {
-  collection, doc, getDoc, getDocs, Timestamp, onSnapshot,
+  collection, doc, getDoc, getDocs, query, orderBy, limit as qlimit,
+  Timestamp, onSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
+
+// ── Cycle subcollection types ───────────────────────────────────────
+// One doc per billing cycle of a Subscription. Created on Add by
+// /api/subscriptions/create (status='upcoming'); flipped to 'paid' by
+// the post-due check + /api/subscriptions/cycle/close which also writes
+// the spend_ledger entry. 'overdue' is set by the cycle-advancer cron
+// when dueDate passes without a payment.
+
+export type SubscriptionCycleStatus = 'upcoming' | 'due' | 'paid' | 'overdue' | 'skipped';
+
+export interface SubscriptionCycle {
+  id: string;
+  dueDate: Timestamp;
+  amountDue: number;
+  amountPaid: number | null;
+  paidOn: Timestamp | null;
+  paymentMethodId: string;
+  receiptIds: string[];
+  status: SubscriptionCycleStatus;
+  remindersSent: { daysBefore: number; sentAt: Timestamp; channel: string }[];
+  postDueCheckResult: 'paid' | 'snoozed' | 'issue' | null;
+}
 
 export type SubscriptionCategory =
   | 'mobile_apps' | 'memberships' | 'media' | 'utilities_sub'
@@ -135,6 +158,41 @@ export async function getSubscription(
   const snap = await getDoc(doc(db, 'families', familyId, 'subscriptions', subId));
   if (!snap.exists()) return null;
   return { id: snap.id, ...snap.data() } as Subscription;
+}
+
+const cyclesCol = (familyId: string, subId: string) =>
+  collection(db, 'families', familyId, 'subscriptions', subId, 'cycles');
+
+/** Subscribe to a sub's cycles ordered by dueDate DESC (most recent first).
+ *  Uses the (cycles collectionGroup, status, dueDate ASC) index for the
+ *  collection-scope variant the cycle-advancer cron needs; this collection
+ *  query benefits from the auto-created single-field index on dueDate. */
+export function subscribeToCycles(
+  familyId: string,
+  subId: string,
+  cb: (cycles: SubscriptionCycle[]) => void,
+  opts: { maxEntries?: number } = {},
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(
+    cyclesCol(familyId, subId),
+    orderBy('dueDate', 'desc'),
+    qlimit(opts.maxEntries ?? 12),
+  );
+  return onSnapshot(
+    q,
+    (snap) => {
+      cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as SubscriptionCycle)));
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[subscriptions/cycles] subscribe failed:', err);
+      cb([]);
+    },
+  );
 }
 
 // ── Categories + sub-categories (spec §3.1, §3.2) ────────────────────
@@ -298,6 +356,44 @@ export async function createSubscription(
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(`createSubscription failed: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+// ── Mark a cycle paid (post-due check) ───────────────────────────────
+//
+// Wraps /api/subscriptions/cycle/close which flips the cycle to 'paid',
+// bumps nextBillingDate on the parent sub, and writes the spend_ledger
+// entry — all in one transaction. Result codes:
+//   'paid'    — recorded the payment
+//   'snoozed' — push the post-due check 3 days; cycle stays open
+//   'issue'   — flag the cycle as having a problem; surfaces in support
+
+export type PostDueResult = 'paid' | 'snoozed' | 'issue';
+
+export interface CloseCycleInput {
+  familyId: string;
+  subId: string;
+  cycleId: string;
+  result: PostDueResult;
+  paidAmountCents?: number;  // optional override; defaults to amountDue
+  paidOnIso?: string;        // optional override; defaults to today
+  paymentMethodId?: string;
+  closedByUid: string;
+}
+
+export async function closeCycle(
+  input: CloseCycleInput,
+): Promise<{ ok: true; ledgerId: string | null }> {
+  if (isGuestActive()) return { ok: true, ledgerId: null };
+  const res = await fetch('/api/subscriptions/cycle/close', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`closeCycle failed: ${res.status} ${text}`);
   }
   return res.json();
 }

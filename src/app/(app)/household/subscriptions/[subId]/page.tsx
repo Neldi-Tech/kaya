@@ -21,12 +21,13 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Subscription, getSubscription,
+  Subscription, SubscriptionCycle, getSubscription, subscribeToCycles,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
 } from '@/lib/subscriptions';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
+import { PostDueCheck } from '@/components/household/PostDueCheck';
 
 const STATUS_TONE: Record<Subscription['status'], StatusTone> = {
   active:    'green',
@@ -51,6 +52,7 @@ export default function SubscriptionDetailPage() {
   const subId = params?.subId;
 
   const [sub, setSub] = useState<Subscription | null>(null);
+  const [cycles, setCycles] = useState<SubscriptionCycle[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
@@ -66,6 +68,13 @@ export default function SubscriptionDetailPage() {
       setLoading(false);
     })();
   }, [profile, authLoading, subId, router]);
+
+  // Cycles are read live so the post-due check disappears the moment
+  // we close it (and the recent-cycles strip refreshes status).
+  useEffect(() => {
+    if (!profile?.familyId || !subId) return;
+    return subscribeToCycles(profile.familyId, subId, setCycles);
+  }, [profile?.familyId, subId]);
 
   if (authLoading || loading) {
     return <div className="p-6 text-pulse-navy/60">Loading…</div>;
@@ -142,6 +151,51 @@ export default function SubscriptionDetailPage() {
         )}
       </div>
 
+      {/* Post-due check — Manual subs with an open cycle past dueDate */}
+      {sub.billingMode === 'manual' && profile?.uid && (() => {
+        const now = Date.now();
+        const openCycle = cycles.find((c) =>
+          (c.status === 'overdue') ||
+          (c.status === 'due') ||
+          (c.status === 'upcoming' && (c.dueDate?.toMillis?.() ?? 0) < now)
+        );
+        if (!openCycle) return null;
+        return (
+          <div className="mt-4">
+            <PostDueCheck
+              familyId={profile.familyId!}
+              subId={sub.id}
+              cycle={openCycle}
+              householdCurrency={householdCurrency}
+              uid={profile.uid}
+            />
+          </div>
+        );
+      })()}
+
+      {/* Recent cycles */}
+      {cycles.length > 0 && (
+        <div className="mt-4 rounded-kaya bg-white border border-pulse-navy/10 px-5 py-4">
+          <div className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/55 mb-2">
+            Recent cycles
+          </div>
+          <ul className="divide-y divide-pulse-navy/8">
+            {cycles.slice(0, 6).map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <div>
+                  <div className="font-display font-bold text-pulse-navy">{c.id}</div>
+                  <div className="text-[11px] font-semibold text-pulse-navy/55">
+                    Due {toDisplayDate(tsToIso(c.dueDate))}
+                    {c.paidOn ? ` · Paid ${toDisplayDate(tsToIso(c.paidOn))}` : ''}
+                  </div>
+                </div>
+                <CycleBadge status={c.status} />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Reminder behaviour summary */}
       <div className="mt-4 rounded-kaya bg-pulse-cream border border-pulse-navy/10 px-5 py-4 space-y-2">
         <div className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/55">
@@ -183,5 +237,20 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       </span>
       <span className="font-semibold text-pulse-navy text-right">{value}</span>
     </div>
+  );
+}
+
+function CycleBadge({ status }: { status: SubscriptionCycle['status'] }) {
+  const toneClass = status === 'paid'
+    ? 'bg-pulse-green/12 text-pulse-green border-pulse-green/35'
+    : status === 'overdue'
+      ? 'bg-pulse-coral/12 text-pulse-coral border-pulse-coral/40'
+      : status === 'due'
+        ? 'bg-pulse-gold/15 text-pulse-gold border-pulse-gold/40'
+        : 'bg-pulse-navy/8 text-pulse-navy/70 border-pulse-navy/15';
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${toneClass}`}>
+      {status}
+    </span>
   );
 }
