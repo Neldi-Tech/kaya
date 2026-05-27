@@ -35,6 +35,7 @@ import {
 } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
+import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 import {
   addStaple, type Staple, type Cadence, STAPLE_CATEGORIES,
   displayStapleName, secondaryStapleName, stapleMatchesQuery,
@@ -1385,17 +1386,17 @@ export default function PurchaseDetailPage() {
           </div>
           {req.receiptUrl ? (
             <div className="flex items-start gap-3">
-              <a
-                href={req.receiptUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-24 h-24 rounded-lg overflow-hidden border border-hive-line bg-hive-cream flex-shrink-0"
+              <button
+                type="button"
+                onClick={() => downloadImage(req.receiptUrl!, suggestedPhotoFilename()).catch((err) => console.error('Receipt download failed', err))}
+                aria-label="Download receipt"
+                className="block w-24 h-24 rounded-lg overflow-hidden border border-hive-line bg-hive-cream flex-shrink-0 p-0 cursor-pointer"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={req.receiptUrl} alt="Receipt" className="w-full h-full object-cover" />
-              </a>
+              </button>
               <div className="flex-1 min-w-0 text-[11px] text-hive-muted font-bold">
-                <p>Tap the photo to open full-size in a new tab.</p>
+                <p>Tap the photo to save the receipt.</p>
                 {!isClosed && (
                   <label className="inline-block mt-2 cursor-pointer text-pantry-leaf-dk font-extrabold underline">
                     📷 Replace receipt
