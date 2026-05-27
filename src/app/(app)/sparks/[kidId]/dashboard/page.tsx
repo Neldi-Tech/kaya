@@ -133,22 +133,39 @@ export default function KidSparksDashboardPage() {
         {/* Back to kid Sparks */}
         <Link
           href={`/sparks/${kid.id}`}
-          className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[rgba(15,31,68,0.08)] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline hover:border-[#D4A847] transition-colors mb-4"
+          className="inline-flex items-center gap-1.5 pl-2.5 pr-3.5 py-1.5 rounded-full bg-white border border-[rgba(15,31,68,0.08)] text-[#0F1F44] font-display font-extrabold text-[12px] no-underline hover:border-[#D4A847] transition-colors mb-4 print-hide"
         >
           <span className="text-[13px] leading-none opacity-60" aria-hidden>‹</span>
           <span>{kid.name}&apos;s Sparks</span>
         </Link>
 
         {/* Header */}
-        <div className="flex items-baseline gap-3 mb-4">
+        <div className="flex items-baseline gap-3 mb-4 print-keep">
           <span className="text-3xl" aria-hidden>📊</span>
-          <h1 className="font-display font-extrabold text-2xl lg:text-3xl tracking-tight m-0">
+          <h1 className="font-display font-extrabold text-2xl lg:text-3xl tracking-tight m-0 flex-1">
             {kid.name}&apos;s progress
           </h1>
+          <div className="flex items-center gap-1.5 print-hide">
+            <Link
+              href="/sparks/dashboard"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold bg-white border border-[rgba(15,31,68,0.08)] text-[#0F1F44] hover:border-[#D4A847] no-underline"
+              title="See every kid in the family side by side"
+            >
+              👨‍👩‍👧‍👦 Family
+            </Link>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-bold bg-white border border-[rgba(15,31,68,0.08)] text-[#0F1F44] hover:border-[#D4A847]"
+              title="Print or save as PDF — your browser handles it"
+            >
+              🖨 Print / PDF
+            </button>
+          </div>
         </div>
 
         {/* Time filter */}
-        <div className="flex flex-wrap items-center gap-1.5 mb-5">
+        <div className="flex flex-wrap items-center gap-1.5 mb-5 print-hide">
           {FILTERS.map((f) => {
             const active = filter === f;
             return (
@@ -220,26 +237,34 @@ export default function KidSparksDashboardPage() {
           <AiInsightsPanel state={insightsState} insights={insights} />
         </SectionCard>
 
-        {/* Family roll-up + PDF export teaser */}
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-4">
+        {/* Family + PDF tiles — now live */}
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 print-hide">
+          <Link
+            href="/sparks/dashboard"
+            className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-4 hover:border-[#D4A847] no-underline"
+          >
             <div className="text-[11px] font-extrabold uppercase tracking-[0.8px] text-[#5A6488]">Family roll-up</div>
             <div className="font-display font-extrabold text-[14px] text-[#0F1F44] mt-1">
-              See every kid side by side
+              See every kid side by side →
             </div>
             <div className="text-[12px] text-[#5A6488] mt-1 leading-snug">
-              Compare ⭐ + % across all kids in one tab. Lands with Slice 5b{features.familyRollup ? '' : ' · Home+'}.
+              Compare ⭐ + % across all kids on one page.
+              {!features.familyRollup && ' Home+ feature — Nest sees an upgrade tile.'}
             </div>
-          </div>
-          <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-4">
+          </Link>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="text-left bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-4 hover:border-[#D4A847]"
+          >
             <div className="text-[11px] font-extrabold uppercase tracking-[0.8px] text-[#5A6488]">Term PDF</div>
             <div className="font-display font-extrabold text-[14px] text-[#0F1F44] mt-1">
-              Export a one-pager for PTM
+              Print this dashboard → Save as PDF
             </div>
             <div className="text-[12px] text-[#5A6488] mt-1 leading-snug">
-              KPIs + grades + AI summary in a print-friendly layout. Lands with Slice 5b{features.pdfExport ? '' : ' · Home+'}.
+              Browser-native, no library — KPIs, trend, breakdown + AI insights all carry over.
             </div>
-          </div>
+          </button>
         </div>
       </div>
     </div>
