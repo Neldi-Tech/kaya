@@ -122,6 +122,21 @@ service firebase.storage {
       allow delete: if belongsToFamily(familyId);
     }
 
+    // ── Kaya Sparks → item photos (2026-05-27) ──
+    // Per-item photo gallery for the 4 capture areas (school projects,
+    // home projects, achievements, sports subscriptions). Family-scoped
+    // — the kid captures their own work; parents + helpers can also
+    // upload on the kid's behalf. Three sizes (thumb / feed / full) per
+    // photo via processPhotoForUpload(), 10 MB cap each. Path:
+    //   families/{f}/sparks/{itemId}/{photoId}/{size}.jpg
+    match /families/{familyId}/sparks/{itemId}/{photoId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
+
     // ── Messaging → attachments (2026-05-24) ──
     // One folder per thread:
     //   families/{f}/messages/{threadId}/{fileId}.<ext>

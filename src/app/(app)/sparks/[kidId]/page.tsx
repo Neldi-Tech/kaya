@@ -26,15 +26,18 @@
 // sparks_items / sparks_academic / sparks_tasks are empty. Slice 2 wires
 // real counts + makes the area cards clickable.
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useSparksFeatures } from '@/lib/sparks/gating';
 import {
-  SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea,
+  SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea, type SparksItem,
 } from '@/lib/sparks/schema';
+import {
+  countItemsByArea, getAcademicCount, subscribeToAllKidItems,
+} from '@/lib/sparks/firestore';
 
 // Kid palette accents per area — direct from the mockup
 // (Step 2 · Module landing). Coral · Yellow · Green · Purple · Mint
@@ -85,6 +88,37 @@ export default function KidSparksHomePage() {
     if (isKid) return kid ? [kid] : [];
     return children;
   }, [isParent, isKid, children, features.multiKid, kid]);
+
+  // Live area counts — drives the chip on each row + the "Start"
+  // placeholder when an area has nothing yet. Items stream + academic
+  // is a one-shot server-aggregation read on mount + on kid change.
+  const familyId = profile?.familyId;
+  const [items, setItems] = useState<SparksItem[]>([]);
+  const [academicCount, setAcademicCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!familyId || !kidId) return;
+    return subscribeToAllKidItems(familyId, kidId, setItems);
+  }, [familyId, kidId]);
+  useEffect(() => {
+    if (!familyId || !kidId) { setAcademicCount(null); return; }
+    let cancelled = false;
+    setAcademicCount(null);
+    getAcademicCount(familyId, kidId)
+      .then((c) => { if (!cancelled) setAcademicCount(c); })
+      .catch(() => { if (!cancelled) setAcademicCount(0); });
+    return () => { cancelled = true; };
+  }, [familyId, kidId]);
+  const itemCounts = useMemo(() => countItemsByArea(items), [items]);
+  function countForArea(area: SparksArea): number | null {
+    if (area === 'academic') return academicCount;
+    return itemCounts[area];
+  }
+  function chipFor(area: SparksArea): string {
+    const c = countForArea(area);
+    if (c === null) return '…'; // loading
+    if (c === 0) return 'Start';
+    return String(c);
+  }
 
   if (loading) {
     return (
@@ -145,19 +179,22 @@ export default function KidSparksHomePage() {
 
   return (
     <div className="min-h-screen bg-[#FFFBF5] text-[#1B2547]">
-      {/* Phone-style content frame — caps width on desktop so the kid
-          surface stays one-thumb-friendly even on a 27" monitor. */}
-      <div className="mx-auto max-w-md">
-        {/* Header — coral → purple gradient · per mockup Step 2. */}
+      {/* Width ladder: phone on mobile, 3xl on tablet, 5xl on desktop,
+          6xl on xl. The kid surface stops being a stranded card and
+          fills the canvas next to the 260px AppShell sidebar. */}
+      <div className="mx-auto max-w-md sm:max-w-3xl lg:max-w-5xl xl:max-w-6xl">
+        {/* Header — coral → purple gradient · per mockup Step 2.
+            Spans full container width on desktop so the gradient reads
+            as a hero, not a small chip. */}
         <div
-          className="text-white px-5 pt-6 pb-6 rounded-b-[24px]"
+          className="text-white px-5 pt-6 pb-6 lg:px-10 lg:pt-10 lg:pb-9 rounded-b-[28px]"
           style={{ background: 'linear-gradient(135deg, #FF6B6B 0%, #A66CFF 100%)' }}
         >
-          <div className="text-[12px] opacity-85 mb-1">Kaya › Sparks</div>
-          <h1 className="font-display font-extrabold text-[22px] leading-tight tracking-tight m-0">
+          <div className="text-[12px] lg:text-[13px] opacity-85 mb-1">Kaya › Sparks</div>
+          <h1 className="font-display font-extrabold text-[22px] lg:text-[30px] leading-tight tracking-tight m-0">
             {kid.name}&apos;s Sparks
           </h1>
-          <div className="text-[13px] opacity-90 mt-1">
+          <div className="text-[13px] lg:text-[15px] opacity-90 mt-1">
             {kid.houseName ? `${kid.houseName} House` : 'Kaya family'}
           </div>
 
@@ -189,15 +226,22 @@ export default function KidSparksHomePage() {
           )}
         </div>
 
-        {/* Body — 5 area cards + AI strip. */}
-        <div className="px-4 py-4">
+        {/* Body — 5 area cards stack on phone (mockup rhythm) but
+            spread into a 2/3-col grid on tablet+/desktop so the kid
+            surface stops looking like a centered phone on a 1080p+
+            monitor. AI strip + parent action strip stay full width. */}
+        <div className="px-4 py-4 lg:px-8 lg:py-7">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 lg:gap-4">
           {SPARKS_AREA_ORDER.map((areaKey) => {
             const meta = SPARKS_AREA_META[areaKey];
             const accent = AREA_ACCENT[areaKey];
+            const chip = chipFor(areaKey);
+            const isStart = chip === 'Start' || chip === '…';
             return (
-              <div
+              <Link
                 key={areaKey}
-                className="bg-white rounded-[18px] p-[14px] mb-2.5 flex items-center gap-3 border border-[#ECE4D3]"
+                href={`/sparks/${kid.id}/${meta.path}`}
+                className="bg-white rounded-[18px] p-[14px] lg:p-[18px] flex items-center gap-3 border border-[#ECE4D3] hover:border-[#D4A847] transition-colors no-underline"
               >
                 <div
                   className="w-11 h-11 rounded-[14px] grid place-items-center text-xl shrink-0"
@@ -214,18 +258,29 @@ export default function KidSparksHomePage() {
                     {AREA_SUB[areaKey]}
                   </div>
                 </div>
-                {/* Count chip — placeholder "Start" until Slice 2 wires
-                    sparks_items + sparks_academic + sparks_tasks counts. */}
-                <span className="text-[11px] font-bold text-[#5A6488] bg-[#FBF7EE] px-2 py-1 rounded-full whitespace-nowrap">
-                  Start
+                {/* Count chip — real counts from sparks_items +
+                    sparks_academic. "Start" reads as the muted nudge
+                    when an area is empty; a count chip lights up coloured
+                    once the kid has captured something. */}
+                <span
+                  className="text-[11px] font-extrabold px-2 py-1 rounded-full whitespace-nowrap"
+                  style={
+                    isStart
+                      ? { background: '#FBF7EE', color: '#5A6488' }
+                      : { background: accent.bg, color: accent.fg }
+                  }
+                >
+                  {chip}
                 </span>
-              </div>
+              </Link>
             );
           })}
+          </div>
 
-          {/* AI strip — purple → mint gradient per mockup. */}
+          {/* AI strip — purple → mint gradient per mockup. Full-width
+              under the area grid so it reads as the persistent companion. */}
           <div
-            className="text-white px-4 py-3.5 rounded-[16px] mt-3"
+            className="text-white px-4 py-3.5 lg:px-6 lg:py-5 rounded-[16px] mt-3 lg:mt-5"
             style={{ background: 'linear-gradient(135deg, #A66CFF 0%, #4ECDC4 100%)' }}
           >
             <div className="text-[10px] font-extrabold tracking-[1px] opacity-85 mb-1">
@@ -242,8 +297,8 @@ export default function KidSparksHomePage() {
         {/* Parent-only action strip — keeps Premium surface so it reads
             as the parent's controls, not the kid's surface. */}
         {isParent && (
-          <div className="px-4 pb-8 mt-4">
-            <div className="border-t border-[#ECE4D3] pt-4 grid grid-cols-1 gap-2.5">
+          <div className="px-4 pb-8 mt-4 lg:px-6 lg:pb-12">
+            <div className="border-t border-[#ECE4D3] pt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <Link
                 href={`/sparks/${kid.id}/dashboard`}
                 className="bg-white border border-[#ECE4D3] rounded-[14px] p-3.5 flex items-center gap-3 hover:border-[#D4A847] transition-colors no-underline"

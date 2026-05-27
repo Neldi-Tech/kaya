@@ -1,63 +1,121 @@
 'use client';
 
-// Kaya Sparks · parent setup (/sparks/setup). Slice 1 stub — the real
-// surface lands across Slice 2 (sibling visibility + subjects per kid)
-// and Slice 3 (workplan wiring toggles + AI per-kid switches).
+// Kaya Sparks · parent setup (/sparks/setup).
+//
+// Slice 2 (2026-05-27) wires the sibling-visibility model + per-kid
+// subjects list. Slice 3 will fold in the workplan-wiring toggles +
+// per-kid AI highlight switches; the surface is structured so those
+// land as new sections without disturbing the existing ones.
 //
 // Parent-only by route guard. Kids landing here bounce back to /sparks.
 
 import Link from 'next/link';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
+import {
+  addSubject, removeSubject, setSiblingPerAreaFlag, setSiblingVisibility,
+  subscribeToSparksProfile,
+} from '@/lib/sparks/firestore';
+import KidAvatar from '@/components/ui/KidAvatar';
+import {
+  SPARKS_AREA_META, type SparksItemArea, type SparksProfile,
+  type SparksSiblingVisibility,
+} from '@/lib/sparks/schema';
+import type { Child } from '@/lib/firestore';
+
+const VISIBILITY_OPTIONS: Array<{
+  id: SparksSiblingVisibility;
+  label: string;
+  description: string;
+}> = [
+  { id: 'open',        label: 'Open',        description: 'Siblings see each other read-only. Best for younger families.' },
+  { id: 'independent', label: 'Independent', description: 'Each kid only sees their own Sparks. Best when ages diverge.' },
+  { id: 'per_area',    label: 'Per area',    description: 'Open some areas (Achievements), keep others private (Academic).' },
+];
+
+const ITEM_AREAS: SparksItemArea[] = [
+  'school_project',
+  'home_project',
+  'achievement',
+  'sports_subscription',
+];
 
 export default function SparksSetupPage() {
   const { profile } = useAuth();
+  const { children } = useFamily();
   const router = useRouter();
+  const isParent = profile?.role === 'parent';
+  const familyId = profile?.familyId;
 
+  // Route guard — kids/helpers bounce back to /sparks.
   useEffect(() => {
-    if (profile?.role === 'kid') router.replace('/sparks');
-  }, [profile?.role, router]);
+    if (profile && profile.role !== 'parent') router.replace('/sparks');
+  }, [profile, router]);
+
+  const [activeKidId, setActiveKidId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!activeKidId && children.length > 0) setActiveKidId(children[0].id);
+  }, [activeKidId, children]);
+
+  if (!isParent || !familyId) {
+    return <div className="min-h-screen bg-[#FBF7EE] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
+  }
+
+  const activeKid = children.find((c) => c.id === activeKidId) ?? null;
 
   return (
     <div className="min-h-[80vh] bg-[#FBF7EE] text-[#0F1F44]">
-      <div className="mx-auto max-w-3xl px-5 lg:px-8 pt-10 pb-16">
-        <div className="flex items-center gap-3 mb-2">
+      <div className="mx-auto max-w-3xl lg:max-w-5xl px-5 lg:px-10 pt-8 pb-16">
+        <div className="flex items-center gap-3 mb-6">
           <span className="text-3xl" aria-hidden>⚙️</span>
-          <h1 className="font-display font-extrabold text-2xl tracking-tight m-0">Sparks Setup</h1>
+          <div>
+            <h1 className="font-display font-extrabold text-2xl tracking-tight m-0">Sparks Setup</h1>
+            <p className="text-[#5A6488] text-[13.5px] m-0 mt-1">
+              Sibling visibility and per-kid subjects.
+              <span className="text-[#9C7A1D]"> Workplan wiring + AI per-task-type land with Slice 3 / Slice 4.</span>
+            </p>
+          </div>
         </div>
-        <p className="text-[#6E7791] text-[14px] max-w-prose mb-8">
-          The control panel for sibling visibility, per-kid subjects, AI
-          highlight toggles, and workplan wiring lands across the next
-          two slices.
-        </p>
 
-        <Section
-          title="Slice 2"
-          when="Capture + sibling visibility"
-          items={[
-            'Per-kid subjects list (drives school project + academic dropdowns)',
-            'Sibling visibility · Open / Independent / Per-area (server-enforced)',
-            'Bulk import + AI auto-label past artwork & certificates',
-          ]}
-        />
-        <Section
-          title="Slice 3"
-          when="Workplan wiring + ratings"
-          items={[
-            'Rating method picker — ⭐ / % / Both / Custom per task',
-            'Photo-proof required toggle, with kid → parent review flow',
-            'Opt-in workplan wiring per task',
-          ]}
-        />
-        <Section
-          title="Slice 4"
-          when="AI per-task-type"
-          items={[
-            'Pre-submission highlights · handwriting / homework / art (per kid)',
-            'Vendor selection (Claude vs Vertex Vision) confirmed before merge',
-          ]}
-        />
+        {children.length === 0 ? (
+          <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-6 text-center">
+            <p className="text-[14px] text-[#0F1F44] font-medium">No kids on this family yet.</p>
+            <Link href="/settings" className="inline-block mt-3 text-[#D4A847] font-bold text-[13px]">
+              Add a child in Settings →
+            </Link>
+          </div>
+        ) : (
+          <>
+            {/* Kid picker */}
+            <div className="flex flex-wrap gap-2 mb-5">
+              {children.map((k) => (
+                <KidPickerChip
+                  key={k.id}
+                  kid={k}
+                  active={k.id === activeKidId}
+                  onClick={() => setActiveKidId(k.id)}
+                />
+              ))}
+            </div>
+
+            {activeKid && (
+              <div className="space-y-4">
+                <SiblingVisibilityCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
+                />
+                <SubjectsCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
+                />
+              </div>
+            )}
+          </>
+        )}
 
         <div className="mt-10 pt-6 border-t border-[rgba(15,31,68,0.08)]">
           <Link
@@ -72,20 +130,214 @@ export default function SparksSetupPage() {
   );
 }
 
-function Section({ title, when, items }: { title: string; when: string; items: string[] }) {
+// ── Kid picker chip ─────────────────────────────────────────────────
+
+function KidPickerChip({
+  kid, active, onClick,
+}: {
+  kid: Child;
+  active: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5 mb-3">
-      <div className="flex items-baseline justify-between mb-2">
-        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">{when}</div>
-        <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FFF4D6] text-[#9C7A1D]">
-          {title}
-        </span>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-2 px-2.5 py-1.5 rounded-full text-[13px] font-bold transition-colors ${
+        active
+          ? 'bg-[#0F1F44] text-white'
+          : 'bg-white border border-[rgba(15,31,68,0.08)] text-[#0F1F44] hover:border-[#D4A847]'
+      }`}
+    >
+      <KidAvatar child={kid} size="xs" />
+      {kid.name}
+    </button>
+  );
+}
+
+// ── Sibling visibility card ─────────────────────────────────────────
+
+function SiblingVisibilityCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  const mode: SparksSiblingVisibility = profile?.sibling_visibility ?? 'open';
+
+  const setMode = async (next: SparksSiblingVisibility) => {
+    if (next === mode || saving) return;
+    setSaving(true);
+    try { await setSiblingVisibility(familyId, kid.id, next, uid); }
+    finally { setSaving(false); }
+  };
+
+  const toggleArea = async (area: SparksItemArea, allow: boolean) => {
+    setSaving(true);
+    try { await setSiblingPerAreaFlag(familyId, kid.id, area, allow, uid); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+        Sibling visibility · {kid.name}
       </div>
-      <ul className="m-0 pl-5 text-[12.5px] text-[#6E7791] leading-relaxed">
-        {items.map((it) => (
-          <li key={it}>{it}</li>
-        ))}
-      </ul>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-3">
+        Who in {kid.name}&apos;s family can see {kid.name}&apos;s Sparks?
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+        {VISIBILITY_OPTIONS.map((opt) => {
+          const active = opt.id === mode;
+          return (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setMode(opt.id)}
+              disabled={saving}
+              className={`text-left rounded-xl border p-3 transition-colors disabled:opacity-60 ${
+                active
+                  ? 'bg-[#FFF4D6] border-[#D4A847]'
+                  : 'bg-[#FBF7EE] border-[rgba(15,31,68,0.08)] hover:border-[#D4A847]'
+              }`}
+            >
+              <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">{opt.label}</div>
+              <div className="text-[11.5px] text-[#5A6488] mt-0.5 leading-snug">{opt.description}</div>
+            </button>
+          );
+        })}
+      </div>
+
+      {mode === 'per_area' && (
+        <div className="bg-[#FBF7EE] rounded-xl p-3 mt-3">
+          <div className="text-[10.5px] font-bold uppercase tracking-wider text-[#5A6488] mb-2">
+            Which areas can siblings see?
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {ITEM_AREAS.map((area) => {
+              const meta = SPARKS_AREA_META[area];
+              const allowed = !!profile?.per_area?.[area];
+              return (
+                <label
+                  key={area}
+                  className="flex items-center gap-2 bg-white border border-[#ECE4D3] rounded-lg px-2.5 py-2 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={allowed}
+                    onChange={(e) => toggleArea(area, e.target.checked)}
+                    disabled={saving}
+                    className="w-4 h-4"
+                  />
+                  <span className="text-[12.5px] text-[#0F1F44]">
+                    {meta.emoji} {meta.shortLabel}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="text-[11px] text-[#5A6488] mt-2 leading-snug">
+            Academic records are always hidden from siblings in Per-area mode (grades stay sensitive).
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Subjects card ───────────────────────────────────────────────────
+
+function SubjectsCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [pending, setPending] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  const subjects = profile?.subjects ?? [];
+
+  const onAdd = async () => {
+    const name = pending.trim();
+    if (!name || saving) return;
+    setSaving(true);
+    try {
+      await addSubject(familyId, kid.id, name, uid);
+      setPending('');
+    } finally { setSaving(false); }
+  };
+  const onRemove = async (name: string) => {
+    setSaving(true);
+    try { await removeSubject(familyId, kid.id, name, uid); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+        Subjects · {kid.name}
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-3">
+        Drives the dropdown when capturing a school project + the per-term Academic form.
+      </p>
+
+      <div className="flex items-center gap-2 mb-3">
+        <input
+          type="text"
+          value={pending}
+          onChange={(e) => setPending(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onAdd(); } }}
+          placeholder="e.g. Mathematics"
+          maxLength={40}
+          className="flex-1 bg-[#FBF7EE] border border-[#ECE4D3] rounded-lg px-3 py-2 text-[13px] text-[#0F1F44] focus:outline-none focus:border-[#D4A847]"
+        />
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={saving || !pending.trim()}
+          className="px-3.5 py-2 rounded-lg text-[12.5px] font-extrabold disabled:opacity-40"
+          style={{ background: '#D4A847', color: '#0F1F44' }}
+        >
+          + Add
+        </button>
+      </div>
+
+      {subjects.length === 0 ? (
+        <div className="text-[12px] text-[#5A6488]">
+          No subjects yet. Add ones like Mathematics, English, Kiswahili, Science…
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {subjects.map((s) => (
+            <span
+              key={s.name}
+              className="inline-flex items-center gap-1.5 bg-[#FBF7EE] border border-[#ECE4D3] rounded-full px-2.5 py-1 text-[12px] font-bold text-[#0F1F44]"
+            >
+              {s.name}
+              <button
+                type="button"
+                onClick={() => onRemove(s.name)}
+                aria-label={`Remove ${s.name}`}
+                className="text-[#E85C5C] font-bold hover:bg-white rounded"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
