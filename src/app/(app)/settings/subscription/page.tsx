@@ -224,7 +224,7 @@ export default function SubscriptionPage() {
             castle="∞"
           />
           <CompareRow label="Activity history" nest="30 days" home="1 year" castle="Forever" />
-          <CompareRow label="Kaya Sparks" sublabel="ideas & help community" nest="yes" home="yes" castle="yes" />
+          <CompareRow label="Kaya Buzz" sublabel="ideas & help community" nest="yes" home="yes" castle="yes" />
           <CompareRow label="The Hive" sublabel="Honey Coins & vault" nest="no" home="yes" castle="yes" />
           <CompareRow label="Household" sublabel="pantry, utilities, payroll" nest="no" home="yes" castle="yes" />
           <CompareRow label="Pages & Dreams" nest="no" home="yes" castle="yes" />
@@ -472,7 +472,7 @@ function Features({ tierId, variant }: { tierId: SubscriptionTierId; variant: 'n
           { yes: true, text: '1 helper (nanny, tutor)' },
           { yes: true, text: '30-day activity history' },
           { yes: true, text: 'Kaya core, Moments, Fun' },
-          { yes: true, text: 'Kaya Sparks community' },
+          { yes: true, text: 'Kaya Buzz community' },
           { yes: false, text: 'The Hive (coins & vault)' },
           { yes: false, text: 'Household, Business, Wealth…' },
         ]

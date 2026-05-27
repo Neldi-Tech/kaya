@@ -1,11 +1,11 @@
 'use client';
 
-import type { Spark } from '@/lib/sparks';
+import type { Buzz } from '@/lib/buzz';
 
-export function RoadmapStrip({ sparks }: { sparks: Spark[] }) {
-  const soon     = sparks.filter((s) => s.status === 'soon').slice(0, 3);
-  const building = sparks.filter((s) => s.status === 'building').slice(0, 3);
-  const released = sparks
+export function RoadmapStrip({ buzz }: { buzz: Buzz[] }) {
+  const soon     = buzz.filter((s) => s.status === 'soon').slice(0, 3);
+  const building = buzz.filter((s) => s.status === 'building').slice(0, 3);
+  const released = buzz
     .filter((s) => s.status === 'live' || s.status === 'reward')
     .sort((a, b) => (b.shippedAt ?? 0) - (a.shippedAt ?? 0))
     .slice(0, 3);
@@ -33,8 +33,8 @@ function Column({
   emoji: string;
   title: string;
   count: number;
-  items: Spark[];
-  subtitle: (s: Spark) => string;
+  items: Buzz[];
+  subtitle: (s: Buzz) => string;
 }) {
   return (
     <div className="bg-[#FBF7EE] rounded-[14px] p-3">

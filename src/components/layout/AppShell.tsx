@@ -325,8 +325,8 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness', icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',     icon: '🍳', label: 'Kaya Chef',     soon: true },
-  // Sparks stays last — the ideas/help community sits below the apps.
-  { kind: 'link',    id: 'sparks',    path: '/sparks',   icon: '✨', label: 'Sparks' },
+  // Buzz stays last — the ideas/help community sits below the apps.
+  { kind: 'link',    id: 'buzz',      path: '/buzz',     icon: '🐝', label: 'Buzz' },
 ];
 
 // Helpers and kids — no Soon teasers, no collapsibles (their feature
@@ -347,8 +347,8 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   { kind: 'link', id: 'payroll',  path: '/pantry/payroll',  icon: '🤝', label: 'Payroll' },
   { kind: 'link', id: 'pulse',    path: '/pulse/today',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
   { kind: 'link', id: 'profiles', path: '/profiles',        icon: '👧', label: 'Kids' },
-  // Sparks stays last in the helper menu too.
-  { kind: 'link', id: 'sparks',   path: '/sparks',          icon: '✨', label: 'Sparks' },
+  // Buzz stays last in the helper menu too.
+  { kind: 'link', id: 'buzz',     path: '/buzz',            icon: '🐝', label: 'Buzz' },
 ];
 
 // Full kid menu in canonical order, mirroring the parent shape:
@@ -381,8 +381,8 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
-  // Sparks stays last in the kid menu — sits under the apps, not above them.
-  { kind: 'link',    id: 'sparks',    path: '/sparks',    icon: '✨', label: 'Sparks' },
+  // Buzz stays last in the kid menu — sits under the apps, not above them.
+  { kind: 'link',    id: 'buzz',      path: '/buzz',      icon: '🐝', label: 'Buzz' },
 ];
 
 // ── Mobile bottom-bar groups ─────────────────────────────────────────
@@ -1202,7 +1202,7 @@ function deriveBackParent(pathname: string | null, homePath: string): { label: s
     business: 'Business',
     admin: 'Admin',
     settings: 'Settings',
-    sparks: 'Sparks',
+    buzz: 'Buzz',
     meetings: 'Meetings',
     moments: 'Moments',
     messages: 'Messages',

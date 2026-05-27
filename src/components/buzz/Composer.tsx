@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { categoryEmoji, categoryLabel, type SparkCategory } from '@/lib/sparks';
-import { createSpark } from '@/lib/sparksClient';
+import { categoryEmoji, categoryLabel, type BuzzCategory } from '@/lib/buzz';
+import { createBuzz } from '@/lib/buzzClient';
 
-const CATS: SparkCategory[] = ['idea', 'bug', 'help', 'story'];
+const CATS: BuzzCategory[] = ['idea', 'bug', 'help', 'story'];
 
 export function Composer({
   familyDisplayName,
@@ -21,7 +21,7 @@ export function Composer({
 }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [category, setCategory] = useState<SparkCategory>('idea');
+  const [category, setCategory] = useState<BuzzCategory>('idea');
   const [anonymous, setAnonymous] = useState(defaultAnonymous);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -36,7 +36,7 @@ export function Composer({
     }
     setBusy(true);
     try {
-      await createSpark({ title: title.trim(), body: body.trim(), category, postedAnonymously: anonymous });
+      await createBuzz({ title: title.trim(), body: body.trim(), category, postedAnonymously: anonymous });
       setTitle(''); setBody('');
       onPosted();
     } catch (e) {
@@ -64,7 +64,7 @@ export function Composer({
       <textarea
         value={body}
         onChange={(e) => setBody(e.target.value)}
-        placeholder="What spark do you have for Kaya? (idea, bug, story, or a question…)"
+        placeholder="What buzz do you have for Kaya? (idea, bug, story, or a question…)"
         className="w-full border-none outline-none px-3 py-2.5 bg-[#FBF7EE] rounded-xl text-[14px] text-[#0F1F44] resize-none min-h-[64px] placeholder:text-[#6E7791]"
         maxLength={2000}
       />
@@ -110,7 +110,7 @@ export function Composer({
             disabled={busy}
             className="bg-[#E85C5C] text-white border-none px-3.5 py-2 rounded-[10px] font-bold text-[13px] cursor-pointer disabled:opacity-60"
           >
-            {busy ? 'Sparking…' : 'Spark it →'}
+            {busy ? 'Buzzing…' : 'Buzz it →'}
           </button>
         </div>
       </div>

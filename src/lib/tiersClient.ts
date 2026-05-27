@@ -1,4 +1,4 @@
-// Client wrappers for /api/admin/tiers. Mirrors the sparksClient
+// Client wrappers for /api/admin/tiers. Mirrors the buzzClient
 // pattern — Bearer-auth fetches that hand back typed shapes.
 
 import { auth } from './firebase';

@@ -1,20 +1,20 @@
-// GET /api/sparks?status=&category=&sort= — list public sparks (sanitised).
-// POST /api/sparks                          — create a new spark.
+// GET /api/buzz?status=&category=&sort= — list public buzz (sanitised).
+// POST /api/buzz                          — create a new buzz.
 //
-// All client interaction with /sparks/** flows through this server. The
+// All client interaction with /buzz/** flows through this server. The
 // Firestore rules deny direct client reads/writes, so the API is the
 // only path. This is what enforces anonymity: real family names live in
 // the doc but are stripped here for non-operators.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
-import { resolveAuth, sanitizeSpark, trimToLen, VALID_CATEGORIES, loadSparksSettings, type RawSpark } from '@/lib/sparksServer';
-import type { SparkCategory, SparkStatus } from '@/lib/sparks';
+import { resolveAuth, sanitizeBuzz, trimToLen, VALID_CATEGORIES, loadBuzzSettings, type RawBuzz } from '@/lib/buzzServer';
+import type { BuzzCategory, BuzzStatus } from '@/lib/buzz';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-// ── GET — list sparks ─────────────────────────────────────────────────
+// ── GET — list buzz ─────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
   const resolved = await resolveAuth(req);
@@ -26,17 +26,17 @@ export async function GET(req: NextRequest) {
   const status = url.searchParams.get('status');
   const sort = url.searchParams.get('sort') ?? 'hot';
 
-  let q: FirebaseFirestore.Query = db.collection('sparks');
-  if (category && VALID_CATEGORIES.has(category as SparkCategory)) {
+  let q: FirebaseFirestore.Query = db.collection('buzz');
+  if (category && VALID_CATEGORIES.has(category as BuzzCategory)) {
     q = q.where('category', '==', category);
   }
   if (status && status !== 'all') {
-    q = q.where('status', '==', status as SparkStatus);
+    q = q.where('status', '==', status as BuzzStatus);
   }
 
   // 'hot' sorts by upvotes + recency hybrid (just upvotes server-side; tie
   // broken by createdAt). 'new' = most recent first. 'top' = most upvotes.
-  // For non-operators we hide sparks that are in 'review' awaiting
+  // For non-operators we hide buzz that are in 'review' awaiting
   // moderation (auto-publish setting toggles this filter on insert,
   // but reads always strip).
   if (sort === 'new') q = q.orderBy('createdAt', 'desc');
@@ -46,24 +46,24 @@ export async function GET(req: NextRequest) {
   q = q.limit(60);
 
   const snap = await q.get();
-  const sparks: ReturnType<typeof sanitizeSpark>[] = [];
+  const buzz: ReturnType<typeof sanitizeBuzz>[] = [];
 
   // Pre-fetch the caller's upvotes for this page in parallel.
   const ids = snap.docs.map((d) => d.id);
-  const voteSnaps = await Promise.all(ids.map((sid) => db.collection('sparks').doc(sid).collection('upvotes').doc(ctx.uid).get()));
+  const voteSnaps = await Promise.all(ids.map((sid) => db.collection('buzz').doc(sid).collection('upvotes').doc(ctx.uid).get()));
   const myVotes = new Set(ids.filter((_, i) => voteSnaps[i].exists));
 
   for (const doc of snap.docs) {
-    const raw = doc.data() as RawSpark;
+    const raw = doc.data() as RawBuzz;
     // Hide 'review' status from non-operators (review queue is admin-only).
     if (raw.status === 'review' && !ctx.isOperator) continue;
-    sparks.push(sanitizeSpark(doc.id, raw, ctx, myVotes.has(doc.id)));
+    buzz.push(sanitizeBuzz(doc.id, raw, ctx, myVotes.has(doc.id)));
   }
 
-  return NextResponse.json({ sparks });
+  return NextResponse.json({ buzz });
 }
 
-// ── POST — create a spark ─────────────────────────────────────────────
+// ── POST — create a buzz ─────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const resolved = await resolveAuth(req);
@@ -80,7 +80,7 @@ export async function POST(req: NextRequest) {
 
   const title = trimToLen(String(body.title ?? ''), 120);
   const text = trimToLen(String(body.body ?? ''), 2000);
-  const category = String(body.category ?? '') as SparkCategory;
+  const category = String(body.category ?? '') as BuzzCategory;
   let postedAnonymously = body.postedAnonymously === true;
 
   if (!title) return NextResponse.json({ error: 'title-required' }, { status: 400 });
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
   // Settings gate: if anonymous posts are disabled globally, force the
   // flag off. Kids default to anonymous when 'kidsDefaultAnonymous' is on
   // even if the client sent false — parent override has to be explicit.
-  const settings = await loadSparksSettings(db);
+  const settings = await loadBuzzSettings(db);
   if (!settings.allowAnonymous) postedAnonymously = false;
   if (ctx.role === 'kid' && settings.kidsDefaultAnonymous && body.postedAnonymously !== false) {
     postedAnonymously = true;
@@ -101,9 +101,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'stories-disabled' }, { status: 400 });
   }
 
-  const initialStatus: SparkStatus = settings.autoPublish ? 'new' : 'review';
+  const initialStatus: BuzzStatus = settings.autoPublish ? 'new' : 'review';
   const now = FieldValue.serverTimestamp();
-  const docRef = db.collection('sparks').doc();
+  const docRef = db.collection('buzz').doc();
   await docRef.set({
     title,
     body: text,

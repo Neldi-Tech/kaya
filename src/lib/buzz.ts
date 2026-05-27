@@ -1,35 +1,35 @@
-// Kaya Sparks — types + pure helpers.
+// Kaya Buzz — types + pure helpers.
 //
 // Intentionally has NO firebase imports. This file is safe to import
 // from server routes, the Admin SDK code path, and client components
-// alike. Client-side fetchers live in `sparksClient.ts` (separate so
+// alike. Client-side fetchers live in `buzzClient.ts` (separate so
 // the firebase client SDK never initializes inside an API route).
 
 // ── Types ───────────────────────────────────────────────────────────────
 
-export type SparkCategory = 'idea' | 'bug' | 'help' | 'story';
+export type BuzzCategory = 'idea' | 'bug' | 'help' | 'story';
 
-export type SparkStatus =
+export type BuzzStatus =
   | 'new'        // ⚡ just submitted
   | 'review'     // 👀 admin reading
   | 'soon'       // 🔮 Coming Soon (admin promised)
   | 'building'   // 🛠 actively in development
   | 'live'       // ✅ shipped
-  | 'reward';    // 🌟 shipped + spark reward credited
+  | 'reward';    // 🌟 shipped + Buzz reward credited
 
-export type SparkTargetWindow = 'Q3 2026' | 'Q4 2026' | 'Q1 2027' | 'No date yet' | null;
+export type BuzzTargetWindow = 'Q3 2026' | 'Q4 2026' | 'Q1 2027' | 'No date yet' | null;
 
 // What the public sees. Anonymous posts have authorDisplayName already
 // replaced with "A Kaya family" and authorAvatarKey is a stable hash
 // that does NOT reveal the family. authorRealName is operator-only and
 // returned only when the caller is an operator.
-export interface Spark {
+export interface Buzz {
   id: string;
   title: string;
   body: string;
-  category: SparkCategory;
-  status: SparkStatus;
-  comingSoonTargetWindow: SparkTargetWindow;
+  category: BuzzCategory;
+  status: BuzzStatus;
+  comingSoonTargetWindow: BuzzTargetWindow;
   upvoteCount: number;
   commentCount: number;
   authorDisplayName: string;          // sanitized
@@ -47,7 +47,7 @@ export interface Spark {
   authorUid?: string;
 }
 
-export interface SparkComment {
+export interface BuzzComment {
   id: string;
   body: string;
   authorDisplayName: string;
@@ -60,30 +60,30 @@ export interface SparkComment {
   authorFamilyId?: string;
 }
 
-export interface SparkListOptions {
-  category?: SparkCategory | 'all';
-  status?: SparkStatus | 'all';
+export interface BuzzListOptions {
+  category?: BuzzCategory | 'all';
+  status?: BuzzStatus | 'all';
   sort?: 'hot' | 'new' | 'top';
 }
 
-export interface SparksSettings {
+export interface BuzzSettings {
   showRoadmap: boolean;
   allowAnonymous: boolean;
   kidsDefaultAnonymous: boolean;
   autoPublish: boolean;
-  enableSparkBadge: boolean;
+  enableBuzzBadge: boolean;
   honeyCoinsPerShippedIdea: number;
   anonymousEarnsCoins: boolean;
   founderCoffeeTopN: number;
   showStoriesCategory: boolean;
 }
 
-export const DEFAULT_SPARKS_SETTINGS: SparksSettings = {
+export const DEFAULT_BUZZ_SETTINGS: BuzzSettings = {
   showRoadmap: false,
   allowAnonymous: true,
   kidsDefaultAnonymous: true,
   autoPublish: false,
-  enableSparkBadge: true,
+  enableBuzzBadge: true,
   honeyCoinsPerShippedIdea: 500,
   anonymousEarnsCoins: true,
   founderCoffeeTopN: 3,
@@ -99,18 +99,18 @@ export interface PillSpec {
   bgGradient?: string;
 }
 
-export function statusPill(s: SparkStatus): PillSpec {
+export function statusPill(s: BuzzStatus): PillSpec {
   switch (s) {
     case 'new':      return { label: '⚡ New',       bg: '#FFE8E5', fg: '#E85C5C' };
     case 'review':   return { label: '👀 Under review', bg: '#FFF4D6', fg: '#B8860B' };
     case 'soon':     return { label: '🔮 Coming Soon', bg: '#E2F0FF', fg: '#9B6BE3', bgGradient: 'linear-gradient(135deg,#E2F0FF,#F0E8FB)' };
     case 'building': return { label: '🛠 Building',  bg: '#E2F0FF', fg: '#1F6FB8' };
     case 'live':     return { label: '✅ Live',      bg: '#E5F7EF', fg: '#2E7D34' };
-    case 'reward':   return { label: '🌟 Shipped — Spark Reward', bg: '#F0E8FB', fg: '#9B6BE3' };
+    case 'reward':   return { label: '🌟 Shipped — Buzz Reward', bg: '#F0E8FB', fg: '#9B6BE3' };
   }
 }
 
-export function categoryEmoji(c: SparkCategory): string {
+export function categoryEmoji(c: BuzzCategory): string {
   switch (c) {
     case 'idea':  return '✨';
     case 'bug':   return '🐛';
@@ -119,7 +119,7 @@ export function categoryEmoji(c: SparkCategory): string {
   }
 }
 
-export function categoryLabel(c: SparkCategory): string {
+export function categoryLabel(c: BuzzCategory): string {
   switch (c) {
     case 'idea':  return 'Idea';
     case 'bug':   return 'Bug';

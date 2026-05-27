@@ -58,10 +58,10 @@ export const KID_MODULES: KidModule[] = [
   // member list is exactly the family's accounts, no external contacts.
   // Default-on but parent-toggleable like every other kid module.
   { id: 'messages',  label: 'Messages',       icon: '💬', path: '/messages' },
-  // Kaya Sparks — ideas & help community. Open to every invited family
+  // Kaya Buzz — ideas & help community. Open to every invited family
   // on every tier (per the Tiers matrix). Default-on for kids; parents
   // can hide via Settings if they don't want their kid posting publicly.
-  { id: 'sparks',    label: 'Sparks',         icon: '✨', path: '/sparks' },
+  { id: 'buzz',      label: 'Buzz',           icon: '🐝', path: '/buzz' },
   {
     // Kaya · the point system. Parent surface lives in /rate /award
     // /meetings /rewards; the kid surface is a view-only roll-up of
@@ -120,7 +120,7 @@ export const KID_MODULES: KidModule[] = [
 // Kid profiles / Family tree (one grant, all three via extraPaths);
 // `discover` brings back the Discover landing.
 export const DEFAULT_KID_MODULES = [
-  'home', 'myday', 'workplan', 'moments', 'messages', 'sparks',
+  'home', 'myday', 'workplan', 'moments', 'messages', 'buzz',
   'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
   'hive', 'fun', 'discover', 'stats',
 ];

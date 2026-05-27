@@ -1,7 +1,7 @@
 // Kaya Tiers — subscription plans + module gating.
 //
 // The 15-module matrix lives here. Defaults mirror the design HTML
-// (Kaya_Sparks-and-Tiers_Design_2026-05-26.html). Persisted at
+// (Kaya_Buzz-and-Tiers_Design_2026-05-26.html). Persisted at
 // /config/tiers/{tierId} so an admin can tweak access from the Admin
 // Portal without a code deploy; the defaults are the fallback when the
 // doc is missing.
@@ -22,7 +22,7 @@ export type ModuleId =
   | 'kaya-core'         // Core points/chores/houses
   | 'moments'           // Daily family feed
   | 'fun'               // Joy-only games / videos
-  | 'sparks'            // Ideas & help (PR 1)
+  | 'buzz'              // Ideas & help (renamed from 'sparks' 2026-05-27)
   | 'hive'              // The Hive — Honey Coins + vault
   | 'household'         // Pantry / Utilities / Helpers
   | 'pages'             // Family address book (stub)
@@ -52,7 +52,7 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   { id: 'kaya-core', name: 'Kaya (core)',       emoji: '🏆', description: 'Chores, points, houses',         shipped: true,  routePrefix: '/home' },
   { id: 'moments',   name: 'Moments',           emoji: '📷', description: 'Daily family feed',              shipped: true,  routePrefix: '/moments' },
   { id: 'fun',       name: 'Fun',               emoji: '🎉', description: 'Joy-only, no points',            shipped: true,  routePrefix: '/games' },
-  { id: 'sparks',    name: 'Kaya Sparks',       emoji: '✨', description: 'Ideas & help community',         shipped: true,  routePrefix: '/sparks' },
+  { id: 'buzz',      name: 'Kaya Buzz',         emoji: '🐝', description: 'Ideas & help community',         shipped: true,  routePrefix: '/buzz' },
   { id: 'hive',      name: 'The Hive',          emoji: '🍯', description: 'Honey Coins & vault',            shipped: true,  routePrefix: '/hive' },
   { id: 'household', name: 'Household',         emoji: '🏡', description: 'Pantry, utilities, helpers',     shipped: true,  routePrefix: '/pantry' },
   { id: 'pages',     name: 'Pages',             emoji: '📇', description: 'Family smart address book',      shipped: false },
@@ -111,7 +111,7 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: 1,
     householdLimit: 1,
     historyRetentionDays: 30,
-    modules: ['kaya-core', 'moments', 'fun', 'sparks'],
+    modules: ['kaya-core', 'moments', 'fun', 'buzz'],
     addonModules: [],
     isFeatured: false,
   },
@@ -126,7 +126,7 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: 3,
     householdLimit: 2,
     historyRetentionDays: 365,
-    modules: ['kaya-core', 'moments', 'fun', 'sparks', 'hive', 'household', 'pages', 'dreams'],
+    modules: ['kaya-core', 'moments', 'fun', 'buzz', 'hive', 'household', 'pages', 'dreams'],
     addonModules: ['business', 'wealth', 'chef', 'wellness', 'grow', 'letter'],
     isFeatured: true,
   },
