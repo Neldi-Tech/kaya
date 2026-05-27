@@ -13,7 +13,7 @@
 // v0 with trusted family setups; document for tightening later.
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -27,6 +27,7 @@ import {
   deleteRequest,
 } from '@/lib/purchase';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
+import { toDisplayDate } from '@/lib/dates';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { runPayrollGenerator, type GeneratorRun } from '@/lib/payroll';
 import { useConfirm } from '@/contexts/ConfirmContext';
@@ -220,6 +221,14 @@ export default function PayrollHomePage() {
         >
           {creating ? 'Starting…' : (role === 'helper' ? '＋ New advance / loan / bonus' : '＋ New payroll entry')}
         </button>
+      )}
+
+      {/* Helper date-led timeline (2026-05-27): leads with the next pay-out,
+          shows every pay-out this month in date order, with a small "Total
+          by end of [Month]" summary at the bottom. The status-grouped
+          sections below still render for transparency. */}
+      {role === 'helper' && (open.length > 0 || recent.length > 0) && (
+        <HelperPayTimeline open={open} recent={recent} currency={currency} />
       )}
 
       {/* Generator banner — surfaces what the auto-payroll just
@@ -420,4 +429,176 @@ function RequestRow({
       )}
     </div>
   );
+}
+
+// ── Helper date-led pay timeline (2026-05-27) ──────────────────────
+//
+// Used on the helper view of /pantry/payroll. Replaces the "big total at
+// the top" with: NEXT pay-out hero + date-ordered list of this month's
+// pay-outs + small "Total by end of [Month]" summary + a "Coming up · later"
+// rail. The existing status-grouped sections still render below for
+// transparency (drafts / awaiting / approved).
+function HelperPayTimeline({
+  open, recent, currency,
+}: {
+  open: PurchaseRequest[];
+  recent: PurchaseRequest[];
+  currency: string;
+}) {
+  // Combine open + recent (helper's own requests), sort by createdAt asc.
+  const all = useMemo(() => {
+    const merged = [...open, ...recent];
+    // Dedupe by id (recent + open may overlap during transitions).
+    const seen = new Set<string>();
+    return merged.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)));
+  }, [open, recent]);
+
+  const now = new Date();
+  const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const todayMs = startOfLocalDay(now).getTime();
+
+  const dateOf = (r: PurchaseRequest): Date | null => {
+    // Salary requests carry periodEnd in payrollCycle (= end of cycle, our
+    // "pay date" anchor). Off-cycle allowance requests don't — fall back to
+    // createdAt which is when the generator fired.
+    const pe = (r as { payrollCycle?: { periodEnd?: string } }).payrollCycle?.periodEnd;
+    if (pe) {
+      const [y, m, d] = pe.split('-').map(Number);
+      if (y && m && d) return new Date(y, m - 1, d);
+    }
+    const ms = (r.createdAt as { toMillis?: () => number } | undefined)?.toMillis?.();
+    return typeof ms === 'number' ? new Date(ms) : null;
+  };
+
+  const withDates = all
+    .map((r) => ({ r, d: dateOf(r) }))
+    .filter((x): x is { r: PurchaseRequest; d: Date } => x.d !== null);
+
+  const thisMonth = withDates.filter(({ d }) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` === thisMonthKey);
+  thisMonth.sort((a, b) => a.d.getTime() - b.d.getTime());
+
+  // Next pay-out = earliest entry on/after today; if none, the most recent
+  // upcoming/today entry in this month; finally fall back to the first item.
+  const upcomingThisMonth = thisMonth.filter(({ d }) => d.getTime() >= todayMs);
+  const nextEntry = upcomingThisMonth[0] ?? thisMonth[thisMonth.length - 1] ?? null;
+
+  // "Coming up later" — anything dated after the current month, ascending.
+  const later = withDates
+    .filter(({ d }) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` > thisMonthKey)
+    .sort((a, b) => a.d.getTime() - b.d.getTime());
+
+  if (thisMonth.length === 0 && later.length === 0) return null;
+
+  // Total by end of month — sum each request's "take-home" amount. Use
+  // payrollCycle.netCents when present, else actual or estimated total.
+  const totalCents = thisMonth.reduce((acc, { r }) => {
+    const net = (r as { payrollCycle?: { netCents?: number } }).payrollCycle?.netCents;
+    return acc + (typeof net === 'number' ? net : (r.actualTotalCents ?? r.estimatedTotalCents ?? 0));
+  }, 0);
+
+  const monthName = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const isToday = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` === todayIso;
+  const daysFromToday = (d: Date) => Math.round((startOfLocalDay(d).getTime() - todayMs) / 86_400_000);
+
+  const rowAmount = (r: PurchaseRequest): number => {
+    const net = (r as { payrollCycle?: { netCents?: number } }).payrollCycle?.netCents;
+    return typeof net === 'number' ? net : (r.actualTotalCents ?? r.estimatedTotalCents ?? 0);
+  };
+
+  return (
+    <div className="mb-4">
+      {/* Hero — next pay-out only */}
+      {nextEntry && (
+        <Link href={`/pantry/purchase/${nextEntry.r.id}`}
+          className="block bg-hive-honey-soft border-2 border-hive-honey rounded-hive p-4 no-underline mb-3">
+          <p className="text-[10px] uppercase tracking-[2px] font-nunito font-extrabold text-hive-honey-dk">
+            💰 Next pay-out · {isToday(nextEntry.d) ? 'today' : daysFromToday(nextEntry.d) > 0 ? `in ${daysFromToday(nextEntry.d)} day${daysFromToday(nextEntry.d) === 1 ? '' : 's'}` : 'most recent'}
+          </p>
+          <p className="font-nunito font-black text-2xl text-hive-navy mt-1">
+            {formatCents(rowAmount(nextEntry.r), currency)}
+          </p>
+          <p className="text-[12px] text-hive-muted font-bold mt-0.5 truncate">
+            {nextEntry.r.name || 'Pay-out'} · {toDisplayDate(`${nextEntry.d.getFullYear()}-${String(nextEntry.d.getMonth() + 1).padStart(2, '0')}-${String(nextEntry.d.getDate()).padStart(2, '0')}`)}
+          </p>
+        </Link>
+      )}
+
+      {/* This month, in date order */}
+      {thisMonth.length > 0 && (
+        <>
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-pantry-leaf-dk mb-2">
+            All pay-outs this month · {monthName} · in order
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {thisMonth.map(({ r, d }) => {
+              const today = isToday(d);
+              const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+              return (
+                <Link key={r.id} href={`/pantry/purchase/${r.id}`}
+                  className={`flex items-center gap-3 p-3 rounded-hive border no-underline ${today ? 'bg-hive-honey-soft border-hive-honey' : 'bg-hive-paper border-hive-line'}`}>
+                  <div className="flex flex-col items-center w-12 shrink-0">
+                    <span className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">
+                      {d.toLocaleDateString('en-US', { month: 'short' })}
+                    </span>
+                    <span className="font-nunito font-black text-lg text-hive-navy leading-none">{d.getDate()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-nunito font-extrabold text-[13px] text-hive-navy truncate">
+                      {r.name || 'Pay-out'}
+                    </p>
+                    <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+                      {STATUS_LABEL[r.status]}{today ? ' · today' : ''}
+                    </p>
+                  </div>
+                  <p className="font-nunito font-black text-sm text-hive-navy shrink-0">
+                    {formatCents(rowAmount(r), currency)}
+                  </p>
+                </Link>
+              );
+            })}
+          </div>
+
+          <div className="mt-2 px-3 py-2 bg-kaya-cream border border-hive-line rounded-hive flex items-baseline justify-between">
+            <span className="text-[11px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">
+              Total by end of {now.toLocaleDateString('en-US', { month: 'short' })}
+            </span>
+            <span className="font-nunito font-black text-[15px] text-hive-navy">{formatCents(totalCents, currency)}</span>
+          </div>
+        </>
+      )}
+
+      {later.length > 0 && (
+        <>
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-muted mt-4 mb-2">Coming up · later</p>
+          <div className="flex flex-col gap-1.5">
+            {later.slice(0, 3).map(({ r, d }) => (
+              <Link key={r.id} href={`/pantry/purchase/${r.id}`}
+                className="flex items-center gap-3 p-3 rounded-hive border border-hive-line bg-hive-paper no-underline">
+                <div className="flex flex-col items-center w-12 shrink-0">
+                  <span className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-muted">
+                    {d.toLocaleDateString('en-US', { month: 'short' })}
+                  </span>
+                  <span className="font-nunito font-black text-lg text-hive-navy leading-none">{d.getDate()}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-nunito font-extrabold text-[13px] text-hive-navy truncate">
+                    {r.name || 'Pay-out'}
+                  </p>
+                  <p className="text-[11px] text-hive-muted font-bold mt-0.5">{STATUS_LABEL[r.status]}</p>
+                </div>
+                <p className="font-nunito font-black text-sm text-hive-navy shrink-0">{formatCents(rowAmount(r), currency)}</p>
+              </Link>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function startOfLocalDay(d: Date): Date {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  return out;
 }

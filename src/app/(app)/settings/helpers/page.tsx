@@ -21,7 +21,7 @@ import { KID_MODULES, DEFAULT_KID_MODULES } from '@/lib/kidModules';
 import { HELPER_MODULES } from '@/lib/helperModules';
 import WorkplanEditor from '@/components/helpers/WorkplanEditor';
 import { setPayrollConfig, clearPayrollConfig, payAnchorLabel, payExpectationLabel } from '@/lib/payroll';
-import type { HelperPayrollConfig, PayBasis, PayFrequency, PayrollAllowance } from '@/lib/firestore';
+import type { HelperPayrollConfig, PayBasis, PayFrequency, PayrollAllowance, PayrollAllowanceType, PayrollAllowanceCadence } from '@/lib/firestore';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
 import { updateFamily, type HelperLink } from '@/lib/firestore';
@@ -1265,6 +1265,15 @@ function PayrollConfigSection({
   const [allowances, setAllowances] = useState<PayrollAllowance[]>(existing?.allowances ?? []);
   const [allowanceLabel, setAllowanceLabel] = useState('');
   const [allowanceAmt, setAllowanceAmt] = useState<number>(0);
+  // 2026-05-27 — typed allowances + per-allowance schedule. Cadence picks the
+  // expected date control: Monthly→payDay, Twice-monthly→payDay×2,
+  // Weekly/Biweekly→payDayOfWeek, One-time→payDate.
+  const [allowanceType, setAllowanceType] = useState<PayrollAllowanceType>('other');
+  const [allowanceCadence, setAllowanceCadence] = useState<PayrollAllowanceCadence>('monthly');
+  const [allowancePayDay, setAllowancePayDay] = useState<number>(1);
+  const [allowancePayDay2, setAllowancePayDay2] = useState<number>(15);
+  const [allowancePayDow, setAllowancePayDow] = useState<number>(5); // Friday
+  const [allowancePayDate, setAllowancePayDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1319,9 +1328,65 @@ function PayrollConfigSection({
   const addAllowance = () => {
     const label = allowanceLabel.trim();
     if (!label || allowanceAmt <= 0) return;
-    setAllowances((arr) => [...arr, { label, amountCents: Math.round(allowanceAmt * 100) }]);
+    const base: PayrollAllowance = {
+      label,
+      amountCents: Math.round(allowanceAmt * 100),
+      type: allowanceType,
+      cadence: allowanceCadence,
+    };
+    let extra: Partial<PayrollAllowance> = {};
+    switch (allowanceCadence) {
+      case 'monthly':
+        extra = { payDay: Math.min(28, Math.max(1, allowancePayDay)) };
+        break;
+      case 'twice_monthly': {
+        const d1 = Math.min(28, Math.max(1, allowancePayDay));
+        const d2 = Math.min(28, Math.max(1, allowancePayDay2));
+        if (d1 === d2) { setError('Pick two different days of the month.'); return; }
+        extra = { payDaysOfMonth: [d1, d2].sort((a, b) => a - b) };
+        break;
+      }
+      case 'weekly':
+      case 'biweekly':
+        extra = { payDayOfWeek: ((allowancePayDow % 7) + 7) % 7 };
+        break;
+      case 'one_time':
+        if (!allowancePayDate) { setError('Pick a date for the one-time payment.'); return; }
+        extra = { payDate: allowancePayDate };
+        break;
+    }
+    setAllowances((arr) => [...arr, { ...base, ...extra }]);
     setAllowanceLabel('');
     setAllowanceAmt(0);
+    setAllowanceType('other');
+    setAllowanceCadence('monthly');
+    setAllowancePayDay(payAnchor);
+    setAllowancePayDay2(15);
+    setAllowancePayDow(5);
+    setAllowancePayDate(new Date().toISOString().slice(0, 10));
+    setError(null);
+  };
+
+  // Small label render — turns an allowance's schedule into a human line.
+  const ALLOWANCE_TYPE_META: Record<PayrollAllowanceType, { icon: string; pillBg: string; pillText: string }> = {
+    food:      { icon: '🍱', pillBg: 'bg-pantry-leaf-soft',   pillText: 'text-pantry-leaf-dk' },
+    transport: { icon: '🚗', pillBg: 'bg-purple-100',         pillText: 'text-purple-700' },
+    holiday:   { icon: '🏖', pillBg: 'bg-hive-honey-soft',    pillText: 'text-hive-honey-dk' },
+    airtime:   { icon: '📱', pillBg: 'bg-kaya-cream',         pillText: 'text-kaya-chocolate' },
+    housing:   { icon: '🏠', pillBg: 'bg-kaya-cream',         pillText: 'text-kaya-chocolate' },
+    medical:   { icon: '🩺', pillBg: 'bg-kaya-cream',         pillText: 'text-kaya-chocolate' },
+    other:     { icon: '✨', pillBg: 'bg-kaya-cream',         pillText: 'text-kaya-chocolate' },
+  };
+  const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const allowanceScheduleLabel = (a: PayrollAllowance): string => {
+    if (!a.cadence) return `Monthly · with salary (${payAnchor}${[11,12,13].includes(payAnchor) ? 'th' : payAnchor % 10 === 1 ? 'st' : payAnchor % 10 === 2 ? 'nd' : payAnchor % 10 === 3 ? 'rd' : 'th'})`;
+    switch (a.cadence) {
+      case 'monthly':       return `Monthly · paid on the ${a.payDay ?? payAnchor}${[11,12,13].includes(a.payDay ?? 0) ? 'th' : (a.payDay ?? 0) % 10 === 1 ? 'st' : (a.payDay ?? 0) % 10 === 2 ? 'nd' : (a.payDay ?? 0) % 10 === 3 ? 'rd' : 'th'}`;
+      case 'twice_monthly': return `2× a month · ${(a.payDaysOfMonth ?? []).join(' & ')}`;
+      case 'weekly':        return `Weekly · every ${DOW_SHORT[a.payDayOfWeek ?? 5]}`;
+      case 'biweekly':      return `Biweekly · every other ${DOW_SHORT[a.payDayOfWeek ?? 5]}`;
+      case 'one_time':      return `One-time · ${a.payDate ?? ''}`;
+    }
   };
   const removeAllowance = (idx: number) => {
     setAllowances((arr) => arr.filter((_, i) => i !== idx));
@@ -1491,46 +1556,123 @@ function PayrollConfigSection({
             </div>
           </div>
 
-          {/* Allowances */}
+          {/* Allowances — typed + scheduled (2026-05-27 v2) */}
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">Allowances (added every cycle)</p>
+            <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">Allowances · auto-triggered on their pay days</p>
             {allowances.length === 0 && (
-              <p className="text-[11px] text-kaya-sand italic mb-1">None yet — add transport, airtime, meals, etc.</p>
+              <p className="text-[11px] text-kaya-sand italic mb-1">None yet — add Food, Transport, Holiday, etc.</p>
             )}
             <div className="space-y-1 mb-2">
-              {allowances.map((a, i) => (
-                <div key={i} className="flex items-center gap-2 text-[11px] bg-white border border-kaya-warm-dark/50 rounded-kaya-sm px-2 py-1">
-                  <span className="flex-1 font-bold">{a.label}</span>
-                  <span className="text-kaya-sand">{formatCents(a.amountCents, currency)}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeAllowance(i)}
-                    className="text-kaya-sand hover:text-red-600 text-xs"
-                    aria-label={`Remove ${a.label}`}
-                  >×</button>
-                </div>
-              ))}
+              {allowances.map((a, i) => {
+                const t = ALLOWANCE_TYPE_META[a.type ?? 'other'];
+                return (
+                  <div key={i} className="flex items-start gap-2 text-[11px] bg-white border border-kaya-warm-dark/50 rounded-kaya-sm px-2 py-1.5">
+                    <span className="text-base leading-none mt-0.5">{t.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-bold truncate">{a.label}</span>
+                        <span className={`text-[9.5px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${t.pillBg} ${t.pillText}`}>{a.type ?? 'other'}</span>
+                      </div>
+                      <div className="text-[10px] text-kaya-sand mt-0.5">{allowanceScheduleLabel(a)}</div>
+                    </div>
+                    <span className="text-kaya-sand font-bold shrink-0">{formatCents(a.amountCents, currency)}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeAllowance(i)}
+                      className="text-kaya-sand hover:text-red-600 text-xs shrink-0"
+                      aria-label={`Remove ${a.label}`}
+                    >×</button>
+                  </div>
+                );
+              })}
             </div>
-            <div className="grid grid-cols-[2fr_1fr_auto] gap-1.5">
-              <input
-                type="text" value={allowanceLabel}
-                onChange={(e) => setAllowanceLabel(e.target.value)}
-                placeholder="e.g. Transport"
-                className="h-9 px-2 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate"
-              />
-              <input
-                type="number" min={0} step="0.01"
-                value={allowanceAmt}
-                onChange={(e) => setAllowanceAmt(parseFloat(e.target.value) || 0)}
-                placeholder="0"
-                className="h-9 px-2 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate"
-              />
-              <button
-                type="button"
-                onClick={addAllowance}
-                disabled={!allowanceLabel.trim() || allowanceAmt <= 0}
-                className="h-9 px-3 bg-kaya-chocolate text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
-              >+ Add</button>
+
+            {/* Add allowance form — type → cadence → date(s) → label + amount */}
+            <div className="rounded-kaya-sm border border-dashed border-kaya-warm-dark/60 p-2 bg-kaya-cream/20">
+              <p className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold mb-1.5">+ Add allowance</p>
+
+              {/* Type chips */}
+              <div className="flex flex-wrap gap-1 mb-2">
+                {(['food','transport','holiday','airtime','housing','medical','other'] as PayrollAllowanceType[]).map((t) => {
+                  const meta = ALLOWANCE_TYPE_META[t];
+                  const on = allowanceType === t;
+                  return (
+                    <button key={t} type="button" onClick={() => setAllowanceType(t)}
+                      className={`text-[10.5px] font-bold px-2 py-0.5 rounded-full border ${on ? 'bg-kaya-chocolate text-white border-kaya-chocolate' : `${meta.pillBg} ${meta.pillText} border-transparent`}`}>
+                      {meta.icon} {t}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Cadence dropdown */}
+              <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+                <select value={allowanceCadence} onChange={(e) => setAllowanceCadence(e.target.value as PayrollAllowanceCadence)}
+                  className="h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate">
+                  <option value="monthly">Monthly</option>
+                  <option value="twice_monthly">Twice a month (2×)</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Biweekly</option>
+                  <option value="one_time">One-time</option>
+                </select>
+
+                {/* Cadence-aware date control */}
+                {allowanceCadence === 'monthly' && (
+                  <div className="flex items-center gap-1 h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs">
+                    <span className="text-kaya-sand font-bold">Day</span>
+                    <input type="number" min={1} max={28} value={allowancePayDay}
+                      onChange={(e) => setAllowancePayDay(Math.min(28, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                      className="w-12 text-center font-bold bg-transparent border-0 focus:outline-none" />
+                    <span className="text-kaya-sand">/ month</span>
+                  </div>
+                )}
+                {allowanceCadence === 'twice_monthly' && (
+                  <div className="flex items-center gap-1 h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs">
+                    <input type="number" min={1} max={28} value={allowancePayDay}
+                      onChange={(e) => setAllowancePayDay(Math.min(28, Math.max(1, parseInt(e.target.value, 10) || 1)))}
+                      className="w-10 text-center font-bold bg-transparent border-0 focus:outline-none" />
+                    <span className="text-kaya-sand">+</span>
+                    <input type="number" min={1} max={28} value={allowancePayDay2}
+                      onChange={(e) => setAllowancePayDay2(Math.min(28, Math.max(1, parseInt(e.target.value, 10) || 15)))}
+                      className="w-10 text-center font-bold bg-transparent border-0 focus:outline-none" />
+                    <span className="text-kaya-sand">/ month</span>
+                  </div>
+                )}
+                {(allowanceCadence === 'weekly' || allowanceCadence === 'biweekly') && (
+                  <select value={allowancePayDow} onChange={(e) => setAllowancePayDow(parseInt(e.target.value, 10))}
+                    className="h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate">
+                    {DOW_SHORT.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                )}
+                {allowanceCadence === 'one_time' && (
+                  <input type="date" value={allowancePayDate}
+                    onChange={(e) => setAllowancePayDate(e.target.value)}
+                    className="h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate" />
+                )}
+              </div>
+
+              <div className="grid grid-cols-[2fr_1fr_auto] gap-1.5">
+                <input
+                  type="text" value={allowanceLabel}
+                  onChange={(e) => setAllowanceLabel(e.target.value)}
+                  placeholder="Label (e.g. 'Transport')"
+                  className="h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate"
+                />
+                <input
+                  type="number" min={0} step="0.01"
+                  value={allowanceAmt}
+                  onChange={(e) => setAllowanceAmt(parseFloat(e.target.value) || 0)}
+                  placeholder={`Amount (${currency})`}
+                  className="h-9 px-2 bg-white border border-kaya-warm-dark rounded-kaya-sm text-xs font-bold focus:outline-none focus:border-kaya-chocolate"
+                />
+                <button
+                  type="button"
+                  onClick={addAllowance}
+                  disabled={!allowanceLabel.trim() || allowanceAmt <= 0}
+                  className="h-9 px-3 bg-kaya-chocolate text-white rounded-kaya-sm text-xs font-bold disabled:opacity-40"
+                >+ Add</button>
+              </div>
+              <p className="text-[10px] text-kaya-sand mt-1.5">Sets the date the auto-payroll fires for this allowance. Monthly with the same day as the salary anchor (the <b>{payAnchor}{[11,12,13].includes(payAnchor) ? 'th' : payAnchor % 10 === 1 ? 'st' : payAnchor % 10 === 2 ? 'nd' : payAnchor % 10 === 3 ? 'rd' : 'th'}</b>) bundles with the salary cycle.</p>
             </div>
           </div>
 
