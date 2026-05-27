@@ -1032,10 +1032,12 @@ export default function PurchaseDetailPage() {
       )}
 
       {/* Module budget banner — kept lightweight (single Family read).
-          Shows the cap + this request's estimated impact so the helper
-          can scale their basket without leaving the page. Skipped if
-          no cap is set or the request is already closed/rejected. */}
-      {(() => {
+          PARENT-ONLY (2026-05-27): helpers must not see family budgets.
+          The original "scale your basket" rationale is outweighed by
+          the privacy principle — the basket itself is still visible,
+          parents review before approval. Also skipped when there's no
+          cap or the request is already closed/rejected. */}
+      {role !== 'helper' && (() => {
         const cap = family?.householdBudgets?.[reqModule] ?? 0;
         if (cap === 0 || isClosed || isRejected) return null;
         const est = sumEstimated(req.items);
