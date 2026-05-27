@@ -76,7 +76,7 @@ export default function NewSubscriptionPage() {
   }, [profile?.familyId]);
 
   // ── Form state ──
-  const householdCurrency = (family as { currency?: string } | null)?.currency ?? 'USD';
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
   const [selection, setSelection]   = useState<CatalogueSelection>({ id: null, name: '' });
   const [category, setCategory]     = useState<SubscriptionCategory>('mobile_apps');
   const [subCategory, setSubCategory] = useState<string>(SUBSCRIPTION_SUBCATEGORIES.mobile_apps[0]);

@@ -76,7 +76,7 @@ export default function ContributionDetailPage() {
   }
   if (!contrib) return null;
 
-  const householdCurrency = (family as { currency?: string } | null)?.currency ?? 'USD';
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
   const titheBadge = contrib.isPercentOfIncome
     ? `${(contrib.percentRate ?? 0).toFixed(1)}% of income`
     : null;

@@ -54,7 +54,7 @@ export default function SubscriptionsListPage() {
     });
   }, [profile?.familyId]);
 
-  const householdCurrency = (family as { currency?: string } | null)?.currency ?? 'USD';
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
 
   const kpis = useMemo(() => computeSubscriptionKpis(subs), [subs]);
   const filtered = useMemo(

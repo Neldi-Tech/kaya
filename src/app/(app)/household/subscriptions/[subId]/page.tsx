@@ -105,7 +105,7 @@ export default function SubscriptionDetailPage() {
   }
   if (!sub) return null;
 
-  const householdCurrency = (family as { currency?: string } | null)?.currency ?? 'USD';
+  const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
   const fromWealth = sub.sourceModule === 'wealth';
 
   return (
