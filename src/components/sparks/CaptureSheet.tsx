@@ -35,6 +35,7 @@ import {
 import {
   SPARKS_AREA_META, type SparksItemArea, type SparksProfile,
 } from '@/lib/sparks/schema';
+import { describeItem, extractFromImage } from '@/lib/sparks/ai';
 import { toDisplayDate } from '@/lib/dates';
 
 interface Props {
@@ -67,12 +68,10 @@ const AREA_HEAD_TEXT: Record<SparksItemArea, string> = {
   sports_subscription: '#fff',
 };
 
-// Template description seeds — used by the "✨ Help me describe"
-// button. Today these are deterministic templates (no AI); Slice 4
-// will swap them for real generation off the uploaded photos using
-// Claude / Vertex vision. The TEMPLATE_KEY discriminator on each
-// seed makes it easy to filter old template seeds out of training
-// data later.
+// Local fallback description template — used when the AI route returns
+// `skipped` (no ANTHROPIC_API_KEY) or when there's no photo to scan.
+// Slice 4 wires real Claude Sonnet vision via /api/sparks/ai/describe;
+// this template is just the safety net.
 function draftDescription(args: {
   area: SparksItemArea;
   title: string;
@@ -89,9 +88,7 @@ function draftDescription(args: {
     : area === 'home_project'      ? `${kidName} made ${title} at home`
     : area === 'achievement'       ? `${kidName} earned: ${title}`
     : `${kidName} signed up for ${title}`;
-  return `${photos}${base}. Captured ${niceDate}.
-
-(✨ Slice 4 will replace this seed with real AI-generated descriptions read directly from the photos.)`;
+  return `${photos}${base}. Captured ${niceDate}.`;
 }
 
 export default function CaptureSheet({
@@ -110,6 +107,9 @@ export default function CaptureSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [descTouched, setDescTouched] = useState(false);
+  const [describing, setDescribing] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null); // small "AI is off" / "from template" hint
 
   // Reset on open/close so a previous draft doesn't leak into the next session.
   useEffect(() => {
@@ -122,6 +122,9 @@ export default function CaptureSheet({
     setSaving(false);
     setError(null);
     setDescTouched(false);
+    setDescribing(false);
+    setScanning(false);
+    setAiNote(null);
   }, [open]);
 
   // Object-URL lifecycle for the photo previews. Re-create on photos[]
@@ -147,14 +150,77 @@ export default function CaptureSheet({
 
   const showSubject = area === 'school_project' && (profile?.subjects?.length ?? 0) > 0;
 
-  const fillDescription = () => {
-    setDescription(
-      draftDescription({
-        area, title, subject: subject || undefined, date, kidName,
-        photoCount: photos.length,
-      }),
-    );
-    setDescTouched(true);
+  /** Real AI draft via /api/sparks/ai/describe — falls back to the
+   *  local template if the key is missing or the call errors. Keeps
+   *  the parent in control: result lands in the textarea, fully
+   *  editable. Title is required (the AI needs context). */
+  const fillDescription = async () => {
+    if (!title.trim() || describing) return;
+    setDescribing(true);
+    setAiNote(null);
+    try {
+      const out = await describeItem({
+        files: photos,
+        area,
+        kidName,
+        title: title.trim(),
+        subject: subject || undefined,
+        date,
+      });
+      if (out.skipped) {
+        setDescription(draftDescription({
+          area, title, subject: subject || undefined, date, kidName,
+          photoCount: photos.length,
+        }));
+        setAiNote('AI is off in this preview — used a template seed.');
+      } else if (out.error || !out.description) {
+        setDescription(draftDescription({
+          area, title, subject: subject || undefined, date, kidName,
+          photoCount: photos.length,
+        }));
+        setAiNote('AI hiccup — used a template seed. Edit freely.');
+      } else {
+        setDescription(out.description);
+        setAiNote('✨ Drafted by Claude · edit anything you like.');
+      }
+      setDescTouched(true);
+    } finally {
+      setDescribing(false);
+    }
+  };
+
+  /** Achievement-only: tap to extract issuer + award name + date from
+   *  the FIRST uploaded photo. Pre-fills title + date on the form. */
+  const scanCertificate = async () => {
+    if (photos.length === 0 || scanning) return;
+    setScanning(true);
+    setAiNote(null);
+    try {
+      const out = await extractFromImage(photos[0], 'achievement');
+      if ('skipped' in out && out.skipped) {
+        setAiNote('AI is off in this preview — fill in title + date yourself.');
+        return;
+      }
+      if (!out.ok) {
+        setAiNote(out.error || 'Scan failed — fill in title + date yourself.');
+        return;
+      }
+      const { awardName, issuer, date: extractedDate } = out.data;
+      // Don't clobber what the parent already typed.
+      if (awardName && !title.trim()) setTitle(awardName);
+      if (extractedDate) setDate(extractedDate);
+      if (issuer) {
+        setDescription((prev) =>
+          prev.trim()
+            ? prev
+            : `From ${issuer}${extractedDate ? ` · ${toDisplayDate(extractedDate)}` : ''}.`,
+        );
+        setDescTouched(true);
+      }
+      setAiNote('✨ Scanned · review + edit before saving.');
+    } finally {
+      setScanning(false);
+    }
   };
 
   const canSave = !!title.trim() && !saving;
@@ -255,13 +321,16 @@ export default function CaptureSheet({
               <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
                 Photos {photos.length > 0 && <span className="text-[#0F1F44]">· {photos.length}</span>}
               </label>
-              {photos.length > 0 && (
-                <span
-                  className="text-[10px] font-bold uppercase tracking-wider bg-[#E5D6FF] text-[#5A3CB8] rounded-full px-2 py-0.5"
-                  title="Lands with Slice 4 — AI will deskew, crop, and colour-fix uploaded scans automatically."
+              {photos.length > 0 && area === 'achievement' && (
+                <button
+                  type="button"
+                  onClick={scanCertificate}
+                  disabled={scanning}
+                  className="text-[10px] font-extrabold uppercase tracking-wider bg-[#E5D6FF] hover:bg-[#D4BEFF] text-[#5A3CB8] rounded-full px-2.5 py-1 transition-colors disabled:opacity-60"
+                  title="Read issuer, award name, date from the first photo and fill the form."
                 >
-                  ✨ Slice 4: Clean up scans
-                </span>
+                  {scanning ? '✨ Scanning…' : '✨ Scan certificate'}
+                </button>
               )}
             </div>
 
@@ -383,12 +452,12 @@ export default function CaptureSheet({
               <button
                 type="button"
                 onClick={fillDescription}
-                disabled={!title.trim()}
+                disabled={!title.trim() || describing}
                 className="text-[10.5px] font-extrabold tracking-wide rounded-full px-2.5 py-1 disabled:opacity-40"
                 style={{ background: '#E5D6FF', color: '#5A3CB8' }}
-                title="Drafts a starter description. Slice 4 will swap this template for real AI generation read off your photos."
+                title="Claude reads your photos + title and drafts a description for you to edit."
               >
-                ✨ Help me describe
+                {describing ? '✨ Drafting…' : '✨ Help me describe'}
               </button>
             </div>
             <textarea
@@ -400,9 +469,9 @@ export default function CaptureSheet({
               maxLength={800}
               className="w-full bg-white border border-[#ECE4D3] rounded-xl px-3.5 py-2.5 text-[14px] text-[#0F1F44] focus:outline-none focus:border-[#D4A847] resize-none"
             />
-            {description && !descTouched && (
-              <div className="text-[10.5px] text-[#5A6488] mt-1">
-                Edit the draft above — it&apos;s just a starting point.
+            {aiNote && (
+              <div className="text-[10.5px] text-[#5A3CB8] font-bold mt-1">
+                {aiNote}
               </div>
             )}
           </div>
