@@ -488,6 +488,13 @@ function RevisionSettingsCard({
           disabled={saving}
         />
         <ToggleKnob
+          label="🎚 Allow points override on rating"
+          hint="When ON: the rate sheet shows a ± stepper so you can add or reduce within the Override cap. When OFF: the suggestion is locked in — no nudging on individual revisions."
+          checked={effective.allow_points_override}
+          onChange={(v) => patch({ allow_points_override: v })}
+          disabled={saving}
+        />
+        <ToggleKnob
           label="🖨 Auto-print the next 3 questions"
           hint="Open the print dialog when AI returns next questions."
           checked={effective.auto_print_next}
