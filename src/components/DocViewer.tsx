@@ -5,22 +5,18 @@
 // Renders a full-screen overlay with the document's content inline:
 //   • PDFs            → <iframe> over the storage URL (native browser viewer)
 //   • Images          → object-contain <img>
-//   • Office docs     → Microsoft Office Online viewer iframe
-//                       (docx · xlsx · pptx · doc · xls · ppt)
+//   • .docx           → mammoth.js in-browser conversion to HTML
+//                       (Microsoft's free Office Online embed kept
+//                        returning "File not found" against Firebase
+//                        Storage URLs on iOS — switched to client-side
+//                        conversion to remove the external dependency.)
 //   • Other           → friendly "preview not supported" + download CTA
 //
 // Used by chat (message thread doc attachments) and by Home Practice
 // Materials. Both surfaces also expose a "Download" action via the
 // sibling DocActionSheet — so the kid / parent can choose.
-//
-// Office viewer note (2026-05-28): Microsoft's view.officeapps.live.com
-// is a free, no-auth embed that renders Office documents as HTML. It
-// needs a publicly fetchable URL — Firebase Storage download URLs come
-// with an `?alt=media&token=…` query that lets the service fetch the
-// file without our user being signed in to anything Microsoft-related.
-// This is the same pattern WhatsApp Web / Slack use for Office previews.
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 export interface DocViewerProps {
   open: boolean;
@@ -30,7 +26,7 @@ export interface DocViewerProps {
   onDownload?: () => void;
 }
 
-type ViewerKind = 'pdf' | 'image' | 'office' | 'other';
+type ViewerKind = 'pdf' | 'image' | 'docx' | 'other';
 
 /** Trailing slice after the last "." (or the empty string). */
 function extOf(name?: string): string {
@@ -39,29 +35,99 @@ function extOf(name?: string): string {
   return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
 }
 
-const OFFICE_MIMES = new Set([
-  'application/msword',
-  'application/vnd.ms-word',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-]);
-const OFFICE_EXTS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']);
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 function classify(mime?: string, name?: string): ViewerKind {
   const m = (mime || '').toLowerCase();
   const e = extOf(name);
   if (m === 'application/pdf' || e === 'pdf') return 'pdf';
   if (m.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].includes(e)) return 'image';
-  if (OFFICE_MIMES.has(m) || OFFICE_EXTS.has(e)) return 'office';
+  if (m === DOCX_MIME || e === 'docx') return 'docx';
   return 'other';
 }
 
-/** Build a Microsoft Office Online viewer URL for the given file URL. */
-function officeViewerSrc(fileUrl: string): string {
-  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+/** Inline .docx renderer. Lazy-loads mammoth.js on first open so the
+ *  library (~700 KB) doesn't bloat the initial bundle. Fetches the
+ *  storage URL as an ArrayBuffer and converts to HTML client-side —
+ *  no external service involved, so Firebase's token-bearing URL
+ *  never leaves the kid's browser. */
+function DocxBody({ url, name }: { url: string; name: string }) {
+  const [html, setHtml] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr(null);
+    setHtml(null);
+    (async () => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Couldn't fetch the file (HTTP ${res.status}).`);
+        const buf = await res.arrayBuffer();
+        // Mammoth's browser entry point is exposed via the package's
+        // "browser" field — Webpack resolves this automatically.
+        const mammoth = await import('mammoth');
+        const out = await mammoth.convertToHtml({ arrayBuffer: buf });
+        if (cancelled) return;
+        setHtml(out.value || '<p><em>This document is empty.</em></p>');
+      } catch (e) {
+        if (cancelled) return;
+        setErr(e instanceof Error ? e.message : 'Could not read the document.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (loading) {
+    return (
+      <div className="absolute inset-0 grid place-items-center text-white/80">
+        <div className="text-center">
+          <div className="inline-block w-6 h-6 rounded-full border-2 border-white/40 border-t-white animate-spin mb-3" aria-hidden />
+          <div className="text-[13px] font-bold">Reading {name}…</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div className="absolute inset-0 grid place-items-center p-6">
+        <div className="bg-white rounded-2xl p-6 max-w-sm text-center">
+          <div className="text-5xl mb-2" aria-hidden>📄</div>
+          <div className="font-display font-extrabold text-[15px] text-[#0F1F44]">Couldn&apos;t render this document</div>
+          <div className="text-[12.5px] text-[#5A6488] mt-1.5 leading-snug">{err}</div>
+          <div className="text-[11px] text-[#5A6488] mt-2 leading-snug">Try Download to view in your device&apos;s Word app.</div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="absolute inset-0 overflow-y-auto bg-white">
+      <div
+        className="mx-auto max-w-[760px] px-5 py-6 text-[14px] text-[#0F1F44] leading-relaxed kaya-docx"
+        // mammoth output is well-known + comes from a file the user
+        // chose to upload + render — safe to dangerouslySetInnerHTML.
+        dangerouslySetInnerHTML={{ __html: html ?? '' }}
+      />
+      <style jsx>{`
+        :global(.kaya-docx h1) { font-size: 22px; font-weight: 800; margin: 18px 0 10px; }
+        :global(.kaya-docx h2) { font-size: 18px; font-weight: 800; margin: 14px 0 8px; }
+        :global(.kaya-docx h3) { font-size: 15px; font-weight: 800; margin: 12px 0 6px; }
+        :global(.kaya-docx p)  { margin: 0 0 10px; }
+        :global(.kaya-docx ul), :global(.kaya-docx ol) { padding-left: 22px; margin: 0 0 10px; }
+        :global(.kaya-docx li) { margin: 2px 0; }
+        :global(.kaya-docx table) { border-collapse: collapse; margin: 10px 0; }
+        :global(.kaya-docx th), :global(.kaya-docx td) { border: 1px solid #ECE4D3; padding: 6px 10px; }
+        :global(.kaya-docx img) { max-width: 100%; height: auto; }
+        :global(.kaya-docx a) { color: #5A3CB8; text-decoration: underline; }
+      `}</style>
+    </div>
+  );
 }
 
 export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerProps) {
@@ -87,7 +153,6 @@ export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerP
   // Hooks must come BEFORE the early-return so the order is stable
   // across renders.
   const kind = useMemo<ViewerKind>(() => classify(doc?.mime, doc?.name), [doc?.mime, doc?.name]);
-  const officeSrc = useMemo(() => doc?.url ? officeViewerSrc(doc.url) : '', [doc?.url]);
 
   if (!open || !doc) return null;
   const safeName = doc.name || 'Document';
@@ -135,16 +200,8 @@ export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerP
             <img src={doc.url} alt={safeName} className="max-w-full max-h-full object-contain" />
           </div>
         )}
-        {kind === 'office' && (
-          <iframe
-            src={officeSrc}
-            title={safeName}
-            // sandbox + referrerPolicy keep this iframe defensive — the
-            // viewer only needs the file URL it can already fetch.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-            referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full border-0 bg-white"
-          />
+        {kind === 'docx' && (
+          <DocxBody url={doc.url} name={safeName} />
         )}
         {kind === 'other' && (
           <div className="absolute inset-0 grid place-items-center p-6">
