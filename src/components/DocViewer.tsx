@@ -3,15 +3,24 @@
 // Kaya · in-app document viewer.
 //
 // Renders a full-screen overlay with the document's content inline:
-//   • PDFs   → <iframe> over the storage URL (browser-native PDF viewer)
-//   • Images → object-contain <img>
-//   • Other  → friendly "preview not supported" + download CTA
+//   • PDFs            → <iframe> over the storage URL (native browser viewer)
+//   • Images          → object-contain <img>
+//   • Office docs     → Microsoft Office Online viewer iframe
+//                       (docx · xlsx · pptx · doc · xls · ppt)
+//   • Other           → friendly "preview not supported" + download CTA
 //
 // Used by chat (message thread doc attachments) and by Home Practice
 // Materials. Both surfaces also expose a "Download" action via the
 // sibling DocActionSheet — so the kid / parent can choose.
+//
+// Office viewer note (2026-05-28): Microsoft's view.officeapps.live.com
+// is a free, no-auth embed that renders Office documents as HTML. It
+// needs a publicly fetchable URL — Firebase Storage download URLs come
+// with an `?alt=media&token=…` query that lets the service fetch the
+// file without our user being signed in to anything Microsoft-related.
+// This is the same pattern WhatsApp Web / Slack use for Office previews.
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 
 export interface DocViewerProps {
   open: boolean;
@@ -21,12 +30,38 @@ export interface DocViewerProps {
   onDownload?: () => void;
 }
 
-function classifyMime(mime?: string): 'pdf' | 'image' | 'other' {
-  if (!mime) return 'other';
-  const m = mime.toLowerCase();
-  if (m === 'application/pdf') return 'pdf';
-  if (m.startsWith('image/')) return 'image';
+type ViewerKind = 'pdf' | 'image' | 'office' | 'other';
+
+/** Trailing slice after the last "." (or the empty string). */
+function extOf(name?: string): string {
+  if (!name) return '';
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+const OFFICE_MIMES = new Set([
+  'application/msword',
+  'application/vnd.ms-word',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+const OFFICE_EXTS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']);
+
+function classify(mime?: string, name?: string): ViewerKind {
+  const m = (mime || '').toLowerCase();
+  const e = extOf(name);
+  if (m === 'application/pdf' || e === 'pdf') return 'pdf';
+  if (m.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].includes(e)) return 'image';
+  if (OFFICE_MIMES.has(m) || OFFICE_EXTS.has(e)) return 'office';
   return 'other';
+}
+
+/** Build a Microsoft Office Online viewer URL for the given file URL. */
+function officeViewerSrc(fileUrl: string): string {
+  return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
 }
 
 export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerProps) {
@@ -49,8 +84,12 @@ export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerP
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
+  // Hooks must come BEFORE the early-return so the order is stable
+  // across renders.
+  const kind = useMemo<ViewerKind>(() => classify(doc?.mime, doc?.name), [doc?.mime, doc?.name]);
+  const officeSrc = useMemo(() => doc?.url ? officeViewerSrc(doc.url) : '', [doc?.url]);
+
   if (!open || !doc) return null;
-  const kind = classifyMime(doc.mime);
   const safeName = doc.name || 'Document';
 
   return (
@@ -95,6 +134,17 @@ export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerP
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={doc.url} alt={safeName} className="max-w-full max-h-full object-contain" />
           </div>
+        )}
+        {kind === 'office' && (
+          <iframe
+            src={officeSrc}
+            title={safeName}
+            // sandbox + referrerPolicy keep this iframe defensive — the
+            // viewer only needs the file URL it can already fetch.
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            referrerPolicy="no-referrer"
+            className="absolute inset-0 w-full h-full border-0 bg-white"
+          />
         )}
         {kind === 'other' && (
           <div className="absolute inset-0 grid place-items-center p-6">
