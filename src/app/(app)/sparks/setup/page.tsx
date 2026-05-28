@@ -422,6 +422,14 @@ function RevisionSettingsCard({
           onChange={(v) => patch({ bonus_threshold: v })}
           disabled={saving}
         />
+        <NumberKnob
+          label="Override cap (±)"
+          hint="How much you can nudge the suggested points up or down"
+          value={effective.points_override_cap}
+          min={0} max={50} step={1}
+          onChange={(v) => patch({ points_override_cap: v })}
+          disabled={saving}
+        />
       </div>
 
       <div className="space-y-2">

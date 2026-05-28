@@ -81,6 +81,11 @@ export default function RatingSheet({
    *  Default OFF — parents must actively check the box to award even
    *  when the AI score qualifies. Holds the points by default. */
   const [awardPoints, setAwardPoints] = useState(false);
+  /** Slice 7f · parent-editable override of the suggested points. We
+   *  default to the tier suggestion; the parent can nudge within
+   *  ±points_override_cap. Stored as a draft string so the field can
+   *  be cleared while typing (mirrors the NumberKnob fix). */
+  const [pointsDraft, setPointsDraft] = useState<string>('');
 
   const photos = item.photo_urls ?? [];
   const isRevision = item.area === 'revision' && !!item.revision_data;
@@ -116,6 +121,7 @@ export default function RatingSheet({
     setError(null);
     setAwardResult(null);
     setAwardPoints(false);
+    setPointsDraft('');
   }, [open, showPercent, isRevision, item.revision_data?.ai_score]);
 
   // Whether the current rating would qualify for points + how many.
@@ -130,9 +136,30 @@ export default function RatingSheet({
     [wouldQualify, percent, revisionSettings.bonus_threshold],
   );
 
-  const pendingPoints = wouldQualify
+  const suggestedPoints = wouldQualify
     ? (wouldBonus ? revisionSettings.bonus_points : revisionSettings.base_points)
     : 0;
+
+  // Override range — parent can nudge ±cap around the suggestion. 0
+  // disables editing (cap === 0 → field is read-only at the suggestion).
+  const overrideCap = Math.max(0, revisionSettings.points_override_cap | 0);
+  const pointsMin = Math.max(0, suggestedPoints - overrideCap);
+  const pointsMax = suggestedPoints + overrideCap;
+
+  // Parse the draft → clamp to range. Empty / non-numeric falls back
+  // to the suggestion so the rest of the UI has a stable number.
+  const parsedDraft = pointsDraft.trim() === '' ? NaN : Number(pointsDraft);
+  const pendingPoints = Number.isFinite(parsedDraft)
+    ? Math.max(pointsMin, Math.min(pointsMax, Math.round(parsedDraft)))
+    : suggestedPoints;
+
+  // Seed the override draft to the suggestion every time the suggestion
+  // changes (percent slider moves, bonus tier flips). Only when the
+  // parent hasn't already toggled award ON — otherwise we'd overwrite
+  // their in-progress edit.
+  useEffect(() => {
+    if (!awardPoints) setPointsDraft(String(suggestedPoints));
+  }, [awardPoints, suggestedPoints]);
 
   const canSave =
     !saving
@@ -234,7 +261,7 @@ export default function RatingSheet({
       <div
         role="dialog"
         aria-labelledby={`${formId}-title`}
-        className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
+        className="relative w-full sm:max-w-xl max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
       >
         {/* Coloured head — matches the area's detail-head gradient */}
         <div
@@ -371,13 +398,13 @@ export default function RatingSheet({
             />
           </div>
 
-          {/* Revision points-award control (Slice 7e). The parent's
-              call — defaults to OFF so qualifying revisions DO NOT
-              auto-award. Parents can hold points indefinitely; tick
-              when ready. */}
+          {/* Revision points-award control (Slice 7e + 7f). Parents
+              tick to release the award AND can nudge the suggested
+              points within ±override_cap (Slice 7f). Defaults to OFF
+              so qualifying revisions DO NOT auto-award. */}
           {isRevision && !alreadyAwarded && !awardResult && (
-            <label
-              className={`flex items-start gap-3 rounded-xl px-3.5 py-3 text-[12.5px] cursor-pointer border-2 transition-colors ${
+            <div
+              className={`rounded-xl px-3.5 py-3 text-[12.5px] border-2 transition-colors ${
                 awardPoints
                   ? wouldBonus
                     ? 'bg-[#FFF1C9] border-[#D4A847]'
@@ -385,28 +412,75 @@ export default function RatingSheet({
                   : 'bg-[#FBF7EE] border-[#ECE4D3] hover:border-[#5A3CB8]/40'
               }`}
             >
-              <input
-                type="checkbox"
-                checked={awardPoints}
-                onChange={(e) => setAwardPoints(e.target.checked)}
-                disabled={!wouldQualify}
-                className="w-5 h-5 mt-0.5 shrink-0 disabled:opacity-40"
-              />
-              <div className="flex-1">
-                <div className="font-extrabold text-[#0F1F44]">
-                  {wouldQualify
-                    ? <>🎯 Award <span style={{ color: wouldBonus ? '#8A6800' : '#5A3CB8' }}>+{pendingPoints}</span> Kaya Points{wouldBonus ? ' · bonus tier' : ''}</>
-                    : `🎯 Award Kaya Points (needs ≥ ${revisionSettings.qualifying_score}%)`}
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={awardPoints}
+                  onChange={(e) => setAwardPoints(e.target.checked)}
+                  disabled={!wouldQualify}
+                  className="w-5 h-5 mt-0.5 shrink-0 disabled:opacity-40"
+                />
+                <div className="flex-1">
+                  <div className="font-extrabold text-[#0F1F44]">
+                    {wouldQualify
+                      ? <>🎯 Award <span style={{ color: wouldBonus ? '#8A6800' : '#5A3CB8' }}>+{pendingPoints}</span> Kaya Points{wouldBonus ? ' · bonus tier' : ''}</>
+                      : `🎯 Award Kaya Points (needs ≥ ${revisionSettings.qualifying_score}%)`}
+                  </div>
+                  <div className="text-[11px] text-[#5A6488] mt-0.5 leading-snug">
+                    {awardPoints
+                      ? `Award fires on save · once per revision. Suggested ${suggestedPoints}; you can nudge ±${overrideCap}.`
+                      : wouldQualify
+                        ? `Off by default — tick to release the award now. Suggestion is ${suggestedPoints}; you can nudge ±${overrideCap}. Leave unticked to hold.`
+                        : `Bump the score above ${revisionSettings.qualifying_score}% to enable.`}
+                  </div>
                 </div>
-                <div className="text-[11px] text-[#5A6488] mt-0.5 leading-snug">
-                  {awardPoints
-                    ? 'Award fires on save · once per revision.'
-                    : wouldQualify
-                      ? 'Off by default — tick to release the award now. Leave unticked to hold and decide later.'
-                      : `Bump the score above ${revisionSettings.qualifying_score}% to enable.`}
+              </label>
+
+              {/* Override stepper — only visible once award is ticked AND
+                  the parent can actually nudge (cap > 0). Cap = 0 locks
+                  the suggestion exactly. */}
+              {awardPoints && wouldQualify && overrideCap > 0 && (
+                <div className="mt-2.5 pt-2.5 border-t border-[#0F1F44]/10 flex items-center gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">Override</span>
+                  <button
+                    type="button"
+                    onClick={() => setPointsDraft(String(Math.max(pointsMin, pendingPoints - 1)))}
+                    disabled={pendingPoints <= pointsMin}
+                    className="w-7 h-7 rounded-full bg-white border border-[#0F1F44]/15 text-[#0F1F44] font-extrabold text-[14px] grid place-items-center disabled:opacity-30"
+                    aria-label="Decrease points"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={pointsMin}
+                    max={pointsMax}
+                    step={1}
+                    value={pointsDraft}
+                    onChange={(e) => setPointsDraft(e.target.value)}
+                    onBlur={() => {
+                      if (pointsDraft.trim() === '') { setPointsDraft(String(suggestedPoints)); return; }
+                      const n = Number(pointsDraft);
+                      if (!Number.isFinite(n)) { setPointsDraft(String(suggestedPoints)); return; }
+                      setPointsDraft(String(Math.max(pointsMin, Math.min(pointsMax, Math.round(n)))));
+                    }}
+                    className="w-16 bg-white border border-[#0F1F44]/15 rounded-lg px-2 py-1 text-center text-[14px] font-extrabold text-[#0F1F44] focus:outline-none focus:border-[#5A3CB8]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPointsDraft(String(Math.min(pointsMax, pendingPoints + 1)))}
+                    disabled={pendingPoints >= pointsMax}
+                    className="w-7 h-7 rounded-full bg-white border border-[#0F1F44]/15 text-[#0F1F44] font-extrabold text-[14px] grid place-items-center disabled:opacity-30"
+                    aria-label="Increase points"
+                  >
+                    +
+                  </button>
+                  <span className="text-[10.5px] text-[#5A6488] ml-1">
+                    {pointsMin}–{pointsMax}
+                  </span>
                 </div>
-              </div>
-            </label>
+              )}
+            </div>
           )}
 
           {/* Already awarded — show a static badge so the parent knows

@@ -342,6 +342,7 @@ export default function RevisionsPage() {
           authorUid={authProfile.uid}
           authorName={authProfile.displayName || (isParent ? 'Parent' : kid.name)}
           authorRole={authProfile.role === 'helper' ? 'helper' : (isParent ? 'parent' : 'kid')}
+          kidName={kid.name}
         />
       )}
 

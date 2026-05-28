@@ -229,6 +229,12 @@ export interface RevisionSettings {
   /** Subjects AI prioritises for next-question generation. Falls back
    *  to sparks_profiles.subjects when unset. */
   focus_subjects?: string[];
+  /** Slice 7f · how much the parent can nudge the auto-suggested points
+   *  up or down (in either direction) when awarding. Default 5 → parent
+   *  can override within ±5 of the tier suggestion. Set 0 to lock the
+   *  suggestion. The award itself is still gated by `awardPoints` —
+   *  this just controls the editable range when it's on. */
+  points_override_cap?: number;
 }
 
 export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_subjects'>> & { focus_subjects: string[] } = {
@@ -240,6 +246,7 @@ export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_s
   parent_approval_required: true,
   auto_print_next: false,
   focus_subjects: [],
+  points_override_cap: 5,
 };
 
 // ── Academic ───────────────────────────────────────────────────────────
@@ -377,6 +384,15 @@ export interface SparksThreadMessage {
    *  text-only post. Photos ride the existing sparks photo storage
    *  path so no storage.rules change is needed. */
   photo_urls?: string[];
+  /** Slice 7f · message intent. 'redo' messages carry AI rescore data
+   *  so the kid + parent can see the improvement trail. Default
+   *  'message' when absent (legacy rows). */
+  kind?: 'message' | 'redo';
+  /** Redo metadata — populated only when kind === 'redo'. */
+  redo_score?: number;       // 0-100 overall %
+  redo_breakdown?: { correct: number; partial: number; wrong: number };
+  redo_notes?: string;       // short kid-readable "why"
+  redo_round?: number;       // 1-indexed redo number (1 = first redo)
   createdAt: Timestamp;
 }
 

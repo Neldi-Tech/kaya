@@ -583,6 +583,14 @@ export interface NewThreadMessageInput {
   authorRole: 'parent' | 'helper' | 'kid';
   text?: string;
   photo_urls?: string[];
+  /** Slice 7f · 'redo' messages re-score a revision; carry the new
+   *  ai score + breakdown + notes + round so the bubble can render
+   *  the comparison. 'message' (default) = plain text/photo reply. */
+  kind?: 'message' | 'redo';
+  redo_score?: number;
+  redo_breakdown?: { correct: number; partial: number; wrong: number };
+  redo_notes?: string;
+  redo_round?: number;
 }
 
 /** Append a message to a sparks_item's thread. */
@@ -599,6 +607,13 @@ export async function postThreadMessage(
   };
   if (input.text && input.text.trim().length > 0) payload.text = input.text.trim();
   if (input.photo_urls && input.photo_urls.length > 0) payload.photo_urls = input.photo_urls;
+  if (input.kind === 'redo') {
+    payload.kind = 'redo';
+    if (typeof input.redo_score === 'number')  payload.redo_score = input.redo_score;
+    if (input.redo_breakdown) payload.redo_breakdown = input.redo_breakdown;
+    if (input.redo_notes && input.redo_notes.trim().length > 0) payload.redo_notes = input.redo_notes.trim();
+    if (typeof input.redo_round === 'number')  payload.redo_round = input.redo_round;
+  }
   const ref = await addDoc(threadCol(familyId, itemId), payload);
   return ref.id;
 }
