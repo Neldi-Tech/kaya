@@ -8,17 +8,23 @@
 //   both    → ⭐ + % (the default for Home Projects — quality AND logic)
 //   custom  → labelled buckets (parent-defined; not exposed in Slice 3)
 //
-// Slice 3 (2026-05-27) wires star + percent + notes via
-// `createItemRating()`. Custom mode lands when the per-task method
-// picker arrives in Slice 3b.
+// Slice 3   shipped star + percent + notes via `createItemRating()`.
+// Slice 7   added the lightbox + thumb strip on the photo.
+// Slice 7b  (2026-05-28) — when reviewing a REVISION item, save ALSO
+//           awards Kaya Points (via `giveAward()`) if the parent's
+//           percent score qualifies per the family's RevisionSettings,
+//           and flips `revision_data.points_awarded` so re-saves don't
+//           double-fire.
 
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import {
-  createItemRating, todayYmd,
+  createItemRating, subscribeToSparksProfile, todayYmd, updateSparksItem,
 } from '@/lib/sparks/firestore';
 import {
-  SPARKS_AREA_META, type SparksItem, type SparksRatingMode,
+  DEFAULT_REVISION_SETTINGS, SPARKS_AREA_META, type SparksItem,
+  type SparksProfile, type SparksRatingMode,
 } from '@/lib/sparks/schema';
+import { giveAward, type AwardKind } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
 import PhotoLightbox from './PhotoLightbox';
 
@@ -69,17 +75,59 @@ export default function RatingSheet({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [awardResult, setAwardResult] = useState<{ points: number; bonus: boolean } | null>(null);
 
   const photos = item.photo_urls ?? [];
+  const isRevision = item.area === 'revision' && !!item.revision_data;
+  const alreadyAwarded = !!item.revision_data?.points_awarded;
 
+  // Resolve effective revision settings for THIS kid. Loads the
+  // kid's sparks_profile (revision_settings + subjects) on open when
+  // the item is a revision — non-revision flows skip the read.
+  useEffect(() => {
+    if (!open || !isRevision) return;
+    return subscribeToSparksProfile(familyId, item.kid_id, setProfile);
+  }, [open, isRevision, familyId, item.kid_id]);
+
+  const revisionSettings = useMemo(() => ({
+    ...DEFAULT_REVISION_SETTINGS,
+    ...(profile?.revision_settings ?? {}),
+  }), [profile]);
+
+  // Seed the percent slider with the AI score on revision items so the
+  // parent's starting point is the AI's read — they nudge from there.
+  // Default 80 for non-revision items (the existing UX). Re-seed when
+  // the sheet opens or the item changes.
   useEffect(() => {
     if (!open) return;
     setStars(null);
-    setPercent(showPercent ? 80 : 0);
+    setPercent(
+      showPercent
+        ? (isRevision ? (item.revision_data?.ai_score ?? 80) : 80)
+        : 0,
+    );
     setNotes('');
     setSaving(false);
     setError(null);
-  }, [open, showPercent]);
+    setAwardResult(null);
+  }, [open, showPercent, isRevision, item.revision_data?.ai_score]);
+
+  // Whether the current rating would qualify for points + how many.
+  // Only meaningful for revision items where points haven't been awarded.
+  const wouldQualify = useMemo(() => {
+    if (!isRevision || alreadyAwarded || !showPercent) return false;
+    return percent >= revisionSettings.qualifying_score;
+  }, [isRevision, alreadyAwarded, showPercent, percent, revisionSettings.qualifying_score]);
+
+  const wouldBonus = useMemo(() =>
+    wouldQualify && percent >= revisionSettings.bonus_threshold,
+    [wouldQualify, percent, revisionSettings.bonus_threshold],
+  );
+
+  const pendingPoints = wouldQualify
+    ? (wouldBonus ? revisionSettings.bonus_points : revisionSettings.base_points)
+    : 0;
 
   const canSave =
     !saving
@@ -105,12 +153,68 @@ export default function RatingSheet({
         },
         parentUid,
       );
+
+      // Revision-only follow-up: if the parent's percent qualifies +
+      // points haven't been awarded yet, give the kid points + flip
+      // the points_awarded gate on the item. The award fires under
+      // the parent's auth (RatingSheet is parent-only), so it goes
+      // through the standard awards rule. Failures degrade gracefully —
+      // the rating still saved; the parent can re-try with a higher %.
+      if (wouldQualify && !alreadyAwarded) {
+        try {
+          const reason = wouldBonus
+            ? `Bonus revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%`
+            : `Revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%`;
+          const kind: AwardKind = 'regular';
+          await giveAward(familyId, {
+            childId: item.kid_id,
+            kind,
+            points: pendingPoints,
+            reason,
+            category: 'sparks-revision',
+            awardedBy: parentUid,
+            // Parent name unknown in this context — the awards UI shows
+            // 'awardedByName' fallback "Parent" when missing. Future:
+            // pass parentName as a prop from RevisionsPage.
+            awardedByName: 'Parent',
+            senderRole: 'parent',
+          });
+          await updateSparksItem(familyId, item.id, {
+            revision_data: {
+              ...(item.revision_data ?? {}),
+              points_awarded: true,
+            },
+          });
+          setAwardResult({ points: pendingPoints, bonus: wouldBonus });
+        } catch (awardErr) {
+          // Don't fail the whole save — the rating landed. Surface a
+          // soft error so the parent knows the award didn't fire.
+          setError(
+            awardErr instanceof Error
+              ? `Rating saved · award failed: ${awardErr.message}`
+              : 'Rating saved · award failed. Try the Kaya awards screen.',
+          );
+          setSaving(false);
+          return;
+        }
+      }
+
       onSaved?.();
-      onClose();
+      // On qualifying-revision save, keep the sheet open with the
+      // success state so the parent sees the award confirmation. The
+      // user closes manually via the "Done" button. Otherwise (regular
+      // rating, or revision that didn't qualify) close immediately.
+      if (wouldQualify && !alreadyAwarded) {
+        // Sheet stays open — success render below reads `awardResult`.
+        setSaving(false);
+      } else {
+        onClose();
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save the rating. Try again?');
     } finally {
-      setSaving(false);
+      // Guard against double-set when we kept the sheet open above.
+      setSaving((cur) => (cur ? false : cur));
     }
   };
 
@@ -264,6 +368,56 @@ export default function RatingSheet({
             />
           </div>
 
+          {/* Revision points-award hint — shown when the parent is
+              reviewing a revision and the current % would qualify.
+              Lets them know save will fire the award. */}
+          {isRevision && !alreadyAwarded && !awardResult && wouldQualify && (
+            <div
+              className="rounded-xl px-3.5 py-2.5 text-[12.5px] border"
+              style={{
+                background: wouldBonus ? '#FFF1C9' : '#E5D6FF',
+                borderColor: wouldBonus ? '#D4A847' : '#5A3CB8',
+                color: '#0F1F44',
+              }}
+            >
+              <strong>🎯 Save will also award +{pendingPoints} Kaya Points</strong>
+              {wouldBonus && <span className="text-[#8A6800] font-bold"> · bonus tier ({revisionSettings.bonus_threshold}%+)</span>}
+              <span className="block text-[11px] text-[#5A6488] mt-0.5">
+                Awards once · re-saving won&apos;t double-award.
+              </span>
+            </div>
+          )}
+
+          {/* Already awarded — show a static badge so the parent knows
+              points landed earlier (or via auto-award on submit). */}
+          {isRevision && alreadyAwarded && !awardResult && (
+            <div className="rounded-xl px-3.5 py-2.5 text-[12.5px] bg-[#DDF5DF] border border-[#2E7D34]/30 text-[#2E7D34] font-bold">
+              ✓ Kaya Points already awarded for this revision
+            </div>
+          )}
+
+          {/* Success state — sheet stays open after a qualifying save
+              so the parent sees the award confirmation before closing. */}
+          {awardResult && (
+            <div
+              className="rounded-xl px-4 py-4 text-center"
+              style={{ background: 'linear-gradient(135deg, #FFF4D6, #FFE8E5)' }}
+            >
+              <div className="text-3xl mb-1" aria-hidden>🎉</div>
+              <div className="font-display font-extrabold text-[16px] text-[#0F1F44]">
+                +{awardResult.points} Kaya Points awarded
+              </div>
+              {awardResult.bonus && (
+                <div className="text-[12px] font-bold text-[#5A3CB8] mt-1">
+                  Bonus tier · {revisionSettings.bonus_threshold}%+ revision ⭐
+                </div>
+              )}
+              <div className="text-[11.5px] text-[#5A6488] mt-1.5">
+                The kid&apos;s running total updated. House standings follow next sync.
+              </div>
+            </div>
+          )}
+
           {error && (
             <div className="bg-[#FFE7E0] border border-[#E85C5C]/40 text-[#A33A2A] rounded-xl px-3.5 py-2.5 text-[12.5px]">
               {error}
@@ -271,22 +425,39 @@ export default function RatingSheet({
           )}
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-[13px] font-bold text-[#5A6488] hover:bg-[#FBF7EE]"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={!canSave}
-              className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold disabled:opacity-40"
-              style={{ background: '#D4A847', color: '#0F1F44' }}
-            >
-              {saving ? 'Saving…' : 'Save rating'}
-            </button>
+            {!awardResult && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-[13px] font-bold text-[#5A6488] hover:bg-[#FBF7EE]"
+              >
+                Cancel
+              </button>
+            )}
+            {awardResult ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold"
+                style={{ background: '#D4A847', color: '#0F1F44' }}
+              >
+                Done
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSave}
+                disabled={!canSave}
+                className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold disabled:opacity-40"
+                style={{ background: '#D4A847', color: '#0F1F44' }}
+              >
+                {saving
+                  ? 'Saving…'
+                  : isRevision && wouldQualify && !alreadyAwarded
+                  ? `Save · +${pendingPoints} pts`
+                  : 'Save rating'}
+              </button>
+            )}
           </div>
         </div>
       </div>
