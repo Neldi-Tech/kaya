@@ -26,6 +26,7 @@ import {
 } from '@/lib/sparks/firestore';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 import { scoreRevision } from '@/lib/sparks/ai';
+import { clearDraft, draftKey, loadDraft, saveDraft } from '@/lib/sparks/draftStore';
 import { type SparksItem, type SparksThreadMessage } from '@/lib/sparks/schema';
 import PhotoLightbox from './PhotoLightbox';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
@@ -91,15 +92,34 @@ export default function ThreadSheet({
     if (el) el.scrollTop = el.scrollHeight;
   }, [open, messages.length]);
 
+  // Persisted-draft key for this kid's thread, scoped to the author.
+  // Drafts survive accidental closes; cleared only after a successful
+  // post / redo.
+  const dKey = useMemo(
+    () => draftKey('thread', { familyId, itemId: item.id, userId: authorUid }),
+    [familyId, item.id, authorUid],
+  );
+
+  // On open: reset transient state, restore any unsent draft text from
+  // localStorage. Photos can't be persisted (File objects aren't
+  // serialisable), so the staged-photos pane starts empty each open.
   useEffect(() => {
     if (!open) return;
-    setText('');
     setPhotos([]);
     setError(null);
     setPosting(false);
     setRedoing(false);
     setCameraMode(null);
-  }, [open]);
+    setText(loadDraft(dKey) ?? '');
+  }, [open, dKey]);
+
+  // Persist every keystroke to localStorage. saveDraft removes the
+  // entry when text is empty, so a successful send (which calls
+  // setText('')) drops the draft automatically.
+  useEffect(() => {
+    if (!open) return;
+    saveDraft(dKey, text);
+  }, [open, dKey, text]);
 
   const previewUrls = useMemo(() => photos.map((f) => URL.createObjectURL(f)), [photos]);
   useEffect(() => () => previewUrls.forEach((u) => URL.revokeObjectURL(u)), [previewUrls]);
@@ -141,6 +161,7 @@ export default function ThreadSheet({
       });
       setText('');
       setPhotos([]);
+      clearDraft(dKey);
       void reservedRef;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post. Try again?');
@@ -196,6 +217,7 @@ export default function ThreadSheet({
 
       setText('');
       setPhotos([]);
+      clearDraft(dKey);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Re-do failed. Try again?');
     } finally {

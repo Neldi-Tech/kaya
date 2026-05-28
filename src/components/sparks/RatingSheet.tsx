@@ -26,6 +26,7 @@ import {
 } from '@/lib/sparks/schema';
 import { giveAward, type AwardKind } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
+import { clearDraft, draftKey, loadDraft, saveDraft } from '@/lib/sparks/draftStore';
 import PhotoLightbox from './PhotoLightbox';
 
 interface Props {
@@ -116,7 +117,13 @@ export default function RatingSheet({
   // Seed the percent slider with the AI score on revision items so the
   // parent's starting point is the AI's read — they nudge from there.
   // Default 80 for non-revision items (the existing UX). Re-seed when
-  // the sheet opens or the item changes.
+  // the sheet opens or the item changes. Notes restore from a saved
+  // draft so feedback the parent typed but didn't save survives an
+  // accidental close.
+  const notesDraftKey = useMemo(
+    () => draftKey('rating-notes', { familyId, itemId: item.id, userId: parentUid }),
+    [familyId, item.id, parentUid],
+  );
   useEffect(() => {
     if (!open) return;
     setStars(null);
@@ -125,13 +132,20 @@ export default function RatingSheet({
         ? (isRevision ? (item.revision_data?.ai_score ?? 80) : 80)
         : 0,
     );
-    setNotes('');
+    setNotes(loadDraft(notesDraftKey) ?? '');
     setSaving(false);
     setError(null);
     setAwardResult(null);
     setAwardPoints(false);
     setPointsDraft('');
-  }, [open, showPercent, isRevision, item.revision_data?.ai_score]);
+  }, [open, showPercent, isRevision, item.revision_data?.ai_score, notesDraftKey]);
+
+  // Persist notes draft on every keystroke. Cleared by clearDraft on
+  // successful save (or naturally when notes becomes empty).
+  useEffect(() => {
+    if (!open) return;
+    saveDraft(notesDraftKey, notes);
+  }, [open, notesDraftKey, notes]);
 
   // Whether the current rating would qualify for points + how many.
   // Only meaningful for revision items where points haven't been awarded.
@@ -244,6 +258,10 @@ export default function RatingSheet({
         }
       }
 
+      // Rating landed — drop the notes draft so it doesn't repopulate
+      // on the next open. We do this before the close branches so it
+      // runs in either case (sheet stays open OR closes).
+      clearDraft(notesDraftKey);
       onSaved?.();
       // When the parent actually awarded points (toggle ON + qualifying
       // + not already awarded), keep the sheet open with the success
