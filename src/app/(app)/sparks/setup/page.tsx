@@ -461,16 +461,36 @@ function NumberKnob({
   onChange: (v: number) => void;
   disabled?: boolean;
 }) {
+  // Local draft string so the field can be cleared (empty) while editing —
+  // we only clamp + propagate up on blur/Enter, not on every keystroke.
+  // Without this, typing backspace over "12" snaps to min the moment the
+  // value becomes empty, leaving a stuck "1".
+  const [draft, setDraft] = useState<string>(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+
+  const commit = () => {
+    if (draft.trim() === '') { setDraft(String(value)); return; }
+    const n = Number(draft);
+    if (!Number.isFinite(n)) { setDraft(String(value)); return; }
+    const clamped = Math.max(min, Math.min(max, n));
+    setDraft(String(clamped));
+    if (clamped !== value) onChange(clamped);
+  };
+
   return (
     <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
       <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">{label}</div>
       <input
         type="number"
         min={min} max={max} step={step}
-        value={value}
-        onChange={(e) => {
-          const n = Math.max(min, Math.min(max, Number(e.target.value) || min));
-          onChange(n);
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            (e.currentTarget as HTMLInputElement).blur();
+          }
         }}
         disabled={disabled}
         className="w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[14px] font-extrabold text-[#0F1F44] mt-1 disabled:opacity-60"
