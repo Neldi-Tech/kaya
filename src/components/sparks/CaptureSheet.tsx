@@ -5,21 +5,20 @@
 // achievements · sports subscriptions). Academic records have their own
 // surface (per-term grades), so they don't route through here.
 //
-// UX (Slice 2):
-//   • Photo picker — MULTIPLE photos per item, picker reopens after a
-//     selection so the kid can add another batch. Each photo previews
-//     as a small thumb with its own remove button.
-//   • Title (required)
-//   • Description (optional textarea) + "✨ Help me describe" button
-//     that drafts a starter description from area + title + subject +
-//     date. Slice 4 swaps the template seed for real AI generation
-//     read off the uploaded photos.
-//   • Date (defaults to today)
-//   • Subject dropdown (only for school_project; sourced from
-//     sparks_profiles.subjects via prop)
-//   • "✨ Clean up scans" pill — visible Slice 4 seam. Today it's a
-//     hint pill; Slice 4 wires Vertex AI / Claude vision to deskew +
-//     crop + colour-fix uploaded scans before the save.
+// UX (refreshed 2026-05-28 — Scan + auto-describe):
+//   • Three input tiles — 📄 Scan · 📷 Photo · 📁 Upload. Scan + Photo
+//     open the in-app CameraCaptureSheet (auto-enhance + multi-page
+//     for scan, single shot for photo). Upload opens the gallery.
+//   • Scan auto-fires AI extract on the first page and seeds:
+//       - title       (only when empty — never overwrites kid input)
+//       - description (only when empty)
+//       - subject     (school_project only, when it matches a profile subject)
+//       - date        (achievement only, when a date is read off the certificate)
+//     Auto-filled fields get a "✨ AI" badge. If the kid edits the
+//     value, a "Restore AI suggestion" link appears so they can flip
+//     back. Edits always win — Save uses whatever's in the field.
+//   • Manual "✨ Help me describe" still available for Photo / Upload
+//     flows, and a manual Scan-this-cert button stays on achievement.
 //   • Save → reserve a sparks_items docId, upload all photos in
 //     parallel, write doc with the array of feedUrls.
 
@@ -37,6 +36,7 @@ import {
 } from '@/lib/sparks/schema';
 import { describeItem, extractFromImage } from '@/lib/sparks/ai';
 import { toDisplayDate } from '@/lib/dates';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 
 interface Props {
   open: boolean;
@@ -115,6 +115,16 @@ export default function CaptureSheet({
   const [describing, setDescribing] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [aiNote, setAiNote] = useState<string | null>(null); // small "AI is off" / "from template" hint
+  // Active in-app camera mode — null means closed.
+  const [cameraMode, setCameraMode] = useState<'scan' | 'photo' | null>(null);
+  // Most recent AI suggestion per field. Drives the "✨ AI" badge (when
+  // the field still equals the suggestion) and the "Restore" link (when
+  // the kid has edited away from it).
+  const [aiSuggested, setAiSuggested] = useState<{
+    title?: string;
+    description?: string;
+    subject?: string;
+  }>({});
 
   // Reset on open/close so a previous draft doesn't leak into the next session.
   useEffect(() => {
@@ -130,6 +140,8 @@ export default function CaptureSheet({
     setDescribing(false);
     setScanning(false);
     setAiNote(null);
+    setCameraMode(null);
+    setAiSuggested({});
   }, [open]);
 
   // Object-URL lifecycle for the photo previews. Re-create on photos[]
@@ -194,37 +206,140 @@ export default function CaptureSheet({
     }
   };
 
-  /** Achievement-only: tap to extract issuer + award name + date from
-   *  the FIRST uploaded photo. Pre-fills title + date on the form. */
-  const scanCertificate = async () => {
-    if (photos.length === 0 || scanning) return;
+  /** Generic AI auto-fill from a single photo. Used:
+   *   • on Scan-tile confirm (first scanned page only)
+   *   • on the manual "Scan certificate" button for Achievements
+   *  NEVER overwrites a value the kid already typed. Tracks the AI
+   *  suggestion so we can render the badge + Restore link. */
+  const autoExtractFromScan = async (file: File) => {
+    if (scanning) return;
     setScanning(true);
     setAiNote(null);
     try {
-      const out = await extractFromImage(photos[0], 'achievement');
-      if ('skipped' in out && out.skipped) {
-        setAiNote('AI is off in this preview — fill in title + date yourself.');
-        return;
+      if (area === 'achievement') {
+        const out = await extractFromImage(file, 'achievement');
+        if ('skipped' in out && out.skipped) {
+          setAiNote('AI is off in this preview — fill in title + date yourself.');
+          return;
+        }
+        if (!out.ok) {
+          setAiNote(out.error || 'Scan failed — fill in title + date yourself.');
+          return;
+        }
+        const { awardName, issuer, date: extractedDate } = out.data;
+        const newDesc = issuer
+          ? `From ${issuer}${extractedDate ? ` · ${toDisplayDate(extractedDate)}` : ''}.`
+          : '';
+        const next: typeof aiSuggested = {};
+        if (awardName && !title.trim()) {
+          setTitle(awardName);
+          next.title = awardName;
+        }
+        if (extractedDate) setDate(extractedDate);
+        if (newDesc && !description.trim()) {
+          setDescription(newDesc);
+          setDescTouched(true);
+          next.description = newDesc;
+        }
+        setAiSuggested((prev) => ({ ...prev, ...next }));
+        if (next.title || next.description) {
+          setAiNote('✨ Scanned · review + edit before saving.');
+        } else {
+          setAiNote('Couldn\'t read much from that scan — fill it in yourself.');
+        }
+      } else if (area === 'school_project') {
+        const out = await extractFromImage(file, 'school_project');
+        if ('skipped' in out && out.skipped) {
+          setAiNote('AI is off in this preview — fill in title + details yourself.');
+          return;
+        }
+        if (!out.ok) {
+          setAiNote(out.error || 'Scan failed — fill in title + details yourself.');
+          return;
+        }
+        const { title: t, description: d, subject: s } = out.data;
+        const next: typeof aiSuggested = {};
+        if (t && !title.trim()) {
+          setTitle(t);
+          next.title = t;
+        }
+        if (d && !description.trim()) {
+          setDescription(d);
+          setDescTouched(true);
+          next.description = d;
+        }
+        if (s && !subject && showSubject) {
+          // Match case-insensitive against the kid's profile subjects.
+          const matched = (profile?.subjects ?? []).find(
+            (x) => x.name.toLowerCase() === s.toLowerCase(),
+          );
+          if (matched) {
+            setSubject(matched.name);
+            next.subject = matched.name;
+          }
+        }
+        setAiSuggested((prev) => ({ ...prev, ...next }));
+        if (next.title || next.description || next.subject) {
+          setAiNote('✨ Scanned · review + edit before saving.');
+        } else {
+          setAiNote('Couldn\'t read much from that scan — fill it in yourself.');
+        }
+      } else if (area === 'home_project' || area === 'sports_subscription') {
+        const out = await extractFromImage(file, area);
+        if ('skipped' in out && out.skipped) {
+          setAiNote('AI is off in this preview — fill in title + details yourself.');
+          return;
+        }
+        if (!out.ok) {
+          setAiNote(out.error || 'Scan failed — fill in title + details yourself.');
+          return;
+        }
+        const { title: t, description: d } = out.data;
+        const next: typeof aiSuggested = {};
+        if (t && !title.trim()) {
+          setTitle(t);
+          next.title = t;
+        }
+        if (d && !description.trim()) {
+          setDescription(d);
+          setDescTouched(true);
+          next.description = d;
+        }
+        setAiSuggested((prev) => ({ ...prev, ...next }));
+        if (next.title || next.description) {
+          setAiNote('✨ Scanned · review + edit before saving.');
+        } else {
+          setAiNote('Couldn\'t read much from that scan — fill it in yourself.');
+        }
       }
-      if (!out.ok) {
-        setAiNote(out.error || 'Scan failed — fill in title + date yourself.');
-        return;
-      }
-      const { awardName, issuer, date: extractedDate } = out.data;
-      // Don't clobber what the parent already typed.
-      if (awardName && !title.trim()) setTitle(awardName);
-      if (extractedDate) setDate(extractedDate);
-      if (issuer) {
-        setDescription((prev) =>
-          prev.trim()
-            ? prev
-            : `From ${issuer}${extractedDate ? ` · ${toDisplayDate(extractedDate)}` : ''}.`,
-        );
-        setDescTouched(true);
-      }
-      setAiNote('✨ Scanned · review + edit before saving.');
     } finally {
       setScanning(false);
+    }
+  };
+
+  /** Achievement-only manual trigger: re-scan the first uploaded photo
+   *  (e.g. when the kid uploaded via Photo / Upload tile instead of
+   *  Scan, and now wants the AI fill anyway). */
+  const scanCertificate = async () => {
+    if (photos.length === 0 || scanning) return;
+    await autoExtractFromScan(photos[0]);
+  };
+
+  /** CameraCaptureSheet confirm handler. Adds the captured files to
+   *  the photos array. If the kid was in SCAN mode, kick off the AI
+   *  auto-extract against the FIRST page. */
+  const onCameraConfirm = async (files: File[]) => {
+    if (files.length === 0) return;
+    const wasScan = cameraMode === 'scan';
+    setPhotos((prev) => [...prev, ...files]);
+    setCameraMode(null);
+    if (wasScan) {
+      // Only auto-extract when this scan is the first photo on the
+      // form — otherwise the kid is just adding more pages.
+      const isFirstPhoto = photos.length === 0;
+      if (isFirstPhoto) {
+        await autoExtractFromScan(files[0]);
+      }
     }
   };
 
@@ -332,25 +447,50 @@ export default function CaptureSheet({
                   onClick={scanCertificate}
                   disabled={scanning}
                   className="text-[10px] font-extrabold uppercase tracking-wider bg-[#E5D6FF] hover:bg-[#D4BEFF] text-[#5A3CB8] rounded-full px-2.5 py-1 transition-colors disabled:opacity-60"
-                  title="Read issuer, award name, date from the first photo and fill the form."
+                  title="Re-read issuer, award name, and date from the first photo."
                 >
                   {scanning ? '✨ Scanning…' : '✨ Scan certificate'}
                 </button>
               )}
             </div>
 
-            {photos.length === 0 ? (
+            {/* 3-tile input row — Scan (AI auto-fill) · Photo · Upload */}
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setCameraMode('scan')}
+                className="rounded-2xl border-2 border-dashed border-[#E5D6FF] bg-[#F6EFFF] hover:border-[#5A3CB8] hover:bg-[#EFE3FF] transition-colors py-4 px-2 text-center"
+                title="Scan a page — AI fills in the title + details for you."
+              >
+                <div className="text-2xl mb-0.5" aria-hidden>📄</div>
+                <div className="text-[12px] font-extrabold text-[#5A3CB8]">Scan</div>
+                <div className="text-[10px] text-[#5A6488] mt-0.5">AI fills it in</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCameraMode('photo')}
+                className="rounded-2xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors py-4 px-2 text-center"
+                title="Take a fresh photo — auto-brightened + sharpened."
+              >
+                <div className="text-2xl mb-0.5" aria-hidden>📷</div>
+                <div className="text-[12px] font-extrabold text-[#0F1F44]">Photo</div>
+                <div className="text-[10px] text-[#5A6488] mt-0.5">Camera + clean</div>
+              </button>
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="w-full border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] rounded-2xl py-8 text-center hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors"
+                className="rounded-2xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors py-4 px-2 text-center"
+                title="Pick photos from the gallery."
               >
-                <div className="text-3xl mb-1" aria-hidden>📷</div>
-                <div className="text-[13px] font-bold text-[#0F1F44]">Tap to add photos</div>
-                <div className="text-[11px] text-[#5A6488] mt-0.5">JPG / PNG · up to 25 MB each · resized automatically · multi-select</div>
+                <div className="text-2xl mb-0.5" aria-hidden>📁</div>
+                <div className="text-[12px] font-extrabold text-[#0F1F44]">Upload</div>
+                <div className="text-[10px] text-[#5A6488] mt-0.5">From gallery</div>
               </button>
-            ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+            </div>
+
+            {/* Thumbnails — shown once at least one photo is attached. */}
+            {photos.length > 0 && (
+              <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {previewUrls.map((url, idx) => (
                   <div
                     key={url}
@@ -368,25 +508,21 @@ export default function CaptureSheet({
                     </button>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className="aspect-square rounded-xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors grid place-items-center text-[#5A6488]"
-                  aria-label="Add more photos"
-                >
-                  <div className="text-center">
-                    <div className="text-xl" aria-hidden>＋</div>
-                    <div className="text-[10px] font-bold">More</div>
-                  </div>
-                </button>
               </div>
             )}
+
+            {scanning && (
+              <div className="mt-2 flex items-center gap-2 text-[11px] font-bold text-[#5A3CB8]">
+                <span className="inline-block w-3 h-3 rounded-full border-2 border-[#5A3CB8] border-t-transparent animate-spin" aria-hidden />
+                Reading your scan…
+              </div>
+            )}
+
             <input
               ref={fileRef}
               type="file"
               accept="image/*"
               multiple
-              capture="environment"
               onChange={onPickPhotos}
               className="hidden"
             />
@@ -394,9 +530,26 @@ export default function CaptureSheet({
 
           {/* Title */}
           <div>
-            <label htmlFor={`${formId}-title-input`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
-              Title <span className="text-[#E85C5C]">·</span> required
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor={`${formId}-title-input`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
+                Title <span className="text-[#E85C5C]">·</span> required
+              </label>
+              {aiSuggested.title && title === aiSuggested.title && (
+                <span className="text-[9px] font-extrabold uppercase tracking-wider bg-[#E5D6FF] text-[#5A3CB8] rounded-full px-2 py-0.5">
+                  ✨ AI
+                </span>
+              )}
+              {aiSuggested.title && title !== aiSuggested.title && (
+                <button
+                  type="button"
+                  onClick={() => setTitle(aiSuggested.title!)}
+                  className="text-[10px] font-extrabold text-[#5A3CB8] hover:underline"
+                  title="Restore the AI suggestion"
+                >
+                  ↩︎ Restore AI
+                </button>
+              )}
+            </div>
             <input
               id={`${formId}-title-input`}
               type="text"
@@ -416,9 +569,26 @@ export default function CaptureSheet({
           {/* Subject (school_project only, when subjects exist) */}
           {showSubject && (
             <div>
-              <label htmlFor={`${formId}-subject`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
-                Subject
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor={`${formId}-subject`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
+                  Subject
+                </label>
+                {aiSuggested.subject && subject === aiSuggested.subject && (
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider bg-[#E5D6FF] text-[#5A3CB8] rounded-full px-2 py-0.5">
+                    ✨ AI
+                  </span>
+                )}
+                {aiSuggested.subject && subject !== aiSuggested.subject && (
+                  <button
+                    type="button"
+                    onClick={() => setSubject(aiSuggested.subject!)}
+                    className="text-[10px] font-extrabold text-[#5A3CB8] hover:underline"
+                    title="Restore the AI suggestion"
+                  >
+                    ↩︎ Restore AI
+                  </button>
+                )}
+              </div>
               <select
                 id={`${formId}-subject`}
                 value={subject}
@@ -450,20 +620,37 @@ export default function CaptureSheet({
 
           {/* Description with AI draft helper */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
               <label htmlFor={`${formId}-desc`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
                 Description
               </label>
-              <button
-                type="button"
-                onClick={fillDescription}
-                disabled={!title.trim() || describing}
-                className="text-[10.5px] font-extrabold tracking-wide rounded-full px-2.5 py-1 disabled:opacity-40"
-                style={{ background: '#E5D6FF', color: '#5A3CB8' }}
-                title="Claude reads your photos + title and drafts a description for you to edit."
-              >
-                {describing ? '✨ Drafting…' : '✨ Help me describe'}
-              </button>
+              <div className="flex items-center gap-2">
+                {aiSuggested.description && description === aiSuggested.description && (
+                  <span className="text-[9px] font-extrabold uppercase tracking-wider bg-[#E5D6FF] text-[#5A3CB8] rounded-full px-2 py-0.5">
+                    ✨ AI
+                  </span>
+                )}
+                {aiSuggested.description && description !== aiSuggested.description && (
+                  <button
+                    type="button"
+                    onClick={() => { setDescription(aiSuggested.description!); setDescTouched(true); }}
+                    className="text-[10px] font-extrabold text-[#5A3CB8] hover:underline"
+                    title="Restore the AI suggestion"
+                  >
+                    ↩︎ Restore AI
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={fillDescription}
+                  disabled={!title.trim() || describing}
+                  className="text-[10.5px] font-extrabold tracking-wide rounded-full px-2.5 py-1 disabled:opacity-40"
+                  style={{ background: '#E5D6FF', color: '#5A3CB8' }}
+                  title="Claude reads your photos + title and drafts a description for you to edit."
+                >
+                  {describing ? '✨ Drafting…' : '✨ Help me describe'}
+                </button>
+              </div>
             </div>
             <textarea
               id={`${formId}-desc`}
@@ -507,6 +694,14 @@ export default function CaptureSheet({
           </div>
         </div>
       </div>
+
+      {/* In-app camera (Scan / Photo). Renders above this sheet. */}
+      <CameraCaptureSheet
+        open={cameraMode !== null}
+        mode={cameraMode ?? 'photo'}
+        onClose={() => setCameraMode(null)}
+        onConfirm={onCameraConfirm}
+      />
     </div>
   );
 }
