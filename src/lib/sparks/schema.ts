@@ -176,12 +176,26 @@ export interface SparksItem {
    *  in the list view. Parent approval / points award flow gates on
    *  this payload + the family's RevisionSettings. */
   revision_data?: {
-    subject?: string;           // 'Math', 'English', 'Kiswahili', …
+    /** What the kid uploaded (Slice 7c · 2026-05-28).
+     *    'answers'   → completed work; AI scores it.
+     *    'questions' → the worksheet page; AI lists the questions
+     *                  it could read + generates 3 practice ones.
+     *  Absent on legacy rows = treat as 'answers'. */
+    upload_mode?: 'answers' | 'questions';
+    /** AI's first guess at the subject before the kid confirmed. */
+    ai_subject?: string;
+    /** Final subject — what the kid confirmed (or corrected). */
+    subject?: string;
     grade_level?: string;       // 'Grade 4', etc.
-    ai_score?: number;          // 0-100 overall %
+    /** True when the kid explicitly accepted or edited ai_subject. */
+    subject_confirmed?: boolean;
+    ai_score?: number;          // 0-100 overall % (answers mode only)
     ai_breakdown?: { correct: number; partial: number; wrong: number };
     ai_notes?: string;          // short "why" explanation for the kid
-    next_questions?: string[];  // 3 follow-ups Claude generated
+    /** Questions Claude PARSED from the uploaded worksheet page
+     *  (questions mode only). */
+    parsed_questions?: string[];
+    next_questions?: string[];  // 3 practice follow-ups (both modes)
     round?: number;             // round counter for this kid + subject
     /** When parent reviews + approves a qualifying revision, this flips
      *  true so we don't double-award points on re-rate. Server-side

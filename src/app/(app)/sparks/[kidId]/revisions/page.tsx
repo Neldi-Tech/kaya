@@ -116,7 +116,8 @@ export default function RevisionsPage() {
             {items.map((it) => {
               const d = it.revision_data;
               const photo = it.photo_urls?.[0];
-              const score = d?.ai_score ?? null;
+              const isQuestionsMode = d?.upload_mode === 'questions';
+              const score = isQuestionsMode ? null : (d?.ai_score ?? null);
               const subject = d?.subject || it.subject || 'Revision';
               const latestRating = ratingsMap.get(it.id)?.[0] ?? null;
               const pillBg = score === null ? '#FBF7EE' : score >= 90 ? '#DDF5DF' : score >= 60 ? '#FFF1C9' : '#FFE7E0';
@@ -140,7 +141,9 @@ export default function RevisionsPage() {
                         <img src={photo} alt={subject} className="w-full h-full object-cover" />
                       </button>
                     ) : (
-                      <div className="w-14 h-14 rounded-xl bg-[#E0D7FF] grid place-items-center text-2xl shrink-0" aria-hidden>🎯</div>
+                      <div className="w-14 h-14 rounded-xl bg-[#E0D7FF] grid place-items-center text-2xl shrink-0" aria-hidden>
+                        {isQuestionsMode ? '📚' : '🎯'}
+                      </div>
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -148,6 +151,11 @@ export default function RevisionsPage() {
                           {subject}
                           {d?.grade_level && <span className="text-[10px] font-bold text-[#5A6488] ml-1.5">· {d.grade_level}</span>}
                         </div>
+                        {isQuestionsMode && (
+                          <span className="text-[10.5px] font-extrabold rounded-full px-2 py-0.5 bg-[#E5D6FF] text-[#5A3CB8]">
+                            📚 Questions
+                          </span>
+                        )}
                         {score !== null && (
                           <span
                             className="text-[10.5px] font-extrabold rounded-full px-2 py-0.5"
@@ -199,7 +207,21 @@ export default function RevisionsPage() {
                       {d.ai_notes}
                     </div>
                   )}
-                  {d?.next_questions && d.next_questions.length > 0 && (
+                  {/* Question-mode rows show the parsed questions; answers-mode
+                      rows show the next 3 follow-ups Claude generated. */}
+                  {isQuestionsMode && d?.parsed_questions && d.parsed_questions.length > 0 && (
+                    <details className="mt-2 group">
+                      <summary className="text-[11px] font-extrabold text-[#5A3CB8] cursor-pointer hover:underline">
+                        📚 {d.parsed_questions.length} questions on this page
+                      </summary>
+                      <ol className="m-0 mt-2 pl-5 text-[12px] text-[#0F1F44] leading-relaxed">
+                        {d.parsed_questions.map((q, idx) => (
+                          <li key={idx} className="py-0.5">{q}</li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
+                  {!isQuestionsMode && d?.next_questions && d.next_questions.length > 0 && (
                     <details className="mt-2 group">
                       <summary className="text-[11px] font-extrabold text-[#5A3CB8] cursor-pointer hover:underline">
                         🎯 Next 3 questions

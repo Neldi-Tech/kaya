@@ -215,17 +215,25 @@ export async function extractFromImage<K extends ExtractKind>(
 
 // ── Home Revisions (Slice 7) ─────────────────────────────────────────
 
+export type RevisionMode = 'answers' | 'questions';
+
 export interface RevisionScore {
+  mode: RevisionMode;
   subject: string;
   gradeLevel: string;
+  /** 0-100 in answers mode; 0 in questions mode. */
   score: number;
   breakdown: { correct: number; partial: number; wrong: number };
   notes: string;
+  /** Populated in questions mode — verbatim questions Claude read off the page. */
+  parsedQuestions: string[];
 }
 
 export interface ScoreRevisionArgs {
   files: File[];
   kidName: string;
+  /** 'answers' (default) = score the work · 'questions' = parse the page. */
+  mode?: RevisionMode;
   focusSubjects?: string[];
 }
 
@@ -250,13 +258,28 @@ export async function scoreRevision(
         imageBase64s,
         mediaType,
         kidName: args.kidName,
+        mode: args.mode ?? 'answers',
         focusSubjects: args.focusSubjects,
       }),
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json();
     if (data?.skipped) return { ok: false, skipped: true };
-    return { ok: true, data: data as RevisionScore };
+    // Belt + braces — older responses might miss the parsedQuestions field.
+    const safe: RevisionScore = {
+      mode: (data?.mode === 'questions' ? 'questions' : 'answers') as RevisionMode,
+      subject: String(data?.subject ?? 'Other'),
+      gradeLevel: String(data?.gradeLevel ?? ''),
+      score: Number(data?.score ?? 0),
+      breakdown: {
+        correct: Number(data?.breakdown?.correct ?? 0),
+        partial: Number(data?.breakdown?.partial ?? 0),
+        wrong:   Number(data?.breakdown?.wrong   ?? 0),
+      },
+      notes: String(data?.notes ?? ''),
+      parsedQuestions: Array.isArray(data?.parsedQuestions) ? data.parsedQuestions : [],
+    };
+    return { ok: true, data: safe };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Revision score failed' };
   }
