@@ -106,7 +106,7 @@ export async function describeItem(args: DescribeArgs): Promise<DescribeResult> 
   }
 }
 
-// ── Extract (achievement OCR · academic report card OCR) ─────────────
+// ── Extract (per-area OCR · achievement · academic · home/school/sports) ─
 
 export interface AchievementExtract {
   awardName: string;
@@ -120,9 +120,29 @@ export interface AcademicExtract {
   subjects: Array<{ name: string; grade: string; percent: number | null }>;
   teacherNotes: string;
 }
-export type ExtractKind = 'achievement' | 'academic';
+/** School-project scan returns title + description + (optional) subject hint. */
+export interface SchoolProjectExtract {
+  title: string;
+  description: string;
+  subject: string;
+}
+/** Home-project + sports-subscription scans return title + description. */
+export interface GenericCaptureExtract {
+  title: string;
+  description: string;
+}
+export type ExtractKind =
+  | 'achievement'
+  | 'academic'
+  | 'school_project'
+  | 'home_project'
+  | 'sports_subscription';
 export type ExtractResult<K extends ExtractKind> =
-  | { ok: true;  data: K extends 'achievement' ? AchievementExtract : AcademicExtract }
+  | { ok: true;  data:
+        K extends 'achievement'      ? AchievementExtract :
+        K extends 'academic'         ? AcademicExtract :
+        K extends 'school_project'   ? SchoolProjectExtract :
+        GenericCaptureExtract }
   | { ok: false; skipped?: boolean; error?: string };
 
 // ── Insights (dashboard) ─────────────────────────────────────────────
