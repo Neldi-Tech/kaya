@@ -29,6 +29,7 @@ import {
 } from '@/lib/sparks/schema';
 import { giveAward, type AwardKind } from '@/lib/firestore';
 import CelebrationBurst from './CelebrationBurst';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 
 interface Props {
   open: boolean;
@@ -71,6 +72,9 @@ export default function RevisionFlow({
   const [error, setError] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState(false);
   const [pointsAwarded, setPointsAwarded] = useState<{ points: number; bonus: boolean } | null>(null);
+  // In-app camera mode for the capture phase — Scan (multi-page +
+  // auto-clean for text) or Photo (single-shot auto-enhance). Null = closed.
+  const [cameraMode, setCameraMode] = useState<'scan' | 'photo' | null>(null);
 
   // Reset on open/close so a previous run doesn't leak in.
   useEffect(() => {
@@ -83,7 +87,15 @@ export default function RevisionFlow({
     setError(null);
     setCelebrate(false);
     setPointsAwarded(null);
+    setCameraMode(null);
   }, [open]);
+
+  /** Camera confirm handler — append cleaned files to the photos array. */
+  const onCameraConfirm = (files: File[]) => {
+    if (files.length === 0) return;
+    setPhotos((prev) => [...prev, ...files]);
+    setCameraMode(null);
+  };
 
   const previewUrls = useMemo(() => photos.map((f) => URL.createObjectURL(f)), [photos]);
   useEffect(() => () => previewUrls.forEach((u) => URL.revokeObjectURL(u)), [previewUrls]);
@@ -257,18 +269,44 @@ export default function RevisionFlow({
                       Photos of your revision {photos.length > 0 && <span className="text-[#0F1F44]">· {photos.length}</span>}
                     </label>
                   </div>
-                  {photos.length === 0 ? (
+                  {/* 3-tile input row — Scan (multi-page, AI-cleaned) ·
+                      Photo (one-shot, AI-enhanced) · Upload (gallery). */}
+                  <div className="grid grid-cols-3 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCameraMode('scan')}
+                      className="rounded-2xl border-2 border-dashed border-[#E5D6FF] bg-[#F6EFFF] hover:border-[#5A3CB8] hover:bg-[#EFE3FF] transition-colors py-4 px-2 text-center"
+                      title="Scan each page — auto-cleaned + sharpened for AI to read clearly."
+                    >
+                      <div className="text-2xl mb-0.5" aria-hidden>📄</div>
+                      <div className="text-[12px] font-extrabold text-[#5A3CB8]">Scan</div>
+                      <div className="text-[10px] text-[#5A6488] mt-0.5">Multi-page + clean</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCameraMode('photo')}
+                      className="rounded-2xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors py-4 px-2 text-center"
+                      title="Snap a fresh photo — auto-brightened + sharpened."
+                    >
+                      <div className="text-2xl mb-0.5" aria-hidden>📷</div>
+                      <div className="text-[12px] font-extrabold text-[#0F1F44]">Photo</div>
+                      <div className="text-[10px] text-[#5A6488] mt-0.5">Camera + clean</div>
+                    </button>
                     <button
                       type="button"
                       onClick={() => fileRef.current?.click()}
-                      className="w-full border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] rounded-2xl py-8 text-center hover:border-[#5A3CB8] transition-colors"
+                      className="rounded-2xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#D4A847] hover:bg-[#FFFBF5] transition-colors py-4 px-2 text-center"
+                      title="Pick photos from the gallery."
                     >
-                      <div className="text-3xl mb-1" aria-hidden>📸</div>
-                      <div className="text-[13px] font-bold text-[#0F1F44]">Snap your worksheet</div>
-                      <div className="text-[11px] text-[#5A6488] mt-0.5">JPG / PNG · up to 25 MB each · multi-select for 2-3 page revisions</div>
+                      <div className="text-2xl mb-0.5" aria-hidden>📁</div>
+                      <div className="text-[12px] font-extrabold text-[#0F1F44]">Upload</div>
+                      <div className="text-[10px] text-[#5A6488] mt-0.5">From gallery</div>
                     </button>
-                  ) : (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  </div>
+
+                  {/* Thumbnails grid — shown once at least one photo is attached */}
+                  {photos.length > 0 && (
+                    <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-4 gap-2">
                       {previewUrls.map((url, idx) => (
                         <div key={url} className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -283,29 +321,21 @@ export default function RevisionFlow({
                           </button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        onClick={() => fileRef.current?.click()}
-                        className="aspect-square rounded-xl border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] hover:border-[#5A3CB8] grid place-items-center text-[#5A6488]"
-                        aria-label="Add more photos"
-                      >
-                        <div className="text-center"><div className="text-xl" aria-hidden>＋</div><div className="text-[10px] font-bold">More</div></div>
-                      </button>
                     </div>
                   )}
+
                   <input
                     ref={fileRef}
                     type="file"
                     accept="image/*"
                     multiple
-                    capture="environment"
                     onChange={addPhotos}
                     className="hidden"
                   />
                 </div>
 
                 <div className="bg-[#E5D6FF] border-l-2 border-[#5A3CB8] rounded-[10px] px-3 py-2 text-[11.5px] text-[#1B1547]">
-                  <strong>How this works:</strong> Snap the page → Claude reads it + scores it + suggests 3 next questions → submit → earn Kaya Points when you qualify ({settings.qualifying_score}%).
+                  <strong>How this works:</strong> Scan the page (auto-cleaned for sharp text) → Claude reads it + scores it + suggests 3 next questions → submit → earn Kaya Points when you qualify ({settings.qualifying_score}%).
                 </div>
               </>
             )}
@@ -472,6 +502,15 @@ export default function RevisionFlow({
           </div>
         </div>
       </div>
+
+      {/* In-app camera — Scan (multi-page + auto-clean) or Photo (single
+          shot + AI enhance). Renders above the RevisionFlow sheet. */}
+      <CameraCaptureSheet
+        open={cameraMode !== null}
+        mode={cameraMode ?? 'photo'}
+        onClose={() => setCameraMode(null)}
+        onConfirm={onCameraConfirm}
+      />
 
       {celebrate && <CelebrationBurst onDone={() => setCelebrate(false)} />}
     </>
