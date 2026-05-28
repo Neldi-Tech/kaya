@@ -77,6 +77,10 @@ export default function RatingSheet({
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [profile, setProfile] = useState<SparksProfile | null>(null);
   const [awardResult, setAwardResult] = useState<{ points: number; bonus: boolean } | null>(null);
+  /** Slice 7e · explicit parent decision on whether to award points.
+   *  Default OFF — parents must actively check the box to award even
+   *  when the AI score qualifies. Holds the points by default. */
+  const [awardPoints, setAwardPoints] = useState(false);
 
   const photos = item.photo_urls ?? [];
   const isRevision = item.area === 'revision' && !!item.revision_data;
@@ -111,6 +115,7 @@ export default function RatingSheet({
     setSaving(false);
     setError(null);
     setAwardResult(null);
+    setAwardPoints(false);
   }, [open, showPercent, isRevision, item.revision_data?.ai_score]);
 
   // Whether the current rating would qualify for points + how many.
@@ -160,7 +165,7 @@ export default function RatingSheet({
       // the parent's auth (RatingSheet is parent-only), so it goes
       // through the standard awards rule. Failures degrade gracefully —
       // the rating still saved; the parent can re-try with a higher %.
-      if (wouldQualify && !alreadyAwarded) {
+      if (awardPoints && wouldQualify && !alreadyAwarded) {
         try {
           const reason = wouldBonus
             ? `Bonus revision — ${item.revision_data?.subject ?? 'subject'} · ${percent}%`
@@ -200,12 +205,10 @@ export default function RatingSheet({
       }
 
       onSaved?.();
-      // On qualifying-revision save, keep the sheet open with the
-      // success state so the parent sees the award confirmation. The
-      // user closes manually via the "Done" button. Otherwise (regular
-      // rating, or revision that didn't qualify) close immediately.
-      if (wouldQualify && !alreadyAwarded) {
-        // Sheet stays open — success render below reads `awardResult`.
+      // When the parent actually awarded points (toggle ON + qualifying
+      // + not already awarded), keep the sheet open with the success
+      // state so they see the award confirmation. Otherwise close.
+      if (awardPoints && wouldQualify && !alreadyAwarded) {
         setSaving(false);
       } else {
         onClose();
@@ -368,24 +371,42 @@ export default function RatingSheet({
             />
           </div>
 
-          {/* Revision points-award hint — shown when the parent is
-              reviewing a revision and the current % would qualify.
-              Lets them know save will fire the award. */}
-          {isRevision && !alreadyAwarded && !awardResult && wouldQualify && (
-            <div
-              className="rounded-xl px-3.5 py-2.5 text-[12.5px] border"
-              style={{
-                background: wouldBonus ? '#FFF1C9' : '#E5D6FF',
-                borderColor: wouldBonus ? '#D4A847' : '#5A3CB8',
-                color: '#0F1F44',
-              }}
+          {/* Revision points-award control (Slice 7e). The parent's
+              call — defaults to OFF so qualifying revisions DO NOT
+              auto-award. Parents can hold points indefinitely; tick
+              when ready. */}
+          {isRevision && !alreadyAwarded && !awardResult && (
+            <label
+              className={`flex items-start gap-3 rounded-xl px-3.5 py-3 text-[12.5px] cursor-pointer border-2 transition-colors ${
+                awardPoints
+                  ? wouldBonus
+                    ? 'bg-[#FFF1C9] border-[#D4A847]'
+                    : 'bg-[#E5D6FF] border-[#5A3CB8]'
+                  : 'bg-[#FBF7EE] border-[#ECE4D3] hover:border-[#5A3CB8]/40'
+              }`}
             >
-              <strong>🎯 Save will also award +{pendingPoints} Kaya Points</strong>
-              {wouldBonus && <span className="text-[#8A6800] font-bold"> · bonus tier ({revisionSettings.bonus_threshold}%+)</span>}
-              <span className="block text-[11px] text-[#5A6488] mt-0.5">
-                Awards once · re-saving won&apos;t double-award.
-              </span>
-            </div>
+              <input
+                type="checkbox"
+                checked={awardPoints}
+                onChange={(e) => setAwardPoints(e.target.checked)}
+                disabled={!wouldQualify}
+                className="w-5 h-5 mt-0.5 shrink-0 disabled:opacity-40"
+              />
+              <div className="flex-1">
+                <div className="font-extrabold text-[#0F1F44]">
+                  {wouldQualify
+                    ? <>🎯 Award <span style={{ color: wouldBonus ? '#8A6800' : '#5A3CB8' }}>+{pendingPoints}</span> Kaya Points{wouldBonus ? ' · bonus tier' : ''}</>
+                    : `🎯 Award Kaya Points (needs ≥ ${revisionSettings.qualifying_score}%)`}
+                </div>
+                <div className="text-[11px] text-[#5A6488] mt-0.5 leading-snug">
+                  {awardPoints
+                    ? 'Award fires on save · once per revision.'
+                    : wouldQualify
+                      ? 'Off by default — tick to release the award now. Leave unticked to hold and decide later.'
+                      : `Bump the score above ${revisionSettings.qualifying_score}% to enable.`}
+                </div>
+              </div>
+            </label>
           )}
 
           {/* Already awarded — show a static badge so the parent knows
@@ -453,7 +474,7 @@ export default function RatingSheet({
               >
                 {saving
                   ? 'Saving…'
-                  : isRevision && wouldQualify && !alreadyAwarded
+                  : isRevision && awardPoints && wouldQualify && !alreadyAwarded
                   ? `Save · +${pendingPoints} pts`
                   : 'Save rating'}
               </button>
