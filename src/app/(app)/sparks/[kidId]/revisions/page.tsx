@@ -18,8 +18,9 @@ import {
   ratingsByItemId, subscribeToAreaItems, subscribeToKidRatings,
   subscribeToSparksProfile,
 } from '@/lib/sparks/firestore';
-import type {
-  SparksItem, SparksProfile, SparksRating,
+import {
+  DEFAULT_REVISION_SETTINGS,
+  type SparksItem, type SparksProfile, type SparksRating,
 } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/AreaScreen';
@@ -160,6 +161,19 @@ export default function RevisionsPage() {
                             🎉 +pts
                           </span>
                         )}
+                        {(() => {
+                          const settings = { ...DEFAULT_REVISION_SETTINGS, ...(profile?.revision_settings ?? {}) };
+                          const pending = !d?.points_awarded
+                            && score !== null
+                            && score >= settings.qualifying_score
+                            && settings.parent_approval_required;
+                          if (!pending) return null;
+                          return (
+                            <span className="text-[10.5px] font-extrabold rounded-full px-2 py-0.5 bg-[#E5D6FF] text-[#5A3CB8]">
+                              {isParent ? '🟡 Awaiting your review' : '🟡 Pending review'}
+                            </span>
+                          );
+                        })()}
                       </div>
                       <div className="text-[11px] text-[#5A6488] mt-0.5">
                         {toDisplayDate(it.date)}
