@@ -41,7 +41,7 @@ const SYSTEM_ANSWERS = `You are the in-app AI tutor for Kaya Sparks Home Revisio
 
 Return JSON: {
   "mode":        "answers",
-  "subject":     short subject name (e.g. "Math", "English", "Kiswahili", "Science", "Social Studies", "Other"),
+  "subject":     short subject name (e.g. "Math", "English", "Kiswahili", "Science", "Social Studies", "General Knowledge", "Other") — "General Knowledge" covers civics, current affairs, world facts, geography quizzes, and mixed-topic Q&A worksheets,
   "gradeLevel":  best-guess grade + level (e.g. "Grade 4", "Year 3", "Primary 5") — empty string if unreadable,
   "score":       0-100 overall percentage (round to int),
   "breakdown":   { "correct": int, "partial": int, "wrong": int }  — counts of distinct questions/items,
@@ -60,7 +60,7 @@ const SYSTEM_QUESTIONS = `You are the in-app AI tutor for Kaya Sparks Home Revis
 
 Return JSON: {
   "mode":        "questions",
-  "subject":     short subject name (e.g. "Math", "English", "Kiswahili", "Science", "Social Studies", "Other"),
+  "subject":     short subject name (e.g. "Math", "English", "Kiswahili", "Science", "Social Studies", "General Knowledge", "Other") — "General Knowledge" covers civics, current affairs, world facts, geography quizzes, and mixed-topic Q&A worksheets,
   "gradeLevel":  best-guess grade + level (e.g. "Grade 4") — empty string if unreadable,
   "score":       0,                              // no score in questions mode
   "breakdown":   { "correct": 0, "partial": 0, "wrong": 0 },

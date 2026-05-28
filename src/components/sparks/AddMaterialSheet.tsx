@@ -16,6 +16,7 @@ import {
 import {
   createMaterial, newMaterialId, updateMaterial, uploadMaterialFile,
 } from '@/lib/sparks/materialsFirestore';
+import { describeMaterial } from '@/lib/sparks/ai';
 
 interface KidOption { id: string; name: string }
 
@@ -56,6 +57,8 @@ export default function AddMaterialSheet({
   const [cameraMode, setCameraMode] = useState<'scan' | 'photo' | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [describing, setDescribing] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
 
   // Reset on open. In edit mode, hydrate from `existing`.
   useEffect(() => {
@@ -63,6 +66,8 @@ export default function AddMaterialSheet({
     setError(null);
     setSaving(false);
     setCameraMode(null);
+    setDescribing(false);
+    setAiNote(null);
     if (existing) {
       setTitle(existing.title);
       setSubject(existing.subject);
@@ -130,6 +135,44 @@ export default function AddMaterialSheet({
       setKind('file');
     }
     if (fileRef.current) fileRef.current.value = '';
+  };
+
+  /** Slice 7d · AI describe button. Reads the uploaded IMAGE material
+   *  and drafts a parent-friendly description that gets dropped into
+   *  the textarea below. Image-only — PDFs fall through to a friendly
+   *  inline hint. */
+  const onSuggestDescription = async () => {
+    if (describing) return;
+    if (!file || !file.type.startsWith('image/')) {
+      setAiNote("AI describe works on photo / scan materials. Type your own for PDF / link uploads.");
+      return;
+    }
+    setDescribing(true);
+    setAiNote(null);
+    try {
+      const kidNames = shareAll
+        ? kids.map((k) => k.name)
+        : kids.filter((k) => pickedKidIds.includes(k.id)).map((k) => k.name);
+      const finalSubject = (showCustom ? customSubject : subject).trim();
+      const out = await describeMaterial({
+        files: [file],
+        title: title.trim() || undefined,
+        subject: finalSubject || undefined,
+        kidNames,
+      });
+      if (out.skipped) {
+        setAiNote('AI is off in this preview — type a short description.');
+        return;
+      }
+      if (out.error || !out.description) {
+        setAiNote(out.error || "Couldn't read the material — try a clearer photo, or type your own.");
+        return;
+      }
+      setDescription(out.description);
+      setAiNote('✨ Drafted by Claude · edit anything you like.');
+    } finally {
+      setDescribing(false);
+    }
   };
 
   const onSave = async () => {
@@ -343,11 +386,23 @@ export default function AddMaterialSheet({
             </div>
           )}
 
-          {/* Description (optional) */}
+          {/* Description (optional) — AI describe button (Slice 7d) */}
           <div>
-            <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
-              Description (optional)
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
+                Description (optional)
+              </label>
+              <button
+                type="button"
+                onClick={onSuggestDescription}
+                disabled={describing || !file}
+                className="text-[10.5px] font-extrabold tracking-wide rounded-full px-2.5 py-1 disabled:opacity-40"
+                style={{ background: '#E5D6FF', color: '#5A3CB8' }}
+                title={!file ? 'Add a material first' : 'Claude reads the photo + drafts a description for you to edit.'}
+              >
+                {describing ? '✨ Drafting…' : '✨ Help me describe'}
+              </button>
+            </div>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -356,6 +411,9 @@ export default function AddMaterialSheet({
               maxLength={400}
               className="w-full bg-white border border-[#ECE4D3] rounded-xl px-3.5 py-2 text-[13.5px] text-[#0F1F44] focus:outline-none focus:border-[#5A3CB8] resize-none"
             />
+            {aiNote && (
+              <div className="text-[10.5px] text-[#5A3CB8] font-bold mt-1">{aiNote}</div>
+            )}
           </div>
 
           {/* Share with */}
