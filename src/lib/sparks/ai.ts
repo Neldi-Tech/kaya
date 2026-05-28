@@ -213,6 +213,63 @@ export async function extractFromImage<K extends ExtractKind>(
   }
 }
 
+// ── Home Practice · Materials describe (Slice 7d) ───────────────────
+
+export interface DescribeMaterialArgs {
+  files: File[];          // 1-4 image files (PDFs can't be sent to Claude vision via this route)
+  title?: string;
+  subject?: string;
+  kidNames?: string[];
+}
+
+export interface DescribeMaterialResult {
+  description: string;
+  skipped: boolean;
+  error?: string;
+}
+
+/** Generate a parent-friendly description for a study material upload.
+ *  Returns `skipped: true` when the AI key is absent on this preview;
+ *  caller should let the parent fall back to typing the description. */
+export async function describeMaterial(args: DescribeMaterialArgs): Promise<DescribeMaterialResult> {
+  try {
+    if (args.files.length === 0) {
+      return { description: '', skipped: false, error: 'Add an image-mode material first.' };
+    }
+    const imageBase64s: string[] = [];
+    let mediaType = 'image/jpeg';
+    for (const f of args.files.slice(0, 4)) {
+      // Skip non-image files (PDFs etc.) — the route only accepts images.
+      if (!f.type.startsWith('image/')) continue;
+      const { base64, mediaType: mt } = await fileToAiBase64(f);
+      imageBase64s.push(base64);
+      mediaType = mt;
+    }
+    if (imageBase64s.length === 0) {
+      return { description: '', skipped: false, error: 'AI describe currently supports image materials only — type a quick description below.' };
+    }
+    const res = await fetch('/api/sparks/ai/describe-material', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64s,
+        mediaType,
+        title: args.title,
+        subject: args.subject,
+        kidNames: args.kidNames,
+      }),
+    });
+    if (!res.ok) {
+      return { description: '', skipped: false, error: `HTTP ${res.status}` };
+    }
+    const data = await res.json();
+    if (data?.skipped) return { description: '', skipped: true };
+    return { description: String(data?.description || '').trim(), skipped: false };
+  } catch (e) {
+    return { description: '', skipped: false, error: e instanceof Error ? e.message : 'Material describe failed' };
+  }
+}
+
 // ── Home Revisions (Slice 7) ─────────────────────────────────────────
 
 export type RevisionMode = 'answers' | 'questions';

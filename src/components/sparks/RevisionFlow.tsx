@@ -575,6 +575,45 @@ export default function RevisionFlow({
                   </div>
                 )}
 
+                {/* Scan quality badge (Slice 7d). When Claude couldn't
+                    parse the page — subject="Other" with no countable
+                    work and no parsed questions — surface a clear "try
+                    again" affordance instead of silently scoring zero.
+                    For clear scans, show a quiet confidence chip. */}
+                {(() => {
+                  const looksUnreadable =
+                    score.subject === 'Other'
+                    && (mode === 'answers'
+                          ? (score.breakdown.correct + score.breakdown.partial + score.breakdown.wrong === 0)
+                          : score.parsedQuestions.length === 0);
+                  if (looksUnreadable) {
+                    return (
+                      <div className="bg-[#FFE7E0] border border-[#E85C5C]/40 rounded-xl px-3.5 py-3 text-[12.5px] text-[#A33A2A] flex items-center gap-3">
+                        <span className="text-2xl shrink-0" aria-hidden>🔍</span>
+                        <div className="flex-1">
+                          <div className="font-bold mb-0.5">Couldn&apos;t read this page clearly</div>
+                          <div className="text-[11.5px] opacity-90">Try a brighter spot, hold the camera steady + flat above the page. The Scan tile auto-cleans the image for AI.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setPhase('capture')}
+                          className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold bg-white text-[#A33A2A] border border-[#E85C5C]/40 whitespace-nowrap"
+                        >
+                          Re-scan
+                        </button>
+                      </div>
+                    );
+                  }
+                  if (!aiSkipped) {
+                    return (
+                      <div className="inline-flex items-center gap-1.5 bg-[#DDF5DF] text-[#2E7D34] rounded-full px-2.5 py-1 text-[10.5px] font-extrabold">
+                        ✓ Clear scan · Claude could read it
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {/* AI notes */}
                 {score.notes && (
                   <div className="bg-white border border-[#ECE4D3] rounded-xl p-3.5">
