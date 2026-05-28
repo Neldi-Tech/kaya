@@ -1,5 +1,353 @@
-import { AdminStub } from '@/components/admin/AdminStub';
+'use client';
+
+// /admin/families — operator-only family-admin console.
+//
+// Lists every family with their current plan, addons, founding-family
+// flag, and member breakdown. Click "Edit plan" to change tier, toggle
+// addons, or flip the founding flag — writes via /api/admin/families/[id].
+
+import { useEffect, useMemo, useState } from 'react';
+import { auth } from '@/lib/firebase';
+import { DEFAULT_ADDONS, DEFAULT_TIERS, type SubscriptionTierId } from '@/lib/tiers';
+import type { AdminFamilyRow } from '@/app/api/admin/families/route';
 
 export default function AdminFamiliesPage() {
-  return <AdminStub title="Families" emoji="🏠" summary="Per-family tier overrides + roll-up reports. Pairs with /admin/tiers." />;
+  const [families, setFamilies] = useState<AdminFamilyRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const reload = async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/admin/families', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`load-failed-${res.status}`);
+      const { families: rows } = (await res.json()) as { families: AdminFamilyRow[] };
+      setFamilies(rows);
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { reload(); }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return families;
+    return families.filter((f) =>
+      f.name.toLowerCase().includes(q) ||
+      (f.handle ?? '').toLowerCase().includes(q) ||
+      f.id.toLowerCase().includes(q),
+    );
+  }, [families, query]);
+
+  const editing = editingId ? families.find((f) => f.id === editingId) ?? null : null;
+
+  const saveFamily = async (id: string, patch: { tierId?: SubscriptionTierId; addons?: string[]; isFoundingFamily?: boolean }) => {
+    setSavingId(id);
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch(`/api/admin/families/${id}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(error || 'save-failed');
+      }
+      await reload();
+      setEditingId(null);
+    } catch (e) {
+      alert(`Save failed: ${String(e instanceof Error ? e.message : e)}`);
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  return (
+    <div className="min-h-screen" style={{ background: 'linear-gradient(160deg,#0F1F44 0%,#162954 100%)' }}>
+      <div className="max-w-[1100px] mx-auto px-5 py-10">
+        <header className="mb-6">
+          <div className="flex items-center gap-3 mb-1">
+            <div
+              className="w-9 h-9 rounded-xl grid place-items-center"
+              style={{ background: 'rgba(212,168,71,0.18)', border: '1px solid rgba(212,168,71,0.3)' }}
+            >
+              <span className="text-base">🏠</span>
+            </div>
+            <h1 className="font-display font-black text-2xl text-white tracking-tight m-0">Families</h1>
+          </div>
+          <p className="text-white/55 text-[13px] font-semibold ml-12">
+            Every family in the project · tap a row to change plan, toggle add-ons, or mark a founding family.
+          </p>
+        </header>
+
+        {/* Search bar */}
+        <div
+          className="rounded-2xl p-3 mb-4"
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(8px)' }}
+        >
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by family name, handle, or ID…"
+            className="w-full bg-transparent text-white text-[14px] font-semibold placeholder-white/40 outline-none px-2"
+          />
+        </div>
+
+        {loading && (
+          <div className="text-white/55 text-sm py-12 text-center">Loading families…</div>
+        )}
+        {err && (
+          <div className="text-[#FF7676] text-sm py-12 text-center bg-white/5 rounded-2xl">
+            Couldn&apos;t load: <code>{err}</code>
+          </div>
+        )}
+
+        {!loading && !err && (
+          <div className="flex flex-col gap-2">
+            <div className="text-[11px] text-white/45 font-bold uppercase tracking-wider px-3 mb-1">
+              {filtered.length} {filtered.length === 1 ? 'family' : 'families'}
+            </div>
+            {filtered.map((f) => (
+              <FamilyRow key={f.id} family={f} onEdit={() => setEditingId(f.id)} />
+            ))}
+            {filtered.length === 0 && (
+              <div className="text-white/45 text-sm py-12 text-center">No families match that search.</div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Edit drawer */}
+      {editing && (
+        <EditDrawer
+          family={editing}
+          saving={savingId === editing.id}
+          onCancel={() => setEditingId(null)}
+          onSave={(patch) => saveFamily(editing.id, patch)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────
+
+function FamilyRow({ family, onEdit }: { family: AdminFamilyRow; onEdit: () => void }) {
+  const tier = DEFAULT_TIERS[family.tierId];
+  const m = family.members;
+  return (
+    <div
+      className="rounded-2xl px-4 py-3 flex items-center gap-4 transition-colors hover:bg-white/8"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+    >
+      <div className="text-2xl flex-shrink-0">{tier.emoji}</div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="text-white font-black text-[14px] truncate">{family.name}</div>
+          {family.handle && (
+            <span className="text-[#D4A847] text-[12px] font-bold">@{family.handle}</span>
+          )}
+          {family.isFoundingFamily && (
+            <span
+              className="rounded-full text-[10px] font-black px-2 py-0.5"
+              style={{ background: 'rgba(212,168,71,0.18)', color: '#D4A847' }}
+            >
+              🌟 Founding
+            </span>
+          )}
+        </div>
+        <div className="text-white/55 text-[12px] font-semibold mt-0.5 flex items-center gap-3 flex-wrap">
+          <span>{tier.name}</span>
+          <span>·</span>
+          <span>{m.parents}P · {m.helpers}H · {m.kids}K{m.guests > 0 ? ` · ${m.guests}G` : ''}</span>
+          {family.addons.length > 0 && (
+            <>
+              <span>·</span>
+              <span className="text-[#D4A847]">+{family.addons.length} add-on{family.addons.length === 1 ? '' : 's'}</span>
+            </>
+          )}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="text-[12px] font-bold px-3 py-1.5 rounded-lg flex-shrink-0"
+        style={{ background: '#D4A847', color: '#0F1F44' }}
+      >
+        Edit plan
+      </button>
+    </div>
+  );
+}
+
+function EditDrawer({
+  family,
+  saving,
+  onCancel,
+  onSave,
+}: {
+  family: AdminFamilyRow;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: (patch: { tierId?: SubscriptionTierId; addons?: string[]; isFoundingFamily?: boolean }) => void;
+}) {
+  const [tierId, setTierId] = useState<SubscriptionTierId>(family.tierId);
+  const [addons, setAddons] = useState<Set<string>>(new Set(family.addons));
+  const [founding, setFounding] = useState(family.isFoundingFamily);
+
+  const dirty =
+    tierId !== family.tierId ||
+    founding !== family.isFoundingFamily ||
+    [...addons].sort().join(',') !== [...family.addons].sort().join(',');
+
+  // Castle includes every addon implicitly — surface that as a note.
+  const isCastle = tierId === 'castle';
+
+  return (
+    <div
+      className="fixed inset-0 flex items-end sm:items-center justify-center z-50 px-4 py-6"
+      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-[480px] rounded-3xl p-6 max-h-[85vh] overflow-y-auto"
+        style={{ background: '#162954', border: '1px solid rgba(255,255,255,0.1)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <div className="text-white font-black text-lg">{family.name}</div>
+            {family.handle && <div className="text-[#D4A847] text-[12px] font-bold">@{family.handle}</div>}
+          </div>
+          <button onClick={onCancel} className="text-white/55 text-xl leading-none" aria-label="Close">×</button>
+        </div>
+
+        {/* Tier picker */}
+        <section className="mb-5">
+          <div className="text-[11px] font-black text-white/55 uppercase tracking-wider mb-2">Plan</div>
+          <div className="flex flex-col gap-2">
+            {(['nest', 'home', 'castle'] as SubscriptionTierId[]).map((id) => {
+              const t = DEFAULT_TIERS[id];
+              const selected = tierId === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setTierId(id)}
+                  className="text-left rounded-xl px-3 py-2.5 flex items-center gap-3 transition-colors"
+                  style={{
+                    background: selected ? 'rgba(212,168,71,0.18)' : 'rgba(255,255,255,0.04)',
+                    border: selected ? '1px solid rgba(212,168,71,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <span className="text-xl">{t.emoji}</span>
+                  <span className="flex-1">
+                    <span className="block text-white font-bold text-[13px]">{t.name}</span>
+                    <span className="block text-white/55 text-[11px] font-semibold">{t.tagline}</span>
+                  </span>
+                  {selected && <span className="text-[#D4A847] text-sm">✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Add-ons */}
+        <section className="mb-5">
+          <div className="text-[11px] font-black text-white/55 uppercase tracking-wider mb-2">
+            Add-ons {isCastle && <span className="text-[#D4A847] normal-case ml-1 font-bold">— Castle includes everything</span>}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {DEFAULT_ADDONS.map((a) => {
+              const on = addons.has(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => {
+                    const next = new Set(addons);
+                    if (on) next.delete(a.id); else next.add(a.id);
+                    setAddons(next);
+                  }}
+                  disabled={isCastle}
+                  className="text-left rounded-xl px-3 py-2 flex items-center gap-2 transition-colors disabled:opacity-50"
+                  style={{
+                    background: on ? 'rgba(212,168,71,0.18)' : 'rgba(255,255,255,0.04)',
+                    border: on ? '1px solid rgba(212,168,71,0.4)' : '1px solid rgba(255,255,255,0.08)',
+                  }}
+                >
+                  <span className="text-base">{a.emoji}</span>
+                  <span className="text-white font-bold text-[12px] truncate">{a.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Founding family */}
+        <section className="mb-5">
+          <button
+            onClick={() => setFounding((v) => !v)}
+            className="w-full text-left rounded-xl px-3 py-3 flex items-center gap-3"
+            style={{
+              background: founding ? 'rgba(212,168,71,0.18)' : 'rgba(255,255,255,0.04)',
+              border: founding ? '1px solid rgba(212,168,71,0.4)' : '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            <span className="text-xl">🌟</span>
+            <span className="flex-1">
+              <span className="block text-white font-bold text-[13px]">Founding family</span>
+              <span className="block text-white/55 text-[11px] font-semibold">Permanently bypass every tier gate (closed-beta grandfather).</span>
+            </span>
+            <span
+              className="w-9 h-5 rounded-full relative flex-shrink-0"
+              style={{ background: founding ? '#D4A847' : 'rgba(255,255,255,0.15)' }}
+            >
+              <span
+                className="absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all"
+                style={{ left: founding ? '18px' : '2px' }}
+              />
+            </span>
+          </button>
+        </section>
+
+        {/* Actions */}
+        <div className="flex items-center gap-2 pt-2 border-t border-white/10">
+          <button
+            onClick={onCancel}
+            disabled={saving}
+            className="flex-1 text-[13px] font-bold py-2.5 rounded-xl"
+            style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)' }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave({
+              tierId,
+              addons: isCastle ? [] : [...addons],
+              isFoundingFamily: founding,
+            })}
+            disabled={!dirty || saving}
+            className="flex-1 text-[13px] font-black py-2.5 rounded-xl disabled:opacity-50"
+            style={{ background: '#D4A847', color: '#0F1F44' }}
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
