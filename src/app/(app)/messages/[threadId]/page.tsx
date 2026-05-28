@@ -16,7 +16,6 @@ import {
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
-import { downloadImage } from '@/lib/downloadImage';
 import type { Timestamp } from 'firebase/firestore';
 
 // Curated, kid-friendly emoji set — no heavy picker dependency.
@@ -315,17 +314,24 @@ export default function MessageThreadPage() {
         {a.durationSec ? <span className={`text-[10.5px] shrink-0 ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{mmss(a.durationSec)}</span> : null}
       </div>
     );
+    // Tap a doc → open it in a new tab. The browser handles inline
+    // viewing (PDF) or download (docx/xlsx/etc.) based on MIME type.
+    // Force-fetching a blob and triggering `<a download>` (the previous
+    // path) silently fails on iOS Safari / PWA contexts, which is why
+    // taps appeared to do nothing.
     return (
-      <button
-        type="button"
-        onClick={() => downloadImage(a.url, a.name || 'document').catch((err) => console.error('Document download failed', err))}
+      <a
+        href={a.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        download={a.name || undefined}
         className={`flex items-center gap-2.5 rounded-[12px] p-2.5 max-w-[240px] text-left ${mine ? 'bg-white/15' : 'bg-kaya-warm'}`}>
         <span className="w-9 h-10 rounded-[6px] bg-white border border-kaya-warm-dark/40 flex items-center justify-center text-base shrink-0">📄</span>
         <span className="min-w-0">
           <span className="block text-[12.5px] font-bold truncate">{a.name || 'Document'}</span>
           <span className={`block text-[10.5px] ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{prettyBytes(a.sizeBytes)}</span>
         </span>
-      </button>
+      </a>
     );
   };
 
