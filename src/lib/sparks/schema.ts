@@ -178,9 +178,10 @@ export interface SparksItem {
    *  external. Shown as a chip on the card so a parent can scan the
    *  feed at a glance. */
   source?: 'school' | 'outside';
-  /** ✨ All-time highlight — parents tap ☆ on any row to pin up to
-   *  5 per area per kid. Highlighted items render with a gold border
-   *  in a horizontal rail above the month-grouped gallery. */
+  /** @deprecated 2026-05-28 — manual highlight pinning was replaced
+   *  by deterministic daily-random picks (`pickDailyHighlights`). The
+   *  field stays on the type so existing legacy rows still validate;
+   *  no new code reads or writes it. */
   is_highlight?: boolean;
   /** Revision-specific — only set when `area === 'revision'`. Carries
    *  the AI score snapshot + the next-question suggestions Claude

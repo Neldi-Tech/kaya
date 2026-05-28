@@ -256,21 +256,6 @@ export async function updateSparksItem(
   await updateDoc(itemRef(familyId, itemId), { ...patch, updated_at: serverTimestamp() });
 }
 
-/** Toggle the ✨ all-time-highlight flag on a single item. The client
- *  guards a 5-per-area cap; this helper does the simple flip and the
- *  cap check sits in the UI layer so the kid sees a friendly swap-out
- *  prompt instead of a silent rule rejection. */
-export async function setItemHighlight(
-  familyId: string,
-  itemId: string,
-  on: boolean,
-): Promise<void> {
-  await updateDoc(itemRef(familyId, itemId), {
-    is_highlight: on,
-    updated_at: serverTimestamp(),
-  });
-}
-
 /** Bump a sports subscription's session counter by `by` (default +1).
  *  Reads → mutates → writes; not transactional, but sessions are
  *  user-driven (one click) and contention is effectively zero. */

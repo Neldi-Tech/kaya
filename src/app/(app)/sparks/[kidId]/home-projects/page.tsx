@@ -26,8 +26,7 @@ import RatingDisplay from '@/components/sparks/RatingDisplay';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 import MonthGroup from '@/components/sparks/MonthGroup';
 import HighlightsRail from '@/components/sparks/HighlightsRail';
-import HighlightStar from '@/components/sparks/HighlightStar';
-import { defaultOpenMonths, groupByMonth } from '@/lib/sparks/grouping';
+import { defaultOpenMonths, groupByMonth, pickDailyHighlights } from '@/lib/sparks/grouping';
 
 const TILE_GRADIENTS = [
   'linear-gradient(135deg,#FFE7E0,#FFD93D)',
@@ -73,7 +72,10 @@ export default function HomeProjectsPage() {
 
   const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
   const groups = useMemo(() => groupByMonth(items), [items]);
-  const highlights = useMemo(() => items.filter((it) => it.is_highlight), [items]);
+  const highlights = useMemo(
+    () => pickDailyHighlights(items, { kidId, area: 'home_project' }),
+    [items, kidId],
+  );
   // Track which month buckets are open. Re-derive defaults when the
   // bucket set changes (e.g. a new month gets its first capture).
   const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set());
@@ -194,16 +196,10 @@ export default function HomeProjectsPage() {
                             </span>
                           </div>
                         )}
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           <div className="text-[12px] font-extrabold text-[#0F1F44] truncate flex-1" title={it.title}>
                             {it.title}
                           </div>
-                          <HighlightStar
-                            item={it}
-                            familyId={familyId}
-                            areaItems={items}
-                            canEdit={canEdit}
-                          />
                           {canEdit && (
                             <button
                               type="button"
