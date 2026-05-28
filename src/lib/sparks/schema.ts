@@ -360,6 +360,26 @@ export interface SparksRating {
  *  the chosen mode (e.g. `stars` mode → only `stars` is set). */
 export type SparksRatingMode = 'stars' | 'percent' | 'both' | 'custom';
 
+// ── Revision thread (Slice 7e · 2026-05-28) ──────────────────────────
+//
+// Back-and-forth on a sparks_item (primarily revisions today, but the
+// model is area-agnostic). Persisted at
+// /families/{f}/sparks_items/{itemId}/thread/{messageId}.
+// Reads + writes ride the rule block in firestore.rules · `thread/`.
+
+export interface SparksThreadMessage {
+  id: string;
+  authorUid: string;
+  authorName: string;
+  authorRole: 'parent' | 'helper' | 'kid';
+  text?: string;
+  /** Storage download URLs (feed-size variants). Empty / undefined =
+   *  text-only post. Photos ride the existing sparks photo storage
+   *  path so no storage.rules change is needed. */
+  photo_urls?: string[];
+  createdAt: Timestamp;
+}
+
 // ── Companion ──────────────────────────────────────────────────────────
 //
 // Per-kid AI companion state at /sparks_companion_state/{kidId}.

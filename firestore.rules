@@ -1083,6 +1083,30 @@ service cloud.firestore {
         // Helpers can't edit after upload — avoids rating tampering.
         allow update, delete: if isParentInFamily(familyId)
           || isThisKid(familyId, resource.data.kid_id);
+
+        // ── Revision thread (Slice 7e · 2026-05-28) ──────────────
+        // Back-and-forth between parent + kid on a revision (or any
+        // sparks_item, but the UI surfaces it on revisions today).
+        // Anyone in the family can read; parents + the owning kid
+        // can post; helpers post when they hold the 'sparks' grant.
+        // Authors can edit/delete their OWN messages within the
+        // window; parents can delete any message in their family.
+        match /thread/{messageId} {
+          function _itemKidId() {
+            return get(/databases/$(database)/documents/families/$(familyId)/sparks_items/$(itemId)).data.kid_id;
+          }
+          allow read: if belongsToFamily(familyId);
+          allow create: if (
+            isParentInFamily(familyId)
+            || helperCanActOnModule(familyId, 'sparks')
+            || isLegacyHelperWithoutLink(familyId)
+            || isThisKid(familyId, _itemKidId())
+          )
+            && request.resource.data.authorUid == request.auth.uid;
+          allow update: if request.auth.uid == resource.data.authorUid;
+          allow delete: if isParentInFamily(familyId)
+            || request.auth.uid == resource.data.authorUid;
+        }
       }
 
       // sparks_academic · term records — sensitive grades + behaviour

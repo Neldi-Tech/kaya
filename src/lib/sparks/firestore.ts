@@ -14,7 +14,7 @@ import {
 import { db } from '../firebase';
 import type {
   AcademicTerm, SparksAcademicRecord, SparksItem, SparksItemArea,
-  SparksProfile, SparksRating, SparksSiblingVisibility,
+  SparksProfile, SparksRating, SparksSiblingVisibility, SparksThreadMessage,
 } from './schema';
 
 // ── Refs ──────────────────────────────────────────────────────────────
@@ -569,4 +569,68 @@ export function todayYmd(): string {
 /** Convert a Firestore Timestamp (or null) to a JS Date or null. */
 export function tsToDate(t: Timestamp | null | undefined): Date | null {
   return t ? t.toDate() : null;
+}
+
+// ── Revision thread · message CRUD (Slice 7e · 2026-05-28) ───────────
+
+function threadCol(familyId: string, itemId: string) {
+  return collection(db, 'families', familyId, 'sparks_items', itemId, 'thread');
+}
+
+export interface NewThreadMessageInput {
+  authorUid: string;
+  authorName: string;
+  authorRole: 'parent' | 'helper' | 'kid';
+  text?: string;
+  photo_urls?: string[];
+}
+
+/** Append a message to a sparks_item's thread. */
+export async function postThreadMessage(
+  familyId: string,
+  itemId: string,
+  input: NewThreadMessageInput,
+): Promise<string> {
+  const payload: Record<string, unknown> = {
+    authorUid: input.authorUid,
+    authorName: input.authorName,
+    authorRole: input.authorRole,
+    createdAt: serverTimestamp(),
+  };
+  if (input.text && input.text.trim().length > 0) payload.text = input.text.trim();
+  if (input.photo_urls && input.photo_urls.length > 0) payload.photo_urls = input.photo_urls;
+  const ref = await addDoc(threadCol(familyId, itemId), payload);
+  return ref.id;
+}
+
+/** Live subscription to a sparks_item's thread, oldest-first (chat style). */
+export function subscribeToThread(
+  familyId: string,
+  itemId: string,
+  cb: (messages: SparksThreadMessage[]) => void,
+): () => void {
+  const q = query(
+    threadCol(familyId, itemId),
+    orderBy('createdAt', 'asc'),
+    limit(200),
+  );
+  return onSnapshot(
+    q,
+    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as SparksThreadMessage))),
+    () => cb([]),
+  );
+}
+
+/** One-shot count for the "💬 N" badge on the revisions list — uses the
+ *  server-aggregation count so we don't stream every row. */
+export async function getThreadCount(familyId: string, itemId: string): Promise<number> {
+  const snap = await getCountFromServer(threadCol(familyId, itemId));
+  return snap.data().count;
+}
+
+/** Delete one message (author or parent only — rules enforce). */
+export async function deleteThreadMessage(
+  familyId: string, itemId: string, messageId: string,
+): Promise<void> {
+  await deleteDoc(doc(db, 'families', familyId, 'sparks_items', itemId, 'thread', messageId));
 }

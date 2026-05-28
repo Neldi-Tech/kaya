@@ -27,6 +27,7 @@ import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/A
 import RatingSheet from '@/components/sparks/RatingSheet';
 import RatingDisplay from '@/components/sparks/RatingDisplay';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
+import ThreadSheet from '@/components/sparks/ThreadSheet';
 import RevisionFlow from '@/components/sparks/RevisionFlow';
 import MaterialsList from '@/components/sparks/MaterialsList';
 import AddMaterialSheet from '@/components/sparks/AddMaterialSheet';
@@ -46,6 +47,7 @@ export default function RevisionsPage() {
   const [openRevision, setOpenRevision] = useState(false);
   const [ratings, setRatings] = useState<SparksRating[]>([]);
   const [rateItem, setRateItem] = useState<SparksItem | null>(null);
+  const [threadItem, setThreadItem] = useState<SparksItem | null>(null);
   const [lightbox, setLightbox] = useState<{ photos: string[]; index: number; caption: string; sub: string } | null>(null);
   const isParent = authProfile?.role === 'parent';
 
@@ -251,13 +253,24 @@ export default function RevisionsPage() {
                         )}
                       </div>
                     </div>
-                    {isParent && (
-                      <RatingDisplay
-                        rating={latestRating}
-                        onTap={() => setRateItem(it)}
-                        variant="wide"
-                      />
-                    )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setThreadItem(it)}
+                        className="inline-flex items-center gap-1 bg-[#FBF7EE] hover:bg-[#E5D6FF] border border-[#ECE4D3] hover:border-[#5A3CB8] text-[#5A3CB8] rounded-full px-2.5 py-1 text-[11px] font-extrabold transition-colors"
+                        aria-label="Open thread"
+                        title="Reply / upload more"
+                      >
+                        💬
+                      </button>
+                      {isParent && (
+                        <RatingDisplay
+                          rating={latestRating}
+                          onTap={() => setRateItem(it)}
+                          variant="wide"
+                        />
+                      )}
+                    </div>
                   </div>
                   {d?.ai_notes && (
                     <div className="mt-2.5 bg-[#FBF7EE] rounded-lg px-3 py-2 text-[12px] text-[#0F1F44] leading-snug">
@@ -317,6 +330,18 @@ export default function RevisionsPage() {
           item={rateItem}
           parentUid={authProfile.uid}
           mode="both"
+        />
+      )}
+
+      {threadItem && (
+        <ThreadSheet
+          open={!!threadItem}
+          onClose={() => setThreadItem(null)}
+          familyId={familyId}
+          item={threadItem}
+          authorUid={authProfile.uid}
+          authorName={authProfile.displayName || (isParent ? 'Parent' : kid.name)}
+          authorRole={authProfile.role === 'helper' ? 'helper' : (isParent ? 'parent' : 'kid')}
         />
       )}
 
