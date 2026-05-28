@@ -46,11 +46,11 @@ function classify(mime?: string, name?: string): ViewerKind {
   return 'other';
 }
 
-/** Inline .docx renderer. Lazy-loads mammoth.js on first open so the
- *  library (~700 KB) doesn't bloat the initial bundle. Fetches the
- *  storage URL as an ArrayBuffer and converts to HTML client-side —
- *  no external service involved, so Firebase's token-bearing URL
- *  never leaves the kid's browser. */
+/** Inline .docx renderer. Calls `/api/docx-render` which fetches the
+ *  Firebase Storage file server-side and runs mammoth there — keeps
+ *  the heavy library out of the browser bundle AND sidesteps CORS
+ *  (browsers can't `fetch()` Firebase Storage URLs cross-origin
+ *  without explicit bucket-level CORS config). */
 function DocxBody({ url, name }: { url: string; name: string }) {
   const [html, setHtml] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -63,15 +63,13 @@ function DocxBody({ url, name }: { url: string; name: string }) {
     setHtml(null);
     (async () => {
       try {
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`Couldn't fetch the file (HTTP ${res.status}).`);
-        const buf = await res.arrayBuffer();
-        // Mammoth's browser entry point is exposed via the package's
-        // "browser" field — Webpack resolves this automatically.
-        const mammoth = await import('mammoth');
-        const out = await mammoth.convertToHtml({ arrayBuffer: buf });
+        const res = await fetch(`/api/docx-render?url=${encodeURIComponent(url)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || `Render service returned ${res.status}`);
+        }
         if (cancelled) return;
-        setHtml(out.value || '<p><em>This document is empty.</em></p>');
+        setHtml((data?.html as string | undefined) || '<p><em>This document is empty.</em></p>');
       } catch (e) {
         if (cancelled) return;
         setErr(e instanceof Error ? e.message : 'Could not read the document.');
