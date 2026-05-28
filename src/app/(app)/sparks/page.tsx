@@ -39,7 +39,7 @@ import SparksIcon from '@/components/brand/SparksIcon';
 // shape the mockup designs around. Keep edits in lockstep with the
 // mockup so the parent landing stays faithful.
 
-type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action';
+type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop';
 
 const AREA_PITCH: Record<SparksArea, {
   badge: Badge;
@@ -117,6 +117,20 @@ const AREA_PITCH: Record<SparksArea, {
     ],
     aiTag: '✨ AI suggests renewal & new activities',
     workplanTag: '📅 Sessions → Workplan',
+  },
+  revision: {
+    badge: '06 · Practice Loop',
+    badgeBg: '#E0D7FF', badgeFg: '#1B1547', cornerBg: '#5A3CB8',
+    purpose: 'The practice engine. Kid does a homework revision, snaps it, Claude scores + identifies subject + suggests next questions. Parent reviews and awards Kaya Points. Built fun — designed to make kids actually want to revise.',
+    features: [
+      'Multi-photo capture · same upload pipeline as the rest of Sparks',
+      'Claude identifies subject + grade level + per-question scoring',
+      'AI generates 3 next questions tuned to what they got wrong',
+      'Confetti on qualifying submit · earns Kaya Points',
+      'Parent reviews + sets the bar in /sparks/setup',
+    ],
+    aiTag: '✨ AI scores + tailors next round',
+    workplanTag: '🎉 Earns Kaya Points',
   },
 };
 

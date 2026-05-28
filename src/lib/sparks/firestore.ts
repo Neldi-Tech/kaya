@@ -348,6 +348,7 @@ export function countItemsByArea(items: SparksItem[]): Record<SparksItemArea, nu
     home_project: 0,
     achievement: 0,
     sports_subscription: 0,
+    revision: 0,
   };
   for (const it of items) counts[it.area]++;
   return counts;

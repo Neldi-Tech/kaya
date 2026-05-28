@@ -15,12 +15,14 @@ import { SPARKS_AREA_META, type SparksItemArea } from '@/lib/sparks/schema';
 
 // Gradient + text colour per area — pulled directly from the mockup
 // (`.head-coral`, `.head-yellow`, `.head-green`, `.head-purple`, `.head-mint`).
+// Revision = navy → purple (its own "study + brain" identity).
 export const AREA_HEAD_BG: Record<SparksItemArea | 'academic', string> = {
   school_project:      'linear-gradient(135deg, #FF6B6B 0%, #FF8E72 100%)',
   home_project:        'linear-gradient(135deg, #FFB627 0%, #FFD93D 100%)',
   achievement:         'linear-gradient(135deg, #6BCB77 0%, #9DE0A6 100%)',
   academic:            'linear-gradient(135deg, #A66CFF 0%, #C49BFF 100%)',
   sports_subscription: 'linear-gradient(135deg, #4ECDC4 0%, #6FE5DC 100%)',
+  revision:            'linear-gradient(135deg, #1B1547 0%, #5A3CB8 100%)',
 };
 
 export const AREA_HEAD_FG: Record<SparksItemArea | 'academic', string> = {
@@ -29,6 +31,7 @@ export const AREA_HEAD_FG: Record<SparksItemArea | 'academic', string> = {
   achievement:    '#fff',
   academic:       '#fff',
   sports_subscription: '#fff',
+  revision:       '#fff',
 };
 
 interface Props {

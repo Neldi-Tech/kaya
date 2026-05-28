@@ -48,6 +48,7 @@ const AREA_ACCENT: Record<SparksArea, { bg: string; fg: string }> = {
   achievement:         { bg: '#DDF5DF', fg: '#2E7D34' }, // bg-green
   academic:            { bg: '#E5D6FF', fg: '#5A3CB8' }, // bg-purple
   sports_subscription: { bg: '#C9F0EC', fg: '#1E7873' }, // bg-mint
+  revision:            { bg: '#E0D7FF', fg: '#1B1547' }, // bg-deep-purple (study vibe)
 };
 
 // Short single-line subtitles for the row cards — punchier than the
@@ -58,6 +59,7 @@ const AREA_SUB: Record<SparksArea, string> = {
   achievement:         'Certificates & awards',
   academic:            'Results, behavior, follow-ups',
   sports_subscription: 'Subscriptions, schedules',
+  revision:            'Practice · AI scores + suggests',
 };
 
 export default function KidSparksHomePage() {

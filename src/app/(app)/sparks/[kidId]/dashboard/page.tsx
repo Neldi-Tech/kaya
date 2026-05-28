@@ -460,7 +460,7 @@ function filterLabel(filter: SparksFilter): string {
 
 function countByArea(items: SparksItem[]): Record<SparksItemArea, number> {
   const out: Record<SparksItemArea, number> = {
-    school_project: 0, home_project: 0, achievement: 0, sports_subscription: 0,
+    school_project: 0, home_project: 0, achievement: 0, sports_subscription: 0, revision: 0,
   };
   for (const it of items) out[it.area]++;
   return out;

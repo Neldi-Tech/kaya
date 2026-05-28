@@ -192,3 +192,81 @@ export async function extractFromImage<K extends ExtractKind>(
     return { ok: false, error: e instanceof Error ? e.message : 'Extract failed' };
   }
 }
+
+// ── Home Revisions (Slice 7) ─────────────────────────────────────────
+
+export interface RevisionScore {
+  subject: string;
+  gradeLevel: string;
+  score: number;
+  breakdown: { correct: number; partial: number; wrong: number };
+  notes: string;
+}
+
+export interface ScoreRevisionArgs {
+  files: File[];
+  kidName: string;
+  focusSubjects?: string[];
+}
+
+export async function scoreRevision(
+  args: ScoreRevisionArgs,
+): Promise<{ ok: true; data: RevisionScore } | { ok: false; skipped?: boolean; error?: string }> {
+  try {
+    if (args.files.length === 0) {
+      return { ok: false, error: 'No photos to score' };
+    }
+    const imageBase64s: string[] = [];
+    let mediaType = 'image/jpeg';
+    for (const f of args.files.slice(0, 4)) {
+      const { base64, mediaType: mt } = await fileToAiBase64(f);
+      imageBase64s.push(base64);
+      mediaType = mt;
+    }
+    const res = await fetch('/api/sparks/ai/revision-score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageBase64s,
+        mediaType,
+        kidName: args.kidName,
+        focusSubjects: args.focusSubjects,
+      }),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data?.skipped) return { ok: false, skipped: true };
+    return { ok: true, data: data as RevisionScore };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Revision score failed' };
+  }
+}
+
+export interface SuggestNextArgs {
+  kidName: string;
+  subject: string;
+  gradeLevel: string;
+  score: number;
+  notes?: string;
+  recentRounds?: Array<{ subject: string; ai_notes?: string }>;
+}
+
+export async function suggestNextQuestions(
+  args: SuggestNextArgs,
+): Promise<{ ok: true; questions: string[] } | { ok: false; skipped?: boolean; error?: string }> {
+  try {
+    const res = await fetch('/api/sparks/ai/revision-next', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data?.skipped) return { ok: false, skipped: true };
+    const qs = (data?.questions ?? []) as string[];
+    if (!Array.isArray(qs) || qs.length === 0) return { ok: false, error: 'No questions returned' };
+    return { ok: true, questions: qs };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Next-questions failed' };
+  }
+}

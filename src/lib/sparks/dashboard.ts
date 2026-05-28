@@ -103,7 +103,7 @@ export function computeKpis(
   ratings: SparksRating[],
 ): SparksKpis {
   const counts: Record<SparksItemArea, number> = {
-    school_project: 0, home_project: 0, achievement: 0, sports_subscription: 0,
+    school_project: 0, home_project: 0, achievement: 0, sports_subscription: 0, revision: 0,
   };
   for (const it of items) counts[it.area]++;
 
@@ -233,6 +233,7 @@ const AREA_ACCENT: Record<SparksArea, string> = {
   achievement:         '#6BCB77',
   academic:            '#A66CFF',
   sports_subscription: '#4ECDC4',
+  revision:            '#5A3CB8',
 };
 
 export function categoryBreakdown(
@@ -259,6 +260,7 @@ export function categoryBreakdown(
     achievement:         { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     academic:            { count: academicCount, stars: 0, sn: 0, pct: 0, pn: 0 },
     sports_subscription: { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
+    revision:            { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
   };
 
   for (const it of items) {
