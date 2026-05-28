@@ -1,28 +1,30 @@
 'use client';
 
-// Kaya Sparks · ✨ All-time Highlights rail.
+// Kaya Sparks · ✨ Today's Highlights rail.
 //
-// Horizontal scrolling strip of up to HIGHLIGHTS_CAP starred items.
-// Sits above the month-grouped gallery on Home / School / Achievements.
-// Tapping a card opens the same lightbox the kid would get from the
-// normal tile. The ★ pin in the corner is decorative — toggling
-// happens via the ☆ button on the tile/row below.
+// Horizontal scrolling strip of up to HIGHLIGHTS_CAP items, picked
+// deterministically per (kid, area, day) via pickDailyHighlights().
+// Same picks across all family members for the same day; tomorrow's
+// seed rotates the set so the wall stays fresh without parent
+// curation.
 //
-// Always-rendered header — even when nothing is starred yet, the header
-// + a friendly empty state appear so the feature is discoverable. The
-// only path that returns null is the "no items at all + nothing the
-// caller can guide the kid toward" case (caller filters by canEdit).
+// The ★ pin in the corner is a decorative spotlight badge — not a
+// "this is starred" indicator. The kid can't pin or unpin; the
+// rotation is automatic.
+//
+// When the area has zero items, the empty-state nudge renders only
+// for canEdit users so capture is the obvious next step.
 
 import type { SparksItem } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 
 interface Props {
-  items: SparksItem[];                       // already filtered to is_highlight === true
+  items: SparksItem[];                       // today's picks — caller derives via pickDailyHighlights()
   fallbackTileGradient: string;              // for items without a photo
   onOpenItem?: (item: SparksItem) => void;   // tap → lightbox / detail
-  /** When true, the empty-state nudge renders ("Tap ☆ on a project…").
-   *  When false (kid view + nothing starred), we hide the rail entirely
-   *  rather than show a useless prompt the kid can't act on. */
+  /** When true, the "Capture a few projects to see daily picks here"
+   *  nudge renders if items is empty. When false, the rail is hidden
+   *  in the empty case (e.g. helpers + sibling view). */
   showEmptyState?: boolean;
 }
 
@@ -34,9 +36,11 @@ export default function HighlightsRail({ items, fallbackTileGradient, onOpenItem
     <div className="mb-3">
       <div className="flex items-baseline justify-between px-1 pb-1.5">
         <div className="text-[12px] font-extrabold tracking-[0.4px] text-[#1B1547] flex items-center gap-1.5">
-          ✨ All-time highlights
+          ✨ Today&apos;s highlights
         </div>
-        <span className="text-[10.5px] font-extrabold text-[#5A6488]">{items.length} / 5</span>
+        <span className="text-[10.5px] font-bold text-[#5A6488]">
+          Refreshes every day
+        </span>
       </div>
 
       {isEmpty && (
@@ -46,9 +50,9 @@ export default function HighlightsRail({ items, fallbackTileGradient, onOpenItem
         >
           <div className="text-[18px] mb-0.5" aria-hidden>⭐</div>
           <div className="text-[11.5px] font-bold leading-snug text-[#1B1547]">
-            Tap <span className="text-[#D4A847]">☆</span> on any project below to feature it here.
+            Capture a few projects to see daily picks here.
           </div>
-          <div className="text-[10.5px] mt-0.5">Up to 5 highlights per area.</div>
+          <div className="text-[10.5px] mt-0.5">Kaya rotates them each day.</div>
         </div>
       )}
 
@@ -65,7 +69,7 @@ export default function HighlightsRail({ items, fallbackTileGradient, onOpenItem
                 border: '2px solid #D4A847',
                 boxShadow: '0 4px 12px rgba(212, 168, 71, 0.30)',
               }}
-              title={`✨ Highlight · ${it.title}`}
+              title={`✨ Today's highlight · ${it.title}`}
             >
               <span
                 aria-hidden

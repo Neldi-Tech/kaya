@@ -24,8 +24,7 @@ import RatingDisplay from '@/components/sparks/RatingDisplay';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 import MonthGroup from '@/components/sparks/MonthGroup';
 import HighlightsRail from '@/components/sparks/HighlightsRail';
-import HighlightStar from '@/components/sparks/HighlightStar';
-import { defaultOpenMonths, groupByMonth } from '@/lib/sparks/grouping';
+import { defaultOpenMonths, groupByMonth, pickDailyHighlights } from '@/lib/sparks/grouping';
 
 // Gradient backdrops for photo-less tiles — rotates so the gallery
 // reads as bright + varied even before photos land. Pulled from the
@@ -72,7 +71,10 @@ export default function SchoolProjectsPage() {
 
   const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
   const groups = useMemo(() => groupByMonth(items), [items]);
-  const highlights = useMemo(() => items.filter((it) => it.is_highlight), [items]);
+  const highlights = useMemo(
+    () => pickDailyHighlights(items, { kidId, area: 'school_project' }),
+    [items, kidId],
+  );
   const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set());
   const groupKeys = groups.map((g) => g.key).join('|');
   useEffect(() => {
@@ -187,16 +189,10 @@ export default function SchoolProjectsPage() {
                             </span>
                           </div>
                         )}
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1.5">
                           <div className="text-[12px] font-extrabold text-[#0F1F44] truncate flex-1" title={it.title}>
                             {it.title}
                           </div>
-                          <HighlightStar
-                            item={it}
-                            familyId={familyId}
-                            areaItems={items}
-                            canEdit={canEdit}
-                          />
                           {canEdit && (
                             <button
                               type="button"

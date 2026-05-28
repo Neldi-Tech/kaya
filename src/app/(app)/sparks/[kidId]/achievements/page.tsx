@@ -25,8 +25,7 @@ import RatingDisplay from '@/components/sparks/RatingDisplay';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 import MonthGroup from '@/components/sparks/MonthGroup';
 import HighlightsRail from '@/components/sparks/HighlightsRail';
-import HighlightStar from '@/components/sparks/HighlightStar';
-import { defaultOpenMonths, groupByMonth } from '@/lib/sparks/grouping';
+import { defaultOpenMonths, groupByMonth, pickDailyHighlights } from '@/lib/sparks/grouping';
 
 // Medal palette — rotates across the wall so it reads as a mix of
 // gold / coral / mint / purple medals from the mockup. The kid's
@@ -69,7 +68,10 @@ export default function AchievementsPage() {
 
   const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
   const groups = useMemo(() => groupByMonth(items), [items]);
-  const highlights = useMemo(() => items.filter((it) => it.is_highlight), [items]);
+  const highlights = useMemo(
+    () => pickDailyHighlights(items, { kidId, area: 'achievement' }),
+    [items, kidId],
+  );
   const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set());
   const groupKeys = groups.map((g) => g.key).join('|');
   useEffect(() => {
@@ -170,16 +172,10 @@ export default function AchievementsPage() {
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1.5">
                             <div className="text-[13px] font-extrabold text-[#0F1F44] leading-tight flex-1 truncate">
                               {it.title}
                             </div>
-                            <HighlightStar
-                              item={it}
-                              familyId={familyId}
-                              areaItems={items}
-                              canEdit={canEdit}
-                            />
                             {canEdit && (
                               <button
                                 type="button"
