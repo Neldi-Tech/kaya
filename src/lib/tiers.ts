@@ -86,6 +86,12 @@ export interface TierConfig {
   helperLimit: number | null;
   householdLimit: number | null;
   historyRetentionDays: number | null;
+  /** Base Firebase Storage cap, in GIGABYTES. The effective cap a
+   *  family sees is `storageGB + family.storage.extraGB` (operator-
+   *  granted top-up). Nest = 0.2 GB (200 MB), Home = 2 GB,
+   *  Castle = 50 GB. NOT shown to users for Castle (UI says
+   *  "Plenty of room" instead). */
+  storageGB: number;
   /** Module IDs included BY DEFAULT in this tier (i.e. without an
    *  add-on). For Castle this is every module. For Home this is the
    *  "always included" set; add-ons unlock more. */
@@ -116,6 +122,7 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: 1,
     householdLimit: 1,
     historyRetentionDays: 30,
+    storageGB: 0.2,
     // Sparks Lite is included in Nest — the strongest hook module per the
     // spec ("keep Lite generous so families fall in love"). Feature-level
     // gating (no AI scan, 50-item cap, 30-day ratings history, 1 kid) is
@@ -135,6 +142,7 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: 3,
     householdLimit: 2,
     historyRetentionDays: 365,
+    storageGB: 2,
     // Home families get Sparks Family by default — full AI scanning,
     // pre-submission highlights, unlimited items, ≤5 kids, dashboard,
     // PDF export. Castle gets it implicitly (MODULE_REGISTRY.map below).
@@ -153,6 +161,7 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     helperLimit: null,
     householdLimit: null,
     historyRetentionDays: null,
+    storageGB: 50,
     modules: MODULE_REGISTRY.map((m) => m.id),
     addonModules: [],
     isFeatured: false,

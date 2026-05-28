@@ -10,7 +10,10 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useHive } from '@/contexts/HiveContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { useTierAccess } from '@/lib/tierAccess';
+import { formatBytes, tierCapBytes, usagePercent, usageState } from '@/lib/storage';
+import type { Family } from '@/lib/firestore';
 import {
   DEFAULT_ADDONS,
   type SubscriptionTierId, type TierConfig,
@@ -29,6 +32,7 @@ const MUTED = '#6E7791';
 export default function SubscriptionPage() {
   const access = useTierAccess();
   const { config, fxUsdToFamily } = useHive();
+  const { family } = useFamily();
   const [cycle, setCycle] = useState<BillingCycle>('yearly');
 
   const currency = config.currency || 'USD';
@@ -153,6 +157,14 @@ export default function SubscriptionPage() {
             </div>
           )}
         </div>
+
+        {/* Storage usage bar */}
+        <StorageUsageBar
+          tier={currentTier}
+          family={family}
+          isBypass={access.isOperatorBypass || access.isFoundingBypass}
+          bypassLabel={access.isOperatorBypass ? 'Operator · uncapped' : 'Founding family · uncapped'}
+        />
 
         {/* Hero */}
         <div className="text-center mb-11">
@@ -681,6 +693,86 @@ function CompareRow({
       <div className="text-center">{cellRender(nest)}</div>
       <div className="text-center">{cellRender(home, true)}</div>
       <div className="text-center">{cellRender(castle)}</div>
+    </div>
+  );
+}
+
+// ── Storage usage bar ──────────────────────────────────────────────
+//
+// Sits under the current-plan banner. Hidden while the family doc is
+// still loading. Operator/founding bypass renders an "uncapped" pill,
+// not a number. Castle gets "Plenty of room" copy on the right side
+// so the impression stays "you have plenty" without exposing 50 GB.
+
+function StorageUsageBar({
+  tier,
+  family,
+  isBypass,
+  bypassLabel,
+}: {
+  tier: { id: string; storageGB: number };
+  family: Family | null;
+  isBypass: boolean;
+  bypassLabel: string;
+}) {
+  if (!family) return null;
+
+  const usedBytes = family.storage?.bytes ?? 0;
+  const extraGB = family.storage?.extraGB ?? 0;
+  const capBytes = tierCapBytes(tier as never, extraGB);
+  const pct = isBypass ? 0 : usagePercent(usedBytes, capBytes);
+  const state = usageState(pct);
+
+  // Brand mapping for the 3 states.
+  const barColor =
+    isBypass ? '#D4A847'
+    : state === 'over'     ? '#E85C5C'
+    : state === 'warning'  ? '#D4A847'
+    :                        '#5BB85B';
+  const numColor = isBypass ? '#B8860B'
+    : state === 'over'     ? '#E85C5C'
+    : state === 'warning'  ? '#B8860B'
+    :                        '#6E7791';
+
+  const rightCopy = isBypass
+    ? bypassLabel
+    : tier.id === 'castle'
+      ? 'Plenty of room'
+      : `${formatBytes(usedBytes)} of ${formatBytes(capBytes)}`;
+
+  return (
+    <div
+      className="mb-11 rounded-2xl px-5 py-3.5"
+      style={{
+        background: 'white',
+        border: '1.5px solid rgba(15,31,68,0.08)',
+        boxShadow: '0 2px 12px rgba(15,31,68,0.04)',
+      }}
+    >
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-[11px] font-extrabold tracking-wider uppercase" style={{ color: '#6E7791' }}>
+          Storage
+        </div>
+        <div className="text-[12px] font-extrabold" style={{ color: numColor }}>
+          {rightCopy}
+        </div>
+      </div>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'rgba(15,31,68,0.08)' }}>
+        <div
+          className="h-full transition-all"
+          style={{ width: `${isBypass ? 6 : pct}%`, background: barColor }}
+        />
+      </div>
+      {!isBypass && state === 'warning' && (
+        <div className="text-[11px] font-bold mt-2" style={{ color: '#B8860B' }}>
+          ⚠ Approaching cap — consider upgrading for more space.
+        </div>
+      )}
+      {!isBypass && state === 'over' && (
+        <div className="text-[11px] font-bold mt-2" style={{ color: '#E85C5C' }}>
+          🚫 Storage full — uploads are paused. Upgrade or contact us for more space.
+        </div>
+      )}
     </div>
   );
 }

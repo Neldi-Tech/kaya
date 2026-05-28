@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import { DEFAULT_ADDONS, DEFAULT_TIERS, type SubscriptionTierId } from '@/lib/tiers';
+import { capCopy, formatBytes, tierCapBytes, usagePercent, usageState } from '@/lib/storage';
 import type { AdminFamilyRow } from '@/app/api/admin/families/route';
 
 export default function AdminFamiliesPage() {
@@ -53,7 +54,26 @@ export default function AdminFamiliesPage() {
 
   const editing = editingId ? families.find((f) => f.id === editingId) ?? null : null;
 
-  const saveFamily = async (id: string, patch: { tierId?: SubscriptionTierId; addons?: string[]; isFoundingFamily?: boolean }) => {
+  const recountStorage = async (id: string) => {
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch(`/api/admin/families/${id}/recount-storage`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(error || 'recount-failed');
+      }
+      await reload();
+    } catch (e) {
+      alert(`Recount failed: ${String(e instanceof Error ? e.message : e)}`);
+    }
+  };
+
+  const saveFamily = async (id: string, patch: { tierId?: SubscriptionTierId; addons?: string[]; isFoundingFamily?: boolean; extraStorageGB?: number }) => {
     setSavingId(id);
     try {
       const u = auth.currentUser;
@@ -139,6 +159,7 @@ export default function AdminFamiliesPage() {
           saving={savingId === editing.id}
           onCancel={() => setEditingId(null)}
           onSave={(patch) => saveFamily(editing.id, patch)}
+          onRecount={() => recountStorage(editing.id)}
         />
       )}
     </div>
@@ -181,6 +202,8 @@ function FamilyRow({ family, onEdit }: { family: AdminFamilyRow; onEdit: () => v
               <span className="text-[#D4A847]">+{family.addons.length} add-on{family.addons.length === 1 ? '' : 's'}</span>
             </>
           )}
+          <span>·</span>
+          <StorageInline family={family} />
         </div>
       </div>
       <button
@@ -195,25 +218,49 @@ function FamilyRow({ family, onEdit }: { family: AdminFamilyRow; onEdit: () => v
   );
 }
 
+// Compact "248 MB / 200 MB · 24%" inline next to the member counts, with
+// founding-family / castle copy variants. State colour is the same as
+// the family-side bar.
+function StorageInline({ family }: { family: AdminFamilyRow }) {
+  const tier = DEFAULT_TIERS[family.tierId];
+  const capBytes = tierCapBytes(tier, family.storage.extraGB);
+  const pct = usagePercent(family.storage.bytes, capBytes);
+  const state = usageState(pct);
+  const color = family.isFoundingFamily
+    ? '#D4A847'
+    : state === 'over' ? '#FF7676' : state === 'warning' ? '#D4A847' : 'rgba(255,255,255,0.55)';
+  const right = family.isFoundingFamily
+    ? '🌟 uncapped'
+    : family.tierId === 'castle'
+      ? 'Plenty of room'
+      : `${formatBytes(family.storage.bytes)} / ${formatBytes(capBytes)}`;
+  return <span style={{ color }}>{right}</span>;
+}
+
 function EditDrawer({
   family,
   saving,
   onCancel,
   onSave,
+  onRecount,
 }: {
   family: AdminFamilyRow;
   saving: boolean;
   onCancel: () => void;
-  onSave: (patch: { tierId?: SubscriptionTierId; addons?: string[]; isFoundingFamily?: boolean }) => void;
+  onSave: (patch: { tierId?: SubscriptionTierId; addons?: string[]; isFoundingFamily?: boolean; extraStorageGB?: number }) => void;
+  onRecount: () => Promise<void>;
 }) {
   const [tierId, setTierId] = useState<SubscriptionTierId>(family.tierId);
   const [addons, setAddons] = useState<Set<string>>(new Set(family.addons));
   const [founding, setFounding] = useState(family.isFoundingFamily);
+  const [extraGB, setExtraGB] = useState(String(family.storage.extraGB ?? 0));
+  const [recounting, setRecounting] = useState(false);
 
   const dirty =
     tierId !== family.tierId ||
     founding !== family.isFoundingFamily ||
-    [...addons].sort().join(',') !== [...family.addons].sort().join(',');
+    [...addons].sort().join(',') !== [...family.addons].sort().join(',') ||
+    Number(extraGB || 0) !== (family.storage.extraGB ?? 0);
 
   // Castle includes every addon implicitly — surface that as a note.
   const isCastle = tierId === 'castle';
@@ -324,6 +371,62 @@ function EditDrawer({
           </button>
         </section>
 
+        {/* Storage */}
+        <section className="mb-5">
+          <div className="text-[11px] font-black text-white/55 uppercase tracking-wider mb-2">Storage</div>
+          {(() => {
+            const tier = DEFAULT_TIERS[tierId];
+            const capBytes = tierCapBytes(tier, Number(extraGB || 0));
+            const pct = usagePercent(family.storage.bytes, capBytes);
+            const state = usageState(pct);
+            const barColor = state === 'over' ? '#FF7676' : state === 'warning' ? '#D4A847' : '#5BB85B';
+            return (
+              <div
+                className="rounded-xl p-3"
+                style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <span className="text-[12px] font-bold text-white/80">
+                    {formatBytes(family.storage.bytes)} / {capCopy(tierId, capBytes, founding)}
+                  </span>
+                  <span className="text-[10px] font-bold" style={{ color: barColor }}>
+                    {founding ? 'uncapped' : `${pct.toFixed(0)}%`}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                  <div className="h-full transition-all" style={{ width: `${pct}%`, background: barColor }} />
+                </div>
+                <div className="text-[10px] text-white/45 font-semibold mt-1.5">
+                  {family.storage.recountedAtMs > 0
+                    ? `Last recounted ${new Date(family.storage.recountedAtMs).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`
+                    : 'Never recounted — totals reflect tracked uploads only.'}
+                </div>
+                <div className="flex items-center gap-2 mt-3">
+                  <div className="flex-1">
+                    <div className="text-[10px] font-black text-white/55 uppercase tracking-wider mb-1">Extra GB grant</div>
+                    <input
+                      value={extraGB}
+                      onChange={(e) => setExtraGB(e.target.value.replace(/[^0-9.]/g, ''))}
+                      inputMode="decimal"
+                      placeholder="0"
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 text-white text-[13px] font-extrabold outline-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => { setRecounting(true); try { await onRecount(); } finally { setRecounting(false); } }}
+                    disabled={recounting}
+                    className="self-end text-[11px] font-black px-3 py-1.5 rounded-lg disabled:opacity-50"
+                    style={{ background: 'rgba(212,168,71,0.18)', color: '#D4A847', border: '1px solid rgba(212,168,71,0.35)' }}
+                  >
+                    {recounting ? 'Scanning…' : '⟳ Recount'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+        </section>
+
         {/* Actions */}
         <div className="flex items-center gap-2 pt-2 border-t border-white/10">
           <button
@@ -339,6 +442,7 @@ function EditDrawer({
               tierId,
               addons: isCastle ? [] : [...addons],
               isFoundingFamily: founding,
+              extraStorageGB: Number(extraGB || 0),
             })}
             disabled={!dirty || saving}
             className="flex-1 text-[13px] font-black py-2.5 rounded-xl disabled:opacity-50"

@@ -1,8 +1,10 @@
 // PATCH /api/admin/families/[familyId] — operator-only.
-// Body: { tierId?, addons?, isFoundingFamily? }
+// Body: { tierId?, addons?, isFoundingFamily?, extraStorageGB? }
 //
 // Writes to families/{familyId} with a narrow whitelist so operators
 // can't accidentally overwrite unrelated family state from this page.
+// `extraStorageGB` grants extra Firebase Storage capacity on top of the
+// tier base (pre-Stripe top-up flow).
 
 import { NextRequest, NextResponse } from 'next/server';
 import { resolveAuth } from '@/lib/buzzServer';
@@ -26,6 +28,7 @@ export async function PATCH(req: NextRequest, ctx: { params: { familyId: string 
     tierId?: 'nest' | 'home' | 'castle';
     addons?: string[];
     isFoundingFamily?: boolean;
+    extraStorageGB?: number;
   };
   try { body = await req.json(); }
   catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
@@ -46,6 +49,14 @@ export async function PATCH(req: NextRequest, ctx: { params: { familyId: string 
 
   if (body.isFoundingFamily !== undefined) {
     patch.isFoundingFamily = body.isFoundingFamily === true;
+  }
+
+  if (body.extraStorageGB !== undefined) {
+    const gb = Number(body.extraStorageGB);
+    if (!Number.isFinite(gb) || gb < 0 || gb > 1000) {
+      return NextResponse.json({ error: 'bad-extra-storage' }, { status: 400 });
+    }
+    patch['storage.extraGB'] = Math.round(gb * 10) / 10; // one decimal place
   }
 
   if (Object.keys(patch).length === 0) {

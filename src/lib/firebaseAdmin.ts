@@ -23,6 +23,7 @@ import { initializeApp, getApps, cert, applicationDefault, type App } from 'fire
 import { getMessaging, type Messaging } from 'firebase-admin/messaging';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { getAuth, type Auth } from 'firebase-admin/auth';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 
 const APP_NAME = 'kaya-admin';
 
@@ -111,4 +112,12 @@ export function getAdminAuth(): Auth | null {
   const app = getAdminApp();
   if (!app) return null;
   return getAuth(app);
+}
+
+/** Convenience accessor — returns Admin Storage() or null. Used by the
+ *  storage-recount endpoint to scan a family's bucket usage. */
+export function getAdminStorage(): Storage | null {
+  const app = getAdminApp();
+  if (!app) return null;
+  return getStorage(app);
 }
