@@ -60,6 +60,29 @@ export function useTierAccess(): TierAccess {
     return () => unsub();
   }, [user?.email]);
 
+  // Lazy expiry sweep — when the family's subscription.expiresAt is in
+  // the past, hit /api/tier-codes/check-expiry so the server reverts to
+  // Nest. Skipped for operator + founding families (server also skips,
+  // but we save the round-trip). Re-runs whenever the family doc
+  // refreshes, so a fresh redemption picks up immediately.
+  useEffect(() => {
+    if (!user) return;
+    if (isOperator) return;
+    if (family?.isFoundingFamily) return;
+    const exp = (family?.subscription as { expiresAt?: { toMillis?: () => number } } | undefined)?.expiresAt;
+    if (!exp || typeof exp.toMillis !== 'function') return;
+    if (exp.toMillis() > Date.now()) return;
+    (async () => {
+      try {
+        const token = await user.getIdToken();
+        await fetch('/api/tier-codes/check-expiry', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+        });
+      } catch { /* swallow — next page-load will retry */ }
+    })();
+  }, [user, isOperator, family]);
+
   // Live subscription to /config/tiers/plans/* — three docs, picked up
   // on every change so admin matrix edits propagate without reload.
   useEffect(() => {
