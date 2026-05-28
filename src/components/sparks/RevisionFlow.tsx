@@ -64,6 +64,7 @@ export default function RevisionFlow({
   }), [profile]);
 
   const [phase, setPhase] = useState<Phase>('capture');
+  const [mode, setMode] = useState<'answers' | 'questions'>('answers');
   const [photos, setPhotos] = useState<File[]>([]);
   const [score, setScore] = useState<RevisionScore | null>(null);
   const [nextQuestions, setNextQuestions] = useState<string[] | null>(null);
@@ -71,11 +72,18 @@ export default function RevisionFlow({
   const [error, setError] = useState<string | null>(null);
   const [celebrate, setCelebrate] = useState(false);
   const [pointsAwarded, setPointsAwarded] = useState<{ points: number; bonus: boolean } | null>(null);
+  /** Slice 7c · subject confirmation. After the AI returns, the kid
+   *  must accept (✓) the proposed subject or correct it. Until they
+   *  do, submission is gated. */
+  const [confirmedSubject, setConfirmedSubject] = useState<string | null>(null);
+  const [editingSubject, setEditingSubject] = useState(false);
+  const [draftSubject, setDraftSubject] = useState('');
 
   // Reset on open/close so a previous run doesn't leak in.
   useEffect(() => {
     if (!open) return;
     setPhase('capture');
+    setMode('answers');
     setPhotos([]);
     setScore(null);
     setNextQuestions(null);
@@ -83,6 +91,9 @@ export default function RevisionFlow({
     setError(null);
     setCelebrate(false);
     setPointsAwarded(null);
+    setConfirmedSubject(null);
+    setEditingSubject(false);
+    setDraftSubject('');
   }, [open]);
 
   const previewUrls = useMemo(() => photos.map((f) => URL.createObjectURL(f)), [photos]);
@@ -103,36 +114,51 @@ export default function RevisionFlow({
     const out = await scoreRevision({
       files: photos,
       kidName,
+      mode,
       focusSubjects: settings.focus_subjects,
     });
     if ('skipped' in out && out.skipped) {
       setAiSkipped(true);
-      setScore({ subject: 'Other', gradeLevel: '', score: 0,
-                 breakdown: { correct: 0, partial: 0, wrong: 0 },
-                 notes: 'AI is off on this preview — submit goes through; rating happens with parent review.' });
+      setScore({
+        mode, subject: 'Other', gradeLevel: '',
+        score: 0,
+        breakdown: { correct: 0, partial: 0, wrong: 0 },
+        notes: 'AI is off on this preview — submit goes through; rating happens with parent review.',
+        parsedQuestions: [],
+      });
+      setConfirmedSubject(null);
       setPhase('review');
       return;
     }
     if (!out.ok) {
-      setError(out.error || 'Could not score this revision. Try a clearer photo?');
+      setError(out.error || 'Could not check this page. Try a clearer photo?');
       setPhase('capture');
       return;
     }
     setScore(out.data);
+    // Reset subject confirmation — the kid hasn't seen this proposal yet.
+    setConfirmedSubject(null);
+    setDraftSubject(out.data.subject);
 
-    // Fire next questions in parallel (don't block the review screen)
-    const nq = await suggestNextQuestions({
-      kidName,
-      subject: out.data.subject,
-      gradeLevel: out.data.gradeLevel,
-      score: out.data.score,
-      notes: out.data.notes,
-      recentRounds,
-    });
-    if ('skipped' in nq && nq.skipped) {
-      setNextQuestions(['AI is off — pick 3 questions you got wrong and re-do them slowly.']);
-    } else if (nq.ok) {
-      setNextQuestions(nq.questions);
+    // Answers mode generates "next 3 practice" follow-ups.
+    // Questions mode skips this call — the parsed questions ARE the kid's
+    // practice for now.
+    if (mode === 'answers') {
+      const nq = await suggestNextQuestions({
+        kidName,
+        subject: out.data.subject,
+        gradeLevel: out.data.gradeLevel,
+        score: out.data.score,
+        notes: out.data.notes,
+        recentRounds,
+      });
+      if ('skipped' in nq && nq.skipped) {
+        setNextQuestions(['AI is off — pick 3 questions you got wrong and re-do them slowly.']);
+      } else if (nq.ok) {
+        setNextQuestions(nq.questions);
+      } else {
+        setNextQuestions(null);
+      }
     } else {
       setNextQuestions(null);
     }
@@ -141,6 +167,13 @@ export default function RevisionFlow({
 
   const submit = async () => {
     if (!score) return;
+    // Gate submission on subject confirmation (Slice 7c). The kid must
+    // ✓ accept or ✏️ correct the proposed subject first.
+    const finalSubject = confirmedSubject ?? null;
+    if (!finalSubject) {
+      setError("Confirm the subject above — tap ✓ Yes if it's right, or ✏️ to correct it.");
+      return;
+    }
     setPhase('submitting');
     setError(null);
     try {
@@ -151,26 +184,40 @@ export default function RevisionFlow({
         ? await uploadSparksPhotos(familyId, itemId, photos)
         : [];
 
-      const qualifying = score.score >= settings.qualifying_score;
-      const bonus = score.score >= settings.bonus_threshold;
+      // Score-based award path only applies in 'answers' mode.
+      const qualifying = mode === 'answers' && score.score >= settings.qualifying_score;
+      const bonus = mode === 'answers' && score.score >= settings.bonus_threshold;
       const willAwardNow = qualifying && !settings.parent_approval_required;
       const points = willAwardNow ? (bonus ? settings.bonus_points : settings.base_points) : 0;
+
+      const titlePrefix = mode === 'questions' ? `${finalSubject} · Questions` : `${finalSubject} · Round`;
 
       await setDoc(reservedRef, {
         kid_id: kidId,
         area: 'revision',
-        title: `${score.subject || 'Revision'} · Round`,
+        title: titlePrefix,
         description: score.notes || undefined,
         photo_urls: urls.map((u) => u.feedUrl),
         date: todayYmd(),
-        subject: score.subject || undefined,
+        subject: finalSubject,
         revision_data: {
-          subject: score.subject || undefined,
+          upload_mode: mode,
+          ai_subject: score.subject || undefined,
+          subject: finalSubject,
+          subject_confirmed: true,
           grade_level: score.gradeLevel || undefined,
-          ai_score: score.score,
-          ai_breakdown: score.breakdown,
+          // Score fields only meaningful in answers mode
+          ...(mode === 'answers' ? {
+            ai_score: score.score,
+            ai_breakdown: score.breakdown,
+          } : {}),
           ai_notes: score.notes || undefined,
-          next_questions: nextQuestions || undefined,
+          parsed_questions: mode === 'questions' && score.parsedQuestions.length > 0
+            ? score.parsedQuestions
+            : undefined,
+          next_questions: mode === 'answers' && nextQuestions && nextQuestions.length > 0
+            ? nextQuestions
+            : undefined,
           points_awarded: willAwardNow,
         },
         created_at: serverTimestamp(),
@@ -178,11 +225,11 @@ export default function RevisionFlow({
         created_by: uid,
       });
 
-      // Auto-award when permitted by settings (qualifying + no approval required)
+      // Auto-award when permitted by settings (qualifying answers + no approval required)
       if (willAwardNow) {
         const reason = bonus
-          ? `Bonus revision — ${score.subject || 'subject'} · ${score.score}%`
-          : `Revision — ${score.subject || 'subject'} · ${score.score}%`;
+          ? `Bonus revision — ${finalSubject} · ${score.score}%`
+          : `Revision — ${finalSubject} · ${score.score}%`;
         const kind: AwardKind = 'regular';
         await giveAward(familyId, {
           childId: kidId,
@@ -191,8 +238,8 @@ export default function RevisionFlow({
           reason,
           category: 'sparks-revision',
           awardedBy: uid,
-          awardedByName: kidName, // best-known label at submit time
-          senderRole: 'parent', // server-side: rules require parent for non-kudos; if invoked as kid, this will fail and we degrade gracefully
+          awardedByName: kidName,
+          senderRole: 'parent',
         }).catch(() => {
           // Rules block kid-authored point-bearing awards. If we hit
           // that path, leave revision_data.points_awarded = true so the
@@ -239,8 +286,12 @@ export default function RevisionFlow({
             <div className="text-[12px] opacity-85">{kidName} · {meta.label}</div>
             <h2 id={`${formId}-title`} className="font-display font-extrabold text-[20px] m-0 mt-0.5">
               {phase === 'capture'    ? '🎯 New revision'
-              : phase === 'scoring'   ? '🧠 Reading your work…'
-              : phase === 'review'    ? `${score?.subject ?? 'Subject'} · ${score?.score ?? 0}%`
+              : phase === 'scoring'   ? (mode === 'questions' ? '📚 Reading the worksheet…' : '🧠 Reading your work…')
+              : phase === 'review'    ? (
+                  mode === 'questions'
+                    ? `📚 ${score?.subject ?? 'Subject'}`
+                    : `${score?.subject ?? 'Subject'} · ${score?.score ?? 0}%`
+                )
               : phase === 'submitting'? 'Saving…'
               : '🎉 Submitted'}
             </h2>
@@ -248,13 +299,49 @@ export default function RevisionFlow({
 
           <div className="p-5 space-y-4">
 
-            {/* Phase: CAPTURE — multi-photo picker */}
+            {/* Phase: CAPTURE — mode toggle + multi-photo picker */}
             {phase === 'capture' && (
               <>
+                {/* Mode toggle — what are you uploading? */}
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
+                    What are you uploading?
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMode('answers')}
+                      className={`text-left rounded-xl border-2 p-3 transition-colors ${
+                        mode === 'answers'
+                          ? 'bg-[#E5D6FF] border-[#5A3CB8]'
+                          : 'bg-[#FBF7EE] border-[#ECE4D3] hover:border-[#5A3CB8]/40'
+                      }`}
+                    >
+                      <div className="text-xl" aria-hidden>📝</div>
+                      <div className="font-display font-extrabold text-[13px] text-[#0F1F44] mt-0.5">My answers</div>
+                      <div className="text-[10.5px] text-[#5A6488] mt-0.5 leading-snug">Completed work · AI scores it.</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode('questions')}
+                      className={`text-left rounded-xl border-2 p-3 transition-colors ${
+                        mode === 'questions'
+                          ? 'bg-[#E5D6FF] border-[#5A3CB8]'
+                          : 'bg-[#FBF7EE] border-[#ECE4D3] hover:border-[#5A3CB8]/40'
+                      }`}
+                    >
+                      <div className="text-xl" aria-hidden>📚</div>
+                      <div className="font-display font-extrabold text-[13px] text-[#0F1F44] mt-0.5">The questions</div>
+                      <div className="text-[10.5px] text-[#5A6488] mt-0.5 leading-snug">Worksheet · AI reads + helps you practice.</div>
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
-                      Photos of your revision {photos.length > 0 && <span className="text-[#0F1F44]">· {photos.length}</span>}
+                      {mode === 'answers' ? 'Photos of your work' : 'Photos of the worksheet'}
+                      {photos.length > 0 && <span className="text-[#0F1F44]"> · {photos.length}</span>}
                     </label>
                   </div>
                   {photos.length === 0 ? (
@@ -264,7 +351,9 @@ export default function RevisionFlow({
                       className="w-full border-2 border-dashed border-[#ECE4D3] bg-[#FBF7EE] rounded-2xl py-8 text-center hover:border-[#5A3CB8] transition-colors"
                     >
                       <div className="text-3xl mb-1" aria-hidden>📸</div>
-                      <div className="text-[13px] font-bold text-[#0F1F44]">Snap your worksheet</div>
+                      <div className="text-[13px] font-bold text-[#0F1F44]">
+                        {mode === 'answers' ? 'Snap your completed work' : 'Snap the worksheet'}
+                      </div>
                       <div className="text-[11px] text-[#5A6488] mt-0.5">JPG / PNG · up to 25 MB each · multi-select for 2-3 page revisions</div>
                     </button>
                   ) : (
@@ -305,7 +394,15 @@ export default function RevisionFlow({
                 </div>
 
                 <div className="bg-[#E5D6FF] border-l-2 border-[#5A3CB8] rounded-[10px] px-3 py-2 text-[11.5px] text-[#1B1547]">
-                  <strong>How this works:</strong> Snap the page → Claude reads it + scores it + suggests 3 next questions → submit → earn Kaya Points when you qualify ({settings.qualifying_score}%).
+                  {mode === 'answers' ? (
+                    <>
+                      <strong>How this works:</strong> Snap your work → Claude reads + scores it + suggests 3 next questions → confirm subject → submit to parent for feedback. Earn Kaya Points when you qualify ({settings.qualifying_score}%).
+                    </>
+                  ) : (
+                    <>
+                      <strong>How this works:</strong> Snap a worksheet → Claude reads the subject + the questions → confirm subject → submit to parent. Parents see what you&apos;re working on and can help.
+                    </>
+                  )}
                 </div>
               </>
             )}
@@ -313,45 +410,142 @@ export default function RevisionFlow({
             {/* Phase: SCORING — spinner */}
             {phase === 'scoring' && (
               <div className="py-12 text-center">
-                <div className="text-5xl mb-2 animate-pulse" aria-hidden>🧠</div>
-                <div className="font-display font-extrabold text-[15px] text-[#0F1F44]">Reading your work…</div>
-                <div className="text-[12px] text-[#5A6488] mt-1">Claude is checking each question. ~3 seconds.</div>
+                <div className="text-5xl mb-2 animate-pulse" aria-hidden>
+                  {mode === 'questions' ? '📚' : '🧠'}
+                </div>
+                <div className="font-display font-extrabold text-[15px] text-[#0F1F44]">
+                  {mode === 'questions' ? 'Reading the worksheet…' : 'Reading your work…'}
+                </div>
+                <div className="text-[12px] text-[#5A6488] mt-1">
+                  Claude is {mode === 'questions' ? 'listing the questions on the page' : 'checking each question'}. ~3 seconds.
+                </div>
               </div>
             )}
 
-            {/* Phase: REVIEW — score + breakdown + next questions */}
+            {/* Phase: REVIEW — subject confirm + (score OR parsed questions) + next */}
             {phase === 'review' && score && (
               <>
-                {/* Subject + grade chip */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 bg-[#E5D6FF] text-[#1B1547] rounded-full px-2.5 py-1 text-[11.5px] font-extrabold">
-                    📚 {score.subject || 'Subject'}
-                  </span>
-                  {score.gradeLevel && (
-                    <span className="inline-flex items-center gap-1.5 bg-[#FBF7EE] text-[#5A6488] rounded-full px-2.5 py-1 text-[11px] font-bold">
-                      {score.gradeLevel}
-                    </span>
+                {/* Subject confirmation — AI proposes; kid accepts or corrects. */}
+                <div className="bg-white border-2 border-[#5A3CB8]/30 rounded-2xl p-3.5">
+                  <div className="text-[10px] font-extrabold tracking-[0.8px] text-[#5A3CB8] uppercase mb-1">
+                    ✨ Claude thinks this is
+                  </div>
+                  {editingSubject ? (
+                    <div className="flex items-center gap-1.5">
+                      <input
+                        type="text"
+                        value={draftSubject}
+                        onChange={(e) => setDraftSubject(e.target.value)}
+                        placeholder="Subject"
+                        autoFocus
+                        maxLength={40}
+                        className="flex-1 bg-[#FBF7EE] border border-[#ECE4D3] rounded-lg px-3 py-2 text-[14px] font-bold text-[#0F1F44]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const v = draftSubject.trim();
+                          if (!v) return;
+                          setConfirmedSubject(v);
+                          setEditingSubject(false);
+                        }}
+                        disabled={!draftSubject.trim()}
+                        className="px-3 py-2 rounded-lg text-[12px] font-extrabold disabled:opacity-40 text-white"
+                        style={{ background: '#5A3CB8' }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setEditingSubject(false); setDraftSubject(score.subject); }}
+                        className="px-2.5 py-2 text-[12px] font-bold text-[#5A6488]"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-2xl shrink-0" aria-hidden>📚</span>
+                        <div className="min-w-0">
+                          <div className="font-display font-extrabold text-[17px] text-[#0F1F44] truncate">
+                            {confirmedSubject ?? score.subject ?? 'Subject'}
+                          </div>
+                          {score.gradeLevel && (
+                            <div className="text-[11px] text-[#5A6488]">{score.gradeLevel}</div>
+                          )}
+                        </div>
+                      </div>
+                      {confirmedSubject ? (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingSubject(true); setDraftSubject(confirmedSubject); }}
+                          className="text-[11px] font-bold text-[#5A3CB8] hover:bg-[#FBF7EE] rounded px-2 py-1 whitespace-nowrap"
+                        >
+                          ✏️ Change
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setConfirmedSubject(score.subject)}
+                            className="px-3 py-1.5 rounded-full text-[12px] font-extrabold text-white whitespace-nowrap"
+                            style={{ background: '#2E7D34' }}
+                          >
+                            ✓ Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setEditingSubject(true); setDraftSubject(score.subject); }}
+                            className="px-3 py-1.5 rounded-full text-[12px] font-extrabold whitespace-nowrap"
+                            style={{ background: '#E5D6FF', color: '#5A3CB8' }}
+                          >
+                            ✏️ Correct it
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
-                </div>
-
-                {/* Big score */}
-                <div className="bg-gradient-to-br from-[#E5D6FF] to-[#C9F0EC] rounded-2xl p-4 text-center">
-                  <div className="text-[10px] font-extrabold tracking-[1px] text-[#1B1547] uppercase opacity-75">AI score</div>
-                  <div className="font-display font-extrabold text-[44px] text-[#1B1547] leading-none mt-1">
-                    {score.score}%
-                  </div>
-                  <div className="flex items-center justify-center gap-3 mt-2 text-[11.5px] font-bold">
-                    <span className="text-[#2E7D34]">✓ {score.breakdown.correct} correct</span>
-                    <span className="text-[#8A6800]">~ {score.breakdown.partial} partial</span>
-                    <span className="text-[#A33A2A]">✗ {score.breakdown.wrong} wrong</span>
-                  </div>
-                  {score.score >= settings.qualifying_score && (
-                    <div className="mt-3 inline-flex items-center gap-1.5 bg-white text-[#1B1547] rounded-full px-3 py-1 text-[11.5px] font-extrabold shadow-sm">
-                      🎯 Qualifies for +{score.score >= settings.bonus_threshold ? settings.bonus_points : settings.base_points} Kaya Points
-                      {settings.parent_approval_required && <span className="opacity-70 font-bold">· pending parent approval</span>}
+                  {!confirmedSubject && !editingSubject && (
+                    <div className="text-[11px] text-[#5A6488] mt-2 italic">
+                      Confirm or correct the subject before submitting.
                     </div>
                   )}
                 </div>
+
+                {/* Big score — answers mode only */}
+                {mode === 'answers' && (
+                  <div className="bg-gradient-to-br from-[#E5D6FF] to-[#C9F0EC] rounded-2xl p-4 text-center">
+                    <div className="text-[10px] font-extrabold tracking-[1px] text-[#1B1547] uppercase opacity-75">AI score</div>
+                    <div className="font-display font-extrabold text-[44px] text-[#1B1547] leading-none mt-1">
+                      {score.score}%
+                    </div>
+                    <div className="flex items-center justify-center gap-3 mt-2 text-[11.5px] font-bold">
+                      <span className="text-[#2E7D34]">✓ {score.breakdown.correct} correct</span>
+                      <span className="text-[#8A6800]">~ {score.breakdown.partial} partial</span>
+                      <span className="text-[#A33A2A]">✗ {score.breakdown.wrong} wrong</span>
+                    </div>
+                    {score.score >= settings.qualifying_score && (
+                      <div className="mt-3 inline-flex items-center gap-1.5 bg-white text-[#1B1547] rounded-full px-3 py-1 text-[11.5px] font-extrabold shadow-sm">
+                        🎯 Qualifies for +{score.score >= settings.bonus_threshold ? settings.bonus_points : settings.base_points} Kaya Points
+                        {settings.parent_approval_required && <span className="opacity-70 font-bold">· pending parent approval</span>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Questions mode header — replaces the score card */}
+                {mode === 'questions' && (
+                  <div className="bg-gradient-to-br from-[#E5D6FF] to-[#C9F0EC] rounded-2xl p-4">
+                    <div className="text-[10px] font-extrabold tracking-[1px] text-[#1B1547] uppercase opacity-75">📚 Worksheet · questions mode</div>
+                    <div className="font-display font-extrabold text-[16px] text-[#1B1547] mt-1">
+                      {score.parsedQuestions.length} questions Claude could read
+                    </div>
+                    <div className="text-[11.5px] text-[#1B1547]/75 mt-1 leading-snug">
+                      Submit so your parent sees what you&apos;re practicing. Go answer them, then come back with &quot;My answers&quot; mode for scoring + Kaya Points.
+                    </div>
+                  </div>
+                )}
 
                 {/* AI notes */}
                 {score.notes && (
@@ -361,8 +555,29 @@ export default function RevisionFlow({
                   </div>
                 )}
 
-                {/* Next 3 questions */}
-                {nextQuestions && nextQuestions.length > 0 && (
+                {/* Parsed questions (questions mode) */}
+                {mode === 'questions' && score.parsedQuestions.length > 0 && (
+                  <div className="bg-[#FBF7EE] rounded-xl p-3.5">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[10px] font-extrabold tracking-[0.8px] text-[#5A3CB8] uppercase">📚 Questions on this page</div>
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="text-[10.5px] font-bold text-[#5A3CB8] hover:bg-white rounded px-2 py-0.5"
+                      >
+                        🖨 Print
+                      </button>
+                    </div>
+                    <ol className="m-0 pl-5 text-[12.5px] text-[#0F1F44] leading-relaxed">
+                      {score.parsedQuestions.map((q, idx) => (
+                        <li key={idx} className="py-1">{q}</li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
+                {/* Next 3 questions (answers mode only) */}
+                {mode === 'answers' && nextQuestions && nextQuestions.length > 0 && (
                   <div className="bg-[#FBF7EE] rounded-xl p-3.5">
                     <div className="flex items-center justify-between mb-2">
                       <div className="text-[10px] font-extrabold tracking-[0.8px] text-[#5A3CB8] uppercase">🎯 Try these 3 next</div>
@@ -439,7 +654,7 @@ export default function RevisionFlow({
                     className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold disabled:opacity-40 text-white"
                     style={{ background: '#5A3CB8' }}
                   >
-                    ✨ Score my revision
+                    {mode === 'questions' ? '✨ Read the questions' : '✨ Score my revision'}
                   </button>
                 </>
               )}
@@ -451,10 +666,12 @@ export default function RevisionFlow({
                   <button
                     type="button"
                     onClick={submit}
-                    className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold text-white"
+                    disabled={!confirmedSubject}
+                    className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold text-white disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ background: '#5A3CB8' }}
+                    title={!confirmedSubject ? 'Confirm the subject first' : ''}
                   >
-                    Submit revision
+                    Submit to parent
                   </button>
                 </>
               )}
