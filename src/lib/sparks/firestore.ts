@@ -90,6 +90,30 @@ export async function setSiblingVisibility(
   await upsertSparksProfile(familyId, kidId, { sibling_visibility: mode }, uid);
 }
 
+/** Slice 7g · copy one kid's `revision_settings` into every other kid's
+ *  profile in the family. Skips the source kid. Used by the setup card's
+ *  "Copy to all kids" action so a parent who already configured one kid
+ *  can mirror the values family-wide in a single tap.
+ *
+ *  Returns the number of kids written to (excluding the source). */
+export async function copyRevisionSettingsToAllKids(
+  familyId: string,
+  sourceKidId: string,
+  uid: string,
+): Promise<number> {
+  const source = await getSparksProfile(familyId, sourceKidId);
+  const settings = source?.revision_settings;
+  if (!settings) return 0;
+  const snap = await getDocs(profilesCollection(familyId));
+  const targets = snap.docs.map((d) => d.id).filter((id) => id !== sourceKidId);
+  await Promise.all(
+    targets.map((kidId) =>
+      upsertSparksProfile(familyId, kidId, { revision_settings: settings }, uid),
+    ),
+  );
+  return targets.length;
+}
+
 /** Toggle one area's per_area flag. Forces sibling_visibility = 'per_area'
  *  so the new flag actually takes effect. */
 export async function setSiblingPerAreaFlag(

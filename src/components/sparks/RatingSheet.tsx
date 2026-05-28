@@ -38,6 +38,10 @@ interface Props {
   /** Defaults: home_project + school_project → 'both'; achievement +
    *  sports_subscription → 'stars'. Caller can override per area. */
   mode?: SparksRatingMode;
+  /** Optional kid display name — used to label whose revision_settings
+   *  the points suggestion is drawn from. Falls back to "this kid"
+   *  when missing. */
+  kidName?: string;
 }
 
 const AREA_HEAD_GRADIENT: Record<SparksItem['area'], string> = {
@@ -61,7 +65,7 @@ const AREA_DEFAULT_MODE: Record<SparksItem['area'], SparksRatingMode> = {
 
 export default function RatingSheet({
   open, onClose, onSaved,
-  familyId, item, parentUid, mode,
+  familyId, item, parentUid, mode, kidName,
 }: Props) {
   const meta = SPARKS_AREA_META[item.area];
   const formId = useId();
@@ -86,6 +90,10 @@ export default function RatingSheet({
    *  ±points_override_cap. Stored as a draft string so the field can
    *  be cleared while typing (mirrors the NumberKnob fix). */
   const [pointsDraft, setPointsDraft] = useState<string>('');
+  /** Slice 7g · separate toggle to OPT IN to overriding. Defaults OFF
+   *  so the suggestion ships as-is unless the parent explicitly
+   *  decides to adjust. The stepper is hidden until this is on. */
+  const [useOverride, setUseOverride] = useState(false);
 
   const photos = item.photo_urls ?? [];
   const isRevision = item.area === 'revision' && !!item.revision_data;
@@ -103,6 +111,11 @@ export default function RatingSheet({
     ...DEFAULT_REVISION_SETTINGS,
     ...(profile?.revision_settings ?? {}),
   }), [profile]);
+  // True when this kid has no saved revision_settings — we're falling
+  // back to DEFAULT_REVISION_SETTINGS. Surfaced to the parent so they
+  // know to head to /sparks/setup if they want to tune the bar for
+  // THIS kid specifically.
+  const usingDefaults = !profile?.revision_settings || Object.keys(profile.revision_settings).length === 0;
 
   // Seed the percent slider with the AI score on revision items so the
   // parent's starting point is the AI's read — they nudge from there.
@@ -122,6 +135,7 @@ export default function RatingSheet({
     setAwardResult(null);
     setAwardPoints(false);
     setPointsDraft('');
+    setUseOverride(false);
   }, [open, showPercent, isRevision, item.revision_data?.ai_score]);
 
   // Whether the current rating would qualify for points + how many.
@@ -148,10 +162,13 @@ export default function RatingSheet({
 
   // Parse the draft → clamp to range. Empty / non-numeric falls back
   // to the suggestion so the rest of the UI has a stable number.
+  // `useOverride` gates the whole thing: when off, the parent gets the
+  // suggested value exactly, no matter what's in the draft.
   const parsedDraft = pointsDraft.trim() === '' ? NaN : Number(pointsDraft);
-  const pendingPoints = Number.isFinite(parsedDraft)
+  const overriddenPoints = Number.isFinite(parsedDraft)
     ? Math.max(pointsMin, Math.min(pointsMax, Math.round(parsedDraft)))
     : suggestedPoints;
+  const pendingPoints = useOverride ? overriddenPoints : suggestedPoints;
 
   // Seed the override draft to the suggestion every time the suggestion
   // changes (percent slider moves, bonus tier flips). Only when the
@@ -428,56 +445,86 @@ export default function RatingSheet({
                   </div>
                   <div className="text-[11px] text-[#5A6488] mt-0.5 leading-snug">
                     {awardPoints
-                      ? `Award fires on save · once per revision. Suggested ${suggestedPoints}; you can nudge ±${overrideCap}.`
+                      ? `Award fires on save · once per revision. Suggestion is ${suggestedPoints}${overrideCap > 0 ? ` (override toggle below to adjust ±${overrideCap})` : ''}.`
                       : wouldQualify
-                        ? `Off by default — tick to release the award now. Suggestion is ${suggestedPoints}; you can nudge ±${overrideCap}. Leave unticked to hold.`
+                        ? `Off by default — tick to release the award now. Suggestion is ${suggestedPoints}${overrideCap > 0 ? `; override below to adjust ±${overrideCap}` : ''}. Leave unticked to hold.`
                         : `Bump the score above ${revisionSettings.qualifying_score}% to enable.`}
+                    {wouldQualify && (
+                      <span className="block mt-1">
+                        {usingDefaults ? (
+                          <>📋 Using <strong>defaults</strong> — {kidName ?? 'this kid'} has no saved settings. <a href="/sparks/setup" className="underline text-[#5A3CB8] font-bold">Configure →</a></>
+                        ) : (
+                          <>✓ From <strong>{kidName ?? 'this kid'}&apos;s</strong> saved settings.</>
+                        )}
+                      </span>
+                    )}
                   </div>
                 </div>
               </label>
 
-              {/* Override stepper — only visible once award is ticked AND
-                  the parent can actually nudge (cap > 0). Cap = 0 locks
-                  the suggestion exactly. */}
+              {/* Override toggle + stepper — only visible once award is
+                  ticked AND the parent can actually nudge (cap > 0). The
+                  toggle is OFF by default so the suggestion ships as-is;
+                  parents who want to adjust opt in explicitly. Cap = 0
+                  locks the suggestion exactly. */}
               {awardPoints && wouldQualify && overrideCap > 0 && (
-                <div className="mt-2.5 pt-2.5 border-t border-[#0F1F44]/10 flex items-center gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">Override</span>
-                  <button
-                    type="button"
-                    onClick={() => setPointsDraft(String(Math.max(pointsMin, pendingPoints - 1)))}
-                    disabled={pendingPoints <= pointsMin}
-                    className="w-7 h-7 rounded-full bg-white border border-[#0F1F44]/15 text-[#0F1F44] font-extrabold text-[14px] grid place-items-center disabled:opacity-30"
-                    aria-label="Decrease points"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min={pointsMin}
-                    max={pointsMax}
-                    step={1}
-                    value={pointsDraft}
-                    onChange={(e) => setPointsDraft(e.target.value)}
-                    onBlur={() => {
-                      if (pointsDraft.trim() === '') { setPointsDraft(String(suggestedPoints)); return; }
-                      const n = Number(pointsDraft);
-                      if (!Number.isFinite(n)) { setPointsDraft(String(suggestedPoints)); return; }
-                      setPointsDraft(String(Math.max(pointsMin, Math.min(pointsMax, Math.round(n)))));
-                    }}
-                    className="w-16 bg-white border border-[#0F1F44]/15 rounded-lg px-2 py-1 text-center text-[14px] font-extrabold text-[#0F1F44] focus:outline-none focus:border-[#5A3CB8]"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPointsDraft(String(Math.min(pointsMax, pendingPoints + 1)))}
-                    disabled={pendingPoints >= pointsMax}
-                    className="w-7 h-7 rounded-full bg-white border border-[#0F1F44]/15 text-[#0F1F44] font-extrabold text-[14px] grid place-items-center disabled:opacity-30"
-                    aria-label="Increase points"
-                  >
-                    +
-                  </button>
-                  <span className="text-[10.5px] text-[#5A6488] ml-1">
-                    {pointsMin}–{pointsMax}
-                  </span>
+                <div className="mt-2.5 pt-2.5 border-t border-[#0F1F44]/10">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useOverride}
+                      onChange={(e) => setUseOverride(e.target.checked)}
+                      className="w-4 h-4 shrink-0"
+                    />
+                    <span className="text-[12px] font-extrabold text-[#0F1F44]">
+                      Override points
+                    </span>
+                    <span className="text-[10.5px] text-[#5A6488]">
+                      {useOverride
+                        ? `Adjust within ±${overrideCap} of suggestion`
+                        : `Use the ${suggestedPoints}-pt suggestion as-is`}
+                    </span>
+                  </label>
+                  {useOverride && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPointsDraft(String(Math.max(pointsMin, overriddenPoints - 1)))}
+                        disabled={overriddenPoints <= pointsMin}
+                        className="w-7 h-7 rounded-full bg-white border border-[#0F1F44]/15 text-[#0F1F44] font-extrabold text-[14px] grid place-items-center disabled:opacity-30"
+                        aria-label="Decrease points"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={pointsMin}
+                        max={pointsMax}
+                        step={1}
+                        value={pointsDraft}
+                        onChange={(e) => setPointsDraft(e.target.value)}
+                        onBlur={() => {
+                          if (pointsDraft.trim() === '') { setPointsDraft(String(suggestedPoints)); return; }
+                          const n = Number(pointsDraft);
+                          if (!Number.isFinite(n)) { setPointsDraft(String(suggestedPoints)); return; }
+                          setPointsDraft(String(Math.max(pointsMin, Math.min(pointsMax, Math.round(n)))));
+                        }}
+                        className="w-16 bg-white border border-[#0F1F44]/15 rounded-lg px-2 py-1 text-center text-[14px] font-extrabold text-[#0F1F44] focus:outline-none focus:border-[#5A3CB8]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPointsDraft(String(Math.min(pointsMax, overriddenPoints + 1)))}
+                        disabled={overriddenPoints >= pointsMax}
+                        className="w-7 h-7 rounded-full bg-white border border-[#0F1F44]/15 text-[#0F1F44] font-extrabold text-[14px] grid place-items-center disabled:opacity-30"
+                        aria-label="Increase points"
+                      >
+                        +
+                      </button>
+                      <span className="text-[10.5px] text-[#5A6488] ml-1">
+                        {pointsMin}–{pointsMax}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

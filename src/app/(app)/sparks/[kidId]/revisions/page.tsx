@@ -330,6 +330,7 @@ export default function RevisionsPage() {
           item={rateItem}
           parentUid={authProfile.uid}
           mode="both"
+          kidName={kid.name}
         />
       )}
 
