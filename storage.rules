@@ -137,6 +137,29 @@ service firebase.storage {
       allow delete: if belongsToFamily(familyId);
     }
 
+    // ── Kaya Sparks → Home Practice Materials (2026-05-28) ──
+    // Reference docs uploaded by parents (or helpers with sparks-act)
+    // and read by kids during revisions. Family-scoped — anyone in the
+    // family can read; the per-kid sharing gate is applied at the
+    // Firestore + UI layer via `shared_with`. Write is intentionally
+    // wider than Sparks photos: PDFs (mostly), Office docs, images.
+    // 25 MB cap matches the messaging-document cap.
+    //   families/{f}/sparks_materials/{materialId}/{file}
+    match /families/{familyId}/sparks_materials/{materialId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 25 * 1024 * 1024
+        && (
+          request.resource.contentType.matches('image/.*')
+          || request.resource.contentType == 'application/pdf'
+          || request.resource.contentType.matches('application/vnd.openxmlformats-officedocument.*')
+          || request.resource.contentType.matches('application/vnd.ms-.*')
+          || request.resource.contentType.matches('application/msword')
+          || request.resource.contentType.matches('text/.*')
+        );
+      allow delete: if belongsToFamily(familyId);
+    }
+
     // ── Household → Subscription receipts (2026-05-27) ──
     // Phase 1 ships ONLY Property-linked Manual subscription receipts —
     // rent, BC fees, land rates, borehole servicing. These are receipts
