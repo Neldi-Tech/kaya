@@ -12,8 +12,8 @@ import Link from 'next/link';
 import { useHive } from '@/contexts/HiveContext';
 import { useTierAccess } from '@/lib/tierAccess';
 import {
-  DEFAULT_TIERS, DEFAULT_ADDONS,
-  type SubscriptionTierId,
+  DEFAULT_ADDONS,
+  type SubscriptionTierId, type TierConfig,
 } from '@/lib/tiers';
 import { usdFxRate } from '@/lib/pricing';
 import { roundNeatCents } from '@/lib/format';
@@ -47,15 +47,31 @@ export default function SubscriptionPage() {
   }, [currency, fx]);
 
   // Per-month price for a tier given the billing cycle, in USD cents.
+  // Read from access.tiers — the LIVE merged config (defaults + any
+  // overrides published from /admin/tiers + /admin/pricing) — NOT from
+  // DEFAULT_TIERS, so operator edits reflect here without a deploy.
   const perMonthCents = (tierId: SubscriptionTierId): number => {
-    const t = DEFAULT_TIERS[tierId];
+    const t = access.tiers[tierId];
     return cycle === 'yearly' ? Math.round(t.priceYearly / 12) : t.priceMonthly;
   };
   const yearlyTotalCents = (tierId: SubscriptionTierId): number =>
-    DEFAULT_TIERS[tierId].priceYearly;
+    access.tiers[tierId].priceYearly;
 
   const isCurrent = (tierId: SubscriptionTierId) => access.tierId === tierId;
-  const currentTier = DEFAULT_TIERS[access.tierId];
+  const currentTier = access.tiers[access.tierId];
+
+  // Human-friendly limit copy for the comparison table (live).
+  const memberCopy = (t: TierConfig) => t.memberLimit === null ? '∞' : String(t.memberLimit);
+  const helperCopy = (t: TierConfig) => t.helperLimit === null ? '∞' : String(t.helperLimit);
+  const historyCopy = (t: TierConfig) => {
+    if (t.historyRetentionDays === null) return 'Forever';
+    if (t.historyRetentionDays >= 365)   return `${Math.round(t.historyRetentionDays / 365)} year`;
+    if (t.historyRetentionDays >= 30)    return `${t.historyRetentionDays} days`;
+    return `${t.historyRetentionDays} days`;
+  };
+  const nestT = access.tiers.nest;
+  const homeT = access.tiers.home;
+  const castleT = access.tiers.castle;
 
   return (
     <div style={{ background: CREAM, minHeight: '100vh', color: NAVY }}>
@@ -171,6 +187,7 @@ export default function SubscriptionPage() {
         <div className="grid md:grid-cols-[1fr_1.08fr_1fr] gap-3.5 items-start mb-14">
           <TierCard
             tierId="nest"
+            tier={nestT}
             isCurrent={isCurrent('nest')}
             perMonthLocal={toLocal(perMonthCents('nest'))}
             perMonthUsdCents={perMonthCents('nest')}
@@ -181,6 +198,7 @@ export default function SubscriptionPage() {
           />
           <TierCard
             tierId="home"
+            tier={homeT}
             isCurrent={isCurrent('home')}
             perMonthLocal={toLocal(perMonthCents('home'))}
             perMonthUsdCents={perMonthCents('home')}
@@ -191,6 +209,7 @@ export default function SubscriptionPage() {
           />
           <TierCard
             tierId="castle"
+            tier={castleT}
             isCurrent={isCurrent('castle')}
             perMonthLocal={toLocal(perMonthCents('castle'))}
             perMonthUsdCents={perMonthCents('castle')}
@@ -215,15 +234,15 @@ export default function SubscriptionPage() {
           </h3>
 
           <CompareHeader />
-          <CompareRow label="Members" nest="4" home="8" castle="∞" />
+          <CompareRow label="Members" nest={memberCopy(nestT)} home={memberCopy(homeT)} castle={memberCopy(castleT)} />
           <CompareRow
             label="Helpers"
             sublabel="nanny, tutor, grandparent"
-            nest="1"
-            home="3"
-            castle="∞"
+            nest={helperCopy(nestT)}
+            home={helperCopy(homeT)}
+            castle={helperCopy(castleT)}
           />
-          <CompareRow label="Activity history" nest="30 days" home="1 year" castle="Forever" />
+          <CompareRow label="Activity history" nest={historyCopy(nestT)} home={historyCopy(homeT)} castle={historyCopy(castleT)} />
           <CompareRow label="Kaya Buzz" sublabel="ideas & help community" nest="yes" home="yes" castle="yes" />
           <CompareRow label="The Hive" sublabel="Honey Coins & vault" nest="no" home="yes" castle="yes" />
           <CompareRow label="Household" sublabel="pantry, utilities, payroll" nest="no" home="yes" castle="yes" />
@@ -339,8 +358,10 @@ function TierCard({
   yearlyTotalUsdCents,
   cycle,
   currency,
+  tier,
 }: {
   tierId: SubscriptionTierId;
+  tier: TierConfig;
   isCurrent: boolean;
   perMonthLocal: string;
   perMonthUsdCents: number;
@@ -349,7 +370,6 @@ function TierCard({
   cycle: BillingCycle;
   currency: string;
 }) {
-  const tier = DEFAULT_TIERS[tierId];
   const isFree = tier.priceMonthly === 0;
 
   // Style variants per tier
@@ -459,7 +479,7 @@ function TierCard({
       <Features tierId={tierId} variant={variant} />
 
       {/* CTA */}
-      <CtaButton tierId={tierId} variant={variant} isCurrent={isCurrent} />
+      <CtaButton tierId={tierId} tier={tier} variant={variant} isCurrent={isCurrent} />
     </div>
   );
 }
@@ -520,14 +540,15 @@ function Features({ tierId, variant }: { tierId: SubscriptionTierId; variant: 'n
 
 function CtaButton({
   tierId,
+  tier,
   variant,
   isCurrent,
 }: {
   tierId: SubscriptionTierId;
+  tier: TierConfig;
   variant: 'nest' | 'home' | 'castle';
   isCurrent: boolean;
 }) {
-  const tier = DEFAULT_TIERS[tierId];
 
   if (isCurrent) {
     return (
