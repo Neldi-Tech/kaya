@@ -196,6 +196,23 @@ service cloud.firestore {
       // Allow reading family by invite code (for joining)
       allow list: if isSignedIn();
 
+      // ── Kaya Guide help-chat logs (2026-05-28) ───────────────
+      // The app-wide help bubble logs each conversation here so a
+      // parent can later review what was asked. Every conversation
+      // is stamped with its author's uid. Parents/helpers may read
+      // everyone's; anyone else reads only their own. You may only
+      // write a log that carries your own uid; parents can prune.
+      match /guideChats/{conversationId} {
+        allow read: if isParentOrHelper(familyId)
+          || (belongsToFamily(familyId) && resource.data.uid == request.auth.uid);
+        allow create: if belongsToFamily(familyId)
+          && request.resource.data.uid == request.auth.uid;
+        allow update: if belongsToFamily(familyId)
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if isParentInFamily(familyId);
+      }
+
       // ── Children ─────────────────────────────────
       match /children/{childId} {
         allow read: if belongsToFamily(familyId);
