@@ -15,7 +15,7 @@ import { useTierAccess } from '@/lib/tierAccess';
 import { formatBytes, tierCapBytes, usagePercent, usageState } from '@/lib/storage';
 import type { Family } from '@/lib/firestore';
 import {
-  DEFAULT_ADDONS,
+  DEFAULT_ADDONS, MODULE_REGISTRY,
   type SubscriptionTierId, type TierConfig,
 } from '@/lib/tiers';
 import { usdFxRate } from '@/lib/pricing';
@@ -255,13 +255,29 @@ export default function SubscriptionPage() {
             castle={helperCopy(castleT)}
           />
           <CompareRow label="Activity history" nest={historyCopy(nestT)} home={historyCopy(homeT)} castle={historyCopy(castleT)} />
-          <CompareRow label="Kaya Buzz" sublabel="ideas & help community" nest="yes" home="yes" castle="yes" />
-          <CompareRow label="The Hive" sublabel="Honey Coins & vault" nest="no" home="yes" castle="yes" />
-          <CompareRow label="Household" sublabel="pantry, utilities, payroll" nest="no" home="yes" castle="yes" />
-          <CompareRow label="Pages & Dreams" nest="no" home="yes" castle="yes" />
-          <CompareRow label="Kaya Business" sublabel="kid micro-enterprises" nest="no" home={`Add-on ${toLocal(300)}/mo`} castle="yes" />
-          <CompareRow label="Kaya Wealth" sublabel="asset & property registry" nest="no" home={`Add-on ${toLocal(400)}/mo`} castle="yes" />
-          <CompareRow label="Chef, Wellness, Grow, Letter…" nest="no" home={`From ${toLocal(100)}/mo`} castle="yes" last />
+          <CompareRow label="Storage" nest="200 MB" home="2 GB" castle="Plenty" />
+          {/* Every shipped module from MODULE_REGISTRY — iterate so adding a
+              new module in lib/tiers.ts surfaces it here without UI work. */}
+          {MODULE_REGISTRY.filter((m) => m.shipped).map((m, i, arr) => {
+            const addon = DEFAULT_ADDONS.find((a) => a.moduleId === m.id);
+            return (
+              <CompareRow
+                key={m.id}
+                label={`${m.emoji} ${m.name}`}
+                sublabel={m.description}
+                nest={nestT.modules.includes(m.id) ? 'yes' : 'no'}
+                home={
+                  homeT.modules.includes(m.id)
+                    ? 'yes'
+                    : addon
+                      ? `Add-on ${toLocal(addon.priceMonthly)}/mo`
+                      : 'no'
+                }
+                castle={castleT.modules.includes(m.id) ? 'yes' : 'no'}
+                last={i === arr.length - 1}
+              />
+            );
+          })}
         </div>
 
         {/* Add-ons */}
