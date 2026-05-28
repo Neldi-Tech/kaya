@@ -235,6 +235,12 @@ export interface RevisionSettings {
    *  suggestion. The award itself is still gated by `awardPoints` —
    *  this just controls the editable range when it's on. */
   points_override_cap?: number;
+  /** Slice 7g · policy switch — controls whether the rate sheet shows
+   *  the ± stepper at all. ON: parents can add/reduce per-revision
+   *  within `points_override_cap`. OFF: the suggestion is locked in
+   *  on every rate (no stepper, no nudging). Default true so existing
+   *  Slice 7f behaviour is preserved. */
+  allow_points_override?: boolean;
 }
 
 export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_subjects'>> & { focus_subjects: string[] } = {
@@ -247,6 +253,7 @@ export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_s
   auto_print_next: false,
   focus_subjects: [],
   points_override_cap: 5,
+  allow_points_override: true,
 };
 
 // ── Academic ───────────────────────────────────────────────────────────
