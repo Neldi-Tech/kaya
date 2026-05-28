@@ -22,6 +22,7 @@ import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/A
 import CaptureSheet from '@/components/sparks/CaptureSheet';
 import RatingSheet from '@/components/sparks/RatingSheet';
 import RatingDisplay from '@/components/sparks/RatingDisplay';
+import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 
 // Medal palette — rotates across the wall so it reads as a mix of
 // gold / coral / mint / purple medals from the mockup. The kid's
@@ -42,6 +43,7 @@ export default function AchievementsPage() {
   const [openCapture, setOpenCapture] = useState(false);
   const [ratings, setRatings] = useState<SparksRating[]>([]);
   const [rateItem, setRateItem] = useState<SparksItem | null>(null);
+  const [lightbox, setLightbox] = useState<{ photos: string[]; index: number; caption: string; sub: string } | null>(null);
   const isParent = authProfile?.role === 'parent';
 
   useEffect(() => {
@@ -101,17 +103,29 @@ export default function AchievementsPage() {
                   key={it.id}
                   className="flex items-center gap-3 py-3 border-b border-[#ECE4D3] last:border-b-0"
                 >
-                  <div
-                    className="w-10 h-10 rounded-full grid place-items-center shrink-0 overflow-hidden"
-                    style={photo ? undefined : { background: MEDAL_BG[idx % MEDAL_BG.length] }}
-                  >
-                    {photo ? (
-                      // eslint-disable-next-line @next/next/no-img-element
+                  {photo ? (
+                    <button
+                      type="button"
+                      onClick={() => setLightbox({
+                        photos: it.photo_urls ?? [],
+                        index: 0,
+                        caption: it.title,
+                        sub: it.description ? `${it.description} · ${toDisplayDate(it.date)}` : toDisplayDate(it.date),
+                      })}
+                      className="w-10 h-10 rounded-full overflow-hidden shrink-0 border-0 p-0 cursor-zoom-in"
+                      aria-label={`Open ${it.title} full screen`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={photo} alt={it.title} className="w-full h-full object-cover" />
-                    ) : (
+                    </button>
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-full grid place-items-center shrink-0 overflow-hidden"
+                      style={{ background: MEDAL_BG[idx % MEDAL_BG.length] }}
+                    >
                       <span className="text-lg" aria-hidden>{MEDAL_ICON[idx % MEDAL_ICON.length]}</span>
-                    )}
-                  </div>
+                    </div>
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="text-[13px] font-extrabold text-[#0F1F44] leading-tight">
                       {it.title}
@@ -152,6 +166,17 @@ export default function AchievementsPage() {
           item={rateItem}
           parentUid={authProfile.uid}
           mode="stars"
+        />
+      )}
+
+      {lightbox && (
+        <PhotoLightbox
+          photos={lightbox.photos}
+          index={lightbox.index}
+          onIndexChange={(i) => setLightbox({ ...lightbox, index: i })}
+          onClose={() => setLightbox(null)}
+          caption={lightbox.caption}
+          subCaption={lightbox.sub}
         />
       )}
     </>
