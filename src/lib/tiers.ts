@@ -34,6 +34,12 @@ export type ModuleId =
   | 'grow'              // Kaya Grow (stub)
   | 'analytics'         // Advanced analytics (stub)
   | 'letter'            // Family Letter (stub)
+  | 'myday'             // My Day — daily landing surface (added 2026-05-28)
+  | 'messages'          // Family chat (added 2026-05-28)
+  | 'pulse'             // Kaya Pulse — utilities + finances (added 2026-05-28)
+  | 'workplan'          // Kids' Workplan editor (added 2026-05-28)
+  | 'directory'         // Family + supplier contacts (added 2026-05-28)
+  | 'stats'             // Reports / kid profiles / family tree (added 2026-05-28)
   | 'sparks';           // Kaya Sparks — kids education (added 2026-05-27,
                         //   reusing the freed ID slot from the buzz rename;
                         //   completely different feature: school projects,
@@ -53,12 +59,19 @@ export interface ModuleMeta {
 }
 
 export const MODULE_REGISTRY: ModuleMeta[] = [
-  { id: 'kaya-core', name: 'Kaya (core)',       emoji: '🏆', description: 'Chores, points, houses',         shipped: true,  routePrefix: '/home' },
-  { id: 'moments',   name: 'Moments',           emoji: '📷', description: 'Daily family feed',              shipped: true,  routePrefix: '/moments' },
-  { id: 'fun',       name: 'Fun',               emoji: '🎉', description: 'Joy-only, no points',            shipped: true,  routePrefix: '/games' },
+  { id: 'kaya-core', name: 'Kaya (core)',       emoji: '🏆', description: 'Chores, points, houses · rate, award, meetings, rewards', shipped: true,  routePrefix: '/home' },
+  { id: 'myday',     name: 'My Day',            emoji: '🌟', description: 'Personal daily landing — your rate/award/messages all in one', shipped: true,  routePrefix: '/my-day' },
+  { id: 'moments',   name: 'Moments',           emoji: '📷', description: 'Daily family feed of photos + memories', shipped: true,  routePrefix: '/moments' },
+  { id: 'messages',  name: 'Messages',          emoji: '💬', description: 'In-app family chat (parents · helpers · kids)', shipped: true,  routePrefix: '/messages' },
+  { id: 'workplan',  name: 'Kids’ Workplan', emoji: '🗓️', description: 'Per-kid workplan editor + day-of schedule', shipped: true,  routePrefix: '/workplan' },
   { id: 'buzz',      name: 'Kaya Buzz',         emoji: '🐝', description: 'Ideas & help community',         shipped: true,  routePrefix: '/buzz' },
+  { id: 'sparks',    name: 'Kaya Sparks',       emoji: '✨', description: "Kids' education — projects, achievements, academic, sports", shipped: true,  routePrefix: '/sparks' },
+  { id: 'fun',       name: 'Fun',               emoji: '🎉', description: 'Joy-only, no points — videos + games', shipped: true,  routePrefix: '/games' },
+  { id: 'directory', name: 'Directory',         emoji: '📞', description: 'Family + supplier contact directory', shipped: true,  routePrefix: '/directory' },
+  { id: 'stats',     name: 'Stats',             emoji: '📊', description: 'Reports · kid profiles · family tree (read-only roll-ups)', shipped: true,  routePrefix: '/reports' },
   { id: 'hive',      name: 'The Hive',          emoji: '🍯', description: 'Honey Coins & vault',            shipped: true,  routePrefix: '/hive' },
-  { id: 'household', name: 'Household',         emoji: '🏡', description: 'Pantry, utilities, helpers',     shipped: true,  routePrefix: '/pantry' },
+  { id: 'household', name: 'Household',         emoji: '🏡', description: 'Pantry, utilities, helpers, payroll', shipped: true,  routePrefix: '/pantry' },
+  { id: 'pulse',     name: 'Kaya Pulse',        emoji: '📈', description: 'Daily readings · finances · run-rate advisory', shipped: true,  routePrefix: '/pulse' },
   { id: 'pages',     name: 'Pages',             emoji: '📇', description: 'Family smart address book',      shipped: false },
   { id: 'dreams',    name: 'Kaya Dreams',       emoji: '🌟', description: 'Milestone tracking',             shipped: false },
   { id: 'business',  name: 'Kaya Business',     emoji: '🐝', description: 'Kid micro-enterprises',          shipped: true,  routePrefix: '/business' },
@@ -66,9 +79,8 @@ export const MODULE_REGISTRY: ModuleMeta[] = [
   { id: 'chef',      name: 'Kaya Chef',         emoji: '🥗', description: 'Recipes, meal planning',         shipped: true,  routePrefix: '/chef' },
   { id: 'wellness',  name: 'Kaya Wellness',     emoji: '🌱', description: 'Sleep, screen time, mindful',    shipped: true,  routePrefix: '/wellness' },
   { id: 'grow',      name: 'Kaya Grow',         emoji: '📚', description: 'Skill tracks & learning',        shipped: false },
-  { id: 'analytics', name: 'Advanced analytics',emoji: '📊', description: 'Stats, trends, exports',         shipped: false },
+  { id: 'analytics', name: 'Advanced analytics',emoji: '📊', description: 'Trends, exports, multi-year roll-ups', shipped: false },
   { id: 'letter',    name: 'Family Letter',     emoji: '📜', description: 'Monthly recap newsletter',       shipped: false },
-  { id: 'sparks',    name: 'Kaya Sparks',       emoji: '✨', description: "Kids' education — projects, achievements, academic, sports", shipped: true,  routePrefix: '/sparks' },
 ];
 
 // ── Tier configs ─────────────────────────────────────────────────────
@@ -127,7 +139,12 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     // spec ("keep Lite generous so families fall in love"). Feature-level
     // gating (no AI scan, 50-item cap, 30-day ratings history, 1 kid) is
     // enforced in `lib/sparks/gating.ts`, not by withholding the module.
-    modules: ['kaya-core', 'moments', 'fun', 'buzz', 'sparks'],
+    // Daily-life modules (My Day, Messages, Workplan, Directory) are
+    // ALWAYS in Nest — withholding the basics would break the product.
+    modules: [
+      'kaya-core', 'myday', 'moments', 'messages', 'workplan',
+      'fun', 'directory', 'buzz', 'sparks',
+    ],
     addonModules: [],
     isFeatured: false,
   },
@@ -146,7 +163,16 @@ export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
     // Home families get Sparks Family by default — full AI scanning,
     // pre-submission highlights, unlimited items, ≤5 kids, dashboard,
     // PDF export. Castle gets it implicitly (MODULE_REGISTRY.map below).
-    modules: ['kaya-core', 'moments', 'fun', 'buzz', 'hive', 'household', 'pages', 'dreams', 'sparks'],
+    // Home adds the premium parent surfaces on top of Nest: The Hive
+    // (Honey Coins), Household (pantry/utilities/payroll), Pulse
+    // (finances dashboard), and Stats (reports + roll-ups).
+    modules: [
+      // Everything in Nest
+      'kaya-core', 'myday', 'moments', 'messages', 'workplan',
+      'fun', 'directory', 'buzz', 'sparks',
+      // Home premium adds
+      'hive', 'household', 'pulse', 'stats', 'pages', 'dreams',
+    ],
     addonModules: ['business', 'wealth', 'chef', 'wellness', 'grow', 'letter'],
     isFeatured: true,
   },
