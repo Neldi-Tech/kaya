@@ -15,8 +15,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  addSubject, removeSubject, setSiblingPerAreaFlag, setSiblingVisibility,
-  subscribeToSparksProfile, upsertSparksProfile,
+  addSubject, copyRevisionSettingsToAllKids, removeSubject,
+  setSiblingPerAreaFlag, setSiblingVisibility, subscribeToSparksProfile,
+  upsertSparksProfile,
 } from '@/lib/sparks/firestore';
 import KidAvatar from '@/components/ui/KidAvatar';
 import {
@@ -116,6 +117,7 @@ export default function SparksSetupPage() {
                   familyId={familyId}
                   kid={activeKid}
                   uid={profile.uid}
+                  siblings={children.filter((c) => c.id !== activeKid.id)}
                 />
               </div>
             )}
@@ -350,14 +352,17 @@ function SubjectsCard({
 // ── Home Revisions settings card (Slice 7 · 2026-05-28) ────────────
 
 function RevisionSettingsCard({
-  familyId, kid, uid,
+  familyId, kid, uid, siblings,
 }: {
   familyId: string;
   kid: Child;
   uid: string;
+  siblings: Child[];
 }) {
   const [profile, setProfile] = useState<SparksProfile | null>(null);
   const [saving, setSaving] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copyMsg, setCopyMsg] = useState<string | null>(null);
 
   useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
 
@@ -365,9 +370,13 @@ function RevisionSettingsCard({
     ...DEFAULT_REVISION_SETTINGS,
     ...(profile?.revision_settings ?? {}),
   };
+  // Saved vs default — drives the badge so a parent can see at a glance
+  // whether THIS kid's settings are configured or still on defaults.
+  const hasSaved = !!profile?.revision_settings && Object.keys(profile.revision_settings).length > 0;
 
   const patch = async (next: Partial<RevisionSettings>) => {
     setSaving(true);
+    setCopyMsg(null);
     try {
       await upsertSparksProfile(
         familyId, kid.id,
@@ -377,16 +386,47 @@ function RevisionSettingsCard({
     } finally { setSaving(false); }
   };
 
+  const onCopyToAll = async () => {
+    if (siblings.length === 0 || !hasSaved) return;
+    const siblingNames = siblings.map((s) => s.name).join(', ');
+    const ok = window.confirm(
+      `Copy ${kid.name}'s revision settings to: ${siblingNames}?\n\nThis overwrites their current revision settings.`,
+    );
+    if (!ok) return;
+    setCopying(true);
+    setCopyMsg(null);
+    try {
+      const n = await copyRevisionSettingsToAllKids(familyId, kid.id, uid);
+      setCopyMsg(`✓ Copied to ${n} kid${n === 1 ? '' : 's'}.`);
+    } catch (e) {
+      setCopyMsg(e instanceof Error ? `Copy failed: ${e.message}` : 'Copy failed.');
+    } finally { setCopying(false); }
+  };
+
   return (
     <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
         <span className="text-xl" aria-hidden>🎯</span>
         <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
           Home Revisions · {kid.name}
         </div>
+        {hasSaved ? (
+          <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">
+            ✓ Saved
+          </span>
+        ) : (
+          <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">
+            Defaults
+          </span>
+        )}
       </div>
       <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
         Practice loop knobs. Claude scores each revision; you set the bar.
+        {!hasSaved && siblings.length > 0 && (
+          <span className="block mt-1 text-[#8A6800]">
+            Showing defaults — change any knob to save for {kid.name}.
+          </span>
+        )}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
@@ -455,6 +495,32 @@ function RevisionSettingsCard({
           disabled={saving}
         />
       </div>
+
+      {/* Copy-to-all action — only shown when there are siblings AND
+          this kid actually has saved settings. Settings are per-kid by
+          design (older kids → higher bars), but parents who want
+          family-wide values shouldn't have to reconfigure each card. */}
+      {siblings.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-[rgba(15,31,68,0.08)]">
+          <button
+            type="button"
+            onClick={onCopyToAll}
+            disabled={copying || saving || !hasSaved}
+            className="px-3.5 py-2 rounded-xl text-[12.5px] font-extrabold disabled:opacity-40 border-2 border-[#5A3CB8] text-[#5A3CB8] bg-white hover:bg-[#F6EFFF]"
+            title={hasSaved ? `Apply ${kid.name}'s values to the other ${siblings.length} kid${siblings.length === 1 ? '' : 's'}` : 'Save at least one knob first'}
+          >
+            {copying ? 'Copying…' : `📋 Copy to all kids (${siblings.length})`}
+          </button>
+          {copyMsg && (
+            <span className="ml-3 text-[12px] font-bold text-[#2E7D34]">{copyMsg}</span>
+          )}
+          {!hasSaved && (
+            <span className="ml-3 text-[11.5px] text-[#5A6488]">
+              Change a knob above to enable.
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
