@@ -125,6 +125,14 @@ export default function CaptureSheet({
     description?: string;
     subject?: string;
   }>({});
+  // Slice 7h · auto-suggested concept ("what is this image about?") fired
+  // automatically when photos exist + description is empty. Surfaces as a
+  // card with ✓ Confirm / ✏️ Write my own — never overwrites the kid's
+  // typing. `conceptDismissed` keeps the card hidden once the kid acts.
+  const [aiConcept, setAiConcept] = useState<string | null>(null);
+  const [conceptLoading, setConceptLoading] = useState(false);
+  const [conceptDismissed, setConceptDismissed] = useState(false);
+  const descRef = useRef<HTMLTextAreaElement>(null);
 
   // Reset on open/close so a previous draft doesn't leak into the next session.
   useEffect(() => {
@@ -142,6 +150,9 @@ export default function CaptureSheet({
     setAiNote(null);
     setCameraMode(null);
     setAiSuggested({});
+    setAiConcept(null);
+    setConceptLoading(false);
+    setConceptDismissed(false);
   }, [open]);
 
   // Object-URL lifecycle for the photo previews. Re-create on photos[]
@@ -153,6 +164,38 @@ export default function CaptureSheet({
   useEffect(() => {
     return () => { previewUrls.forEach((u) => URL.revokeObjectURL(u)); };
   }, [previewUrls]);
+
+  // Slice 7h · auto AI-concept suggestion. When photos exist + the
+  // description is still empty + nothing else has filled it in, ask
+  // Claude what the image is about so the kid can ✓ confirm or ✏️
+  // rewrite. Skipped on scan-flows since the Scan path already drops
+  // an extracted description in. Fires once per session — kid actions
+  // set `conceptDismissed`, photo changes don't re-fire.
+  useEffect(() => {
+    if (!open) return;
+    if (photos.length === 0) return;
+    if (description.trim().length > 0) return;
+    if (descTouched) return;
+    if (aiSuggested.description) return;
+    if (aiConcept || conceptLoading || conceptDismissed) return;
+    let cancelled = false;
+    setConceptLoading(true);
+    (async () => {
+      try {
+        const out = await describeItem({
+          files: photos, area, kidName,
+          title: '', // triggers the no-title prompt in the API
+          subject: subject || undefined,
+          date,
+        });
+        if (cancelled) return;
+        if (!out.skipped && out.description) setAiConcept(out.description);
+      } finally {
+        if (!cancelled) setConceptLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, photos, description, descTouched, aiSuggested.description, aiConcept, conceptLoading, conceptDismissed, area, kidName, subject, date]);
 
   const onPickPhotos: React.ChangeEventHandler<HTMLInputElement> = (e) => {
     const picked = Array.from(e.target.files ?? []);
@@ -618,6 +661,60 @@ export default function CaptureSheet({
             />
           </div>
 
+          {/* Slice 7h · AI concept card. Fires after photos are picked
+              and the description is still blank. Two paths:
+                ✓ "Yes, that's it" → fills the textarea with the AI text.
+                ✏️ "I'll describe it" → dismisses the card and focuses
+                                       the textarea so the kid writes
+                                       in their own words.
+              Either way the textarea is editable. The kid has to make
+              the call — that's the logical-thinking moment. */}
+          {(conceptLoading || (aiConcept && !conceptDismissed)) && (
+            <div className="rounded-2xl border-2 border-[#5A3CB8]/30 bg-[#F6EFFF] px-3.5 py-3">
+              <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A3CB8] mb-1">
+                🤖 AI sees this as…
+              </div>
+              {conceptLoading && !aiConcept ? (
+                <div className="text-[13px] italic text-[#5A6488]">Reading the image…</div>
+              ) : (
+                <>
+                  <div className="text-[13.5px] text-[#1B1547] mb-2.5 leading-snug">{aiConcept}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!aiConcept) return;
+                        setDescription(aiConcept);
+                        setDescTouched(true);
+                        setAiSuggested((prev) => ({ ...prev, description: aiConcept }));
+                        setConceptDismissed(true);
+                      }}
+                      className="px-3 py-1.5 rounded-xl text-[12px] font-extrabold text-white"
+                      style={{ background: '#5A3CB8' }}
+                    >
+                      ✓ Yes, that&apos;s it
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConceptDismissed(true);
+                        setDescTouched(true);
+                        // Focus the textarea so the kid can start typing.
+                        setTimeout(() => descRef.current?.focus(), 0);
+                      }}
+                      className="px-3 py-1.5 rounded-xl text-[12px] font-extrabold bg-white border-2 border-[#5A3CB8] text-[#5A3CB8]"
+                    >
+                      ✏️ I&apos;ll describe in my own words
+                    </button>
+                  </div>
+                  <div className="text-[11px] text-[#5A6488] mt-2">
+                    Your call — describe it your way to help your grown-ups see the concept.
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Description with AI draft helper */}
           <div>
             <div className="flex items-center justify-between mb-1.5 gap-2 flex-wrap">
@@ -653,6 +750,7 @@ export default function CaptureSheet({
               </div>
             </div>
             <textarea
+              ref={descRef}
               id={`${formId}-desc`}
               value={description}
               onChange={(e) => { setDescription(e.target.value); setDescTouched(true); }}

@@ -33,7 +33,7 @@ interface DescribeBody {
   date?: string; // YYYY-MM-DD
 }
 
-const SYSTEM = `You write warm, factual 1–3 sentence descriptions of a child's school work / home project / achievement / activity for a family education app called Kaya Sparks. The description is a STARTING POINT a parent will edit.
+const SYSTEM_WITH_TITLE = `You write warm, factual 1–3 sentence descriptions of a child's school work / home project / achievement / activity for a family education app called Kaya Sparks. The description is a STARTING POINT a parent will edit.
 
 Rules:
 - 1–3 sentences. Plain English. Specific, not generic.
@@ -43,6 +43,20 @@ Rules:
 - When the area is 'achievement', include the issuer / award name if visible.
 - When the area is 'sports_subscription', describe the activity factually — venue, schedule cue, what's pictured.
 - Use the kid's name once at most.
+- Output JSON: { "description": string }.`;
+
+// Slice 7h · "what is this image about?" variant. Fired when the kid
+// has uploaded photos but hasn't typed a title yet, so the AI can
+// propose a concept the kid will then ✓ confirm or ✏️ rewrite in
+// their own words.
+const SYSTEM_NO_TITLE = `You read 1–4 photos a child uploaded to Kaya Sparks and write a SHORT first guess at what the work is about. The child will either confirm your read or rewrite it in their own words — this is a thinking prompt, not the final caption.
+
+Rules:
+- 1 sentence. Plain English. Specific to what you see — don't generalise.
+- Describe the SUBJECT of the image (what it is), not the child's feelings about it.
+- E.g. "A watercolour sunset with mountains and a pink sky." / "A model bridge made of popsicle sticks with red triangular supports." / "A Best-in-Mathematics certificate from St. Mary's Primary."
+- No flattery, no "amazing", no "wonderful".
+- Use the kid's name at most once, only if it adds context.
 - Output JSON: { "description": string }.`;
 
 const SCHEMA = {
@@ -76,14 +90,22 @@ export async function POST(req: NextRequest) {
   const subject = (body?.subject || '').trim().slice(0, 60);
   const date = (body?.date || '').trim().slice(0, 10);
 
-  if (!area || !title) {
-    return NextResponse.json({ error: 'Missing area or title' }, { status: 400 });
+  // Slice 7h · title is now optional. With a title we fall through to
+  // the original "write a description AROUND the title" path; without,
+  // we switch to the "what is this image about?" prompt so the kid
+  // gets a confirm-or-rewrite chip on the capture sheet.
+  if (!area) {
+    return NextResponse.json({ error: 'Missing area' }, { status: 400 });
+  }
+  if (!title && images.length === 0) {
+    return NextResponse.json({ error: 'Need title or at least one photo' }, { status: 400 });
   }
 
+  const hasTitle = title.length > 0;
   const contextParts = [
     `Area: ${area}`,
     `Kid: ${kidName}`,
-    `Title: ${title}`,
+    hasTitle ? `Title: ${title}` : '(No title yet — propose what this image is about.)',
     subject ? `Subject: ${subject}` : '',
     date ? `Date: ${date}` : '',
     images.length === 0 ? '(No photos attached — write from the title + subject.)' : '',
@@ -93,7 +115,11 @@ export async function POST(req: NextRequest) {
     const response = await client.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 400,
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
+      system: [{
+        type: 'text',
+        text: hasTitle ? SYSTEM_WITH_TITLE : SYSTEM_NO_TITLE,
+        cache_control: { type: 'ephemeral' },
+      }],
       output_config: { format: { type: 'json_schema', schema: SCHEMA } },
       messages: [
         {

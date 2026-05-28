@@ -54,6 +54,10 @@ export interface DescribeArgs {
   files: File[];          // 0–4 photos; 0 = describe from title alone
   area: SparksItemArea;
   kidName: string;
+  /** Pass '' (empty) to fire the Slice 7h "what is this image about?"
+   *  variant — the API switches prompts and proposes a concept the
+   *  kid can confirm or rewrite. With a non-empty title, the API
+   *  writes a description around it (original behaviour). */
   title: string;
   subject?: string;
   date?: string;          // YYYY-MM-DD
