@@ -15,6 +15,7 @@ import {
 } from '@/lib/messaging';
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import { downloadImage } from '@/lib/downloadImage';
 import type { Timestamp } from 'firebase/firestore';
 
@@ -54,6 +55,9 @@ export default function MessageThreadPage() {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  // 2026-05-27 — new camera-first attach paths. Open the same component in
+  // two modes; the sheet handles capture + AI enhance + multi-page state.
+  const [cameraMode, setCameraMode] = useState<'photo' | 'scan' | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState<string | null>(null);
@@ -183,13 +187,14 @@ export default function MessageThreadPage() {
   // Family roster minus members already in the thread = the add-picker list.
   const candidates = allFamilyMembers.filter((m) => !(thread?.memberUids ?? []).includes(m.uid));
 
-  const addFiles = async (files: FileList | null, up: (f: File) => Promise<Attachment>) => {
+  const addFiles = async (files: FileList | File[] | null, up: (f: File) => Promise<Attachment>) => {
     setAttachOpen(false);
-    if (!files || files.length === 0 || !familyId) return;
+    if (!files || (Array.isArray(files) ? files.length === 0 : files.length === 0) || !familyId) return;
     setError(''); setUploading(true);
     try {
       const out: Attachment[] = [];
-      for (const f of Array.from(files)) out.push(await up(f));
+      const arr: File[] = Array.isArray(files) ? files : Array.from(files);
+      for (const f of arr) out.push(await up(f));
       setPending((p) => [...p, ...out.filter((a) => a.url)]);
     } catch (e: any) {
       setError(e?.message || 'Could not attach that file.');
@@ -514,22 +519,47 @@ export default function MessageThreadPage() {
 
       {error && <p className="text-hive-rose text-[12px] font-bold py-1">{error}</p>}
 
-      {/* Attach sheet */}
+      {/* Attach sheet — 2026-05-27: 4 → 6 tiles. Camera-first paths (Scan +
+          Take photo with AI enhance) now sit alongside the existing Gallery
+          (was "Photo") / Video / Voice / Document. */}
       {attachOpen && (
-        <div className="flex gap-2 justify-around py-2.5 border-t border-kaya-warm-dark/40">
+        <div className="grid grid-cols-3 gap-2 py-2.5 border-t border-kaya-warm-dark/40">
           {[
-            { ic: '📷', label: 'Photo', on: () => photoRef.current?.click() },
-            { ic: '🎬', label: 'Video', on: () => videoRef.current?.click() },
-            { ic: '🎤', label: 'Voice', on: startRecording },
-            { ic: '📄', label: 'Document', on: () => docRef.current?.click() },
+            { ic: '📄', label: 'Scan', sub: 'document', isNew: true, on: () => { setAttachOpen(false); setCameraMode('scan'); } },
+            { ic: '📷', label: 'Take photo', sub: 'AI enhance', isNew: true, on: () => { setAttachOpen(false); setCameraMode('photo'); } },
+            { ic: '🖼', label: 'Gallery', sub: undefined, isNew: false, on: () => photoRef.current?.click() },
+            { ic: '🎬', label: 'Video', sub: undefined, isNew: false, on: () => videoRef.current?.click() },
+            { ic: '🎤', label: 'Voice', sub: undefined, isNew: false, on: startRecording },
+            { ic: '📎', label: 'File', sub: 'PDF, .docx', isNew: false, on: () => docRef.current?.click() },
           ].map((o) => (
-            <button key={o.label} type="button" onClick={o.on} className="flex flex-col items-center gap-1 text-[10px] font-bold text-kaya-sand">
-              <span className="w-12 h-12 rounded-[14px] bg-white border border-kaya-warm-dark/50 flex items-center justify-center text-xl">{o.ic}</span>
-              {o.label}
+            <button key={o.label} type="button" onClick={o.on}
+              className={`relative flex flex-col items-center gap-1 py-3 rounded-kaya text-[11px] font-bold text-kaya-sand ${o.isNew ? 'bg-kaya-gold-light/40 border border-kaya-gold/60' : 'bg-white border border-kaya-warm-dark/50'}`}>
+              {o.isNew && (
+                <span className="absolute top-1 right-1.5 text-[8px] font-black uppercase tracking-wider bg-kaya-chocolate text-white px-1 py-0.5 rounded">New</span>
+              )}
+              <span className="text-2xl">{o.ic}</span>
+              <span className="font-black text-kaya-chocolate">{o.label}</span>
+              {o.sub && <span className="text-[9.5px] text-kaya-sand">{o.sub}</span>}
             </button>
           ))}
         </div>
       )}
+
+      {/* Camera capture sheet — full-screen overlay; same component for
+          "Take photo" and "Scan", differs only in enhance pipeline + multi-
+          page state. Sends through the existing addFiles → uploadMessagePhoto. */}
+      <CameraCaptureSheet
+        open={cameraMode !== null}
+        mode={cameraMode ?? 'photo'}
+        onClose={() => setCameraMode(null)}
+        onConfirm={async (files) => {
+          if (!familyId) return;
+          // Re-use the same addFiles path so attachments queue + send like
+          // every other photo. Each captured page becomes its own message
+          // attachment in v1; PDF assembly follows in a later PR.
+          await addFiles(files, (f) => uploadMessagePhoto(familyId, threadId, f));
+        }}
+      />
 
       {/* Emoji picker */}
       {emojiOpen && (
