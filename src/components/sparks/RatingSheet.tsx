@@ -20,6 +20,7 @@ import {
   SPARKS_AREA_META, type SparksItem, type SparksRatingMode,
 } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
+import PhotoLightbox from './PhotoLightbox';
 
 interface Props {
   open: boolean;
@@ -38,15 +39,18 @@ const AREA_HEAD_GRADIENT: Record<SparksItem['area'], string> = {
   home_project:        'linear-gradient(135deg, #FFB627 0%, #FFD93D 100%)',
   achievement:         'linear-gradient(135deg, #6BCB77 0%, #9DE0A6 100%)',
   sports_subscription: 'linear-gradient(135deg, #4ECDC4 0%, #6FE5DC 100%)',
+  revision:            'linear-gradient(135deg, #1B1547 0%, #5A3CB8 100%)',
 };
 const AREA_HEAD_FG: Record<SparksItem['area'], string> = {
-  school_project: '#fff', home_project: '#0F1F44', achievement: '#fff', sports_subscription: '#fff',
+  school_project: '#fff', home_project: '#0F1F44', achievement: '#fff',
+  sports_subscription: '#fff', revision: '#fff',
 };
 const AREA_DEFAULT_MODE: Record<SparksItem['area'], SparksRatingMode> = {
   school_project:      'both',
   home_project:        'both',
   achievement:         'stars',
   sports_subscription: 'stars',
+  revision:            'both', // Revisions get ⭐ + % when the parent reviews
 };
 
 export default function RatingSheet({
@@ -64,6 +68,9 @@ export default function RatingSheet({
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+
+  const photos = item.photo_urls ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -136,14 +143,42 @@ export default function RatingSheet({
         </div>
 
         <div className="p-5 space-y-5">
-          {item.photo_urls?.[0] && (
-            <div className="rounded-2xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.photo_urls[0]}
-                alt={item.title}
-                className="w-full max-h-48 object-contain"
-              />
+          {photos.length > 0 && (
+            <div className="rounded-2xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3] relative">
+              <button
+                type="button"
+                onClick={() => setLightboxIndex(0)}
+                className="block w-full p-0 border-0 cursor-zoom-in bg-transparent"
+                aria-label="Open photo full screen"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photos[0]}
+                  alt={item.title}
+                  className="w-full max-h-72 lg:max-h-96 object-contain"
+                />
+              </button>
+              {/* Thumb strip for multi-photo items — tap to switch lightbox start. */}
+              {photos.length > 1 && (
+                <div className="bg-white/95 border-t border-[#ECE4D3] px-2 py-2 flex items-center gap-1.5 overflow-x-auto">
+                  {photos.map((url, idx) => (
+                    <button
+                      key={url}
+                      type="button"
+                      onClick={() => setLightboxIndex(idx)}
+                      className="shrink-0 w-12 h-12 rounded-md overflow-hidden border border-[#ECE4D3] hover:border-[#D4A847] cursor-zoom-in p-0 bg-transparent"
+                      aria-label={`Open photo ${idx + 1} full screen`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt={`${item.title} photo ${idx + 1}`} className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Hint chip */}
+              <span className="absolute top-2 right-2 bg-[rgba(15,31,68,0.85)] text-white text-[10px] font-bold px-2 py-1 rounded-md pointer-events-none">
+                🔍 Tap for full size
+              </span>
             </div>
           )}
 
@@ -255,6 +290,20 @@ export default function RatingSheet({
           </div>
         </div>
       </div>
+
+      {/* Lightbox — parent taps the photo (or a thumb on multi-photo
+          items) to view full screen while the rating sheet stays
+          mounted underneath. */}
+      {lightboxIndex !== null && photos.length > 0 && (
+        <PhotoLightbox
+          photos={photos}
+          index={lightboxIndex}
+          onIndexChange={setLightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          caption={item.title}
+          subCaption={toDisplayDate(item.date)}
+        />
+      )}
     </div>
   );
 }

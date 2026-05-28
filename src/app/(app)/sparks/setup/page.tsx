@@ -16,12 +16,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   addSubject, removeSubject, setSiblingPerAreaFlag, setSiblingVisibility,
-  subscribeToSparksProfile,
+  subscribeToSparksProfile, upsertSparksProfile,
 } from '@/lib/sparks/firestore';
 import KidAvatar from '@/components/ui/KidAvatar';
 import {
-  SPARKS_AREA_META, type SparksItemArea, type SparksProfile,
-  type SparksSiblingVisibility,
+  DEFAULT_REVISION_SETTINGS, SPARKS_AREA_META, type RevisionSettings,
+  type SparksItemArea, type SparksProfile, type SparksSiblingVisibility,
 } from '@/lib/sparks/schema';
 import type { Child } from '@/lib/firestore';
 
@@ -108,6 +108,11 @@ export default function SparksSetupPage() {
                   uid={profile.uid}
                 />
                 <SubjectsCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
+                />
+                <RevisionSettingsCard
                   familyId={familyId}
                   kid={activeKid}
                   uid={profile.uid}
@@ -339,5 +344,164 @@ function SubjectsCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ── Home Revisions settings card (Slice 7 · 2026-05-28) ────────────
+
+function RevisionSettingsCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  const effective: Required<Omit<RevisionSettings, 'focus_subjects'>> = {
+    ...DEFAULT_REVISION_SETTINGS,
+    ...(profile?.revision_settings ?? {}),
+  };
+
+  const patch = async (next: Partial<RevisionSettings>) => {
+    setSaving(true);
+    try {
+      await upsertSparksProfile(
+        familyId, kid.id,
+        { revision_settings: { ...(profile?.revision_settings ?? {}), ...next } },
+        uid,
+      );
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-xl" aria-hidden>🎯</span>
+        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+          Home Revisions · {kid.name}
+        </div>
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
+        Practice loop knobs. Claude scores each revision; you set the bar.
+      </p>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <NumberKnob
+          label="Base Kaya Points"
+          hint="Per qualifying revision"
+          value={effective.base_points}
+          min={1} max={50} step={1}
+          onChange={(v) => patch({ base_points: v })}
+          disabled={saving}
+        />
+        <NumberKnob
+          label="Bonus Kaya Points"
+          hint="When score ≥ bonus threshold"
+          value={effective.bonus_points}
+          min={1} max={100} step={1}
+          onChange={(v) => patch({ bonus_points: v })}
+          disabled={saving}
+        />
+        <NumberKnob
+          label="Qualifying score (%)"
+          hint="Min score that earns points"
+          value={effective.qualifying_score}
+          min={30} max={90} step={5}
+          onChange={(v) => patch({ qualifying_score: v })}
+          disabled={saving}
+        />
+        <NumberKnob
+          label="Bonus threshold (%)"
+          hint="Score that unlocks bonus tier"
+          value={effective.bonus_threshold}
+          min={70} max={100} step={5}
+          onChange={(v) => patch({ bonus_threshold: v })}
+          disabled={saving}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <ToggleKnob
+          label="🎉 Celebration animation on qualifying submit"
+          hint="Confetti pop when the kid qualifies. Honours prefers-reduced-motion."
+          checked={effective.celebration_enabled}
+          onChange={(v) => patch({ celebration_enabled: v })}
+          disabled={saving}
+        />
+        <ToggleKnob
+          label="🙋 Parent approval required before awarding points"
+          hint="When ON: kid sees 'pending approval' and points fire when you rate the revision. When OFF: points auto-award on a qualifying score."
+          checked={effective.parent_approval_required}
+          onChange={(v) => patch({ parent_approval_required: v })}
+          disabled={saving}
+        />
+        <ToggleKnob
+          label="🖨 Auto-print the next 3 questions"
+          hint="Open the print dialog when AI returns next questions."
+          checked={effective.auto_print_next}
+          onChange={(v) => patch({ auto_print_next: v })}
+          disabled={saving}
+        />
+      </div>
+    </div>
+  );
+}
+
+function NumberKnob({
+  label, hint, value, min, max, step, onChange, disabled,
+}: {
+  label: string;
+  hint: string;
+  value: number;
+  min: number; max: number; step: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+      <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">{label}</div>
+      <input
+        type="number"
+        min={min} max={max} step={step}
+        value={value}
+        onChange={(e) => {
+          const n = Math.max(min, Math.min(max, Number(e.target.value) || min));
+          onChange(n);
+        }}
+        disabled={disabled}
+        className="w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[14px] font-extrabold text-[#0F1F44] mt-1 disabled:opacity-60"
+      />
+      <div className="text-[10.5px] text-[#5A6488] mt-1 leading-snug">{hint}</div>
+    </label>
+  );
+}
+
+function ToggleKnob({
+  label, hint, checked, onChange, disabled,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="flex items-start gap-3 bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        disabled={disabled}
+        className="w-4 h-4 mt-0.5 shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="text-[12.5px] font-bold text-[#0F1F44]">{label}</div>
+        <div className="text-[11px] text-[#5A6488] mt-0.5 leading-snug">{hint}</div>
+      </div>
+    </label>
   );
 }

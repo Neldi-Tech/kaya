@@ -8,19 +8,22 @@
 
 import type { Timestamp } from 'firebase/firestore';
 
-/** The five areas surfaced on /sparks. `academic` is its OWN collection
- *  (`sparks_academic`) — only the four capture areas live in
- *  `sparks_items`. The `area` discriminator on an item is one of the
- *  first four. */
+/** The six areas surfaced on /sparks. `academic` is its OWN collection
+ *  (`sparks_academic`) — every other area lives in `sparks_items` keyed
+ *  by `area`. `revision` (added 2026-05-28) is the new practice-engine
+ *  area: kid uploads a homework revision, Claude scores it, AI suggests
+ *  next questions, parent reviews + awards points. */
 export type SparksArea =
   | 'school_project'
   | 'home_project'
   | 'achievement'
   | 'sports_subscription'
-  | 'academic';
+  | 'academic'
+  | 'revision';
 
 /** Areas that map to a row in `sparks_items`. Academic records have
- *  their own collection, so they're absent here. */
+ *  their own collection, so they're absent here. Revisions ride the
+ *  same `sparks_items` row but carry a richer `revision_data` payload. */
 export type SparksItemArea = Exclude<SparksArea, 'academic'>;
 
 /** Order + presentation metadata for the 5 area cards on the kid's
@@ -33,7 +36,7 @@ export const SPARKS_AREA_META: Record<SparksArea, {
   emoji: string;
   description: string;
   /** Sub-path under `/sparks/[kidId]/` for the area's list page. */
-  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports';
+  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions';
 }> = {
   school_project: {
     key: 'school_project',
@@ -75,12 +78,21 @@ export const SPARKS_AREA_META: Record<SparksArea, {
     description: 'Active subscriptions, coaches, fees, attendance, expiry alerts.',
     path: 'sports',
   },
+  revision: {
+    key: 'revision',
+    label: 'Home Revisions',
+    shortLabel: 'Revise',
+    emoji: '🎯',
+    description: 'Practice loop · AI reads + scores + suggests next questions · earn Kaya Points.',
+    path: 'revisions',
+  },
 };
 
-/** Canonical area order used everywhere a 5-tile grid renders. */
+/** Canonical area order used everywhere a tile grid renders. */
 export const SPARKS_AREA_ORDER: SparksArea[] = [
   'school_project',
   'home_project',
+  'revision',
   'achievement',
   'academic',
   'sports_subscription',
@@ -114,6 +126,10 @@ export interface SparksProfile {
     homework?: boolean;
     art?: boolean;
   };
+  /** Home Revisions knobs (Slice 7 / 2026-05-28). Per-kid because
+   *  qualifying bars + point values differ by age. Defaults in
+   *  DEFAULT_REVISION_SETTINGS apply when this is absent. */
+  revision_settings?: RevisionSettings;
   updatedAt?: Timestamp;
   updatedBy?: string; // uid
 }
@@ -154,10 +170,63 @@ export interface SparksItem {
     attended: number;
     planned?: number;
   };
+  /** Revision-specific — only set when `area === 'revision'`. Carries
+   *  the AI score snapshot + the next-question suggestions Claude
+   *  generated at submit time so the kid + parent can see the loop
+   *  in the list view. Parent approval / points award flow gates on
+   *  this payload + the family's RevisionSettings. */
+  revision_data?: {
+    subject?: string;           // 'Math', 'English', 'Kiswahili', …
+    grade_level?: string;       // 'Grade 4', etc.
+    ai_score?: number;          // 0-100 overall %
+    ai_breakdown?: { correct: number; partial: number; wrong: number };
+    ai_notes?: string;          // short "why" explanation for the kid
+    next_questions?: string[];  // 3 follow-ups Claude generated
+    round?: number;             // round counter for this kid + subject
+    /** When parent reviews + approves a qualifying revision, this flips
+     *  true so we don't double-award points on re-rate. Server-side
+     *  gate when the awards collection write happens. */
+    points_awarded?: boolean;
+  };
   created_at: Timestamp;
   updated_at: Timestamp;
   created_by: string; // uid (parent / helper / kid)
 }
+
+/** Parent-set knobs for the Home Revisions area. Persisted at
+ *  `families/{f}/sparks_profiles/{kidId}.revision_settings` so they're
+ *  per-kid (older kids might have a higher qualifying bar). Defaults
+ *  apply when the field is absent. */
+export interface RevisionSettings {
+  /** Base Kaya Points awarded when a revision qualifies. */
+  base_points?: number;             // default 15
+  /** Bonus points when AI score ≥ bonus_threshold. */
+  bonus_points?: number;            // default 30
+  /** Score (0-100) at which a revision qualifies for points. */
+  qualifying_score?: number;        // default 60
+  /** Score (0-100) at which the bonus tier kicks in. */
+  bonus_threshold?: number;         // default 90
+  /** Fire confetti animation on qualifying submit. */
+  celebration_enabled?: boolean;    // default true
+  /** When true, points are pending until the parent rates + approves. */
+  parent_approval_required?: boolean; // default true
+  /** When true, the "next 3 questions" auto-opens in a print view. */
+  auto_print_next?: boolean;        // default false
+  /** Subjects AI prioritises for next-question generation. Falls back
+   *  to sparks_profiles.subjects when unset. */
+  focus_subjects?: string[];
+}
+
+export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_subjects'>> & { focus_subjects: string[] } = {
+  base_points: 15,
+  bonus_points: 30,
+  qualifying_score: 60,
+  bonus_threshold: 90,
+  celebration_enabled: true,
+  parent_approval_required: true,
+  auto_print_next: false,
+  focus_subjects: [],
+};
 
 // ── Academic ───────────────────────────────────────────────────────────
 //

@@ -59,6 +59,10 @@ const AREA_HEAD_GRADIENT: Record<SparksItemArea, string> = {
   home_project:        'linear-gradient(135deg, #FFB627 0%, #FFD93D 100%)', // head-yellow
   achievement:         'linear-gradient(135deg, #6BCB77 0%, #9DE0A6 100%)', // head-green
   sports_subscription: 'linear-gradient(135deg, #4ECDC4 0%, #6FE5DC 100%)', // head-mint
+  // Revision uses its own dedicated RevisionFlow sheet; this entry
+  // exists so the generic CaptureSheet stays type-safe over all
+  // SparksItemArea values.
+  revision:            'linear-gradient(135deg, #1B1547 0%, #5A3CB8 100%)',
 };
 
 const AREA_HEAD_TEXT: Record<SparksItemArea, string> = {
@@ -66,6 +70,7 @@ const AREA_HEAD_TEXT: Record<SparksItemArea, string> = {
   home_project:   '#0F1F44', // yellow head reads better with navy text
   achievement:    '#fff',
   sports_subscription: '#fff',
+  revision:       '#fff',
 };
 
 // Local fallback description template — used when the AI route returns
