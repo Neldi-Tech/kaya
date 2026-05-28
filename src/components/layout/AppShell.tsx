@@ -9,6 +9,7 @@ import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 import { getHelperLink } from '@/lib/helpers';
 import { subscribeToUnreadNotificationCount } from '@/lib/firestore';
 import { getOperatorRole } from '@/lib/access';
+import { useBranding } from '@/lib/brandingClient';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import { PulseMark } from '@/components/pulse/ui';
 import SparksIcon from '@/components/brand/SparksIcon';
@@ -451,6 +452,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { profile } = useAuth();
   const { family, children: kids } = useFamily();
+  const branding = useBranding();
 
   const role = profile?.role || 'parent';
   const homePath = role === 'kid' ? '/kid' : '/home';
@@ -906,6 +908,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-kaya-cream">
+      {/* ── Branding announcement banner (operator-controlled) ──
+          Renders at the very top of the shell when enabled in
+          /admin/branding. Hidden by default. */}
+      {branding.bannerEnabled && branding.bannerText && (
+        <div
+          className="w-full text-white text-[12px] sm:text-[13px] font-bold px-4 py-2 flex items-center justify-center gap-2"
+          style={{ background: '#0F1F44' }}
+        >
+          {branding.bannerEmoji && <span aria-hidden>{branding.bannerEmoji}</span>}
+          <span className="truncate">{branding.bannerText}</span>
+        </div>
+      )}
+
       {/* ── Desktop sidebar (lg+) ─────────────────────────── */}
       <aside className="hidden lg:flex fixed top-0 left-0 bottom-0 w-[260px] flex-col border-r border-kaya-warm-dark/60 bg-kaya-cream z-30">
         <Link
@@ -915,7 +930,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/kaya-icon-k.svg" alt="" width="36" height="36" className="w-9 h-9 shrink-0" />
-          <span className="font-display font-bold text-lg tracking-tight">Kaya</span>
+          <span className="font-display font-bold text-lg tracking-tight">{branding.wordmark}</span>
         </Link>
 
         {(family || role !== 'kid') && (
@@ -971,7 +986,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/brand/kaya-icon-k.svg" alt="" width="36" height="36" className="w-9 h-9 shrink-0" />
-                <span className="font-display text-lg font-black tracking-tight truncate">Kaya</span>
+                <span className="font-display text-lg font-black tracking-tight truncate">{branding.wordmark}</span>
               </Link>
             </div>
             <div className="flex items-center gap-2 shrink-0">

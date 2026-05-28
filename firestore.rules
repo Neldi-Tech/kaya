@@ -1355,5 +1355,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isOperator();
     }
+
+    // ── Kaya Branding · operator-controlled wordmark + announcement (2026-05-28)
+    // /config/branding — global. Any signed-in user can read (the live
+    // hook subscribes to render the banner / wordmark); only operators
+    // write via PATCH /api/admin/branding.
+    match /config/branding {
+      allow read: if isSignedIn();
+      allow write: if isOperator();
+    }
   }
 }
