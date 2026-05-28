@@ -178,6 +178,10 @@ export interface SparksItem {
    *  external. Shown as a chip on the card so a parent can scan the
    *  feed at a glance. */
   source?: 'school' | 'outside';
+  /** ✨ All-time highlight — parents tap ☆ on any row to pin up to
+   *  5 per area per kid. Highlighted items render with a gold border
+   *  in a horizontal rail above the month-grouped gallery. */
+  is_highlight?: boolean;
   /** Revision-specific — only set when `area === 'revision'`. Carries
    *  the AI score snapshot + the next-question suggestions Claude
    *  generated at submit time so the kid + parent can see the loop

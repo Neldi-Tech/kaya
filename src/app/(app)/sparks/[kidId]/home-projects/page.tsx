@@ -24,6 +24,10 @@ import CaptureSheet from '@/components/sparks/CaptureSheet';
 import RatingSheet from '@/components/sparks/RatingSheet';
 import RatingDisplay from '@/components/sparks/RatingDisplay';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
+import MonthGroup from '@/components/sparks/MonthGroup';
+import HighlightsRail from '@/components/sparks/HighlightsRail';
+import HighlightStar from '@/components/sparks/HighlightStar';
+import { defaultOpenMonths, groupByMonth } from '@/lib/sparks/grouping';
 
 const TILE_GRADIENTS = [
   'linear-gradient(135deg,#FFE7E0,#FFD93D)',
@@ -68,6 +72,23 @@ export default function HomeProjectsPage() {
   }, [familyId, kidId]);
 
   const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
+  const groups = useMemo(() => groupByMonth(items), [items]);
+  const highlights = useMemo(() => items.filter((it) => it.is_highlight), [items]);
+  // Track which month buckets are open. Re-derive defaults when the
+  // bucket set changes (e.g. a new month gets its first capture).
+  const [openMonths, setOpenMonths] = useState<Set<string>>(() => new Set());
+  const groupKeys = groups.map((g) => g.key).join('|');
+  useEffect(() => {
+    setOpenMonths(defaultOpenMonths(groups));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupKeys]);
+  const toggleMonth = (key: string) => {
+    setOpenMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   if (!familyId || !kid) {
     return <div className="min-h-screen bg-[#FFFBF5] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
@@ -106,81 +127,113 @@ export default function HomeProjectsPage() {
             }
           />
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {items.map((it, idx) => {
-              const photo = it.photo_urls?.[0];
-              const latest = ratingsMap.get(it.id)?.[0] ?? null;
-              return (
-                <div
-                  key={it.id}
-                  className="bg-[#FBF7EE] rounded-[14px] p-3 flex flex-col gap-2"
-                >
-                  {photo ? (
-                    <button
-                      type="button"
-                      onClick={() => setLightbox({
-                        photos: it.photo_urls ?? [],
-                        index: 0,
-                        caption: it.title,
-                        sub: toDisplayDate(it.date),
-                      })}
-                      className="aspect-square rounded-[10px] overflow-hidden relative block w-full p-0 border-0 cursor-zoom-in"
-                      aria-label={`Open ${it.title} full screen`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={photo} alt={it.title} className="w-full h-full object-cover" />
-                      <span className="absolute top-1.5 right-1.5 bg-[rgba(15,31,68,0.85)] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                        {toDisplayDate(it.date)}
-                      </span>
-                      {(it.photo_urls?.length ?? 0) > 1 && (
-                        <span className="absolute bottom-1.5 right-1.5 bg-[rgba(15,31,68,0.85)] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                          +{it.photo_urls!.length - 1}
-                        </span>
-                      )}
-                    </button>
-                  ) : (
-                    <div
-                      className="aspect-square rounded-[10px] overflow-hidden grid place-items-center relative"
-                      style={{ background: TILE_GRADIENTS[idx % TILE_GRADIENTS.length] }}
-                    >
-                      <span className="text-4xl" aria-hidden>{FALLBACK_EMOJIS[idx % FALLBACK_EMOJIS.length]}</span>
-                      <span className="absolute top-1.5 right-1.5 bg-[rgba(15,31,68,0.85)] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                        {toDisplayDate(it.date)}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <div className="text-[12px] font-extrabold text-[#0F1F44] truncate flex-1" title={it.title}>
-                      {it.title}
-                    </div>
-                    {canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => setEditItem(it)}
-                        className="text-[12px] text-[#5A6488] hover:text-[#0F1F44] shrink-0"
-                        aria-label={`Edit ${it.title}`}
-                        title="Edit"
+          <>
+            {/* ✨ All-time highlights — pinned items, scrolling rail */}
+            <HighlightsRail
+              items={highlights}
+              fallbackTileGradient={TILE_GRADIENTS[0]}
+              onOpenItem={(it) => setLightbox({
+                photos: it.photo_urls ?? [],
+                index: 0,
+                caption: it.title,
+                sub: toDisplayDate(it.date),
+              })}
+            />
+
+            {/* Month-grouped tile grid */}
+            {groups.map((group, groupIdx) => (
+              <MonthGroup
+                key={group.key}
+                label={group.label}
+                count={group.items.length}
+                open={openMonths.has(group.key)}
+                onToggle={() => toggleMonth(group.key)}
+                first={groupIdx === 0}
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                  {group.items.map((it, idx) => {
+                    const photo = it.photo_urls?.[0];
+                    const latest = ratingsMap.get(it.id)?.[0] ?? null;
+                    return (
+                      <div
+                        key={it.id}
+                        className="bg-[#FBF7EE] rounded-[14px] p-3 flex flex-col gap-2"
                       >
-                        ✏️
-                      </button>
-                    )}
-                  </div>
-                  {/* Rating — Parents rate or re-open via RatingSheet; kids
-                      see the read-only display (or muted "Unrated"). */}
-                  {isParent ? (
-                    <RatingDisplay rating={latest} onTap={() => setRateItem(it)} />
-                  ) : latest ? (
-                    <RatingDisplay rating={latest} onTap={() => {}} />
-                  ) : (
-                    <div className="flex items-center gap-1 -mt-0.5">
-                      <span className="text-[10px] opacity-30">⭐⭐⭐⭐⭐</span>
-                      <span className="text-[9.5px] font-bold text-[#5A6488] ml-auto">Unrated</span>
-                    </div>
-                  )}
+                        {photo ? (
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({
+                              photos: it.photo_urls ?? [],
+                              index: 0,
+                              caption: it.title,
+                              sub: toDisplayDate(it.date),
+                            })}
+                            className="aspect-square rounded-[10px] overflow-hidden relative block w-full p-0 border-0 cursor-zoom-in"
+                            aria-label={`Open ${it.title} full screen`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={photo} alt={it.title} className="w-full h-full object-cover" />
+                            <span className="absolute top-1.5 right-1.5 bg-[rgba(15,31,68,0.85)] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                              {toDisplayDate(it.date)}
+                            </span>
+                            {(it.photo_urls?.length ?? 0) > 1 && (
+                              <span className="absolute bottom-1.5 right-1.5 bg-[rgba(15,31,68,0.85)] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                                +{it.photo_urls!.length - 1}
+                              </span>
+                            )}
+                          </button>
+                        ) : (
+                          <div
+                            className="aspect-square rounded-[10px] overflow-hidden grid place-items-center relative"
+                            style={{ background: TILE_GRADIENTS[idx % TILE_GRADIENTS.length] }}
+                          >
+                            <span className="text-4xl" aria-hidden>{FALLBACK_EMOJIS[idx % FALLBACK_EMOJIS.length]}</span>
+                            <span className="absolute top-1.5 right-1.5 bg-[rgba(15,31,68,0.85)] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                              {toDisplayDate(it.date)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1">
+                          <div className="text-[12px] font-extrabold text-[#0F1F44] truncate flex-1" title={it.title}>
+                            {it.title}
+                          </div>
+                          <HighlightStar
+                            item={it}
+                            familyId={familyId}
+                            areaItems={items}
+                            canEdit={canEdit}
+                          />
+                          {canEdit && (
+                            <button
+                              type="button"
+                              onClick={() => setEditItem(it)}
+                              className="text-[12px] text-[#5A6488] hover:text-[#0F1F44] shrink-0"
+                              aria-label={`Edit ${it.title}`}
+                              title="Edit"
+                            >
+                              ✏️
+                            </button>
+                          )}
+                        </div>
+                        {/* Rating — Parents rate or re-open via RatingSheet; kids
+                            see the read-only display (or muted "Unrated"). */}
+                        {isParent ? (
+                          <RatingDisplay rating={latest} onTap={() => setRateItem(it)} />
+                        ) : latest ? (
+                          <RatingDisplay rating={latest} onTap={() => {}} />
+                        ) : (
+                          <div className="flex items-center gap-1 -mt-0.5">
+                            <span className="text-[10px] opacity-30">⭐⭐⭐⭐⭐</span>
+                            <span className="text-[9.5px] font-bold text-[#5A6488] ml-auto">Unrated</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              </MonthGroup>
+            ))}
+          </>
         )}
       </AreaScreen>
 
