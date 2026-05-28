@@ -127,6 +127,7 @@ export default function SchoolProjectsPage() {
             <HighlightsRail
               items={highlights}
               fallbackTileGradient={TILE_GRADIENTS[0]}
+              showEmptyState={canEdit}
               onOpenItem={(it) => setLightbox({
                 photos: it.photo_urls ?? [],
                 index: 0,

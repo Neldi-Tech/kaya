@@ -120,6 +120,7 @@ export default function AchievementsPage() {
             <HighlightsRail
               items={highlights}
               fallbackTileGradient="linear-gradient(135deg,#FFD93D,#FFB627)"
+              showEmptyState={canEdit}
               onOpenItem={(it) => setLightbox({
                 photos: it.photo_urls ?? [],
                 index: 0,
