@@ -16,6 +16,9 @@ import {
 import { notifyNewMessage } from '@/lib/notify';
 import { uploadMessagePhoto, uploadMessageVideo, uploadMessageDocument, uploadMessageVoice } from '@/lib/messagingUpload';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import DocActionSheet from '@/components/DocActionSheet';
+import DocViewer from '@/components/DocViewer';
+import { downloadImage } from '@/lib/downloadImage';
 import type { Timestamp } from 'firebase/firestore';
 
 // Curated, kid-friendly emoji set — no heavy picker dependency.
@@ -60,6 +63,10 @@ export default function MessageThreadPage() {
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [error, setError] = useState('');
   const [zoom, setZoom] = useState<string | null>(null);
+  // Doc attachment tap → "Open with Kaya / Download" mini-sheet, then
+  // either the inline DocViewer or a downloadImage() fetch+save.
+  const [docMenu, setDocMenu] = useState<Attachment | null>(null);
+  const [docView, setDocView] = useState<Attachment | null>(null);
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   const [otherPresence, setOtherPresence] = useState<{ lastActiveAt?: Timestamp; showPresence: boolean }>({ showPresence: false });
@@ -314,24 +321,22 @@ export default function MessageThreadPage() {
         {a.durationSec ? <span className={`text-[10.5px] shrink-0 ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{mmss(a.durationSec)}</span> : null}
       </div>
     );
-    // Tap a doc → open it in a new tab. The browser handles inline
-    // viewing (PDF) or download (docx/xlsx/etc.) based on MIME type.
-    // Force-fetching a blob and triggering `<a download>` (the previous
-    // path) silently fails on iOS Safari / PWA contexts, which is why
-    // taps appeared to do nothing.
+    // Tap a doc → "Open with Kaya / Download" mini-sheet. Open routes
+    // to the full-screen inline DocViewer (PDFs render inline, images
+    // shown object-contain); Download fetches the bytes and saves the
+    // file with its human filename (works in PWA where <a download>
+    // alone silently fails).
     return (
-      <a
-        href={a.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        download={a.name || undefined}
+      <button
+        type="button"
+        onClick={() => setDocMenu(a)}
         className={`flex items-center gap-2.5 rounded-[12px] p-2.5 max-w-[240px] text-left ${mine ? 'bg-white/15' : 'bg-kaya-warm'}`}>
         <span className="w-9 h-10 rounded-[6px] bg-white border border-kaya-warm-dark/40 flex items-center justify-center text-base shrink-0">📄</span>
         <span className="min-w-0">
           <span className="block text-[12.5px] font-bold truncate">{a.name || 'Document'}</span>
           <span className={`block text-[10.5px] ${mine ? 'text-white/70' : 'text-kaya-sand'}`}>{prettyBytes(a.sizeBytes)}</span>
         </span>
-      </a>
+      </button>
     );
   };
 
@@ -617,6 +622,31 @@ export default function MessageThreadPage() {
           <img src={zoom} alt="" className="max-w-full max-h-full rounded-kaya" />
         </div>
       )}
+
+      {/* Doc tap menu — Open with Kaya / Download. */}
+      <DocActionSheet
+        open={!!docMenu}
+        doc={docMenu ? { url: docMenu.url, name: docMenu.name, mime: docMenu.mime, sizeBytes: docMenu.sizeBytes } : null}
+        onClose={() => setDocMenu(null)}
+        onOpen={() => { if (docMenu) { setDocView(docMenu); setDocMenu(null); } }}
+        onDownload={() => {
+          if (!docMenu) return;
+          const tgt = docMenu;
+          downloadImage(tgt.url, tgt.name || 'document').catch((err) => console.error('Doc download failed', err));
+          setDocMenu(null);
+        }}
+      />
+
+      {/* Inline doc viewer — fires when "Open with Kaya" is picked. */}
+      <DocViewer
+        open={!!docView}
+        doc={docView ? { url: docView.url, name: docView.name, mime: docView.mime } : null}
+        onClose={() => setDocView(null)}
+        onDownload={() => {
+          if (!docView) return;
+          downloadImage(docView.url, docView.name || 'document').catch((err) => console.error('Doc download failed', err));
+        }}
+      />
     </div>
   );
 }

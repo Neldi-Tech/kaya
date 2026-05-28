@@ -28,6 +28,10 @@ import RatingSheet from '@/components/sparks/RatingSheet';
 import RatingDisplay from '@/components/sparks/RatingDisplay';
 import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 import RevisionFlow from '@/components/sparks/RevisionFlow';
+import MaterialsList from '@/components/sparks/MaterialsList';
+import AddMaterialSheet from '@/components/sparks/AddMaterialSheet';
+import { subscribeMaterials } from '@/lib/sparks/materialsFirestore';
+import type { SparksMaterial } from '@/lib/sparks/materials';
 
 export default function RevisionsPage() {
   const params = useParams<{ kidId: string }>();
@@ -45,6 +49,12 @@ export default function RevisionsPage() {
   const [lightbox, setLightbox] = useState<{ photos: string[]; index: number; caption: string; sub: string } | null>(null);
   const isParent = authProfile?.role === 'parent';
 
+  // Tab state — Revisions feed vs. Materials reference docs.
+  const [tab, setTab] = useState<'revisions' | 'materials'>('revisions');
+  const [materials, setMaterials] = useState<SparksMaterial[]>([]);
+  const [openAddMaterial, setOpenAddMaterial] = useState(false);
+  const [editMaterial, setEditMaterial] = useState<SparksMaterial | null>(null);
+
   useEffect(() => {
     if (!familyId || !kidId) return;
     return subscribeToAreaItems(familyId, kidId, 'revision', setItems);
@@ -57,6 +67,10 @@ export default function RevisionsPage() {
     if (!familyId || !kidId) return;
     return subscribeToKidRatings(familyId, kidId, setRatings);
   }, [familyId, kidId]);
+  useEffect(() => {
+    if (!familyId) return;
+    return subscribeMaterials(familyId, setMaterials);
+  }, [familyId]);
 
   const ratingsMap = useMemo(() => ratingsByItemId(ratings), [ratings]);
 
@@ -80,9 +94,20 @@ export default function RevisionsPage() {
   // Quick aggregates for the header subtitle
   const total = items.length;
   const qualifying = items.filter((it) => (it.revision_data?.ai_score ?? 0) >= 60).length;
-  const subtitle = total === 0
-    ? 'Start your first revision'
-    : `${total} round${total === 1 ? '' : 's'} · ${qualifying} qualified`;
+  const myKidMaterials = useMemo(
+    () => materials.filter((m) =>
+      m.shared_with === 'all_kids'
+      || (Array.isArray(m.shared_with) && m.shared_with.includes(kidId))
+    ),
+    [materials, kidId],
+  );
+  const subtitle = tab === 'materials'
+    ? (myKidMaterials.length === 0
+        ? 'No materials shared yet'
+        : `${myKidMaterials.length} material${myKidMaterials.length === 1 ? '' : 's'} to refer back to`)
+    : (total === 0
+        ? 'Start your first revision'
+        : `${total} round${total === 1 ? '' : 's'} · ${qualifying} qualified`);
 
   return (
     <>
@@ -91,11 +116,44 @@ export default function RevisionsPage() {
         kidName={kid.name}
         area="revision"
         subtitle={subtitle}
-        action={
-          <AddItemButton onClick={() => setOpenRevision(true)} label="+ Revise" />
+        action={tab === 'revisions'
+          ? <AddItemButton onClick={() => setOpenRevision(true)} label="+ Revise" />
+          : (isParent
+              ? <AddItemButton onClick={() => setOpenAddMaterial(true)} label="+ Material" />
+              : null)
         }
       >
-        {items.length === 0 ? (
+        {/* Tab toggle — Revisions vs Materials. */}
+        <div className="flex gap-1 bg-white border border-[#ECE4D3] rounded-full p-1 mb-3">
+          <button
+            type="button"
+            onClick={() => setTab('revisions')}
+            className={`flex-1 text-center text-[12px] font-extrabold py-2 rounded-full transition ${tab === 'revisions' ? 'bg-[#5A3CB8] text-white' : 'text-[#5A6488]'}`}
+            aria-pressed={tab === 'revisions'}
+          >
+            🎯 Revisions
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('materials')}
+            className={`flex-1 text-center text-[12px] font-extrabold py-2 rounded-full transition ${tab === 'materials' ? 'bg-[#5A3CB8] text-white' : 'text-[#5A6488]'}`}
+            aria-pressed={tab === 'materials'}
+          >
+            📚 Materials
+          </button>
+        </div>
+
+        {tab === 'materials' ? (
+          <MaterialsList
+            items={materials}
+            forKidId={isParent ? undefined : kidId}
+            canEdit={isParent}
+            familyId={familyId}
+            profileSubjects={profile?.subjects?.map((s) => s.name)}
+            onEdit={(m) => setEditMaterial(m)}
+            onAdd={isParent ? () => setOpenAddMaterial(true) : undefined}
+          />
+        ) : items.length === 0 ? (
           <AreaEmptyState
             emoji="🎯"
             title="Try a revision round"
@@ -270,6 +328,21 @@ export default function RevisionsPage() {
           onClose={() => setLightbox(null)}
           caption={lightbox.caption}
           subCaption={lightbox.sub}
+        />
+      )}
+
+      {/* Materials — add / edit sheet (parent-only). */}
+      {isParent && (
+        <AddMaterialSheet
+          open={openAddMaterial || !!editMaterial}
+          onClose={() => { setOpenAddMaterial(false); setEditMaterial(null); }}
+          familyId={familyId}
+          uid={authProfile.uid}
+          uploaderName={authProfile.displayName || authProfile.email || 'Parent'}
+          kids={children.map((c) => ({ id: c.id, name: c.name }))}
+          profileSubjects={profile?.subjects?.map((s) => s.name)}
+          inUseSubjects={Array.from(new Set(materials.map((m) => m.subject)))}
+          existing={editMaterial}
         />
       )}
     </>

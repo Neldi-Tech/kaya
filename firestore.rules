@@ -1137,6 +1137,25 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // sparks_materials · reference docs parents upload for kids to
+      // refer back to during Home Practice (2026-05-28). Subject-tagged,
+      // multi-kid sharing via shared_with ('all_kids' | string[]).
+      //
+      //  • Read: any family member — clients filter per-kid via the
+      //    `visibleToKid()` helper. Kids reading the collection don't
+      //    leak data because a kid can only render materials shared with
+      //    them; the doc shape doesn't include sibling-only fields.
+      //  • Create / update / delete: parents (any module) or helpers
+      //    with `sparks` act-tier. Helpers without the act grant
+      //    (view-only) cannot upload, matching the rest of Sparks.
+      //    Kids never write.
+      match /sparks_materials/{materialId} {
+        allow read:                   if belongsToFamily(familyId);
+        allow create, update, delete: if isParentInFamily(familyId)
+          || helperCanActOnModule(familyId, 'sparks')
+          || isLegacyHelperWithoutLink(familyId);
+      }
+
       // ════════════════════════════════════════════════════════════
       // Household · Subscriptions + Contributions (2026-05-27)
       // Two new Household sub-modules per Kaya-Subscriptions-Contributions
