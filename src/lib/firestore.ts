@@ -162,6 +162,14 @@ export interface Family {
     stripeSubscriptionId?: string | null;
     currentPeriodEnd?: Timestamp;
     status?: 'active' | 'past_due' | 'canceled';
+    /** Tier-code redemption (closed beta · pre-Stripe, 2026-05-28).
+     *  When the family redeems an operator-issued code, their tierId
+     *  + addons are written to the existing fields; these three record
+     *  the expiry seam. On expiry (lazy check in useTierAccess), the
+     *  server reverts to Nest. null/missing = forever / never redeemed. */
+    expiresAt?: Timestamp;
+    redeemedCodeId?: string;
+    redeemedAt?: Timestamp;
   };
 
   // ── Storage usage (2026-05-28) ─────────────────────────────────

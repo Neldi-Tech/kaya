@@ -1364,5 +1364,19 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isOperator();
     }
+
+    // ── Tier Codes + Upgrade Requests (closed-beta · pre-Stripe, 2026-05-28)
+    // /tierCodes/{id}        — operator-only on both sides. The redeem
+    //                          flow goes through /api/tier-codes/redeem
+    //                          (server-side, no client read needed).
+    // /upgradeRequests/{id}  — signed-in users CREATE their own family's
+    //                          request via /api/upgrade-requests; only
+    //                          operators read + update.
+    match /tierCodes/{codeId} {
+      allow read, write: if isOperator();
+    }
+    match /upgradeRequests/{requestId} {
+      allow read, write: if isOperator();
+    }
   }
 }

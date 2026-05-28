@@ -7,12 +7,14 @@
 // shows the family's current plan (resolved by useTierAccess), and shows
 // prices in the household's currency with USD as the source of truth.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useHive } from '@/contexts/HiveContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useTierAccess } from '@/lib/tierAccess';
 import { formatBytes, tierCapBytes, usagePercent, usageState } from '@/lib/storage';
+import { isProbablyTierCode } from '@/lib/tierCodes';
+import { auth } from '@/lib/firebase';
 import type { Family } from '@/lib/firestore';
 import {
   DEFAULT_ADDONS, MODULE_REGISTRY,
@@ -34,6 +36,55 @@ export default function SubscriptionPage() {
   const { config, fxUsdToFamily } = useHive();
   const { family } = useFamily();
   const [cycle, setCycle] = useState<BillingCycle>('yearly');
+  const [requestingTier, setRequestingTier] = useState<SubscriptionTierId | null>(null);
+  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const id = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(id);
+  }, [toast]);
+
+  const onRequest = (tierId: SubscriptionTierId) => setRequestingTier(tierId);
+
+  const submitRequest = async (tierId: SubscriptionTierId, note: string) => {
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/upgrade-requests', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ requestedTier: tierId, note }),
+      });
+      if (!res.ok) {
+        const { error } = await res.json().catch(() => ({ error: 'unknown' }));
+        throw new Error(error || 'request-failed');
+      }
+      setToast({ kind: 'ok', msg: 'Request sent. We\'ll email you the access code shortly. 🌻' });
+    } catch (e) {
+      setToast({ kind: 'err', msg: `Couldn't send: ${String(e instanceof Error ? e.message : e)}` });
+    } finally {
+      setRequestingTier(null);
+    }
+  };
+
+  const redeemCode = async (code: string): Promise<{ ok: boolean; message: string }> => {
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/tier-codes/redeem', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, message: data.message ?? data.error ?? 'Redeem failed.' };
+      return { ok: true, message: `Welcome to ${(data.tier as string).toUpperCase()} — your new plan is live!` };
+    } catch (e) {
+      return { ok: false, message: String(e instanceof Error ? e.message : e) };
+    }
+  };
 
   const currency = config.currency || 'USD';
   // Live FX is preferred; fall back to the static table in pricing.ts;
@@ -166,6 +217,9 @@ export default function SubscriptionPage() {
           bypassLabel={access.isOperatorBypass ? 'Operator · uncapped' : 'Founding family · uncapped'}
         />
 
+        {/* Redeem code */}
+        <RedeemCard onRedeem={redeemCode} onSuccess={(msg) => setToast({ kind: 'ok', msg })} />
+
         {/* Hero */}
         <div className="text-center mb-11">
           <h1 className="text-[32px] sm:text-[34px] font-black leading-[1.22] mb-2" style={{ color: NAVY }}>
@@ -206,6 +260,7 @@ export default function SubscriptionPage() {
             yearlyTotalLocal={toLocal(yearlyTotalCents('nest'))}
             yearlyTotalUsdCents={yearlyTotalCents('nest')}
             cycle={cycle}
+            onRequest={onRequest}
             currency={currency}
           />
           <TierCard
@@ -217,6 +272,7 @@ export default function SubscriptionPage() {
             yearlyTotalLocal={toLocal(yearlyTotalCents('home'))}
             yearlyTotalUsdCents={yearlyTotalCents('home')}
             cycle={cycle}
+            onRequest={onRequest}
             currency={currency}
           />
           <TierCard
@@ -228,6 +284,7 @@ export default function SubscriptionPage() {
             yearlyTotalLocal={toLocal(yearlyTotalCents('castle'))}
             yearlyTotalUsdCents={yearlyTotalCents('castle')}
             cycle={cycle}
+            onRequest={onRequest}
             currency={currency}
           />
         </div>
@@ -347,6 +404,25 @@ export default function SubscriptionPage() {
           — we respond same day. 🌻
         </div>
       </div>
+
+      {requestingTier && (
+        <RequestModal
+          tierName={access.tiers[requestingTier].name}
+          onCancel={() => setRequestingTier(null)}
+          onSubmit={(note) => submitRequest(requestingTier, note)}
+        />
+      )}
+
+      {toast && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-xl text-[13px] font-black shadow-lg max-w-[480px]"
+          style={toast.kind === 'ok'
+            ? { background: '#0F1F44', color: 'white', boxShadow: '0 14px 32px rgba(15,31,68,0.25)' }
+            : { background: '#E85C5C', color: 'white', boxShadow: '0 14px 32px rgba(232,92,92,0.25)' }}
+        >
+          {toast.msg}
+        </div>
+      )}
     </div>
   );
 }
@@ -387,6 +463,7 @@ function TierCard({
   cycle,
   currency,
   tier,
+  onRequest,
 }: {
   tierId: SubscriptionTierId;
   tier: TierConfig;
@@ -397,6 +474,7 @@ function TierCard({
   yearlyTotalUsdCents: number;
   cycle: BillingCycle;
   currency: string;
+  onRequest: (tierId: SubscriptionTierId) => void;
 }) {
   const isFree = tier.priceMonthly === 0;
 
@@ -507,7 +585,7 @@ function TierCard({
       <Features tierId={tierId} variant={variant} />
 
       {/* CTA */}
-      <CtaButton tierId={tierId} tier={tier} variant={variant} isCurrent={isCurrent} />
+      <CtaButton tierId={tierId} tier={tier} variant={variant} isCurrent={isCurrent} onRequest={onRequest} />
     </div>
   );
 }
@@ -571,13 +649,15 @@ function CtaButton({
   tier,
   variant,
   isCurrent,
+  onRequest,
 }: {
   tierId: SubscriptionTierId;
   tier: TierConfig;
   variant: 'nest' | 'home' | 'castle';
   isCurrent: boolean;
+  onRequest: (tierId: SubscriptionTierId) => void;
 }) {
-
+  void tier;
   if (isCurrent) {
     return (
       <button
@@ -594,25 +674,22 @@ function CtaButton({
     );
   }
 
-  const subject = `Upgrade to ${tier.name}`;
-  const href = `mailto:hello@ourkaya.com?subject=${encodeURIComponent(subject)}`;
-
   if (variant === 'home') {
     return (
-      <a
-        href={href}
+      <button
+        onClick={() => onRequest(tierId)}
         className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
         style={{ background: GOLD, color: NAVY }}
       >
-        Upgrade to Home →
-      </a>
+        Request Home →
+      </button>
     );
   }
 
   if (variant === 'castle') {
     return (
-      <a
-        href={href}
+      <button
+        onClick={() => onRequest(tierId)}
         className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
         style={{
           background: 'rgba(212,168,71,0.12)',
@@ -620,21 +697,21 @@ function CtaButton({
           border: '1px solid rgba(212,168,71,0.32)',
         }}
       >
-        Go Castle →
-      </a>
+        Request Castle →
+      </button>
     );
   }
 
   // Nest CTA (not current) — only shown if family is on a paid tier and viewing
   // the free option. Treat as a downgrade ("Switch to Nest").
   return (
-    <a
-      href={`mailto:hello@ourkaya.com?subject=${encodeURIComponent('Switch to Kaya Nest')}`}
+    <button
+      onClick={() => onRequest(tierId)}
       className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
       style={{ background: 'rgba(15,31,68,0.07)', color: NAVY }}
     >
       Switch to Nest
-    </a>
+    </button>
   );
 }
 
@@ -709,6 +786,151 @@ function CompareRow({
       <div className="text-center">{cellRender(nest)}</div>
       <div className="text-center">{cellRender(home, true)}</div>
       <div className="text-center">{cellRender(castle)}</div>
+    </div>
+  );
+}
+
+// ── Redeem code card ───────────────────────────────────────────────
+//
+// Sits between the storage bar and the hero. Hidden if the user is on
+// Castle (no upgrade left to redeem) or in operator/founding bypass.
+
+function RedeemCard({
+  onRedeem,
+  onSuccess,
+}: {
+  onRedeem: (code: string) => Promise<{ ok: boolean; message: string }>;
+  onSuccess: (msg: string) => void;
+}) {
+  const [code, setCode] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const formatted = code.toUpperCase().replace(/[^A-Z0-9-]/g, '');
+  const valid = isProbablyTierCode(formatted);
+
+  const submit = async () => {
+    setSubmitting(true); setErr(null);
+    const r = await onRedeem(formatted);
+    setSubmitting(false);
+    if (r.ok) {
+      onSuccess(r.message);
+      setCode('');
+    } else {
+      setErr(r.message);
+    }
+  };
+
+  return (
+    <div className="mb-11 rounded-2xl px-5 py-4" style={{
+      background: 'white',
+      border: '1.5px solid rgba(15,31,68,0.08)',
+      boxShadow: '0 2px 12px rgba(15,31,68,0.04)',
+    }}>
+      <div className="flex items-baseline justify-between mb-2">
+        <div className="text-[11px] font-extrabold tracking-wider uppercase" style={{ color: MUTED }}>
+          🎟 Have an upgrade code?
+        </div>
+        {err && (
+          <div className="text-[11px] font-extrabold" style={{ color: '#E85C5C' }}>{err}</div>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={formatted}
+          onChange={(e) => { setCode(e.target.value); setErr(null); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && valid && !submitting) submit(); }}
+          placeholder="HOME-X4K9B2"
+          className="flex-1 bg-[#FBF7EE] border-[1.5px] rounded-xl px-3 py-2.5 outline-none font-mono text-[15px] font-extrabold tracking-widest uppercase"
+          style={{ borderColor: 'rgba(15,31,68,0.1)', color: NAVY }}
+          maxLength={11}
+        />
+        <button
+          onClick={submit}
+          disabled={!valid || submitting}
+          className="text-[13px] font-black px-4 rounded-xl disabled:opacity-40"
+          style={{ background: GOLD, color: NAVY }}
+        >
+          {submitting ? '…' : 'Redeem'}
+        </button>
+      </div>
+      <div className="text-[11px] font-semibold mt-1.5" style={{ color: MUTED }}>
+        Paste the code we emailed you. It unlocks your new plan instantly.
+      </div>
+    </div>
+  );
+}
+
+// ── Request upgrade modal ─────────────────────────────────────────
+
+function RequestModal({
+  tierName,
+  onCancel,
+  onSubmit,
+}: {
+  tierName: string;
+  onCancel: () => void;
+  onSubmit: (note: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async () => {
+    setSubmitting(true);
+    onSubmit(note);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 flex items-end sm:items-center justify-center z-50 px-4 py-6"
+      style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-[440px] rounded-3xl p-6"
+        style={{ background: 'white', boxShadow: '0 32px 80px rgba(15,31,68,0.22)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="font-black text-[20px] mb-1" style={{ color: NAVY }}>
+          Request {tierName}
+        </h2>
+        <p className="text-[13px] font-semibold mb-4" style={{ color: MUTED }}>
+          We'll review and email you an access code. Usually within a day.
+        </p>
+
+        <div className="mb-4">
+          <div className="text-[11px] font-black uppercase tracking-wider mb-1.5" style={{ color: MUTED }}>
+            Anything to mention? (optional)
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 500))}
+            rows={3}
+            placeholder="e.g. starting our 2-kid family in September…"
+            className="w-full bg-[#FBF7EE] border-[1.5px] rounded-xl px-3 py-2 outline-none text-[13px] font-semibold resize-none"
+            style={{ borderColor: 'rgba(15,31,68,0.1)', color: NAVY }}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            disabled={submitting}
+            className="flex-1 text-[13px] font-bold py-2.5 rounded-xl"
+            style={{ background: 'rgba(15,31,68,0.06)', color: MUTED }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            disabled={submitting}
+            className="flex-1 text-[13px] font-black py-2.5 rounded-xl"
+            style={{ background: GOLD, color: NAVY }}
+          >
+            {submitting ? 'Sending…' : 'Send request'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
