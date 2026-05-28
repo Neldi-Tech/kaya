@@ -43,8 +43,10 @@ export default function AchievementsPage() {
   const [openCapture, setOpenCapture] = useState(false);
   const [ratings, setRatings] = useState<SparksRating[]>([]);
   const [rateItem, setRateItem] = useState<SparksItem | null>(null);
+  const [editItem, setEditItem] = useState<SparksItem | null>(null);
   const [lightbox, setLightbox] = useState<{ photos: string[]; index: number; caption: string; sub: string } | null>(null);
   const isParent = authProfile?.role === 'parent';
+  const canEdit = isParent || (authProfile?.role === 'kid' && authProfile?.childId === kidId);
 
   useEffect(() => {
     if (!familyId || !kidId) return;
@@ -127,8 +129,21 @@ export default function AchievementsPage() {
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-extrabold text-[#0F1F44] leading-tight">
-                      {it.title}
+                    <div className="flex items-center gap-1.5">
+                      <div className="text-[13px] font-extrabold text-[#0F1F44] leading-tight flex-1 truncate">
+                        {it.title}
+                      </div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => setEditItem(it)}
+                          className="text-[12px] text-[#5A6488] hover:text-[#0F1F44] shrink-0"
+                          aria-label={`Edit ${it.title}`}
+                          title="Edit"
+                        >
+                          ✏️
+                        </button>
+                      )}
                     </div>
                     <div className="text-[11px] text-[#5A6488] mt-0.5">
                       {it.description ? `${it.description} · ` : ''}{toDisplayDate(it.date)}
@@ -148,14 +163,15 @@ export default function AchievementsPage() {
       </AreaScreen>
 
       <CaptureSheet
-        open={openCapture}
-        onClose={() => setOpenCapture(false)}
+        open={openCapture || !!editItem}
+        onClose={() => { setOpenCapture(false); setEditItem(null); }}
         familyId={familyId}
         kidId={kidId}
         kidName={kid.name}
         area="achievement"
         profile={profile}
         uid={authProfile.uid}
+        existing={editItem}
       />
 
       {rateItem && (
