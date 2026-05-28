@@ -26,13 +26,14 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { collection, doc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
-  createSparksItem, todayYmd,
+  createSparksItem, todayYmd, updateSparksItem,
 } from '@/lib/sparks/firestore';
 import {
   uploadSparksPhotos, type SparksPhotoUrls,
 } from '@/lib/sparks/uploadPhoto';
 import {
-  SPARKS_AREA_META, type SparksItemArea, type SparksProfile,
+  SPARKS_AREA_META, type SparksItem, type SparksItemArea,
+  type SparksProfile,
 } from '@/lib/sparks/schema';
 import { describeItem, extractFromImage } from '@/lib/sparks/ai';
 import { toDisplayDate } from '@/lib/dates';
@@ -52,6 +53,10 @@ interface Props {
   profile?: SparksProfile | null;
   /** Authoring uid — typically the parent / kid / helper saving the item. */
   uid: string;
+  /** When present, the sheet renders in EDIT mode — fields hydrate
+   *  from the existing item, photo capture UI is hidden, and Save
+   *  routes through `updateSparksItem` instead of creating a new doc. */
+  existing?: SparksItem | null;
 }
 
 const AREA_HEAD_GRADIENT: Record<SparksItemArea, string> = {
@@ -98,17 +103,21 @@ function draftDescription(args: {
 
 export default function CaptureSheet({
   open, onClose, onSaved,
-  familyId, kidId, kidName, area, profile, uid,
+  familyId, kidId, kidName, area, profile, uid, existing,
 }: Props) {
   const meta = SPARKS_AREA_META[area];
   const formId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
+  const isEdit = !!existing;
 
   const [photos, setPhotos] = useState<File[]>([]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(todayYmd());
   const [subject, setSubject] = useState<string>('');
+  // Sports-specific
+  const [clubName, setClubName] = useState<string>('');
+  const [source, setSource] = useState<'school' | 'outside' | ''>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [descTouched, setDescTouched] = useState(false);
@@ -134,17 +143,13 @@ export default function CaptureSheet({
   const [conceptDismissed, setConceptDismissed] = useState(false);
   const descRef = useRef<HTMLTextAreaElement>(null);
 
-  // Reset on open/close so a previous draft doesn't leak into the next session.
+  // Reset on open. In edit mode, hydrate from the existing item so the
+  // form starts with the current values; in create mode start empty.
   useEffect(() => {
     if (!open) return;
     setPhotos([]);
-    setTitle('');
-    setDescription('');
-    setDate(todayYmd());
-    setSubject('');
     setSaving(false);
     setError(null);
-    setDescTouched(false);
     setDescribing(false);
     setScanning(false);
     setAiNote(null);
@@ -153,7 +158,25 @@ export default function CaptureSheet({
     setAiConcept(null);
     setConceptLoading(false);
     setConceptDismissed(false);
-  }, [open]);
+    if (existing) {
+      setTitle(existing.title);
+      setDescription(existing.description ?? '');
+      setDate(existing.date);
+      setSubject(existing.subject ?? '');
+      setClubName(existing.club_name ?? '');
+      setSource(existing.source ?? '');
+      // A pre-filled description is "touched" — don't fire the auto-concept loop.
+      setDescTouched((existing.description?.trim().length ?? 0) > 0);
+    } else {
+      setTitle('');
+      setDescription('');
+      setDate(todayYmd());
+      setSubject('');
+      setClubName('');
+      setSource('');
+      setDescTouched(false);
+    }
+  }, [open, existing]);
 
   // Object-URL lifecycle for the photo previews. Re-create on photos[]
   // change; revoke when the component unmounts or photos change.
@@ -393,6 +416,27 @@ export default function CaptureSheet({
     setSaving(true);
     setError(null);
     try {
+      // EDIT MODE — patch the existing doc with whatever changed.
+      // Photo edits aren't supported here (v1) — re-upload via delete
+      // + re-add if the kid wants to swap the photo entirely.
+      if (existing) {
+        const patch: Partial<SparksItem> = {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          date,
+          subject: showSubject && subject ? subject : undefined,
+        };
+        if (area === 'sports_subscription') {
+          patch.club_name = clubName.trim() || undefined;
+          patch.source = source || undefined;
+        }
+        await updateSparksItem(familyId, existing.id, patch);
+        onSaved?.(existing.id);
+        onClose();
+        return;
+      }
+
+      // CREATE MODE — same path as before.
       // Reserve the itemId client-side so the photo writes + the
       // Firestore write share the same path. Orphan storage blobs
       // only happen if the final setDoc fails — rare.
@@ -403,6 +447,13 @@ export default function CaptureSheet({
       if (photos.length > 0) {
         urls = await uploadSparksPhotos(familyId, itemId, photos);
       }
+
+      // Sports-specific extras — undefined when not set, so Firestore
+      // doesn't store empty strings.
+      const sportsExtras = area === 'sports_subscription' ? {
+        club_name: clubName.trim() || undefined,
+        source: source || undefined,
+      } : {};
 
       let finalItemId: string;
       if (urls.length > 0) {
@@ -416,6 +467,7 @@ export default function CaptureSheet({
           photo_urls: urls.map((u) => u.feedUrl),
           date,
           subject: showSubject && subject ? subject : undefined,
+          ...sportsExtras,
           created_at: serverTimestamp(),
           updated_at: serverTimestamp(),
           created_by: uid,
@@ -432,6 +484,7 @@ export default function CaptureSheet({
             photo_urls: [],
             date,
             subject: showSubject && subject ? subject : undefined,
+            ...sportsExtras,
           },
           uid,
         );
@@ -473,12 +526,33 @@ export default function CaptureSheet({
             {kidName} · {meta.label}
           </div>
           <h2 id={`${formId}-title`} className="font-display font-extrabold text-[20px] m-0 mt-0.5">
-            Add a {meta.shortLabel.toLowerCase()}
+            {isEdit ? `Edit ${meta.shortLabel.toLowerCase()}` : `Add a ${meta.shortLabel.toLowerCase()}`}
           </h2>
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Multi-photo picker */}
+          {/* Edit-mode preview — show the existing photos read-only,
+              skipping the full capture UI. Photo swaps + adds happen
+              by deleting the row and creating a new one in v1. */}
+          {isEdit && (existing?.photo_urls?.length ?? 0) > 0 && (
+            <div>
+              <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
+                Photos · {existing!.photo_urls.length}
+              </label>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                {existing!.photo_urls.map((u, idx) => (
+                  <div key={u} className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={u} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+              <div className="text-[10.5px] text-[#5A6488] mt-1">Photo edits not yet supported — delete the row and re-add to swap.</div>
+            </div>
+          )}
+
+          {/* Multi-photo picker — create mode only. */}
+          {!isEdit && (
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488]">
@@ -570,6 +644,7 @@ export default function CaptureSheet({
               className="hidden"
             />
           </div>
+          )}
 
           {/* Title */}
           <div>
@@ -660,6 +735,51 @@ export default function CaptureSheet({
               className="w-full bg-white border border-[#ECE4D3] rounded-xl px-3.5 py-2.5 text-[14px] text-[#0F1F44] focus:outline-none focus:border-[#D4A847]"
             />
           </div>
+
+          {/* Sports-specific — club / academy + School vs Outside chip */}
+          {area === 'sports_subscription' && (
+            <>
+              <div>
+                <label htmlFor={`${formId}-club`} className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
+                  Club / Academy
+                </label>
+                <input
+                  id={`${formId}-club`}
+                  type="text"
+                  value={clubName}
+                  onChange={(e) => setClubName(e.target.value)}
+                  placeholder="e.g. Aqua Kids Club · Coach Mwaka"
+                  maxLength={80}
+                  className="w-full bg-white border border-[#ECE4D3] rounded-xl px-3.5 py-2.5 text-[14px] text-[#0F1F44] focus:outline-none focus:border-[#D4A847]"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
+                  Where is it run?
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSource(source === 'school' ? '' : 'school')}
+                    aria-pressed={source === 'school'}
+                    className={`rounded-xl border-[1.5px] py-2.5 text-center transition ${source === 'school' ? 'border-[#4ECDC4] bg-[#D7F4F1] text-[#0F1F44]' : 'border-[#ECE4D3] bg-white text-[#5A6488]'}`}
+                  >
+                    <div className="text-[13px] font-extrabold">🏫 School</div>
+                    <div className="text-[10px] mt-0.5 opacity-90">Run by the school</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSource(source === 'outside' ? '' : 'outside')}
+                    aria-pressed={source === 'outside'}
+                    className={`rounded-xl border-[1.5px] py-2.5 text-center transition ${source === 'outside' ? 'border-[#4ECDC4] bg-[#D7F4F1] text-[#0F1F44]' : 'border-[#ECE4D3] bg-white text-[#5A6488]'}`}
+                  >
+                    <div className="text-[13px] font-extrabold">🌳 Outside</div>
+                    <div className="text-[10px] mt-0.5 opacity-90">External club / coach</div>
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Slice 7h · AI concept card. Fires after photos are picked
               and the description is still blank. Two paths:
@@ -787,7 +907,7 @@ export default function CaptureSheet({
               className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ background: '#D4A847', color: '#0F1F44' }}
             >
-              {saving ? 'Saving…' : 'Save'}
+              {saving ? 'Saving…' : (isEdit ? 'Save changes' : 'Save')}
             </button>
           </div>
         </div>

@@ -35,6 +35,7 @@ export default function SportsPage() {
   const [items, setItems] = useState<SparksItem[]>([]);
   const [profile, setProfile] = useState<SparksProfile | null>(null);
   const [openCapture, setOpenCapture] = useState(false);
+  const [editItem, setEditItem] = useState<SparksItem | null>(null);
 
   useEffect(() => {
     if (!familyId || !kidId) return;
@@ -45,6 +46,11 @@ export default function SportsPage() {
     if (!familyId || !kidId) return;
     return subscribeToSparksProfile(familyId, kidId, setProfile);
   }, [familyId, kidId]);
+
+  // Parent (any) OR the kid who owns this page can edit their own rows.
+  // Helpers can view but not edit — matches the Firestore rules.
+  const canEdit = authProfile?.role === 'parent'
+    || (authProfile?.role === 'kid' && authProfile?.childId === kidId);
 
   if (!familyId || !kid) {
     return <div className="min-h-screen bg-[#FFFBF5] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
@@ -85,6 +91,8 @@ export default function SportsPage() {
                 item={it}
                 accent={ROW_ACCENTS[idx % ROW_ACCENTS.length]}
                 familyId={familyId}
+                canEdit={canEdit}
+                onEdit={() => setEditItem(it)}
               />
             ))}
           </div>
@@ -92,14 +100,15 @@ export default function SportsPage() {
       </AreaScreen>
 
       <CaptureSheet
-        open={openCapture}
-        onClose={() => setOpenCapture(false)}
+        open={openCapture || !!editItem}
+        onClose={() => { setOpenCapture(false); setEditItem(null); }}
         familyId={familyId}
         kidId={kidId}
         kidName={kid.name}
         area="sports_subscription"
         profile={profile}
         uid={authProfile.uid}
+        existing={editItem}
       />
     </>
   );
@@ -112,11 +121,13 @@ export default function SportsPage() {
 // `attended / planned`; without planned it shows the raw attended count.
 
 function SportsRow({
-  item, accent, familyId,
+  item, accent, familyId, canEdit, onEdit,
 }: {
   item: SparksItem;
   accent: string;
   familyId: string;
+  canEdit: boolean;
+  onEdit: () => void;
 }) {
   const attended = item.sessions?.attended ?? 0;
   const planned = item.sessions?.planned;
@@ -149,10 +160,44 @@ function SportsRow({
         <h5 className="font-display font-extrabold text-[14px] text-[#0F1F44] m-0 truncate">
           ⚽ {item.title}
         </h5>
-        <span className="text-[10px] font-bold uppercase tracking-wider bg-[#DDF5DF] text-[#2E7D34] px-2 py-0.5 rounded-full whitespace-nowrap">
-          Active
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] font-bold uppercase tracking-wider bg-[#DDF5DF] text-[#2E7D34] px-2 py-0.5 rounded-full whitespace-nowrap">
+            Active
+          </span>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="text-[12px] text-[#5A6488] hover:text-[#0F1F44] hover:bg-white rounded px-1.5"
+              title="Edit this row"
+              aria-label={`Edit ${item.title}`}
+            >
+              ✏️
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Club + source chips — surfaced as soon as either is set. */}
+      {(item.club_name || item.source) && (
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {item.club_name && (
+            <span className="text-[10px] font-extrabold bg-white text-[#0F1F44] border border-[#ECE4D3] px-2 py-0.5 rounded-full">
+              🏷 {item.club_name}
+            </span>
+          )}
+          {item.source === 'school' && (
+            <span className="text-[10px] font-extrabold bg-[#DDE7FA] text-[#3B5FAA] px-2 py-0.5 rounded-full">
+              🏫 School
+            </span>
+          )}
+          {item.source === 'outside' && (
+            <span className="text-[10px] font-extrabold bg-[#DDF5DF] text-[#1E7873] px-2 py-0.5 rounded-full">
+              🌳 Outside
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="h-1.5 bg-white rounded-full overflow-hidden mt-2">
         <div

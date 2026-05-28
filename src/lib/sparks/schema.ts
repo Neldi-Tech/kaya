@@ -170,6 +170,14 @@ export interface SparksItem {
     attended: number;
     planned?: number;
   };
+  /** Sports-specific — the club / academy / coach the kid trains
+   *  under. Optional so existing rows don't need a backfill; new
+   *  uploads + edits surface it on the card and in the edit sheet. */
+  club_name?: string;
+  /** Sports-specific — whether the activity is school-run or
+   *  external. Shown as a chip on the card so a parent can scan the
+   *  feed at a glance. */
+  source?: 'school' | 'outside';
   /** Revision-specific — only set when `area === 'revision'`. Carries
    *  the AI score snapshot + the next-question suggestions Claude
    *  generated at submit time so the kid + parent can see the loop
