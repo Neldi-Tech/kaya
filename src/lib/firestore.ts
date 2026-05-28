@@ -164,6 +164,23 @@ export interface Family {
     status?: 'active' | 'past_due' | 'canceled';
   };
 
+  // ── Storage usage (2026-05-28) ─────────────────────────────────
+  // Per-family Firebase Storage accounting. `bytes` is bumped server-
+  // side on every upload (via storageQuota.ts) and decremented on
+  // delete. `extraGB` is admin-granted (or, post-Stripe, purchased)
+  // top-up that adds to the tier's base cap. Effective cap is
+  // resolved by `tierCapBytes(tier, extraGB)` in `lib/storage.ts`.
+  //
+  // Missing field ⇒ treat as 0 bytes used + 0 extra GB (i.e. fresh).
+  storage?: {
+    /** Current Firebase Storage usage in bytes. */
+    bytes: number;
+    /** Admin-granted or operator-issued extra capacity in GB. */
+    extraGB: number;
+    /** Last time `bytes` was recomputed via the recount endpoint. */
+    recountedAt?: Timestamp;
+  };
+
   // ── Settings ──
   pointsMode: PointsMode;
   earningMethods?: string[]; // ids from EARNING_METHODS — defaults to DEFAULT_EARNING_METHODS when absent

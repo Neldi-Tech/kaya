@@ -27,6 +27,11 @@ export interface AdminFamilyRow {
     kids: number;
     guests: number;
   };
+  storage: {
+    bytes: number;
+    extraGB: number;
+    recountedAtMs: number;
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -48,6 +53,7 @@ export async function GET(req: NextRequest) {
       subscription?: { addons?: string[] };
       isFoundingFamily?: boolean;
       createdAt?: FirebaseFirestore.Timestamp;
+      storage?: { bytes?: number; extraGB?: number; recountedAt?: FirebaseFirestore.Timestamp };
     };
 
     const roles: Array<'parent' | 'helper' | 'kid' | 'guest'> = ['parent', 'helper', 'kid', 'guest'];
@@ -70,6 +76,13 @@ export async function GET(req: NextRequest) {
         ? (data.createdAt as { toMillis: () => number }).toMillis()
         : 0,
       members: { parents: counts[0], helpers: counts[1], kids: counts[2], guests: counts[3] },
+      storage: {
+        bytes: data.storage?.bytes ?? 0,
+        extraGB: data.storage?.extraGB ?? 0,
+        recountedAtMs: data.storage?.recountedAt && typeof (data.storage.recountedAt as { toMillis?: () => number }).toMillis === 'function'
+          ? (data.storage.recountedAt as { toMillis: () => number }).toMillis()
+          : 0,
+      },
     });
   }
 
