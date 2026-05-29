@@ -38,6 +38,13 @@ body {
   transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
+/* Kaya Code print view — when a parent prints a child's code, show only the
+   code itself, not the surrounding dashboard chrome / controls. */
+@media print {
+  .no-print { display: none !important; }
+  .print-code { font-size: 48px; }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

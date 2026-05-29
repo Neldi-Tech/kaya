@@ -77,3 +77,72 @@ export async function needsFreshAcceptance(uid: string): Promise<boolean> {
   const latest = await getLatestAcceptedVersion(uid);
   return latest !== ACTIVE_POLICY_VERSION;
 }
+
+// ── COPPA consent + parent verification (Admin SDK) ──────────────────────────
+
+// Minimal server-side read of a caller's profile so consent routes can confirm
+// "this token belongs to a PARENT of THIS family" before issuing a kid code.
+// Reads users/{uid} directly with the Admin SDK (bypasses rules).
+export async function getServerUserProfile(
+  uid: string,
+): Promise<{ role?: string; familyId?: string; name?: string } | null> {
+  const db = getAdminFirestore();
+  if (!db) return null;
+  try {
+    const snap = await db.collection('users').doc(uid).get();
+    if (!snap.exists) return null;
+    const d = snap.data() || {};
+    return { role: d.role, familyId: d.familyId, name: d.name };
+  } catch {
+    return null;
+  }
+}
+
+interface RecordConsentOpts {
+  familyId: string;
+  childId: string;
+  parentUserId: string;
+  childFirstName: string;
+  childDateOfBirth: string; // YYYY-MM-DD
+  verificationAt: Date;     // when the parent re-authenticated (token auth_time)
+  userAgent?: string | null;
+  ip?: string | null;
+}
+
+// Append the verifiable-parental-consent record (16 C.F.R. § 312.5(b)) under
+// the child. Immutable + Admin-SDK-only, like the acceptance trail. The
+// verification method is always password/credential re-auth — the parent
+// proving presence at the moment of consent.
+export async function recordCoppaConsent(opts: RecordConsentOpts): Promise<boolean> {
+  const db = getAdminFirestore();
+  if (!db) return false;
+  try {
+    await db
+      .collection('families').doc(opts.familyId)
+      .collection('children').doc(opts.childId)
+      .collection('coppaConsents')
+      .add({
+        parentUserId: opts.parentUserId,
+        policyVersionId: ACTIVE_POLICY_VERSION,
+        acceptedAt: new Date(),
+        verificationMethod: 'password_reauth',
+        verificationAt: opts.verificationAt,
+        childFirstName: opts.childFirstName,
+        childDateOfBirth: opts.childDateOfBirth,
+        ...(opts.userAgent ? { userAgentHash: hashValue(opts.userAgent) } : {}),
+        ...(opts.ip ? { ipHash: hashValue(opts.ip) } : {}),
+      });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Server-side proof of a *fresh* re-auth: the verified ID token's auth_time
+// must be within the window. This is what makes password re-auth a real COPPA
+// verification gate — an old, ambiently-authenticated session won't pass.
+export const REAUTH_MAX_AGE_MS = 10 * 60 * 1000; // 10 minutes
+export function isFreshReauth(authTimeSeconds: number | undefined): boolean {
+  if (!authTimeSeconds) return false;
+  return Date.now() - authTimeSeconds * 1000 <= REAUTH_MAX_AGE_MS;
+}

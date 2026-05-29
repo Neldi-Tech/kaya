@@ -23,12 +23,15 @@ export interface PolicyAcceptance {
   ipHash?: string;         // sha256(ip) — never the raw IP
 }
 
-// families/{familyId}/childCodes/{codeId} — the redeemable code (HASH ONLY).
+// childCodes/{codeId} (top-level) — the redeemable code (HASH ONLY). Kept
+// top-level so kid redemption resolves a code with no family context.
 export type ChildCodeStatus = 'active' | 'paused' | 'revoked';
 export interface ChildCode {
   id: string;
   childId: string;
+  familyId: string;                 // resolved at redeem to seed the kid session
   codeHash: string;                 // bcrypt hash — plaintext is NEVER stored
+  codeLookup: string;               // sha256(pepper:code) — deterministic find key
   codePreviewExpiresAt: Timestamp;  // ~60s window the plaintext was viewable
   status: ChildCodeStatus;
   createdAt: Timestamp;
