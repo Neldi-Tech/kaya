@@ -1374,6 +1374,31 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Global counters (meta/{docId}, e.g. meta/global) ──────────────
+    // meta/global holds `familyCount` — the monotonic family-join ordinal
+    // that stamps founding-family charter serials. createFamily() reads +
+    // increments it INSIDE its creation transaction (added with the
+    // referral campaign, commit 7e6867a). This collection had NO rule, so
+    // it was denied by default — which silently broke ALL new-family
+    // creation (the closed-beta "Missing or insufficient permissions"
+    // wall hit at onboarding's "Let's Go!"). Reads are open to any
+    // signed-in user; a client may only introduce/advance the integer
+    // `familyCount` (never reset/decrement it) and may NOT touch
+    // server-owned fields like `foundingFamilyCount` (referralServer.ts
+    // writes those via the Admin SDK, which bypasses these rules).
+    match /meta/{docId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['familyCount'])
+        && request.resource.data.familyCount is int
+        && request.resource.data.familyCount >= 0;
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['familyCount'])
+        && request.resource.data.familyCount is int
+        && (!('familyCount' in resource.data)
+            || request.resource.data.familyCount >= resource.data.familyCount);
+    }
+
     // ── Kaya Buzz · ideas & help community (renamed 2026-05-27) ─────
     // Top-level, cross-family. CLIENTS NEVER READ THIS DIRECTLY — the
     // anonymity model relies on /api/buzz/* stripping author identity
