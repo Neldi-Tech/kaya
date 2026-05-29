@@ -25,6 +25,7 @@ export interface AdminReferralRow {
   effectiveCount: number;  // direct + compound (drives the badge)
   topBadgeName: string | null;
   isFoundingFamily: boolean;
+  charterNumber: number | null; // Charter serial (CF-###) when set
 }
 
 /** Lightweight tier summary so the client computes redemption cost with
@@ -78,6 +79,7 @@ export async function GET(req: NextRequest) {
       referralCount?: number;
       compoundCredit?: number;
       isFoundingFamily?: boolean;
+      charterNumber?: number;
     };
     const direct = Number(x.referralCount ?? 0);
     const compound = Number(x.compoundCredit ?? 0);
@@ -92,6 +94,7 @@ export async function GET(req: NextRequest) {
       effectiveCount: eff,
       topBadgeName: topBadge(direct, compound)?.name ?? null,
       isFoundingFamily: x.isFoundingFamily === true,
+      charterNumber: typeof x.charterNumber === 'number' ? x.charterNumber : null,
     };
   });
 

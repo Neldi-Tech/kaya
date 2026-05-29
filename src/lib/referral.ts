@@ -72,6 +72,27 @@ export function progressToNextBadge(direct: number, compound = 0): number {
   return Math.min(1, Math.max(0, (n - prev) / span));
 }
 
+// ── Charter & Founding serials ──────────────────────────────────
+// Two non-overlapping honour numbers (see the badge note above):
+//   • Charter No.  (CF-###) — a closed-beta Charter Family's join ordinal
+//     (1..FOUNDING_FAMILY_LIMIT). Stamped at creation from the global
+//     family count; backfilled for existing families by createdAt order.
+//   • Founding No. (FF-###) — the order a family EARNS the apex Founding
+//     Family badge (1,000 referrals). Assigned server-side when earned;
+//     none exist in closed beta yet.
+// Both render zero-padded to 3 digits. Returns null when unset so callers
+// can hide the serial cleanly.
+
+export function formatCharterNumber(n: number | null | undefined): string | null {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return null;
+  return `CF-${String(Math.floor(n)).padStart(3, '0')}`;
+}
+
+export function formatFoundingNumber(n: number | null | undefined): string | null {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return null;
+  return `FF-${String(Math.floor(n)).padStart(3, '0')}`;
+}
+
 // ── Kaya Coins (KC) — family-level referral currency ────────────
 // 1 KC ≈ $6 USD. KC accrues at 10% of referred families' paid value over a
 // 3-month window. The accrual ENGINE ships in Phase B — Phase A only

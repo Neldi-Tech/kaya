@@ -207,6 +207,39 @@ export async function recordReferredPayment(
   });
 }
 
+// ── Founding serial assignment (apex-badge SEAM) ─────────────────────
+
+/** Stamp the next FF-### serial on a family that has EARNED the apex
+ *  Founding Family badge (1,000 referrals). Idempotent — a family keeps
+ *  its first number forever. Pulls a monotonic sequence from
+ *  meta/global.foundingFamilyCount, mirroring how familyCount drives the
+ *  Charter serials. The caller decides eligibility (1,000 effective
+ *  referrals); this just allocates the next number atomically. No family
+ *  qualifies in closed beta yet, so this is a documented SEAM — wire it
+ *  into the badge-earned hook (or a one-off backfill) when the day comes. */
+export async function assignFoundingNumber(
+  db: Firestore,
+  familyId: string,
+): Promise<{ ok: true; foundingNumber: number; idempotent?: boolean } | { ok: false; error: string }> {
+  if (!familyId) return { ok: false, error: 'no-family-id' };
+  const famRef = db.collection('families').doc(familyId);
+  const metaRef = db.collection('meta').doc('global');
+  return db.runTransaction(async (tx) => {
+    const famSnap = await tx.get(famRef);
+    if (!famSnap.exists) return { ok: false as const, error: 'family-not-found' };
+    const existing = (famSnap.data() as { foundingNumber?: number }).foundingNumber;
+    if (typeof existing === 'number' && existing > 0) {
+      return { ok: true as const, foundingNumber: existing, idempotent: true };
+    }
+    const metaSnap = await tx.get(metaRef);
+    const prev = (metaSnap.exists ? (metaSnap.data() as { foundingFamilyCount?: number }).foundingFamilyCount : 0) || 0;
+    const next = prev + 1;
+    tx.set(metaRef, { foundingFamilyCount: next }, { merge: true });
+    tx.update(famRef, { foundingNumber: next });
+    return { ok: true as const, foundingNumber: next };
+  });
+}
+
 // ── Read helper (Admin portal) ───────────────────────────────────────
 
 /** Most-recent ledger entries for a family, newest first. */

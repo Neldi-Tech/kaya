@@ -12,7 +12,7 @@ import { auth } from '@/lib/firebase';
 import { toDisplayDate } from '@/lib/dates';
 import {
   KC_TIER_DURATIONS, KC_LEDGER_KIND_META, kcCostForTierGrant, kcToUsd,
-  type KcLedgerEntry,
+  formatCharterNumber, type KcLedgerEntry,
 } from '@/lib/referral';
 import type { SubscriptionTierId } from '@/lib/tiers';
 import { KayaCoin } from '@/components/referral/KayaCoin';
@@ -144,7 +144,7 @@ function ReferralRow({ family, onOpen }: { family: AdminReferralRow; onOpen: () 
           {family.handle && <span className="text-[#D4A847] text-[12px] font-bold">@{family.handle}</span>}
           {family.isFoundingFamily && (
             <span className="rounded-full text-[10px] font-black px-2 py-0.5" style={{ background: 'rgba(212,168,71,0.18)', color: '#D4A847' }}>
-              🤝 Charter
+              🤝 Charter{formatCharterNumber(family.charterNumber) ? ` ${formatCharterNumber(family.charterNumber)}` : ''}
             </span>
           )}
         </div>

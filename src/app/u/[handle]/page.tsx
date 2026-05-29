@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getFamilyByHandle, getChildren, Family, Child } from '@/lib/firestore';
 import { formatFamilyHandle } from '@/lib/handles';
-import { topBadge, effectiveCount } from '@/lib/referral';
+import { topBadge, effectiveCount, formatCharterNumber } from '@/lib/referral';
 import { ReferralBadge } from '@/components/referral/ReferralBadge';
 
 export default function PublicFamilyPage() {
@@ -105,7 +105,7 @@ export default function PublicFamilyPage() {
             <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
               {isFounding && (
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-kaya-gold/10 text-kaya-gold-dark text-[12px] font-bold">
-                  🤝 Charter Family
+                  🤝 Charter Family{formatCharterNumber(family.charterNumber) ? ` · ${formatCharterNumber(family.charterNumber)}` : ''}
                 </span>
               )}
               {topBadgeEarned && (

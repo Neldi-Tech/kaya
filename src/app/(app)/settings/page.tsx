@@ -41,7 +41,7 @@ import {
 import { useRef } from 'react';
 import {
   BADGES, topBadge, nextBadge, progressToNextBadge,
-  effectiveCount, referralLink, kcToUsd,
+  effectiveCount, referralLink, kcToUsd, formatCharterNumber,
 } from '@/lib/referral';
 import { ReferralBadge } from '@/components/referral/ReferralBadge';
 import { KayaCoin } from '@/components/referral/KayaCoin';
@@ -1585,7 +1585,9 @@ export default function SettingsPage() {
                     <p className="text-[12px] text-kaya-sand">No handle yet</p>
                   )}
                   {family.isFoundingFamily && (
-                    <p className="text-[11px] font-bold text-kaya-gold mt-1">🤝 Charter Family · founding member</p>
+                    <p className="text-[11px] font-bold text-kaya-gold mt-1">
+                      🤝 Charter Family{formatCharterNumber(family.charterNumber) ? ` · No. ${formatCharterNumber(family.charterNumber)}` : ' · founding member'}
+                    </p>
                   )}
                 </div>
               </div>
