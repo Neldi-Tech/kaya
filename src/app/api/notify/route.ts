@@ -27,6 +27,7 @@ type NotifyType =
   | 'rating'
   | 'award'
   | 'invite'
+  | 'beta-invite'
   | 'moment-reaction'
   | 'moment-comment'
   | 'moment-mention'
@@ -54,6 +55,8 @@ interface NotifyData {
   isDiamond?: boolean;
   houseColor?: string;
   familyName?: string;
+  // Beta early-access invite
+  inviteEmail?: string;
   // Moments fields
   authorName?: string;
   reactorName?: string;
@@ -137,6 +140,13 @@ export async function POST(req: NextRequest) {
     html = renderEmail({
       preheader: `${data.actorName} from ${familyDisplay} is inviting ${data.childName} to join Kaya`,
       body: inviteBody({ ...data, familyName: familyDisplay } as InviteRender),
+    });
+  } else if (type === 'beta-invite') {
+    const signupEmail = data.inviteEmail || recipients[0];
+    subject = `You're invited to Kaya — early access 🎉`;
+    html = renderEmail({
+      preheader: `You've got early access to Kaya — sign up with ${signupEmail} to create your family.`,
+      body: betaInviteBody(signupEmail),
     });
   } else if (type === 'moment-reaction') {
     subject = `${data.reactorName} reacted ${data.emoji} to your moment`;
@@ -286,6 +296,24 @@ function inviteBody(d: InviteRender): string {
     </div>
     <p style="margin:18px 0 0;font-size:12px;color:#9B8A72;line-height:1.55;">
       Once you sign up, your kid profile will be linked automatically — your parent has already set everything up.
+    </p>
+  `;
+}
+
+function betaInviteBody(signupEmail: string): string {
+  const signupUrl = `${APP_URL}/signup`;
+  return `
+    <p style="margin:0 0 8px;font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:18px;font-weight:800;color:#1A1412;">You're in — welcome to Kaya 🎉</p>
+    <p style="margin:0 0 18px;font-size:14px;color:#1A1412;line-height:1.55;">
+      You've been given early access to <strong>Kaya</strong> — the family operating system for kids' routines, points, rewards, chores and allowances. We'd love you to take it for a spin.
+    </p>
+    <div style="background:linear-gradient(135deg,#1E120B,#3D241A);color:#fff;padding:24px;border-radius:16px;text-align:center;">
+      <p style="margin:0 0 6px;font-size:11px;color:#C4B89A;text-transform:uppercase;letter-spacing:0.14em;font-weight:700;">Sign up with this email</p>
+      <p style="margin:0 0 18px;font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:16px;font-weight:700;color:#F5E6B8;word-break:break-all;">${esc(signupEmail)}</p>
+      <a href="${signupUrl}" style="display:inline-block;background:#D4A017;color:#1A1412;text-decoration:none;font-weight:800;font-size:14px;padding:12px 28px;border-radius:10px;">Create your family →</a>
+    </div>
+    <p style="margin:18px 0 0;font-size:12px;color:#9B8A72;line-height:1.55;">
+      Use <strong>this exact email address</strong> when you sign up — it's how Kaya recognises your early-access invite. See you inside!
     </p>
   `;
 }
