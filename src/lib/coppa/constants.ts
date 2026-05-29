@@ -8,6 +8,12 @@
 
 export const ACTIVE_POLICY_VERSION = '2026-05-29';
 
+// sessionStorage key the /accept gate sets the moment an adult taps "I agree
+// and continue". The app-entry gate treats it as "accepted this session", so a
+// best-effort audit-write hiccup can NEVER trap a user in an /accept redirect
+// loop — one deliberate tap always gets them through. Cleared on a new session.
+export const ACCEPT_SESSION_KEY = 'kaya_accept_ok';
+
 // Stamp marking when ENFORCED Max-Privacy Mode shipped. Referenced by the CI
 // smoke test (PR h) so a regression that strips the child-session guards is
 // caught before deploy. Never remove.

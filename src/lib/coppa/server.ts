@@ -34,18 +34,30 @@ interface RecordAcceptanceOpts {
 export async function recordPolicyAcceptance(opts: RecordAcceptanceOpts): Promise<boolean> {
   const db = getAdminFirestore();
   if (!db) return false;
+  const version = opts.policyVersion || ACTIVE_POLICY_VERSION;
   try {
     await db
       .collection('users').doc(opts.uid)
       .collection('policyAcceptances')
       .add({
         type: opts.type,
-        policyVersion: opts.policyVersion || ACTIVE_POLICY_VERSION,
+        policyVersion: version,
         acceptedAt: new Date(),
         ...(opts.surface ? { surface: opts.surface } : {}),
         ...(opts.userAgent ? { userAgentHash: hashValue(opts.userAgent) } : {}),
         ...(opts.ip ? { ipHash: hashValue(opts.ip) } : {}),
       });
+    // Mirror the accepted version onto the user doc so the client can drive
+    // the /accept gate from the profile it already loads (no extra read). The
+    // append above is the record of truth — this is a best-effort convenience,
+    // so its own failure must NOT flip our success.
+    try {
+      await db
+        .collection('users').doc(opts.uid)
+        .set({ acceptedPolicyVersion: version, acceptedPolicyAt: new Date() }, { merge: true });
+    } catch {
+      /* mirror is advisory; the immutable acceptance above already landed */
+    }
     return true;
   } catch {
     return false;

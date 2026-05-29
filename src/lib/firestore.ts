@@ -69,6 +69,14 @@ export interface UserProfile {
   // Shape mirrors MessagingPrivacy in lib/messaging.ts (inlined to avoid a
   // circular import). Undefined fields default to true (share).
   messagingPrivacy?: { showPresence?: boolean; showTyping?: boolean; showReceipts?: boolean };
+  // ── COPPA / policy acceptance ──
+  // Latest policy version this account has accepted, mirrored from the
+  // immutable audit by recordPolicyAcceptance so the client can drive the
+  // /accept gate without an extra read. Best-effort + may be absent (e.g. a
+  // brand-new account before onboarding writes the full profile); the gate
+  // fails open on `undefined` and only interrupts when this is set to an
+  // OLDER version than ACTIVE_POLICY_VERSION (a material change mid-session).
+  acceptedPolicyVersion?: string;
   createdAt: Timestamp;
 }
 
