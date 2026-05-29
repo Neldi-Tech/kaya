@@ -24,7 +24,7 @@ import {
   type SubscriptionTierId, type TierConfig,
 } from '@/lib/tiers';
 import { usdFxRate } from '@/lib/pricing';
-import { roundNeatCents } from '@/lib/format';
+import { neatPriceCents } from '@/lib/format';
 import { formatCents } from '@/components/pantry/format';
 
 type BillingCycle = 'monthly' | 'yearly';
@@ -127,13 +127,17 @@ export default function SubscriptionPage() {
   // last-ditch fall back to 1 so we never crash if both are missing.
   const fx = fxUsdToFamily ?? usdFxRate(currency) ?? 1;
 
-  // Local helper: USD-cents → family-currency formatted string, rounded
-  // to a neat bucket so 7.20 USD doesn't read as "TSh 19,116".
+  // Local helper: USD-cents → family-currency formatted string. Uses
+  // neatPriceCents (NOT roundNeatCents) so small subscription prices
+  // survive: the USD base shows exactly ($6, $14, $7.20, $1–$4) while
+  // FX conversions still read cleanly (KSh 936 → KSh 950). roundNeatCents'
+  // fixed $10 floor used to flatten Home/Castle both to "$10" and every
+  // add-on to "$0".
   const toLocal = useMemo(() => {
     return (usdCents: number): string => {
       if (usdCents === 0) return formatCents(0, currency);
       const localCents = Math.round(usdCents * fx);
-      return formatCents(roundNeatCents(localCents), currency);
+      return formatCents(neatPriceCents(localCents, fx), currency);
     };
   }, [currency, fx]);
 
