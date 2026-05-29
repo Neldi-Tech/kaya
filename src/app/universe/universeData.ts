@@ -40,7 +40,7 @@ export const MODULES: UniverseModule[] = [
     route: "/home",
   },
   {
-    key: "sparks", num: 2, name: "Kaya Sparks", icon: "✨", color: "#FFC93C", bg: "#FFF3CD",
+    key: "sparks", num: 2, name: "Kaya Sparks", icon: "✨", color: "#FFD93D", bg: "#FFF3CD",
     tags: ["both"],
     webPitch: "Where <b>school projects, achievements, and PTM follow-ups</b> stop getting lost. Every spark of brilliance, captured.",
     webWhy: "Creativity and academic wins finally have a home that doesn't end up on a forgotten shelf.",
@@ -50,7 +50,7 @@ export const MODULES: UniverseModule[] = [
     route: "/sparks",
   },
   {
-    key: "hive", num: 3, name: "The Hive", icon: "🍯", color: "#8C5BFF", bg: "#E8DEFF",
+    key: "hive", num: 3, name: "The Hive", icon: "🍯", color: "#9B5DE5", bg: "#E8DEFF",
     tags: ["kid", "parent"],
     webPitch: "Three layers of money kids can feel. <b>Points → Honey Coins → Real cash</b>, earned and parent-approved.",
     webWhy: "Kids learn money is something you earn, save, then spend — not magic that appears.",
@@ -60,7 +60,7 @@ export const MODULES: UniverseModule[] = [
     route: "/hive",
   },
   {
-    key: "business", num: 4, name: "Kaya Business", icon: "🌱", color: "#3DCC91", bg: "#D7F5EA",
+    key: "business", num: 4, name: "Kaya Business", icon: "🌱", color: "#6BCB77", bg: "#D7F5EA",
     tags: ["kid"],
     webPitch: "<b>Real micro-enterprises</b> — passion fruit, chickens, mangoes. Track sales, costs, weekly reports.",
     webWhy: "Not pretend money. Real revenue routes to a real wallet. Childhood entrepreneurship, properly built.",
@@ -70,7 +70,7 @@ export const MODULES: UniverseModule[] = [
     route: "/business",
   },
   {
-    key: "moments", num: 5, name: "Moments", icon: "📸", color: "#7BE0C8", bg: "#D5EEFF",
+    key: "moments", num: 5, name: "Moments", icon: "📸", color: "#4ECDC4", bg: "#D5EEFF",
     tags: ["both"],
     webPitch: "The family feed — <b>but private</b>. Photos, milestones, little wins. The home album that never fills up your camera roll.",
     webWhy: "The good stuff lives in one safe place — just for the people who love each other.",
@@ -80,7 +80,7 @@ export const MODULES: UniverseModule[] = [
     route: "/moments",
   },
   {
-    key: "dreams", num: 6, name: "Kaya Dreams", icon: "🌟", color: "#FFC93C", bg: "#FFE9C4",
+    key: "dreams", num: 6, name: "Kaya Dreams", icon: "🌟", color: "#FFD93D", bg: "#FFE9C4",
     tags: ["kid"],
     webPitch: "\"Learn to swim.\" \"Summit Kili.\" \"Read 50 books.\" <b>Big aspirations</b>, broken into stepping stones, witnessed by family.",
     webWhy: "Dreams stop being vague wishes — they become dated, doable, supported by everyone.",
@@ -129,7 +129,7 @@ export const MODULES: UniverseModule[] = [
     route: "/buzz",
   },
   {
-    key: "wealth", num: 11, name: "Kaya Wealth", icon: "💎", color: "#8C5BFF", bg: "#F4EEFF",
+    key: "wealth", num: 11, name: "Kaya Wealth", icon: "💎", color: "#9B5DE5", bg: "#F4EEFF",
     tags: ["parent", "soon"],
     webPitch: "The <b>family wealth registry</b>. Properties, assets, investments. One private place to see what you've built — and what you're building for them.",
     webWhy: "Generational wealth isn't a secret to keep. It's a plan to share.",
@@ -138,7 +138,7 @@ export const MODULES: UniverseModule[] = [
     tip: "Coming soon — be the first to know when it lights up.",
   },
   {
-    key: "wellness", num: 12, name: "Kaya Wellness", icon: "🌿", color: "#3DCC91", bg: "#E5F8E5",
+    key: "wellness", num: 12, name: "Kaya Wellness", icon: "🌿", color: "#6BCB77", bg: "#E5F8E5",
     tags: ["both", "soon"],
     webPitch: "<b>Sleep. Screen time. Mindfulness. Health.</b> The quiet engine behind every happy day.",
     webWhy: "Habits build kids. Kaya watches the ones that matter — without watching the ones that don't.",
@@ -147,7 +147,7 @@ export const MODULES: UniverseModule[] = [
     tip: "Coming soon — we're designing this now.",
   },
   {
-    key: "chef", num: 13, name: "Kaya Chef", icon: "🍳", color: "#FFC93C", bg: "#FFF1D8",
+    key: "chef", num: 13, name: "Kaya Chef", icon: "🍳", color: "#FFD93D", bg: "#FFF1D8",
     tags: ["both", "soon"],
     webPitch: "<b>Family recipes that don't get lost.</b> Meal planning that talks to the pantry. Cook-along moments worth keeping.",
     webWhy: "The kitchen is where family memory lives. Kaya helps you cook it down.",
