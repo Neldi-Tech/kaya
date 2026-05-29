@@ -1506,15 +1506,23 @@ export async function createFamily(
     }
   });
 
-  // Seed default rewards (separate batch — too many writes for one transaction).
+  return createdFamilyId;
+}
+
+/** Seed the starter reward catalogue for a freshly-created family.
+ *  Split out of createFamily so onboarding can run it AFTER the creator's
+ *  parent profile exists: the rewards subcollection's create rule requires
+ *  isParentInFamily(), which reads users/{uid} — false until that profile
+ *  is written. Seeding inside createFamily (before the profile) is what
+ *  hit "Missing or insufficient permissions" at the closed-beta "Let's Go!"
+ *  (separate batch — too many writes for one transaction). */
+export async function seedDefaultRewards(familyId: string): Promise<void> {
   const batch = writeBatch(db);
   DEFAULT_REWARDS.forEach((reward) => {
-    const rewardRef = doc(collection(db, 'families', createdFamilyId, 'rewards'));
+    const rewardRef = doc(collection(db, 'families', familyId, 'rewards'));
     batch.set(rewardRef, reward);
   });
   await batch.commit();
-
-  return createdFamilyId;
 }
 
 // ── Handle lookups ──────────────────────────────────────────────
