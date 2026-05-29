@@ -1481,6 +1481,12 @@ export async function createFamily(
       compoundCredit: 0,
       kayaCoins: 0,
       isFoundingFamily: isFounding,
+      // 2026-05-29 — every new family lands on Free / Nest tier
+      // explicitly. Founding-family crew (first 100) still gets the
+      // full-access bypass via `isFoundingFamily`, so their visible
+      // surface is unchanged. Anyone after that redeems a tier code
+      // via /admin/tier-codes to unlock Home or Castle.
+      tierId: 'nest' as const,
       // Charter serial = global join ordinal, stamped only for the
       // closed-beta crew (newCount ≤ FOUNDING_FAMILY_LIMIT) so it renders
       // as CF-### on their profile. familyCount is monotonic, so this is
