@@ -126,8 +126,17 @@ async function applySubscription(db: Firestore, familyId: string, sub: Stripe.Su
     'subscription.stripeSubscriptionId': sub.id,
     'subscription.stripeCustomerId': typeof sub.customer === 'string' ? sub.customer : sub.customer.id,
     'subscription.status': SUB_STATUS(sub.status),
-    'subscription.currentPeriodEnd': Timestamp.fromMillis(sub.current_period_end * 1000),
   };
+  // current_period_end sits on the Subscription pre-basil (2025-02-24.acacia,
+  // our account's pinned version) and moved onto the first item in basil+ /
+  // dahlia. Read both so the handler survives a Stripe API-version upgrade, and
+  // skip the field entirely if absent so we never write a NaN Timestamp.
+  const periodEndSecs =
+    (sub as unknown as { current_period_end?: number }).current_period_end ??
+    (sub.items?.data?.[0] as unknown as { current_period_end?: number } | undefined)?.current_period_end;
+  if (typeof periodEndSecs === 'number' && Number.isFinite(periodEndSecs)) {
+    patch['subscription.currentPeriodEnd'] = Timestamp.fromMillis(periodEndSecs * 1000);
+  }
   if (resolved) {
     patch.tierId = resolved.tierId;
     patch['subscription.billingCycle'] = resolved.cycle;
