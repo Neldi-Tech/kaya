@@ -195,8 +195,11 @@ service cloud.firestore {
       // Phase B accrual engine writes it via the Admin SDK (which bypasses
       // rules), so clients may never change their own balance. (It is seeded
       // to 0 on create, which this guard does not affect.)
+      // charterNumber / foundingNumber are server-assigned honour serials
+      // (stamped at create, backfilled, or assigned via the Admin SDK) — a
+      // client must never forge or edit them post-create either.
       allow update: if isParentInFamily(familyId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kayaCoins']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kayaCoins', 'charterNumber', 'foundingNumber']);
 
       // Allow reading family by invite code (for joining)
       allow list: if isSignedIn();
