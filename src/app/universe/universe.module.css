@@ -4,17 +4,17 @@
 
 .root {
   --coral: #FF6B6B;
-  --sun: #FFC93C;
-  --grass: #3DCC91;
-  --purple: #8C5BFF;
-  --mint: #7BE0C8;
+  --sun: #FFD93D;
+  --grass: #6BCB77;
+  --purple: #9B5DE5;
+  --mint: #4ECDC4;
   --sky: #5BC0EB;
   --amber: #FF8C42;
-  --ink: #1B1F3A;
-  --ink-soft: #3D4366;
-  --cream: #FFF8EE;
-  --paper: #FFFDF8;
-  --line: #EDE3D2;
+  --ink: #2D1B5E;
+  --ink-soft: #5C6975;
+  --cream: #FFF8EC;
+  --paper: #FFFCF5;
+  --line: #E8DEC9;
   --shadow: 0 8px 24px rgba(27, 31, 58, 0.08), 0 2px 6px rgba(27, 31, 58, 0.05);
 
   min-height: 100vh;
