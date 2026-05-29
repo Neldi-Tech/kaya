@@ -142,6 +142,10 @@ export const DEFAULT_KID_MODULES = [
 export function resolveKidModules(kidModules: string[] | undefined): Set<string> {
   const set = new Set(kidModules ?? DEFAULT_KID_MODULES);
   set.add('home');
+  // The Universe is a guided, read-only tour of every module — always shown,
+  // never a gated feature. Granting it here just lets its nav row render; the
+  // deep links inside still respect each module's own kid route guard.
+  set.add('universe');
   // Sub-ids look like "household:meals" — promote each to its parent
   // so the parent's nav row renders and the parent route resolves.
   for (const id of Array.from(set)) {

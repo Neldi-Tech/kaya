@@ -321,6 +321,7 @@ const KID_STATS_NAV: NavItem[] = [
 const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/home',      icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
+  { kind: 'link',    id: 'universe',  path: '/universe',  icon: '🪐', label: 'The Universe' },
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages', activePrefixes: ['/messages'] },
@@ -382,6 +383,7 @@ const HELPER_SIDEBAR: SidebarRow[] = [
 const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/kid',       icon: '🏠', label: 'Home' },
+  { kind: 'link',    id: 'universe',  path: '/universe',  icon: '🪐', label: 'The Universe' },
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'workplan',  path: '/workplan',  icon: '🗓️', label: 'My Workplan' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },

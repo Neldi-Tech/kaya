@@ -69,6 +69,10 @@ export interface UserProfile {
   // Shape mirrors MessagingPrivacy in lib/messaging.ts (inlined to avoid a
   // circular import). Undefined fields default to true (share).
   messagingPrivacy?: { showPresence?: boolean; showTyping?: boolean; showReceipts?: boolean };
+  // ── Universe tour progress (in-app /universe walk-through) ──
+  // Which module chapters the user has marked "explored". Lives on the
+  // user's own doc so the owner reads/writes it with no rules change.
+  universeProgress?: { exploredKeys: string[]; updatedAt?: Timestamp };
   createdAt: Timestamp;
 }
 
