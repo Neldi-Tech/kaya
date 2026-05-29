@@ -3,6 +3,8 @@
 // changing a threshold updates Settings, the public profile, and any future
 // surface at once.
 
+import type { SubscriptionTierId } from './tiers';
+
 export const FOUNDING_FAMILY_LIMIT = 100; // closed-beta "Charter Family" crew
 
 // ── Badge ladder ────────────────────────────────────────────────
@@ -80,6 +82,87 @@ export const KC_USD_VALUE = 6;
 export function kcToUsd(kc: number): number {
   return Math.max(0, Math.round((kc || 0) * KC_USD_VALUE));
 }
+
+// ── KC accrual (Phase B engine — pure math) ─────────────────────
+// When a REFERRED family pays, the referrer earns 10% of that paid value
+// as KC, valued at $6/KC, counted over the referred family's first
+// 3 months. These constants + computeReferralAccrualKc() are the whole
+// economic rule; the Admin-SDK side (lib/referralServer.ts) feeds them
+// real payments. No billing events exist in closed beta yet, so this is
+// a documented SEAM — correct + tested, waiting on a payment source.
+
+export const REFERRAL_ACCRUAL_RATE = 0.1; // 10% of a referred family's paid value
+export const REFERRAL_ACCRUAL_WINDOW_MONTHS = 3; // counted over their first 3 months
+
+/** KC earned from a single referred payment of `paidValueCents` (USD
+ *  cents) inside the 3-month window: 10% of value, charged at $6/KC,
+ *  rounded to 2 dp. Pure + side-effect-free so it can be unit-reasoned
+ *  and reused by the future billing webhook. */
+export function computeReferralAccrualKc(paidValueCents: number): number {
+  if (!paidValueCents || paidValueCents <= 0) return 0;
+  const rewardUsd = (paidValueCents / 100) * REFERRAL_ACCRUAL_RATE;
+  return Math.round((rewardUsd / KC_USD_VALUE) * 100) / 100;
+}
+
+// ── KC → tier redemption (Phase B — pure cost math) ─────────────
+// KC spends on tier time. The operator picks a family + tier + duration
+// in the Admin portal (Phase B "start with Tiers only"); the cost is the
+// tier's USD value over that span, charged at $6/KC and rounded UP so a
+// grant never costs the family less than its face value. The spend path
+// is deliberately generic (lib/referralServer.applyKcLedger) so KC can
+// buy non-tier things later without touching this math.
+
+export interface KcTierDuration {
+  id: string;
+  label: string;
+  months: number;
+}
+
+export const KC_TIER_DURATIONS: KcTierDuration[] = [
+  { id: '1m', label: '1 month', months: 1 },
+  { id: '3m', label: '3 months', months: 3 },
+  { id: '6m', label: '6 months', months: 6 },
+  { id: '12m', label: '12 months', months: 12 },
+];
+
+/** KC cost to grant `months` of a plan priced at `priceMonthlyCents`
+ *  (USD cents). Value = price × months, charged at $6/KC, rounded UP.
+ *  Free plans (Nest) cost 0. */
+export function kcCostForTierGrant(priceMonthlyCents: number, months: number): number {
+  if (priceMonthlyCents <= 0 || months <= 0) return 0;
+  const valueUsd = (priceMonthlyCents / 100) * months;
+  return Math.ceil(valueUsd / KC_USD_VALUE);
+}
+
+// ── KC ledger (Phase B — audit trail shape) ─────────────────────
+// Every balance change is mirrored to families/{id}/kcLedger/{entryId}
+// by the Admin SDK. `amount` is signed (+credit / -debit) and
+// `balanceAfter` snapshots the running family.kayaCoins so the trail is
+// readable without summing. Written server-only; parents may read.
+
+export type KcLedgerKind = 'accrual' | 'grant' | 'redemption' | 'adjustment';
+
+export interface KcLedgerEntry {
+  id: string;
+  kind: KcLedgerKind;
+  amount: number; // signed: +credit / -debit
+  balanceAfter: number;
+  reason: string;
+  createdAtMs: number;
+  createdByEmail: string | null;
+  // optional context, by kind
+  tierId: SubscriptionTierId | null; // redemption: plan granted
+  durationMonths: number | null; // redemption: grant length
+  refFamilyId: string | null; // accrual: which referred family paid
+  paidValueCents: number | null; // accrual: the underlying payment
+}
+
+export const KC_LEDGER_KIND_META: Record<KcLedgerKind, { label: string; emoji: string }> = {
+  accrual: { label: 'Referral reward', emoji: '🌱' },
+  grant: { label: 'Manual grant', emoji: '🎁' },
+  redemption: { label: 'Redeemed', emoji: '🪙' },
+  adjustment: { label: 'Adjustment', emoji: '⚖️' },
+};
 
 // Generate a referral code from a family name. Format: NAM-YYYY-XXX
 // Distinct from inviteCode (which lets helpers/kids join the SAME family).

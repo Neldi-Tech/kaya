@@ -218,6 +218,17 @@ service cloud.firestore {
         allow delete: if isParentInFamily(familyId);
       }
 
+      // ── Kaya Coins ledger (server-owned audit trail) ─────────
+      // Mirror of the kayaCoins balance: every accrual / grant /
+      // redemption is appended here by the Admin SDK (which bypasses
+      // rules). Parents may read their own family's ledger; NO client
+      // may ever write it — like the balance itself, it carries real
+      // $ value and is server-owned (lib/referralServer.ts).
+      match /kcLedger/{entryId} {
+        allow read: if isParentInFamily(familyId);
+        allow write: if false;
+      }
+
       // ── Children ─────────────────────────────────
       match /children/{childId} {
         allow read: if belongsToFamily(familyId);
