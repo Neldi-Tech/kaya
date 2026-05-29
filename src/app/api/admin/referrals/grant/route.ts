@@ -1,5 +1,6 @@
-// POST /api/admin/referrals/grant — operator-only. Manually credits KC
-// to a family (the Phase B "manual grant" control). Body:
+// POST /api/admin/referrals/grant — FOUNDER-only (minting KC is the apex
+// money power; see FOUNDER_EMAILS). Manually credits KC to a family (the
+// Phase B "manual grant" control). Body:
 //   { familyId: string, amount: number (>0), reason?: string }
 // Returns { balanceAfter }. Writes via lib/referralServer.grantKc, which
 // appends a kcLedger entry atomically.
@@ -14,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: NextRequest) {
   const r = await resolveAuth(req);
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!r.ctx.isOperator) return NextResponse.json({ error: 'operator-only' }, { status: 403 });
+  if (!r.ctx.isFounder) return NextResponse.json({ error: 'founder-only' }, { status: 403 });
   const { db, ctx } = r;
 
   let body: { familyId?: string; amount?: number; reason?: string };

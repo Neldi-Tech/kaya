@@ -41,7 +41,7 @@ import {
 import { useRef } from 'react';
 import {
   BADGES, topBadge, nextBadge, progressToNextBadge,
-  effectiveCount, referralLink, kcToUsd, formatCharterNumber,
+  effectiveCount, referralLink, formatKc, formatKcUsd, formatCharterNumber,
 } from '@/lib/referral';
 import { ReferralBadge } from '@/components/referral/ReferralBadge';
 import { KayaCoin } from '@/components/referral/KayaCoin';
@@ -949,10 +949,10 @@ export default function SettingsPage() {
         <KayaCoin size={48} className="shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-display font-black text-xl text-kaya-chocolate leading-none">{kc}<span className="text-[12px] font-bold text-kaya-sand ml-1">KC</span></p>
+            <p className="font-display font-black text-xl text-kaya-chocolate leading-none">{formatKc(kc)}<span className="text-[12px] font-bold text-kaya-sand ml-1">KC</span></p>
             <span className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold-dark bg-kaya-gold-light/70 px-1.5 py-0.5 rounded-full">Coming soon</span>
           </div>
-          <p className="text-[11px] text-kaya-sand leading-snug mt-1">Kaya Coins (≈ ${kcToUsd(kc)}) — you&apos;ll earn them when families you refer subscribe. Spendable rewards land with the next update.</p>
+          <p className="text-[11px] text-kaya-sand leading-snug mt-1">Kaya Coins (≈ {formatKcUsd(kc)}) — you&apos;ll earn them when families you refer subscribe. Spendable rewards land with the next update.</p>
         </div>
       </div>
 
