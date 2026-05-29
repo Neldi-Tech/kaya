@@ -126,6 +126,8 @@ export interface Family {
   compoundCredit?: number;        // credit from referral-of-referral (1 level deep)
   kayaCoins?: number;             // Kaya Coins (KC) balance — server-owned referral currency (accrual engine ships Phase B; 0 for everyone today)
   isFoundingFamily?: boolean;     // true if among the first FOUNDING_FAMILY_LIMIT families (the "Charter Family" crew — distinct from the earned Founding Family badge @1,000)
+  charterNumber?: number;         // Charter Family join ordinal (1..FOUNDING_FAMILY_LIMIT); shown as CF-### — stamped at creation, backfilled for existing families by createdAt order
+  foundingNumber?: number;        // order this family EARNED the apex Founding Family badge (@1,000 referrals); shown as FF-### — assigned server-side (lib/referralServer.assignFoundingNumber), none in closed beta yet
   spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
   // ── Family milestones ──
   anniversary?: string;           // canonical YYYY-MM-DD; UI shows DD-MMM-YYYY + day-of-week
@@ -1476,6 +1478,11 @@ export async function createFamily(
       compoundCredit: 0,
       kayaCoins: 0,
       isFoundingFamily: isFounding,
+      // Charter serial = global join ordinal, stamped only for the
+      // closed-beta crew (newCount ≤ FOUNDING_FAMILY_LIMIT) so it renders
+      // as CF-### on their profile. familyCount is monotonic, so this is
+      // their true join position.
+      ...(isFounding ? { charterNumber: newCount } : {}),
       spotlightOptIn: false,
       pointsMode: 'full' as PointsMode,
       routines: DEFAULT_ROUTINES,

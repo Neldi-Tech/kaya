@@ -206,8 +206,11 @@ service cloud.firestore {
       // Phase B accrual engine writes it via the Admin SDK (which bypasses
       // rules), so clients may never change their own balance. (It is seeded
       // to 0 on create, which this guard does not affect.)
+      // charterNumber / foundingNumber are server-assigned honour serials
+      // (stamped at create, backfilled, or assigned via the Admin SDK) — a
+      // client must never forge or edit them post-create either.
       allow update: if isParentInFamily(familyId)
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kayaCoins']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kayaCoins', 'charterNumber', 'foundingNumber']);
 
       // Allow reading family by invite code (for joining)
       allow list: if isSignedIn();
@@ -227,6 +230,17 @@ service cloud.firestore {
           && resource.data.uid == request.auth.uid
           && request.resource.data.uid == request.auth.uid;
         allow delete: if isParentInFamily(familyId);
+      }
+
+      // ── Kaya Coins ledger (server-owned audit trail) ─────────
+      // Mirror of the kayaCoins balance: every accrual / grant /
+      // redemption is appended here by the Admin SDK (which bypasses
+      // rules). Parents may read their own family's ledger; NO client
+      // may ever write it — like the balance itself, it carries real
+      // $ value and is server-owned (lib/referralServer.ts).
+      match /kcLedger/{entryId} {
+        allow read: if isParentInFamily(familyId);
+        allow write: if false;
       }
 
       // ── Children ─────────────────────────────────
