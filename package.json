@@ -4,9 +4,11 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/max-privacy-check.mjs",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "max-privacy": "node scripts/max-privacy-check.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",
