@@ -18,6 +18,7 @@ const TABS: { href: string; label: string }[] = [
   { href: '/admin/pricing',  label: 'Pricing' },
   { href: '/admin/branding', label: 'Branding' },
   { href: '/admin/families', label: 'Families' },
+  { href: '/admin/referrals', label: 'Kaya Coins' },
   { href: '/admin/upgrade-requests', label: 'Upgrades' },
   { href: '/admin/pipeline', label: 'Pipeline' },
 ];
