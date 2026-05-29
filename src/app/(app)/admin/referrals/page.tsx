@@ -11,8 +11,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { auth } from '@/lib/firebase';
 import { toDisplayDate } from '@/lib/dates';
 import {
-  KC_TIER_DURATIONS, KC_LEDGER_KIND_META, kcCostForTierGrant, kcToUsd,
-  formatCharterNumber, type KcLedgerEntry,
+  KC_TIER_DURATIONS, KC_LEDGER_KIND_META, kcCostForTierGrant,
+  formatKc, formatKcUsd, formatCharterNumber, type KcLedgerEntry,
 } from '@/lib/referral';
 import type { SubscriptionTierId } from '@/lib/tiers';
 import { KayaCoin } from '@/components/referral/KayaCoin';
@@ -37,6 +37,7 @@ export default function AdminReferralsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
+  const [viewerIsFounder, setViewerIsFounder] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -44,9 +45,10 @@ export default function AdminReferralsPage() {
     try {
       const res = await authedFetch('/api/admin/referrals');
       if (!res.ok) throw new Error(`load-failed-${res.status}`);
-      const data = (await res.json()) as { families: AdminReferralRow[]; tiers: AdminReferralTierSummary[] };
+      const data = (await res.json()) as { families: AdminReferralRow[]; tiers: AdminReferralTierSummary[]; viewerIsFounder?: boolean };
       setFamilies(data.families);
       setTiers(data.tiers);
+      setViewerIsFounder(data.viewerIsFounder === true);
     } catch (e) {
       setErr(String(e instanceof Error ? e.message : e));
     } finally {
@@ -80,8 +82,13 @@ export default function AdminReferralsPage() {
           </div>
           <p className="text-white/55 text-[13px] font-semibold ml-12">
             Grant KC, redeem KC → tier time, and audit every family&apos;s ledger. 1 KC ≈ ${6} ·{' '}
-            {Math.round(totalKc * 100) / 100} KC in circulation.
+            {formatKc(totalKc)} KC in circulation.
           </p>
+          {!loading && !err && !viewerIsFounder && (
+            <p className="text-[#D4A847]/80 text-[12px] font-bold ml-12 mt-1">
+              👀 View-only — minting &amp; redeeming KC is limited to the Founding Family.
+            </p>
+          )}
         </header>
 
         <div
@@ -122,6 +129,7 @@ export default function AdminReferralsPage() {
         <ManageDrawer
           family={open}
           tiers={tiers}
+          canManage={viewerIsFounder}
           onClose={() => setOpenId(null)}
           onMutated={reload}
         />
@@ -155,9 +163,9 @@ function ReferralRow({ family, onOpen }: { family: AdminReferralRow; onOpen: () 
       </div>
       <div className="text-right flex-shrink-0">
         <div className="text-[#D4A847] font-black text-[18px] leading-none flex items-center gap-1 justify-end">
-          <KayaCoin size={16} />{Math.round(family.kayaCoins * 100) / 100}
+          <KayaCoin size={16} />{formatKc(family.kayaCoins)}
         </div>
-        <div className="text-white/40 text-[10px] font-bold mt-0.5">≈ ${kcToUsd(family.kayaCoins).toLocaleString()}</div>
+        <div className="text-white/40 text-[10px] font-bold mt-0.5">≈ {formatKcUsd(family.kayaCoins)}</div>
       </div>
       <button
         type="button"
@@ -174,10 +182,11 @@ function ReferralRow({ family, onOpen }: { family: AdminReferralRow; onOpen: () 
 // ── Drawer ────────────────────────────────────────────────────────────
 
 function ManageDrawer({
-  family, tiers, onClose, onMutated,
+  family, tiers, canManage, onClose, onMutated,
 }: {
   family: AdminReferralRow;
   tiers: AdminReferralTierSummary[];
+  canManage: boolean;
   onClose: () => void;
   onMutated: () => Promise<void>;
 }) {
@@ -227,7 +236,7 @@ function ManageDrawer({
       if (!res.ok) throw new Error(data.error || `grant-${res.status}`);
       setBalance(data.balanceAfter);
       setGrantAmount(''); setGrantReason('');
-      setFlash({ kind: 'ok', msg: `Granted ${amount} KC · new balance ${data.balanceAfter} KC` });
+      setFlash({ kind: 'ok', msg: `Granted ${formatKc(amount)} KC · new balance ${formatKc(data.balanceAfter)} KC` });
       await Promise.all([loadDetail(), onMutated()]);
     } catch (e) {
       setFlash({ kind: 'err', msg: String(e instanceof Error ? e.message : e) });
@@ -246,7 +255,7 @@ function ManageDrawer({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `redeem-${res.status}`);
       setBalance(data.balanceAfter);
-      setFlash({ kind: 'ok', msg: `−${data.cost} KC → ${selectedTier?.name} · ${selectedDuration.label}. Balance ${data.balanceAfter} KC` });
+      setFlash({ kind: 'ok', msg: `−${formatKc(data.cost)} KC → ${selectedTier?.name} · ${selectedDuration.label}. Balance ${formatKc(data.balanceAfter)} KC` });
       await Promise.all([loadDetail(), onMutated()]);
     } catch (e) {
       setFlash({ kind: 'err', msg: String(e instanceof Error ? e.message : e) });
@@ -279,8 +288,8 @@ function ManageDrawer({
         >
           <KayaCoin size={40} />
           <div>
-            <div className="text-[#D4A847] font-black text-[26px] leading-none">{Math.round(balance * 100) / 100} KC</div>
-            <div className="text-white/55 text-[12px] font-bold mt-1">≈ ${kcToUsd(balance).toLocaleString()} value</div>
+            <div className="text-[#D4A847] font-black text-[26px] leading-none">{formatKc(balance)} KC</div>
+            <div className="text-white/55 text-[12px] font-bold mt-1">≈ {formatKcUsd(balance)} value</div>
           </div>
         </div>
 
@@ -295,6 +304,7 @@ function ManageDrawer({
           </div>
         )}
 
+        {canManage ? (<>
         {/* Grant */}
         <section className="mb-5">
           <div className="text-[11px] font-black text-white/55 uppercase tracking-wider mb-2">🎁 Grant KC</div>
@@ -378,7 +388,7 @@ function ManageDrawer({
             <span className="text-white/70 text-[12px] font-bold">
               {selectedTier?.name} · {selectedDuration.label}
             </span>
-            <span className="text-[#D4A847] text-[14px] font-black">{redeemCost} KC</span>
+            <span className="text-[#D4A847] text-[14px] font-black">{formatKc(redeemCost)} KC</span>
           </div>
           <button
             type="button"
@@ -387,12 +397,20 @@ function ManageDrawer({
             className="w-full text-[13px] font-black py-2.5 rounded-xl disabled:opacity-50"
             style={{ background: canAfford ? '#5BB85B' : 'rgba(255,255,255,0.08)', color: canAfford ? '#0F1F44' : 'rgba(255,255,255,0.4)' }}
           >
-            {busy ? 'Working…' : canAfford ? `Redeem ${redeemCost} KC` : `Need ${redeemCost} KC (has ${Math.round(balance * 100) / 100})`}
+            {busy ? 'Working…' : canAfford ? `Redeem ${formatKc(redeemCost)} KC` : `Need ${formatKc(redeemCost)} KC (has ${formatKc(balance)})`}
           </button>
           <p className="text-white/40 text-[10px] font-semibold mt-2 leading-relaxed">
             Applies the tier immediately with an expiry {selectedDuration.months} month{selectedDuration.months === 1 ? '' : 's'} out. The family reverts to Nest when it lapses.
           </p>
         </section>
+        </>) : (
+          <div
+            className="rounded-2xl px-4 py-3 mb-5 text-[12px] font-bold leading-relaxed"
+            style={{ background: 'rgba(212,168,71,0.1)', border: '1px solid rgba(212,168,71,0.25)', color: '#D4A847' }}
+          >
+            👀 View-only. Minting &amp; redeeming Kaya Coins is reserved for the Founding Family. You can review balances and the ledger here.
+          </div>
+        )}
 
         {/* Ledger */}
         <section>
@@ -430,9 +448,9 @@ function LedgerRow({ entry }: { entry: KcLedgerEntry }) {
       </div>
       <div className="text-right flex-shrink-0">
         <div className="text-[13px] font-black" style={{ color: positive ? '#7BD389' : '#FF9B9B' }}>
-          {positive ? '+' : ''}{Math.round(entry.amount * 100) / 100}
+          {positive ? '+' : ''}{formatKc(entry.amount)}
         </div>
-        <div className="text-white/35 text-[10px] font-bold">bal {Math.round(entry.balanceAfter * 100) / 100}</div>
+        <div className="text-white/35 text-[10px] font-bold">bal {formatKc(entry.balanceAfter)}</div>
       </div>
     </div>
   );

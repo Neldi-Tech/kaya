@@ -104,6 +104,33 @@ export function kcToUsd(kc: number): number {
   return Math.max(0, Math.round((kc || 0) * KC_USD_VALUE));
 }
 
+// ── Display formatting — "classic" compact notation ─────────────
+// Big balances/values get unwieldy fast (a 1,000-referral apex family can
+// hold billions of KC). Below 10K we show the exact figure with thousand
+// separators (#,### — and up to 2 dp for fractional KC like 2.8); at/above
+// 10K we switch to compact K/M/B with one decimal (12.5K, 100M, 2.3B). Pure
+// + presentation-agnostic so every KC surface reads identically.
+
+export function compactNumber(n: number): string {
+  const v = Number.isFinite(n) ? n : 0;
+  const abs = Math.abs(v);
+  const compact = (x: number) => String(Math.round(x * 10) / 10); // 1 dp, trims trailing .0
+  if (abs >= 1e9) return compact(v / 1e9) + 'B';
+  if (abs >= 1e6) return compact(v / 1e6) + 'M';
+  if (abs >= 1e4) return compact(v / 1e3) + 'K';
+  return v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+/** A KC balance, classic-formatted (e.g. "2.8", "1,250", "2.3B"). */
+export function formatKc(kc: number): string {
+  return compactNumber(Math.round((kc || 0) * 100) / 100);
+}
+
+/** A KC balance's USD value, classic-formatted with a $ prefix ("$6B"). */
+export function formatKcUsd(kc: number): string {
+  return '$' + compactNumber(kcToUsd(kc));
+}
+
 // ── KC accrual (Phase B engine — pure math) ─────────────────────
 // When a REFERRED family pays, the referrer earns 10% of that paid value
 // as KC, valued at $6/KC, counted over the referred family's first

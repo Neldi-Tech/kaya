@@ -14,6 +14,17 @@ import type {
 } from './buzz';
 import { DEFAULT_BUZZ_SETTINGS } from './buzz';
 
+// ── Founding Family allowlist ──────────────────────────────────────────
+// Minting/spending Kaya Coins is the apex money power — locked to the two
+// Founding Family accounts. Founders are implicitly operators (full Admin
+// console), so this list is the single source of truth for "who can touch
+// KC". Compared case-insensitively.
+export const FOUNDER_EMAILS = ['ellytimothy@gmail.com', 'tim@neldi.com'];
+
+export function isFounderEmail(email: string | null | undefined): boolean {
+  return !!email && FOUNDER_EMAILS.includes(email.toLowerCase());
+}
+
 // ── Auth context resolved for every request ────────────────────────────
 
 export interface AuthContext {
@@ -24,6 +35,7 @@ export interface AuthContext {
   familyDisplayName: string | null;
   childId: string | null;
   isOperator: boolean;
+  isFounder: boolean;
 }
 
 /** Verifies the Authorization Bearer token, looks up the user profile +
@@ -58,8 +70,11 @@ export async function resolveAuth(req: NextRequest): Promise<{ ctx: AuthContext;
     if (fam) familyDisplayName = fam.handle ? `${fam.name} (@${fam.handle})` : fam.name ?? null;
   }
 
-  let isOperator = false;
-  if (email) {
+  // Founders are operators by definition; otherwise fall back to the
+  // operators/{email} allowlist doc.
+  const isFounder = isFounderEmail(email);
+  let isOperator = isFounder;
+  if (!isOperator && email) {
     const opSnap = await db.collection('operators').doc(email.toLowerCase()).get();
     isOperator = opSnap.exists;
   }
@@ -74,6 +89,7 @@ export async function resolveAuth(req: NextRequest): Promise<{ ctx: AuthContext;
       familyDisplayName,
       childId: user?.childId ?? null,
       isOperator,
+      isFounder,
     },
   };
 }

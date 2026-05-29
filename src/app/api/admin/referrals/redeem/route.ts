@@ -1,4 +1,5 @@
-// POST /api/admin/referrals/redeem — operator-only. Spends a family's KC
+// POST /api/admin/referrals/redeem — FOUNDER-only (spending KC moves the
+// same apex currency as minting; see FOUNDER_EMAILS). Spends a family's KC
 // on tier time (the Phase B "redeem from Admin, Tiers only" control).
 // Body: { familyId: string, tierId: 'home'|'castle', durationId: KcTierDuration['id'] }
 // Returns { balanceAfter, cost, tierId, months }.
@@ -23,7 +24,7 @@ const REDEEMABLE = new Set<SubscriptionTierId>(['home', 'castle']);
 export async function POST(req: NextRequest) {
   const r = await resolveAuth(req);
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: r.status });
-  if (!r.ctx.isOperator) return NextResponse.json({ error: 'operator-only' }, { status: 403 });
+  if (!r.ctx.isFounder) return NextResponse.json({ error: 'founder-only' }, { status: 403 });
   const { db, ctx } = r;
 
   let body: { familyId?: string; tierId?: SubscriptionTierId; durationId?: string };

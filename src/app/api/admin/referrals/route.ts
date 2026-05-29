@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
   const r = await resolveAuth(req);
   if ('error' in r) return NextResponse.json({ error: r.error }, { status: r.status });
   if (!r.ctx.isOperator) return NextResponse.json({ error: 'operator-only' }, { status: 403 });
-  const { db } = r;
+  const { db, ctx } = r;
 
   const familyId = req.nextUrl.searchParams.get('familyId');
 
@@ -108,5 +108,7 @@ export async function GET(req: NextRequest) {
     priceMonthly: tiers[id].priceMonthly,
   }));
 
-  return NextResponse.json({ families: rows, tiers: tierSummary });
+  // Founder-only mint/redeem controls hang off this flag (any operator may
+  // VIEW the console; only founders may move KC).
+  return NextResponse.json({ families: rows, tiers: tierSummary, viewerIsFounder: ctx.isFounder });
 }
