@@ -8,6 +8,7 @@ import RevealObserver from '@/components/marketing/RevealObserver';
 import TourProvider from '@/components/marketing/TourProvider';
 import TopContextBar from '@/components/marketing/TopContextBar';
 import Hero from '@/components/marketing/Hero';
+import Audience from '@/components/marketing/Audience';
 import FoundedOnLove from '@/components/marketing/FoundedOnLove';
 import KayaCore from '@/components/marketing/KayaCore';
 import Moments from '@/components/marketing/Moments';
@@ -51,6 +52,7 @@ export default function MarketingHome() {
       <TourProvider>
         <TopContextBar />
         <Hero />
+        <Audience />
         <FoundedOnLove />
         <KayaCore />
         <Moments />

@@ -300,6 +300,106 @@ html:has(.kaya-mk) { scroll-behavior: smooth; }
   50% { transform: translateY(-10px); }
 }
 
+/* ---------- Audience — who Kaya is for (2026-05-29) ---------- */
+.kaya-mk .audience {
+  background: var(--cream);
+  padding: 80px 24px 88px;
+  border-top: 1px dashed var(--line);
+}
+.kaya-mk .audience-head {
+  text-align: center;
+  margin-bottom: 44px;
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.kaya-mk .audience-head h2 { margin-bottom: 14px; }
+.kaya-mk .audience-head .lede { margin: 0 auto; }
+
+.kaya-mk .audience-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-bottom: 44px;
+}
+.kaya-mk .who-card {
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 26px 24px;
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+.kaya-mk .who-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--honey);
+  box-shadow: var(--shadow-md);
+}
+.kaya-mk .who-em {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: rgba(243, 156, 47, 0.13);
+  font-size: 23px;
+  margin-bottom: 14px;
+}
+.kaya-mk .who-card h3 { font-size: 16px; line-height: 1.3; margin-bottom: 6px; }
+.kaya-mk .who-card p { color: var(--ink-soft); font-size: 13.5px; line-height: 1.55; }
+
+.kaya-mk .use-strip {
+  background: var(--cream-warm);
+  border: 1px solid rgba(243, 156, 47, 0.25);
+  border-radius: var(--radius);
+  padding: 30px 30px 24px;
+}
+.kaya-mk .use-strip > h3 {
+  color: var(--navy);
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.kaya-mk .use-strip > h3::before {
+  content: "";
+  display: inline-block;
+  width: 26px;
+  height: 1.5px;
+  background: var(--gold);
+}
+.kaya-mk .use-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 28px;
+}
+.kaya-mk .use-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  color: var(--navy);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.kaya-mk .use-em { font-size: 18px; flex-shrink: 0; padding-top: 1px; }
+.kaya-mk .use-list strong { font-weight: 700; }
+.kaya-mk .use-closer {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(31, 45, 61, 0.12);
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  text-align: center;
+}
+.kaya-mk .use-closer em { color: var(--gold); font-style: normal; font-weight: 700; }
+
 /* ---------- Founded on Love ---------- */
 .kaya-mk .love-section {
   background: var(--cream-warm);
@@ -1310,6 +1410,9 @@ html:has(.kaya-mk) { scroll-behavior: smooth; }
   .kaya-mk section { padding: 64px 20px; }
   .kaya-mk .hero-grid, .kaya-mk .money-grid, .kaya-mk .privacy-grid, .kaya-mk .founder-grid { grid-template-columns: 1fr; gap: 40px; }
   .kaya-mk .core-grid, .kaya-mk .voices-grid, .kaya-mk .roadmap-grid, .kaya-mk .walk-steps, .kaya-mk .born-grid { grid-template-columns: 1fr; }
+  .kaya-mk .audience-grid { grid-template-columns: repeat(2, 1fr); }
+  .kaya-mk .use-list { grid-template-columns: 1fr; }
+  .kaya-mk .audience { padding: 56px 20px 64px; }
   .kaya-mk .love-pillars { grid-template-columns: repeat(2, 1fr); }
   .kaya-mk .houses { grid-template-columns: 1fr; }
   .kaya-mk .hive-block, .kaya-mk .meeting-card { grid-template-columns: 1fr; }
