@@ -77,6 +77,10 @@ export interface UserProfile {
   // fails open on `undefined` and only interrupts when this is set to an
   // OLDER version than ACTIVE_POLICY_VERSION (a material change mid-session).
   acceptedPolicyVersion?: string;
+  // ── Universe tour progress (in-app /universe walk-through) ──
+  // Which module chapters the user has marked "explored". Lives on the
+  // user's own doc so the owner reads/writes it with no rules change.
+  universeProgress?: { exploredKeys: string[]; updatedAt?: Timestamp };
   createdAt: Timestamp;
 }
 
@@ -120,7 +124,8 @@ export interface Family {
   referredBy?: string | null;     // familyId of the family that referred us (if any)
   referralCount?: number;         // direct successful referrals
   compoundCredit?: number;        // credit from referral-of-referral (1 level deep)
-  isFoundingFamily?: boolean;     // true if among the first FOUNDING_FAMILY_LIMIT families
+  kayaCoins?: number;             // Kaya Coins (KC) balance — server-owned referral currency (accrual engine ships Phase B; 0 for everyone today)
+  isFoundingFamily?: boolean;     // true if among the first FOUNDING_FAMILY_LIMIT families (the "Charter Family" crew — distinct from the earned Founding Family badge @1,000)
   spotlightOptIn?: boolean;       // opt-in flag for landing-page Champion spotlight
   // ── Family milestones ──
   anniversary?: string;           // canonical YYYY-MM-DD; UI shows DD-MMM-YYYY + day-of-week
@@ -1469,6 +1474,7 @@ export async function createFamily(
       referredBy: referrerFamilyId,
       referralCount: 0,
       compoundCredit: 0,
+      kayaCoins: 0,
       isFoundingFamily: isFounding,
       spotlightOptIn: false,
       pointsMode: 'full' as PointsMode,
