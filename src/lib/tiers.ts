@@ -112,6 +112,12 @@ export interface TierConfig {
    *  Showing a coral "Add-on" chip next to the checkbox in the matrix. */
   addonModules: ModuleId[];
   isFeatured: boolean;
+  /** Stripe objects for the paid funnel (PR 4-Pay). Populated by
+   *  scripts/stripe-provision.ts and persisted at /config/tiers/{tierId};
+   *  absent for Nest (free) and before provisioning has run. */
+  stripeProductId?: string;
+  stripePriceIdMonthly?: string;
+  stripePriceIdYearly?: string;
 }
 
 const FREE = 0;

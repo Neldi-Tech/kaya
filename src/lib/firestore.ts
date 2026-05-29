@@ -165,6 +165,9 @@ export interface Family {
      *  paid funnel opens. Leaving the seam here so PR 4 (Stripe) is a
      *  drop-in once env wiring lands. */
     stripeSubscriptionId?: string | null;
+    /** Stripe Customer ID — needed to open the Billing Portal and to
+     *  reuse the same customer across upgrades. Populated by PR 4 (Stripe). */
+    stripeCustomerId?: string | null;
     currentPeriodEnd?: Timestamp;
     status?: 'active' | 'past_due' | 'canceled';
     /** Tier-code redemption (closed beta · pre-Stripe, 2026-05-28).

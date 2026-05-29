@@ -1,11 +1,14 @@
 'use client';
 
-// /settings/subscription — read-only Plan & Billing page (PR 4, 2026-05-27).
+// /settings/subscription — Plan & Billing page (Stripe self-serve, PR 4-Pay).
 //
-// Mailto-only upgrade flow during closed beta — Stripe gets wired in a
-// follow-up. Renders the same 3-tier matrix the admin matrix configures,
-// shows the family's current plan (resolved by useTierAccess), and shows
-// prices in the household's currency with USD as the source of truth.
+// Paid tiers go through Stripe Checkout (hosted); the webhook is what
+// actually flips the family's tier. A family that already pays gets a
+// "Manage billing" button into Stripe's Customer Portal (change card,
+// switch plan, cancel). Renders the same 3-tier matrix the admin matrix
+// configures, shows the family's current plan (resolved by useTierAccess),
+// and shows prices in the household's currency with USD as the source of
+// truth. The redeem-code card stays as the operator escape hatch.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -36,7 +39,7 @@ export default function SubscriptionPage() {
   const { config, fxUsdToFamily } = useHive();
   const { family } = useFamily();
   const [cycle, setCycle] = useState<BillingCycle>('yearly');
-  const [requestingTier, setRequestingTier] = useState<SubscriptionTierId | null>(null);
+  const [busy, setBusy] = useState<SubscriptionTierId | 'portal' | null>(null);
   const [toast, setToast] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   useEffect(() => {
     if (!toast) return;
@@ -44,27 +47,60 @@ export default function SubscriptionPage() {
     return () => clearTimeout(id);
   }, [toast]);
 
-  const onRequest = (tierId: SubscriptionTierId) => setRequestingTier(tierId);
-
-  const submitRequest = async (tierId: SubscriptionTierId, note: string) => {
+  // Manage billing / cancel — opens Stripe's Customer Portal for the
+  // family's existing customer. On success we navigate away (keep busy).
+  const openPortal = async () => {
     try {
+      setBusy('portal');
       const u = auth.currentUser;
       if (!u) throw new Error('not-signed-in');
       const token = await u.getIdToken();
-      const res = await fetch('/api/upgrade-requests', {
+      const res = await fetch('/api/stripe/portal', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.error === 'no-customer') {
+          setToast({ kind: 'err', msg: 'No billing set up yet — choose a plan to get started. 🌻' });
+          setBusy(null);
+          return;
+        }
+        throw new Error(data.error || 'portal-failed');
+      }
+      if (!data.url) throw new Error('no-portal-url');
+      window.location.href = data.url as string;
+    } catch (e) {
+      setToast({ kind: 'err', msg: `Couldn't open billing: ${String(e instanceof Error ? e.message : e)}` });
+      setBusy(null);
+    }
+  };
+
+  // Paid upgrade → Stripe Checkout (hosted). The webhook flips the tier on
+  // success; here we just hand off to Stripe's URL. Nest is a downgrade, so
+  // it routes through the portal's cancel instead.
+  const startCheckout = async (tierId: SubscriptionTierId) => {
+    if (tierId === 'nest') return openPortal();
+    try {
+      setBusy(tierId);
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ requestedTier: tierId, note }),
+        body: JSON.stringify({ tierId, cycle }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const { error } = await res.json().catch(() => ({ error: 'unknown' }));
-        throw new Error(error || 'request-failed');
+        if (data.usePortal) return openPortal();
+        throw new Error(data.error || 'checkout-failed');
       }
-      setToast({ kind: 'ok', msg: 'Request sent. We\'ll email you the access code shortly. 🌻' });
+      if (!data.url) throw new Error('no-session-url');
+      window.location.href = data.url as string;
     } catch (e) {
-      setToast({ kind: 'err', msg: `Couldn't send: ${String(e instanceof Error ? e.message : e)}` });
-    } finally {
-      setRequestingTier(null);
+      setToast({ kind: 'err', msg: `Couldn't start checkout: ${String(e instanceof Error ? e.message : e)}` });
+      setBusy(null);
     }
   };
 
@@ -114,6 +150,12 @@ export default function SubscriptionPage() {
 
   const isCurrent = (tierId: SubscriptionTierId) => access.tierId === tierId;
   const currentTier = access.tiers[access.tierId];
+
+  // Whether to surface "Manage billing": the family has a real Stripe
+  // customer and isn't on an operator/founding grant (those have no
+  // subscription to manage).
+  const hasStripeCustomer = !!family?.subscription?.stripeCustomerId;
+  const isBypass = access.isOperatorBypass || access.isFoundingBypass;
 
   // Human-friendly limit copy for the comparison table (live).
   const memberCopy = (t: TierConfig) => t.memberLimit === null ? '∞' : String(t.memberLimit);
@@ -260,7 +302,11 @@ export default function SubscriptionPage() {
             yearlyTotalLocal={toLocal(yearlyTotalCents('nest'))}
             yearlyTotalUsdCents={yearlyTotalCents('nest')}
             cycle={cycle}
-            onRequest={onRequest}
+            onCheckout={startCheckout}
+            onManage={openPortal}
+            busy={busy}
+            hasStripeCustomer={hasStripeCustomer}
+            isBypass={isBypass}
             currency={currency}
           />
           <TierCard
@@ -272,7 +318,11 @@ export default function SubscriptionPage() {
             yearlyTotalLocal={toLocal(yearlyTotalCents('home'))}
             yearlyTotalUsdCents={yearlyTotalCents('home')}
             cycle={cycle}
-            onRequest={onRequest}
+            onCheckout={startCheckout}
+            onManage={openPortal}
+            busy={busy}
+            hasStripeCustomer={hasStripeCustomer}
+            isBypass={isBypass}
             currency={currency}
           />
           <TierCard
@@ -284,7 +334,11 @@ export default function SubscriptionPage() {
             yearlyTotalLocal={toLocal(yearlyTotalCents('castle'))}
             yearlyTotalUsdCents={yearlyTotalCents('castle')}
             cycle={cycle}
-            onRequest={onRequest}
+            onCheckout={startCheckout}
+            onManage={openPortal}
+            busy={busy}
+            hasStripeCustomer={hasStripeCustomer}
+            isBypass={isBypass}
             currency={currency}
           />
         </div>
@@ -405,14 +459,6 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
-      {requestingTier && (
-        <RequestModal
-          tierName={access.tiers[requestingTier].name}
-          onCancel={() => setRequestingTier(null)}
-          onSubmit={(note) => submitRequest(requestingTier, note)}
-        />
-      )}
-
       {toast && (
         <div
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-xl text-[13px] font-black shadow-lg max-w-[480px]"
@@ -463,7 +509,11 @@ function TierCard({
   cycle,
   currency,
   tier,
-  onRequest,
+  onCheckout,
+  onManage,
+  busy,
+  hasStripeCustomer,
+  isBypass,
 }: {
   tierId: SubscriptionTierId;
   tier: TierConfig;
@@ -474,7 +524,11 @@ function TierCard({
   yearlyTotalUsdCents: number;
   cycle: BillingCycle;
   currency: string;
-  onRequest: (tierId: SubscriptionTierId) => void;
+  onCheckout: (tierId: SubscriptionTierId) => void;
+  onManage: () => void;
+  busy: SubscriptionTierId | 'portal' | null;
+  hasStripeCustomer: boolean;
+  isBypass: boolean;
 }) {
   const isFree = tier.priceMonthly === 0;
 
@@ -585,7 +639,16 @@ function TierCard({
       <Features tierId={tierId} variant={variant} />
 
       {/* CTA */}
-      <CtaButton tierId={tierId} tier={tier} variant={variant} isCurrent={isCurrent} onRequest={onRequest} />
+      <CtaButton
+        tierId={tierId}
+        variant={variant}
+        isCurrent={isCurrent}
+        isBypass={isBypass}
+        hasStripeCustomer={hasStripeCustomer}
+        busy={busy}
+        onCheckout={onCheckout}
+        onManage={onManage}
+      />
     </div>
   );
 }
@@ -646,19 +709,42 @@ function Features({ tierId, variant }: { tierId: SubscriptionTierId; variant: 'n
 
 function CtaButton({
   tierId,
-  tier,
   variant,
   isCurrent,
-  onRequest,
+  isBypass,
+  hasStripeCustomer,
+  busy,
+  onCheckout,
+  onManage,
 }: {
   tierId: SubscriptionTierId;
-  tier: TierConfig;
   variant: 'nest' | 'home' | 'castle';
   isCurrent: boolean;
-  onRequest: (tierId: SubscriptionTierId) => void;
+  isBypass: boolean;
+  hasStripeCustomer: boolean;
+  busy: SubscriptionTierId | 'portal' | null;
+  onCheckout: (tierId: SubscriptionTierId) => void;
+  onManage: () => void;
 }) {
-  void tier;
+  const loadingThis = busy === tierId;
+  const loadingPortal = busy === 'portal';
+
   if (isCurrent) {
+    // A real paying family (not an operator/founding grant) manages their
+    // plan in the Stripe portal. Free Nest and bypass grants have nothing
+    // to manage, so they keep the static "current plan" pill.
+    if (variant !== 'nest' && hasStripeCustomer && !isBypass) {
+      return (
+        <button
+          onClick={onManage}
+          disabled={loadingPortal}
+          className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all disabled:opacity-60"
+          style={{ background: 'rgba(255,255,255,0.14)', color: 'white', border: '1px solid rgba(255,255,255,0.28)' }}
+        >
+          {loadingPortal ? 'Opening…' : 'Manage billing'}
+        </button>
+      );
+    }
     return (
       <button
         disabled
@@ -677,11 +763,12 @@ function CtaButton({
   if (variant === 'home') {
     return (
       <button
-        onClick={() => onRequest(tierId)}
-        className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
+        onClick={() => onCheckout(tierId)}
+        disabled={loadingThis}
+        className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all disabled:opacity-60"
         style={{ background: GOLD, color: NAVY }}
       >
-        Request Home →
+        {loadingThis ? 'Starting…' : 'Upgrade to Home →'}
       </button>
     );
   }
@@ -689,28 +776,30 @@ function CtaButton({
   if (variant === 'castle') {
     return (
       <button
-        onClick={() => onRequest(tierId)}
-        className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
+        onClick={() => onCheckout(tierId)}
+        disabled={loadingThis}
+        className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all disabled:opacity-60"
         style={{
           background: 'rgba(212,168,71,0.12)',
           color: GOLD,
           border: '1px solid rgba(212,168,71,0.32)',
         }}
       >
-        Request Castle →
+        {loadingThis ? 'Starting…' : 'Upgrade to Castle →'}
       </button>
     );
   }
 
-  // Nest CTA (not current) — only shown if family is on a paid tier and viewing
-  // the free option. Treat as a downgrade ("Switch to Nest").
+  // Nest CTA (not current) — shown when the family is on a paid tier and
+  // viewing the free option. A downgrade is a cancel, handled in the portal.
   return (
     <button
-      onClick={() => onRequest(tierId)}
-      className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all"
+      onClick={onManage}
+      disabled={loadingPortal}
+      className="block w-full text-center rounded-2xl text-[13.5px] font-black py-3.5 transition-all disabled:opacity-60"
       style={{ background: 'rgba(15,31,68,0.07)', color: NAVY }}
     >
-      Switch to Nest
+      {loadingPortal ? 'Opening…' : 'Switch to Nest'}
     </button>
   );
 }
@@ -856,80 +945,6 @@ function RedeemCard({
       </div>
       <div className="text-[11px] font-semibold mt-1.5" style={{ color: MUTED }}>
         Paste the code we emailed you. It unlocks your new plan instantly.
-      </div>
-    </div>
-  );
-}
-
-// ── Request upgrade modal ─────────────────────────────────────────
-
-function RequestModal({
-  tierName,
-  onCancel,
-  onSubmit,
-}: {
-  tierName: string;
-  onCancel: () => void;
-  onSubmit: (note: string) => void;
-}) {
-  const [note, setNote] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const submit = async () => {
-    setSubmitting(true);
-    onSubmit(note);
-  };
-
-  return (
-    <div
-      className="fixed inset-0 flex items-end sm:items-center justify-center z-50 px-4 py-6"
-      style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
-      onClick={onCancel}
-    >
-      <div
-        className="w-full max-w-[440px] rounded-3xl p-6"
-        style={{ background: 'white', boxShadow: '0 32px 80px rgba(15,31,68,0.22)' }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="font-black text-[20px] mb-1" style={{ color: NAVY }}>
-          Request {tierName}
-        </h2>
-        <p className="text-[13px] font-semibold mb-4" style={{ color: MUTED }}>
-          We'll review and email you an access code. Usually within a day.
-        </p>
-
-        <div className="mb-4">
-          <div className="text-[11px] font-black uppercase tracking-wider mb-1.5" style={{ color: MUTED }}>
-            Anything to mention? (optional)
-          </div>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value.slice(0, 500))}
-            rows={3}
-            placeholder="e.g. starting our 2-kid family in September…"
-            className="w-full bg-[#FBF7EE] border-[1.5px] rounded-xl px-3 py-2 outline-none text-[13px] font-semibold resize-none"
-            style={{ borderColor: 'rgba(15,31,68,0.1)', color: NAVY }}
-          />
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            onClick={onCancel}
-            disabled={submitting}
-            className="flex-1 text-[13px] font-bold py-2.5 rounded-xl"
-            style={{ background: 'rgba(15,31,68,0.06)', color: MUTED }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={submitting}
-            className="flex-1 text-[13px] font-black py-2.5 rounded-xl"
-            style={{ background: GOLD, color: NAVY }}
-          >
-            {submitting ? 'Sending…' : 'Send request'}
-          </button>
-        </div>
       </div>
     </div>
   );
