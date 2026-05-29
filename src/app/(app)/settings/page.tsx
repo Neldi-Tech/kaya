@@ -40,9 +40,11 @@ import {
 } from '@/lib/hive';
 import { useRef } from 'react';
 import {
-  TIERS, tierFor, nextTier, progressToNext,
-  effectiveCount, referralLink,
+  BADGES, topBadge, nextBadge, progressToNextBadge,
+  effectiveCount, referralLink, kcToUsd,
 } from '@/lib/referral';
+import { ReferralBadge } from '@/components/referral/ReferralBadge';
+import { KayaCoin } from '@/components/referral/KayaCoin';
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
@@ -235,10 +237,6 @@ export default function SettingsPage() {
     }
   };
 
-  // Champion landing spotlight (only meaningful at Champion tier)
-  const spotlightOptIn = !!family?.spotlightOptIn;
-  const [savingSpotlight, setSavingSpotlight] = useState(false);
-
   // Family handle + photo
   const [editingHandle, setEditingHandle] = useState(false);
   const [handleInput, setHandleInput] = useState('');
@@ -360,17 +358,6 @@ export default function SettingsPage() {
       // ignore — UI will resync from profile on next refresh
     }
     setSavingPref(null);
-  };
-
-  const toggleSpotlight = async () => {
-    if (!profile?.familyId || isGuest) return;
-    setSavingSpotlight(true);
-    try {
-      await updateFamily(profile.familyId, { spotlightOptIn: !spotlightOptIn } as any);
-      // FamilyContext re-reads on next page mount; for instant feedback we'd need
-      // to refresh, but the toggle's local state mirrors the source so it's fine.
-    } catch {}
-    setSavingSpotlight(false);
   };
 
   useEffect(() => {
@@ -495,10 +482,11 @@ export default function SettingsPage() {
 
   const directCount = family?.referralCount ?? referredFamilies.length;
   const compoundCount = family?.compoundCredit ?? 0;
-  const currentTier = tierFor(directCount, compoundCount);
-  const next = nextTier(directCount, compoundCount);
-  const progressPct = Math.round(progressToNext(directCount, compoundCount) * 100);
   const totalCredit = effectiveCount(directCount, compoundCount);
+  const top = topBadge(directCount, compoundCount);
+  const nextB = nextBadge(directCount, compoundCount);
+  const badgePct = Math.round(progressToNextBadge(directCount, compoundCount) * 100);
+  const kc = family?.kayaCoins ?? 0;
   const fullRefLink = referralCode ? referralLink(referralCode) : '';
 
   const copyRefLink = () => {
@@ -511,16 +499,16 @@ export default function SettingsPage() {
   const shareWhatsApp = () => {
     if (!fullRefLink) return;
     const text = encodeURIComponent(
-      `I'm using Kaya to make our family routines feel less like nagging — give it a try, both our families get a bonus: ${fullRefLink}`,
+      `I'm using Kaya to make our family routines feel less like nagging — give it a try with my link: ${fullRefLink}`,
     );
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
 
   const shareEmail = () => {
     if (!fullRefLink) return;
-    const subject = encodeURIComponent('Try Kaya — both our families get a bonus');
+    const subject = encodeURIComponent('Try Kaya — my invite link');
     const body = encodeURIComponent(
-      `I'm using Kaya to track our family routines, points and weekly meetings. If you sign up with my link, both our families unlock a bonus house color:\n\n${fullRefLink}`,
+      `I'm using Kaya to track our family routines, points and weekly meetings. If you start your family with my link, I earn a referral badge toward the Kaya wall of fame:\n\n${fullRefLink}`,
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   };
@@ -924,17 +912,47 @@ export default function SettingsPage() {
             </span>
           </div>
           <p className="text-[12px] text-kaya-sand-light leading-relaxed mb-3">
-            {next
-              ? <>You&apos;re a <span className="text-kaya-gold font-bold">{TIERS.find(t => t.tier === currentTier)?.name}</span> · {next.remaining} more to unlock <span className="font-bold text-white">{TIERS.find(t => t.tier === next.tier)?.name}</span>.</>
-              : <>You&apos;re a <span className="text-kaya-gold font-bold">Champion</span> — top tier reached.</>
+            {top
+              ? <>Your badge: <span className="text-kaya-gold font-bold">{top.name}</span>{nextB
+                  ? <> · {nextB.threshold - totalCredit} more to unlock <span className="font-bold text-white">{nextB.name}</span>.</>
+                  : <> — the apex. 👑</>}</>
+              : <>Refer your first family to earn <span className="text-kaya-gold font-bold">First Friend</span>.</>
             }
           </p>
-          <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-1.5">
-            <div className="h-full bg-kaya-gold rounded-full transition-all" style={{ width: `${progressPct}%` }} />
+          {/* badge ladder mini-strip */}
+          <div className="flex items-center justify-between gap-1 mb-3">
+            {BADGES.map((b) => {
+              const got = totalCredit >= b.threshold;
+              return (
+                <div key={b.id} className="flex flex-col items-center gap-1 flex-1 min-w-0">
+                  <ReferralBadge id={b.id} size={34} locked={!got} title={`${b.name} · ${b.threshold >= 1000 ? '1,000' : b.threshold}`} />
+                  <span className={`text-[9px] font-bold ${got ? 'text-kaya-gold' : 'text-white/40'}`}>{b.threshold >= 1000 ? '1k' : b.threshold}</span>
+                </div>
+              );
+            })}
           </div>
-          <div className="flex justify-between text-[10px] text-white/60">
-            <span>1 · Friend</span><span>3 · Tribe</span><span>10 · Champion</span>
+          {nextB && (
+            <>
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden mb-1.5">
+                <div className="h-full bg-kaya-gold rounded-full transition-all" style={{ width: `${badgePct}%` }} />
+              </div>
+              <div className="flex justify-between text-[10px] text-white/60">
+                <span>{top ? top.name : 'Start'}</span><span>{nextB.name} · {nextB.threshold >= 1000 ? '1,000' : nextB.threshold}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Kaya Coins — family-level referral currency (accrual engine ships next; 0 for now) */}
+      <div className="bg-kaya-warm/30 border border-kaya-warm-dark rounded-kaya p-4 flex items-center gap-3">
+        <KayaCoin size={48} className="shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-display font-black text-xl text-kaya-chocolate leading-none">{kc}<span className="text-[12px] font-bold text-kaya-sand ml-1">KC</span></p>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold-dark bg-kaya-gold-light/70 px-1.5 py-0.5 rounded-full">Coming soon</span>
           </div>
+          <p className="text-[11px] text-kaya-sand leading-snug mt-1">Kaya Coins (≈ ${kcToUsd(kc)}) — you&apos;ll earn them when families you refer subscribe. Spendable rewards land with the next update.</p>
         </div>
       </div>
 
@@ -965,31 +983,26 @@ export default function SettingsPage() {
       </div>
 
       <div className="bg-white border border-kaya-warm-dark rounded-kaya overflow-hidden">
-        {TIERS.filter(t => t.tier !== 'none').map((tier) => {
-          const unlocked = totalCredit >= tier.threshold;
-          const isCurrent = tier.tier === currentTier;
+        <div className="px-4 py-3 border-b border-kaya-warm-dark">
+          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">Referral badges</p>
+        </div>
+        {BADGES.map((b) => {
+          const got = totalCredit >= b.threshold;
           return (
             <div
-              key={tier.tier}
-              className={`px-4 py-3 flex items-center gap-3 border-b last:border-b-0 border-kaya-warm-dark ${
-                isCurrent ? 'bg-kaya-gold/5' : ''
-              }`}
+              key={b.id}
+              className={`px-4 py-3 flex items-center gap-3 border-b last:border-b-0 border-kaya-warm-dark ${got ? 'bg-kaya-gold/5' : ''}`}
             >
-              <div
-                className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
-                  unlocked
-                    ? 'bg-kaya-gold text-white'
-                    : 'bg-kaya-warm/60 border-2 border-dashed border-kaya-sand text-kaya-sand'
-                }`}
-              >{unlocked ? '✓' : tier.threshold}</div>
+              <ReferralBadge id={b.id} size={40} locked={!got} className="shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline justify-between gap-2 mb-0.5">
-                  <p className="font-bold text-[13px]">{tier.name}</p>
-                  <span className={`text-[10px] font-bold uppercase ${unlocked ? 'text-kaya-gold' : 'text-kaya-sand'}`}>
-                    {unlocked ? 'Unlocked' : `${tier.threshold - totalCredit} to go`}
+                  <p className="font-bold text-[13px]">{b.name}</p>
+                  <span className={`text-[10px] font-bold uppercase shrink-0 ${got ? 'text-kaya-gold' : 'text-kaya-sand'}`}>
+                    {got ? 'Earned' : `${(b.threshold - totalCredit).toLocaleString()} to go`}
                   </span>
                 </div>
-                <p className="text-[11px] text-kaya-sand leading-snug">{tier.perk}</p>
+                <p className="text-[11px] text-kaya-sand leading-snug">{b.blurb}</p>
+                <p className="text-[10px] text-kaya-sand-light mt-0.5 font-semibold">{b.threshold === 1 ? '1 family' : `${b.threshold.toLocaleString()} families`}</p>
               </div>
             </div>
           );
@@ -1003,25 +1016,6 @@ export default function SettingsPage() {
           <p className="text-kaya-sand">When a family <em>you</em> referred goes on to refer another, you earn an extra credit.{compoundCount > 0 && ` You have ${compoundCount} so far.`}</p>
         </div>
       </div>
-
-      {/* Champion landing spotlight — only meaningful once you reach Champion tier */}
-      {currentTier === 'champion' && (
-        <button
-          onClick={toggleSpotlight}
-          disabled={savingSpotlight}
-          className="w-full bg-white border border-kaya-warm-dark rounded-kaya p-3 flex items-start gap-3 text-left hover:border-kaya-chocolate transition-colors disabled:opacity-60"
-        >
-          <div className={`w-10 h-6 rounded-full shrink-0 mt-0.5 relative transition-colors ${spotlightOptIn ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
-            <div className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-all" style={{ left: spotlightOptIn ? '18px' : '2px' }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-bold">👑 Featured on the landing page</p>
-            <p className="text-[11px] text-kaya-sand leading-snug">
-              Show your family name on ourkaya.com as a Champion family. Off by default. You can toggle this any time.
-            </p>
-          </div>
-        </button>
-      )}
 
       {referredFamilies.length > 0 && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya overflow-hidden">
@@ -1591,7 +1585,7 @@ export default function SettingsPage() {
                     <p className="text-[12px] text-kaya-sand">No handle yet</p>
                   )}
                   {family.isFoundingFamily && (
-                    <p className="text-[11px] font-bold text-kaya-gold mt-1">👑 Founding Family · lifetime badge</p>
+                    <p className="text-[11px] font-bold text-kaya-gold mt-1">🤝 Charter Family · founding member</p>
                   )}
                 </div>
               </div>

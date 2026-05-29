@@ -190,8 +190,13 @@ service cloud.firestore {
       // on the early-access allowlist. Existing families are unaffected —
       // their members already carry a familyId and never hit create.
       allow create: if isSignedIn() && (publicSignupOpen() || isAllowlisted());
-      // Only parents can update family settings
-      allow update: if isParentInFamily(familyId);
+      // Only parents can update family settings.
+      // kayaCoins is a server-owned referral currency with real $ value — the
+      // Phase B accrual engine writes it via the Admin SDK (which bypasses
+      // rules), so clients may never change their own balance. (It is seeded
+      // to 0 on create, which this guard does not affect.)
+      allow update: if isParentInFamily(familyId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['kayaCoins']);
 
       // Allow reading family by invite code (for joining)
       allow list: if isSignedIn();
