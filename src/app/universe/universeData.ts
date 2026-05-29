@@ -37,6 +37,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "This is where the magic starts. <b>Make your bed. Brush your teeth. Be kind.</b> Tiny daily wins turn into BIG points for your house.",
     features: ["Daily routines with emoji ratings", "House points (1, 2, 3, 5 + Diamond Bonus)", "Streaks and weekly awards"],
     tip: "Rate your morning routine first — it's the fastest way to feel the points roll in.",
+    route: "/home",
   },
   {
     key: "sparks", num: 2, name: "Kaya Sparks", icon: "✨", color: "#FFC93C", bg: "#FFF3CD",
@@ -46,6 +47,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "Did you build something awesome? Win a medal? Ace a test? <b>Sparks remembers everything</b> — forever.",
     features: ["School + home projects with photo proof", "Achievements wall (certificates, awards)", "Term results, PTM follow-ups, sports schedules"],
     tip: "Snap a photo of your latest project — Sparks puts it on your wall instantly.",
+    route: "/sparks",
   },
   {
     key: "hive", num: 3, name: "The Hive", icon: "🍯", color: "#8C5BFF", bg: "#E8DEFF",
@@ -55,6 +57,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "Points become coins. Coins become <b>real money</b>. Save like a bee, spend like a boss — parent-approved every step.",
     features: ["3 layers: House Points → Honey Coins → Cash", "Parent-set exchange rates", "Approval flow on every cash request"],
     tip: "Try converting 100 House Points to Honey Coins — see how it feels to save.",
+    route: "/hive",
   },
   {
     key: "business", num: 4, name: "Kaya Business", icon: "🌱", color: "#3DCC91", bg: "#D7F5EA",
@@ -64,6 +67,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "Run a real micro-enterprise — passion fruit, chickens, mangoes. <b>You're the boss</b>.",
     features: ["Asset Library (pick chickens, fruit, etc.)", "Track sales, costs, weekly reports", "Revenue routes into your Hive wallet"],
     tip: "Set up your first business in 60 seconds — pick a template from the library.",
+    route: "/business",
   },
   {
     key: "moments", num: 5, name: "Moments", icon: "📸", color: "#7BE0C8", bg: "#D5EEFF",
@@ -73,6 +77,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "The family's private photo wall. Snap the good stuff. <b>Only your family sees it.</b>",
     features: ["Photo + milestone capture", "Family-only — no strangers, no likes", "Live stream of small daily wins"],
     tip: "Drop one photo today — your family will see it instantly.",
+    route: "/moments",
   },
   {
     key: "dreams", num: 6, name: "Kaya Dreams", icon: "🌟", color: "#FFC93C", bg: "#FFE9C4",
@@ -91,6 +96,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "The brain of the house. <b>Pantry, utilities, helpers, bills, visitors, emergencies</b> — all tidy, all together.",
     features: ["Pantry + shopping list", "Utility tracking (water, electric, internet, gas)", "Helper schedules + recurring maintenance"],
     tip: "Add this month's utility readings — Kaya tracks the rest.",
+    route: "/household",
   },
   {
     key: "pages", num: 8, name: "Pages", icon: "📒", color: "#FFB385", bg: "#FFE6B0",
@@ -100,6 +106,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "Every important person is a <b>Page</b>. Doctor. Plumber. School teacher. Vegetable guy. Find them fast.",
     features: ["Smart address book with photos + notes", "Reliability ratings on every contact", "Linked to past transactions"],
     tip: "Add your top 5 trusted contacts now — they'll be one tap away forever.",
+    route: "/directory",
   },
   {
     key: "fun", num: 9, name: "Fun", icon: "🎉", color: "#FF9CC1", bg: "#FFD1E0",
@@ -109,6 +116,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "<b>NO points. NO ratings. JUST FUN.</b> Trivia. Surprises. Mini-games. Bucket lists.",
     features: ["Trivia + mini-games (points-free)", "Family bucket list", "Date night + surprise ideas"],
     tip: "Spin the surprise wheel — see what Kaya picks for your family today.",
+    route: "/games",
   },
   {
     key: "buzz", num: 10, name: "Kaya Buzz", icon: "🐝", color: "#FF8C42", bg: "#FFE9D6",
@@ -118,6 +126,7 @@ export const MODULES: UniverseModule[] = [
     pitch: "Got an idea? Spot a bug? Want a fix? <b>Drop a Buzz</b> — anyone in the family can. Buzz Admins triage them and ship.",
     features: ["Drop Ideas, Bugs, Fix-its, Questions, Wishes", "Track your Buzz from 'New' to 'Shipped'", "Vote on family ideas", "Buzz Admin dashboard + per-category team access"],
     tip: "Drop your first idea — watch it travel from your screen to 'shipped'.",
+    route: "/buzz",
   },
   {
     key: "wealth", num: 11, name: "Kaya Wealth", icon: "💎", color: "#8C5BFF", bg: "#F4EEFF",

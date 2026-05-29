@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import UniverseLanding from "./UniverseLanding";
+import UniverseGate from "./UniverseGate";
 
 export const metadata: Metadata = {
   title: "The Kaya Universe — one family world, in one app",
@@ -15,5 +15,5 @@ export const metadata: Metadata = {
 };
 
 export default function UniversePage() {
-  return <UniverseLanding />;
+  return <UniverseGate />;
 }
