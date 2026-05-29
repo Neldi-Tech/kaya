@@ -7,6 +7,7 @@
 // slot — <AuthControls> drops in. On mobile the brand panel collapses to a
 // compact lockup above the form so the page stays single-column + tappable.
 
+import Link from 'next/link';
 import KayaMark from '@/components/brand/KayaMark';
 
 interface AuthShellProps {
@@ -51,10 +52,17 @@ export default function AuthShell({ mode, children }: AuthShellProps) {
           style={{ background: 'rgba(212,160,23,0.14)', filter: 'blur(60px)' }}
         />
         <div className="relative">
-          <div className="flex items-center gap-3 mb-7">
+          {/* Logo lockup → home. Wrapping in <Link> so tapping the
+              mark / wordmark on /login + /signup takes the visitor
+              back to the landing page instead of doing nothing. */}
+          <Link
+            href="/"
+            aria-label="Go to Kaya home"
+            className="inline-flex items-center gap-3 mb-7 hover:opacity-90 transition-opacity"
+          >
             <KayaMark variant="reverse" size={38} title="Kaya" />
             <span className="font-display font-bold text-xl text-white">Kaya</span>
-          </div>
+          </Link>
           {b.pill && (
             <span className="inline-block bg-[rgba(245,230,184,0.15)] text-kaya-gold-light text-[11px] font-extrabold uppercase tracking-[0.16em] px-[11px] py-[5px] rounded-full">
               {b.pill}
@@ -82,11 +90,17 @@ export default function AuthShell({ mode, children }: AuthShellProps) {
       {/* ── Form panel ──────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col justify-center px-6 py-10 sm:px-10">
         <div className="w-full max-w-[400px] mx-auto">
-          {/* Compact brand lockup — mobile only (brand panel is hidden). */}
-          <div className="flex lg:hidden items-center gap-2.5 mb-8">
+          {/* Compact brand lockup — mobile only (brand panel is hidden).
+              Tappable so phone visitors can also get back to the
+              landing page. */}
+          <Link
+            href="/"
+            aria-label="Go to Kaya home"
+            className="flex lg:hidden items-center gap-2.5 mb-8 hover:opacity-90 transition-opacity"
+          >
             <KayaMark variant="dark" size={34} title="Kaya" />
             <span className="font-display font-bold text-lg text-kaya-chocolate">Kaya</span>
-          </div>
+          </Link>
           {children}
         </div>
       </div>

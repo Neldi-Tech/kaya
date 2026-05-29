@@ -345,12 +345,15 @@ export default function AwardPage() {
           <button
             key={opt.id}
             onClick={() => setKind(opt.id)}
-            className={`h-10 rounded-kaya-sm font-bold text-[12px] flex items-center justify-center gap-1.5 transition-all ${
+            // min-h instead of fixed h + whitespace-normal so longer
+            // labels (e.g. "Improvement Note") wrap to 2 lines inside
+            // the chip instead of getting truncated by `truncate`.
+            className={`min-h-10 py-1.5 px-2 rounded-kaya-sm font-bold text-[12px] flex items-center justify-center gap-1.5 transition-all ${
               sel ? opt.activeClass : 'bg-kaya-warm text-kaya-sand'
             }`}
           >
-            <span>{opt.emoji}</span>
-            <span className="truncate">{opt.label}</span>
+            <span className="shrink-0">{opt.emoji}</span>
+            <span className="text-center leading-tight whitespace-normal break-words">{opt.label}</span>
           </button>
         );
       })}
