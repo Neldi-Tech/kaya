@@ -10,15 +10,8 @@ import {
   findChildByEmail, getFamily, updateUserProfile, Role, Family, Child,
 } from '@/lib/firestore';
 import { getBetaConfig, isEmailAllowlisted, joinWaitlist } from '@/lib/access';
-
-const HOUSE_PRESETS = [
-  { name: 'Golden House', color: '#D4A017', emoji: '🏅' },
-  { name: 'White House', color: '#7B9DB7', emoji: '🤍' },
-  { name: 'Silver House', color: '#9B8EC4', emoji: '🥈' },
-  { name: 'Ruby House', color: '#C0392B', emoji: '❤️' },
-  { name: 'Emerald House', color: '#27AE60', emoji: '💚' },
-  { name: 'Sapphire House', color: '#2980B9', emoji: '💙' },
-];
+import HousePicker, { type HouseSelection } from '@/components/ui/HousePicker';
+import { STARTERS } from '@/lib/houses';
 
 interface ChildDraft {
   name: string;
@@ -36,7 +29,7 @@ export default function OnboardingPage() {
   const [familyName, setFamilyName] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [children, setChildren] = useState<ChildDraft[]>([
-    { name: '', houseName: 'Golden House', houseColor: '#D4A017', avatarEmoji: '🏅' },
+    { name: '', houseName: STARTERS[0].houseName, houseColor: STARTERS[0].color, avatarEmoji: STARTERS[0].emoji },
   ]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -138,8 +131,8 @@ export default function OnboardingPage() {
   };
 
   const addChildRow = () => {
-    const next = HOUSE_PRESETS[children.length % HOUSE_PRESETS.length];
-    setChildren([...children, { name: '', houseName: next.name, houseColor: next.color, avatarEmoji: next.emoji }]);
+    const next = STARTERS[children.length % STARTERS.length];
+    setChildren([...children, { name: '', houseName: next.houseName, houseColor: next.color, avatarEmoji: next.emoji }]);
   };
 
   const updateChildRow = (idx: number, field: keyof ChildDraft, value: string) => {
@@ -153,9 +146,9 @@ export default function OnboardingPage() {
     setChildren(children.filter((_, i) => i !== idx));
   };
 
-  const selectHouse = (idx: number, preset: typeof HOUSE_PRESETS[0]) => {
+  const selectHouse = (idx: number, sel: HouseSelection) => {
     const updated = [...children];
-    updated[idx] = { ...updated[idx], houseName: preset.name, houseColor: preset.color, avatarEmoji: preset.emoji };
+    updated[idx] = { ...updated[idx], ...sel };
     setChildren(updated);
   };
 
@@ -519,22 +512,14 @@ export default function OnboardingPage() {
                       </div>
 
                       <p className="text-xs text-kaya-sand mb-2 font-medium">Choose a house:</p>
-                      <div className="flex gap-2 flex-wrap">
-                        {HOUSE_PRESETS.map((preset) => (
-                          <button
-                            key={preset.name}
-                            onClick={() => selectHouse(idx, preset)}
-                            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                              child.houseName === preset.name
-                                ? 'border-transparent text-white shadow-sm'
-                                : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-sand-light'
-                            }`}
-                            style={child.houseName === preset.name ? { backgroundColor: preset.color } : {}}
-                          >
-                            {preset.emoji} {preset.name.replace(' House', '')}
-                          </button>
-                        ))}
-                      </div>
+                      <HousePicker
+                        selected={{
+                          houseName: child.houseName,
+                          houseColor: child.houseColor,
+                          avatarEmoji: child.avatarEmoji,
+                        }}
+                        onSelect={(sel) => selectHouse(idx, sel)}
+                      />
                     </div>
                   ))}
                 </div>
