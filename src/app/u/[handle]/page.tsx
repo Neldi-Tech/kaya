@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getFamilyByHandle, getChildren, Family, Child } from '@/lib/firestore';
 import { formatFamilyHandle } from '@/lib/handles';
+import { topBadge, effectiveCount } from '@/lib/referral';
+import { ReferralBadge } from '@/components/referral/ReferralBadge';
 
 export default function PublicFamilyPage() {
   const params = useParams<{ handle: string }>();
@@ -62,7 +64,8 @@ export default function PublicFamilyPage() {
   }
 
   const isFounding = !!family.isFoundingFamily;
-  const isChampion = (family.referralCount || 0) >= 10;
+  const refTotal = effectiveCount(family.referralCount || 0, family.compoundCredit || 0);
+  const topBadgeEarned = topBadge(family.referralCount || 0, family.compoundCredit || 0);
 
   return (
     <div className="min-h-screen bg-kaya-cream">
@@ -102,12 +105,13 @@ export default function PublicFamilyPage() {
             <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
               {isFounding && (
                 <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-kaya-gold/10 text-kaya-gold-dark text-[12px] font-bold">
-                  👑 Founding Family
+                  🤝 Charter Family
                 </span>
               )}
-              {isChampion && (
-                <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-kaya-chocolate text-kaya-gold-light text-[12px] font-bold">
-                  🏆 Champion · {family.referralCount} referrals
+              {topBadgeEarned && (
+                <span className="inline-flex items-center gap-1.5 pl-1.5 pr-3 py-1 rounded-full bg-kaya-chocolate text-kaya-gold-light text-[12px] font-bold">
+                  <ReferralBadge id={topBadgeEarned.id} size={20} />
+                  {topBadgeEarned.name}{!topBadgeEarned.apex && <> · {refTotal} {refTotal === 1 ? 'referral' : 'referrals'}</>}
                 </span>
               )}
               <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-kaya-warm/60 text-kaya-chocolate text-[12px] font-bold">
