@@ -21,16 +21,20 @@ import {
 
 // ── Default tier fallback ─────────────────────────────────────────────
 //
-// During closed beta every existing family has unrestricted access —
-// the gate is wired but the default is Castle so we don't accidentally
-// lock anyone out of features that worked yesterday. Flip this to
-// 'nest' when the paid funnel opens (PR 4) and we want missing /
-// new families to land on Free by default.
+// 2026-05-29 — flipped from 'castle' → 'nest' now that:
+//   • the tier-codes admin path (PRs #335 / #343) is shipped, so Elia
+//     can mint per-family upgrade codes to grant Home / Castle when
+//     someone deserves more access; and
+//   • the closed-beta cohort is already covered: the first 100
+//     families carry `isFoundingFamily: true` (charter crew) and get
+//     a full bypass below regardless of tier, and operators bypass
+//     too — so flipping only affects families that joined after the
+//     founding window AND haven't redeemed a tier code.
 //
-// Operator-owned families and `isFoundingFamily` accounts are already
-// bypassed below, so this constant only matters for plain user
-// accounts that haven't picked a plan yet.
-const DEFAULT_TIER_FALLBACK: SubscriptionTierId = 'castle';
+// Net effect: new signups land on **Free / Nest** by default and have
+// to redeem a tier code to unlock Home / Castle. Founding + operator
+// accounts are unchanged.
+const DEFAULT_TIER_FALLBACK: SubscriptionTierId = 'nest';
 
 export interface TierAccess {
   tierId: SubscriptionTierId;
