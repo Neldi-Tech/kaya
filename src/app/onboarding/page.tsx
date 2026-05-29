@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { Timestamp } from 'firebase/firestore';
 import {
-  createUserProfile, createFamily, addChild,
+  createUserProfile, createFamily, seedDefaultRewards, addChild,
   findFamilyByAnyInviteCode, markInviteCodeUsed,
   findChildByEmail, getFamily, updateUserProfile, Role, Family, Child,
 } from '@/lib/firestore';
@@ -191,6 +191,23 @@ export default function OnboardingPage() {
           window.localStorage.removeItem('kaya.ref');
         }
 
+        // The creator's parent profile MUST exist before any privileged
+        // sub-writes (rewards, children) — their create rules require
+        // isParentInFamily(), which reads this profile. Seeding before it
+        // existed is what hit "Missing or insufficient permissions" at the
+        // closed-beta "Let's Go!". (The family doc + global counter are
+        // allowlist-gated, so they were already created above.)
+        await createUserProfile({
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || familyName,
+          photoURL: user.photoURL || undefined,
+          role: 'parent',
+          familyId,
+          createdAt: Timestamp.now(),
+        });
+        await seedDefaultRewards(familyId);
+
         // Add children
         for (const child of children) {
           if (!child.name.trim()) continue;
@@ -235,16 +252,20 @@ export default function OnboardingPage() {
         finalRole = matched.suggestedRole;
       }
 
-      // Create user profile
-      await createUserProfile({
-        uid: user.uid,
-        email: user.email || '',
-        displayName: user.displayName || familyName,
-        photoURL: user.photoURL || undefined,
-        role: finalRole,
-        familyId,
-        createdAt: Timestamp.now(),
-      });
+      // Joiners create their profile here. (The create branch already
+      // created its parent profile above — before its rewards/children
+      // seed writes — so the shared call would double-write for it.)
+      if (familyMode === 'join') {
+        await createUserProfile({
+          uid: user.uid,
+          email: user.email || '',
+          displayName: user.displayName || familyName,
+          photoURL: user.photoURL || undefined,
+          role: finalRole,
+          familyId,
+          createdAt: Timestamp.now(),
+        });
+      }
 
       // For joiners: stamp the code as used + auto-deactivate so a
       // second person can't replay the same shared message. Helper
