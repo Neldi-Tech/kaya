@@ -179,6 +179,17 @@ service cloud.firestore {
       match /fcmTokens/{token} {
         allow read, write, delete: if isSignedIn() && request.auth.uid == userId;
       }
+
+      // ── Policy-acceptance audit (COPPA + Login, 2026-05-29) ───
+      // The immutable record of every Terms/Privacy acceptance. The
+      // owner may READ their own trail, but NO client may write, edit,
+      // or delete a record — the append happens only through the Admin
+      // SDK (POST /api/policy/accept), which bypasses these rules. That
+      // server-only write path is what makes the legal audit tamper-proof.
+      match /policyAcceptances/{acceptanceId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
     }
 
     // ── Families ───────────────────────────────────
@@ -223,6 +234,17 @@ service cloud.firestore {
         allow read: if belongsToFamily(familyId);
         allow create: if isParentInFamily(familyId);
         allow update: if isParentOrHelper(familyId);
+
+        // ── Verifiable parental consent (COPPA 16 CFR §312.5, 2026-05-29) ─
+        // The immutable record that a parent gave consent (via password
+        // re-auth) before a child profile could be used. A parent in the
+        // family may READ their own children's consent records; NO client
+        // may write/edit/delete — the append happens only through the Admin
+        // SDK (POST /api/coppa/generate-code), which bypasses these rules.
+        match /coppaConsents/{consentId} {
+          allow read: if isParentInFamily(familyId);
+          allow write: if false;
+        }
 
         // ── Kids' Workplan items (parent-defined, repeatable) ────
         // Parents author + edit a kid's tasks; the whole family can
@@ -1399,6 +1421,23 @@ service cloud.firestore {
     }
     match /upgradeRequests/{requestId} {
       allow read, write: if isOperator();
+    }
+
+    // ── Kaya Code credential store + kid sessions (COPPA + Login, 2026-05-29)
+    // Both are Admin-SDK-only and fully opaque to clients:
+    //   • childCodes/{id}   — the kid-login credential. We store a bcrypt
+    //                         hash + a peppered lookup hash, NEVER the
+    //                         plaintext. Generation + redemption run server
+    //                         side (/api/coppa/*), so no client ever reads
+    //                         or writes here. (Default-deny already covers
+    //                         this; the explicit `if false` documents intent.)
+    //   • childSessions/{id}— minimal kid-login session record, swept after
+    //                         CHILD_LOG_RETENTION_DAYS by the retention cron.
+    match /childCodes/{codeId} {
+      allow read, write: if false;
+    }
+    match /childSessions/{sessionId} {
+      allow read, write: if false;
     }
   }
 }

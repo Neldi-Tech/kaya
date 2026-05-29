@@ -8,6 +8,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  signInWithCustomToken,
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from 'firebase/auth';
@@ -28,6 +29,10 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<User>;
   signInWithEmail: (email: string, password: string) => Promise<User>;
   signUpWithEmail: (email: string, password: string) => Promise<User>;
+  /** Kid login via a parent-issued Kaya Code (no email/password). Redeems the
+   *  code server-side for a custom token, then signs in. Coexists with the
+   *  legacy email-match kid login. */
+  signInWithKayaCode: (code: string) => Promise<User>;
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -157,6 +162,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return result.user;
   };
 
+  const signInWithKayaCode = async (code: string) => {
+    if (isGuestActive()) exitGuestMode();
+    const res = await fetch('/api/coppa/redeem-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok || !data?.token) {
+      const err = new Error(data?.error || 'invalid-code');
+      (err as Error & { code?: string }).code = data?.error || 'invalid-code';
+      throw err;
+    }
+    const result = await signInWithCustomToken(auth, data.token as string);
+    await loadProfile(result.user);
+    return result.user;
+  };
+
   const sendPasswordReset = async (email: string) => {
     await sendPasswordResetEmail(auth, email);
   };
@@ -181,7 +204,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, loading, isGuest,
-      signInWithGoogle, signInWithEmail, signUpWithEmail, sendPasswordReset,
+      signInWithGoogle, signInWithEmail, signUpWithEmail, signInWithKayaCode, sendPasswordReset,
       signOut, refreshProfile, enterGuestMode, exitGuestMode,
     }}>
       {children}
