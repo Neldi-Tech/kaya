@@ -18,12 +18,19 @@ import {
   type BetaConfig, type AllowlistEntry, type OperatorEntry, type WaitlistEntry,
   type OperatorRole, type AdminStats,
 } from '@/lib/access';
+import { notifyBetaInvite } from '@/lib/notify';
 
 function fmtMs(ms?: number): string {
   if (!ms) return '';
   const d = new Date(ms); // local time — Kaya helpers are worldwide
   const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return toDisplayDate(iso);
+}
+
+function inviteNotice(email: string, res: { sent?: number; skipped?: boolean; error?: string }): string {
+  if (res?.sent) return `✉️ Invite emailed to ${email}.`;
+  if (res?.skipped) return `Added ${email} to early access — but no email went out (email sending isn't set up yet). Ask them to sign up at ourkaya.com/signup with this email.`;
+  return `Added ${email} to early access — the invite email failed to send. Retry, or ask them to sign up at ourkaya.com/signup with this email.`;
 }
 
 export default function AdminPage() {
@@ -38,6 +45,7 @@ export default function AdminPage() {
   const [newAllow, setNewAllow] = useState('');
   const [newOp, setNewOp] = useState('');
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [cfg, al, ops, wl, st] = await Promise.all([
@@ -70,16 +78,22 @@ export default function AdminPage() {
     const e = emailKey(newAllow);
     if (!e) return;
     setBusy(true);
+    setNotice(null);
     await addAllowlistEmail(e, user?.email ?? undefined);
     setNewAllow('');
     await refresh();
+    const res = await notifyBetaInvite({ to: [e], inviteEmail: e });
+    setNotice(inviteNotice(e, res));
     setBusy(false);
   };
 
   const promote = async (email: string) => {
     setBusy(true);
+    setNotice(null);
     await addAllowlistEmail(email, user?.email ?? undefined);
     await refresh();
+    const res = await notifyBetaInvite({ to: [email], inviteEmail: email });
+    setNotice(inviteNotice(email, res));
     setBusy(false);
   };
 
@@ -160,6 +174,9 @@ export default function AdminPage() {
             />
             <button onClick={addAllow} disabled={busy || !newAllow.trim()} className="h-10 px-4 bg-kaya-gold text-white rounded-kaya-sm font-display font-bold text-sm disabled:opacity-50">Invite</button>
           </div>
+          {notice && (
+            <p className="mb-3 text-[12px] leading-snug rounded-kaya-sm bg-kaya-cream border border-kaya-warm-dark px-3 py-2 text-kaya-chocolate">{notice}</p>
+          )}
           <ul className="space-y-2">
             {allowlist.map((a) => (
               <li key={a.email} className="flex items-center justify-between gap-2 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2">

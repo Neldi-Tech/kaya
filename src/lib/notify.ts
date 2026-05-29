@@ -91,6 +91,31 @@ export function notifyInvite(args: InviteNotify): Promise<void> {
   });
 }
 
+interface BetaInviteNotify {
+  to: string[];
+  inviteEmail: string;   // the allowlisted address — they must sign up with it
+}
+
+/** Beta early-access invite. Unlike the other notify helpers (fire-and-
+ *  forget), this awaits and returns the route result so the operator
+ *  console can show whether the email actually sent or silently no-op'd
+ *  because Resend isn't configured in the deployment env. */
+export async function notifyBetaInvite(
+  args: BetaInviteNotify,
+): Promise<{ sent?: number; skipped?: boolean; error?: string }> {
+  if (typeof window === 'undefined' || !args.to.length) return { skipped: true };
+  try {
+    const res = await fetch('/api/notify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type: 'beta-invite', to: args.to, data: { inviteEmail: args.inviteEmail } }),
+    });
+    return await res.json();
+  } catch {
+    return { error: 'network' };
+  }
+}
+
 // ── Moments notifications ────────────────────────────────────────
 
 interface MomentReactionNotify {
