@@ -318,3 +318,141 @@
 @media (prefers-reduced-motion: reduce) {
   .root *, .root *::before, .root *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* ====== AUDIENCE (2026-05-29) ======
+   Sits between Hero and Galaxy on the public /universe page. Shares the
+   copy with the marketing landing (src/lib/audienceCopy.ts) but uses the
+   universe page's joy palette. */
+.audience {
+  padding: 56px 4px 72px;
+}
+.audienceHead {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 36px;
+}
+.audienceEyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--amber);
+  margin-bottom: 10px;
+}
+.audienceTitle {
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+.audienceLede {
+  color: var(--ink-soft);
+  font-size: 16px;
+  line-height: 1.6;
+  margin: 0;
+}
+.audienceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 36px;
+}
+.audienceCard {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px 20px;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+.audienceCard:hover {
+  transform: translateY(-3px);
+  border-color: var(--amber);
+  box-shadow: var(--shadow);
+}
+.audienceEm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(255, 140, 66, 0.18), rgba(255, 217, 61, 0.10));
+  font-size: 22px;
+  margin-bottom: 12px;
+}
+.audienceCardTitle {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+.audienceCardBody {
+  color: var(--ink-soft);
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin: 0;
+}
+.audienceUseStrip {
+  background: linear-gradient(180deg, #FFF3D6 0%, #FFE5B4 100%);
+  border: 1px solid rgba(255, 140, 66, 0.30);
+  border-radius: 20px;
+  padding: 28px 28px 22px;
+}
+.audienceUseHead {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin: 0 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.audienceUseHead::before {
+  content: "";
+  display: inline-block;
+  width: 24px;
+  height: 2px;
+  background: var(--amber);
+  border-radius: 1px;
+}
+.audienceUseList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 24px;
+}
+.audienceUseList li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.audienceUseList strong { font-weight: 800; }
+.audienceUseEm { font-size: 17px; flex-shrink: 0; padding-top: 1px; }
+.audienceUseCloser {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed rgba(45, 27, 94, 0.15);
+  color: var(--ink-soft);
+  font-size: 13px;
+  text-align: center;
+}
+.audienceUseCloser em { color: var(--amber); font-style: normal; font-weight: 800; }
+
+@media (max-width: 880px) {
+  .audienceGrid { grid-template-columns: repeat(2, 1fr); }
+  .audienceUseList { grid-template-columns: 1fr; }
+}
+@media (max-width: 560px) {
+  .audienceGrid { grid-template-columns: 1fr; }
+}

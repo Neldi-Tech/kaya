@@ -321,7 +321,9 @@ const KID_STATS_NAV: NavItem[] = [
 const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/home',      icon: '🏠', label: 'Home', activePrefixes: ['/notifications'] },
-  { kind: 'link',    id: 'universe',  path: '/universe',  icon: '🪐', label: 'The Universe' },
+  // Kaya Universe is surfaced as a persistent pill in the top bar (see
+  // the desktop + mobile headers below), not as a regular sidebar row.
+  // Removed from the sidebar 2026-05-29 — the pill is the entry point.
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages', activePrefixes: ['/messages'] },
@@ -383,7 +385,8 @@ const HELPER_SIDEBAR: SidebarRow[] = [
 const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'discover',  path: '/',          icon: '🔎', label: 'Discover' },
   { kind: 'link',    id: 'home',      path: '/kid',       icon: '🏠', label: 'Home' },
-  { kind: 'link',    id: 'universe',  path: '/universe',  icon: '🪐', label: 'The Universe' },
+  // Kaya Universe lives in the top-bar pill (parent + kid headers),
+  // not as a sidebar row.
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
   { kind: 'link',    id: 'workplan',  path: '/workplan',  icon: '🗓️', label: 'My Workplan' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
@@ -992,6 +995,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {/* Kaya Universe — compact icon button (mobile counterpart of
+                  the desktop pill). Replaces the sidebar row 2026-05-29. */}
+              <Link
+                href="/universe"
+                aria-label="Kaya Universe"
+                className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-honey/20 to-brand-honey/5 border border-brand-honey/45 flex items-center justify-center text-base hover:from-brand-honey/30 transition-colors"
+              >
+                🪐
+              </Link>
               <Link
                 href="/notifications"
                 aria-label={unreadCount > 0 ? `Notifications · ${unreadCount} unread` : 'Notifications'}
@@ -1021,6 +1033,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <span className="font-bold uppercase tracking-[0.14em]">{today}</span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Kaya Universe — persistent pill, the always-here entry point
+                to the full module map. Renamed from "The Universe" and
+                moved out of the sidebar 2026-05-29. */}
+            <Link
+              href="/universe"
+              aria-label="Kaya Universe — the full map of modules"
+              className="h-9 px-3.5 rounded-kaya-sm bg-gradient-to-r from-brand-honey/15 to-brand-honey/5 border border-brand-honey/40 text-brand-navy text-[12px] font-bold hover:from-brand-honey/25 hover:to-brand-honey/10 transition-colors flex items-center gap-1.5"
+            >
+              <span className="text-base leading-none">🪐</span>
+              Kaya Universe
+            </Link>
             <Link
               href="/award"
               className="h-9 px-3.5 rounded-kaya-sm border border-kaya-warm-dark text-[12px] font-semibold hover:bg-white transition-colors flex items-center"

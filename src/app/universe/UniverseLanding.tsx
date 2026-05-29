@@ -10,6 +10,14 @@ import {
   isSoon,
   type PlanetLayout,
 } from "./universeData";
+import {
+  AUDIENCE_CARDS,
+  AUDIENCE_EYEBROW,
+  AUDIENCE_LEDE,
+  AUDIENCE_TITLE,
+  AUDIENCE_USES,
+  AUDIENCE_USES_TITLE,
+} from "@/lib/audienceCopy";
 
 // Closed-beta conversion paths (no /welcome route exists):
 //   START  → /#letter  (FamilyLetterSignup waitlist on the marketing home)
@@ -112,6 +120,45 @@ export default function UniverseLanding() {
             <span>🌍 Works anywhere</span>
           </div>
         </div>
+
+        {/* ===== AUDIENCE — who Kaya is for (2026-05-29) =====
+            Same shared copy as the marketing landing — adapted to the
+            universe page's joy palette. Sits between Hero and Galaxy so
+            visitors get the "is this for me?" answer before exploring
+            the modules. */}
+        <section className={styles.audience}>
+          <div className={styles.audienceHead}>
+            <span className={styles.audienceEyebrow}>{AUDIENCE_EYEBROW}</span>
+            <h2 className={styles.audienceTitle}>{AUDIENCE_TITLE}</h2>
+            <p className={styles.audienceLede}>{AUDIENCE_LEDE}</p>
+          </div>
+          <div className={styles.audienceGrid}>
+            {AUDIENCE_CARDS.map((c) => (
+              <div key={c.title} className={styles.audienceCard}>
+                <div className={styles.audienceEm}>{c.em}</div>
+                <h3 className={styles.audienceCardTitle}>{c.title}</h3>
+                <p className={styles.audienceCardBody}>{c.body}</p>
+              </div>
+            ))}
+          </div>
+          <div className={styles.audienceUseStrip}>
+            <h3 className={styles.audienceUseHead}>{AUDIENCE_USES_TITLE}</h3>
+            <ul className={styles.audienceUseList}>
+              {AUDIENCE_USES.map((u) => (
+                <li key={u.strong}>
+                  <span className={styles.audienceUseEm}>{u.em}</span>
+                  <span>
+                    <strong>{u.strong}</strong> — {u.body}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className={styles.audienceUseCloser}>
+              That&apos;s it. The system holds the rest.{" "}
+              <em>If that&apos;s the kind of family you want to be — Kaya is for you.</em>
+            </div>
+          </div>
+        </section>
 
         {/* ===== GALAXY ===== */}
         <div
