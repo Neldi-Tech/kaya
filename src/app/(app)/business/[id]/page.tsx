@@ -336,7 +336,9 @@ export default function BusinessDashboardPage() {
       <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
         <div className="flex items-baseline justify-between mb-1">
           <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
-          <span className="text-[11px] text-hive-muted">{stats.salesCount} {stats.salesCount === 1 ? 'sale' : 'sales'}</span>
+          <Link href={`/business/${businessId}/history`} className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            History →
+          </Link>
         </div>
         {ledger.length === 0 ? (
           <p className="text-[12px] text-hive-muted py-3 text-center">No sales or costs yet. Log your first one above.</p>
@@ -357,6 +359,11 @@ export default function BusinessDashboardPage() {
               </div>
             );
           })
+        )}
+        {ledger.length > 6 && (
+          <Link href={`/business/${businessId}/history`} className="mt-2 block text-center text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            See full history →
+          </Link>
         )}
       </div>
 
