@@ -20,8 +20,8 @@ import { isProbablyTierCode } from '@/lib/tierCodes';
 import { auth } from '@/lib/firebase';
 import type { Family } from '@/lib/firestore';
 import {
-  DEFAULT_ADDONS, MODULE_REGISTRY, isAddonReleased,
-  type SubscriptionTierId, type TierConfig,
+  DEFAULT_ADDONS, MODULE_REGISTRY, mergedAddons,
+  type SubscriptionTierId, type TierConfig, type ResolvedAddon,
 } from '@/lib/tiers';
 import { usdFxRate } from '@/lib/pricing';
 import { neatPriceCents } from '@/lib/format';
@@ -132,6 +132,22 @@ export default function SubscriptionPage() {
   );
   const [selectedAddons, setSelectedAddons] = useState<Set<string>>(new Set());
   const [requestingAddons, setRequestingAddons] = useState(false);
+  // Add-on catalogue with admin price + released overrides (server-merged via
+  // /api/addons, so operator edits reflect without a client read of config).
+  const [addons, setAddons] = useState<ResolvedAddon[]>(() => mergedAddons());
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = auth.currentUser;
+        if (!u) return;
+        const token = await u.getIdToken();
+        const res = await fetch('/api/addons', { headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const data = (await res.json()) as { addons: ResolvedAddon[] };
+        if (Array.isArray(data.addons)) setAddons(data.addons);
+      } catch { /* keep defaults */ }
+    })();
+  }, []);
 
   const toggleAddon = (id: string) => {
     setSelectedAddons((prev) => {
@@ -144,11 +160,11 @@ export default function SubscriptionPage() {
   const selectedAddonTotalCents = useMemo(() => {
     let sum = 0;
     for (const id of selectedAddons) {
-      const a = DEFAULT_ADDONS.find((x) => x.id === id);
+      const a = addons.find((x) => x.id === id);
       if (a) sum += a.priceMonthly;
     }
     return sum;
-  }, [selectedAddons]);
+  }, [selectedAddons, addons]);
 
   const requestAddons = async () => {
     if (selectedAddons.size === 0 || requestingAddons) return;
@@ -477,8 +493,8 @@ export default function SubscriptionPage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {DEFAULT_ADDONS.map((addon) => {
-            const released = isAddonReleased(addon);
+          {addons.map((addon) => {
+            const released = addon.released;
             const owned = ownedAddons.has(addon.id);
             const isCastle = access.tierId === 'castle';
             const eligible = addon.eligibleTiers.includes(access.tierId);
