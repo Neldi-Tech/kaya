@@ -12,9 +12,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, BusinessItem, ItemKind, NewItemInput,
+  Business, BusinessItem, ItemKind, NewItemInput, SaleInput,
   subscribeToBusiness, subscribeToBusinessItems,
-  addBusinessItem, markItemLoss, removeBusinessItem, updateBusinessItem, itemWorthCents, readBusinessConfig,
+  addBusinessItem, recordSpoilage, removeBusinessItem, updateBusinessItem, logSale, itemWorthCents, readBusinessConfig,
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
@@ -132,11 +132,11 @@ export default function InventoryPage() {
         <div className="mt-3 space-y-3">
           {assets.length > 0 && (
             <ItemGroup title="🌳 Assets — your money-makers" sub={`${assets.length} ${assets.length === 1 ? 'item' : 'items'}`}
-              items={assets} currency={currency} canEdit={canEdit} familyId={familyId!} businessId={businessId} />
+              items={assets} currency={currency} canEdit={canEdit} familyId={familyId!} businessId={businessId} ownerId={business?.ownerId || ''} uid={profile?.uid || ''} />
           )}
           {stock.length > 0 && (
             <ItemGroup title="📦 Stock — ready (or getting ready) to sell" sub={`${stock.length} ${stock.length === 1 ? 'line' : 'lines'}`}
-              items={stock} currency={currency} canEdit={canEdit} familyId={familyId!} businessId={businessId} />
+              items={stock} currency={currency} canEdit={canEdit} familyId={familyId!} businessId={businessId} ownerId={business?.ownerId || ''} uid={profile?.uid || ''} />
           )}
         </div>
       )}
@@ -144,8 +144,8 @@ export default function InventoryPage() {
   );
 }
 
-function ItemGroup({ title, sub, items, currency, canEdit, familyId, businessId }: {
-  title: string; sub: string; items: BusinessItem[]; currency: string; canEdit: boolean; familyId: string; businessId: string;
+function ItemGroup({ title, sub, items, currency, canEdit, familyId, businessId, ownerId, uid }: {
+  title: string; sub: string; items: BusinessItem[]; currency: string; canEdit: boolean; familyId: string; businessId: string; ownerId: string; uid: string;
 }) {
   return (
     <div className="bg-hive-paper border border-hive-line rounded-hive p-4">
@@ -154,16 +154,22 @@ function ItemGroup({ title, sub, items, currency, canEdit, familyId, businessId 
         <span className="text-[11px] text-hive-muted">{sub}</span>
       </div>
       {items.map((it) => (
-        <ItemRow key={it.id} item={it} currency={currency} canEdit={canEdit} familyId={familyId} businessId={businessId} />
+        <ItemRow key={it.id} item={it} currency={currency} canEdit={canEdit} familyId={familyId} businessId={businessId} ownerId={ownerId} uid={uid} />
       ))}
     </div>
   );
 }
 
-function ItemRow({ item, currency, canEdit, familyId, businessId }: {
-  item: BusinessItem; currency: string; canEdit: boolean; familyId: string; businessId: string;
+function ItemRow({ item, currency, canEdit, familyId, businessId, ownerId, uid }: {
+  item: BusinessItem; currency: string; canEdit: boolean; familyId: string; businessId: string; ownerId: string; uid: string;
 }) {
   const [busy, setBusy] = useState(false);
+  const [panel, setPanel] = useState<null | 'sold' | 'bad' | 'edit'>(null);
+  const [n, setN] = useState(1);
+  const [editVal, setEditVal] = useState(item.qty);
+  const [priceInput, setPriceInput] = useState('');
+  const [err, setErr] = useState('');
+
   const unit = item.unitMarketCents ?? item.unitCostCents ?? 0;
   const worth = itemWorthCents(item);
   const dimmed = item.loss || !item.countedInWorth;
@@ -178,51 +184,174 @@ function ItemRow({ item, currency, canEdit, familyId, businessId }: {
   const priceBit = unit > 0 ? `${formatCash(unit, currency)}${item.unitLabel ? ` / ${item.unitLabel}` : ''}` : '';
   const metaParts = [qtyBit, priceBit, ...subBits].filter(Boolean);
 
+  const unitWord = item.unitLabel || (item.kind === 'asset' ? 'units' : 'pcs');
+  const soldQty = Math.max(1, Math.round(n));
+  const soldCents = Math.round((parseFloat(priceInput.replace(/,/g, '')) || 0) * 100);
+
+  const open = (p: 'sold' | 'bad' | 'edit') => {
+    setErr('');
+    if (p === 'sold') { setN(1); setPriceInput(unit > 0 ? (unit / 100).toFixed(2) : ''); }
+    if (p === 'bad') setN(1);
+    if (p === 'edit') setEditVal(item.qty);
+    setPanel((cur) => (cur === p ? null : p));
+  };
+
+  const doSold = async () => {
+    if (soldCents <= 0) { setErr('What price?'); return; }
+    if (!ownerId || !uid) { setErr('Could not find the owner.'); return; }
+    setBusy(true);
+    try {
+      const input: SaleInput = {
+        itemId: item.id, productName: item.name, qty: soldQty,
+        unitPriceCents: soldCents, paymentMethod: 'cash',
+      };
+      await logSale(familyId, businessId, input, { uid, ownerId });
+      setPanel(null);
+    } catch (e: any) { setErr(e?.message || 'Could not log the sale.'); }
+    finally { setBusy(false); }
+  };
+
+  const doBad = async () => {
+    setBusy(true);
+    try { await recordSpoilage(familyId, businessId, item.id, soldQty); setPanel(null); }
+    catch (e: any) { setErr(e?.message || 'Could not save.'); }
+    finally { setBusy(false); }
+  };
+
+  const doEdit = async () => {
+    setBusy(true);
+    try { await updateBusinessItem(familyId, businessId, item.id, { qty: Math.max(0, Math.round(editVal)) }); setPanel(null); }
+    catch (e: any) { setErr(e?.message || 'Could not save.'); }
+    finally { setBusy(false); }
+  };
+
+  const stepper = (value: number, set: (v: number) => void, max?: number) => (
+    <span className="inline-flex items-center rounded-hive-pill border border-hive-line bg-white overflow-hidden">
+      <button type="button" disabled={busy} onClick={() => set(Math.max(0, value - 1))}
+        className="w-8 h-8 text-[16px] font-nunito font-black text-hive-navy disabled:opacity-30">−</button>
+      <span className="min-w-[42px] text-center font-nunito font-black text-[15px]">{value}</span>
+      <button type="button" disabled={busy} onClick={() => set(typeof max === 'number' ? Math.min(max, value + 1) : value + 1)}
+        className="w-8 h-8 text-[16px] font-nunito font-black text-hive-navy disabled:opacity-30">＋</button>
+    </span>
+  );
+
   return (
-    <div className={`flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0 ${dimmed ? 'opacity-50' : ''}`}>
-      <div className="flex items-center gap-2.5 min-w-0">
-        {item.photoUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.photoUrl} alt={item.name} className="w-9 h-9 rounded-hive object-cover bg-hive-cream shrink-0" />
-        )}
-        <div className="min-w-0">
-          <div className="font-nunito font-bold text-[13px] truncate">{item.name}</div>
-          {metaParts.length > 0 && (
-            <div className="text-[11px] text-hive-muted truncate">{metaParts.join(' · ')}</div>
+    <div className={`border-b border-dashed border-hive-line last:border-0 ${dimmed ? 'opacity-50' : ''}`}>
+      <div className="flex items-center justify-between gap-2 py-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {item.photoUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.photoUrl} alt={item.name} className="w-9 h-9 rounded-hive object-cover bg-hive-cream shrink-0" />
+          )}
+          <div className="min-w-0">
+            <div className="font-nunito font-bold text-[13px] truncate">{item.name}</div>
+            {metaParts.length > 0 && (
+              canEdit ? (
+                <button type="button" onClick={() => open('edit')}
+                  className="text-[11px] text-hive-muted truncate text-left hover:text-hive-navy">
+                  {metaParts.join(' · ')} ✏️
+                </button>
+              ) : (
+                <div className="text-[11px] text-hive-muted truncate">{metaParts.join(' · ')}</div>
+              )
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`font-nunito font-extrabold text-[13px] ${item.loss ? 'text-hive-rose' : ''}`}>
+            {item.loss ? '—' : formatCash(worth, currency)}
+          </span>
+          {canEdit && !item.loss && (
+            <div className="flex items-center gap-1">
+              {item.kind === 'stock' && (
+                <button
+                  onClick={async () => { setBusy(true); try { await updateBusinessItem(familyId, businessId, item.id, { soldDaily: !item.soldDaily }); } finally { setBusy(false); } }}
+                  disabled={busy}
+                  title={item.soldDaily ? 'Sold daily — tap to turn off' : 'Mark "sold daily" (a one-tap sale draft shows on the dashboard)'}
+                  className={`w-7 h-7 rounded-hive-pill text-[12px] disabled:opacity-40 hover:brightness-95 ${item.soldDaily ? 'bg-hive-navy text-hive-honey' : 'bg-hive-cream'}`}
+                >🔁</button>
+              )}
+              {item.kind === 'stock' && (
+                <button onClick={() => open('sold')} disabled={busy} title="Log a sale — how many?"
+                  className={`w-7 h-7 rounded-hive-pill text-[12px] disabled:opacity-40 hover:brightness-95 ${panel === 'sold' ? 'bg-hive-green text-white' : 'bg-hive-cream'}`}
+                >💰</button>
+              )}
+              {item.qty > 0 && (
+                <button onClick={() => open('bad')} disabled={busy} title="Some went bad — how many?"
+                  className={`w-7 h-7 rounded-hive-pill text-[12px] disabled:opacity-40 hover:brightness-95 ${panel === 'bad' ? 'bg-hive-rose text-white' : 'bg-hive-cream'}`}
+                >🥀</button>
+              )}
+              <button
+                onClick={async () => { setBusy(true); try { await removeBusinessItem(familyId, businessId, item.id); } finally { setBusy(false); } }}
+                disabled={busy} title="Remove (mistake)"
+                className="w-7 h-7 rounded-hive-pill bg-hive-cream text-[12px] text-hive-muted disabled:opacity-40 hover:brightness-95"
+              >✕</button>
+            </div>
           )}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <span className={`font-nunito font-extrabold text-[13px] ${item.loss ? 'text-hive-rose' : ''}`}>
-          {item.loss ? '—' : formatCash(worth, currency)}
-        </span>
-        {canEdit && (
-          <div className="flex items-center gap-1">
-            {item.kind === 'stock' && !item.loss && (
-              <button
-                onClick={async () => { setBusy(true); try { await updateBusinessItem(familyId, businessId, item.id, { soldDaily: !item.soldDaily }); } finally { setBusy(false); } }}
-                disabled={busy}
-                title={item.soldDaily ? 'Sold daily — tap to turn off' : 'Mark "sold daily" (a one-tap sale draft shows on the dashboard)'}
-                className={`w-7 h-7 rounded-hive-pill text-[12px] disabled:opacity-40 hover:brightness-95 ${item.soldDaily ? 'bg-hive-navy text-hive-honey' : 'bg-hive-cream'}`}
-              >🔁</button>
-            )}
-            {!item.loss && (
-              <button
-                onClick={async () => { setBusy(true); try { await markItemLoss(familyId, businessId, item.id); } finally { setBusy(false); } }}
-                disabled={busy}
-                title="Mark spoilage / loss"
-                className="w-7 h-7 rounded-hive-pill bg-hive-cream text-[12px] disabled:opacity-40 hover:brightness-95"
-              >🥀</button>
-            )}
-            <button
-              onClick={async () => { setBusy(true); try { await removeBusinessItem(familyId, businessId, item.id); } finally { setBusy(false); } }}
-              disabled={busy}
-              title="Remove (mistake)"
-              className="w-7 h-7 rounded-hive-pill bg-hive-cream text-[12px] text-hive-muted disabled:opacity-40 hover:brightness-95"
-            >✕</button>
+
+      {panel === 'sold' && (
+        <div className="mb-2 rounded-hive border border-dashed border-hive-green/60 bg-[#E9F6EF] p-3">
+          <div className="font-nunito font-black text-[12.5px] mb-2">💰 How many did you sell?</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {stepper(n, setN, item.instantStock ? undefined : item.qty)}
+            <span className="text-[12px] text-hive-muted">×</span>
+            <span className="inline-flex items-center h-9 px-2 rounded-hive border border-hive-line bg-white text-[12px] text-hive-muted">
+              {currency}
+              <input value={priceInput} onChange={(e) => setPriceInput(e.target.value)} inputMode="decimal"
+                className="w-16 ml-1 bg-transparent outline-none font-nunito font-bold text-[13px] text-hive-navy" />
+            </span>
+            <span className="text-[12.5px] font-nunito font-black ml-auto">= {formatCash(soldCents * soldQty, currency)}</span>
           </div>
-        )}
-      </div>
+          <div className="text-[11px] text-hive-muted mt-2">Stock → {Math.max(0, item.qty - soldQty)} {unitWord} · sweeps to the Honey Pot 🍯</div>
+          {err && <p className="text-hive-rose text-[11px] font-bold mt-1">{err}</p>}
+          <div className="flex gap-2 mt-2.5">
+            <button onClick={doSold} disabled={busy}
+              className="px-3.5 py-2 rounded-[11px] bg-hive-green text-white font-nunito font-black text-[12px] disabled:opacity-40">{busy ? 'Saving…' : 'Log sale'}</button>
+            <Link href={`/business/${businessId}/sale`}
+              className="px-3.5 py-2 rounded-[11px] bg-white border border-hive-line text-hive-muted font-nunito font-black text-[12px] no-underline flex items-center">More options ↗</Link>
+          </div>
+        </div>
+      )}
+
+      {panel === 'bad' && (
+        <div className="mb-2 rounded-hive border border-dashed border-hive-rose/50 bg-[#FCEEEE] p-3">
+          <div className="font-nunito font-black text-[12.5px] mb-2">🥀 How many went bad?</div>
+          <div className="flex items-center gap-2">
+            {stepper(n, setN, item.qty)}
+            <span className="text-[11px] text-hive-muted">of {item.qty} {unitWord}</span>
+          </div>
+          <div className="text-[11px] text-hive-muted mt-2">
+            {Math.max(0, item.qty - soldQty)} {unitWord} will remain
+            {unit > 0 ? <> · worth drops <b>{formatCash(unit * soldQty, currency)}</b></> : null}
+          </div>
+          {err && <p className="text-hive-rose text-[11px] font-bold mt-1">{err}</p>}
+          <div className="flex gap-2 mt-2.5">
+            <button onClick={doBad} disabled={busy}
+              className="px-3.5 py-2 rounded-[11px] bg-hive-navy text-hive-honey font-nunito font-black text-[12px] disabled:opacity-40">{busy ? 'Saving…' : `Write off ${soldQty}`}</button>
+            <button type="button" onClick={() => setPanel(null)}
+              className="px-3.5 py-2 rounded-[11px] bg-white border border-hive-line text-hive-muted font-nunito font-black text-[12px]">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {panel === 'edit' && (
+        <div className="mb-2 rounded-hive border border-dashed border-hive-honey/60 bg-[#FFF3D9] p-3">
+          <div className="font-nunito font-black text-[12.5px] mb-2">✏️ Fix the count</div>
+          <div className="flex items-center gap-2">
+            {stepper(editVal, setEditVal)}
+            <span className="text-[11px] text-hive-muted">{unitWord}</span>
+          </div>
+          {err && <p className="text-hive-rose text-[11px] font-bold mt-1">{err}</p>}
+          <div className="flex gap-2 mt-2.5">
+            <button onClick={doEdit} disabled={busy}
+              className="px-3.5 py-2 rounded-[11px] bg-hive-navy text-hive-honey font-nunito font-black text-[12px] disabled:opacity-40">{busy ? 'Saving…' : 'Save count'}</button>
+            <button type="button" onClick={() => setPanel(null)}
+              className="px-3.5 py-2 rounded-[11px] bg-white border border-hive-line text-hive-muted font-nunito font-black text-[12px]">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

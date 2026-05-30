@@ -206,6 +206,7 @@ export interface BusinessItem {
    *  (e.g. flowering) so worth isn't inflated by stock that may not arrive. */
   countedInWorth: boolean;
   loss?: boolean;               // spoilage / death write-off (never counted)
+  spoiledQty?: number;          // cumulative units written off as partial spoilage (for the AI coach)
   notes?: string;
   photoUrl?: string;
   acquiredAt?: Timestamp;
@@ -1212,6 +1213,28 @@ export async function markItemLoss(familyId: string, businessId: string, itemId:
   if (isGuestActive()) return;
   await updateDoc(doc(itemsCol(familyId, businessId), itemId), {
     loss: true, countedInWorth: false, updatedAt: serverTimestamp(),
+  });
+  await recomputeInventoryStats(familyId, businessId);
+}
+
+/** Partial spoilage — reduce the count by `qtyBad`, keep the line (so
+ *  daily-regrowing stock can refill), and tally it for the coach. Worth
+ *  follows the lower quantity automatically. Does NOT write off the line. */
+export async function recordSpoilage(
+  familyId: string, businessId: string, itemId: string, qtyBad: number,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const n = Math.max(0, Math.round(qtyBad));
+  if (n <= 0) return;
+  const itemRef = doc(itemsCol(familyId, businessId), itemId);
+  const snap = await getDoc(itemRef);
+  if (!snap.exists()) return;
+  const cur = snap.data() as BusinessItem;
+  const nextQty = Math.max(0, Number(cur.qty || 0) - n);
+  await updateDoc(itemRef, {
+    qty: nextQty,
+    spoiledQty: Number(cur.spoiledQty || 0) + n,
+    updatedAt: serverTimestamp(),
   });
   await recomputeInventoryStats(familyId, businessId);
 }
