@@ -43,11 +43,13 @@ import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 // Type-only — Business reuses the Hive's unified `approvalRequests` queue.
 // hive.ts does not import this module, so this is cycle-free.
-import type { ApprovalRequest } from './hive';
+import type { ApprovalRequest, Wallet } from './hive';
 // Runtime — a paid sale's earnings sweep into the kid's Treasury Reserve (the
 // "Honey Pot") via the Hive's own deposit path (one-way dependency: business →
-// hive). A parent later turns the Pot into real Cash.
-import { depositToTreasury } from './hive';
+// hive). A parent later turns the Pot into real Cash. walletPath + txCol let
+// the Pot → business reinvest move the wallet + write the Hive ledger row
+// inside this module's own approval transaction (single-sourced paths).
+import { depositToTreasury, walletPath, txCol as hiveTxCol } from './hive';
 // Runtime — granting House Points on an approved stock-take. firestore.ts only
 // imports this module's `BusinessConfig` as a *type* (erased), so no cycle.
 import { giveAward } from './firestore';
@@ -243,6 +245,9 @@ export interface LedgerEntry {
   // ── Cost fields ──
   costType?: CostType;
   receiptPhotoUrl?: string;
+  /** True when this cost was paid from the kid's own Honey Pot (a reinvestment),
+   *  vs the default parent-float (just-tracked) cost. */
+  fundedFromPot?: boolean;
   // ── Shared ──
   description: string;
   amountCents: number;          // always positive; `kind` gives the sign
@@ -993,10 +998,41 @@ export async function requestDailySale(
   return ref.id;
 }
 
+/** A kid spends their OWN earnings (Honey Pot) into a business — the reinvest
+ *  "fast lane". Writes a `business_reinvest` request into the unified queue;
+ *  on approval (one parent), {@link resolveBusinessRequest} atomically debits
+ *  the Pot and books the business cost — no Pot→Cash→spend double loop.
+ *  `costType` is the business cost bucket; `amountCents` is family-currency cents. */
+export async function requestBusinessReinvest(
+  familyId: string,
+  args: { businessId: string; ownerId: string; amountCents: number; costType: CostType; description: string },
+  createdByUid: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const cents = Math.max(0, Math.round(args.amountCents));
+  if (cents <= 0) throw new Error('Pick a positive amount.');
+  if (!args.description.trim()) throw new Error('Tell us what the money is for.');
+  const ref = await addDoc(approvalRequestsCol(familyId), {
+    kidId: args.ownerId,
+    type: 'business_reinvest',
+    module: 'business',
+    businessId: args.businessId,
+    amountCents: cents,
+    costType: args.costType,
+    description: args.description.trim(),
+    status: 'pending',
+    createdBy: createdByUid,
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
 /** Parent resolves a business approval. Retained as history (never deleted).
  *  - business_launch → flips the business to 'active'.
  *  - investment_buy  → upserts the simulated holding (virtual money) with the
  *    shares + cost basis snapshotted on the request.
+ *  - business_reinvest → debits the kid's Honey Pot and books a business cost,
+ *    atomically (Pot out + Hive ledger row + business cost + request approved).
  *  All in one transaction so the request + its effect move together. */
 export async function resolveBusinessRequest(
   familyId: string,
@@ -1019,13 +1055,15 @@ export async function resolveBusinessRequest(
   let saleProductName = '';
   let saleQtyN = 0;
   let salePriceCents = 0;
+  let reinvestBusinessId: string | null = null;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(approvalRequestsCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
     if (!reqSnap.exists()) throw new Error('Request not found.');
     const req = reqSnap.data() as Pick<ApprovalRequest,
       'type' | 'status' | 'businessId' | 'kidId' | 'instrumentSymbol' | 'shares' | 'amountCents' | 'points'
-      | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents' | 'awardDate'>;
+      | 'itemId' | 'productName' | 'saleQty' | 'saleUnitPriceCents' | 'awardDate'
+      | 'costType' | 'description' | 'createdBy'>;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
 
     // Stock-take key (for writing the parent's comment back onto the day) —
@@ -1046,6 +1084,12 @@ export async function resolveBusinessRequest(
       ? doc(investmentsCol(familyId, req.kidId), req.instrumentSymbol)
       : null;
     const prevHolding = holdRef ? ((await tx.get(holdRef)).data() as InvestmentHolding | undefined) : undefined;
+
+    // Pot → business reinvest needs the kid's wallet (read before any write).
+    const reinvestWalletRef = req.type === 'business_reinvest' && req.kidId
+      ? walletPath(familyId, req.kidId) : null;
+    const reinvestWallet = reinvestWalletRef
+      ? ((await tx.get(reinvestWalletRef)).data() as Wallet | undefined) : undefined;
 
     if (req.type === 'business_launch' && req.businessId) {
       tx.update(businessDoc(familyId, req.businessId), { status: 'active', startedAt: now });
@@ -1069,6 +1113,38 @@ export async function resolveBusinessRequest(
       saleKidId = req.kidId; saleBusinessId = req.businessId;
       saleItemId = req.itemId || ''; saleProductName = req.productName || '';
       saleQtyN = req.saleQty ?? 0; salePriceCents = req.saleUnitPriceCents ?? 0;
+    } else if (req.type === 'business_reinvest') {
+      // Fast lane: one parent OK moves the kid's own Pot money straight into the
+      // business as a cost. All atomic — Pot debit + Hive ledger row + business
+      // cost + request approved. (Stats recompute happens after the txn.)
+      // Throw (not silently approve) if anything's missing, so a malformed
+      // request stays pending rather than marking done with no money moved.
+      if (!req.businessId || !req.kidId || (req.amountCents ?? 0) <= 0) throw new Error('Reinvest request is missing details.');
+      if (!reinvestWalletRef || !reinvestWallet) throw new Error('Wallet not initialised for this kid.');
+      const cents = req.amountCents ?? 0;
+      if ((reinvestWallet.treasuryCents || 0) < cents) throw new Error('Not enough in the Honey Pot for this.');
+      const desc = req.description || 'Reinvested in business';
+      tx.set(reinvestWalletRef, {
+        ...reinvestWallet,
+        treasuryCents: (reinvestWallet.treasuryCents || 0) - cents,
+        totalLifetimeSpentCents: (reinvestWallet.totalLifetimeSpentCents || 0) + cents,
+        updatedAt: now,
+      });
+      // Hive ledger — money leaving the Pot (mirrors the depositToTreasury shape).
+      tx.set(doc(hiveTxCol(familyId, req.kidId)), {
+        layer: 'treasury', direction: 'out', amount: cents, category: 'business',
+        description: desc, status: 'completed', requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      // Business books — a cost, funded from the Pot (so P&L + history reflect it).
+      tx.set(doc(ledgerCol(familyId, req.businessId)), {
+        businessId: req.businessId, ownerId: req.kidId, kind: 'cost',
+        costType: (req.costType as CostType) || 'supplies', amountCents: cents,
+        fundedFromPot: true, description: desc,
+        occurredAt: now, createdBy: approverUid, createdAt: now,
+      });
+      reinvestBusinessId = req.businessId;
     }
     tx.update(reqRef, {
       status: 'approved', resolvedAt: now, resolvedBy: approverUid,
@@ -1108,6 +1184,11 @@ export async function resolveBusinessRequest(
         description: saleProductName ? `${saleProductName} (daily sale)` : 'Daily sale',
       }, { uid: approverUid, ownerId: saleKidId });
     } catch { /* best-effort — request already marked approved */ }
+  }
+  // Refresh the business P&L after a reinvestment cost (the cost row + Pot debit
+  // already committed in the transaction; this just re-denormalizes stats).
+  if (reinvestBusinessId) {
+    try { await recomputeLedgerStats(familyId, reinvestBusinessId); } catch { /* best-effort */ }
   }
 }
 
