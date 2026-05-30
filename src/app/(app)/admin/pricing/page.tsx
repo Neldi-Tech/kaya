@@ -17,7 +17,11 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { getTiers, saveTierPatch, type TierMap } from '@/lib/tiersClient';
-import { DEFAULT_TIERS, type SubscriptionTierId, type TierConfig } from '@/lib/tiers';
+import {
+  DEFAULT_TIERS, DEFAULT_ADDONS, addonModuleShipped,
+  type SubscriptionTierId, type TierConfig, type AddonConfig, type AddonOverrides,
+} from '@/lib/tiers';
+import { auth } from '@/lib/firebase';
 
 type Draft = Record<SubscriptionTierId, Partial<TierConfig>>;
 
@@ -120,6 +124,8 @@ export default function AdminPricingPage() {
             ))}
           </div>
         )}
+
+        <AddonsSection />
       </div>
     </div>
   );
@@ -320,5 +326,146 @@ function Field({ label, hint, children }: { label: string; hint: string; childre
       </div>
       <div className="text-[10px] text-white/45 font-semibold mt-1 leading-snug">{hint}</div>
     </label>
+  );
+}
+
+// ── Add-ons (price + released/coming-soon, saved to /config/addons) ──────
+
+function AddonsSection() {
+  const [overrides, setOverrides] = useState<AddonOverrides>({});
+  const [loaded, setLoaded] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const u = auth.currentUser;
+        if (!u) return;
+        const token = await u.getIdToken();
+        const res = await fetch('/api/admin/addons', { headers: { authorization: `Bearer ${token}` } });
+        if (res.ok) {
+          const d = (await res.json()) as { overrides: AddonOverrides };
+          if (!cancelled) setOverrides(d.overrides ?? {});
+        }
+      } catch { /* ignore */ } finally { if (!cancelled) setLoaded(true); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const patchAddon = async (addonId: string, patch: { priceMonthly?: number; released?: boolean }) => {
+    setErr(null);
+    setOverrides((prev) => ({ ...prev, [addonId]: { ...prev[addonId], ...patch } })); // optimistic
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/admin/addons', {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ addonId, patch }),
+      });
+      if (!res.ok) throw new Error(`save-failed-${res.status}`);
+      const d = (await res.json()) as { overrides: AddonOverrides };
+      setOverrides(d.overrides ?? {});
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    }
+  };
+
+  return (
+    <section
+      className="rounded-3xl p-5 mt-4"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+    >
+      <header className="mb-3 flex items-center gap-2.5">
+        <span className="text-2xl">🧩</span>
+        <div>
+          <div className="text-white font-black text-[16px]">Add-ons</div>
+          <div className="text-white/55 text-[11px] font-semibold">
+            Price + availability · families see changes live · unreleased = &quot;Coming soon&quot; (never charged)
+          </div>
+        </div>
+      </header>
+      {err && <div className="text-[#FF7676] text-[12px] font-bold mb-2">{err}</div>}
+      {!loaded ? (
+        <div className="text-white/55 text-sm py-6 text-center">Loading add-ons…</div>
+      ) : (
+        <div className="grid gap-2">
+          {DEFAULT_ADDONS.map((addon) => {
+            const shipped = addonModuleShipped(addon);
+            const o = overrides[addon.id];
+            const priceCents = typeof o?.priceMonthly === 'number' ? o.priceMonthly : addon.priceMonthly;
+            const released = shipped && o?.released !== false;
+            return (
+              <AddonRow
+                key={addon.id}
+                addon={addon}
+                shipped={shipped}
+                priceCents={priceCents}
+                released={released}
+                onPrice={(cents) => patchAddon(addon.id, { priceMonthly: cents })}
+                onToggle={() => patchAddon(addon.id, { released: !released })}
+              />
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AddonRow({
+  addon, shipped, priceCents, released, onPrice, onToggle,
+}: {
+  addon: AddonConfig; shipped: boolean; priceCents: number; released: boolean;
+  onPrice: (cents: number) => void; onToggle: () => void;
+}) {
+  const [text, setText] = useState((priceCents / 100).toFixed(2));
+  useEffect(() => { setText((priceCents / 100).toFixed(2)); }, [priceCents]);
+  return (
+    <div
+      className="flex items-center gap-3 rounded-2xl px-3 py-2.5"
+      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+    >
+      <div className="w-8 h-8 rounded-lg grid place-items-center text-[17px] flex-shrink-0" style={{ background: addon.emojiBg }}>
+        {addon.emoji}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-white font-black text-[13px] truncate">{addon.name}</div>
+        <div className="text-white/45 text-[10.5px] font-semibold truncate">{addon.description}</div>
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0">
+        <span className="text-white/50 text-[12px] font-bold">$</span>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value.replace(/[^0-9.]/g, ''))}
+          onBlur={() => { const n = Number(text); if (Number.isFinite(n)) onPrice(Math.max(0, Math.round(n * 100))); }}
+          inputMode="decimal"
+          aria-label={`${addon.name} price`}
+          className="w-16 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white text-[13px] font-extrabold text-center outline-none"
+        />
+        <span className="text-white/35 text-[10px] font-bold">/mo</span>
+      </div>
+      {shipped ? (
+        <button
+          onClick={onToggle}
+          className="text-[10px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-full flex-shrink-0 w-[104px] text-center"
+          style={released
+            ? { background: 'rgba(91,184,91,0.18)', color: '#5BB85B' }
+            : { background: 'rgba(212,168,71,0.18)', color: '#D4A847' }}
+        >
+          {released ? 'Released' : 'Coming soon'}
+        </button>
+      ) : (
+        <span
+          title="The underlying module hasn't shipped yet — can't be released."
+          className="text-[9.5px] font-black uppercase tracking-wider px-2.5 py-1.5 rounded-full flex-shrink-0 w-[104px] text-center"
+          style={{ background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)' }}
+        >
+          No module yet
+        </span>
+      )}
+    </div>
   );
 }

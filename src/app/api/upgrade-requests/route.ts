@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveAuth } from '@/lib/buzzServer';
-import { DEFAULT_ADDONS, isAddonReleased, type SubscriptionTierId } from '@/lib/tiers';
+import { DEFAULT_ADDONS, isAddonReleased, type AddonOverrides, type SubscriptionTierId } from '@/lib/tiers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,9 +34,16 @@ export async function POST(req: NextRequest) {
   // Charging invariant: an unreleased ("coming soon") add-on can never be
   // requested — reject rather than silently drop, so a tampered client can't
   // smuggle one into the approval queue.
+  // Resolve released against admin overrides (an operator can mark a shipped
+  // add-on "coming soon"), so the server gate matches what families see.
+  let addonOverrides: AddonOverrides = {};
+  try {
+    const snap = await db.collection('config').doc('addons').get();
+    addonOverrides = ((snap.exists ? snap.data() : {}) as AddonOverrides) ?? {};
+  } catch { /* defaults: module-shipped status only */ }
   const unavailable = rawAddons.filter((id) => {
     const addon = DEFAULT_ADDONS.find((a) => a.id === id);
-    return !addon || !isAddonReleased(addon);
+    return !addon || !isAddonReleased(addon, addonOverrides);
   });
   if (unavailable.length) {
     return NextResponse.json({ error: 'addon-not-available', addons: unavailable }, { status: 400 });

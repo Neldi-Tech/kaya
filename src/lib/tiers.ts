@@ -264,12 +264,45 @@ export function resolveModuleAccess(
   return granted;
 }
 
-/** Whether an add-on is released (purchasable). True only when its
- *  underlying module has shipped. Unreleased add-ons render "Coming soon"
- *  and can never be selected, requested, or charged — enforced on the
- *  server too (see /api/upgrade-requests). PR F layers an admin override. */
-export function isAddonReleased(addon: AddonConfig): boolean {
+/** Per-add-on admin override, persisted at /config/addons as a map
+ *  { [addonId]: AddonOverride }. `priceMonthly` overrides the catalogue
+ *  price; `released:false` hides a shipped add-on as "Coming soon". */
+export interface AddonOverride {
+  priceMonthly?: number;
+  released?: boolean;
+}
+export type AddonOverrides = Record<string, AddonOverride>;
+
+/** An add-on with the admin price override applied and `released` resolved. */
+export interface ResolvedAddon extends AddonConfig {
+  released: boolean;
+}
+
+/** Whether the add-on's underlying module has shipped (has real code). The
+ *  admin can only toggle availability for shipped add-ons. */
+export function addonModuleShipped(addon: AddonConfig): boolean {
   return MODULE_REGISTRY.find((m) => m.id === addon.moduleId)?.shipped === true;
+}
+
+/** Whether an add-on is released (purchasable). Requires its module to have
+ *  SHIPPED (no code = nothing to sell) AND the admin not to have hidden it
+ *  (override.released === false). Unreleased add-ons render "Coming soon"
+ *  and can never be selected, requested, or charged — enforced on the server
+ *  too (see /api/upgrade-requests). An unshipped module can NEVER be forced
+ *  released from admin — we won't sell a feature that doesn't exist. */
+export function isAddonReleased(addon: AddonConfig, overrides?: AddonOverrides): boolean {
+  return addonModuleShipped(addon) && overrides?.[addon.id]?.released !== false;
+}
+
+/** DEFAULT_ADDONS with admin price overrides applied + `released` resolved. */
+export function mergedAddons(overrides?: AddonOverrides): ResolvedAddon[] {
+  return DEFAULT_ADDONS.map((a) => {
+    const o = overrides?.[a.id];
+    const priceMonthly = typeof o?.priceMonthly === 'number' && o.priceMonthly >= 0
+      ? Math.round(o.priceMonthly)
+      : a.priceMonthly;
+    return { ...a, priceMonthly, released: isAddonReleased(a, overrides) };
+  });
 }
 
 /** Returns the effective tier config — defaults overridden by anything
