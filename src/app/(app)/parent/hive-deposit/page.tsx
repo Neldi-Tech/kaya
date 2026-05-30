@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { depositCash, CURRENCIES } from '@/lib/hive';
+import { depositCash, depositToTreasury, CURRENCIES } from '@/lib/hive';
 import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -36,9 +36,10 @@ export default function HiveDepositPage() {
    *  if FX is off). Held as a number so the NumberInput stays clean. */
   const [amount, setAmount] = useState<number>(0);
   const [category, setCategory] = useState<typeof CATEGORIES[number]['id']>('allowance');
+  const [dest, setDest] = useState<'cash' | 'treasury'>('cash');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState<{ kidNames: string[]; cents: number; perKid: boolean } | null>(null);
+  const [success, setSuccess] = useState<{ kidNames: string[]; cents: number; perKid: boolean; dest: 'cash' | 'treasury' } | null>(null);
   const [error, setError] = useState('');
 
   // Source-currency toggle. When ON, the parent enters the amount in the
@@ -105,12 +106,17 @@ export default function HiveDepositPage() {
       // One deposit per kid. We do them sequentially so a partial failure
       // (e.g. one kid's wallet doesn't exist yet) doesn't block the rest.
       await Promise.all(
-        kidIds.map((kidId) => depositCash(
-          profile.familyId, kidId, destCents, category, recordDesc, profile.uid,
-        )),
+        kidIds.map((kidId) => dest === 'treasury'
+          ? depositToTreasury(
+              profile.familyId, kidId, destCents,
+              category === 'business' ? 'business' : 'other', recordDesc, profile.uid,
+            )
+          : depositCash(
+              profile.familyId, kidId, destCents, category, recordDesc, profile.uid,
+            )),
       );
       const kidNames = children.filter((c) => kidIds.includes(c.id)).map((c) => c.name);
-      setSuccess({ kidNames, cents: destCents, perKid: kidIds.length > 1 });
+      setSuccess({ kidNames, cents: destCents, perKid: kidIds.length > 1, dest });
       setAmount(0);
       setDescription('');
       setKidIds([]);
@@ -139,7 +145,7 @@ export default function HiveDepositPage() {
             +{formatCash(success.cents, defaultCurrency)}
             {success.perKid ? ' each' : ''}
           </span>{' '}
-          in their Cash balance.
+          in their {success.dest === 'treasury' ? 'Honey Pot 🍯' : 'Cash'} balance.
         </p>
       </div>
     );
@@ -152,7 +158,7 @@ export default function HiveDepositPage() {
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · The Hive</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Deposit cash 💸</h1>
         <p className="text-sm text-hive-muted mt-2">
-          Allowance, gifts, or business income — credits each kid&apos;s Cash balance instantly.
+          Allowance, gifts, or business income — land it in Cash (spendable now) or the Honey Pot 🍯.
           You can disburse to several kids at once.
         </p>
       </div>
@@ -311,6 +317,29 @@ export default function HiveDepositPage() {
           )}
         </div>
 
+        {/* Destination — Cash (spendable now) or the Honey Pot (savings). */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Where should it land?</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setDest('cash')}
+              aria-pressed={dest === 'cash'}
+              className={`p-3 rounded-hive border-2 text-left transition-all ${dest === 'cash' ? 'border-hive-honey bg-hive-honey-soft/40' : 'border-hive-line bg-hive-paper hover:border-hive-honey/40'}`}
+            >
+              <p className="font-nunito font-extrabold text-[13px]">💵 Cash</p>
+              <p className="text-[10.5px] text-hive-muted leading-snug mt-0.5">Spendable now (with the usual approval to spend).</p>
+            </button>
+            <button
+              onClick={() => setDest('treasury')}
+              aria-pressed={dest === 'treasury'}
+              className={`p-3 rounded-hive border-2 text-left transition-all ${dest === 'treasury' ? 'border-hive-green bg-[#EAF7F0]' : 'border-hive-line bg-hive-paper hover:border-hive-green/40'}`}
+            >
+              <p className="font-nunito font-extrabold text-[13px]">🍯 Honey Pot</p>
+              <p className="text-[10.5px] text-hive-muted leading-snug mt-0.5">Savings pot. Convert to Cash to spend — business spends go straight from it.</p>
+            </button>
+          </div>
+        </div>
+
         {/* Category */}
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Category</p>
@@ -360,8 +389,8 @@ export default function HiveDepositPage() {
           {submitting
             ? 'Depositing…'
             : kidIds.length > 1 && destCents > 0
-              ? `Deposit ${formatCash(destCents, defaultCurrency)} to ${kidIds.length} kids`
-              : `Deposit ${destCents > 0 ? formatCash(destCents, defaultCurrency) : ''}`}
+              ? `Deposit ${formatCash(destCents, defaultCurrency)} to ${kidIds.length} kids → ${dest === 'treasury' ? 'Honey Pot 🍯' : 'Cash'}`
+              : `Deposit ${destCents > 0 ? formatCash(destCents, defaultCurrency) : ''} → ${dest === 'treasury' ? 'Honey Pot 🍯' : 'Cash'}`}
         </button>
       </div>
     </div>
