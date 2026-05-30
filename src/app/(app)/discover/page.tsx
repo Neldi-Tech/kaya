@@ -29,6 +29,7 @@ import {
 } from '@/lib/workplan';
 import { type WorkplanItem } from '@/lib/firestore';
 import { useHelperGrants, helperGrantsAllow, type HelperGrants } from '@/lib/useHelperGrants';
+import FirstWeekChecklist from '@/components/discover/FirstWeekChecklist';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -164,6 +165,19 @@ export default function DiscoverPage() {
 
           {/* Main column */}
           <div className="flex flex-col gap-3 lg:gap-4 min-w-0">
+            {/* First Week Checklist — only for new parent accounts.
+                Self-hides once all six habits are ticked off (or via
+                the user's per-session "Hide for now" link). */}
+            {isParent && profile?.uid && profile?.familyId && family && (
+              <FirstWeekChecklist
+                uid={profile.uid}
+                familyId={profile.familyId}
+                family={family}
+                intent={profile.firstWeekIntent}
+                alreadyCompleted={!!profile.firstWeekCompletedAt}
+              />
+            )}
+
             <RemindersStrip
               role={role}
               pendingApprovals={pendingApprovals}

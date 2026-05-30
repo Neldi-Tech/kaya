@@ -12,6 +12,7 @@ import {
 import { getBetaConfig, isEmailAllowlisted, joinWaitlist } from '@/lib/access';
 import HousePicker, { type HouseSelection } from '@/components/ui/HousePicker';
 import { STARTERS } from '@/lib/houses';
+import { FIRST_WEEK_INTENTS, type FirstWeekIntent } from '@/lib/firstWeek';
 
 interface ChildDraft {
   name: string;
@@ -38,6 +39,10 @@ export default function OnboardingPage() {
   // null = still checking.
   const [createAllowed, setCreateAllowed] = useState<boolean | null>(null);
   const [waitlistDone, setWaitlistDone] = useState(false);
+  // First-week intent (Step 4) — only meaningful for family creators
+  // (parents). `null` = "Not sure yet" or skipped → default checklist
+  // order on Discover.
+  const [firstWeekIntent, setFirstWeekIntent] = useState<FirstWeekIntent | null>(null);
 
   // Kids and guests never create families — they always join with a
   // code. The Create/Join toggle is hidden for them in step 2, so
@@ -197,6 +202,10 @@ export default function OnboardingPage() {
           photoURL: user.photoURL || undefined,
           role: 'parent',
           familyId,
+          // First-week intent — drives the order of the checklist on
+          // Discover. `null` is fine; the checklist falls back to the
+          // canonical order.
+          firstWeekIntent,
           createdAt: Timestamp.now(),
         });
         await seedDefaultRewards(familyId);
@@ -543,18 +552,70 @@ export default function OnboardingPage() {
           </div>
         )}
 
-        {/* Step 4: Confirmation */}
+        {/* Step 4: Intent + Confirmation */}
         {step === 4 && (
           <div className="text-center pt-6">
             <div className="w-20 h-20 mx-auto rounded-full bg-gradient-to-br from-kaya-gold to-kaya-gold-dark flex items-center justify-center text-4xl mb-6 shadow-lg">
               🎉
             </div>
-            <h2 className="font-display text-2xl font-black mb-2">All set!</h2>
-            <p className="text-kaya-sand text-sm mb-8 max-w-[280px] mx-auto">
+            <h2 className="font-display text-2xl font-black mb-2">
+              {familyMode === 'create' ? 'Almost there!' : 'All set!'}
+            </h2>
+            <p className="text-kaya-sand text-sm mb-6 max-w-[280px] mx-auto">
               {familyMode === 'create'
                 ? `${familyName || 'Your family'} is ready. You've added ${children.filter((c) => c.name.trim()).length} children.`
                 : "You're about to join the family!"}
             </p>
+
+            {/* Intent picker — only for family creators. Shapes the first-
+                week checklist on Discover. "Not sure yet" leaves it null
+                and the checklist uses the default order. */}
+            {familyMode === 'create' && (
+              <div className="text-left mb-6">
+                <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1 text-center">
+                  What's drawing you to Kaya?
+                </p>
+                <p className="text-[11px] text-kaya-sand-light mb-3 text-center">
+                  We'll start your first week with your pick at the top.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {FIRST_WEEK_INTENTS.map((opt) => {
+                    const selected = firstWeekIntent === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setFirstWeekIntent(selected ? null : opt.id)}
+                        className={`text-left p-3 rounded-kaya-sm border-[1.5px] transition-all ${
+                          selected
+                            ? 'border-kaya-gold-dark bg-kaya-gold/10 shadow-sm'
+                            : 'border-kaya-warm-dark bg-white hover:border-kaya-gold'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="text-base leading-none">{opt.emoji}</span>
+                          <span className="text-[12px] font-bold text-kaya-chocolate leading-tight">
+                            {opt.label}
+                          </span>
+                        </div>
+                        <p className="text-[10.5px] text-kaya-sand leading-snug">{opt.blurb}</p>
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setFirstWeekIntent(null)}
+                    className={`col-span-2 text-center p-2.5 rounded-kaya-sm border-[1.5px] transition-all text-[11.5px] font-bold ${
+                      firstWeekIntent === null
+                        ? 'border-kaya-gold-dark bg-kaya-gold/10 text-kaya-chocolate'
+                        : 'border-kaya-warm-dark bg-white text-kaya-sand hover:border-kaya-gold'
+                    }`}
+                  >
+                    ✨ Not sure yet — show me the default order
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 text-left mb-6">
               <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Summary</p>

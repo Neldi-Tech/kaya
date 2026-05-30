@@ -81,6 +81,15 @@ export interface UserProfile {
   // Which module chapters the user has marked "explored". Lives on the
   // user's own doc so the owner reads/writes it with no rules change.
   universeProgress?: { exploredKeys: string[]; updatedAt?: Timestamp };
+  // ── First-week intent (2026-05-30) — what's drawing the parent to
+  //   Kaya. Captured on onboarding Step 4. Drives the order of the
+  //   FirstWeekChecklist on Discover (the parent's "why" sits at
+  //   position 1). Null = "Not sure yet" → default order. The literal
+  //   union must match lib/firstWeek.ts → FirstWeekIntent.
+  firstWeekIntent?: 'character' | 'routines' | 'helpers' | 'money' | 'memory' | null;
+  // Wall-clock the family found the rhythm (all 6 first-week items
+  // ✓). Once set, the checklist hides forever on Discover.
+  firstWeekCompletedAt?: Timestamp;
   createdAt: Timestamp;
 }
 
