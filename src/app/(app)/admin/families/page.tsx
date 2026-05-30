@@ -11,6 +11,23 @@ import { auth } from '@/lib/firebase';
 import { DEFAULT_ADDONS, DEFAULT_TIERS, type SubscriptionTierId } from '@/lib/tiers';
 import { capCopy, formatBytes, tierCapBytes, usagePercent, usageState } from '@/lib/storage';
 import type { AdminFamilyRow } from '@/app/api/admin/families/route';
+import { toDisplayDate } from '@/lib/dates';
+
+const DAY_MS = 86_400_000;
+
+// Whole days since an epoch-ms instant (local time); null if never active.
+function daysSince(ms: number, now: number): number | null {
+  if (!ms) return null;
+  return Math.floor((now - ms) / DAY_MS);
+}
+
+// epoch-ms → "YYYY-MM-DD" in LOCAL time, for toDisplayDate().
+function isoDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+type ActiveFilter = 'all' | 'active' | 'dormant';
 
 export default function AdminFamiliesPage() {
   const [families, setFamilies] = useState<AdminFamilyRow[]>([]);
@@ -19,6 +36,11 @@ export default function AdminFamiliesPage() {
   const [query, setQuery] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState(7);
+  const [savedWindowDays, setSavedWindowDays] = useState(7);
+  const [savingWindow, setSavingWindow] = useState(false);
+  const [filter, setFilter] = useState<ActiveFilter>('all');
+  const [now] = useState(() => Date.now());
 
   const reload = async () => {
     setLoading(true);
@@ -42,6 +64,47 @@ export default function AdminFamiliesPage() {
 
   useEffect(() => { reload(); }, []);
 
+  // Load the operator's dormancy window (default 7) once.
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = auth.currentUser;
+        if (!u) return;
+        const token = await u.getIdToken();
+        const res = await fetch('/api/admin/settings', { headers: { authorization: `Bearer ${token}` } });
+        if (!res.ok) return;
+        const { settings } = (await res.json()) as { settings: { activeWindowDays: number } };
+        setWindowDays(settings.activeWindowDays);
+        setSavedWindowDays(settings.activeWindowDays);
+      } catch { /* keep default window */ }
+    })();
+  }, []);
+
+  const saveWindowDays = async () => {
+    const v = Math.min(365, Math.max(1, Math.round(windowDays || 7)));
+    setWindowDays(v);
+    if (v === savedWindowDays) return;
+    setSavingWindow(true);
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ activeWindowDays: v }),
+      });
+      if (!res.ok) throw new Error(`save-failed-${res.status}`);
+      const { settings } = (await res.json()) as { settings: { activeWindowDays: number } };
+      setWindowDays(settings.activeWindowDays);
+      setSavedWindowDays(settings.activeWindowDays);
+    } catch (e) {
+      alert(`Couldn't save window: ${String(e instanceof Error ? e.message : e)}`);
+    } finally {
+      setSavingWindow(false);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return families;
@@ -51,6 +114,32 @@ export default function AdminFamiliesPage() {
       f.id.toLowerCase().includes(q),
     );
   }, [families, query]);
+
+  // Split the search results into active/dormant by the operator's window,
+  // then order: recency for all/active, longest-dormant-first for dormant.
+  const { shown, activeCount, dormantCount } = useMemo(() => {
+    const withD = filtered.map((f) => {
+      const d = daysSince(f.lastActiveAtMs, now);
+      return { f, d, dormant: d === null || d > windowDays };
+    });
+    const active = withD.filter((x) => !x.dormant).length;
+    const list = withD.filter((x) =>
+      filter === 'all' ? true : filter === 'active' ? !x.dormant : x.dormant,
+    );
+    list.sort((a, b) => {
+      if (filter === 'dormant') {
+        if (a.d === null && b.d === null) return 0;
+        if (a.d === null) return -1;
+        if (b.d === null) return 1;
+        return b.d - a.d;
+      }
+      if (a.d === null && b.d === null) return 0;
+      if (a.d === null) return 1;
+      if (b.d === null) return -1;
+      return a.d - b.d;
+    });
+    return { shown: list.map((x) => x.f), activeCount: active, dormantCount: withD.length - active };
+  }, [filtered, now, windowDays, filter]);
 
   const editing = editingId ? families.find((f) => f.id === editingId) ?? null : null;
 
@@ -138,17 +227,73 @@ export default function AdminFamiliesPage() {
         )}
 
         {!loading && !err && (
-          <div className="flex flex-col gap-2">
-            <div className="text-[11px] text-white/45 font-bold uppercase tracking-wider px-3 mb-1">
-              {filtered.length} {filtered.length === 1 ? 'family' : 'families'}
+          <>
+            {/* Engagement toolbar — filter + dormancy window */}
+            <div
+              className="rounded-2xl p-3 mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 justify-between"
+              style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div className="flex items-center gap-1.5">
+                {(['all', 'active', 'dormant'] as ActiveFilter[]).map((key) => {
+                  const on = filter === key;
+                  const label = key === 'all' ? 'All' : key === 'active' ? `Active ≤${windowDays}d` : `Dormant >${windowDays}d`;
+                  const count = key === 'all' ? activeCount + dormantCount : key === 'active' ? activeCount : dormantCount;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setFilter(key)}
+                      className="text-[12px] font-black px-3 py-1.5 rounded-full transition-colors"
+                      style={
+                        on
+                          ? { background: '#D4A847', color: '#0F1F44' }
+                          : { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.65)' }
+                      }
+                    >
+                      {label} <span className="opacity-70">· {count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <label className="flex items-center gap-2 text-[12px] font-bold text-white/55">
+                <span>Dormant after</span>
+                <input
+                  value={String(windowDays)}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9]/g, '');
+                    setWindowDays(v === '' ? 0 : Math.min(365, parseInt(v, 10)));
+                  }}
+                  onBlur={saveWindowDays}
+                  onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  inputMode="numeric"
+                  aria-label="Dormancy window in days"
+                  className="w-14 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white text-[13px] font-extrabold text-center outline-none"
+                />
+                <span>days{savingWindow ? ' · saving…' : ''}</span>
+              </label>
             </div>
-            {filtered.map((f) => (
-              <FamilyRow key={f.id} family={f} onEdit={() => setEditingId(f.id)} />
-            ))}
-            {filtered.length === 0 && (
-              <div className="text-white/45 text-sm py-12 text-center">No families match that search.</div>
-            )}
-          </div>
+
+            <div className="flex flex-col gap-2">
+              <div className="text-[11px] text-white/45 font-bold uppercase tracking-wider px-3 mb-1">
+                {shown.length} {shown.length === 1 ? 'family' : 'families'}{filter !== 'all' ? ` · ${filter}` : ''}
+              </div>
+              {shown.map((f) => (
+                <FamilyRow key={f.id} family={f} now={now} windowDays={windowDays} onEdit={() => setEditingId(f.id)} />
+              ))}
+              {shown.length === 0 && (
+                <div className="text-white/45 text-sm py-12 text-center">
+                  {filter === 'dormant'
+                    ? 'No dormant families — all families are active 🎉'
+                    : filter === 'active'
+                      ? 'No active families in this window.'
+                      : 'No families match that search.'}
+                </div>
+              )}
+            </div>
+
+            <div className="text-[10px] text-white/35 font-semibold mt-3 px-3 leading-snug">
+              Last active comes from in-app presence — a family with no recent activity may simply not have opened Kaya since presence tracking shipped.
+            </div>
+          </>
         )}
       </div>
 
@@ -168,7 +313,26 @@ export default function AdminFamiliesPage() {
 
 // ── Sub-components ─────────────────────────────────────────────────
 
-function FamilyRow({ family, onEdit }: { family: AdminFamilyRow; onEdit: () => void }) {
+function LastActivePill({ ms, now, windowDays }: { ms: number; now: number; windowDays: number }) {
+  const d = daysSince(ms, now);
+  const dormant = d === null || d > windowDays;
+  const dot = d === null ? '⚪' : dormant ? '🟡' : '🟢';
+  const text = d === null ? 'never' : d === 0 ? 'today' : `${d}d`;
+  const color = d === null ? 'rgba(255,255,255,0.45)' : dormant ? '#D4A847' : '#5BB85B';
+  const title = d === null ? 'No recorded activity yet' : `Last active ${toDisplayDate(isoDay(ms))} (${d}d ago)`;
+  return (
+    <span
+      title={title}
+      className="flex-shrink-0 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-black"
+      style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color }}
+    >
+      <span>{dot}</span>
+      <span>{text}</span>
+    </span>
+  );
+}
+
+function FamilyRow({ family, now, windowDays, onEdit }: { family: AdminFamilyRow; now: number; windowDays: number; onEdit: () => void }) {
   const tier = DEFAULT_TIERS[family.tierId];
   const m = family.members;
   return (
@@ -206,6 +370,7 @@ function FamilyRow({ family, onEdit }: { family: AdminFamilyRow; onEdit: () => v
           <StorageInline family={family} />
         </div>
       </div>
+      <LastActivePill ms={family.lastActiveAtMs} now={now} windowDays={windowDays} />
       <button
         type="button"
         onClick={onEdit}
