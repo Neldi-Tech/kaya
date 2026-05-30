@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kaya — HTML samples for approval</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          paper:   '#FBF5E5',   // page background
+          card:    '#FFFFFF',
+          ink:     '#0E2240',   // navy
+          muted:   '#6B7280',
+          rule:    '#EDE3CC',
+          honey:   '#E8A300',
+          honeyDk: '#B57A00',
+          leaf:    '#5BA88C',
+          leafSft: '#DCEDE4',
+          danger:  '#C0392B',
+          green:   '#1F8A4C',
+        },
+        fontFamily: { sans: ['system-ui','sans-serif'] },
+        borderRadius: { card: '20px', pill: '999px', chip: '12px' },
+      }
+    }
+  }
+</script>
+<style>
+  body { font-family: ui-rounded, system-ui, sans-serif; }
+  .phone { width: 390px; max-width: 100%; }
+  .label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; font-weight: 800; }
+  .chip-meter { width: 28px; height: 28px; border-radius: 8px; background: #FFEDC0; color: #B57A00; display: inline-flex; align-items: center; justify-content: center; font-size: 14px; }
+  .h-rule { border-top: 1px dashed #EDE3CC; }
+  .stamp-add { color: #1F8A4C; }
+  .stamp-out { color: #C0392B; }
+</style>
+</head>
+<body class="bg-[#F3EBD5] py-6">
+
+<div class="max-w-[420px] mx-auto px-4 space-y-10">
+
+  <header class="text-center">
+    <p class="label text-honeyDk">Kaya · HTML samples for approval</p>
+    <h1 class="text-2xl font-black text-ink mt-1">3 mock-ups · scroll &amp; approve</h1>
+    <p class="text-[12px] text-muted mt-1">Mobile portrait, 390 px wide. Approve each, redirect, or ask for variants.</p>
+  </header>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <!-- SAMPLE 1 — Inventory & worth + stock change history -->
+  <section>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="label text-honeyDk">Sample 1</span>
+      <span class="text-[11px] text-muted">Spark · Inventory &amp; worth · stock changes visible</span>
+    </div>
+    <div class="phone bg-paper rounded-card p-4 shadow-sm space-y-3 mx-auto">
+
+      <!-- Today's Inventory card -->
+      <div class="bg-ink text-paper rounded-card p-4">
+        <p class="label text-honey">📦  Inventory &amp; worth</p>
+        <div class="mt-2 flex items-baseline justify-between">
+          <p class="text-[30px] font-black leading-none">TZS 445,000</p>
+          <a class="text-[12px] font-extrabold text-honey">Open →</a>
+        </div>
+        <p class="text-[11px] text-paper/70 mt-1">Net of today's stock-take · last updated 30-May 15:14</p>
+      </div>
+
+      <!-- NEW: Recent stock changes -->
+      <div class="bg-card rounded-card p-4 space-y-2">
+        <div class="flex items-baseline justify-between">
+          <p class="label text-ink">Recent stock changes</p>
+          <a class="text-[11px] font-extrabold text-honeyDk">See all →</a>
+        </div>
+        <p class="text-[11px] text-muted -mt-1">Last 7 days · ➕ additions · ➖ outflows</p>
+
+        <ul class="mt-2 divide-y divide-rule">
+          <li class="py-2 flex items-center gap-3">
+            <span class="chip-meter">📥</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-extrabold text-ink truncate">+ 5 crates added</p>
+              <p class="text-[11px] text-muted">28-May · Elia · daily stock-take</p>
+            </div>
+            <p class="text-[12px] font-black stamp-add shrink-0">+TZS 25,000</p>
+          </li>
+          <li class="py-2 flex items-center gap-3">
+            <span class="chip-meter">💵</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-extrabold text-ink truncate">− 12 units sold</p>
+              <p class="text-[11px] text-muted">29-May · Diana · log sale</p>
+            </div>
+            <p class="text-[12px] font-black stamp-out shrink-0">−TZS 96,000</p>
+          </li>
+          <li class="py-2 flex items-center gap-3">
+            <span class="chip-meter">🗑</span>
+            <div class="flex-1 min-w-0">
+              <p class="text-[13px] font-extrabold text-ink truncate">− 1 unit spoiled</p>
+              <p class="text-[11px] text-muted">30-May · Elia · daily stock-take</p>
+            </div>
+            <p class="text-[12px] font-black stamp-out shrink-0">−TZS 5,000</p>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Same pattern, distilled, for the Approval document -->
+      <div class="bg-card rounded-card border-2 border-honey/40 p-4 space-y-2">
+        <p class="label text-honeyDk">Approval doc · what changed</p>
+        <p class="text-[13px] text-ink leading-snug">
+          Inventory moved from <strong>TZS 521,000</strong> →
+          <strong>TZS 445,000</strong> (−TZS 76,000) over the 7-day
+          period.
+        </p>
+        <ul class="text-[12px] text-ink space-y-1 mt-1">
+          <li class="flex items-center gap-2"><span class="stamp-add">▲</span> 1 inflow · +TZS 25,000</li>
+          <li class="flex items-center gap-2"><span class="stamp-out">▼</span> 2 outflows · −TZS 101,000</li>
+        </ul>
+        <a class="text-[11px] font-extrabold text-honeyDk">Open change log →</a>
+      </div>
+
+      <p class="text-[11px] text-muted leading-snug">
+        ✅ Same change-list component renders on both surfaces — one source of truth
+        (the stock-take events), two views.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <!-- SAMPLE 2 — Last reading on metered modules -->
+  <section>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="label text-honeyDk">Sample 2</span>
+      <span class="text-[11px] text-muted">Every metered module · "last reading" up top</span>
+    </div>
+    <div class="phone bg-paper rounded-card p-4 shadow-sm space-y-3 mx-auto">
+
+      <p class="label text-honeyDk">⚡ Trackable detail</p>
+      <h2 class="text-[22px] font-black text-ink leading-tight">Luku: Security</h2>
+      <p class="text-[12px] text-muted -mt-1">Last 30 days</p>
+
+      <!-- NEW: Last reading hero -->
+      <div class="bg-ink text-paper rounded-card p-4">
+        <div class="flex items-baseline justify-between">
+          <p class="label text-honey">Last reading</p>
+          <a class="text-[11px] font-extrabold text-honey">＋ Log new →</a>
+        </div>
+        <p class="text-[30px] font-black leading-none mt-2">247 <span class="text-[14px] font-extrabold opacity-70">units</span></p>
+        <p class="text-[12px] text-paper/80 mt-1">28-May-2026 · 18:32 · by Elia · <span class="opacity-70">2 days ago</span></p>
+      </div>
+
+      <!-- Existing Daily Consumption card, untouched -->
+      <div class="bg-card rounded-card p-4">
+        <p class="label text-ink">Daily consumption</p>
+        <p class="text-[12px] text-muted mt-0.5">No reading logged today yet — Sat, 30-May-2026.</p>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <p class="text-[10px] text-muted font-extrabold uppercase tracking-wider">Yesterday</p>
+            <p class="text-[14px] font-extrabold text-ink mt-0.5">27.61 1 · TZS 9,836</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-muted font-extrabold uppercase tracking-wider">7-day avg</p>
+            <p class="text-[14px] font-extrabold text-ink mt-0.5">13.76 1/day · TZS 4,904/day</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Variants — same hero pattern, other meters -->
+      <p class="label text-muted pt-2">Same pattern · water · car odometer</p>
+
+      <div class="bg-card rounded-card p-3 flex items-center gap-3">
+        <span class="chip-meter">💧</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-[13px] font-extrabold text-ink truncate">Maji: Compound</p>
+          <p class="text-[11px] text-muted">last 29-May · 13,402 L · Diana</p>
+        </div>
+        <p class="text-[14px] font-black text-ink shrink-0">13,402 <span class="text-[10px] font-extrabold text-muted">L</span></p>
+      </div>
+
+      <div class="bg-card rounded-card p-3 flex items-center gap-3">
+        <span class="chip-meter">🚗</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-[13px] font-extrabold text-ink truncate">Car: Hilux odometer</p>
+          <p class="text-[11px] text-muted">last 27-May · 84,221 km · Elia</p>
+        </div>
+        <p class="text-[14px] font-black text-ink shrink-0">84,221 <span class="text-[10px] font-extrabold text-muted">km</span></p>
+      </div>
+
+      <p class="text-[11px] text-muted leading-snug">
+        ✅ One shared "MeterLastReading" component drops into every metered
+        module (Luku, Maji, car odometer, gas refill, anything else metered).
+      </p>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <!-- SAMPLE 3 — Utility row mobile overflow fix -->
+  <section>
+    <div class="flex items-center gap-2 mb-2">
+      <span class="label text-honeyDk">Sample 3</span>
+      <span class="text-[11px] text-muted">Utility list · mobile overflow fix</span>
+    </div>
+    <div class="phone bg-paper rounded-card p-4 shadow-sm space-y-3 mx-auto">
+
+      <!-- Before -->
+      <div class="bg-card rounded-card p-3 border border-danger/30">
+        <p class="label text-danger mb-2">Before · row clips on the right edge</p>
+        <div class="overflow-hidden">
+          <div class="rounded-chip bg-paper p-3 flex items-center gap-3 w-[110%]">
+            <span class="chip-meter">⚡</span>
+            <div class="flex-1">
+              <p class="text-[13px] font-extrabold text-ink whitespace-nowrap">UTL-0021 · 290526 · Luku: Secu...</p>
+              <p class="text-[11px] text-muted">1 item · Awaiting approval</p>
+            </div>
+            <p class="text-[13px] font-black text-ink whitespace-nowrap">≈ TZS 100,00</p>
+          </div>
+        </div>
+        <p class="text-[11px] text-danger mt-2">↑ The amount "TZS 100,000" loses its last 0 — pushed off screen.</p>
+      </div>
+
+      <!-- After -->
+      <div class="bg-card rounded-card p-3 border border-green/40">
+        <p class="label text-green mb-2">After · two-line title, amount fixed-right</p>
+
+        <!-- The fix: title block min-w-0 + truncate, amount column shrink-0 -->
+        <div class="rounded-chip bg-paper p-3 flex items-start gap-3">
+          <span class="chip-meter shrink-0 mt-0.5">⚡</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-[12px] font-extrabold text-muted truncate">UTL-0021 · 290526</p>
+            <p class="text-[14px] font-extrabold text-ink truncate">Luku: Security</p>
+            <p class="text-[11px] text-muted">1 item · Awaiting approval</p>
+          </div>
+          <p class="text-[13px] font-black text-ink shrink-0 mt-0.5 text-right whitespace-nowrap">≈ TZS 100,000</p>
+        </div>
+
+        <!-- Same fix on a closed row -->
+        <div class="rounded-chip bg-paper p-3 flex items-start gap-3 mt-2">
+          <span class="chip-meter shrink-0 mt-0.5">⚡</span>
+          <div class="flex-1 min-w-0">
+            <p class="text-[12px] font-extrabold text-muted truncate">UTL-0017 · 240526</p>
+            <p class="text-[14px] font-extrabold text-ink truncate">Luku: Master Bedroom</p>
+            <p class="text-[11px] text-muted">1 item · Closed</p>
+          </div>
+          <p class="text-[13px] font-black text-ink shrink-0 mt-0.5 text-right whitespace-nowrap">TZS 80,000</p>
+        </div>
+
+        <p class="text-[11px] text-green mt-2">
+          ✅ Title splits to 2 lines (code + name) · long names truncate with "…" ·
+          amount sits in a shrink-0 right column and never gets clipped.
+        </p>
+      </div>
+
+      <p class="text-[11px] text-muted leading-snug">
+        Behaviour: at narrower widths, the title block <code>flex-1 min-w-0</code>
+        absorbs the squeeze and truncates; the amount column is fixed.
+      </p>
+    </div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────────── -->
+  <footer class="text-center text-[11px] text-muted pt-6 pb-4">
+    Approve each sample, ask for variants, or send the repo / file paths so
+    I can wire these into the right codebase.
+    <br>🎉
+  </footer>
+
+</div>
+
+</body>
+</html>
