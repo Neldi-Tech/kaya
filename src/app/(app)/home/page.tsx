@@ -8,6 +8,7 @@ import { getRecentRatings, getRecentAwards } from '@/lib/firestore';
 import { daysToNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
+import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -189,7 +190,7 @@ export default function DashboardPage() {
                 className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
                 style={{ backgroundColor: m.color }}
               >
-                {m.icon}
+                {m.icon === '🍯' ? <HoneyPotIcon size={26} /> : m.icon}
               </div>
               <span className="text-sm font-bold mt-0.5">{m.name}</span>
               <span className="text-[11px] text-kaya-sand leading-tight">{m.hint}</span>
@@ -373,7 +374,7 @@ export default function DashboardPage() {
                   className="w-11 h-11 rounded-xl flex items-center justify-center text-xl"
                   style={{ backgroundColor: m.color }}
                 >
-                  {m.icon}
+                  {m.icon === '🍯' ? <HoneyPotIcon size={26} /> : m.icon}
                 </div>
                 <div>
                   <div className="text-sm font-bold">{m.name}</div>

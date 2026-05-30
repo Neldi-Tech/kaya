@@ -8,6 +8,7 @@
 
 import { formatHoney, formatCash, formatCashClean, formatHp } from './format';
 import HoneyCoin from './HoneyCoin';
+import HoneyPotIcon from './HoneyPotIcon';
 
 export default function HoneyPotHero({
   treasuryCents,
@@ -40,8 +41,8 @@ export default function HoneyPotHero({
       <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-white/30 blur-2xl pointer-events-none" />
       <div className="relative">
         <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-honey-dk">Treasury Reserve <span className="opacity-70">(the Honey Pot)</span></p>
-        <div className="mt-1 flex items-baseline gap-2">
-          <span className="font-nunito font-black text-[52px] leading-none">🍯</span>
+        <div className="mt-1 flex items-center gap-3">
+          <HoneyPotIcon size={64} className="drop-shadow-[0_4px_10px_rgba(120,70,5,0.30)] -mt-1" />
           <span className="font-nunito font-black text-[40px] leading-none">{formatCash(treasuryCents, currency)}</span>
         </div>
         <p className="text-[12px] text-hive-muted font-bold mt-2">

@@ -13,6 +13,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import HoneyPotIcon from './HoneyPotIcon';
 
 const TABS = [
   { path: '/home',          icon: '🏠', label: 'Kaya',     external: true },
@@ -45,7 +46,7 @@ export default function HiveTabBar() {
               <span className={`w-7 h-7 rounded-[10px] flex items-center justify-center text-base transition-colors ${
                 active ? 'bg-hive-honey text-white' : 'bg-hive-cream text-hive-muted'
               }`}>
-                {t.icon}
+                {t.icon === '🍯' ? <HoneyPotIcon size={20} /> : t.icon}
               </span>
               <span className={active ? 'text-hive-honey-dk' : 'text-hive-muted'}>{t.label}</span>
             </Link>
