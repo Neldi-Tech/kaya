@@ -14,12 +14,21 @@ import {
   Business, LedgerEntry, subscribeToBusiness, subscribeToLedger,
 } from '@/lib/business';
 import { formatCash } from '@/components/hive/format';
-import { toDisplayDate, todayKey } from '@/lib/dates';
+import { toDisplayDate } from '@/lib/dates';
 import BackButton from '@/components/ui/BackButton';
 
 const COST_LABEL: Record<string, string> = {
   supplies: 'Supplies', tools: 'Tools', help: 'Help', other: 'Other',
 };
+
+// Local-day YYYY-MM-DD key so entries bucket in the viewer's timezone and feed
+// straight into toDisplayDate (which expects that shape).
+function dayKey(ms: number): string {
+  const d = new Date(ms);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
 
 function timeOf(ts: any): string {
   const ms = ts?.toMillis?.();
@@ -68,7 +77,7 @@ export default function BusinessHistoryPage() {
     const map = new Map<string, LedgerEntry[]>();
     for (const e of ledger) {
       const ms = (e.occurredAt as any)?.toMillis?.();
-      const key = typeof ms === 'number' ? todayKey(new Date(ms)) : '—';
+      const key = typeof ms === 'number' ? dayKey(ms) : '—';
       const arr = map.get(key) || [];
       arr.push(e);
       map.set(key, arr);
