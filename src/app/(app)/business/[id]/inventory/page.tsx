@@ -12,10 +12,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  Business, BusinessItem, ItemKind, NewItemInput, SaleInput,
-  subscribeToBusiness, subscribeToBusinessItems,
-  addBusinessItem, recordSpoilage, removeBusinessItem, updateBusinessItem, logSale, itemWorthCents, readBusinessConfig,
+  Business, BusinessItem, ItemKind, NewItemInput, SaleInput, StockMovement, StockMovementKind,
+  subscribeToBusiness, subscribeToBusinessItems, subscribeToStockMovements,
+  addBusinessItem, recordSpoilage, removeBusinessItem, adjustItemCount, updateBusinessItem, logSale, itemWorthCents, readBusinessConfig,
 } from '@/lib/business';
+import { relativeDayLabel } from '@/lib/dates';
 import { formatCash } from '@/components/hive/format';
 import { formatWorth } from '@/components/business/money';
 import { typeMeta, TYPE_GRADIENT } from '@/components/business/meta';
@@ -37,13 +38,15 @@ export default function InventoryPage() {
 
   const [business, setBusiness] = useState<Business | null>(null);
   const [items, setItems] = useState<BusinessItem[]>([]);
+  const [moves, setMoves] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!familyId || !businessId) return;
     const u1 = subscribeToBusiness(familyId, businessId, setBusiness);
     const u2 = subscribeToBusinessItems(familyId, businessId, (it) => { setItems(it); setLoading(false); });
-    return () => { u1(); u2(); };
+    const u3 = subscribeToStockMovements(familyId, businessId, setMoves, 25);
+    return () => { u1(); u2(); u3(); };
   }, [familyId, businessId]);
 
   const isParent = profile?.role === 'parent';
@@ -109,6 +112,23 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      {/* Recent stock changes — the "what moved" summary (sold, went bad,
+          count fixed, added). Sales also show in the Dashboard books; this is
+          the inventory lens (units in/out), so spoilage + recounts show too. */}
+      {moves.length > 0 && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+          <div className="flex items-baseline justify-between mb-1.5">
+            <h3 className="font-nunito font-extrabold text-[14px]">📊 Recent stock changes</h3>
+            <span className="text-[11px] text-hive-muted">last {Math.min(moves.length, 25)}</span>
+          </div>
+          <div>
+            {moves.slice(0, 8).map((m) => (
+              <StockChangeRow key={m.id} move={m} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Kid lesson */}
       <div className="bg-[#F4ECD8] border border-hive-honey/60 rounded-hive p-4 mb-3">
         <p className="text-[13px] leading-relaxed text-hive-navy">
@@ -142,6 +162,54 @@ export default function InventoryPage() {
       )}
     </div>
   );
+}
+
+// Per-kind presentation for the stock-changes log. Verb + emoji + a tone for
+// the signed quantity (in = green, out = rose, neutral = muted).
+const MOVE_META: Record<StockMovementKind, { emoji: string; verb: string; tone: 'in' | 'out' | 'flat' }> = {
+  add:      { emoji: '➕', verb: 'Added',      tone: 'in' },
+  sale:     { emoji: '💵', verb: 'Sold',       tone: 'out' },
+  spoilage: { emoji: '🥀', verb: 'Went bad',   tone: 'out' },
+  adjust:   { emoji: '✏️', verb: 'Count fixed', tone: 'flat' },
+  writeoff: { emoji: '🚫', verb: 'Written off', tone: 'out' },
+  remove:   { emoji: '✕',  verb: 'Removed',    tone: 'flat' },
+};
+
+function StockChangeRow({ move }: { move: StockMovement }) {
+  const meta = MOVE_META[move.kind] ?? MOVE_META.adjust;
+  const unit = move.unitLabel ? ` ${move.unitLabel}` : '';
+  const sign = move.qtyDelta > 0 ? '+' : ''; // negatives already carry '−'/'-'
+  const deltaText = move.qtyDelta !== 0 ? `${sign}${move.qtyDelta}${unit}` : '';
+  const toneClass = meta.tone === 'in' ? 'text-[#2F7D32]' : meta.tone === 'out' ? 'text-hive-rose' : 'text-hive-muted';
+  const when = relativeDayLabel(dayKeyOf(move.occurredAt));
+  return (
+    <div className="flex items-center justify-between gap-2 py-1.5 border-b border-dashed border-hive-line last:border-0">
+      <div className="min-w-0">
+        <div className="text-[13px] truncate">
+          <span className="mr-1">{meta.emoji}</span>
+          <span className="font-nunito font-bold">{meta.verb}</span>
+          <span className="text-hive-navy"> · {move.itemName}</span>
+        </div>
+        <div className="text-[11px] text-hive-muted">
+          {when}
+          {typeof move.resultingQty === 'number' && move.kind !== 'remove'
+            ? ` · now ${move.resultingQty}${unit}`
+            : ''}
+        </div>
+      </div>
+      {deltaText && (
+        <span className={`font-nunito font-extrabold text-[13px] shrink-0 ${toneClass}`}>{deltaText}</span>
+      )}
+    </div>
+  );
+}
+
+/** A Firestore Timestamp → YYYY-MM-DD (local) for the relative-day label. */
+function dayKeyOf(ts: any): string {
+  const ms = ts?.toMillis?.();
+  if (typeof ms !== 'number') return '';
+  const d = new Date(ms);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function ItemGroup({ title, sub, items, currency, canEdit, familyId, businessId, ownerId, uid }: {
@@ -213,14 +281,14 @@ function ItemRow({ item, currency, canEdit, familyId, businessId, ownerId, uid }
 
   const doBad = async () => {
     setBusy(true);
-    try { await recordSpoilage(familyId, businessId, item.id, soldQty); setPanel(null); }
+    try { await recordSpoilage(familyId, businessId, item.id, soldQty, uid); setPanel(null); }
     catch (e: any) { setErr(e?.message || 'Could not save.'); }
     finally { setBusy(false); }
   };
 
   const doEdit = async () => {
     setBusy(true);
-    try { await updateBusinessItem(familyId, businessId, item.id, { qty: Math.max(0, Math.round(editVal)) }); setPanel(null); }
+    try { await adjustItemCount(familyId, businessId, item.id, Math.max(0, Math.round(editVal)), uid); setPanel(null); }
     catch (e: any) { setErr(e?.message || 'Could not save.'); }
     finally { setBusy(false); }
   };
@@ -282,7 +350,7 @@ function ItemRow({ item, currency, canEdit, familyId, businessId, ownerId, uid }
                 >🥀</button>
               )}
               <button
-                onClick={async () => { setBusy(true); try { await removeBusinessItem(familyId, businessId, item.id); } finally { setBusy(false); } }}
+                onClick={async () => { setBusy(true); try { await removeBusinessItem(familyId, businessId, item.id, uid); } finally { setBusy(false); } }}
                 disabled={busy} title="Remove (mistake)"
                 className="w-7 h-7 rounded-hive-pill bg-hive-cream text-[12px] text-hive-muted disabled:opacity-40 hover:brightness-95"
               >✕</button>
