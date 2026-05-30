@@ -63,7 +63,14 @@ export async function POST(req: NextRequest) {
         const session = event.data.object as Stripe.Checkout.Session;
         const familyId = session.client_reference_id ?? session.metadata?.familyId ?? null;
         const subId = typeof session.subscription === 'string' ? session.subscription : session.subscription?.id;
-        if (familyId && subId) {
+        if (!familyId) break;
+        if (session.metadata?.kind === 'addons') {
+          // Add-on purchase — union into subscription.addons; never touches tier.
+          const ids = (session.metadata?.addons ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+          if (ids.length) await applyAddons(db, familyId, ids, subId ?? null);
+          break;
+        }
+        if (subId) {
           const sub = await stripe.subscriptions.retrieve(subId);
           await applySubscription(db, familyId, sub);
         }
@@ -71,6 +78,9 @@ export async function POST(req: NextRequest) {
       }
       case 'customer.subscription.updated': {
         const sub = event.data.object as Stripe.Subscription;
+        // Add-on subscriptions carry no tier — skip so we never clobber the
+        // family's tier subscription fields.
+        if (sub.metadata?.kind === 'addons') break;
         const familyId = await resolveFamilyId(db, sub);
         if (familyId) await applySubscription(db, familyId, sub);
         break;
@@ -78,13 +88,18 @@ export async function POST(req: NextRequest) {
       case 'customer.subscription.deleted': {
         const sub = event.data.object as Stripe.Subscription;
         const familyId = await resolveFamilyId(db, sub);
-        if (familyId) {
-          await db.collection('families').doc(familyId).update({
-            tierId: 'nest',
-            'subscription.status': 'canceled',
-            'subscription.stripeSubscriptionId': null,
-          });
+        if (!familyId) break;
+        if (sub.metadata?.kind === 'addons') {
+          // Add-on sub cancelled — drop those add-ons; leave the tier alone.
+          const ids = (sub.metadata?.addons ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+          await removeAddons(db, familyId, ids);
+          break;
         }
+        await db.collection('families').doc(familyId).update({
+          tierId: 'nest',
+          'subscription.status': 'canceled',
+          'subscription.stripeSubscriptionId': null,
+        });
         break;
       }
       case 'invoice.payment_failed': {
@@ -92,6 +107,8 @@ export async function POST(req: NextRequest) {
         const subId = typeof invoice.subscription === 'string' ? invoice.subscription : invoice.subscription?.id;
         if (subId) {
           const sub = await stripe.subscriptions.retrieve(subId);
+          // Add-on dunning shouldn't flip the family's tier status to past_due.
+          if (sub.metadata?.kind === 'addons') break;
           const familyId = await resolveFamilyId(db, sub);
           if (familyId) {
             await db.collection('families').doc(familyId).update({
@@ -142,6 +159,27 @@ async function applySubscription(db: Firestore, familyId: string, sub: Stripe.Su
     patch['subscription.billingCycle'] = resolved.cycle;
   }
   await db.collection('families').doc(familyId).update(patch);
+}
+
+/** Union purchased add-on IDs into subscription.addons + record the add-on
+ *  subscription id. Never touches tierId or the tier subscription. */
+async function applyAddons(db: Firestore, familyId: string, addonIds: string[], subId: string | null): Promise<void> {
+  const ref = db.collection('families').doc(familyId);
+  const snap = await ref.get();
+  const current = ((snap.exists ? (snap.data() as { subscription?: { addons?: string[] } }).subscription?.addons : []) ?? []) as string[];
+  const next = Array.from(new Set([...current, ...addonIds]));
+  const patch: Record<string, unknown> = { 'subscription.addons': next };
+  if (subId) patch['subscription.stripeAddonSubscriptionId'] = subId;
+  await ref.update(patch);
+}
+
+/** Remove the given add-on IDs from subscription.addons (add-on sub cancelled). */
+async function removeAddons(db: Firestore, familyId: string, addonIds: string[]): Promise<void> {
+  const ref = db.collection('families').doc(familyId);
+  const snap = await ref.get();
+  const current = ((snap.exists ? (snap.data() as { subscription?: { addons?: string[] } }).subscription?.addons : []) ?? []) as string[];
+  const remove = new Set(addonIds);
+  await ref.update({ 'subscription.addons': current.filter((a) => !remove.has(a)), 'subscription.stripeAddonSubscriptionId': null });
 }
 
 /** Find the Kaya family for a Stripe subscription. Prefers the

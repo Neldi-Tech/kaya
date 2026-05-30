@@ -135,6 +135,7 @@ export default function SubscriptionPage() {
   // Add-on catalogue with admin price + released overrides (server-merged via
   // /api/addons, so operator edits reflect without a client read of config).
   const [addons, setAddons] = useState<ResolvedAddon[]>(() => mergedAddons());
+  const [billingMode, setBillingMode] = useState<'request' | 'stripe'>('request');
   useEffect(() => {
     (async () => {
       try {
@@ -143,8 +144,9 @@ export default function SubscriptionPage() {
         const token = await u.getIdToken();
         const res = await fetch('/api/addons', { headers: { authorization: `Bearer ${token}` } });
         if (!res.ok) return;
-        const data = (await res.json()) as { addons: ResolvedAddon[] };
+        const data = (await res.json()) as { addons: ResolvedAddon[]; mode?: 'request' | 'stripe' };
         if (Array.isArray(data.addons)) setAddons(data.addons);
+        if (data.mode === 'request' || data.mode === 'stripe') setBillingMode(data.mode);
       } catch { /* keep defaults */ }
     })();
   }, []);
@@ -185,6 +187,36 @@ export default function SubscriptionPage() {
     } catch (e) {
       setToast({ kind: 'err', msg: `Couldn't send request: ${String(e instanceof Error ? e.message : e)}` });
     } finally {
+      setRequestingAddons(false);
+    }
+  };
+
+  // Stripe self-serve checkout for the selected add-ons. Falls back to the
+  // request flow if Stripe isn't on or a Price isn't provisioned yet, so the
+  // button always does something sensible.
+  const startAddonCheckout = async () => {
+    if (selectedAddons.size === 0 || requestingAddons) return;
+    setRequestingAddons(true);
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/stripe/checkout-addons', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ addons: [...selectedAddons] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.url) { window.location.href = data.url as string; return; }
+      // No Stripe Price yet (or Stripe off) → fall back to the request flow.
+      if (data.error === 'price-not-provisioned' || data.error === 'stripe-not-configured') {
+        setRequestingAddons(false);
+        await requestAddons();
+        return;
+      }
+      throw new Error(data.error || 'checkout-failed');
+    } catch (e) {
+      setToast({ kind: 'err', msg: `Couldn't start checkout: ${String(e instanceof Error ? e.message : e)}` });
       setRequestingAddons(false);
     }
   };
@@ -499,9 +531,10 @@ export default function SubscriptionPage() {
             const isCastle = access.tierId === 'castle';
             const eligible = addon.eligibleTiers.includes(access.tierId);
             const selected = selectedAddons.has(addon.id);
-            // Selectable only when released, not already owned, not Castle
-            // (everything's included), and the tier can buy it (Home today).
-            const selectable = released && !owned && !isCastle && eligible;
+            // Selectable only when released, not owned, not Castle, the tier
+            // can buy it (Home today), AND — in Stripe mode — a Price exists.
+            const selectable = released && !owned && !isCastle && eligible
+              && (billingMode === 'request' || addon.purchasable);
 
             let footer: React.ReactNode;
             if (isCastle) {
@@ -512,6 +545,8 @@ export default function SubscriptionPage() {
               footer = <AddonTag tone="soon">Coming soon</AddonTag>;
             } else if (!eligible) {
               footer = <AddonTag tone="muted">On Home plan</AddonTag>;
+            } else if (!selectable) {
+              footer = <AddonTag tone="soon">Coming soon</AddonTag>;
             } else {
               footer = (
                 <div
@@ -607,17 +642,19 @@ export default function SubscriptionPage() {
               <span className="text-[12px] font-semibold ml-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>/mo</span>
             </div>
             <div className="text-[10.5px] font-semibold mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
-              Your operator approves new add-ons during early access.
+              {billingMode === 'stripe' ? 'Secure checkout via Stripe.' : 'Your operator approves new add-ons during early access.'}
             </div>
           </div>
           <div className="flex-1" />
           <button
-            onClick={requestAddons}
+            onClick={billingMode === 'stripe' ? startAddonCheckout : requestAddons}
             disabled={requestingAddons}
             className="text-[14px] font-black rounded-xl px-5 py-2.5 disabled:opacity-60 whitespace-nowrap"
             style={{ background: GOLD, color: NAVY }}
           >
-            {requestingAddons ? 'Sending…' : 'Request add-ons →'}
+            {requestingAddons
+              ? (billingMode === 'stripe' ? 'Starting…' : 'Sending…')
+              : (billingMode === 'stripe' ? 'Checkout →' : 'Request add-ons →')}
           </button>
         </div>
       )}

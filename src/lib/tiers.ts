@@ -277,9 +277,11 @@ export interface AddonOverride {
 }
 export type AddonOverrides = Record<string, AddonOverride>;
 
-/** An add-on with the admin price override applied and `released` resolved. */
+/** An add-on with the admin price override applied, `released` resolved, and
+ *  `purchasable` = released AND a Stripe Price is provisioned (self-serve). */
 export interface ResolvedAddon extends AddonConfig {
   released: boolean;
+  purchasable: boolean;
 }
 
 /** Whether the add-on's underlying module has shipped (has real code). The
@@ -305,7 +307,8 @@ export function mergedAddons(overrides?: AddonOverrides): ResolvedAddon[] {
     const priceMonthly = typeof o?.priceMonthly === 'number' && o.priceMonthly >= 0
       ? Math.round(o.priceMonthly)
       : a.priceMonthly;
-    return { ...a, priceMonthly, released: isAddonReleased(a, overrides) };
+    const released = isAddonReleased(a, overrides);
+    return { ...a, priceMonthly, released, purchasable: released && !!o?.stripePriceId };
   });
 }
 
