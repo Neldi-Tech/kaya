@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { resolveAuth } from '@/lib/buzzServer';
-import { DEFAULT_ADDONS, type SubscriptionTierId } from '@/lib/tiers';
+import { DEFAULT_ADDONS, isAddonReleased, type SubscriptionTierId } from '@/lib/tiers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,9 +28,20 @@ export async function POST(req: NextRequest) {
   const requestedTier = body.requestedTier as SubscriptionTierId;
   if (!TIER_IDS.has(requestedTier)) return NextResponse.json({ error: 'bad-tier' }, { status: 400 });
 
-  const requestedAddons = Array.isArray(body.requestedAddons)
-    ? body.requestedAddons.filter((a) => typeof a === 'string' && VALID_ADDON_IDS.has(a))
+  const rawAddons = Array.isArray(body.requestedAddons)
+    ? body.requestedAddons.filter((a): a is string => typeof a === 'string' && VALID_ADDON_IDS.has(a))
     : [];
+  // Charging invariant: an unreleased ("coming soon") add-on can never be
+  // requested — reject rather than silently drop, so a tampered client can't
+  // smuggle one into the approval queue.
+  const unavailable = rawAddons.filter((id) => {
+    const addon = DEFAULT_ADDONS.find((a) => a.id === id);
+    return !addon || !isAddonReleased(addon);
+  });
+  if (unavailable.length) {
+    return NextResponse.json({ error: 'addon-not-available', addons: unavailable }, { status: 400 });
+  }
+  const requestedAddons = rawAddons;
 
   const note = String(body.note ?? '').trim().slice(0, 500);
 

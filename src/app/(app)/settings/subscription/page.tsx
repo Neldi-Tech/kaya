@@ -20,7 +20,7 @@ import { isProbablyTierCode } from '@/lib/tierCodes';
 import { auth } from '@/lib/firebase';
 import type { Family } from '@/lib/firestore';
 import {
-  DEFAULT_ADDONS, MODULE_REGISTRY,
+  DEFAULT_ADDONS, MODULE_REGISTRY, isAddonReleased,
   type SubscriptionTierId, type TierConfig,
 } from '@/lib/tiers';
 import { usdFxRate } from '@/lib/pricing';
@@ -119,6 +119,57 @@ export default function SubscriptionPage() {
       return { ok: true, message: `Welcome to ${(data.tier as string).toUpperCase()} — your new plan is live!` };
     } catch (e) {
       return { ok: false, message: String(e instanceof Error ? e.message : e) };
+    }
+  };
+
+  // ── Add-on selection + request (mode A: operator approves) ──────────
+  // Released add-ons can be selected → "Request" lands in the operator's
+  // upgrade-requests queue. Unreleased ("coming soon") ones aren't selectable
+  // and are rejected server-side too, so they can never be requested/charged.
+  const ownedAddons = useMemo(
+    () => new Set(family?.subscription?.addons ?? []),
+    [family],
+  );
+  const [selectedAddons, setSelectedAddons] = useState<Set<string>>(new Set());
+  const [requestingAddons, setRequestingAddons] = useState(false);
+
+  const toggleAddon = (id: string) => {
+    setSelectedAddons((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const selectedAddonTotalCents = useMemo(() => {
+    let sum = 0;
+    for (const id of selectedAddons) {
+      const a = DEFAULT_ADDONS.find((x) => x.id === id);
+      if (a) sum += a.priceMonthly;
+    }
+    return sum;
+  }, [selectedAddons]);
+
+  const requestAddons = async () => {
+    if (selectedAddons.size === 0 || requestingAddons) return;
+    setRequestingAddons(true);
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/upgrade-requests', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ requestedTier: access.tierId, requestedAddons: [...selectedAddons] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'request-failed');
+      setSelectedAddons(new Set());
+      setToast({ kind: 'ok', msg: 'Add-ons requested — your operator will set them up shortly. 🎉' });
+    } catch (e) {
+      setToast({ kind: 'err', msg: `Couldn't send request: ${String(e instanceof Error ? e.message : e)}` });
+    } finally {
+      setRequestingAddons(false);
     }
   };
 
@@ -426,40 +477,83 @@ export default function SubscriptionPage() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {DEFAULT_ADDONS.map((addon) => (
-            <div
-              key={addon.id}
-              className="rounded-2xl p-4 transition-all"
-              style={{
-                background: 'white',
-                border: '1.5px solid rgba(15,31,68,0.08)',
-              }}
-            >
-              <div
-                className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center text-[20px] mb-2.5"
-                style={{ background: addon.emojiBg }}
-              >
-                {addon.emoji}
-              </div>
-              <div className="text-[13px] font-black mb-1" style={{ color: NAVY }}>
-                {addon.name}
-              </div>
-              <p className="text-[11px] font-semibold leading-[1.45] mb-2.5" style={{ color: MUTED }}>
-                {addon.description}
-              </p>
-              <div className="text-[14px] font-black" style={{ color: NAVY }}>
-                {toLocal(addon.priceMonthly)}
-                <span className="text-[11px] font-semibold ml-1" style={{ color: MUTED }}>
-                  /month
-                </span>
-              </div>
-              {currency !== 'USD' && (
-                <div className="text-[10px] font-semibold mt-0.5" style={{ color: MUTED, opacity: 0.7 }}>
-                  ≈ ${(addon.priceMonthly / 100).toFixed(addon.priceMonthly % 100 === 0 ? 0 : 2)} USD
+          {DEFAULT_ADDONS.map((addon) => {
+            const released = isAddonReleased(addon);
+            const owned = ownedAddons.has(addon.id);
+            const isCastle = access.tierId === 'castle';
+            const eligible = addon.eligibleTiers.includes(access.tierId);
+            const selected = selectedAddons.has(addon.id);
+            // Selectable only when released, not already owned, not Castle
+            // (everything's included), and the tier can buy it (Home today).
+            const selectable = released && !owned && !isCastle && eligible;
+
+            let footer: React.ReactNode;
+            if (isCastle) {
+              footer = <AddonTag tone="included">Included ✓</AddonTag>;
+            } else if (owned) {
+              footer = <AddonTag tone="active">Active ✓</AddonTag>;
+            } else if (!released) {
+              footer = <AddonTag tone="soon">Coming soon</AddonTag>;
+            } else if (!eligible) {
+              footer = <AddonTag tone="muted">On Home plan</AddonTag>;
+            } else {
+              footer = (
+                <div
+                  className="mt-2.5 w-full text-center text-[12.5px] font-black rounded-[11px] py-2 transition-colors"
+                  style={
+                    selected
+                      ? { background: GOLD, color: 'white', border: `1.5px solid ${GOLD}` }
+                      : { background: 'white', color: GOLD, border: `1.5px solid ${GOLD}` }
+                  }
+                >
+                  {selected ? 'Added ✓' : '+ Add'}
                 </div>
-              )}
-            </div>
-          ))}
+              );
+            }
+
+            return (
+              <div
+                key={addon.id}
+                role={selectable ? 'button' : undefined}
+                tabIndex={selectable ? 0 : undefined}
+                onClick={selectable ? () => toggleAddon(addon.id) : undefined}
+                onKeyDown={selectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleAddon(addon.id); } } : undefined}
+                className="rounded-2xl p-4 transition-all flex flex-col"
+                style={{
+                  background: 'white',
+                  border: selected ? `1.5px solid ${GOLD}` : '1.5px solid rgba(15,31,68,0.08)',
+                  boxShadow: selected ? '0 0 0 3px rgba(212,168,71,0.18)' : 'none',
+                  cursor: selectable ? 'pointer' : 'default',
+                  opacity: !released && !owned && !isCastle ? 0.72 : 1,
+                }}
+              >
+                <div
+                  className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center text-[20px] mb-2.5"
+                  style={{ background: addon.emojiBg }}
+                >
+                  {addon.emoji}
+                </div>
+                <div className="text-[13px] font-black mb-1" style={{ color: NAVY }}>
+                  {addon.name}
+                </div>
+                <p className="text-[11px] font-semibold leading-[1.45] mb-2.5 flex-1" style={{ color: MUTED }}>
+                  {addon.description}
+                </p>
+                <div className="text-[14px] font-black" style={{ color: NAVY }}>
+                  {toLocal(addon.priceMonthly)}
+                  <span className="text-[11px] font-semibold ml-1" style={{ color: MUTED }}>
+                    /month
+                  </span>
+                </div>
+                {currency !== 'USD' && (
+                  <div className="text-[10px] font-semibold mt-0.5" style={{ color: MUTED, opacity: 0.7 }}>
+                    ≈ ${(addon.priceMonthly / 100).toFixed(addon.priceMonthly % 100 === 0 ? 0 : 2)} USD
+                  </div>
+                )}
+                {footer}
+              </div>
+            );
+          })}
         </div>
 
         {/* Footer */}
@@ -482,6 +576,36 @@ export default function SubscriptionPage() {
         </div>
       </div>
 
+      {/* Add-on request cart bar — appears once at least one add-on is picked */}
+      {selectedAddons.size > 0 && (
+        <div
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3.5 rounded-2xl"
+          style={{ background: NAVY, color: 'white', boxShadow: '0 18px 44px rgba(15,31,68,0.32)', width: 640, maxWidth: '92vw' }}
+        >
+          <div>
+            <div className="text-[12px] font-extrabold" style={{ color: 'rgba(255,255,255,0.72)' }}>
+              {selectedAddons.size} add-on{selectedAddons.size === 1 ? '' : 's'} selected
+            </div>
+            <div className="text-[17px] font-black leading-tight">
+              +{toLocal(selectedAddonTotalCents)}
+              <span className="text-[12px] font-semibold ml-0.5" style={{ color: 'rgba(255,255,255,0.6)' }}>/mo</span>
+            </div>
+            <div className="text-[10.5px] font-semibold mt-0.5" style={{ color: 'rgba(255,255,255,0.55)' }}>
+              Your operator approves new add-ons during early access.
+            </div>
+          </div>
+          <div className="flex-1" />
+          <button
+            onClick={requestAddons}
+            disabled={requestingAddons}
+            className="text-[14px] font-black rounded-xl px-5 py-2.5 disabled:opacity-60 whitespace-nowrap"
+            style={{ background: GOLD, color: NAVY }}
+          >
+            {requestingAddons ? 'Sending…' : 'Request add-ons →'}
+          </button>
+        </div>
+      )}
+
       {toast && (
         <div
           className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-3 rounded-xl text-[13px] font-black shadow-lg max-w-[480px]"
@@ -497,6 +621,19 @@ export default function SubscriptionPage() {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────
+
+function AddonTag({ tone, children }: { tone: 'included' | 'active' | 'soon' | 'muted'; children: React.ReactNode }) {
+  const style =
+    tone === 'included' ? { background: 'rgba(212,168,71,0.14)', color: '#B8860B' }
+    : tone === 'active' ? { background: 'rgba(91,184,91,0.14)', color: '#3F9B3F' }
+    : tone === 'soon' ? { background: 'rgba(15,31,68,0.06)', color: '#6E7791' }
+    : { background: 'rgba(15,31,68,0.04)', color: '#8A93A8' };
+  return (
+    <div className="mt-2.5 w-full text-center text-[11px] font-black py-2 rounded-[11px]" style={style}>
+      {children}
+    </div>
+  );
+}
 
 function BillingButton({
   active,
