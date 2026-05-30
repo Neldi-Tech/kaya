@@ -165,7 +165,8 @@ export default function SubscriptionPage() {
         if (pct > best) best = pct;
       }
     }
-    return best;
+    // Round to the nearest 5% for a clean headline (e.g. 29% → 30%).
+    return Math.round(best / 5) * 5;
   }, [access.tiers]);
 
   const isCurrent = (tierId: SubscriptionTierId) => access.tierId === tierId;
