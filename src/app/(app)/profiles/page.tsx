@@ -249,8 +249,16 @@ export default function ProfilesPage() {
       updates.emailLower = trimmedEmail; // mirror used by findChildByEmail
     }
     if (canonicalHandle && canonicalHandle.toLowerCase() !== (child.handle || '').toLowerCase()) {
-      // Handle changed — check uniqueness before saving.
-      const ok = await isHandleAvailable(canonicalHandle, { childId: child.id });
+      // Handle changed — check uniqueness before saving. This lookup is
+      // best-effort: it must never throw past here and abort the save (a
+      // permission/index error on the cross-collection queries used to leave
+      // the form stuck doing nothing), so any failure degrades to "available".
+      let ok = true;
+      try {
+        ok = await isHandleAvailable(canonicalHandle, { childId: child.id });
+      } catch {
+        ok = true;
+      }
       if (!ok) {
         setBdayError(`@${canonicalHandle} is already taken — try another.`);
         return;

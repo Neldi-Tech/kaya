@@ -1565,20 +1565,36 @@ export async function isHandleAvailable(
   const lower = handle.toLowerCase();
   const ex = exclude || {};
 
+  // Every lookup below is best-effort: a permission or missing-index error
+  // must NEVER block a legitimate save. The `users` collection in particular
+  // has no blanket `list` rule (see firestore.rules — read is gated to
+  // same-family/self), so Firestore rejects this unconstrained handle query
+  // with permission-denied. We treat that the same way we treat a missing
+  // index below: as "no known collision" and let the save proceed. Handle
+  // uniqueness here is advisory, not a hard server-enforced guarantee.
+
   // Families
-  const famSnap = await getDocs(
-    query(collection(db, 'families'), where('handleLower', '==', lower)),
-  );
-  for (const d of famSnap.docs) {
-    if (d.id !== ex.familyId) return false;
+  try {
+    const famSnap = await getDocs(
+      query(collection(db, 'families'), where('handleLower', '==', lower)),
+    );
+    for (const d of famSnap.docs) {
+      if (d.id !== ex.familyId) return false;
+    }
+  } catch {
+    // ignore — see note above
   }
 
   // Users
-  const userSnap = await getDocs(
-    query(collection(db, 'users'), where('handleLower', '==', lower)),
-  );
-  for (const d of userSnap.docs) {
-    if (d.id !== ex.userUid) return false;
+  try {
+    const userSnap = await getDocs(
+      query(collection(db, 'users'), where('handleLower', '==', lower)),
+    );
+    for (const d of userSnap.docs) {
+      if (d.id !== ex.userUid) return false;
+    }
+  } catch {
+    // ignore — see note above
   }
 
   // Children — collection group query across all families.
