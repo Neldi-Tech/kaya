@@ -55,8 +55,9 @@ export default function HiveHomePage() {
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">
           {activeKid ? `${activeKid.name}'s Hive` : 'Your Hive'}
         </p>
-        <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1 leading-tight">
-          The Honey Pot 🍯
+        <h1 className="font-nunito font-black text-3xl lg:text-[40px] mt-1 leading-tight flex items-center gap-2.5">
+          The Honey Pot
+          <HoneyPotIcon size={40} className="-mt-1 drop-shadow-[0_3px_8px_rgba(120,70,5,0.25)]" />
         </h1>
       </div>
 
