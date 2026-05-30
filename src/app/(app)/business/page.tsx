@@ -18,6 +18,7 @@ import { formatCash } from '@/components/hive/format';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NetWorthHero from '@/components/business/NetWorthHero';
 import BusinessCard from '@/components/business/BusinessCard';
+import BusinessActivityFeed from '@/components/business/BusinessActivityFeed';
 
 export default function BusinessPortfolioPage() {
   const { profile } = useAuth();
@@ -186,6 +187,18 @@ export default function BusinessPortfolioPage() {
               🎨 Kids Projects
             </Link>
           </div>
+
+          {/* Quick-view feed across all of this kid's businesses —
+              today's snapshot per business (or yesterday's when empty)
+              so the kid can scan their whole portfolio without
+              tapping into each one. */}
+          {businesses.length > 0 && familyId && (
+            <BusinessActivityFeed
+              familyId={familyId}
+              businesses={businesses}
+              currency={config.currency}
+            />
+          )}
         </>
       )}
     </div>
