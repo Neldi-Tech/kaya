@@ -264,6 +264,14 @@ export function resolveModuleAccess(
   return granted;
 }
 
+/** Whether an add-on is released (purchasable). True only when its
+ *  underlying module has shipped. Unreleased add-ons render "Coming soon"
+ *  and can never be selected, requested, or charged — enforced on the
+ *  server too (see /api/upgrade-requests). PR F layers an admin override. */
+export function isAddonReleased(addon: AddonConfig): boolean {
+  return MODULE_REGISTRY.find((m) => m.id === addon.moduleId)?.shipped === true;
+}
+
 /** Returns the effective tier config — defaults overridden by anything
  *  the admin set at /config/tiers/{tierId}. Caller-supplied
  *  `tierOverrides` map mirrors the on-doc shape. */
