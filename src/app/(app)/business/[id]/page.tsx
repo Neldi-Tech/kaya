@@ -219,12 +219,6 @@ export default function BusinessDashboardPage() {
 
       {/* Pricing + customers + split */}
       <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3 space-y-2">
-        {typeof business.unitPriceCents === 'number' && (
-          <div className="flex items-center justify-between text-[13px]">
-            <span className="text-hive-muted">Price</span>
-            <span className="font-nunito font-extrabold">{formatCash(business.unitPriceCents, config.currency)}{business.unitLabel ? ` / ${business.unitLabel}` : ''}</span>
-          </div>
-        )}
         <div className="flex items-center justify-between gap-2 text-[13px]">
           <span className="text-hive-muted shrink-0">Customers</span>
           <span className="font-nunito font-extrabold capitalize text-right">{business.customerChannels.join(' · ')}</span>
@@ -426,6 +420,99 @@ export default function BusinessDashboardPage() {
         )}
       </div>
 
+      {/* Today's snapshot — what changed on the business today (or
+          yesterday when today is empty). Pulls from the same data
+          streams already loaded above (ledger / moves / takes), so
+          no extra wiring. */}
+      {(() => {
+        const tzOffsetMs = new Date().getTimezoneOffset() * 60_000;
+        const dayKey = (ms: number) => new Date(ms - tzOffsetMs).toISOString().slice(0, 10);
+        const todayKey = dayKey(Date.now());
+        const yesterdayKey = dayKey(Date.now() - 86_400_000);
+
+        const statsFor = (key: string) => {
+          const inDay = (ts: any) => {
+            const ms = ts?.toMillis?.();
+            return typeof ms === 'number' && dayKey(ms) === key;
+          };
+          const salesDay = ledger.filter((e) => e.kind === 'sale' && inDay(e.occurredAt));
+          const costsDay = ledger.filter((e) => e.kind === 'cost' && inDay(e.occurredAt));
+          const movesDay = moves.filter((m) => inDay(m.occurredAt));
+          const takeDay = takes.find((t) => t.date === key);
+          const empty = salesDay.length === 0 && costsDay.length === 0 && movesDay.length === 0 && !takeDay;
+          return {
+            empty,
+            salesCount: salesDay.length,
+            salesTotal: salesDay.reduce((s, e) => s + e.amountCents, 0),
+            costsCount: costsDay.length,
+            costsTotal: costsDay.reduce((s, e) => s + e.amountCents, 0),
+            movesCount: movesDay.length,
+            take: takeDay,
+          };
+        };
+
+        const today = statsFor(todayKey);
+        const useYesterday = today.empty;
+        const snap = useYesterday ? statsFor(yesterdayKey) : today;
+        const label = useYesterday ? 'Yesterday' : 'Today';
+        const dateLabel = new Date(useYesterday ? Date.now() - 86_400_000 : Date.now())
+          .toLocaleDateString(undefined, { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
+
+        return (
+          <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mb-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <h3 className="font-nunito font-extrabold text-[14px]">📅 {label}'s snapshot</h3>
+              <span className="text-[11px] text-hive-muted">{dateLabel}</span>
+            </div>
+            {snap.empty ? (
+              <p className="text-[12px] text-hive-muted py-1">
+                Nothing logged {useYesterday ? 'yesterday or today' : 'today yet'}. Log a sale, cost, or stock-take above to get started.
+              </p>
+            ) : (
+              <ul className="space-y-1.5 text-[12.5px]">
+                <li className="flex items-center justify-between gap-2">
+                  <span>📋 Stock-take</span>
+                  <span className="font-nunito font-extrabold">
+                    {snap.take
+                      ? <>✓ done · {snap.take.itemsTouched} item{snap.take.itemsTouched === 1 ? '' : 's'} touched</>
+                      : <span className="text-hive-muted">○ not done</span>}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>💵 Sales</span>
+                  <span className="font-nunito font-extrabold text-[#2F7D32]">
+                    {snap.salesCount} · {formatCash(snap.salesTotal, config.currency)}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>🧾 Costs</span>
+                  <span className="font-nunito font-extrabold text-hive-rose">
+                    {snap.costsCount} · {formatCash(snap.costsTotal, config.currency)}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2">
+                  <span>📊 Stock changes</span>
+                  <span className="font-nunito font-extrabold">
+                    {snap.movesCount}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between gap-2 pt-1 border-t border-dashed border-hive-line">
+                  <span className="text-hive-muted">Net</span>
+                  <span className={`font-nunito font-black ${
+                    snap.salesTotal - snap.costsTotal > 0 ? 'text-[#2F7D32]'
+                    : snap.salesTotal - snap.costsTotal < 0 ? 'text-hive-rose'
+                    : 'text-hive-muted'
+                  }`}>
+                    {snap.salesTotal - snap.costsTotal > 0 ? '+' : snap.salesTotal - snap.costsTotal < 0 ? '−' : ''}
+                    {formatCash(Math.abs(snap.salesTotal - snap.costsTotal), config.currency)}
+                  </span>
+                </li>
+              </ul>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Stock-take history — the daily habit log, same records + detail view as
           the stock-take page (counts + photos/clips + notes). */}
       <StockTakeHistory takes={takes} className="mb-3" />
@@ -440,9 +527,6 @@ export default function BusinessDashboardPage() {
           facts={{
             business: business.name,
             type: t.label,
-            ...(typeof business.unitPriceCents === 'number'
-              ? { price: `${formatCash(business.unitPriceCents, config.currency)}${business.unitLabel ? ' / ' + business.unitLabel : ''}` }
-              : {}),
             salesThisMonth: stats.salesCount,
             monthRevenue: formatCash(stats.monthRevenueCents, config.currency),
             monthProfit: formatCash(stats.monthProfitCents, config.currency),
