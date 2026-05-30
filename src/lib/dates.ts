@@ -85,6 +85,22 @@ export function monthDayOf(iso: string): { month: string; day: string } | null {
   return { month: m[2], day: m[3] };
 }
 
+/** Friendly relative day for "last entry" lines: "Today" / "Yesterday" /
+ *  "3 days ago", falling back to DD-Mmm-YYYY for anything a week or more out
+ *  (or future). Compares the YYYY-MM-DD key against the local calendar day. */
+export function relativeDayLabel(dayKey: string | undefined | null): string {
+  if (!dayKey) return '';
+  const d = parseIso(dayKey);
+  if (!d) return '';
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((today.getTime() - d.getTime()) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays > 1 && diffDays < 7) return `${diffDays} days ago`;
+  return toDisplayDate(dayKey);
+}
+
 function parseIso(iso: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
   if (!m) return null;

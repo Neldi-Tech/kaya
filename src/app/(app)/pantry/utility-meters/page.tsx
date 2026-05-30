@@ -19,6 +19,8 @@ import {
 } from '@/lib/utilityMeters';
 import { type Cadence, CADENCE_LABEL, type Supplier, subscribeToSuppliers } from '@/lib/pantry';
 import { suggestedReminderDays } from '@/lib/utilityReminders';
+import { getLatestReading, type PulseReading } from '@/lib/pulse';
+import { relativeDayLabel } from '@/lib/dates';
 import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
 
@@ -42,6 +44,7 @@ export default function UtilityMetersPage() {
 
   const [meters, setMeters] = useState<UtilityMeter[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [lastByMeter, setLastByMeter] = useState<Record<string, PulseReading | null>>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!profile?.familyId) return;
@@ -51,6 +54,21 @@ export default function UtilityMetersPage() {
     const unsubSup = subscribeToSuppliers(profile.familyId, 'all', setSuppliers);
     return () => { clearTimeout(t); unsub(); unsubSup(); };
   }, [profile?.familyId, profile?.role]);
+
+  // Fetch the latest reading per meter for the at-a-glance "last entry" line.
+  // One-shot per meter (small sets); re-runs whenever the meter list changes.
+  useEffect(() => {
+    const fid = profile?.familyId;
+    if (!fid || meters.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        meters.map(async (m) => [m.id, await getLatestReading(fid, m.id).catch(() => null)] as const),
+      );
+      if (!cancelled) setLastByMeter(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.familyId, meters]);
 
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<{
@@ -346,7 +364,7 @@ export default function UtilityMetersPage() {
             </p>
             <div className="flex flex-col gap-2">
               {list.map((m) => (
-                <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} currency={currency} suppliers={suppliers} />
+                <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} currency={currency} suppliers={suppliers} last={lastByMeter[m.id] ?? null} />
               ))}
             </div>
           </div>
@@ -356,8 +374,8 @@ export default function UtilityMetersPage() {
   );
 }
 
-function MeterRow({ meter, familyId, currency, suppliers }: {
-  meter: UtilityMeter; familyId: string; currency: string; suppliers: Supplier[];
+function MeterRow({ meter, familyId, currency, suppliers, last }: {
+  meter: UtilityMeter; familyId: string; currency: string; suppliers: Supplier[]; last: PulseReading | null;
 }) {
   const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
@@ -521,14 +539,23 @@ function MeterRow({ meter, familyId, currency, suppliers }: {
     );
   }
 
+  // Latest reading line — what the meter shows right now + when it was logged.
+  // Prepaid/depleting meters ('down', e.g. LUKU) read as a remaining balance;
+  // cumulative meters ('up', e.g. city water) read as the running total.
+  const direction = meter.direction ?? (meter.type === 'water' ? 'up' : 'down');
+  const unitSuffix = meter.unit ? ` ${meter.unit}` : ' units';
+  const lastEntry = last && Number.isFinite(last.value)
+    ? `${last.value.toLocaleString()}${unitSuffix}${direction === 'down' ? ' left' : ''} · ${relativeDayLabel(last.dayKey)}`
+    : null;
+
   return (
-    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3">
-      <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-base">
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3 flex items-start gap-3">
+      <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-base shrink-0">
         {meterEmoji(meter.type)}
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{meter.label}</div>
-        <div className="text-[11px] text-hive-muted font-bold mt-0.5">
+        <div className="text-[11px] text-hive-muted font-bold mt-0.5 break-words">
           {meter.providerRef ? `# ${meter.providerRef}` : 'No meter number'}
           {meter.frequency
             ? ` · ${CADENCE_LABEL[meter.frequency]}`
@@ -542,14 +569,22 @@ function MeterRow({ meter, familyId, currency, suppliers }: {
             ? ` · ${formatCents(meter.pricePerUnitCents, currency)}/${meter.unit || 'unit'}`
             : ''}
         </div>
+        {/* Last entry — at-a-glance balance/reading + when. */}
+        {lastEntry && (
+          <div className="text-[11px] text-pantry-leaf-dk font-nunito font-extrabold mt-1 break-words">
+            📊 {lastEntry}
+          </div>
+        )}
         {meter.reminderDays && meter.reminderDays.length > 0 && (
-          <div className="text-[10px] text-hive-honey-dk font-nunito font-extrabold mt-0.5">
+          <div className="text-[10px] text-hive-honey-dk font-nunito font-extrabold mt-0.5 break-words">
             🔔 Reminds on the {meter.reminderDays.map((d) => ordinalDay(d)).join(', ')}
           </div>
         )}
       </div>
-      <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-hive-honey-dk px-2">Edit</button>
-      <button onClick={remove} disabled={busy} className="text-xs font-nunito font-bold text-hive-rose px-2">Remove</button>
+      <div className="flex flex-col items-end gap-1 shrink-0">
+        <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-hive-honey-dk px-2">Edit</button>
+        <button onClick={remove} disabled={busy} className="text-xs font-nunito font-bold text-hive-rose px-2">Remove</button>
+      </div>
     </div>
   );
 }

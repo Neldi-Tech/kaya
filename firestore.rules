@@ -577,6 +577,19 @@ service cloud.firestore {
             || isThisKid(familyId, bizOwnerId());
           allow delete: if false;
         }
+
+        // Stock movements — append-only inventory change log (added / sold /
+        // went bad / count fixed / removed). Same owner gate as the ledger;
+        // existing rows are immutable (it's an audit trail).
+        match /stockMovements/{moveId} {
+          function bizOwnerId() {
+            return get(/databases/$(database)/documents/families/$(familyId)/businesses/$(businessId)).data.ownerId;
+          }
+          allow read: if belongsToFamily(familyId);
+          allow create: if isParentInFamily(familyId)
+            || isThisKid(familyId, bizOwnerId());
+          allow update, delete: if false;
+        }
       }
 
       // ── Kids Projects (Phase 2 · Cluster B) ───────────────────────

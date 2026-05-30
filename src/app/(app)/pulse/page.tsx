@@ -28,7 +28,7 @@ import {
   subscribeToReadingsInMonth, subscribeToTrackables,
   projectMonthSpendCents,
 } from '@/lib/pulse';
-import { dayKeyInTZ, toDisplayDate } from '@/lib/dates';
+import { dayKeyInTZ, toDisplayDate, relativeDayLabel } from '@/lib/dates';
 
 // Cash lens covers all 9 Household buckets. Subscriptions + Contributions
 // come from spend_ledger (server-written when a sub cycle is marked paid
@@ -158,6 +158,28 @@ export default function PulseDashboardPage() {
       .sort((a, b) => b.cents - a.cents);
     return { rows, total };
   }, [readings, trackables]);
+
+  // Latest reading per trackable (from this month's readings) → powers the
+  // at-a-glance "last entry" line on each metered row (balance/reading + when).
+  const latestByTrackable = useMemo(() => {
+    const out: Record<string, PulseReading> = {};
+    for (const r of readings) {
+      const cur = out[r.trackableId];
+      if (!cur || (r.capturedAt?.toMillis?.() ?? 0) > (cur.capturedAt?.toMillis?.() ?? 0)) out[r.trackableId] = r;
+    }
+    return out;
+  }, [readings]);
+
+  // "60 kWh left · 2 days ago" for depleting meters, "4,210 kWh · today" for
+  // cumulative ones. Empty when there's no reading this month.
+  const lastEntryLine = (trackableId: string): string | null => {
+    const r = latestByTrackable[trackableId];
+    if (!r || !Number.isFinite(r.value)) return null;
+    const tk = trackables.find((t) => t.id === trackableId);
+    const unit = tk?.unit ? ` ${tk.unit}` : '';
+    const left = tk?.direction === 'down' ? ' left' : '';
+    return `${r.value.toLocaleString()}${unit}${left} · ${relativeDayLabel(r.dayKey)}`;
+  };
 
   // CONSUMPTION lens (daily — for the scrubber). Reads from `readings` when
   // the selected day is in `thisMonth`, otherwise from the lazily-cached
@@ -415,13 +437,19 @@ export default function PulseDashboardPage() {
                 <span className="text-[11px] text-hive-muted font-bold">This month&apos;s metered cost</span>
                 <span className="font-nunito font-black text-pulse-navy">{formatCents(consumption.total, currency)}</span>
               </div>
-              <div className="flex flex-col gap-1.5">
-                {consumption.rows.map((row) => (
-                  <Link key={row.id} href={`/pulse/trackable/${row.id}`} className="flex items-center justify-between text-[12px] no-underline">
-                    <span className="font-bold text-pulse-navy">{row.tk?.emoji ?? '📊'} {row.tk?.name ?? 'Trackable'}</span>
-                    <span className="font-nunito font-black text-pulse-navy">{formatCents(row.cents, currency)} ›</span>
-                  </Link>
-                ))}
+              <div className="flex flex-col gap-2">
+                {consumption.rows.map((row) => {
+                  const last = lastEntryLine(row.id);
+                  return (
+                    <Link key={row.id} href={`/pulse/trackable/${row.id}`} className="flex items-center justify-between gap-2 text-[12px] no-underline">
+                      <span className="min-w-0">
+                        <span className="font-bold text-pulse-navy block truncate">{row.tk?.emoji ?? '📊'} {row.tk?.name ?? 'Trackable'}</span>
+                        {last && <span className="text-[10.5px] text-hive-muted font-bold block truncate">📊 {last}</span>}
+                      </span>
+                      <span className="font-nunito font-black text-pulse-navy shrink-0">{formatCents(row.cents, currency)} ›</span>
+                    </Link>
+                  );
+                })}
               </div>
               <p className="text-[10px] text-hive-muted mt-2 leading-snug">
                 Consumption telemetry (usage × price) — kept separate from cash spend above; it&apos;s how Pulse catches spikes early.

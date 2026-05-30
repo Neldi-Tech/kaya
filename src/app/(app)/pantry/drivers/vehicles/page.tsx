@@ -26,6 +26,11 @@ import {
   vehicleEmoji, vehicleColorHex, vehicleFuelLabel,
   subscribeToVehicles, addVehicle, updateVehicle, removeVehicle,
 } from '@/lib/vehicles';
+import {
+  subscribeToTrackableDocs, getLatestReading,
+  type TrackableDoc, type PulseReading,
+} from '@/lib/pulse';
+import { relativeDayLabel } from '@/lib/dates';
 
 export default function VehiclesPage() {
   const router = useRouter();
@@ -41,14 +46,37 @@ export default function VehiclesPage() {
   }, [profile, router]);
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [trackables, setTrackables] = useState<TrackableDoc[]>([]);
+  const [odoByVehicle, setOdoByVehicle] = useState<Record<string, { unit: string; reading: PulseReading | null }>>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!profile?.familyId) return;
     if (profile.role !== 'parent') return;
     const t = setTimeout(() => setLoading(false), 1500);
     const unsub = subscribeToVehicles(profile.familyId, (v) => { setVehicles(v); setLoading(false); });
-    return () => { clearTimeout(t); unsub(); };
+    const unsubT = subscribeToTrackableDocs(profile.familyId, setTrackables);
+    return () => { clearTimeout(t); unsub(); unsubT(); };
   }, [profile?.familyId, profile?.role]);
+
+  // Resolve each vehicle's linked odometer trackable, then fetch its latest
+  // reading for the "last entry" line ("45,200 km · 2 days ago"). Odometer
+  // trackables pin to a vehicle via `vehicleId` (Kaya Pulse).
+  useEffect(() => {
+    const fid = profile?.familyId;
+    if (!fid || vehicles.length === 0 || trackables.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const odos = trackables.filter((t) => t.type === 'odometer' && t.vehicleId && t.active);
+      const entries = await Promise.all(
+        odos.map(async (t) => [t.vehicleId as string, {
+          unit: t.unit || 'km',
+          reading: await getLatestReading(fid, t.id).catch(() => null),
+        }] as const),
+      );
+      if (!cancelled) setOdoByVehicle(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+  }, [profile?.familyId, vehicles, trackables]);
 
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState<{
@@ -308,7 +336,7 @@ export default function VehiclesPage() {
             </p>
             <div className="flex flex-col gap-2">
               {list.map((v) => (
-                <VehicleRow key={v.id} vehicle={v} familyId={profile!.familyId!} />
+                <VehicleRow key={v.id} vehicle={v} familyId={profile!.familyId!} odo={odoByVehicle[v.id] ?? null} />
               ))}
             </div>
           </div>
@@ -318,7 +346,9 @@ export default function VehiclesPage() {
   );
 }
 
-function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string }) {
+function VehicleRow({ vehicle, familyId, odo }: {
+  vehicle: Vehicle; familyId: string; odo: { unit: string; reading: PulseReading | null } | null;
+}) {
   const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -396,6 +426,9 @@ function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string 
   const colorHex = vehicleColorHex(vehicle.color);
   const fuelLabel = vehicleFuelLabel(vehicle.fuel);
   const subParts = [vehicle.makeModel, vehicle.plate, vehicle.year].filter(Boolean) as Array<string | number>;
+  const odoEntry = odo?.reading && Number.isFinite(odo.reading.value)
+    ? `${odo.reading.value.toLocaleString()} ${odo.unit} · ${relativeDayLabel(odo.reading.dayKey)}`
+    : null;
   return (
     <div className={`bg-hive-paper border border-hive-line rounded-hive p-3 flex items-center gap-3 ${vehicle.active ? '' : 'opacity-60'}`}>
       <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base">
@@ -426,6 +459,12 @@ function VehicleRow({ vehicle, familyId }: { vehicle: Vehicle; familyId: string 
           )}
           {!vehicle.active && <span className="text-hive-muted">· paused</span>}
         </div>
+        {/* Last odometer entry — at-a-glance reading + when. */}
+        {odoEntry && (
+          <div className="text-[11px] text-pantry-leaf-dk font-nunito font-extrabold mt-1 break-words">
+            🚗 Odometer {odoEntry}
+          </div>
+        )}
       </div>
       <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-pantry-leaf-dk px-2">Edit</button>
       <button onClick={remove} disabled={busy} className="text-xs font-nunito font-bold text-hive-rose px-2">Remove</button>

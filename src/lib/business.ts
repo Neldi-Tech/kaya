@@ -257,6 +257,31 @@ export interface LedgerEntry {
   voidReason?: string;
 }
 
+// ── Stock movements (inventory change log) ────────────────────────
+// An append-only trail of every change to stock counts — added, sold, went
+// bad, count fixed, written off, removed — so the Inventory screen can show a
+// plain "what changed" summary. Sales already live in the money ledger; this
+// is the *inventory* lens (units in/out), which the ledger doesn't capture
+// (spoilage + recounts never touched it). Append-only like the ledger.
+export type StockMovementKind = 'add' | 'sale' | 'spoilage' | 'adjust' | 'writeoff' | 'remove';
+
+export interface StockMovement {
+  id: string;
+  /** The item this change applied to (may since have been removed). */
+  itemId?: string;
+  itemName: string;
+  itemKind?: ItemKind;
+  unitLabel?: string;
+  kind: StockMovementKind;
+  /** Signed change in units: +added, −sold/−spoiled. 0 for a no-count event. */
+  qtyDelta: number;
+  /** Count after the change (omitted for a removed item). */
+  resultingQty?: number;
+  note?: string;
+  by: string;                   // uid that made the change
+  occurredAt: Timestamp;
+}
+
 // ── Junior Investor (simulated) ───────────────────────────────────
 
 export interface InvestmentHolding {
@@ -540,6 +565,8 @@ const itemsCol = (familyId: string, businessId: string) =>
   collection(db, 'families', familyId, 'businesses', businessId, 'items');
 const ledgerCol = (familyId: string, businessId: string) =>
   collection(db, 'families', familyId, 'businesses', businessId, 'ledger');
+const stockMovementsCol = (familyId: string, businessId: string) =>
+  collection(db, 'families', familyId, 'businesses', businessId, 'stockMovements');
 const investmentsCol = (familyId: string, kidId: string) =>
   collection(db, 'families', familyId, 'kids', kidId, 'investments');
 const milestonesCol = (familyId: string, kidId: string) =>
@@ -592,6 +619,24 @@ export function subscribeToLedger(familyId: string, businessId: string, cb: (ent
   if (isGuestActive()) { cb([]); return () => {}; }
   const q = query(ledgerCol(familyId, businessId), orderBy('occurredAt', 'desc'), limit(max));
   return onSnapshot(q, (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as LedgerEntry))));
+}
+
+/** Recent stock movements, newest first — the Inventory "what changed" log.
+ *  Single-field orderBy (auto-indexed); no composite index needed. */
+export function subscribeToStockMovements(
+  familyId: string, businessId: string, cb: (moves: StockMovement[]) => void, max = 20,
+): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  const q = query(stockMovementsCol(familyId, businessId), orderBy('occurredAt', 'desc'), limit(max));
+  return onSnapshot(
+    q,
+    (s) => cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as StockMovement))),
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[business] stock movements subscribe failed:', err);
+      cb([]);
+    },
+  );
 }
 
 export function subscribeToInvestments(familyId: string, kidId: string, cb: (holdings: InvestmentHolding[]) => void): () => void {
@@ -1140,6 +1185,35 @@ export interface NewItemInput {
 export type ItemPatch = Partial<Pick<BusinessItem,
   'name' | 'qty' | 'unitLabel' | 'instantStock' | 'soldDaily' | 'stage' | 'groupId' | 'unitCostCents' | 'unitMarketCents' | 'producing' | 'countedInWorth' | 'notes'>>;
 
+/** Append one immutable stock-movement entry. Best-effort: a failure here
+ *  (e.g. rules not yet deployed) never blocks the underlying inventory write —
+ *  the change log is a record, not the source of truth (items + stats are). */
+async function recordStockMovement(
+  familyId: string,
+  businessId: string,
+  data: Omit<StockMovement, 'id' | 'occurredAt'>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  try {
+    const clean: Record<string, unknown> = {
+      itemName: data.itemName,
+      kind: data.kind,
+      qtyDelta: data.qtyDelta,
+      by: data.by,
+      occurredAt: serverTimestamp(),
+    };
+    if (data.itemId) clean.itemId = data.itemId;
+    if (data.itemKind) clean.itemKind = data.itemKind;
+    if (data.unitLabel) clean.unitLabel = data.unitLabel;
+    if (typeof data.resultingQty === 'number') clean.resultingQty = data.resultingQty;
+    if (data.note) clean.note = data.note;
+    await addDoc(stockMovementsCol(familyId, businessId), clean);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[business] recordStockMovement failed (non-fatal):', e);
+  }
+}
+
 /** Recompute assets / stock / worth on business.stats from the current item
  *  set. Reads items with getDocs (can't run a query inside a txn) then writes
  *  via dot-paths so the profit/cash fields are left untouched. cashPosition
@@ -1190,7 +1264,51 @@ export async function addBusinessItem(
   if (input.notes?.trim()) data.notes = input.notes.trim();
   const ref = await addDoc(itemsCol(familyId, businessId), data);
   await recomputeInventoryStats(familyId, businessId);
+  const addedQty = Math.max(0, Math.round(input.qty || 0));
+  await recordStockMovement(familyId, businessId, {
+    itemId: ref.id,
+    itemName: input.name.trim(),
+    itemKind: input.kind,
+    unitLabel: input.unitLabel?.trim() || undefined,
+    kind: 'add',
+    qtyDelta: addedQty,
+    resultingQty: addedQty,
+    by: uid,
+  });
   return ref.id;
+}
+
+/** Fix a stock/asset count to an exact figure (the inventory "✏️ Fix the
+ *  count" panel) and log the signed adjustment so the change is visible in the
+ *  stock-changes summary. Use this instead of a bare updateBusinessItem({qty})
+ *  whenever a human is correcting a count. */
+export async function adjustItemCount(
+  familyId: string,
+  businessId: string,
+  itemId: string,
+  newQty: number,
+  uid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const next = Math.max(0, Math.round(newQty));
+  const itemRef = doc(itemsCol(familyId, businessId), itemId);
+  const snap = await getDoc(itemRef);
+  if (!snap.exists()) return;
+  const cur = snap.data() as BusinessItem;
+  const prevQty = Math.max(0, Math.round(Number(cur.qty || 0)));
+  if (next === prevQty) return; // nothing changed — don't log a no-op
+  await updateDoc(itemRef, { qty: next, updatedAt: serverTimestamp() });
+  await recomputeInventoryStats(familyId, businessId);
+  await recordStockMovement(familyId, businessId, {
+    itemId,
+    itemName: cur.name,
+    itemKind: cur.kind,
+    unitLabel: cur.unitLabel,
+    kind: 'adjust',
+    qtyDelta: next - prevQty,
+    resultingQty: next,
+    by: uid,
+  });
 }
 
 export async function updateBusinessItem(
@@ -1209,19 +1327,34 @@ export async function updateBusinessItem(
 
 /** Spoilage / death write-off — keeps the record so the AI can learn from it,
  *  but drops it from worth. */
-export async function markItemLoss(familyId: string, businessId: string, itemId: string): Promise<void> {
+export async function markItemLoss(familyId: string, businessId: string, itemId: string, uid?: string): Promise<void> {
   if (isGuestActive()) return;
-  await updateDoc(doc(itemsCol(familyId, businessId), itemId), {
+  const itemRef = doc(itemsCol(familyId, businessId), itemId);
+  const snap = await getDoc(itemRef);
+  const cur = snap.exists() ? (snap.data() as BusinessItem) : null;
+  await updateDoc(itemRef, {
     loss: true, countedInWorth: false, updatedAt: serverTimestamp(),
   });
   await recomputeInventoryStats(familyId, businessId);
+  if (cur) {
+    await recordStockMovement(familyId, businessId, {
+      itemId,
+      itemName: cur.name,
+      itemKind: cur.kind,
+      unitLabel: cur.unitLabel,
+      kind: 'writeoff',
+      qtyDelta: -Math.max(0, Math.round(Number(cur.qty || 0))),
+      resultingQty: 0,
+      by: uid ?? cur.createdBy ?? '',
+    });
+  }
 }
 
 /** Partial spoilage — reduce the count by `qtyBad`, keep the line (so
  *  daily-regrowing stock can refill), and tally it for the coach. Worth
  *  follows the lower quantity automatically. Does NOT write off the line. */
 export async function recordSpoilage(
-  familyId: string, businessId: string, itemId: string, qtyBad: number,
+  familyId: string, businessId: string, itemId: string, qtyBad: number, uid?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
   const n = Math.max(0, Math.round(qtyBad));
@@ -1237,14 +1370,38 @@ export async function recordSpoilage(
     updatedAt: serverTimestamp(),
   });
   await recomputeInventoryStats(familyId, businessId);
+  await recordStockMovement(familyId, businessId, {
+    itemId,
+    itemName: cur.name,
+    itemKind: cur.kind,
+    unitLabel: cur.unitLabel,
+    kind: 'spoilage',
+    qtyDelta: -n,
+    resultingQty: nextQty,
+    by: uid ?? cur.createdBy ?? '',
+  });
 }
 
 /** Hard delete — for a mistaken entry (vs markItemLoss, a real write-off
  *  worth keeping). */
-export async function removeBusinessItem(familyId: string, businessId: string, itemId: string): Promise<void> {
+export async function removeBusinessItem(familyId: string, businessId: string, itemId: string, uid?: string): Promise<void> {
   if (isGuestActive()) return;
-  await deleteDoc(doc(itemsCol(familyId, businessId), itemId));
+  const itemRef = doc(itemsCol(familyId, businessId), itemId);
+  const snap = await getDoc(itemRef);
+  const cur = snap.exists() ? (snap.data() as BusinessItem) : null;
+  await deleteDoc(itemRef);
   await recomputeInventoryStats(familyId, businessId);
+  if (cur) {
+    await recordStockMovement(familyId, businessId, {
+      itemId,
+      itemName: cur.name,
+      itemKind: cur.kind,
+      unitLabel: cur.unitLabel,
+      kind: 'remove',
+      qtyDelta: -Math.max(0, Math.round(Number(cur.qty || 0))),
+      by: uid ?? cur.createdBy ?? '',
+    });
+  }
 }
 
 // ── The books · sales + costs (PR4) ───────────────────────────────
@@ -1364,8 +1521,20 @@ export async function logSale(
     try {
       const itemSnap = await getDoc(doc(itemsCol(familyId, businessId), input.itemId));
       if (itemSnap.exists()) {
-        const cur = Number((itemSnap.data() as BusinessItem).qty || 0);
-        await updateBusinessItem(familyId, businessId, input.itemId, { qty: Math.max(0, cur - qty) });
+        const item = itemSnap.data() as BusinessItem;
+        const cur = Number(item.qty || 0);
+        const nextQty = Math.max(0, cur - qty);
+        await updateBusinessItem(familyId, businessId, input.itemId, { qty: nextQty });
+        await recordStockMovement(familyId, businessId, {
+          itemId: input.itemId,
+          itemName: input.productName?.trim() || item.name,
+          itemKind: item.kind,
+          unitLabel: item.unitLabel,
+          kind: 'sale',
+          qtyDelta: -qty,
+          resultingQty: nextQty,
+          by: actor.uid,
+        });
       }
     } catch { /* best-effort — the sale is already recorded */ }
   }

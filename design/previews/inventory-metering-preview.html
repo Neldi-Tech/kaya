@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kaya · Inventory + Metering preview</title>
+<style>
+  :root{
+    --paper:#FFFDF7; --cream:#FFF6E6; --line:#EADFC4; --ink:#2A2520; --muted:#9A8C72;
+    --navy:#1C2A3A; --honey:#E2A53B; --honey-dk:#B25E16; --honey-soft:#F6D58A;
+    --leaf:#2F7D55; --leaf-dk:#1F5E3D; --leaf-soft:#E6F2EC; --rose:#C0392B; --green:#2F7D32;
+    --pulse-navy:#0F1F44; --pulse-gold:#D4A847; --pulse-gold-dk:#9C7A1E; --pulse-cream:#FBF4E3;
+    --pulse-coral:#D9534F;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#EFE7D5;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Nunito,system-ui,sans-serif;color:var(--ink);padding:14px 0 50px}
+  .wrap{max-width:430px;margin:0 auto;padding:0 14px}
+  h1.page{font-weight:900;font-size:26px;letter-spacing:-.5px;margin:2px 0 2px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 14px}
+  .eyebrow{font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--honey-dk)}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:18px;padding:14px;margin-bottom:12px}
+  .pill{display:inline-block;font-size:10px;font-weight:800;padding:3px 8px;border-radius:999px;background:var(--cream);border:1px solid var(--line);color:var(--muted)}
+  .row{display:flex;align-items:flex-start;gap:12px}
+  .ico{width:40px;height:40px;border-radius:13px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+  .ico.honey{background:#FFF3D9}
+  .ico.leaf{background:var(--leaf-soft)}
+  .ico.navy{background:var(--navy);color:var(--honey-soft)}
+  .grow{flex:1;min-width:0}
+  .label{font-weight:800;font-size:14px;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .meta{font-size:11px;color:var(--muted);font-weight:700;margin-top:2px;overflow-wrap:anywhere;word-break:break-word}
+  .last{font-size:11px;color:var(--leaf-dk);font-weight:800;margin-top:5px;overflow-wrap:anywhere}
+  .remind{font-size:10px;color:var(--honey-dk);font-weight:800;margin-top:3px}
+  .actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex-shrink:0}
+  .act{font-size:12px;font-weight:800;padding:0 4px;background:none;border:0}
+  .act.edit{color:var(--honey-dk)} .act.rm{color:var(--rose)}
+  .secttl{font-size:11px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--honey-dk);margin:18px 0 8px}
+  .secttl.leaf{color:var(--leaf-dk)}
+  .change{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px dashed var(--line)}
+  .change:last-child{border-bottom:0}
+  .change .t{font-size:13px}
+  .change .verb{font-weight:800}
+  .change .when{font-size:11px;color:var(--muted);margin-top:1px}
+  .delta{font-weight:800;font-size:13px;flex-shrink:0}
+  .delta.in{color:var(--green)} .delta.out{color:var(--rose)} .delta.flat{color:var(--muted)}
+  .worth{border:1px solid rgba(226,165,59,.5);border-radius:18px;padding:16px;margin-bottom:12px;background:linear-gradient(135deg,#FFF1CF,#FCE3B4)}
+  .worth .lbl{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:rgba(28,42,58,.7)}
+  .worth .big{font-weight:900;font-size:30px;margin-top:2px}
+  .wl{display:flex;justify-content:space-between;font-size:13px;border-bottom:1px dashed rgba(0,0,0,.1);padding:6px 0}
+  .wl:last-child{border-bottom:0}
+  .note{font-size:11px;color:var(--muted);background:#F4ECD8;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:10px 0 0}
+  /* pulse */
+  .pulse .card{border-color:rgba(212,168,71,.3)}
+  .prow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;text-decoration:none}
+  .prow .nm{font-weight:800;color:var(--pulse-navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .prow .pl{font-size:10.5px;color:var(--muted);font-weight:700;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+  .prow .amt{font-weight:900;color:var(--pulse-navy);flex-shrink:0}
+  .tag{display:flex;align-items:center;justify-content:space-between;margin:26px 0 10px}
+  .tag b{font-size:13px;color:var(--honey-dk);letter-spacing:.5px}
+  .before{background:#FCEAEA;border:1px solid #E7B7B0;border-radius:12px;padding:8px 10px;font-size:11px;color:#7a2a22;margin-bottom:8px}
+  .before code{background:#fff;border-radius:4px;padding:1px 4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="tag"><b>① BUSINESS · Inventory &amp; worth</b><span class="pill">stock changes</span></div>
+
+  <div class="worth">
+    <div class="lbl">Diana's Eggs &amp; Veg is worth</div>
+    <div class="big">TZS 612,000</div>
+    <div style="margin-top:8px">
+      <div class="wl"><span>🌳 Assets (keep working for you)</span><b>TZS 480,000</b></div>
+      <div class="wl"><span>📦 Stock at market value</span><b>TZS 132,000</b></div>
+      <div class="wl"><span style="color:rgba(28,42,58,.6)">🧾 Cost of stock (what you spent)</span><span style="color:rgba(28,42,58,.6)">TZS 74,000</span></div>
+    </div>
+  </div>
+
+  <!-- NEW: Recent stock changes -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+      <h3 style="margin:0;font-weight:800;font-size:14px">📊 Recent stock changes</h3>
+      <span style="font-size:11px;color:var(--muted)">last 8</span>
+    </div>
+    <div class="change">
+      <div><div class="t">💵 <span class="verb">Sold</span> · Eggs — trays</div><div class="when">Today · now 18 trays</div></div>
+      <span class="delta out">−6 trays</span>
+    </div>
+    <div class="change">
+      <div><div class="t">🥀 <span class="verb">Went bad</span> · Tomatoes</div><div class="when">Today · now 9 kg</div></div>
+      <span class="delta out">−3 kg</span>
+    </div>
+    <div class="change">
+      <div><div class="t">✏️ <span class="verb">Count fixed</span> · Spinach bunches</div><div class="when">Yesterday · now 22</div></div>
+      <span class="delta flat">+4</span>
+    </div>
+    <div class="change">
+      <div><div class="t">➕ <span class="verb">Added</span> · Eggs — trays</div><div class="when">Yesterday · now 24 trays</div></div>
+      <span class="delta in">+24 trays</span>
+    </div>
+    <div class="change">
+      <div><div class="t">💵 <span class="verb">Sold</span> · Spinach bunches</div><div class="when">2 days ago · now 18</div></div>
+      <span class="delta out">−5</span>
+    </div>
+  </div>
+  <p class="note">Sales still show in the Dashboard books too — this is the <b>inventory</b> lens (units in &amp; out), so spoilage and recounts finally leave a trail.</p>
+
+
+  <div class="tag"><b>② UTILITY · Meters</b><span class="pill">last entry + overflow fix</span></div>
+
+  <div class="before">Before: a long meter number like <code>LUKU0124887000111</code> pushed past the card edge, and there was no way to see the balance. Fixed: text wraps, and each meter shows its last reading.</div>
+
+  <div class="secttl">⚡ 2 meters</div>
+  <div class="card">
+    <div class="row">
+      <div class="ico honey">⚡</div>
+      <div class="grow">
+        <div class="label">Main House</div>
+        <div class="meta"># LUKU0124887000111 · Weekly · ≈ TZS 50,000 · TZS 290/kWh</div>
+        <div class="last">📊 60 kWh left · 2 days ago</div>
+        <div class="remind">🔔 Reminds on the 1st, 15th</div>
+      </div>
+      <div class="actions"><button class="act edit">Edit</button><button class="act rm">Remove</button></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="row">
+      <div class="ico honey">⚡</div>
+      <div class="grow">
+        <div class="label">Cottage LUKU</div>
+        <div class="meta"># 0098-554 · Weekly · TZS 290/kWh</div>
+        <div class="last">📊 12 kWh left · Today</div>
+      </div>
+      <div class="actions"><button class="act edit">Edit</button><button class="act rm">Remove</button></div>
+    </div>
+  </div>
+
+  <div class="secttl">💧 1 meter</div>
+  <div class="card">
+    <div class="row">
+      <div class="ico honey">💧</div>
+      <div class="grow">
+        <div class="label">City water (DAWASA)</div>
+        <div class="meta"># DW-77120 · Monthly · TZS 1,800/unit</div>
+        <div class="last">📊 4,210 units · Yesterday</div>
+      </div>
+      <div class="actions"><button class="act edit">Edit</button><button class="act rm">Remove</button></div>
+    </div>
+  </div>
+
+
+  <div class="tag"><b>③ DRIVERS · Vehicles</b><span class="pill">odometer last entry</span></div>
+
+  <div class="secttl leaf">🚙 1 vehicle</div>
+  <div class="card">
+    <div class="row">
+      <div class="ico leaf">🚙</div>
+      <div class="grow">
+        <div class="label">Diana's RAV4</div>
+        <div class="meta">Toyota RAV4 · T 123 ABC · 2018 · Silver</div>
+        <div class="last">🚗 Odometer 45,200 km · 2 days ago</div>
+      </div>
+      <div class="actions"><button class="act edit" style="color:var(--leaf-dk)">Edit</button><button class="act rm">Remove</button></div>
+    </div>
+  </div>
+
+
+  <div class="tag"><b>④ KAYA PULSE · Dashboard</b><span class="pill">balance + date per meter</span></div>
+
+  <div class="pulse">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">
+        <span style="font-size:11px;color:var(--muted);font-weight:700">This month's metered cost</span>
+        <span style="font-weight:900;color:var(--pulse-navy)">TZS 184,500</span>
+      </div>
+      <a class="prow">
+        <span style="min-width:0">
+          <span class="nm">⚡ Main House</span>
+          <span class="pl">📊 60 kWh left · 2 days ago</span>
+        </span>
+        <span class="amt">TZS 96,000 ›</span>
+      </a>
+      <a class="prow">
+        <span style="min-width:0">
+          <span class="nm">💧 City water</span>
+          <span class="pl">📊 4,210 units · Yesterday</span>
+        </span>
+        <span class="amt">TZS 58,500 ›</span>
+      </a>
+      <a class="prow">
+        <span style="min-width:0">
+          <span class="nm">🚗 RAV4 odometer</span>
+          <span class="pl">📊 45,200 km · 2 days ago</span>
+        </span>
+        <span class="amt">TZS 30,000 ›</span>
+      </a>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:18px">Mock data for layout sign-off only. Real values come live from each meter's latest logged reading.</p>
+
+</div>
+</body>
+</html>
