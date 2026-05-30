@@ -549,10 +549,10 @@ function RequestRow({
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
   return (
-    <div className={`flex items-stretch gap-1.5 ${dimmed ? 'opacity-70' : ''}`}>
+    <div className={`flex items-stretch gap-1.5 min-w-0 ${dimmed ? 'opacity-70' : ''}`}>
       <Link
         href={`/pantry/purchase/${req.id}`}
-        className="flex-1 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+        className="flex-1 min-w-0 bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
       >
         <div className="w-10 h-10 rounded-xl bg-[#FFF3D9] flex items-center justify-center text-base flex-shrink-0">
           ⚡

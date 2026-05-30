@@ -183,6 +183,49 @@ export default function TrackableDetailPage() {
         </div>
       </div>
 
+      {/* Last reading — the at-a-glance "where the meter is RIGHT NOW"
+          card. Surfaces value + unit + when it was logged + who, so a
+          parent checking the page doesn't have to scroll a chart to
+          find the latest balance. */}
+      {readings.length > 0 && (() => {
+        const latest = readings.reduce((best, r) =>
+          (r.capturedAt?.toMillis?.() ?? 0) > (best.capturedAt?.toMillis?.() ?? 0) ? r : best,
+        );
+        const ms = latest.capturedAt?.toMillis?.();
+        const when = typeof ms === 'number' ? new Date(ms) : null;
+        const ago = when ? Math.floor((Date.now() - when.getTime()) / 86_400_000) : null;
+        const agoLabel = ago == null
+          ? '' : ago <= 0 ? 'today' : ago === 1 ? 'yesterday' : `${ago} days ago`;
+        return (
+          <div className="mt-3">
+            <PulseHero>
+              <div className="flex items-baseline justify-between">
+                <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">
+                  {trackable?.emoji ?? '⚡'} Last reading
+                </div>
+                {agoLabel && (
+                  <span className="text-[11px] font-extrabold opacity-80">{agoLabel}</span>
+                )}
+              </div>
+              <div className="text-3xl font-nunito font-black mt-1 leading-none">
+                {latest.value.toLocaleString()}
+                {trackable?.unit && (
+                  <span className="text-[14px] font-extrabold opacity-70 ml-1">{trackable.unit}</span>
+                )}
+              </div>
+              {when && (
+                <div className="text-[12px] opacity-90 mt-1.5">
+                  {when.toLocaleString(undefined, {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })}
+                </div>
+              )}
+            </PulseHero>
+          </div>
+        );
+      })()}
+
       {/* Stat hero */}
       <div className="mt-3">
         <PulseHero>

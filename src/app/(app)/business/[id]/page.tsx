@@ -13,7 +13,9 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   Business, HiveSplit, BusinessStatus, LedgerEntry, BusinessMilestone, BUSINESS_MILESTONES, StockTake,
+  StockMovement, StockMovementKind,
   subscribeToBusiness, subscribeToBusinessRequests, subscribeToLedger, subscribeToBusinessMilestones, subscribeToStockTakes,
+  subscribeToStockMovements,
   setBusinessStatus, requestBusinessLaunch, updateBusiness, readBusinessConfig,
 } from '@/lib/business';
 import { uploadBusinessPhotoFromDataUrl } from '@/lib/businessPhoto';
@@ -27,6 +29,17 @@ import AIImageButton from '@/components/business/AIImageButton';
 import StockTakeHistory from '@/components/business/StockTakeHistory';
 
 const MILESTONE_META = Object.fromEntries(BUSINESS_MILESTONES.map((m) => [m.key, m]));
+
+// Verb per stock-movement kind for the home-page peek. Stays in sync
+// with the same labels on /business/{id}/inventory's full change log.
+const MOVE_VERB: Record<StockMovementKind, string> = {
+  add:      'added',
+  sale:     'sold',
+  spoilage: 'spoiled',
+  adjust:   'adjusted',
+  writeoff: 'written off',
+  remove:   'removed',
+};
 
 function fmtDate(ts: any): string {
   const ms = ts?.toMillis?.();
@@ -49,6 +62,7 @@ export default function BusinessDashboardPage() {
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [takes, setTakes] = useState<StockTake[]>([]);
+  const [moves, setMoves] = useState<StockMovement[]>([]);
   const [milestones, setMilestones] = useState<BusinessMilestone[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -61,7 +75,8 @@ export default function BusinessDashboardPage() {
     const u2 = subscribeToBusinessRequests(familyId, setRequests);
     const u3 = subscribeToLedger(familyId, businessId, setLedger, 50);
     const u4 = subscribeToStockTakes(familyId, businessId, setTakes, 30);
-    return () => { u1(); u2(); u3(); u4(); };
+    const u5 = subscribeToStockMovements(familyId, businessId, setMoves, 8);
+    return () => { u1(); u2(); u3(); u4(); u5(); };
   }, [familyId, businessId]);
 
   // Milestones live under the owner kid — subscribe once we know the owner.
@@ -314,6 +329,50 @@ export default function BusinessDashboardPage() {
         <span>📦 Inventory &amp; worth</span>
         <span className="text-hive-honey-soft">{formatWorth(stats.worthCents, config.currency, bizConfig.displayRounding)} →</span>
       </Link>
+
+      {/* Recent stock changes peek — surfaces "what moved" right under
+          the Inventory tile so the parent doesn't have to drill into
+          the inventory detail to see activity. Full log lives there. */}
+      {moves.length > 0 && (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-3 mb-3">
+          <div className="flex items-baseline justify-between mb-1">
+            <h3 className="font-nunito font-extrabold text-[13px]">📊 Recent stock changes</h3>
+            <Link
+              href={`/business/${businessId}/inventory`}
+              className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline"
+            >
+              See all →
+            </Link>
+          </div>
+          {moves.slice(0, 3).map((m) => {
+            const sign = m.qtyDelta > 0 ? '+' : m.qtyDelta < 0 ? '−' : '';
+            const tone = m.qtyDelta > 0
+              ? 'text-[#1F8A4C]'
+              : m.qtyDelta < 0 ? 'text-[#C0392B]' : 'text-hive-muted';
+            const ms = (m.occurredAt as any)?.toMillis?.();
+            const when = typeof ms === 'number'
+              ? new Date(ms).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
+              : '';
+            const verb = MOVE_VERB[m.kind] || 'changed';
+            return (
+              <div
+                key={m.id}
+                className="flex items-center justify-between gap-2 py-1.5 border-b border-dashed border-hive-line last:border-0"
+              >
+                <div className="text-[12px] text-hive-navy truncate min-w-0">
+                  <span className={`font-extrabold ${tone}`}>
+                    {sign}{Math.abs(m.qtyDelta)}
+                  </span>
+                  {m.unitLabel ? ` ${m.unitLabel}` : ''} {verb}
+                  {' · '}
+                  <span className="font-bold">{m.itemName}</span>
+                </div>
+                <div className="text-[10px] text-hive-muted font-bold shrink-0">{when}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Milestones unlocked for this business */}
       {milestones.filter((m) => m.businessId === businessId).length > 0 && (
