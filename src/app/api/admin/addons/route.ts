@@ -43,6 +43,7 @@ export async function PATCH(req: NextRequest) {
   const clean: AddonOverride = {};
   if (patch && Number.isFinite(patch.priceMonthly)) clean.priceMonthly = Math.max(0, Math.round(patch.priceMonthly as number));
   if (patch && typeof patch.released === 'boolean') clean.released = patch.released;
+  if (patch && typeof patch.stripePriceId === 'string') clean.stripePriceId = patch.stripePriceId.trim().slice(0, 120);
 
   // Deep-merge under the addonId key so updating one field keeps the other.
   await r.db.collection(ADDONS_PATH[0]).doc(ADDONS_PATH[1]).set({ [addonId]: clean }, { merge: true });

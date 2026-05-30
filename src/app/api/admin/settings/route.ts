@@ -43,6 +43,12 @@ export async function PATCH(req: NextRequest) {
     // Clamp to a sane 1–365 window so a typo can't break the filter.
     patch.activeWindowDays = Math.min(365, Math.max(1, Math.round(body.activeWindowDays as number)));
   }
+  if (body.addonBillingMode === 'request' || body.addonBillingMode === 'stripe' || body.addonBillingMode === 'auto') {
+    patch.addonBillingMode = body.addonBillingMode;
+  }
+  if (Number.isFinite(body.addonAutoSwitchMonths)) {
+    patch.addonAutoSwitchMonths = Math.min(24, Math.max(1, Math.round(body.addonAutoSwitchMonths as number)));
+  }
 
   await r.db.collection(ADMIN_PATH[0]).doc(ADMIN_PATH[1]).set(patch, { merge: true });
   return NextResponse.json({ settings: await readSettings(r.db) });
