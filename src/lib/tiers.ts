@@ -312,9 +312,15 @@ export function mergedAddons(overrides?: AddonOverrides): ResolvedAddon[] {
   });
 }
 
-/** Returns the effective tier config — defaults overridden by anything
- *  the admin set at /config/tiers/{tierId}. Caller-supplied
- *  `tierOverrides` map mirrors the on-doc shape. */
+/** Returns the effective tier config — defaults merged with anything
+ *  the admin set at /config/tiers/plans/{tierId}.
+ *
+ *  Modules merge as a UNION (defaults always preserved): shipping a new
+ *  module via DEFAULT_TIERS adds it to the tier matrix immediately, even
+ *  when an older override doc exists in Firestore that doesn't list it.
+ *  Admins can still ADD modules to a tier via the override; they just
+ *  can't accidentally lock anyone out of a core default by saving a
+ *  stale list. Same shape for `addonModules`. */
 export function mergedTierConfig(
   tierId: SubscriptionTierId,
   tierOverrides?: Partial<Record<SubscriptionTierId, Partial<TierConfig>>>,
@@ -322,11 +328,17 @@ export function mergedTierConfig(
   const base = DEFAULT_TIERS[tierId];
   const patch = tierOverrides?.[tierId];
   if (!patch) return base;
+  const mergedModules = patch.modules
+    ? Array.from(new Set([...base.modules, ...patch.modules]))
+    : base.modules;
+  const mergedAddons = patch.addonModules
+    ? Array.from(new Set([...base.addonModules, ...patch.addonModules]))
+    : base.addonModules;
   return {
     ...base,
     ...patch,
-    modules: patch.modules ?? base.modules,
-    addonModules: patch.addonModules ?? base.addonModules,
+    modules: mergedModules as TierConfig['modules'],
+    addonModules: mergedAddons as TierConfig['addonModules'],
   };
 }
 

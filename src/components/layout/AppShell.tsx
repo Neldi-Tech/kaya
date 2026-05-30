@@ -1248,42 +1248,52 @@ function BackBar({ pathname, homePath, placement }: { pathname: string | null; h
 // We always land on a real page (section root or home), so the label can't
 // lie. /pulse/trackable/abc → "Pulse" → /pulse (not /pulse/trackable which
 // wouldn't render).
+//
+// Some sections (parent, kid, home, award, rate) are NOT a real index
+// page — only `/parent/approvals`, `/parent/rates`, etc. exist. For
+// those, the back target is the role's home (homePath) instead of the
+// non-existent section root. Otherwise the back link would 404, which
+// is exactly the bug reported on /parent/* after approval.
 function deriveBackParent(pathname: string | null, homePath: string): { label: string; href: string } | null {
   if (!pathname) return null;
   const segs = pathname.split('/').filter(Boolean);
   if (segs.length === 0) return null;
-  const sectionLabel: Record<string, string> = {
-    pantry: 'Pantry',
-    pulse: 'Pulse',
-    hive: 'The Hive',
-    business: 'Business',
-    admin: 'Admin',
-    settings: 'Settings',
-    buzz: 'Buzz',
-    sparks: 'Sparks',
-    meetings: 'Meetings',
-    moments: 'Moments',
-    messages: 'Messages',
-    parent: 'Home',
-    profiles: 'Profiles',
-    workplan: 'Workplan',
-    reports: 'Reports',
-    directory: 'Directory',
-    rewards: 'Rewards',
-    notifications: 'Notifications',
-    'my-day': 'My Day',
-    'family-tree': 'Family Tree',
-    games: 'Games',
-    videos: 'Videos',
-    rate: 'Rate',
-    award: 'Award',
-    helper: 'Helper',
-    kid: 'Home',
-    home: 'Home',
-    wealth: 'Kaya Wealth',
-    wellness: 'Kaya Wellness',
-    chef: 'Kaya Chef',
-    badges: 'Badges',
+  // `{ label, href? }` — when `href` is missing, the section is a real
+  // index page and we'll route to `/${top}`. When set, we override —
+  // used for the route groups that wrap pages but have no own index.
+  const sectionMap: Record<string, { label: string; href?: string }> = {
+    pantry:        { label: 'Pantry' },
+    pulse:         { label: 'Pulse' },
+    hive:          { label: 'The Hive' },
+    business:      { label: 'Business' },
+    admin:         { label: 'Admin' },
+    settings:      { label: 'Settings' },
+    buzz:          { label: 'Buzz' },
+    sparks:        { label: 'Sparks' },
+    meetings:      { label: 'Meetings' },
+    moments:       { label: 'Moments' },
+    messages:      { label: 'Messages' },
+    // Wrapper-only routes — no index page, so href must point home.
+    parent:        { label: 'Home', href: homePath },
+    kid:           { label: 'Home', href: homePath },
+    home:          { label: 'Home', href: homePath },
+    award:         { label: 'Home', href: homePath },
+    rate:          { label: 'Home', href: homePath },
+    profiles:      { label: 'Profiles' },
+    workplan:      { label: 'Workplan' },
+    reports:       { label: 'Reports' },
+    directory:     { label: 'Directory' },
+    rewards:       { label: 'Rewards' },
+    notifications: { label: 'Notifications' },
+    'my-day':      { label: 'My Day' },
+    'family-tree': { label: 'Family Tree' },
+    games:         { label: 'Games' },
+    videos:        { label: 'Videos' },
+    helper:        { label: 'Helper' },
+    wealth:        { label: 'Kaya Wealth' },
+    wellness:      { label: 'Kaya Wellness' },
+    chef:          { label: 'Kaya Chef' },
+    badges:        { label: 'Badges' },
   };
   // Section root (e.g. /pantry, /pulse) — back goes Home.
   if (segs.length === 1) {
@@ -1291,5 +1301,9 @@ function deriveBackParent(pathname: string | null, homePath: string): { label: s
   }
   // Deeper → land on section root, labelled with the section name.
   const top = segs[0];
-  return { label: sectionLabel[top] || 'Back', href: '/' + top };
+  const cfg = sectionMap[top];
+  return {
+    label: cfg?.label || 'Back',
+    href: cfg?.href ?? ('/' + top),
+  };
 }
