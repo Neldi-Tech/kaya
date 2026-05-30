@@ -360,6 +360,11 @@ export default function BusinessDashboardPage() {
             );
           })
         )}
+        {ledger.length > 6 && (
+          <Link href={`/business/${businessId}/history`} className="mt-2 block text-center text-[12px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            See full history →
+          </Link>
+        )}
       </div>
 
       {/* Stock-take history — the daily habit log, same records + detail view as
