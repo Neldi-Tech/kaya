@@ -7,7 +7,11 @@
 // list grouped by category.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import CoachMark from '@/components/ui/CoachMark';
+import NextUp from '@/components/ui/NextUp';
+import RewardsWizard from '@/components/rewards/RewardsWizard';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
@@ -56,6 +60,20 @@ export default function ParentRewardsPage() {
   // hunt for a modal trigger.
   const [adding, setAdding] = useState(false);
   const [addDraft, setAddDraft] = useState<Draft>(blankDraft());
+
+  // Guided wizard for the First Week "Set up your first reward" item.
+  // Auto-opens when the URL has ?wizard=1 (the checklist deep-links
+  // here). The inline `adding` form above stays as a power-user path.
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  useEffect(() => {
+    if (searchParams?.get('wizard') === '1') {
+      setWizardOpen(true);
+      // Strip the query so a reload doesn't re-open it.
+      router.replace('/parent/rewards');
+    }
+  }, [searchParams, router]);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -652,6 +670,19 @@ export default function ParentRewardsPage() {
           <p className="text-[11px] text-kaya-sand mt-2 text-center">Showing the 25 most recent.</p>
         )}
       </div>
+      <NextUp from="rewards" />
+      <CoachMark
+        pageId="rewards"
+        uid={profile?.uid || ''}
+        title="What can kids earn?"
+        body="These are the rewards kids work toward — ice cream, extra story, sleepover. Tap “Add reward” for the guided 3-step wizard, or use the inline form for power-user adds."
+      />
+      <RewardsWizard
+        open={wizardOpen}
+        familyId={profile?.familyId || ''}
+        onClose={() => setWizardOpen(false)}
+        onSaved={() => { refresh(); flash('Reward added 🎁'); }}
+      />
     </div>
   );
 }

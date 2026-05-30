@@ -102,7 +102,7 @@ export const FIRST_WEEK_ITEMS: FirstWeekItem[] = [
     label: 'Set up your first reward',
     hint: 'What can kids earn? One small thing — ice cream, extra story, sleepover.',
     cta: 'Add',
-    href: '/rewards',
+    href: '/parent/rewards?wizard=1',
   },
   {
     id: 'meeting',

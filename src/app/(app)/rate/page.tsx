@@ -9,6 +9,8 @@ import { notifyRating } from '@/lib/notify';
 import { fmt } from '@/lib/format';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import CoachMark from '@/components/ui/CoachMark';
+import NextUp from '@/components/ui/NextUp';
 
 const RATING_OPTIONS: { value: RatingValue; label: string; emoji: string; color: string }[] = [
   { value: 'excellent', label: 'Excellent', emoji: '🌟', color: '#27AE60' },
@@ -562,8 +564,15 @@ export default function RatePage() {
               </button>
             </div>
           </section>
+          <NextUp from="rate" />
         </div>
       </div>
+      <CoachMark
+        pageId="rate"
+        uid={profile?.uid || ''}
+        title="Tap a kid to rate them"
+        body="Pick excellent / good / bad for each routine. Five minutes, all three kids. The system handles the rest."
+      />
     </>
   );
 }

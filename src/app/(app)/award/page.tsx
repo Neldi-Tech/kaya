@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import CoachMark from '@/components/ui/CoachMark';
+import NextUp from '@/components/ui/NextUp';
 import { giveAward, getFamilyMembers, getFamily, readPointSystemConfig, AwardKind } from '@/lib/firestore';
 import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { notifyAward } from '@/lib/notify';
@@ -594,7 +596,14 @@ export default function AwardPage() {
             </div>
           </aside>
         </div>
+        <NextUp from="award" />
       </div>
+      <CoachMark
+        pageId="award"
+        uid={profile?.uid || ''}
+        title="Catch a kindness"
+        body="Pick a kid, choose a tag, write what they did. The kids see it in their activity feed."
+      />
     </>
   );
 }
