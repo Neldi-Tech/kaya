@@ -152,6 +152,22 @@ export default function SubscriptionPage() {
   const yearlyTotalCents = (tierId: SubscriptionTierId): number =>
     access.tiers[tierId].priceYearly;
 
+  // Biggest annual saving across paid tiers — drives the "Save up to X%"
+  // badge on the Yearly toggle. Computed from the LIVE prices so it can
+  // never drift from the real numbers (it used to be a hardcoded "17%").
+  const maxYearlyDiscountPct = useMemo(() => {
+    let best = 0;
+    for (const id of ['home', 'castle'] as SubscriptionTierId[]) {
+      const t = access.tiers[id];
+      const annualized = t.priceMonthly * 12;
+      if (annualized > 0 && t.priceYearly > 0) {
+        const pct = Math.round((1 - t.priceYearly / annualized) * 100);
+        if (pct > best) best = pct;
+      }
+    }
+    return best;
+  }, [access.tiers]);
+
   const isCurrent = (tierId: SubscriptionTierId) => access.tierId === tierId;
   const currentTier = access.tiers[access.tierId];
 
@@ -285,12 +301,14 @@ export default function SubscriptionPage() {
             </BillingButton>
             <BillingButton active={cycle === 'yearly'} onClick={() => setCycle('yearly')}>
               <span>Yearly</span>
-              <span
-                className="ml-2 rounded-full text-[10px] font-black tracking-wide px-2 py-0.5"
-                style={{ background: GOLD, color: 'white' }}
-              >
-                SAVE 17%
-              </span>
+              {maxYearlyDiscountPct > 0 && (
+                <span
+                  className="ml-2 rounded-full text-[10px] font-black tracking-wide px-2 py-0.5"
+                  style={{ background: GOLD, color: 'white' }}
+                >
+                  SAVE UP TO {maxYearlyDiscountPct}%
+                </span>
+              )}
             </BillingButton>
           </div>
         </div>

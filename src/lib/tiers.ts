@@ -121,12 +121,19 @@ export interface TierConfig {
 }
 
 const FREE = 0;
-// $6/mo billed yearly = $72/yr = 7200 cents. Monthly billing is +20% per
-// the spec so monthly tier shows $7.20 ≈ 720 cents.
+// Monthly is the base rate; annual billing is ~30% cheaper per month
+// (set 2026-05-30 — was 2-months-free / 17% before). Per-month shown on
+// the yearly toggle = priceYearly / 12:
+//   Home   $7.20/mo → $60/yr  = $5.00/mo  (31% off monthly)
+//   Castle $16.80/mo → $144/yr = $12.00/mo (29% off monthly)
+// NOTE: these are DISPLAY prices only. The actual charge uses the Stripe
+// Price IDs (stripePriceIdYearly), provisioned separately by
+// scripts/stripe-provision.ts — reprovision them to match before the paid
+// funnel charges anyone on annual, else display ($60) ≠ charge ($72).
 const HOME_MONTHLY = 720;
-const HOME_YEARLY  = 7200;
+const HOME_YEARLY  = 6000;
 const CASTLE_MONTHLY = 1680;
-const CASTLE_YEARLY  = 16800;
+const CASTLE_YEARLY  = 14400;
 
 export const DEFAULT_TIERS: Record<SubscriptionTierId, TierConfig> = {
   nest: {
