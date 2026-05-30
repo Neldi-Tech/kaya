@@ -91,6 +91,9 @@ export default function AdminPricingPage() {
           <p className="text-white/55 text-[13px] font-semibold ml-12">
             Live-editable per-tier prices and limits · saves to <code className="text-[#D4A847]">/config/tiers/plans/&lt;tierId&gt;</code> · families see the change without a code deploy.
           </p>
+          <p className="text-white/40 text-[12px] font-semibold ml-12 mt-1">
+            These are the prices families <span className="text-white/70">see</span>. Actual charges use Stripe Price IDs provisioned separately — reprovision those to match before billing on annual.
+          </p>
         </header>
 
         {err && (
@@ -137,6 +140,14 @@ function TierPanel({
 }) {
   void tierId;
   const perMonthYearly = useMemo(() => Math.round(resolved.priceYearly / 12), [resolved.priceYearly]);
+  // Annual saving vs paying monthly for 12 months — shown live so the
+  // operator can dial in a target discount (e.g. ~30%) as they type.
+  const yearlyDiscountPct = useMemo(() => {
+    const annualizedMonthly = resolved.priceMonthly * 12;
+    return annualizedMonthly > 0
+      ? Math.round((1 - resolved.priceYearly / annualizedMonthly) * 100)
+      : 0;
+  }, [resolved.priceMonthly, resolved.priceYearly]);
 
   return (
     <section
@@ -170,7 +181,11 @@ function TierPanel({
         />
         <DollarsField
           label="Yearly total"
-          hint={`Charged once per year. Per-month equivalent: $${(perMonthYearly / 100).toFixed(2)}.`}
+          hint={
+            yearlyDiscountPct > 0
+              ? `Charged once per year. Per-month: $${(perMonthYearly / 100).toFixed(2)} · ${yearlyDiscountPct}% cheaper than monthly.`
+              : `Charged once per year. Per-month: $${(perMonthYearly / 100).toFixed(2)}.`
+          }
           valueCents={resolved.priceYearly}
           onChange={(cents) => onUpdate({ priceYearly: cents })}
         />
