@@ -4,6 +4,8 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import CoachMark from '@/components/ui/CoachMark';
+import NextUp from '@/components/ui/NextUp';
 import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
@@ -572,7 +574,14 @@ export default function MeetingsPage() {
             </div>
           )
         )}
+        <NextUp from="meetings" />
       </div>
+      <CoachMark
+        pageId="meetings"
+        uid={profile?.uid || ''}
+        title="Three noticed, two to shape"
+        body="Plan twenty minutes for Sunday. Three things you noticed, two to shape next week. The single most powerful family habit."
+      />
     </>
   );
 }
