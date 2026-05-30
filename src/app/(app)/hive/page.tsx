@@ -12,6 +12,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { subscribeToKidBusinesses, readBusinessConfig } from '@/lib/business';
 import HoneyPotHero from '@/components/hive/HoneyPotHero';
+import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import WealthCard from '@/components/hive/WealthCard';
 import HpValueCommentary from '@/components/hive/HpValueCommentary';
 import TransactionRow from '@/components/hive/TransactionRow';
@@ -135,7 +136,7 @@ export default function HiveHomePage() {
             href={a.href}
             className="bg-hive-paper border border-hive-line rounded-hive p-4 flex flex-col gap-1 hover:border-hive-honey transition-colors no-underline text-inherit"
           >
-            <span className="text-2xl leading-none">{a.icon}</span>
+            <span className="text-2xl leading-none">{a.icon === '🍯' ? <HoneyPotIcon size={26} /> : a.icon}</span>
             <span className="font-nunito font-extrabold text-[15px] mt-1">{a.label}</span>
             <span className="text-[11px] text-hive-muted">{a.desc}</span>
           </Link>
