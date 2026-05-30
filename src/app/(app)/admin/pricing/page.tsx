@@ -144,9 +144,9 @@ function TierPanel({
   // operator can dial in a target discount (e.g. ~30%) as they type.
   const yearlyDiscountPct = useMemo(() => {
     const annualizedMonthly = resolved.priceMonthly * 12;
-    return annualizedMonthly > 0
-      ? Math.round((1 - resolved.priceYearly / annualizedMonthly) * 100)
-      : 0;
+    if (annualizedMonthly <= 0) return 0;
+    const raw = (1 - resolved.priceYearly / annualizedMonthly) * 100;
+    return Math.round(raw / 5) * 5; // nearest 5% — matches the customer badge
   }, [resolved.priceMonthly, resolved.priceYearly]);
 
   return (
@@ -183,7 +183,7 @@ function TierPanel({
           label="Yearly total"
           hint={
             yearlyDiscountPct > 0
-              ? `Charged once per year. Per-month: $${(perMonthYearly / 100).toFixed(2)} · ${yearlyDiscountPct}% cheaper than monthly.`
+              ? `Charged once per year. Per-month: $${(perMonthYearly / 100).toFixed(2)} · ~${yearlyDiscountPct}% cheaper than monthly.`
               : `Charged once per year. Per-month: $${(perMonthYearly / 100).toFixed(2)}.`
           }
           valueCents={resolved.priceYearly}
