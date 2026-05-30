@@ -21,6 +21,9 @@ export interface AdminFamilyRow {
   addons: string[];
   isFoundingFamily: boolean;
   createdAtMs: number;
+  /** Max lastActiveAt across the family's users (presence heartbeat), in
+   *  epoch ms; 0 if no member has been active since presence shipped. */
+  lastActiveAtMs: number;
   members: {
     parents: number;
     helpers: number;
@@ -43,8 +46,9 @@ export async function GET(req: NextRequest) {
   const famSnap = await db.collection('families').orderBy('name').get();
   const rows: AdminFamilyRow[] = [];
 
-  // One users-query per family is heavy at scale but fine in closed beta.
-  // We use the lighter `count()` aggregate per role to keep payloads tiny.
+  // One users fetch per family — heavy at scale but fine in closed beta.
+  // From those docs we derive role counts + the family's most-recent
+  // lastActiveAt (presence heartbeat). Revisit past a few hundred families.
   for (const fam of famSnap.docs) {
     const data = fam.data() as {
       name?: string;
@@ -56,14 +60,23 @@ export async function GET(req: NextRequest) {
       storage?: { bytes?: number; extraGB?: number; recountedAt?: FirebaseFirestore.Timestamp };
     };
 
-    const roles: Array<'parent' | 'helper' | 'kid' | 'guest'> = ['parent', 'helper', 'kid', 'guest'];
-    const counts = await Promise.all(roles.map(async (role) => {
-      const q = db.collection('users')
-        .where('familyId', '==', fam.id)
-        .where('role', '==', role);
-      const agg = await q.count().get();
-      return agg.data().count;
-    }));
+    // One fetch per family: derive role counts AND the max lastActiveAt
+    // (presence heartbeat) in memory. A single equality filter on familyId
+    // needs no composite index.
+    const usersSnap = await db.collection('users').where('familyId', '==', fam.id).get();
+    let parents = 0, helpers = 0, kids = 0, guests = 0;
+    let lastActiveAtMs = 0;
+    for (const u of usersSnap.docs) {
+      const ud = u.data() as { role?: string; lastActiveAt?: { toMillis?: () => number } };
+      if (ud.role === 'parent') parents++;
+      else if (ud.role === 'helper') helpers++;
+      else if (ud.role === 'kid') kids++;
+      else if (ud.role === 'guest') guests++;
+      if (ud.lastActiveAt && typeof ud.lastActiveAt.toMillis === 'function') {
+        const msv = ud.lastActiveAt.toMillis();
+        if (msv > lastActiveAtMs) lastActiveAtMs = msv;
+      }
+    }
 
     rows.push({
       id: fam.id,
@@ -75,7 +88,8 @@ export async function GET(req: NextRequest) {
       createdAtMs: data.createdAt && typeof (data.createdAt as { toMillis?: () => number }).toMillis === 'function'
         ? (data.createdAt as { toMillis: () => number }).toMillis()
         : 0,
-      members: { parents: counts[0], helpers: counts[1], kids: counts[2], guests: counts[3] },
+      lastActiveAtMs,
+      members: { parents, helpers, kids, guests },
       storage: {
         bytes: data.storage?.bytes ?? 0,
         extraGB: data.storage?.extraGB ?? 0,
