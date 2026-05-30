@@ -15,7 +15,7 @@ import { db } from './firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  DEFAULT_TIERS, MODULE_REGISTRY, resolveModuleAccess,
+  MODULE_REGISTRY, mergedTierConfig, resolveModuleAccess,
   type ModuleId, type SubscriptionTierId, type TierConfig,
 } from './tiers';
 
@@ -104,18 +104,27 @@ export function useTierAccess(): TierAccess {
   }, [user]);
 
   const access = useMemo<TierAccess>(() => {
-    const isFoundingBypass = !!family?.isFoundingFamily;
+    // 2026-05-30 — founding-family is now IDENTITY ONLY (renders the
+    // Charter #N badge on profiles) and no longer grants access bypass.
+    // Founding families now see exactly what their tierId entitles them
+    // to, just like everyone else. Operator bypass still applies — Kaya
+    // staff need it for support flows. `isFoundingBypass` stays in the
+    // return shape so consumers compile, hard-coded to false.
+    const isFoundingBypass = false;
     const tierId = (family?.tierId as SubscriptionTierId | undefined) ?? DEFAULT_TIER_FALLBACK;
     const addons = family?.subscription?.addons ?? [];
+    // Merge each tier through `mergedTierConfig` (defaults always
+    // preserved, overrides UNION on top) so newly-shipped modules show
+    // up in the comparison table even when an older Firestore override
+    // doesn't list them.
     const tiers: Record<SubscriptionTierId, TierConfig> = {
-      nest:   { ...DEFAULT_TIERS.nest,   ...overrides.nest,   modules: overrides.nest?.modules     ?? DEFAULT_TIERS.nest.modules,   addonModules: overrides.nest?.addonModules     ?? DEFAULT_TIERS.nest.addonModules },
-      home:   { ...DEFAULT_TIERS.home,   ...overrides.home,   modules: overrides.home?.modules     ?? DEFAULT_TIERS.home.modules,   addonModules: overrides.home?.addonModules     ?? DEFAULT_TIERS.home.addonModules },
-      castle: { ...DEFAULT_TIERS.castle, ...overrides.castle, modules: overrides.castle?.modules ?? DEFAULT_TIERS.castle.modules, addonModules: overrides.castle?.addonModules ?? DEFAULT_TIERS.castle.addonModules },
+      nest:   mergedTierConfig('nest',   overrides),
+      home:   mergedTierConfig('home',   overrides),
+      castle: mergedTierConfig('castle', overrides),
     };
     const modules = resolveModuleAccess(tierId, addons, overrides);
     const has = (m: ModuleId) => {
       if (isOperator) return true;
-      if (isFoundingBypass) return true;
       return modules.has(m);
     };
     return { tierId, modules, isOperatorBypass: isOperator, isFoundingBypass, has, tiers };
