@@ -50,6 +50,7 @@ export type ApprovalType =
   | 'capital_injection'      // parent loan/gift into a kid's business
   | 'business_hp'            // House Points for a stock-take (instant cadence, parent-review)
   | 'business_sale'          // a kid's daily auto-sale, sent for parent approval → logSale on approve
+  | 'business_reinvest'      // a kid spends their OWN Honey Pot into a business — one parent OK → Pot out + business cost
   // ── Kaya Chat ──────────────────────────────────────────────────
   | 'create_group_chat';     // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
@@ -468,6 +469,9 @@ export interface ApprovalRequest {
   productName?: string;             // business_sale — display name of the product
   saleQty?: number;                 // business_sale — quantity
   saleUnitPriceCents?: number;      // business_sale — price per unit
+  /** business_reinvest — the business cost type to book (CostType in
+   *  business.ts; typed as string here to avoid a hive↔business import cycle). */
+  costType?: string;
   proposedTitle?: string;           // create_group_chat — group name the kid picked
   proposedMemberUids?: string[];    // create_group_chat — uids the kid asked to include
   proposedMembers?: Array<{ uid: string; name: string; role: string; avatar?: string }>; // create_group_chat — denormalized for the parent card
@@ -493,10 +497,13 @@ export interface ApprovalRequest {
 
 // ── Path helpers ──────────────────────────────────────────────────
 
-const walletPath = (familyId: string, kidId: string) =>
+// Exported so the Business module can reference the same wallet doc + ledger
+// collection inside its own approval transaction (Pot → business reinvest),
+// keeping the path single-sourced here. One-way dep: business → hive.
+export const walletPath = (familyId: string, kidId: string) =>
   doc(db, 'families', familyId, 'kids', kidId, 'wallet', 'balances');
 
-const txCol = (familyId: string, kidId: string) =>
+export const txCol = (familyId: string, kidId: string) =>
   collection(db, 'families', familyId, 'kids', kidId, 'hiveTransactions');
 
 const goalCol = (familyId: string, kidId: string) =>

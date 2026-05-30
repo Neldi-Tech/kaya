@@ -24,6 +24,7 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
   treasury_to_cash:  { emoji: '🍯', label: 'Honey Pot → Cash',    tone: 'green' },
   spend:             { emoji: '🛒', label: 'Cash spend',          tone: 'rose'  },
   business_hp:       { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
+  business_reinvest: { emoji: '🌳', label: 'Reinvest · Honey Pot → business', tone: 'green' },
   create_group_chat: { emoji: '💬', label: 'New group chat',      tone: 'honey' },
 };
 

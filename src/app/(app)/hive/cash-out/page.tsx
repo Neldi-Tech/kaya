@@ -4,7 +4,7 @@
 // + ledger of outgoing cash + "Request a spend" inline form. Section 2
 // right-most phone in the v2 mockup.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -12,6 +12,7 @@ import {
   cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
   effectiveAutoApproveCents, currencySymbol,
 } from '@/lib/hive';
+import { Business, subscribeToKidBusinesses, requestBusinessReinvest } from '@/lib/business';
 import { useFamily } from '@/contexts/FamilyContext';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
@@ -74,17 +75,54 @@ export default function CashOutPage() {
   const [category, setCategory] = useState<TxCategory>('shopping');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  // Kaya Business reinvest mode — spend from the Honey Pot into a business
+  // (one parent approval, no double cash-out loop). Picks a business below.
+  const [mode, setMode] = useState<'spend' | 'business'>('spend');
+  const [selectedBusinessId, setSelectedBusinessId] = useState('');
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [bizFlash, setBizFlash] = useState(false);
+
+  useEffect(() => {
+    if (!profile?.familyId || !activeKidId) { setBusinesses([]); return; }
+    return subscribeToKidBusinesses(profile.familyId, activeKidId, setBusinesses);
+  }, [profile?.familyId, activeKidId]);
 
   const submit = async () => {
     if (!profile?.familyId || !activeKidId || isGuest) return;
     setError('');
     const cents = Math.round(amountInput * 100);
     if (!Number.isFinite(cents) || cents <= 0) { setError('Pick an amount.'); return; }
+    if (!desc.trim()) { setError('Tell us what the money is for.'); return; }
+
+    // ── Kaya Business reinvest — from the Honey Pot, one parent approval ──
+    if (mode === 'business') {
+      if (!selectedBusinessId) { setError('Pick which business.'); return; }
+      if (cents > (wallet.treasuryCents || 0)) {
+        setError(`Your Honey Pot only has ${formatCash(wallet.treasuryCents || 0, config.currency)}.`);
+        return;
+      }
+      setSubmitting(true);
+      try {
+        const biz = businesses.find((b) => b.id === selectedBusinessId);
+        await requestBusinessReinvest(profile.familyId, {
+          businessId: selectedBusinessId, ownerId: activeKidId, amountCents: cents,
+          costType: 'supplies', description: `${desc.trim()}${biz ? ' · ' + biz.name : ''}`,
+        }, profile.uid);
+        setShowForm(false);
+        setAmountInput(0); setDesc(''); setSelectedBusinessId(''); setMode('spend'); setCategory('shopping');
+        setBizFlash(true); setTimeout(() => setBizFlash(false), 4000);
+      } catch (e: any) {
+        setError(e?.message || 'Failed to submit.');
+      }
+      setSubmitting(false);
+      return;
+    }
+
+    // ── Normal cash spend ──
     if (cents > wallet.cashCents) {
       setError(`You only have ${formatCash(wallet.cashCents, config.currency)} in Cash.`);
       return;
     }
-    if (!desc.trim()) { setError('Tell us what the money is for.'); return; }
     setSubmitting(true);
     try {
       const result = await requestOrAutoSpend(
@@ -146,6 +184,17 @@ export default function CashOutPage() {
         </div>
       )}
 
+      {/* Kaya Business reinvest sent — one-approval fast lane confirmation. */}
+      {bizFlash && (
+        <div className="rounded-hive bg-hive-green/15 border border-hive-green/40 p-3 mb-3 flex items-center gap-3">
+          <div className="text-2xl shrink-0">🌳</div>
+          <div className="flex-1 min-w-0">
+            <p className="font-nunito font-extrabold text-[13px] text-hive-green">Sent to your parent</p>
+            <p className="text-[11px] text-hive-muted">One approval and it leaves your Honey Pot into the business.</p>
+          </div>
+        </div>
+      )}
+
       {/* Pending spend requests */}
       {pendingSpends.map((r) => (
         <div key={r.id} className="rounded-hive p-4 mb-3 border-2 border-dashed border-hive-honey bg-gradient-to-br from-[#FFF3D9] to-white">
@@ -189,7 +238,9 @@ export default function CashOutPage() {
               />
             </div>
             <p className="text-[11px] text-hive-muted mt-1">
-              Available: {formatCash(wallet.cashCents, config.currency)}
+              {mode === 'business'
+                ? <>From 🍯 Honey Pot · {formatCash(wallet.treasuryCents || 0, config.currency)}</>
+                : <>Available: {formatCash(wallet.cashCents, config.currency)}</>}
             </p>
           </div>
 
@@ -210,21 +261,57 @@ export default function CashOutPage() {
               {SPEND_CHIPS.map((c) => (
                 <button
                   key={c.id}
-                  onClick={() => setCategory(c.id)}
+                  onClick={() => { setMode('spend'); setCategory(c.id); }}
                   className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
-                    category === c.id ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                    mode === 'spend' && category === c.id ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
                   }`}
                 >
                   {c.emoji} {c.label}
                 </button>
               ))}
+              <button
+                onClick={() => setMode('business')}
+                className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
+                  mode === 'business' ? 'bg-hive-green text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                }`}
+              >
+                🌳 Kaya Business
+              </button>
             </div>
           </div>
 
+          {/* Business picker — only in reinvest mode. Spends from the Honey Pot. */}
+          {mode === 'business' && (
+            <div className="rounded-hive border border-hive-green/40 bg-[#EAF7F0] p-3">
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">Which business or project?</label>
+              {businesses.length === 0 ? (
+                <p className="text-[12px] text-hive-muted">No business yet — start one in <Link href="/business" className="text-hive-honey-dk font-bold hover:underline">Kaya Business</Link>.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {businesses.map((b) => (
+                    <button
+                      key={b.id}
+                      onClick={() => setSelectedBusinessId(b.id)}
+                      className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
+                        selectedBusinessId === b.id ? 'bg-hive-green text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                      }`}
+                    >
+                      {b.emoji || '🌳'} {b.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <p className="text-[11px] text-hive-muted mt-2 leading-relaxed">
+                🍯 Paid from your Honey Pot — <b>one</b> parent approval, then it&apos;s done (no extra cash-out step).
+              </p>
+            </div>
+          )}
+
           {/* Soft over-budget warning — only when the kid actually has a
               plan budget for this category and adding the requested amount
-              would push them past it. We never block; this is a nudge. */}
-          {(() => {
+              would push them past it. We never block; this is a nudge.
+              (Cash spends only — business reinvest draws from the Pot.) */}
+          {mode === 'spend' && (() => {
             const cents = Math.round(amountInput * 100) || 0;
             if (cents <= 0) return null;
             const budget = (monthlyPlan?.budget as any)?.[category] as number | undefined;
@@ -255,8 +342,9 @@ export default function CashOutPage() {
           {/* Auto-approve hint — only when there's a non-zero threshold for
               this kid AND the entered amount qualifies. Per-child override
               beats family default; we tweak the copy so the kid knows
-              whether it's "your limit" vs "your family's limit". */}
-          {(() => {
+              whether it's "your limit" vs "your family's limit".
+              (Cash spends only — a business reinvest always needs a parent OK.) */}
+          {mode === 'spend' && (() => {
             const cents = Math.round(amountInput * 100) || 0;
             const threshold = effectiveThresholdCents;
             if (cents <= 0 || threshold <= 0 || cents >= threshold) return null;
@@ -272,22 +360,26 @@ export default function CashOutPage() {
           {(() => {
             const cents = Math.round(amountInput * 100) || 0;
             const threshold = effectiveThresholdCents;
-            const willAuto = cents > 0 && threshold > 0 && cents < threshold;
+            const isBiz = mode === 'business';
+            const willAuto = !isBiz && cents > 0 && threshold > 0 && cents < threshold;
+            const green = isBiz || willAuto;
             return (
               <button
                 onClick={submit}
                 disabled={submitting}
                 className={`w-full h-12 rounded-hive font-nunito font-black text-[13px] disabled:opacity-40 transition-colors text-white ${
-                  willAuto
+                  green
                     ? 'bg-hive-green hover:brightness-110 shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)]'
                     : 'bg-hive-honey hover:bg-hive-honey-dk'
                 }`}
               >
                 {submitting
                   ? 'Sending…'
-                  : willAuto
-                    ? 'Buy it now ⚡'
-                    : 'Send request to parent'}
+                  : isBiz
+                    ? 'Send to parent · 1 approval ⚡'
+                    : willAuto
+                      ? 'Buy it now ⚡'
+                      : 'Send request to parent'}
               </button>
             );
           })()}
