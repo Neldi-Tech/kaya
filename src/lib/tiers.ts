@@ -270,6 +270,10 @@ export function resolveModuleAccess(
 export interface AddonOverride {
   priceMonthly?: number;
   released?: boolean;
+  /** Stripe Price ID for self-serve checkout (set after provisioning).
+   *  Without it the add-on can't be charged — Stripe mode falls back to
+   *  the request flow. */
+  stripePriceId?: string;
 }
 export type AddonOverrides = Record<string, AddonOverride>;
 

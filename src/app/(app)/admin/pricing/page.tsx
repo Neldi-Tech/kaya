@@ -22,6 +22,7 @@ import {
   type SubscriptionTierId, type TierConfig, type AddonConfig, type AddonOverrides,
 } from '@/lib/tiers';
 import { auth } from '@/lib/firebase';
+import { type AddonBillingMode } from '@/lib/adminSettings';
 
 type Draft = Record<SubscriptionTierId, Partial<TierConfig>>;
 
@@ -335,6 +336,8 @@ function AddonsSection() {
   const [overrides, setOverrides] = useState<AddonOverrides>({});
   const [loaded, setLoaded] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [mode, setMode] = useState<AddonBillingMode>('request');
+  const [autoMonths, setAutoMonths] = useState(3);
 
   useEffect(() => {
     let cancelled = false;
@@ -343,17 +346,27 @@ function AddonsSection() {
         const u = auth.currentUser;
         if (!u) return;
         const token = await u.getIdToken();
-        const res = await fetch('/api/admin/addons', { headers: { authorization: `Bearer ${token}` } });
-        if (res.ok) {
-          const d = (await res.json()) as { overrides: AddonOverrides };
+        const [aRes, sRes] = await Promise.all([
+          fetch('/api/admin/addons', { headers: { authorization: `Bearer ${token}` } }),
+          fetch('/api/admin/settings', { headers: { authorization: `Bearer ${token}` } }),
+        ]);
+        if (aRes.ok) {
+          const d = (await aRes.json()) as { overrides: AddonOverrides };
           if (!cancelled) setOverrides(d.overrides ?? {});
+        }
+        if (sRes.ok) {
+          const s = (await sRes.json()) as { settings: { addonBillingMode?: AddonBillingMode; addonAutoSwitchMonths?: number } };
+          if (!cancelled) {
+            if (s.settings?.addonBillingMode) setMode(s.settings.addonBillingMode);
+            if (typeof s.settings?.addonAutoSwitchMonths === 'number') setAutoMonths(s.settings.addonAutoSwitchMonths);
+          }
         }
       } catch { /* ignore */ } finally { if (!cancelled) setLoaded(true); }
     })();
     return () => { cancelled = true; };
   }, []);
 
-  const patchAddon = async (addonId: string, patch: { priceMonthly?: number; released?: boolean }) => {
+  const patchAddon = async (addonId: string, patch: { priceMonthly?: number; released?: boolean; stripePriceId?: string }) => {
     setErr(null);
     setOverrides((prev) => ({ ...prev, [addonId]: { ...prev[addonId], ...patch } })); // optimistic
     try {
@@ -373,6 +386,23 @@ function AddonsSection() {
     }
   };
 
+  const saveMode = async (next: Partial<{ addonBillingMode: AddonBillingMode; addonAutoSwitchMonths: number }>) => {
+    setErr(null);
+    try {
+      const u = auth.currentUser;
+      if (!u) throw new Error('not-signed-in');
+      const token = await u.getIdToken();
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify(next),
+      });
+      if (!res.ok) throw new Error(`save-failed-${res.status}`);
+    } catch (e) {
+      setErr(String(e instanceof Error ? e.message : e));
+    }
+  };
+
   return (
     <section
       className="rounded-3xl p-5 mt-4"
@@ -387,6 +417,51 @@ function AddonsSection() {
           </div>
         </div>
       </header>
+
+      {/* Billing mode — how families acquire add-ons */}
+      <div className="rounded-2xl p-3 mb-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+        <div className="text-[10px] font-black text-white/55 uppercase tracking-wider mb-2">Add-on billing</div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            ['request', 'Request → approve'],
+            ['auto', 'Auto after N months'],
+            ['stripe', 'Stripe (charge now)'],
+          ] as [AddonBillingMode, string][]).map(([key, label]) => {
+            const on = mode === key;
+            return (
+              <button
+                key={key}
+                onClick={() => { setMode(key); saveMode({ addonBillingMode: key }); }}
+                className="text-[12px] font-black px-3 py-1.5 rounded-full"
+                style={on ? { background: '#D4A847', color: '#0F1F44' } : { background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.65)' }}
+              >
+                {label}
+              </button>
+            );
+          })}
+          {mode === 'auto' && (
+            <span className="flex items-center gap-1.5 text-white/55 text-[12px] font-bold ml-1">
+              <span>switch after</span>
+              <input
+                value={String(autoMonths)}
+                onChange={(e) => setAutoMonths(Math.min(24, Number(e.target.value.replace(/[^0-9]/g, '')) || 0))}
+                onBlur={() => saveMode({ addonAutoSwitchMonths: Math.min(24, Math.max(1, autoMonths || 1)) })}
+                onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                inputMode="numeric"
+                aria-label="Auto-switch months"
+                className="w-12 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white text-[13px] font-extrabold text-center outline-none"
+              />
+              <span>months</span>
+            </span>
+          )}
+        </div>
+        <div className="text-[10px] text-white/40 font-semibold mt-2 leading-snug">
+          {mode === 'request' && 'Families request add-ons; you approve in Upgrade requests. No charge.'}
+          {mode === 'auto' && `New families request for their first ${autoMonths} months, then check out via Stripe.`}
+          {mode === 'stripe' && 'Families check out and pay via Stripe now. Needs a Stripe Price ID per add-on below.'}
+        </div>
+      </div>
+
       {err && <div className="text-[#FF7676] text-[12px] font-bold mb-2">{err}</div>}
       {!loaded ? (
         <div className="text-white/55 text-sm py-6 text-center">Loading add-ons…</div>
@@ -404,8 +479,10 @@ function AddonsSection() {
                 shipped={shipped}
                 priceCents={priceCents}
                 released={released}
+                stripePriceId={o?.stripePriceId ?? ''}
                 onPrice={(cents) => patchAddon(addon.id, { priceMonthly: cents })}
                 onToggle={() => patchAddon(addon.id, { released: !released })}
+                onStripePrice={(id) => patchAddon(addon.id, { stripePriceId: id })}
               />
             );
           })}
@@ -416,18 +493,21 @@ function AddonsSection() {
 }
 
 function AddonRow({
-  addon, shipped, priceCents, released, onPrice, onToggle,
+  addon, shipped, priceCents, released, stripePriceId, onPrice, onToggle, onStripePrice,
 }: {
-  addon: AddonConfig; shipped: boolean; priceCents: number; released: boolean;
-  onPrice: (cents: number) => void; onToggle: () => void;
+  addon: AddonConfig; shipped: boolean; priceCents: number; released: boolean; stripePriceId: string;
+  onPrice: (cents: number) => void; onToggle: () => void; onStripePrice: (id: string) => void;
 }) {
   const [text, setText] = useState((priceCents / 100).toFixed(2));
   useEffect(() => { setText((priceCents / 100).toFixed(2)); }, [priceCents]);
+  const [priceId, setPriceId] = useState(stripePriceId);
+  useEffect(() => { setPriceId(stripePriceId); }, [stripePriceId]);
   return (
     <div
-      className="flex items-center gap-3 rounded-2xl px-3 py-2.5"
+      className="rounded-2xl px-3 py-2.5"
       style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
     >
+      <div className="flex items-center gap-3">
       <div className="w-8 h-8 rounded-lg grid place-items-center text-[17px] flex-shrink-0" style={{ background: addon.emojiBg }}>
         {addon.emoji}
       </div>
@@ -465,6 +545,22 @@ function AddonRow({
         >
           No module yet
         </span>
+      )}
+      </div>
+
+      {shipped && (
+        <div className="flex items-center gap-2 mt-2 pl-11">
+          <span className="text-white/35 text-[10px] font-bold uppercase tracking-wider flex-shrink-0">Stripe price</span>
+          <input
+            value={priceId}
+            onChange={(e) => setPriceId(e.target.value)}
+            onBlur={() => onStripePrice(priceId.trim())}
+            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            placeholder="price_… (set after provisioning in Stripe)"
+            aria-label={`${addon.name} Stripe Price ID`}
+            className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-white/80 text-[11px] font-semibold outline-none"
+          />
+        </div>
       )}
     </div>
   );
