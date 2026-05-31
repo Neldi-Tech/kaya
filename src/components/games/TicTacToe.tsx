@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import type { GameProps } from './types';
 
 // Tic-Tac-Toe vs a simple (beatable but not dumb) AI. Kid is X, AI is O.
 // Calls onComplete once the board resolves. Fully offline, no deps.
@@ -37,11 +38,7 @@ function aiMove(b: Cell[]): number {
   return empty[0] ?? -1;                              // then anything
 }
 
-export default function TicTacToe({
-  onComplete,
-}: {
-  onComplete: (r: { won: boolean; draw: boolean }) => void;
-}) {
+export default function TicTacToe({ onComplete }: GameProps) {
   const [board, setBoard] = useState<Cell[]>(Array(9).fill(null));
   const [done, setDone] = useState(false);
 
@@ -60,7 +57,11 @@ export default function TicTacToe({
       setDone(true);
       const won = result === 'X';
       const draw = result === 'draw';
-      window.setTimeout(() => onComplete({ won, draw }), 400);
+      window.setTimeout(() => onComplete({
+        success: won || draw,
+        score: won ? 1 : 0,
+        message: won ? 'You won! 🎉' : draw ? "It's a draw 🤝" : 'So close!',
+      }), 400);
     }
   }, [board, done, onComplete]);
 
