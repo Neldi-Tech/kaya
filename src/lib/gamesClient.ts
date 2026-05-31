@@ -1,17 +1,25 @@
 'use client';
 
-// Client → server bridge for awarding House Points from a finished game.
+// Client → server bridge for recording a finished game.
 // Gets the caller's Firebase ID token and POSTs to /api/games/award, which
-// derives the kid + points server-side and enforces the daily cap. The
-// client never sends a points value or a childId — it can't forge either.
+// derives the kid + the parent-set points value server-side. The client
+// never sends a points value or a childId — it can't forge either.
+//
+// HP carries real value, so nothing is credited here: a valued game comes
+// back `status: 'pending'` (awaiting a parent's approval) and a 0-value game
+// comes back `status: 'logged'` (recorded only).
 
 import { auth } from '@/lib/firebase';
+
+import type { GamePlayStatus } from '@/lib/games';
 
 export interface AwardResult {
   ok?: boolean;
   skipped?: boolean;
   reason?: string;
-  pointsAwarded?: number;
+  status?: GamePlayStatus;     // 'pending' (awaiting approval) | 'logged' | …
+  pointsAwarded?: number;      // HP actually credited (0 until approved)
+  pointsPending?: number;      // HP proposed, awaiting a parent's approval
   basePoints?: number;
   multiplier?: number;
   capped?: boolean;

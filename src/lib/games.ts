@@ -22,6 +22,8 @@ export interface GamesConfig {
   dailyMinutesCap: number;
   /** House Points a kid can earn from games per day. 0 = no cap. */
   dailyPointsCap: number;
+  /** House Points a kid can earn from games per week. 0 = no cap. */
+  weeklyPointsCap: number;
   /** Calm Corner is exempt from the daily caps (small, steady rewards). */
   calmUncapped: boolean;
   /** Require the day's homework done before non-calm games unlock (UI gate). */
@@ -30,6 +32,12 @@ export interface GamesConfig {
   youngMultiplier: number;
   /** "Young" = age at or below this (years). */
   youngMaxAge: number;
+  /** Per-game House-Points the parent assigns. Keyed by game id. A game NOT
+   *  present here is worth 0 (the new default — HP carries real value, so
+   *  games mint nothing until a parent opts a game in). Completing a game
+   *  worth > 0 creates a PENDING approval; a parent approves before any HP
+   *  is credited (see /api/games/award + lib/gamesApprovals). */
+  gamePoints?: Record<string, number>;
 }
 
 // Defaults are deliberately permissive: Games is being switched ON for
@@ -41,11 +49,35 @@ export const DEFAULT_GAMES_CONFIG: GamesConfig = {
   weekendWindow: null,
   dailyMinutesCap: 30,
   dailyPointsCap: 175,
+  weeklyPointsCap: 0,
   calmUncapped: true,
   homeworkGate: false,
   youngMultiplier: 1.5,
   youngMaxAge: 6,
+  gamePoints: {},
 };
+
+/** Min/max/step for the per-game points editor + the caps. Points carry
+ *  real value, so the ceiling is deliberately modest; parents can type an
+ *  exact value too (the UI offers a manual field). */
+export const POINTS_PER_GAME_MIN = 0;
+export const POINTS_PER_GAME_MAX = 100;
+export const POINTS_PER_GAME_STEP = 5;
+
+/** Brain-builders — auto-tagged "Mind +" in the editor to guide parents
+ *  toward paying mind-activating games more. Tag is advisory only. */
+export const MIND_GAME_IDS = new Set<string>([
+  'memory-match', 'word-sprint', 'math-dash', '2048', 'sliding-puzzle',
+  'sudoku-lite', 'family-trivia', 'story-builder',
+]);
+export const isMindGame = (gameId: string): boolean => MIND_GAME_IDS.has(gameId);
+
+/** The parent-assigned House-Points value for a game. Default 0 — a game
+ *  mints nothing until a parent opts it in via Games Controls. */
+export function gamePointsValue(cfg: GamesConfig, gameId: string): number {
+  const v = cfg.gamePoints?.[gameId];
+  return typeof v === 'number' && v > 0 ? Math.round(v) : 0;
+}
 
 /** Suggested window presets the parent UI offers when enabling windows
  *  (straight from the build brief §8). */
@@ -88,16 +120,47 @@ export function localDateKey(nowMs: number, tzOffsetMinutes: number): string {
   return new Date(nowMs + clamped * 60_000).toISOString().slice(0, 10);
 }
 
+/** Monday-of-this-week key (YYYY-MM-DD, kid-local) — the lower bound for the
+ *  weekly-cap accounting window. Plays with dateKey >= this belong to the
+ *  current week. Uses the same clamped tz handling as localDateKey. */
+export function localWeekStartKey(nowMs: number, tzOffsetMinutes: number): string {
+  const clamped = Math.max(-14 * 60, Math.min(14 * 60, Math.round(tzOffsetMinutes || 0)));
+  const local = new Date(nowMs + clamped * 60_000);
+  const dow = local.getUTCDay();              // 0=Sun … 6=Sat (on the shifted clock)
+  const backToMon = (dow + 6) % 7;            // days since Monday
+  local.setUTCDate(local.getUTCDate() - backToMon);
+  return local.toISOString().slice(0, 10);
+}
+
+/** Lifecycle of a finished game:
+ *  - 'logged'   — game is worth 0 HP (parent hasn't opted it in). Recorded
+ *                 for history/streaks, but credits nothing and needs no
+ *                 approval.
+ *  - 'pending'  — game is worth > 0 HP. Awaits a parent's approval; NO HP is
+ *                 credited yet (pointsPending holds the proposed amount).
+ *  - 'approved' — a parent approved it; HP credited (pointsAwarded, after any
+ *                 daily/weekly cap clipping applied AT approval time).
+ *  - 'rejected' — a parent declined it; credits nothing. */
+export type GamePlayStatus = 'logged' | 'pending' | 'approved' | 'rejected';
+
 export interface GamePlay {
   id: string;
   kidId: string;
+  kidName?: string;     // denormalised for the parent approval queue
   gameId: string;
+  gameName?: string;    // denormalised for the parent approval queue
   world: GameWorld;
   score: number | null;
   durationSec: number;
-  pointsAwarded: number;
-  basePoints: number;
+  status: GamePlayStatus;
+  pointsAwarded: number;  // HP actually credited (0 until approved)
+  pointsPending: number;  // HP proposed, awaiting approval (0 once resolved)
+  basePoints: number;     // the parent-set per-game value at completion time
   multiplier: number;
   dateKey: string;      // kid-local YYYY-MM-DD
-  capped: boolean;      // true when the daily points cap clipped the award
+  capped: boolean;      // true when a cap clipped the award at approval time
+  createdAt?: number;   // ms epoch, set server-side
+  resolvedAt?: number;  // ms epoch, set when approved/rejected
+  resolvedBy?: string;  // parent uid who approved/rejected
+  parentNote?: string;  // optional note shown to the kid (approve or reject)
 }
