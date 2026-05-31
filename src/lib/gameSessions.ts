@@ -86,3 +86,11 @@ export async function updateSession(
 ): Promise<void> {
   await updateDoc(docRef(familyId, sessionId), patch as Record<string, unknown>);
 }
+
+/** Dot-notation field write (e.g. `state.roundAnswers.<uid>`) so concurrent
+ *  players update their own slice without clobbering the whole doc. */
+export async function updateSessionFields(
+  familyId: string, sessionId: string, fields: Record<string, unknown>,
+): Promise<void> {
+  await updateDoc(docRef(familyId, sessionId), fields);
+}
