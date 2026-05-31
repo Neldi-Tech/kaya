@@ -100,7 +100,7 @@ export default function MazeRaceMultiPlay({ session, me, familyId }: { session: 
 
   // ── Setup (host picks mode + difficulty + world; others wait) ──────────────
   if (stage === 0) {
-    if (isHost) return <RaceSetup familyId={familyId} session={session} />;
+    if (isHost) return <RaceConfig session={session} familyId={familyId} canStart />;
     return <p className="text-center text-sm text-games-ink-soft py-16">The host is setting up the race… 🏁</p>;
   }
 
@@ -112,15 +112,20 @@ export default function MazeRaceMultiPlay({ session, me, familyId }: { session: 
 }
 
 // ── Host race setup ──────────────────────────────────────────────────────────
-function RaceSetup({ familyId, session }: { familyId: string; session: GameSession }) {
+// Rendered in the LOBBY (so the host picks 🏁/⏱️ + difficulty + world while
+// waiting for players) — and as a defensive fallback if a 'playing' session is
+// ever seen with no stage. `canStart` gates the button until ≥2 players.
+export function RaceConfig({ session, familyId, canStart }: { session: GameSession; familyId: string; canStart: boolean }) {
   const [mode, setMode] = useState<Mode>('first');
   const [diff, setDiff] = useState<Difficulty>('easy');
   const [worldIdx, setWorldIdx] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const start = async () => {
+    if (!canStart) return;
     setBusy(true);
     await updateSession(familyId, session.id, {
+      status: 'playing',
       state: {
         seed: Math.floor(Math.random() * 1_000_000_000),
         mode, diff, worldId: MAZE_WORLDS[worldIdx].id,
@@ -180,8 +185,8 @@ function RaceSetup({ familyId, session }: { familyId: string; session: GameSessi
         ))}
       </div>
 
-      <button type="button" disabled={busy} onClick={start} className="w-full bg-games-violet text-white font-display font-extrabold py-3.5 rounded-full mt-5 disabled:opacity-50">
-        {busy ? 'Starting…' : 'Start race ▶ · best of 3'}
+      <button type="button" disabled={busy || !canStart} onClick={start} className="w-full bg-games-violet text-white font-display font-extrabold py-3.5 rounded-full mt-5 disabled:opacity-50">
+        {busy ? 'Starting…' : canStart ? 'Start race ▶ · best of 3' : 'Waiting for players…'}
       </button>
     </div>
   );

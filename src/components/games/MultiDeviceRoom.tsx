@@ -19,7 +19,7 @@ import { shuffledDeck, type MemoryCard } from '@/lib/memoryMatch';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 import { slAdvance, slRollDie } from '@/lib/snakesLadders';
 import SnakesLaddersBoard from './SnakesLaddersBoard';
-import MazeRaceMultiPlay from './MazeRace';
+import MazeRaceMultiPlay, { RaceConfig } from './MazeRace';
 import UnoMultiPlay from './UnoMulti';
 
 type Mode = 'choose' | 'busy' | 'in' | 'error';
@@ -271,14 +271,23 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
       </div>
 
       {isHost ? (
-        <button
-          type="button"
-          disabled={session.players.length < 2}
-          onClick={() => updateSession(familyId, session.id, { status: 'playing' })}
-          className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full mt-4 disabled:opacity-50"
-        >
-          {session.players.length < 2 ? 'Waiting for players…' : 'Start game'}
-        </button>
+        // Maze Quest sets up its race (🏁/⏱️ + difficulty + world) right here in
+        // the lobby, so the host picks while waiting. Its own button starts the
+        // race (writes status:'playing'). Other games use the generic start.
+        session.gameId === 'maze-quest' ? (
+          <div className="mt-5 pt-4 border-t border-games-bg">
+            <RaceConfig session={session} familyId={familyId} canStart={session.players.length >= 2} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            disabled={session.players.length < 2}
+            onClick={() => updateSession(familyId, session.id, { status: 'playing' })}
+            className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full mt-4 disabled:opacity-50"
+          >
+            {session.players.length < 2 ? 'Waiting for players…' : 'Start game'}
+          </button>
+        )
       ) : (
         <p className="text-center text-sm text-games-ink-soft mt-4">Waiting for the host to start…</p>
       )}
