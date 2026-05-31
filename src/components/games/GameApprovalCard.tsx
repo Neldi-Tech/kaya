@@ -89,6 +89,13 @@ export default function GameApprovalCard({
         </div>
       </div>
 
+      {play.proofUrl && (
+        <a href={play.proofUrl} target="_blank" rel="noopener noreferrer" className="block mt-3 rounded-kaya overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={play.proofUrl} alt="Challenge proof" className="w-full max-h-52 object-cover" />
+        </a>
+      )}
+
       <input
         value={note}
         onChange={(e) => setNote(e.target.value)}

@@ -122,6 +122,19 @@ service firebase.storage {
       allow delete: if belongsToFamily(familyId);
     }
 
+    // ── Kaya Games → Real-World challenge proofs (2026-05-31) ──
+    // The kid uploads a photo proving a Real-World challenge; it becomes a
+    // PENDING gamePlay a parent approves in /games/approvals. Family-scoped,
+    // image-only, < 10 MB (post-downscale). Path:
+    //   families/{f}/children/{childId}/gameProofs/{gameId}/{photoId}.jpg
+    match /families/{familyId}/children/{childId}/gameProofs/{gameId}/{file} {
+      allow read: if belongsToFamily(familyId);
+      allow write: if belongsToFamily(familyId)
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId);
+    }
+
     // ── Kaya Sparks → item photos (2026-05-27) ──
     // Per-item photo gallery for the 4 capture areas (school projects,
     // home projects, achievements, sports subscriptions). Family-scoped

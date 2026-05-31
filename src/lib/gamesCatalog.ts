@@ -72,10 +72,10 @@ export const GAMES: GameDef[] = [
   { id: 'mood-checkin',  name: 'Mood Check-in',    world: 'calm', icon: '😊', tone: 'gold',   minAge: 0, minutes: 1, points: 5,  device: 'solo', built: true },
 
   // ── 🌍 Real-World (4 rotating · parent verifies a photo) ───────────
-  { id: 'build-a-fort',   name: 'Build a Fort',    world: 'realworld', icon: '🏰', tone: 'gold',  minAge: 0, minutes: 0, points: 75, device: 'solo', photoProof: true },
-  { id: 'family-workout', name: 'Family Workout',  world: 'realworld', icon: '💪', tone: 'coral', minAge: 0, minutes: 0, points: 60, device: 'solo', photoProof: true },
-  { id: 'plant-something', name: 'Plant Something', world: 'realworld', icon: '🌱', tone: 'teal', minAge: 0, minutes: 0, points: 50, device: 'solo', photoProof: true },
-  { id: 'thank-you-note', name: 'Thank-You Note',  world: 'realworld', icon: '✍️', tone: 'pink',  minAge: 5, minutes: 0, points: 40, device: 'solo', photoProof: true },
+  { id: 'build-a-fort',   name: 'Build a Fort',    world: 'realworld', icon: '🏰', tone: 'gold',  minAge: 0, minutes: 0, points: 75, device: 'solo', built: true, photoProof: true },
+  { id: 'family-workout', name: 'Family Workout',  world: 'realworld', icon: '💪', tone: 'coral', minAge: 0, minutes: 0, points: 60, device: 'solo', built: true, photoProof: true },
+  { id: 'plant-something', name: 'Plant Something', world: 'realworld', icon: '🌱', tone: 'teal', minAge: 0, minutes: 0, points: 50, device: 'solo', built: true, photoProof: true },
+  { id: 'thank-you-note', name: 'Thank-You Note',  world: 'realworld', icon: '✍️', tone: 'pink',  minAge: 5, minutes: 0, points: 40, device: 'solo', built: true, photoProof: true },
 ];
 
 /** The game featured in the hub's Daily Pick card. Matches the approved
