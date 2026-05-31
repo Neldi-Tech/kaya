@@ -7,6 +7,9 @@ export interface GameOutcome {
   success: boolean;
   score: number;
   message?: string;
+  /** Set by the multi-device room so the runner credits Fun-Points to all
+   *  players via /api/games/win rather than the (kid-only) award route. */
+  multiplayer?: boolean;
 }
 
 export interface GameProps {
