@@ -27,6 +27,7 @@ import {
   type SubscriptionCategory, type SubscriptionStatus, type SubscriptionFrequency,
 } from '@/lib/subscriptions';
 import { Timestamp } from 'firebase/firestore';
+import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
@@ -352,6 +353,7 @@ function SubscriptionEditSheet({
   const [status, setStatus] = useState<SubscriptionStatus>(sub.status);
   const [nextBillingIso, setNextBillingIso] = useState(tsToIso(sub.nextBillingDate));
   const [reminderDays, setReminderDays] = useState<number[]>(sub.reminderDaysBefore ?? []);
+  const [paidByUid, setPaidByUid] = useState<PaidByValue>(sub.paidByUid ?? null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -382,6 +384,7 @@ function SubscriptionEditSheet({
         status,
         nextBillingDate: ymdToTs(nextBillingIso),
         reminderDaysBefore: [...reminderDays].sort((a, b) => b - a),
+        paidByUid,
       });
       onSaved();
     } catch (e) {
@@ -458,6 +461,12 @@ function SubscriptionEditSheet({
             })}
           </div>
         </Field>
+
+        <PaidByPicker
+          familyId={familyId}
+          value={paidByUid}
+          onChange={setPaidByUid}
+        />
 
         {err && <div className="text-[12px] font-bold text-pulse-coral">{err}</div>}
 

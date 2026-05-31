@@ -88,6 +88,12 @@ export interface Subscription {
   beneficiaryUids: string[];
   paymentMethodId: string;
 
+  // Attribution (2026-05-30) — which parent the COST is attributed to
+  // for filtering + per-parent budget views. null / unset = Shared.
+  // Distinct from `accountHolderUid` (whose Apple ID / bank pays the
+  // bill); a card on Mum's account that Dad uses can be paidBy=Dad.
+  paidByUid?: string | null;
+
   // links
   vendorSupplierId: string | null;     // → /families/{f}/suppliers/{id}
   linkedWealthAssetId: string | null;  // → /families/{f}/wealth_assets/{id} (Property only)
@@ -330,6 +336,8 @@ export interface CreateSubscriptionInput {
   accountHolderUid: string;
   beneficiaryUids?: string[];
   paymentMethodId?: string;
+  /** Per-parent cost attribution; null/undefined = Shared. */
+  paidByUid?: string | null;
 
   // Links
   vendorSupplierId?: string | null;
@@ -414,7 +422,7 @@ export type SubscriptionEditableFields = Partial<Pick<
   | 'amountHousehold' | 'monthlyEquivalent'
   | 'frequency' | 'customMonths'
   | 'nextBillingDate' | 'startedOn' | 'endedOn'
-  | 'accountHolderUid' | 'beneficiaryUids' | 'paymentMethodId'
+  | 'accountHolderUid' | 'beneficiaryUids' | 'paymentMethodId' | 'paidByUid'
   | 'vendorSupplierId' | 'isProfessionalExpense'
   | 'reminderDaysBefore' | 'postDueCheckEnabled' | 'utilisationCheckDays'
   | 'archivedAt'

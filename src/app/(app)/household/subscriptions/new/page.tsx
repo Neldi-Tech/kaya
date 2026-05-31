@@ -28,6 +28,7 @@ import {
 import { filterGlobalSubsForCountry } from '@/lib/globalCatalogue';
 import { Timestamp } from 'firebase/firestore';
 import { AutoManualToggle } from '@/components/household/AutoManualToggle';
+import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
 import { CatalogueSearch, type CatalogueSelection } from '@/components/household/CatalogueSearch';
 import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/household/CurrencyAmountInput';
 import { FrequencyPicker, SUB_FREQUENCY_OPTIONS } from '@/components/household/FrequencyPicker';
@@ -120,6 +121,18 @@ export default function NewSubscriptionPage() {
   // When the parent flips Manual ↔ Auto, refresh the default unless
   // they've already touched the chips (touched flag below).
   const [reminderTouched, setReminderTouched] = useState(false);
+  // 2026-05-30 — per-parent attribution. Defaults to current user
+  // (the parent who's creating the entry) so the common case of "I
+  // just signed up for Netflix" tags as my cost without an extra tap.
+  // Parents flip to Shared / the other parent via the picker.
+  const [paidByUid, setPaidByUid] = useState<PaidByValue>(null);
+  useEffect(() => {
+    // Seed once the auth profile loads.
+    if (profile?.uid && paidByUid === null) {
+      setPaidByUid(profile.uid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.uid]);
 
   const [amount, setAmount] = useState<CurrencyAmountValue>({
     amountCents: 0,
@@ -198,6 +211,7 @@ export default function NewSubscriptionPage() {
       // 2. Server write of the subscription + first cycle. Picker is the
       // single source of truth; legacy hardcoded defaults retired.
       const reminderDaysBefore = [...reminderDaysPicked].sort((a, b) => b - a);
+      const paidByUidPayload = paidByUid;
       const { subId } = await createSubscription({
         familyId: profile.familyId,
         name: selection.name.trim(),
@@ -216,6 +230,7 @@ export default function NewSubscriptionPage() {
         startedOnIso,
         accountHolderUid: profile.uid,
         beneficiaryUids: [],
+        paidByUid: paidByUidPayload,
         isProfessionalExpense,
         reminderDaysBefore,
         createdByUid: profile.uid,
@@ -300,6 +315,17 @@ export default function NewSubscriptionPage() {
               : `Kaya will nudge you ${reminderDaysPicked.length} time${reminderDaysPicked.length === 1 ? '' : 's'} per cycle.`}
           </p>
         </div>
+
+        {/* Per-parent attribution — used by the list filter + per-parent
+            budget views. Default = current user; flip to Shared / the
+            other parent as needed. */}
+        {profile?.familyId && (
+          <PaidByPicker
+            familyId={profile.familyId}
+            value={paidByUid}
+            onChange={setPaidByUid}
+          />
+        )}
 
         {/* Taxonomy */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
