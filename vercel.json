@@ -43,6 +43,10 @@
     {
       "path": "/api/cron/coppa-retention",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/gmail-subscriptions",
+      "schedule": "0 8 * * 1"
     }
   ]
 }

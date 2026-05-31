@@ -7,7 +7,7 @@
 // annualized), category filter chips, and the EntryRow rendering per
 // subscription. Add button routes to /new.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
@@ -15,8 +15,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   subscribeToSubscriptions, computeSubscriptionKpis,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
-  getGmailScanStatus, fetchGmailScanResults,
-  Subscription, SubscriptionCategory, type ParsedSubscriptionDraft,
+  getGmailScanStatus, getGmailState, resolveGmailSuggestions, disconnectGmail,
+  Subscription, SubscriptionCategory, type GmailState,
 } from '@/lib/subscriptions';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
@@ -27,7 +27,7 @@ import { StatusBadge } from '@/components/household/StatusBadge';
 import PaidByFilterRow, { PaidByTag } from '@/components/household/PaidByFilterRow';
 import { type PaidByValue } from '@/components/household/PaidByPicker';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
-import ScanReceiptSheet from '@/components/household/ScanReceiptSheet';
+import ScanReceiptSheet, { type ReviewDraft } from '@/components/household/ScanReceiptSheet';
 
 function tsToIso(ts: Subscription['nextBillingDate']): string {
   if (!ts) return '';
@@ -46,9 +46,11 @@ export default function SubscriptionsListPage() {
   const [activeCategory, setActiveCategory] = useState<SubscriptionCategory | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanToast, setScanToast] = useState('');
-  // Gmail one-tap scan — env-gated; drafts handed back from the callback.
+  // Gmail scheduled scan — env-gated. Connection state + pending suggestions.
   const [gmailConfigured, setGmailConfigured] = useState(false);
-  const [gmailDrafts, setGmailDrafts] = useState<ParsedSubscriptionDraft[] | null>(null);
+  const [gmailState, setGmailState] = useState<GmailState>({ connected: false, email: null, lastScanAtMs: null, suggestions: [] });
+  const [reviewDrafts, setReviewDrafts] = useState<ReviewDraft[] | null>(null);
+  const [gmailBusy, setGmailBusy] = useState(false);
   // 'all' = no parent filter; null = Shared; uid = that parent
   const [paidByFilter, setPaidByFilter] = useState<PaidByValue | 'all'>('all');
   const [parents, setParents] = useState<UserProfile[]>([]);
@@ -77,38 +79,68 @@ export default function SubscriptionsListPage() {
     });
   }, [profile?.familyId]);
 
-  // Is the Gmail one-tap scan available in this environment? (operator
-  // sets the Google OAuth client env — until then the button stays hidden.)
+  // Reload the parent's Gmail connection + pending suggestions.
+  const loadGmailState = useCallback(() => {
+    getGmailState().then(setGmailState).catch(() => {});
+  }, []);
+
+  // Is the Gmail scan available in this environment? (operator sets the
+  // Google OAuth client env — until then the entry point stays hidden.)
+  // When available, also load this parent's connection + suggestions.
   useEffect(() => {
     if (!profile || profile.role !== 'parent') return;
     let alive = true;
-    getGmailScanStatus().then((ok) => { if (alive) setGmailConfigured(ok); });
+    getGmailScanStatus().then((ok) => {
+      if (!alive) return;
+      setGmailConfigured(ok);
+      if (ok) loadGmailState();
+    });
     return () => { alive = false; };
-  }, [profile]);
+  }, [profile, loadGmailState]);
 
-  // Returning from a Gmail scan (?gmailScan=…)? Pick up the stashed drafts
-  // and open the review sheet, or surface the right status toast. The flag
-  // is stripped immediately so a refresh can't replay it.
+  // Returning from a connect (?gmailScan=…)? Surface the right toast and
+  // refresh state so the suggestions banner appears. The flag is stripped
+  // immediately so a refresh can't replay it.
   useEffect(() => {
     if (!profile || profile.role !== 'parent') return;
     const status = new URLSearchParams(window.location.search).get('gmailScan');
     if (!status) return;
     window.history.replaceState(null, '', '/household/subscriptions');
-    if (status === 'done') {
-      fetchGmailScanResults().then((drafts) => {
-        if (drafts.length > 0) { setGmailDrafts(drafts); setScanOpen(true); }
-        else setScanToast('No new subscriptions found in your recent receipt emails.');
-      });
-    } else if (status === 'empty') {
-      setScanToast('No subscription receipts found in your recent emails.');
+    if (status === 'connected') {
+      setScanToast('✅ Gmail connected — Kaya found subscriptions for you to review below.');
+      loadGmailState();
+    } else if (status === 'connected_empty') {
+      setScanToast('✅ Gmail connected — nothing new right now. Kaya will keep checking weekly.');
+      loadGmailState();
     } else if (status === 'skipped') {
       setScanToast('AI is off in this preview — paste a receipt into “From receipt” instead.');
     } else if (status === 'cancelled') {
-      setScanToast('Gmail scan cancelled — nothing was read.');
+      setScanToast('Gmail connect cancelled — nothing was changed.');
     } else {
-      setScanToast('Couldn’t complete the Gmail scan — please try again.');
+      setScanToast('Couldn’t complete the Gmail connect — please try again.');
     }
-  }, [profile]);
+  }, [profile, loadGmailState]);
+
+  // Kick off the read-only OAuth consent (full-page redirect).
+  const connectGmail = () => {
+    if (!profile?.familyId) return;
+    window.location.href =
+      `/api/subscriptions/gmail/start?familyId=${encodeURIComponent(profile.familyId)}&uid=${encodeURIComponent(profile.uid)}`;
+  };
+
+  const handleDisconnect = async () => {
+    if (gmailBusy) return;
+    setGmailBusy(true);
+    try { await disconnectGmail(); loadGmailState(); setScanToast('Gmail disconnected — Kaya will stop checking.'); }
+    finally { setGmailBusy(false); }
+  };
+
+  // Open the review sheet seeded with the family's pending Gmail suggestions.
+  const reviewSuggestions = () => {
+    if (gmailState.suggestions.length === 0) return;
+    setReviewDrafts(gmailState.suggestions.map((s) => ({ ...s, suggestionId: s.id })));
+    setScanOpen(true);
+  };
 
   const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
 
@@ -180,24 +212,39 @@ export default function SubscriptionsListPage() {
             </Link>
             <button
               type="button"
-              onClick={() => { setGmailDrafts(null); setScanOpen(true); }}
+              onClick={() => { setReviewDrafts(null); setScanOpen(true); }}
               className="rounded-full bg-pulse-gold/15 border border-pulse-gold/40 px-3 py-1.5 font-display font-extrabold text-pulse-navy hover:bg-pulse-gold/25 transition-colors text-[12px]"
               title="Paste or upload an App Store / Play / service receipt — Kaya reads off the subscriptions for you."
             >
               📩 From receipt
             </button>
-            {gmailConfigured && profile.familyId && (
+            {gmailConfigured && profile.familyId && !gmailState.connected && (
               <button
                 type="button"
-                onClick={() => {
-                  window.location.href =
-                    `/api/subscriptions/gmail/start?familyId=${encodeURIComponent(profile.familyId)}&uid=${encodeURIComponent(profile.uid)}`;
-                }}
+                onClick={connectGmail}
                 className="rounded-full bg-white border border-pulse-navy/15 px-3 py-1.5 font-display font-extrabold text-pulse-navy hover:bg-pulse-navy/5 transition-colors text-[12px]"
-                title="Connect Gmail (read-only, one-time) so Kaya can find App Store / Play / streaming receipts for you. Nothing is added without your confirmation."
+                title="Connect Gmail (read-only) once — Kaya then checks weekly for new App Store / Play / streaming subscriptions. Nothing is added without your confirmation; disconnect any time."
               >
-                ✉️ Scan Gmail
+                ✉️ Connect Gmail
               </button>
+            )}
+            {gmailConfigured && gmailState.connected && (
+              <div className="flex items-center gap-1.5">
+                <span
+                  title={gmailState.email ? `Connected: ${gmailState.email}` : 'Gmail connected'}
+                  className="inline-flex items-center gap-1 rounded-full bg-pulse-green/12 border border-pulse-green/35 px-2.5 py-1 font-display font-extrabold text-pulse-green text-[11px]"
+                >
+                  ✉️ Gmail on
+                </span>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  disabled={gmailBusy}
+                  className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/45 hover:text-pulse-coral disabled:opacity-40"
+                >
+                  {gmailBusy ? '…' : 'Disconnect'}
+                </button>
+              </div>
             )}
           </div>
         )}
@@ -207,6 +254,22 @@ export default function SubscriptionsListPage() {
         <div className="mb-4 rounded-kaya bg-pulse-green/12 border border-pulse-green/35 text-pulse-green font-bold text-[13px] px-4 py-2.5">
           {scanToast}
         </div>
+      )}
+
+      {/* Gmail found new subscriptions — one tap to review + confirm. */}
+      {profile.role === 'parent' && gmailState.suggestions.length > 0 && (
+        <button
+          type="button"
+          onClick={reviewSuggestions}
+          className="mb-4 w-full flex items-center justify-between gap-3 rounded-kaya bg-pulse-gold/12 border border-pulse-gold/45 px-4 py-3 text-left hover:bg-pulse-gold/20 transition-colors"
+        >
+          <span className="font-display font-extrabold text-[13.5px] text-pulse-navy">
+            ✨ Kaya found {gmailState.suggestions.length} subscription{gmailState.suggestions.length === 1 ? '' : 's'} in your Gmail
+          </span>
+          <span className="shrink-0 rounded-full bg-pulse-navy px-3 py-1 font-display font-extrabold text-pulse-cream text-[12px]">
+            Review
+          </span>
+        </button>
       )}
 
       <section className="mb-4">
@@ -315,13 +378,14 @@ export default function SubscriptionsListPage() {
       {profile.role === 'parent' && profile.familyId && (
         <ScanReceiptSheet
           open={scanOpen}
-          onClose={() => { setScanOpen(false); setGmailDrafts(null); }}
+          onClose={() => { setScanOpen(false); setReviewDrafts(null); }}
           familyId={profile.familyId}
           uid={profile.uid}
           currency={householdCurrency}
-          initialDrafts={gmailDrafts}
+          initialDrafts={reviewDrafts}
+          onResolve={(added, dismissed) => { resolveGmailSuggestions(added, dismissed).then(loadGmailState); }}
           onImported={(n) => {
-            setGmailDrafts(null);
+            setReviewDrafts(null);
             setScanToast(
               n > 0
                 ? `✅ Added ${n} subscription${n === 1 ? '' : 's'} from your receipt.`

@@ -22,6 +22,10 @@ function newClientToken(): string {
   return 'tok_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
+/** A draft to review, optionally tied to a stored Gmail suggestion so the
+ *  page can mark it added/dismissed once the parent decides. */
+export type ReviewDraft = ParsedSubscriptionDraft & { suggestionId?: string };
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -32,9 +36,12 @@ interface Props {
    *  currency when a receipt doesn't state its own. */
   currency: string;
   /** When provided, the sheet opens straight into the review checklist
-   *  with these drafts (e.g. handed back from a Gmail scan) instead of
-   *  the paste/upload input. The parent still ticks + confirms each one. */
-  initialDrafts?: ParsedSubscriptionDraft[] | null;
+   *  with these drafts (e.g. from a Gmail scan) instead of the paste/upload
+   *  input. The parent still ticks + confirms each one. */
+  initialDrafts?: ReviewDraft[] | null;
+  /** Called after import when the drafts came from Gmail suggestions:
+   *  addedIds = suggestions turned into subs, dismissedIds = the rest. */
+  onResolve?: (addedIds: string[], dismissedIds: string[]) => void;
 }
 
 // A receipt rarely tells us a Kaya category; default by platform —
@@ -46,9 +53,9 @@ function defaultCategory(d: ParsedSubscriptionDraft): { category: SubscriptionCa
   return { category: 'media', subCategory: 'Streaming Video' };
 }
 
-type Row = ParsedSubscriptionDraft & { picked: boolean; key: string };
+type Row = ParsedSubscriptionDraft & { picked: boolean; key: string; suggestionId?: string };
 
-export default function ScanReceiptSheet({ open, onClose, onImported, familyId, uid, currency, initialDrafts }: Props) {
+export default function ScanReceiptSheet({ open, onClose, onImported, familyId, uid, currency, initialDrafts, onResolve }: Props) {
   const [mode, setMode] = useState<'input' | 'review'>('input');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -65,7 +72,7 @@ export default function ScanReceiptSheet({ open, onClose, onImported, familyId, 
   // the review checklist. Keyed on open so a fresh scan re-seeds the rows.
   useEffect(() => {
     if (open && initialDrafts && initialDrafts.length > 0) {
-      setRows(initialDrafts.map((s, i) => ({ ...s, picked: true, key: `g-${i}-${s.name}` })));
+      setRows(initialDrafts.map((s, i) => ({ ...s, picked: true, key: `g-${i}-${s.name}`, suggestionId: s.suggestionId })));
       setMode('review');
       setError(''); setNote('');
     }
@@ -104,6 +111,7 @@ export default function ScanReceiptSheet({ open, onClose, onImported, familyId, 
     if (picked.length === 0 || busy) return;
     setBusy(true); setError('');
     let ok = 0;
+    const addedIds: string[] = [];          // Gmail suggestions turned into subs
     try {
       const today = new Date();
       const fallbackNext = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -136,7 +144,18 @@ export default function ScanReceiptSheet({ open, onClose, onImported, familyId, 
             clientToken: newClientToken(),
           });
           ok += 1;
+          if (r.suggestionId) addedIds.push(r.suggestionId);
         } catch { /* skip the one that failed; keep importing the rest */ }
+      }
+      // If these drafts came from Gmail suggestions, mark the outcome:
+      // added = created OK; dismissed = unticked (so it won't nag again).
+      // A picked row whose creation failed stays pending (neither bucket).
+      const hasSuggestions = rows.some((r) => r.suggestionId);
+      if (hasSuggestions && onResolve) {
+        const dismissedIds = rows
+          .filter((r) => r.suggestionId && !r.picked)
+          .map((r) => r.suggestionId as string);
+        onResolve(addedIds, dismissedIds);
       }
       onImported(ok);
       close();

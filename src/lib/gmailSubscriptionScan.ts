@@ -1,9 +1,9 @@
-// Gmail subscription scan — server-only helpers (Phase 2 auto-detect).
+// Gmail subscription scan — server-only helpers (auto-detect).
 //
-// Read-only, single-use: we exchange the OAuth code for an access token,
-// search the inbox for known subscription senders, fetch + decode those
-// message bodies, hand them to the parser, then DISCARD the token. We
-// never store the refresh token — there is no standing mailbox access.
+// Read-only access to find subscription receipts. The parent connects ONCE
+// (offline access → a refresh token) and Kaya re-scans on a weekly cron, so
+// nobody has to remember to do anything. The refresh token is encrypted at
+// rest (see gmailTokenCrypto) and can be revoked any time via disconnect.
 //
 // Entirely config-gated: every entry point first checks isGmailConfigured()
 // so the feature is dormant until GOOGLE_OAUTH_CLIENT_ID + _SECRET are set
@@ -26,23 +26,30 @@ export function gmailRedirectUri(origin: string): string {
 }
 
 /** Build the Google consent URL. `state` is an opaque CSRF token the
- *  caller also stores in an httpOnly cookie + verifies on callback. */
+ *  caller also stores in an httpOnly cookie + verifies on callback.
+ *  access_type=offline + prompt=consent → Google returns a refresh token
+ *  so the weekly cron can re-scan without the parent re-consenting. */
 export function buildConsentUrl(origin: string, state: string): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_OAUTH_CLIENT_ID!,
     redirect_uri: gmailRedirectUri(origin),
     response_type: 'code',
     scope: SCOPE,
-    access_type: 'online',          // online = no refresh token; single-use scan
+    access_type: 'offline',         // offline = issue a refresh token (scheduled scan)
     include_granted_scopes: 'false',
-    prompt: 'consent',
+    prompt: 'consent',              // force consent so a refresh token is (re)issued
     state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
 
-/** Exchange the authorization code for a short-lived access token. */
-export async function exchangeCodeForToken(origin: string, code: string): Promise<string | null> {
+export interface TokenSet {
+  accessToken: string;
+  refreshToken: string | null;     // present on first consent; null on re-grant
+}
+
+/** Exchange the authorization code for an access token (+ refresh token). */
+export async function exchangeCodeForToken(origin: string, code: string): Promise<TokenSet | null> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -56,7 +63,36 @@ export async function exchangeCodeForToken(origin: string, code: string): Promis
   });
   if (!res.ok) return null;
   const data = await res.json().catch(() => null);
+  const accessToken = (data?.access_token as string) || '';
+  if (!accessToken) return null;
+  return { accessToken, refreshToken: (data?.refresh_token as string) || null };
+}
+
+/** Mint a fresh access token from a stored refresh token (cron path). */
+export async function refreshAccessToken(refreshToken: string): Promise<string | null> {
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: process.env.GOOGLE_OAUTH_CLIENT_ID!,
+      client_secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET!,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
   return (data?.access_token as string) || null;
+}
+
+/** Revoke a token at Google (used on disconnect — best-effort). */
+export async function revokeToken(token: string): Promise<void> {
+  try {
+    await fetch(`https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+  } catch { /* best-effort; the doc is deleted regardless */ }
 }
 
 // Known subscription-receipt senders. Gmail search joins these with OR.
@@ -73,16 +109,20 @@ const SENDERS = [
 
 interface GmailMessageMeta { id: string }
 
-/** Search the inbox for subscription-sender receipts in the last `months`
- *  and return up to `max` decoded plain-text bodies. Read-only. */
+/** Search the inbox for subscription-sender receipts and return up to `max`
+ *  decoded plain-text bodies. Read-only.
+ *  - months: look-back window for a first/full scan (default 12).
+ *  - afterEpochSec: when set (incremental cron scan), only messages newer
+ *    than this unix-seconds timestamp are considered. */
 export async function fetchSubscriptionEmailBodies(
   accessToken: string,
-  opts: { months?: number; max?: number } = {},
+  opts: { months?: number; max?: number; afterEpochSec?: number } = {},
 ): Promise<string[]> {
   const months = opts.months ?? 12;
   const max = opts.max ?? 25;
   const fromClause = SENDERS.map((s) => `from:${s}`).join(' OR ');
-  const q = `(${fromClause}) newer_than:${months}m`;
+  const window = opts.afterEpochSec ? `after:${opts.afterEpochSec}` : `newer_than:${months}m`;
+  const q = `(${fromClause}) ${window}`;
 
   const listRes = await fetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${max}&q=${encodeURIComponent(q)}`,
@@ -106,6 +146,20 @@ export async function fetchSubscriptionEmailBodies(
     } catch { /* skip the one that failed */ }
   }
   return bodies;
+}
+
+/** Read the connected account's email address (for display on the chip). */
+export async function fetchGmailAddress(accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return (data?.emailAddress as string) || null;
+  } catch {
+    return null;
+  }
 }
 
 /** Walk a Gmail message payload tree and pull the first text/plain part
