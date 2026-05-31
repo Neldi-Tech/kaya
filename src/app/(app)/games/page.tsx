@@ -190,6 +190,12 @@ export default function GamesPage() {
         >
           🧪 Kaya Lab
         </Link>
+        <Link
+          href="/games/stories"
+          className="inline-flex items-center gap-1.5 mb-5 ml-2 bg-games-card text-games-violet-deep text-xs font-extrabold px-4 py-2 rounded-full shadow-[0_4px_12px_rgba(26,18,64,0.06)]"
+        >
+          📖 Story gallery
+        </Link>
 
         {/* Daily Pick */}
         {pick && (

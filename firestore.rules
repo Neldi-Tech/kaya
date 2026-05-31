@@ -340,6 +340,15 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // ── Kaya Games · saved Story Builder keepsakes (stories) ───────
+      // One doc per saved collaborative story. Written ONLY by the Admin
+      // /api/games/story/save route (which also AI-scores it), so a kid
+      // can't forge a story or its score. Any family member can read.
+      match /stories/{storyId} {
+        allow read: if belongsToFamily(familyId);
+        allow write: if false;
+      }
+
       // ── Helpers (per-family scoped credential) ───────────────────
       // One doc per helper at /helpers/{uid}. Parents manage; the
       // helper themselves can read their own doc so the UI can show

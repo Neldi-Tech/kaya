@@ -11,6 +11,7 @@ import {
 } from '@/lib/gameSessions';
 import { type Cell, decideTicTacToe, tttGlyph } from '@/lib/ticTacToe';
 import { recordWin } from '@/lib/gamesWinClient';
+import { saveStory } from '@/lib/gamesStoryClient';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 import { slAdvance, slRollDie } from '@/lib/snakesLadders';
 import SnakesLaddersBoard from './SnakesLaddersBoard';
@@ -142,6 +143,13 @@ function WinnerView({ session, game, me }: { session: GameSession; game: GameDef
   const isHost = session.hostUid === me;
   const [streak, setStreak] = useState<number | null>(null);
   const recordedRef = useRef(false);
+  const sentences = (session.state.sentences as Sentence[]) || [];
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const doSave = async () => {
+    setSaveState('saving');
+    const r = await saveStory(session.id);
+    setSaveState(r.ok || r.alreadySaved ? 'saved' : 'error');
+  };
 
   useEffect(() => {
     if (isHost && !recordedRef.current) {
@@ -162,6 +170,35 @@ function WinnerView({ session, game, me }: { session: GameSession; game: GameDef
         <h2 className="font-display text-2xl font-black text-games-ink mb-1">
           {collaborative ? 'Great story together!' : winner ? `${winner.name} wins! 🎉` : 'Game over!'}
         </h2>
+        {collaborative && (
+          <>
+            {sentences.length > 0 && (
+              <div className="bg-games-bg rounded-kaya p-3 my-3 text-left max-h-44 overflow-y-auto text-sm leading-relaxed text-games-ink">
+                {sentences.map((s, i) => (
+                  <span key={i}><span className="text-games-violet font-bold">{s.name}:</span> {s.text}{' '}</span>
+                ))}
+              </div>
+            )}
+            {isHost ? (
+              saveState === 'saved' ? (
+                <a href="/games/stories" className="block bg-games-mint text-games-ink font-extrabold text-sm rounded-kaya py-2.5 mb-2.5">
+                  ✓ Saved! Read it in your Story Gallery →
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  onClick={doSave}
+                  disabled={saveState === 'saving' || sentences.length === 0}
+                  className="w-full bg-games-violet text-white font-extrabold text-sm rounded-kaya py-2.5 mb-2.5 disabled:opacity-60"
+                >
+                  {saveState === 'saving' ? '✨ Saving & scoring…' : saveState === 'error' ? 'Hmm — tap to try saving again' : '💾 Save & score this story'}
+                </button>
+              )
+            ) : (
+              <p className="text-[11px] text-games-ink-soft mb-2.5">Ask the host to save this story to your gallery 📖</p>
+            )}
+          </>
+        )}
         {!collaborative && (
           <div className="bg-games-bg rounded-kaya p-3 my-3 text-left">
             {ranked.map((p, i) => (

@@ -38,6 +38,9 @@ export interface GamesConfig {
    *  worth > 0 creates a PENDING approval; a parent approves before any HP
    *  is credited (see /api/games/award + lib/gamesApprovals). */
   gamePoints?: Record<string, number>;
+  /** Days a saved Story Builder keepsake stays readable in the gallery.
+   *  0 = keep forever. Stories past this age are hidden (and later pruned). */
+  storyRetentionDays: number;
 }
 
 // Defaults are deliberately permissive: Games is being switched ON for
@@ -55,6 +58,7 @@ export const DEFAULT_GAMES_CONFIG: GamesConfig = {
   youngMultiplier: 1.5,
   youngMaxAge: 6,
   gamePoints: {},
+  storyRetentionDays: 30,
 };
 
 /** Min/max/step for the per-game points editor + the caps. Points carry
