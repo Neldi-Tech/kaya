@@ -59,7 +59,10 @@ export default function InsightsPage() {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     const totals: Record<string, number> = {};
     for (const t of transactions) {
-      if (t.layer !== 'cash' || t.direction !== 'out') continue;
+      // Spendable pockets (Honey Pot + Cash); skip internal Pot↔Cash transfers
+      // and business reinvest so the top-category reflects real spending.
+      if (t.layer !== 'cash' && t.layer !== 'treasury') continue;
+      if (t.direction !== 'out' || t.category === 'convert' || t.category === 'business') continue;
       const ts = (t.createdAt as any)?.toMillis?.();
       if (typeof ts !== 'number' || ts < monthStart) continue;
       totals[t.category] = (totals[t.category] || 0) + t.amount;

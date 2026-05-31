@@ -455,7 +455,12 @@ export function spendingByCategoryInMonth(
   const end = new Date(yyyy, mm, 1).getTime();
   const out: Partial<Record<TxCategory, number>> = {};
   for (const t of transactions) {
-    if (t.layer !== 'cash' || t.direction !== 'out') continue;
+    // Spendable pockets (Honey Pot + Cash), real spends only — skip the
+    // internal Pot↔Cash 'convert' transfer and 'business' reinvest so plan
+    // budgets track actual category spending across both pockets.
+    if (t.layer !== 'cash' && t.layer !== 'treasury') continue;
+    if (t.direction !== 'out') continue;
+    if (t.category === 'convert' || t.category === 'business') continue;
     const ts = (t.createdAt as any)?.toMillis?.();
     if (typeof ts !== 'number' || ts < start || ts >= end) continue;
     const c = t.category;
