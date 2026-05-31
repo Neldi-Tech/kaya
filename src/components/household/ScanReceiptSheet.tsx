@@ -11,7 +11,7 @@
 // confirmed draft lands via createSubscription (Auto billing for store
 // receipts, paidByUid = the parent doing the import by default).
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   scanReceiptText, scanReceiptImage, createSubscription,
   type ParsedSubscriptionDraft, type SubscriptionCategory, type SubscriptionFrequency,
@@ -31,6 +31,10 @@ interface Props {
   /** Family display currency — used as the parse hint + the storage
    *  currency when a receipt doesn't state its own. */
   currency: string;
+  /** When provided, the sheet opens straight into the review checklist
+   *  with these drafts (e.g. handed back from a Gmail scan) instead of
+   *  the paste/upload input. The parent still ticks + confirms each one. */
+  initialDrafts?: ParsedSubscriptionDraft[] | null;
 }
 
 // A receipt rarely tells us a Kaya category; default by platform —
@@ -44,7 +48,7 @@ function defaultCategory(d: ParsedSubscriptionDraft): { category: SubscriptionCa
 
 type Row = ParsedSubscriptionDraft & { picked: boolean; key: string };
 
-export default function ScanReceiptSheet({ open, onClose, onImported, familyId, uid, currency }: Props) {
+export default function ScanReceiptSheet({ open, onClose, onImported, familyId, uid, currency, initialDrafts }: Props) {
   const [mode, setMode] = useState<'input' | 'review'>('input');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
@@ -56,6 +60,16 @@ export default function ScanReceiptSheet({ open, onClose, onImported, familyId, 
     setMode('input'); setText(''); setBusy(false); setError(''); setNote(''); setRows([]);
   };
   const close = () => { reset(); onClose(); };
+
+  // When opened with drafts already in hand (Gmail scan), jump straight to
+  // the review checklist. Keyed on open so a fresh scan re-seeds the rows.
+  useEffect(() => {
+    if (open && initialDrafts && initialDrafts.length > 0) {
+      setRows(initialDrafts.map((s, i) => ({ ...s, picked: true, key: `g-${i}-${s.name}` })));
+      setMode('review');
+      setError(''); setNote('');
+    }
+  }, [open, initialDrafts]);
 
   const handleResult = (subs: ParsedSubscriptionDraft[], skipped?: boolean, err?: string) => {
     if (skipped) { setError('AI is off in this preview — paste the details into "Add manually" instead.'); return; }

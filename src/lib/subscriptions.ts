@@ -18,7 +18,7 @@ import {
   collection, doc, getDoc, getDocs, query, orderBy, limit as qlimit,
   Timestamp, onSnapshot, updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { auth, db } from './firebase';
 import { isGuestActive } from './mockFamily';
 
 // ── Cycle subcollection types ───────────────────────────────────────
@@ -537,5 +537,43 @@ export async function scanReceiptImage(file: File, currency?: string): Promise<S
     return { subscriptions: data.subscriptions ?? [] };
   } catch (e) {
     return { subscriptions: [], error: e instanceof Error ? e.message : 'Parse failed' };
+  }
+}
+
+// ── Gmail one-tap scan (Phase 2 · config-gated) ──────────────────────
+//
+// A read-only, single-use Gmail scan that finds subscription receipts
+// from known senders, parses them with the SAME parser as paste/upload,
+// and hands the drafts to the review sheet. The whole feature is dormant
+// until the operator sets the Google OAuth client env (see status probe).
+
+/** Is the Gmail-connect path available in this environment? The UI hides
+ *  the entry point unless this is true. */
+export async function getGmailScanStatus(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/subscriptions/gmail/status');
+    if (!res.ok) return false;
+    const data = await res.json();
+    return !!data?.configured;
+  } catch {
+    return false;
+  }
+}
+
+/** Pick up the drafts a completed Gmail scan stashed for this parent
+ *  (consume-once on the server). Returns [] if nothing is waiting. */
+export async function fetchGmailScanResults(): Promise<ParsedSubscriptionDraft[]> {
+  const u = auth.currentUser;
+  if (!u) return [];
+  try {
+    const token = await u.getIdToken();
+    const res = await fetch('/api/subscriptions/gmail/results', {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data?.drafts ?? []) as ParsedSubscriptionDraft[];
+  } catch {
+    return [];
   }
 }
