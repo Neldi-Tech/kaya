@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import BackButton from '@/components/ui/BackButton';
 import { useAuth } from '@/contexts/AuthContext';
 import { getChildren, type Child } from '@/lib/firestore';
@@ -35,12 +36,9 @@ function metaLine(g: GameDef): string {
 
 function GameCard({ g }: { g: GameDef }) {
   const tag = DEVICE_TAG[g.device];
-  return (
-    <div
-      className={`relative bg-games-card rounded-kaya p-3.5 shadow-[0_4px_12px_rgba(26,18,64,0.06)] ${
-        g.built ? '' : 'opacity-60'
-      }`}
-    >
+  const base = 'relative block bg-games-card rounded-kaya p-3.5 shadow-[0_4px_12px_rgba(26,18,64,0.06)]';
+  const inner = (
+    <>
       {/* reward / state badge */}
       {g.built ? (
         <span className="absolute top-2.5 right-2.5 bg-games-gold text-games-ink text-[9px] font-extrabold px-1.5 py-0.5 rounded-md">
@@ -59,7 +57,12 @@ function GameCard({ g }: { g: GameDef }) {
         <span>{metaLine(g)}</span>
         {tag && <span className={`${tag.cls} text-[9px] font-extrabold px-1.5 py-0.5 rounded`}>{tag.label}</span>}
       </p>
-    </div>
+    </>
+  );
+  return g.built ? (
+    <Link href={`/games/${g.id}`} className={`${base} active:scale-95 transition-transform`}>{inner}</Link>
+  ) : (
+    <div className={`${base} opacity-60`}>{inner}</div>
   );
 }
 
