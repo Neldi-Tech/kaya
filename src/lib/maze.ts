@@ -168,7 +168,8 @@ export interface DrawState {
   maze: Maze; world: MazeWorld; cell: number; view: number;
   coins: Coin[]; exit: Pt;
   player: Entity; playerGlyph: string;
-  diana?: Entity | null; dianaGlyph?: string;
+  // other racers (2-phone / family race) — each drawn as a ghost runner
+  opponents?: Array<{ e: Entity; glyph: string; halo: string }>;
   chaser?: Entity | null;
   hintCells?: Pt[] | null; stunned?: boolean;
 }
@@ -224,8 +225,8 @@ export function drawMaze(ctx: CanvasRenderingContext2D, s: DrawState): void {
   const halo = (e: Entity, col: string) => { ctx.fillStyle = col; ctx.beginPath(); ctx.arc(e.x, e.y, cell * 0.42, 0, Math.PI * 2); ctx.fill(); };
   // chaser
   if (s.chaser) { halo(s.chaser, 'rgba(107,63,224,0.28)'); emojiAt(ctx, '👻', s.chaser.x, s.chaser.y, cell * 0.6); }
-  // opponent
-  if (s.diana) { halo(s.diana, 'rgba(255,107,107,0.30)'); emojiAt(ctx, s.dianaGlyph || '🐰', s.diana.x, s.diana.y, cell * 0.6); }
+  // opponents (other racers)
+  if (s.opponents) for (const o of s.opponents) { halo(o.e, o.halo); emojiAt(ctx, o.glyph, o.e.x, o.e.y, cell * 0.6); }
   // player
   halo(s.player, s.stunned ? 'rgba(255,80,80,0.45)' : 'rgba(255,201,60,0.42)');
   emojiAt(ctx, s.playerGlyph, s.player.x, s.player.y, cell * 0.64);

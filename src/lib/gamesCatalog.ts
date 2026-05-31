@@ -57,7 +57,7 @@ export const GAMES: GameDef[] = [
   { id: 'sudoku-lite',   name: 'Sudoku Lite',      world: 'quick', icon: '🔡', tone: 'teal',   minAge: 7, minutes: 8,  points: 25, device: 'solo', built: true },
   { id: 'snake',         name: 'Snake',            world: 'quick', icon: '🐍', tone: 'coral',  minAge: 5, minutes: 5,  points: 15, device: 'solo', built: true },
   { id: 'tic-tac-toe',   name: 'Tic-Tac-Toe',      world: 'quick', icon: '❌', tone: 'violet', minAge: 4, minutes: 2,  points: 10, device: 'both', players: '1–2', built: true, note: 'a friend, two phones, or the computer' },
-  { id: 'maze-quest',    name: 'Maze Quest',       world: 'quick', icon: '🌀', tone: 'violet', minAge: 5, minutes: 5,  points: 20, device: 'both', players: '1–2', built: true, note: 'Climb solo or race two phones' },
+  { id: 'maze-quest',    name: 'Maze Quest',       world: 'quick', icon: '🌀', tone: 'violet', minAge: 5, minutes: 5,  points: 20, device: 'both', players: '1–6', built: true, note: 'Climb solo or race the family' },
 
   // ── 🎪 Family Time (6 · multiplayer) ───────────────────────────────
   { id: 'family-trivia',  name: 'Family Trivia',   world: 'family', icon: '🎯', tone: 'violet', minAge: 0, minutes: 15, points: 50, device: 'multi', players: '2–8', built: true, note: 'Buzz in on your phone' },

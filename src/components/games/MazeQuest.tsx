@@ -53,7 +53,7 @@ function ModeSelect({ onPick }: { onPick: (c: Choice) => void }) {
       <p className="text-center text-sm font-extrabold text-games-ink mb-4">How do you want to play?</p>
       <div className="space-y-2.5">
         <Card ic="🧗" t="Solo Adventure" s="Climb the levels — each maze bigger than the last. Your level is always on show." onClick={() => onPick('solo')} />
-        <Card ic="📲" t="Two-Phone Race" s="Same maze, two phones. First one out wins — or fastest time. Best of 3." onClick={() => onPick('multi')} />
+        <Card ic="📲" t="Family Race" s="Everyone on their own phone — same maze. First one out wins, or fastest time. Best of 3." onClick={() => onPick('multi')} />
       </div>
       <div className="grid grid-cols-4 gap-2 mt-4">
         {[['🤖', 'AI worlds'], ['🪙', 'Coins'], ['👻', 'Chaser'], ['💡', 'Hints']].map(([e, l]) => (
