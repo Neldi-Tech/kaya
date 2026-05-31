@@ -26,6 +26,7 @@ import { StatusBadge } from '@/components/household/StatusBadge';
 import PaidByFilterRow, { PaidByTag } from '@/components/household/PaidByFilterRow';
 import { type PaidByValue } from '@/components/household/PaidByPicker';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import ScanReceiptSheet from '@/components/household/ScanReceiptSheet';
 
 function tsToIso(ts: Subscription['nextBillingDate']): string {
   if (!ts) return '';
@@ -42,6 +43,8 @@ export default function SubscriptionsListPage() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [activeCategory, setActiveCategory] = useState<SubscriptionCategory | null>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanToast, setScanToast] = useState('');
   // 'all' = no parent filter; null = Shared; uid = that parent
   const [paidByFilter, setPaidByFilter] = useState<PaidByValue | 'all'>('all');
   const [parents, setParents] = useState<UserProfile[]>([]);
@@ -119,14 +122,30 @@ export default function SubscriptionsListPage() {
           </p>
         </div>
         {profile.role === 'parent' && (
-          <Link
-            href="/household/subscriptions/new"
-            className="shrink-0 rounded-full bg-pulse-navy px-4 py-2 font-display font-extrabold text-pulse-cream hover:bg-pulse-navy/90 transition-colors text-sm"
-          >
-            + Add
-          </Link>
+          <div className="shrink-0 flex flex-col items-end gap-1.5">
+            <Link
+              href="/household/subscriptions/new"
+              className="rounded-full bg-pulse-navy px-4 py-2 font-display font-extrabold text-pulse-cream hover:bg-pulse-navy/90 transition-colors text-sm"
+            >
+              + Add
+            </Link>
+            <button
+              type="button"
+              onClick={() => setScanOpen(true)}
+              className="rounded-full bg-pulse-gold/15 border border-pulse-gold/40 px-3 py-1.5 font-display font-extrabold text-pulse-navy hover:bg-pulse-gold/25 transition-colors text-[12px]"
+              title="Paste or upload an App Store / Play / service receipt — Kaya reads off the subscriptions for you."
+            >
+              📩 From receipt
+            </button>
+          </div>
         )}
       </header>
+
+      {scanToast && (
+        <div className="mb-4 rounded-kaya bg-pulse-green/12 border border-pulse-green/35 text-pulse-green font-bold text-[13px] px-4 py-2.5">
+          {scanToast}
+        </div>
+      )}
 
       <section className="mb-4">
         <KpiStrip
@@ -208,6 +227,21 @@ export default function SubscriptionsListPage() {
             />
           ))}
         </div>
+      )}
+
+      {profile.role === 'parent' && profile.familyId && (
+        <ScanReceiptSheet
+          open={scanOpen}
+          onClose={() => setScanOpen(false)}
+          familyId={profile.familyId}
+          uid={profile.uid}
+          currency={householdCurrency}
+          onImported={(n) => setScanToast(
+            n > 0
+              ? `✅ Added ${n} subscription${n === 1 ? '' : 's'} from your receipt.`
+              : 'Nothing added — none were ticked.',
+          )}
+        />
       )}
     </div>
   );
