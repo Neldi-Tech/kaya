@@ -55,7 +55,7 @@ export const GAMES: GameDef[] = [
   { id: 'sliding-puzzle', name: 'Sliding Puzzle',  world: 'quick', icon: '🧩', tone: 'pink',   minAge: 5, minutes: 5,  points: 20, device: 'solo', built: true },
   { id: 'sudoku-lite',   name: 'Sudoku Lite',      world: 'quick', icon: '🔡', tone: 'teal',   minAge: 7, minutes: 8,  points: 25, device: 'solo', built: true },
   { id: 'snake',         name: 'Snake',            world: 'quick', icon: '🐍', tone: 'coral',  minAge: 5, minutes: 5,  points: 15, device: 'solo', built: true },
-  { id: 'tic-tac-toe',   name: 'Tic-Tac-Toe',      world: 'quick', icon: '❌', tone: 'violet', minAge: 4, minutes: 2,  points: 10, device: 'solo', built: true, note: 'vs AI' },
+  { id: 'tic-tac-toe',   name: 'Tic-Tac-Toe',      world: 'quick', icon: '❌', tone: 'violet', minAge: 4, minutes: 2,  points: 10, device: 'same', players: '1–2', built: true, note: 'vs a friend or the computer' },
 
   // ── 🎪 Family Time (6 · multiplayer) ───────────────────────────────
   { id: 'family-trivia',  name: 'Family Trivia',   world: 'family', icon: '🎯', tone: 'violet', minAge: 0, minutes: 15, points: 50, device: 'multi', players: '2–8', built: true, note: 'Buzz in on your phone' },
