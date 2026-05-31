@@ -3,10 +3,11 @@
 // When a multi-device game finishes, the host POSTs the sessionId here. The
 // route reads the session (forge-proof — it derives the winner itself from
 // the session's own winnerUid [board games set it] or top score [Trivia],
-// never from the caller), then bumps the winner's gameWins + streak on their
-// child doc and resets the other players' streaks. Idempotent via
-// session.winRecorded. Child docs are write:false for clients, so this runs
-// under the Admin SDK. No rules deploy (child docs already family-readable).
+// never from the caller), then bumps the winner's wins + streak in gameStats
+// and resets the other players' streaks. gameStats is keyed by auth uid, so
+// PARENTS and kids both accrue wins (the Games board's Wins tab reads it).
+// Idempotent via session.winRecorded. gameStats is write:false for clients,
+// so this runs under the Admin SDK.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
@@ -65,30 +66,32 @@ export async function POST(req: NextRequest) {
   }
   if (winnerUid && !players.some((p) => p.uid === winnerUid)) winnerUid = '';
 
-  // Map each player's auth uid → their child doc id.
-  const childOf: Record<string, string> = {};
+  // Each player's role + display name. gameStats is keyed by auth uid, so it
+  // covers PARENTS and kids alike — everyone invited to play shows on the board.
+  const info: Record<string, { role: string; name: string }> = {};
   await Promise.all(players.map(async (p) => {
-    const u = (await db.collection('users').doc(p.uid).get()).data() as { childId?: string } | undefined;
-    if (u?.childId) childOf[p.uid] = u.childId;
+    const u = (await db.collection('users').doc(p.uid).get()).data() as
+      { role?: string; displayName?: string; name?: string } | undefined;
+    info[p.uid] = { role: u?.role || 'parent', name: u?.displayName || u?.name || p.name };
   }));
 
   let winnerStreak = 0;
   const batch = db.batch();
+  const statsCol = db.collection('families').doc(familyId).collection('gameStats');
   for (const p of players) {
-    const childId = childOf[p.uid];
-    if (!childId) continue;
-    const cRef = db.collection('families').doc(familyId).collection('children').doc(childId);
+    const ref = statsCol.doc(p.uid);
+    const cur = ((await ref.get()).data() || {}) as { wins?: number; streak?: number; best?: number };
+    const i = info[p.uid] || { role: 'parent', name: p.name };
     if (p.uid === winnerUid) {
-      const c = ((await cRef.get()).data() || {}) as { gameWins?: number; gameWinStreak?: number; gameWinBest?: number };
-      const streak = (c.gameWinStreak || 0) + 1;
+      const streak = (cur.streak || 0) + 1;
       winnerStreak = streak;
-      batch.set(cRef, {
-        gameWins: (c.gameWins || 0) + 1,
-        gameWinStreak: streak,
-        gameWinBest: Math.max(c.gameWinBest || 0, streak),
+      batch.set(ref, {
+        uid: p.uid, name: i.name, role: i.role,
+        wins: (cur.wins || 0) + 1, streak, best: Math.max(cur.best || 0, streak),
+        updatedAt: Date.now(),
       }, { merge: true });
     } else {
-      batch.set(cRef, { gameWinStreak: 0 }, { merge: true });
+      batch.set(ref, { uid: p.uid, name: i.name, role: i.role, streak: 0, updatedAt: Date.now() }, { merge: true });
     }
   }
   batch.update(sRef, { winRecorded: true, ...(winnerUid ? { winnerUid } : {}) });

@@ -331,6 +331,15 @@ service cloud.firestore {
         allow delete: if isParentInFamily(familyId);
       }
 
+      // ── Kaya Games · per-player win/streak stats (gameStats) ────────
+      // One doc per player, keyed by auth uid → PARENTS and kids both count.
+      // Written ONLY by the Admin /api/games/win route on a finished
+      // multi-device game; the Games board reads them. Client-write-false.
+      match /gameStats/{statUid} {
+        allow read: if belongsToFamily(familyId);
+        allow write: if false;
+      }
+
       // ── Helpers (per-family scoped credential) ───────────────────
       // One doc per helper at /helpers/{uid}. Parents manage; the
       // helper themselves can read their own doc so the UI can show
