@@ -13,6 +13,7 @@ import { useBranding } from '@/lib/brandingClient';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import { PulseMark } from '@/components/pulse/ui';
 import SparksIcon from '@/components/brand/SparksIcon';
+import KayaFunIcon from '@/components/brand/KayaFunIcon';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import GuestBanner from './GuestBanner';
 import InfoIcon from '@/components/ui/InfoIcon';
@@ -282,13 +283,18 @@ const STATS_NAV: NavItem[] = [
   { path: '/family-tree',   icon: '🌳', label: 'Family tree' },
 ];
 
-// Fun · games & surprises. Both items "Soon" today.
+// Kaya Fun · the family play hub — Games (live) + Videos (Soon).
+// Games + Videos remain independent kid-module toggles ('games' / 'fun');
+// the section's per-item gating (see renderSidebarRow) shows each only
+// when its module is granted, and hides the whole section if neither is.
 const FUN_NAV: NavItem[] = [
+  { path: '/games',  icon: '🎮', label: 'Games' },
   { path: '/videos', icon: '📺', label: 'Videos', soon: true },
 ];
 
-// Kid Fun sheet (parents see the same emoji set in their Fun section).
+// Kid Fun sheet (parents see the same set in their Kaya Fun section).
 const KID_FUN_NAV: NavItem[] = [
+  { path: '/games',  icon: '🎮', label: 'Games',  mobileLabel: 'Games' },
   { path: '/videos', icon: '📺', label: 'Videos', mobileLabel: 'Videos', soon: true },
 ];
 
@@ -339,8 +345,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'kidsworkplan', path: '/workplan', icon: '🗓️', label: "Kids' Workplan" },
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
-  { kind: 'link',    id: 'games',     path: '/games',    icon: '🎮', label: 'Games' },
-  { kind: 'section', id: 'fun',       icon: '📺', label: 'Videos', items: FUN_NAV },
+  { kind: 'section', id: 'fun',       iconNode: <KayaFunIcon className="w-4 h-4" />, label: 'Kaya Fun', items: FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness', icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',     icon: '🍳', label: 'Kaya Chef',     soon: true },
@@ -400,8 +405,7 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'pulse',     path: '/pulse/today', iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
   { kind: 'link',    id: 'directory', path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: KID_STATS_NAV },
-  { kind: 'link',    id: 'games',     path: '/games',     icon: '🎮', label: 'Games' },
-  { kind: 'section', id: 'fun',       icon: '📺', label: 'Videos', items: KID_FUN_NAV },
+  { kind: 'section', id: 'fun',       iconNode: <KayaFunIcon className="w-4 h-4" />, label: 'Kaya Fun', items: KID_FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
@@ -576,7 +580,24 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const sidebar: SidebarRow[] = useMemo(() => {
     let rows: SidebarRow[];
-    if (role === 'kid') rows = KID_SIDEBAR.filter((row) => grantedKidModules.has(row.id));
+    if (role === 'kid') {
+      rows = KID_SIDEBAR.filter((row) => {
+        // A section shows if its own module OR any child module is
+        // granted; renderSidebarRow's per-item gating then hides the
+        // sub-items the family hasn't granted (and the whole section if
+        // none survive). This keeps grouped-but-independently-toggled
+        // modules working — e.g. Kaya Fun shows when Games OR Videos is
+        // granted, even if the section's own `fun` id isn't.
+        if (row.kind === 'section') {
+          if (grantedKidModules.has(row.id)) return true;
+          return row.items.some((it) => {
+            const mid = moduleIdForPath(it.path);
+            return !!mid && grantedKidModules.has(mid);
+          });
+        }
+        return grantedKidModules.has(row.id);
+      });
+    }
     else if (role === 'helper') rows = HELPER_SIDEBAR.filter((row) => row.kind !== 'link' || isHelperRowVisible(row.path));
     else rows = PARENT_SIDEBAR;
     // Operator-only console link (also surfaces in the mobile More sheet,
