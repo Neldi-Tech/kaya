@@ -17,6 +17,7 @@
 // sibling DocActionSheet — so the kid / parent can choose.
 
 import { useEffect, useMemo, useState } from 'react';
+import PdfCanvas from '@/components/PdfCanvas';
 
 export interface DocViewerProps {
   open: boolean;
@@ -191,11 +192,19 @@ export default function DocViewer({ open, doc, onClose, onDownload, viewerUrl }:
       {/* Body */}
       <div className="flex-1 min-h-0 relative">
         {kind === 'pdf' && (
-          <iframe
-            src={viewerUrl || doc.url}
-            title={safeName}
-            className="absolute inset-0 w-full h-full border-0 bg-white"
-          />
+          // When a same-origin viewerUrl is supplied (Sparks Materials via the
+          // material-file proxy), render with PDF.js → <canvas>: an <iframe>
+          // shows BLANK for PDFs in an iOS home-screen PWA. Other callers
+          // (e.g. chat) keep the native iframe viewer.
+          viewerUrl ? (
+            <PdfCanvas url={viewerUrl} />
+          ) : (
+            <iframe
+              src={doc.url}
+              title={safeName}
+              className="absolute inset-0 w-full h-full border-0 bg-white"
+            />
+          )
         )}
         {kind === 'image' && (
           <div className="absolute inset-0 grid place-items-center p-3">
