@@ -7,7 +7,7 @@
 // Currency note: `points` are awarded as House Points (the one Kaya
 // economy) via /api/games/award — NOT a separate "Sparks" currency.
 
-export type GameWorld = 'quick' | 'family' | 'calm' | 'realworld';
+export type GameWorld = 'quick' | 'family' | 'calm' | 'realworld' | 'lab';
 export type DeviceMode = 'solo' | 'same' | 'multi' | 'both';
 export type GameTone = 'violet' | 'coral' | 'teal' | 'gold' | 'sky' | 'pink';
 
@@ -26,6 +26,7 @@ export interface GameDef {
   players?: string;        // family games, e.g. "2–8"
   built?: boolean;         // playable now (else shows a Soon pill)
   photoProof?: boolean;    // real-world: parent verifies a photo
+  beta?: boolean;          // Kaya Lab beta game (world 'lab' → hidden from the main hub + controls)
   note?: string;           // small meta line, e.g. "Multi in P1.5"
 }
 
@@ -76,6 +77,10 @@ export const GAMES: GameDef[] = [
   { id: 'family-workout', name: 'Family Workout',  world: 'realworld', icon: '💪', tone: 'coral', minAge: 0, minutes: 0, points: 60, device: 'solo', built: true, photoProof: true },
   { id: 'plant-something', name: 'Plant Something', world: 'realworld', icon: '🌱', tone: 'teal', minAge: 0, minutes: 0, points: 50, device: 'solo', built: true, photoProof: true },
   { id: 'thank-you-note', name: 'Thank-You Note',  world: 'realworld', icon: '✍️', tone: 'pink',  minAge: 5, minutes: 0, points: 40, device: 'solo', built: true, photoProof: true },
+
+  // ── 🧪 Kaya Lab (beta — kids test + rate; hidden from the main worlds) ──
+  { id: 'bubble-pop', name: 'Bubble Pop', world: 'lab', icon: '🫧', tone: 'sky',  minAge: 0, minutes: 1, points: 0, device: 'solo', built: true, beta: true },
+  { id: 'reaction',   name: 'Quick Tap',  world: 'lab', icon: '⚡', tone: 'gold', minAge: 0, minutes: 1, points: 0, device: 'solo', built: true, beta: true },
 ];
 
 /** The game featured in the hub's Daily Pick card. Matches the approved
