@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import BackButton from '@/components/ui/BackButton';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { getChildren, type Child } from '@/lib/firestore';
+import { resolveGamesConfig, gamePointsValue, type GamesConfig } from '@/lib/games';
 import {
   GAME_WORLDS, gamesByWorld, getGame, DAILY_PICK_ID,
   ageLabel, type GameDef, type GameTone, type DeviceMode, type GameWorld,
@@ -34,19 +36,25 @@ function metaLine(g: GameDef): string {
   return `${ageLabel(g.minAge)} · ${g.minutes} min`;
 }
 
-function GameCard({ g }: { g: GameDef }) {
+function GameCard({ g, cfg }: { g: GameDef; cfg: GamesConfig }) {
   const tag = DEVICE_TAG[g.device];
+  const value = gamePointsValue(cfg, g.id);
   const base = 'relative block bg-games-card rounded-kaya p-3.5 shadow-[0_4px_12px_rgba(26,18,64,0.06)]';
   const inner = (
     <>
-      {/* reward / state badge */}
-      {g.built ? (
-        <span className="absolute top-2.5 right-2.5 bg-games-gold text-games-ink text-[9px] font-extrabold px-1.5 py-0.5 rounded-md">
-          +{g.points}
-        </span>
-      ) : (
+      {/* reward / state badge — shows the PARENT-set value (default 0). A
+          valued game pops in gold; a 0-value game is a muted "Fun" tag. */}
+      {!g.built ? (
         <span className="absolute top-2.5 right-2.5 bg-games-coral text-white text-[9px] font-extrabold px-1.5 py-0.5 rounded-md">
           Soon
+        </span>
+      ) : value > 0 ? (
+        <span className="absolute top-2.5 right-2.5 bg-games-gold text-games-ink text-[9px] font-extrabold px-1.5 py-0.5 rounded-md">
+          +{value}
+        </span>
+      ) : (
+        <span className="absolute top-2.5 right-2.5 bg-games-bg text-games-ink-soft text-[9px] font-extrabold px-1.5 py-0.5 rounded-md">
+          Fun
         </span>
       )}
       <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${TONE_TILE[g.tone]} flex items-center justify-center text-xl mb-2`}>
@@ -66,7 +74,7 @@ function GameCard({ g }: { g: GameDef }) {
   );
 }
 
-function WorldSection({ world }: { world: GameWorld }) {
+function WorldSection({ world, cfg }: { world: GameWorld; cfg: GamesConfig }) {
   const meta = GAME_WORLDS.find((w) => w.id === world)!;
   const games = gamesByWorld(world);
   return (
@@ -80,7 +88,7 @@ function WorldSection({ world }: { world: GameWorld }) {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
         {games.map((g) => (
-          <GameCard key={g.id} g={g} />
+          <GameCard key={g.id} g={g} cfg={cfg} />
         ))}
       </div>
     </section>
@@ -89,6 +97,8 @@ function WorldSection({ world }: { world: GameWorld }) {
 
 export default function GamesPage() {
   const { profile } = useAuth();
+  const { family } = useFamily();
+  const cfg = resolveGamesConfig(family?.gamesConfig);
   const [child, setChild] = useState<Child | null>(null);
   const isKid = profile?.role === 'kid';
 
@@ -116,6 +126,7 @@ export default function GamesPage() {
 
   const firstName = child?.name || profile?.displayName?.split(' ')[0] || 'there';
   const pick = getGame(DAILY_PICK_ID);
+  const pickValue = pick ? gamePointsValue(cfg, pick.id) : 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
@@ -184,7 +195,7 @@ export default function GamesPage() {
               </span>
               <h3 className="font-display text-xl lg:text-2xl font-extrabold leading-tight mb-1">{pick.name}</h3>
               <p className="text-xs opacity-90 mb-3.5">
-                {pick.players ?? '2+'} players · {pick.minutes} min · +{pick.points} pts
+                {pick.players ?? '2+'} players · {pick.minutes} min · {pickValue > 0 ? `+${pickValue} pts` : 'just for fun'}
               </p>
               <span className="inline-flex items-center gap-1.5 bg-white text-games-violet-deep px-4 py-2 rounded-full font-extrabold text-[13px]">
                 ▶ Start together
@@ -194,10 +205,10 @@ export default function GamesPage() {
         )}
 
         {/* The four worlds */}
-        <WorldSection world="quick" />
-        <WorldSection world="family" />
-        <WorldSection world="calm" />
-        <WorldSection world="realworld" />
+        <WorldSection world="quick" cfg={cfg} />
+        <WorldSection world="family" cfg={cfg} />
+        <WorldSection world="calm" cfg={cfg} />
+        <WorldSection world="realworld" cfg={cfg} />
 
         <p className="text-center text-[11px] text-games-ink-soft/80 mt-2">
           🎮 More games light up every week · No ads, ever
