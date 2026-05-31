@@ -263,11 +263,11 @@ export default function MaterialsList({
         onClose={() => setDocMenu(null)}
         onOpen={() => { if (docMenu) { setDocView(docMenu); setDocMenu(null); } }}
         onDownload={() => {
-          if (!docMenu || !docMenu.file_url) return;
-          const tgt = docMenu;
+          const fileUrl = docMenu?.file_url;
+          if (!fileUrl) return;
           // Same-origin proxy → attachment disposition. Avoids the CORS-blocked
           // cross-origin fetch that silently failed before.
-          triggerDownload(materialDownloadUrl(tgt.file_url, tgt.file_name || tgt.title || 'material'));
+          triggerDownload(materialDownloadUrl(fileUrl, docMenu.file_name || docMenu.title || 'material'));
           setDocMenu(null);
         }}
       />
