@@ -89,13 +89,10 @@ export default function RevisionsPage() {
     [items],
   );
 
-  if (!familyId || !kid) {
-    return <div className="min-h-screen bg-[#FFFBF5] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
-  }
-
-  // Quick aggregates for the header subtitle
-  const total = items.length;
-  const qualifying = items.filter((it) => (it.revision_data?.ai_score ?? 0) >= 60).length;
+  // Materials shared with THIS kid (or all kids). MUST be computed before the
+  // early return below — it's a hook, so it has to run on every render or
+  // React throws "rendered more hooks than during the previous render" (which
+  // is what white-screened this page on back-navigation).
   const myKidMaterials = useMemo(
     () => materials.filter((m) =>
       m.shared_with === 'all_kids'
@@ -103,6 +100,14 @@ export default function RevisionsPage() {
     ),
     [materials, kidId],
   );
+
+  if (!familyId || !kid) {
+    return <div className="min-h-screen bg-[#FFFBF5] grid place-items-center text-[#5A6488] text-sm">Loading…</div>;
+  }
+
+  // Quick aggregates for the header subtitle
+  const total = items.length;
+  const qualifying = items.filter((it) => (it.revision_data?.ai_score ?? 0) >= 60).length;
   const subtitle = tab === 'materials'
     ? (myKidMaterials.length === 0
         ? 'No materials shared yet'
