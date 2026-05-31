@@ -23,7 +23,10 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   Subscription, SubscriptionCycle, getSubscription, subscribeToCycles,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
+  updateSubscription, deleteSubscription, SUBSCRIPTION_SUBCATEGORIES,
+  type SubscriptionCategory, type SubscriptionStatus, type SubscriptionFrequency,
 } from '@/lib/subscriptions';
+import { Timestamp } from 'firebase/firestore';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
@@ -61,6 +64,7 @@ export default function SubscriptionDetailPage() {
   const [advisories, setAdvisories] = useState<WealthAdvisory[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -264,11 +268,215 @@ export default function SubscriptionDetailPage() {
         </p>
       </div>
 
-      <p className="mt-3 text-xs text-pulse-navy/50">
-        {fromWealth
-          ? 'Edit happens in Kaya Wealth — this subscription mirrors the property asset there.'
-          : 'Edit + delete + cycles history ship in a follow-up. Need to fix something? Add a new entry; this one stays as history.'}
-      </p>
+      {/* Parent actions — Edit + Delete. Hidden for from-Wealth subs
+          since the canonical edit happens in Kaya Wealth there. */}
+      {!fromWealth && profile?.role === 'parent' && (
+        <div className="mt-5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="flex-1 rounded-kaya bg-pulse-gold/15 border border-pulse-gold/30 text-pulse-navy font-extrabold text-sm py-2.5 hover:bg-pulse-gold/25 transition"
+          >
+            ✏️ Edit
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              if (!profile?.familyId || !subId) return;
+              const ok = typeof window !== 'undefined' && window.confirm(
+                `Delete "${sub.name}"?\n\nCycles + ledger history stay intact, but this entry will disappear from the list. This can’t be undone.`,
+              );
+              if (!ok) return;
+              try {
+                await deleteSubscription(profile.familyId, subId);
+                router.replace('/household/subscriptions');
+              } catch (e) {
+                window.alert(`Delete failed: ${(e as Error).message || 'unknown error'}`);
+              }
+            }}
+            className="rounded-kaya bg-pulse-coral/12 border border-pulse-coral/35 text-pulse-coral font-extrabold text-sm py-2.5 px-4 hover:bg-pulse-coral/22 transition"
+          >
+            🗑 Delete
+          </button>
+        </div>
+      )}
+
+      {fromWealth && (
+        <p className="mt-3 text-xs text-pulse-navy/50">
+          Edit happens in Kaya Wealth — this subscription mirrors the property asset there.
+        </p>
+      )}
+
+      {/* Inline edit sheet — opens above the detail card when Edit is tapped. */}
+      {editOpen && !fromWealth && profile?.familyId && subId && (
+        <SubscriptionEditSheet
+          sub={sub}
+          familyId={profile.familyId}
+          subId={subId}
+          onClose={() => setEditOpen(false)}
+          onSaved={async () => {
+            const fresh = await getSubscription(profile.familyId!, subId);
+            if (fresh) setSub(fresh);
+            setEditOpen(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Edit sheet ───────────────────────────────────────────────────────
+//
+// Inline modal for the most-edited fields on a subscription. Cycles +
+// ledger history are immutable — changing amount or next-billing-date
+// affects FUTURE cycles only, matching the spec's "history is sacred"
+// guarantee. Wealth-sourced subs route their edit to Wealth and never
+// open this sheet.
+
+function SubscriptionEditSheet({
+  sub, familyId, subId, onClose, onSaved,
+}: {
+  sub: Subscription;
+  familyId: string;
+  subId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState(sub.name);
+  const [category, setCategory] = useState<SubscriptionCategory>(sub.category);
+  const [subCategory, setSubCategory] = useState(sub.subCategory);
+  const [amountInput, setAmountInput] = useState(
+    (sub.amountOriginal / 100).toFixed(2),
+  );
+  const [frequency, setFrequency] = useState<SubscriptionFrequency>(sub.frequency);
+  const [status, setStatus] = useState<SubscriptionStatus>(sub.status);
+  const [nextBillingIso, setNextBillingIso] = useState(tsToIso(sub.nextBillingDate));
+  const [reminderDays, setReminderDays] = useState<number[]>(sub.reminderDaysBefore ?? []);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+
+  const toggleDay = (d: number) =>
+    setReminderDays((prev) => prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]);
+
+  const save = async () => {
+    setSaving(true);
+    setErr('');
+    try {
+      const amountOriginal = Math.round(Number(amountInput) * 100);
+      if (!Number.isFinite(amountOriginal) || amountOriginal < 0) {
+        throw new Error('Amount must be a positive number.');
+      }
+      const amountHousehold = Math.round(amountOriginal * sub.fxRate);
+      const ymdToTs = (ymd: string): Timestamp => {
+        const [y, m, d] = ymd.split('-').map(Number);
+        if (!y || !m || !d) return sub.nextBillingDate;
+        return Timestamp.fromDate(new Date(y, m - 1, d));
+      };
+      await updateSubscription(familyId, subId, {
+        name: name.trim() || sub.name,
+        category,
+        subCategory: subCategory.trim() || sub.subCategory,
+        amountOriginal,
+        amountHousehold,
+        frequency,
+        status,
+        nextBillingDate: ymdToTs(nextBillingIso),
+        reminderDaysBefore: [...reminderDays].sort((a, b) => b - a),
+      });
+      onSaved();
+    } catch (e) {
+      setErr((e as Error).message || 'Save failed');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 bg-black/40" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-white rounded-3xl shadow-2xl p-5 space-y-3.5">
+        <div className="flex items-baseline justify-between">
+          <h3 className="font-display font-extrabold text-[18px] text-pulse-navy">✏️ Edit subscription</h3>
+          <button type="button" onClick={onClose} className="text-xs font-bold text-pulse-navy/55">Cancel</button>
+        </div>
+
+        <Field label="Name">
+          <input value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold" />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Category">
+            <select value={category} onChange={(e) => { setCategory(e.target.value as SubscriptionCategory); setSubCategory(SUBSCRIPTION_SUBCATEGORIES[e.target.value as SubscriptionCategory][0] ?? ''); }} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold">
+              {SUBSCRIPTION_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+            </select>
+          </Field>
+          <Field label="Sub-category">
+            <select value={subCategory} onChange={(e) => setSubCategory(e.target.value)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold">
+              {SUBSCRIPTION_SUBCATEGORIES[category].map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={`Amount (${sub.currencyOriginal})`}>
+            <input type="number" step="0.01" min="0" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold" />
+          </Field>
+          <Field label="Frequency">
+            <select value={frequency} onChange={(e) => setFrequency(e.target.value as SubscriptionFrequency)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold">
+              <option value="monthly">Monthly</option>
+              <option value="quarterly">Quarterly</option>
+              <option value="annual">Annual</option>
+              <option value="custom">Custom</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="Next billing">
+            <input type="date" value={nextBillingIso} onChange={(e) => setNextBillingIso(e.target.value)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold" />
+          </Field>
+          <Field label="Status">
+            <select value={status} onChange={(e) => setStatus(e.target.value as SubscriptionStatus)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold">
+              <option value="active">Active</option>
+              <option value="trial">Trial</option>
+              <option value="paused">Paused</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </Field>
+        </div>
+
+        <Field label="Remind me before billing">
+          <div className="flex flex-wrap gap-1.5">
+            {[0, 1, 2, 3, 7, 14, 30].map((d) => {
+              const picked = reminderDays.includes(d);
+              return (
+                <button key={d} type="button" onClick={() => toggleDay(d)}
+                  className={`rounded-full px-3 py-1.5 text-[11.5px] font-extrabold border-[1.5px] transition ${picked ? 'border-pulse-gold bg-pulse-gold/15 text-pulse-navy' : 'border-pulse-navy/15 bg-white text-pulse-navy/65'}`}
+                  aria-pressed={picked}
+                >
+                  {d === 0 ? 'On the day' : `${d}d`}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
+        {err && <div className="text-[12px] font-bold text-pulse-coral">{err}</div>}
+
+        <div className="flex items-center gap-2 pt-2">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-kaya-sm text-sm font-bold text-pulse-navy/65 hover:bg-pulse-navy/5">Cancel</button>
+          <button type="button" onClick={save} disabled={saving} className="flex-1 rounded-kaya-sm bg-pulse-gold text-pulse-navy font-extrabold text-sm py-2.5 disabled:opacity-50">
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-[10.5px] font-bold uppercase tracking-wide text-pulse-navy/65">{label}</label>
+      {children}
     </div>
   );
 }

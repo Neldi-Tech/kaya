@@ -16,7 +16,7 @@
 
 import {
   collection, doc, getDoc, getDocs, query, orderBy, limit as qlimit,
-  Timestamp, onSnapshot,
+  Timestamp, onSnapshot, updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -396,4 +396,56 @@ export async function closeCycle(
     throw new Error(`closeCycle failed: ${res.status} ${text}`);
   }
   return res.json();
+}
+
+// ── Edit / delete (Phase 2 follow-up · 2026-05-30) ───────────────────
+//
+// Subset of `Subscription` the UI is allowed to patch. We deliberately
+// exclude createdAt/createdBy/sourceModule/linkedWealthAssetId/cycle
+// state — those are immutable from the user's perspective (cycles
+// mutate via closeCycle; sourceModule is set on create). To pause /
+// cancel a subscription, set `status`.
+
+export type SubscriptionEditableFields = Partial<Pick<
+  Subscription,
+  | 'name' | 'category' | 'subCategory' | 'platform'
+  | 'billingMode' | 'status' | 'trialEndsOn'
+  | 'amountOriginal' | 'currencyOriginal' | 'fxRate'
+  | 'amountHousehold' | 'monthlyEquivalent'
+  | 'frequency' | 'customMonths'
+  | 'nextBillingDate' | 'startedOn' | 'endedOn'
+  | 'accountHolderUid' | 'beneficiaryUids' | 'paymentMethodId'
+  | 'vendorSupplierId' | 'isProfessionalExpense'
+  | 'reminderDaysBefore' | 'postDueCheckEnabled' | 'utilisationCheckDays'
+  | 'archivedAt'
+>>;
+
+/** Patch fields on a subscription. `updatedAt` is set server-side.
+ *  Cycles + ledger entries are untouched — if the user changes amount
+ *  or billing date, future cycles pick up the new values; existing
+ *  cycles are immutable history. */
+export async function updateSubscription(
+  familyId: string,
+  subId: string,
+  patch: SubscriptionEditableFields,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(db, 'families', familyId, 'subscriptions', subId), {
+    ...patch,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Hard-delete a subscription. The cycles subcollection becomes
+ *  orphaned (Firestore doesn't cascade) — that's fine since cycles
+ *  are immutable history; the spend_ledger still references them.
+ *  Most use cases should call `updateSubscription({ status: 'cancelled' })`
+ *  instead to preserve the trail; delete is for "this was created in
+ *  error" only. */
+export async function deleteSubscription(
+  familyId: string,
+  subId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(doc(db, 'families', familyId, 'subscriptions', subId));
 }

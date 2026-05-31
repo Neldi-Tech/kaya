@@ -14,6 +14,7 @@
 
 import {
   collection, doc, getDoc, getDocs, Timestamp, onSnapshot,
+  updateDoc, deleteDoc, serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -321,4 +322,48 @@ export async function createContribution(
     throw new Error(`createContribution failed: ${res.status} ${text}`);
   }
   return res.json();
+}
+
+// ── Edit / delete (Phase 2 follow-up · 2026-05-30) ───────────────────
+//
+// Subset of `Contribution` the UI is allowed to patch. Excludes
+// createdAt/createdBy/clientToken (audit) and rolledFromContributionId
+// (recurrence trail).
+
+export type ContributionEditableFields = Partial<Pick<
+  Contribution,
+  | 'recipientName' | 'recipientType' | 'recipientSupplierId' | 'anonymousFlag'
+  | 'category' | 'subCategory' | 'occasion'
+  | 'amountOriginal' | 'currencyOriginal' | 'fxRate'
+  | 'amountHousehold' | 'monthlyEquivalent'
+  | 'frequency' | 'customMonths' | 'dateGiven'
+  | 'givenByUid' | 'givenOnBehalfOf'
+  | 'paymentMethod' | 'inKindDescription' | 'estimatedValue'
+  | 'isPercentOfIncome' | 'percentRate' | 'incomeBasis' | 'incomeSourceRef'
+  | 'taxDeductible' | 'receiptHeld'
+  | 'visibility' | 'notes' | 'tags'
+  | 'remembranceRecurring' | 'remembranceDate'
+>>;
+
+/** Patch fields on a contribution. `updatedAt` set server-side. */
+export async function updateContribution(
+  familyId: string,
+  contribId: string,
+  patch: ContributionEditableFields,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(db, 'families', familyId, 'contributions', contribId), {
+    ...patch,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Hard-delete a contribution. Spend-ledger entry (when present) is
+ *  orphaned but read-only history — use sparingly. */
+export async function deleteContribution(
+  familyId: string,
+  contribId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await deleteDoc(doc(db, 'families', familyId, 'contributions', contribId));
 }
