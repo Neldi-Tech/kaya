@@ -79,8 +79,10 @@ export async function POST(req: NextRequest) {
   }));
 
   // Fun-Points: every player earns the game's base; the winner earns FUN_WIN_MULT×.
+  // A game may set state.funMult (e.g. UNO's difficulty level) to scale the base.
   const game = getGame(s.gameId || '');
-  const funBase = gameFunValue(game?.points);
+  const funMult = Number((s.state as { funMult?: number } | undefined)?.funMult) || 1;
+  const funBase = Math.round(gameFunValue(game?.points) * funMult);
   const weekKey = localWeekStartKey(Date.now(), Number(body.tzOffsetMinutes) || 0);
   const hasWinner = !!winnerUid;
 
