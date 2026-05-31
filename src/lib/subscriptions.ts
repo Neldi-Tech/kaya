@@ -457,3 +457,85 @@ export async function deleteSubscription(
   if (isGuestActive()) return;
   await deleteDoc(doc(db, 'families', familyId, 'subscriptions', subId));
 }
+
+// ── Receipt auto-detect (Phase 1 · 2026-05-30) ───────────────────────
+//
+// Parse an App Store / Play / service receipt (pasted text OR a
+// screenshot/PDF-page image) into subscription drafts the parent then
+// reviews + confirms. Wraps /api/subscriptions/scan-receipt.
+
+export interface ParsedSubscriptionDraft {
+  name: string;
+  amount: number;            // plain number in `currency`
+  currency: string;
+  cadence: SubscriptionFrequency;
+  platform: SubscriptionPlatform;
+  nextBilling: string;       // 'YYYY-MM-DD' or ''
+  vendor: string;
+}
+
+export interface ScanReceiptResult {
+  subscriptions: ParsedSubscriptionDraft[];
+  skipped?: boolean;
+  error?: string;
+}
+
+/** Resize + base64-encode an image File for the parse call. Long edge
+ *  capped at 1600px — Claude reads receipts fine at that size and the
+ *  payload stays small. */
+async function imageToBase64(file: File): Promise<{ base64: string; mediaType: string }> {
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale);
+      const h = Math.round(img.naturalHeight * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('Canvas unavailable')); return; }
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read image')); };
+    img.src = url;
+  });
+  return { base64: dataUrl.split(',', 2)[1] ?? '', mediaType: 'image/jpeg' };
+}
+
+/** Parse a receipt from pasted text. */
+export async function scanReceiptText(text: string, currency?: string): Promise<ScanReceiptResult> {
+  try {
+    const res = await fetch('/api/subscriptions/scan-receipt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, currency }),
+    });
+    if (!res.ok) return { subscriptions: [], error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data?.skipped) return { subscriptions: [], skipped: true };
+    return { subscriptions: data.subscriptions ?? [] };
+  } catch (e) {
+    return { subscriptions: [], error: e instanceof Error ? e.message : 'Parse failed' };
+  }
+}
+
+/** Parse a receipt from an uploaded image File. */
+export async function scanReceiptImage(file: File, currency?: string): Promise<ScanReceiptResult> {
+  try {
+    const { base64, mediaType } = await imageToBase64(file);
+    const res = await fetch('/api/subscriptions/scan-receipt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64, mediaType, currency }),
+    });
+    if (!res.ok) return { subscriptions: [], error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data?.skipped) return { subscriptions: [], skipped: true };
+    return { subscriptions: data.subscriptions ?? [] };
+  } catch (e) {
+    return { subscriptions: [], error: e instanceof Error ? e.message : 'Parse failed' };
+  }
+}
