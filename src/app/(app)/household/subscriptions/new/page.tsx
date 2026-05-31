@@ -110,7 +110,16 @@ export default function NewSubscriptionPage() {
   const [platform, setPlatform]     = useState<SubscriptionPlatform | null>(null);
 
   const [billingMode, setBillingMode] = useState<SubscriptionBillingMode>('auto');
-  const [notifyAutoRenewal, setNotifyAutoRenewal] = useState(false);
+  // 2026-05-30 — `notifyAutoRenewal` retired in favour of an explicit
+  // chip picker (any combination of 0 / 1 / 2 / 3 / 7 / 14 / 30 days
+  // before billing). Defaults seed with the old behaviour so existing
+  // flows don't regress: Manual = [7, 2, 0]; Auto = [] (no reminders).
+  const [reminderDaysPicked, setReminderDaysPicked] = useState<number[]>(
+    billingMode === 'manual' ? [7, 2, 0] : [],
+  );
+  // When the parent flips Manual ↔ Auto, refresh the default unless
+  // they've already touched the chips (touched flag below).
+  const [reminderTouched, setReminderTouched] = useState(false);
 
   const [amount, setAmount] = useState<CurrencyAmountValue>({
     amountCents: 0,
@@ -186,8 +195,9 @@ export default function NewSubscriptionPage() {
         existingId,
       );
 
-      // 2. Server write of the subscription + first cycle
-      const reminderDaysBefore = billingMode === 'manual' ? [7, 2, 0] : (notifyAutoRenewal ? [2] : []);
+      // 2. Server write of the subscription + first cycle. Picker is the
+      // single source of truth; legacy hardcoded defaults retired.
+      const reminderDaysBefore = [...reminderDaysPicked].sort((a, b) => b - a);
       const { subId } = await createSubscription({
         familyId: profile.familyId,
         name: selection.name.trim(),
@@ -246,18 +256,50 @@ export default function NewSubscriptionPage() {
         />
 
         {/* Auto / Manual */}
-        <AutoManualToggle value={billingMode} onChange={setBillingMode} />
-        {billingMode === 'auto' && (
-          <label className="flex items-center gap-2 text-sm font-semibold text-pulse-navy cursor-pointer">
-            <input
-              type="checkbox"
-              checked={notifyAutoRenewal}
-              onChange={(e) => setNotifyAutoRenewal(e.target.checked)}
-              className="accent-pulse-gold"
-            />
-            Notify me 2 days before renewal
+        <AutoManualToggle
+          value={billingMode}
+          onChange={(mode) => {
+            setBillingMode(mode);
+            // When the parent flips modes, refresh defaults UNTIL they've
+            // intentionally edited the chip set.
+            if (!reminderTouched) {
+              setReminderDaysPicked(mode === 'manual' ? [7, 2, 0] : []);
+            }
+          }}
+        />
+
+        {/* Reminder days picker — applies to both Manual + Auto. */}
+        <div className="space-y-1.5">
+          <label className="block text-xs font-bold uppercase tracking-wide text-pulse-navy/65">
+            Remind me before billing
           </label>
-        )}
+          <div className="flex flex-wrap gap-1.5">
+            {[0, 1, 2, 3, 7, 14, 30].map((d) => {
+              const picked = reminderDaysPicked.includes(d);
+              return (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => {
+                    setReminderTouched(true);
+                    setReminderDaysPicked((prev) =>
+                      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
+                    );
+                  }}
+                  aria-pressed={picked}
+                  className={`rounded-full px-3 py-1.5 text-[12px] font-extrabold border-[1.5px] transition ${picked ? 'border-pulse-gold bg-pulse-gold/15 text-pulse-navy' : 'border-pulse-navy/15 bg-white text-pulse-navy/65'}`}
+                >
+                  {d === 0 ? 'On the day' : `${d} day${d === 1 ? '' : 's'} before`}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10.5px] text-pulse-navy/50">
+            {reminderDaysPicked.length === 0
+              ? 'No reminders — you’ll only see this on the dashboard.'
+              : `Kaya will nudge you ${reminderDaysPicked.length} time${reminderDaysPicked.length === 1 ? '' : 's'} per cycle.`}
+          </p>
+        </div>
 
         {/* Taxonomy */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
