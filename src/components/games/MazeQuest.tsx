@@ -265,9 +265,9 @@ function SoloMaze({
     if (g.running) {
       g.elapsedMs = ts - g.startTs;
       if (timeRef.current) timeRef.current.textContent = fmtTime(g.elapsedMs);
-      if (g.heldDir && ts - g.lastStep > 95) {
+      if (g.heldDir && ts - g.lastStep > 70) {
         const p = center(g.player.c, g.player.r, g.cell);
-        if (Math.hypot(g.player.x - p.x, g.player.y - p.y) < g.cell * 0.2) step(g.heldDir);
+        if (Math.hypot(g.player.x - p.x, g.player.y - p.y) < g.cell * 0.46) step(g.heldDir);
       }
       if (g.chaser) {
         g.chaserAcc += ts - g.lastTs;
@@ -284,8 +284,8 @@ function SoloMaze({
     for (const e of [g.player, g.chaser]) {
       if (!e) continue;
       const p = center(e.c, e.r, g.cell);
-      e.x += (p.x - e.x) * 0.38;
-      e.y += (p.y - e.y) * 0.38;
+      e.x += (p.x - e.x) * 0.5;
+      e.y += (p.y - e.y) * 0.5;
     }
     if (g.hintCells && ts > g.hintUntil) g.hintCells = null;
     draw();
@@ -374,7 +374,7 @@ function SoloMaze({
     const s = swipeStart.current; swipeStart.current = null;
     if (!s) return;
     const dx = e.clientX - s.x, dy = e.clientY - s.y;
-    if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return;
+    if (Math.abs(dx) < 13 && Math.abs(dy) < 13) return;
     if (Math.abs(dx) > Math.abs(dy)) step(dx > 0 ? 'E' : 'W'); else step(dy > 0 ? 'S' : 'N');
   };
 
