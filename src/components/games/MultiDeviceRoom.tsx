@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '@/contexts/AuthContext';
 import type { GameDef } from '@/lib/gamesCatalog';
 import type { GameOutcome } from './types';
+import FamilyTriviaPlay, { triviaInitialState } from './FamilyTrivia';
 import {
   createSession, findSessionByCode, joinSession, subscribeSession, updateSession,
   type GameSession,
@@ -61,7 +62,8 @@ export default function MultiDeviceRoom({
     if (!familyId || !me) return;
     setMode('busy'); setErr('');
     try {
-      const initial = game.id === 'story-builder' ? { sentences: [], turn: 0 } : {};
+      const initial = game.id === 'story-builder' ? { sentences: [], turn: 0 }
+        : game.id === 'family-trivia' ? triviaInitialState() : {};
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
     } catch (e) { setErr(friendlyErr(e)); setMode('error'); }
@@ -172,6 +174,7 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
 
 function Play({ game, session, me, familyId }: { game: GameDef; session: GameSession; me: string; familyId: string }) {
   if (game.id === 'story-builder') return <StoryBuilderPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'family-trivia') return <FamilyTriviaPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
 }
 
