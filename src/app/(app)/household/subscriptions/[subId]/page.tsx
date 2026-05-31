@@ -24,6 +24,7 @@ import {
   Subscription, SubscriptionCycle, getSubscription, subscribeToCycles,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
   updateSubscription, deleteSubscription, SUBSCRIPTION_SUBCATEGORIES,
+  subMonthlyEquivalentCents,
   type SubscriptionCategory, type SubscriptionStatus, type SubscriptionFrequency,
 } from '@/lib/subscriptions';
 import { Timestamp } from 'firebase/firestore';
@@ -31,6 +32,8 @@ import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPic
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
+import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/household/CurrencyAmountInput';
+import { FrequencyPicker, SUB_FREQUENCY_OPTIONS } from '@/components/household/FrequencyPicker';
 import { PostDueCheck } from '@/components/household/PostDueCheck';
 import { AdvisoryCard } from '@/components/household/AdvisoryCard';
 import { UtilisationCheckIn } from '@/components/household/UtilisationCheckIn';
@@ -314,6 +317,7 @@ export default function SubscriptionDetailPage() {
           sub={sub}
           familyId={profile.familyId}
           subId={subId}
+          householdCurrency={householdCurrency}
           onClose={() => setEditOpen(false)}
           onSaved={async () => {
             const fresh = await getSubscription(profile.familyId!, subId);
@@ -335,21 +339,30 @@ export default function SubscriptionDetailPage() {
 // open this sheet.
 
 function SubscriptionEditSheet({
-  sub, familyId, subId, onClose, onSaved,
+  sub, familyId, subId, householdCurrency, onClose, onSaved,
 }: {
   sub: Subscription;
   familyId: string;
   subId: string;
+  householdCurrency: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(sub.name);
   const [category, setCategory] = useState<SubscriptionCategory>(sub.category);
   const [subCategory, setSubCategory] = useState(sub.subCategory);
-  const [amountInput, setAmountInput] = useState(
-    (sub.amountOriginal / 100).toFixed(2),
-  );
+  // Amount + currency + FX in one controlled value, mirroring the New flow so
+  // a parent can correct the currency (not just the number) and the household
+  // equivalent + monthly-equivalent KPIs recompute on save.
+  const [amount, setAmount] = useState<CurrencyAmountValue>({
+    amountCents: sub.amountOriginal,
+    currency: sub.currencyOriginal,
+    fxRate: sub.fxRate,
+    amountHouseholdCents: sub.amountHousehold,
+    fxResolved: true,
+  });
   const [frequency, setFrequency] = useState<SubscriptionFrequency>(sub.frequency);
+  const [customMonths, setCustomMonths] = useState<number | null>(sub.customMonths ?? null);
   const [status, setStatus] = useState<SubscriptionStatus>(sub.status);
   const [nextBillingIso, setNextBillingIso] = useState(tsToIso(sub.nextBillingDate));
   const [reminderDays, setReminderDays] = useState<number[]>(sub.reminderDaysBefore ?? []);
@@ -364,11 +377,18 @@ function SubscriptionEditSheet({
     setSaving(true);
     setErr('');
     try {
-      const amountOriginal = Math.round(Number(amountInput) * 100);
-      if (!Number.isFinite(amountOriginal) || amountOriginal < 0) {
+      if (amount.amountCents <= 0) {
         throw new Error('Amount must be a positive number.');
       }
-      const amountHousehold = Math.round(amountOriginal * sub.fxRate);
+      if (!amount.fxResolved) {
+        throw new Error('Still resolving the exchange rate — try again in a moment.');
+      }
+      const effectiveCustomMonths = frequency === 'custom' ? customMonths : null;
+      // Recompute the household amount + monthly-equivalent so the detail card
+      // AND the list KPIs (monthly equivalent / annualized) stay in sync.
+      const monthlyEquivalent = subMonthlyEquivalentCents(
+        amount.amountHouseholdCents, frequency, effectiveCustomMonths,
+      );
       const ymdToTs = (ymd: string): Timestamp => {
         const [y, m, d] = ymd.split('-').map(Number);
         if (!y || !m || !d) return sub.nextBillingDate;
@@ -378,9 +398,13 @@ function SubscriptionEditSheet({
         name: name.trim() || sub.name,
         category,
         subCategory: subCategory.trim() || sub.subCategory,
-        amountOriginal,
-        amountHousehold,
+        amountOriginal: amount.amountCents,
+        currencyOriginal: amount.currency,
+        fxRate: amount.fxRate,
+        amountHousehold: amount.amountHouseholdCents,
+        monthlyEquivalent,
         frequency,
+        customMonths: effectiveCustomMonths,
         status,
         nextBillingDate: ymdToTs(nextBillingIso),
         reminderDaysBefore: [...reminderDays].sort((a, b) => b - a),
@@ -394,7 +418,7 @@ function SubscriptionEditSheet({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-3 bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-3 bg-black/40" onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-md max-h-[92vh] overflow-y-auto bg-white rounded-3xl shadow-2xl p-5 space-y-3.5">
         <div className="flex items-baseline justify-between">
           <h3 className="font-display font-extrabold text-[18px] text-pulse-navy">✏️ Edit subscription</h3>
@@ -418,19 +442,22 @@ function SubscriptionEditSheet({
           </Field>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={`Amount (${sub.currencyOriginal})`}>
-            <input type="number" step="0.01" min="0" value={amountInput} onChange={(e) => setAmountInput(e.target.value)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold" />
-          </Field>
-          <Field label="Frequency">
-            <select value={frequency} onChange={(e) => setFrequency(e.target.value as SubscriptionFrequency)} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold">
-              <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly</option>
-              <option value="annual">Annual</option>
-              <option value="custom">Custom</option>
-            </select>
-          </Field>
-        </div>
+        {/* Amount + currency + live FX — same control as the New flow, so the
+            currency itself is editable (not locked to entry) and the household
+            equivalent recomputes. */}
+        <CurrencyAmountInput
+          value={amount}
+          onChange={setAmount}
+          householdCurrency={householdCurrency}
+          label="Amount"
+        />
+
+        <FrequencyPicker
+          value={frequency}
+          customMonths={customMonths}
+          onChange={(f, m) => { setFrequency(f); setCustomMonths(m); }}
+          options={SUB_FREQUENCY_OPTIONS}
+        />
 
         <div className="grid grid-cols-2 gap-2">
           <Field label="Next billing">
