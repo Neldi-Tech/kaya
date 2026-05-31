@@ -2,34 +2,25 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { GameProps } from './types';
+import { getGame } from '@/lib/gamesCatalog';
+import MultiDeviceRoom from './MultiDeviceRoom';
+import { makeProblem, type MathProblem, MATH_DASH_SECONDS as DURATION } from '@/lib/mathDash';
 
 // Timed mental-arithmetic sprint. As many correct as you can in 45s.
-
-const DURATION = 45;
-
-interface Problem { text: string; answer: number; choices: number[] }
-
-function makeProblem(): Problem {
-  const op = Math.random() < 0.5 ? '+' : '-';
-  let a = 1 + Math.floor(Math.random() * 12);
-  let b = 1 + Math.floor(Math.random() * 12);
-  if (op === '-' && b > a) [a, b] = [b, a];
-  const answer = op === '+' ? a + b : a - b;
-  const choices = new Set<number>([answer]);
-  while (choices.size < 4) {
-    const d = answer + (Math.floor(Math.random() * 7) - 3);
-    if (d >= 0 && d !== answer) choices.add(d);
-  }
-  const arr = [...choices];
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return { text: `${a} ${op} ${b}`, answer, choices: arr };
-}
+// Solo by default, with a one-tap "race on 2 phones" mode (room code) so
+// siblings can go head-to-head on the same problems.
 
 export default function MathDash({ onComplete }: GameProps) {
-  const [problem, setProblem] = useState<Problem>(makeProblem);
+  const [mode, setMode] = useState<'solo' | 'multi'>('solo');
+  if (mode === 'multi') {
+    const game = getGame('math-dash');
+    return game ? <MultiDeviceRoom game={game} onComplete={onComplete} /> : null;
+  }
+  return <MathDashSolo onComplete={onComplete} onRace={() => setMode('multi')} />;
+}
+
+function MathDashSolo({ onComplete, onRace }: GameProps & { onRace: () => void }) {
+  const [problem, setProblem] = useState<MathProblem>(makeProblem);
   const [score, setScore] = useState(0);
   const [left, setLeft] = useState(DURATION);
   const [flash, setFlash] = useState<'ok' | 'no' | null>(null);
@@ -92,6 +83,13 @@ export default function MathDash({ onComplete }: GameProps) {
           </button>
         ))}
       </div>
+      {!done && (
+        <div className="text-center mt-5">
+          <button type="button" onClick={onRace} className="text-xs font-bold text-games-ink-soft underline">
+            📲 Race a friend on 2 phones
+          </button>
+        </div>
+      )}
     </div>
   );
 }

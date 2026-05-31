@@ -1,17 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import type { GameDef } from '@/lib/gamesCatalog';
 import type { GameOutcome } from './types';
 import FamilyTriviaPlay, { triviaInitialState } from './FamilyTrivia';
 import {
-  createSession, findSessionByCode, joinSession, subscribeSession, updateSession,
+  createSession, findSessionByCode, joinSession, subscribeSession, updateSession, updateSessionFields,
   type GameSession,
 } from '@/lib/gameSessions';
 import { type Cell, decideTicTacToe, tttGlyph } from '@/lib/ticTacToe';
 import { recordWin } from '@/lib/gamesWinClient';
 import { saveStory } from '@/lib/gamesStoryClient';
+import { makeProblems, type MathProblem, MATH_DASH_SECONDS } from '@/lib/mathDash';
+import { pickRack, validWords, canMake, type WordRack, WORD_RACKS, WORD_SPRINT_SECONDS } from '@/lib/wordSprint';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 import { slAdvance, slRollDie } from '@/lib/snakesLadders';
 import SnakesLaddersBoard from './SnakesLaddersBoard';
@@ -73,6 +75,8 @@ export default function MultiDeviceRoom({
         : game.id === 'tic-tac-toe' ? { board: Array(9).fill(null), turn: 0 }
         : game.id === 'connect-4' ? { board: Array(C4_ROWS * C4_COLS).fill(0), turn: 0 }
         : game.id === 'snakes-ladders' ? { pos: [0, 0], turn: 0, die: null }
+        : game.id === 'math-dash' ? { problems: makeProblems(60), startAt: 0, scores: {} }
+        : game.id === 'word-sprint' ? { rack: pickRack(), startAt: 0, scores: {} }
         : {};
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
@@ -282,7 +286,170 @@ function Play({ game, session, me, familyId }: { game: GameDef; session: GameSes
   if (game.id === 'tic-tac-toe') return <TicTacToeMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'connect-4') return <Connect4MultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'snakes-ladders') return <SnakesLaddersMultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'math-dash') return <MathDashMultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'word-sprint') return <WordSprintMultiPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
+}
+
+// Shared timing for the simultaneous "race" games (Math Dash, Word Sprint):
+// the host stamps ONE startAt so every phone counts down together, the host
+// ends the race a beat after the synced clock expires, and the winner is
+// derived from state.scores by /api/games/win. Returns the live countdown.
+function useRaceClock(session: GameSession, me: string, familyId: string, seconds: number) {
+  const startAt = (session.state.startAt as number) || 0;
+  const isHost = session.hostUid === me;
+
+  useEffect(() => {
+    if (isHost && startAt === 0) void updateSessionFields(familyId, session.id, { 'state.startAt': Date.now() });
+  }, [isHost, startAt, familyId, session.id]);
+
+  const [nowMs, setNowMs] = useState(0);
+  useEffect(() => {
+    const iv = window.setInterval(() => setNowMs(Date.now()), 250);
+    return () => window.clearInterval(iv);
+  }, []);
+
+  const elapsed = startAt ? Math.max(0, (nowMs - startAt) / 1000) : 0;
+  const remaining = Math.max(0, Math.ceil(seconds - elapsed));
+  const localDone = startAt > 0 && elapsed >= seconds;
+
+  useEffect(() => {
+    if (isHost && startAt > 0 && elapsed >= seconds + 1.5 && session.status === 'playing') {
+      void updateSession(familyId, session.id, { status: 'done' });
+    }
+  }, [isHost, startAt, elapsed, seconds, session.status, familyId, session.id]);
+
+  return { startAt, remaining, localDone, seconds };
+}
+
+// Live, sorted score strip shown under every race game.
+function RaceScoreboard({ session, me }: { session: GameSession; me: string }) {
+  const scores = (session.state.scores as Record<string, number>) || {};
+  const ranked = [...session.players].sort((a, b) => (scores[b.uid] || 0) - (scores[a.uid] || 0));
+  return (
+    <div className="bg-games-bg rounded-kaya p-3 mt-4">
+      {ranked.map((p, i) => (
+        <div key={p.uid} className="flex justify-between text-sm py-0.5">
+          <span className="font-bold text-games-ink">{i === 0 ? '👑 ' : ''}{p.name}{p.uid === me ? ' (you)' : ''}</span>
+          <span className="font-display font-black text-games-violet">{scores[p.uid] || 0}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Two-phone Math Dash race. Everyone gets the SAME problem bank + a synced
+// timer; each player races through at their own pace and the top score wins.
+function MathDashMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const problems = (session.state.problems as MathProblem[]) || [];
+  const { startAt, remaining, localDone, seconds } = useRaceClock(session, me, familyId, MATH_DASH_SECONDS);
+  const [idx, setIdx] = useState(0);
+  const [myScore, setMyScore] = useState(0);
+  const [flash, setFlash] = useState<'ok' | 'no' | null>(null);
+  const problem = problems.length ? problems[idx % problems.length] : null;
+
+  const answer = (c: number) => {
+    if (localDone || !problem) return;
+    const ok = c === problem.answer;
+    setFlash(ok ? 'ok' : 'no');
+    if (ok) {
+      const ns = myScore + 1;
+      setMyScore(ns);
+      void updateSessionFields(familyId, session.id, { [`state.scores.${me}`]: ns });
+    }
+    window.setTimeout(() => { setFlash(null); setIdx((i) => i + 1); }, 180);
+  };
+
+  if (startAt === 0) return <Center>Get ready… 🏁</Center>;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 320 }}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold text-games-ink-soft">You: {myScore}</span>
+        <span className={`text-xs font-bold ${remaining <= 5 ? 'text-games-coral' : 'text-games-ink-soft'}`}>⏱ {remaining}s</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-games-bg mb-4 overflow-hidden">
+        <div className="h-full bg-games-teal" style={{ width: `${(remaining / seconds) * 100}%`, transition: 'width 0.25s linear' }} />
+      </div>
+      {localDone ? (
+        <p className="text-center text-sm font-extrabold text-games-ink py-6">⏱ Time! Final scores…</p>
+      ) : problem ? (
+        <>
+          <div className={`rounded-kaya-lg py-7 text-center mb-4 font-display font-black text-4xl text-games-ink transition-colors ${
+            flash === 'ok' ? 'bg-games-mint' : flash === 'no' ? 'bg-[#FFE4E4]' : 'bg-games-card'
+          }`}>{problem.text} = ?</div>
+          <div className="grid grid-cols-2 gap-2.5">
+            {problem.choices.map((c) => (
+              <button key={c} type="button" onClick={() => answer(c)} disabled={localDone}
+                className="bg-games-card rounded-kaya py-4 font-display font-extrabold text-xl text-games-violet shadow-[0_4px_12px_rgba(26,18,64,0.06)] active:scale-95 transition-transform">{c}</button>
+            ))}
+          </div>
+        </>
+      ) : null}
+      <RaceScoreboard session={session} me={me} />
+    </div>
+  );
+}
+
+// Two-phone Word Sprint race. Everyone gets the SAME rack + a synced timer;
+// most valid words when time runs out wins.
+function WordSprintMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const rack = (session.state.rack as WordRack) || WORD_RACKS[0];
+  const { startAt, remaining, localDone, seconds } = useRaceClock(session, me, familyId, WORD_SPRINT_SECONDS);
+  const valid = useMemo(() => new Set(validWords(rack)), [rack]);
+  const [input, setInput] = useState('');
+  const [found, setFound] = useState<string[]>([]);
+  const [msg, setMsg] = useState('Spell words with these letters');
+
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
+    if (localDone) return;
+    const w = input.trim().toLowerCase();
+    setInput('');
+    if (w.length < 3) { setMsg('Words need 3+ letters'); return; }
+    if (found.includes(w)) { setMsg(`Already found "${w}"`); return; }
+    if (valid.has(w) && canMake(w, rack.letters)) {
+      const nf = [w, ...found];
+      setFound(nf);
+      setMsg(`✓ Nice — "${w}"`);
+      void updateSessionFields(familyId, session.id, { [`state.scores.${me}`]: nf.length });
+    } else setMsg(`"${w}" isn't in this puzzle`);
+  };
+
+  if (startAt === 0) return <Center>Get ready… 🏁</Center>;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 320 }}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-bold text-games-ink-soft">Found: {found.length}</span>
+        <span className={`text-xs font-bold ${remaining <= 5 ? 'text-games-coral' : 'text-games-ink-soft'}`}>⏱ {remaining}s</span>
+      </div>
+      <div className="h-1.5 rounded-full bg-games-bg mb-3 overflow-hidden">
+        <div className="h-full bg-games-teal" style={{ width: `${(remaining / seconds) * 100}%`, transition: 'width 0.25s linear' }} />
+      </div>
+      <div className="flex justify-center gap-1.5 mb-3">
+        {rack.letters.split('').map((ch, i) => (
+          <span key={i} className="w-9 h-10 rounded-kaya-sm bg-gradient-to-br from-games-violet to-games-violet-deep text-white font-display font-black flex items-center justify-center text-lg">{ch}</span>
+        ))}
+      </div>
+      {localDone ? (
+        <p className="text-center text-sm font-extrabold text-games-ink py-3">⏱ Time! Final scores…</p>
+      ) : (
+        <>
+          <form onSubmit={submit} className="flex gap-2 mb-2">
+            <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="type a word" autoCapitalize="none" autoCorrect="off"
+              className="flex-1 bg-games-card rounded-kaya px-3 py-2.5 text-sm font-bold text-games-ink outline-none shadow-[0_4px_12px_rgba(26,18,64,0.06)]" />
+            <button type="submit" className="bg-games-violet text-white font-extrabold px-4 rounded-kaya">Add</button>
+          </form>
+          <p className="text-[11px] font-semibold text-games-ink-soft mb-2 h-4">{msg}</p>
+          <div className="flex flex-wrap gap-1.5">
+            {found.map((w) => (<span key={w} className="bg-games-mint text-games-ink text-[11px] font-bold px-2 py-1 rounded-full">{w}</span>))}
+          </div>
+        </>
+      )}
+      <RaceScoreboard session={session} me={me} />
+    </div>
+  );
 }
 
 // Two-device Tic-Tac-Toe. players[0] is ❌ (the host), players[1] is ⭕; any

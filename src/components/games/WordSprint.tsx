@@ -2,32 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { GameProps } from './types';
+import { getGame } from '@/lib/gamesCatalog';
+import MultiDeviceRoom from './MultiDeviceRoom';
+import { canMake, pickRack, WORD_SPRINT_SECONDS as DURATION } from '@/lib/wordSprint';
 
-// Make as many words as you can from 7 letters in 60 seconds. Each rack
-// carries its own word list; a runtime letter-availability check guards
-// against any mis-listed word, so it can never accept the impossible.
-
-const DURATION = 60;
-
-const RACKS: { letters: string; words: string[] }[] = [
-  { letters: 'TEACHRS', words: ['teach', 'reach', 'chase', 'share', 'cheat', 'trace', 'crate', 'chart', 'char', 'cash', 'rash', 'star', 'arts', 'rats', 'cats', 'cars', 'scar', 'care', 'race', 'rate', 'tear', 'heat', 'hear', 'ear', 'eat', 'tea', 'ate', 'sea', 'set', 'the', 'hat', 'cat', 'car', 'art', 'ash', 'has', 'sat', 'rat', 'tar'] },
-  { letters: 'PRINTED', words: ['print', 'tried', 'tired', 'pride', 'diner', 'rind', 'ride', 'ripe', 'pine', 'dine', 'dirt', 'drip', 'trip', 'pint', 'rent', 'nerd', 'tend', 'tin', 'ten', 'pen', 'pet', 'net', 'red', 'rip', 'tip', 'pit', 'dip', 'din', 'end', 'pie', 'tie', 'die', 'pin', 'rid'] },
-  { letters: 'STORMED', words: ['stored', 'sorted', 'modest', 'store', 'storm', 'term', 'torn', 'tore', 'rote', 'most', 'dorm', 'rest', 'rode', 'more', 'mode', 'dome', 'dose', 'rose', 'sore', 'rod', 'rot', 'ore', 'toe', 'doe', 'met', 'set', 'red', 'sod', 'dot', 'mod'] },
-  { letters: 'BLANKET', words: ['blanket', 'ankle', 'blank', 'table', 'bean', 'lean', 'lent', 'tale', 'late', 'bake', 'lake', 'take', 'bank', 'tank', 'bent', 'teal', 'ten', 'net', 'ant', 'eat', 'ate', 'tea', 'ban', 'bat', 'bet', 'let', 'lab', 'tab', 'ale', 'elk'] },
-];
-
-function canMake(word: string, letters: string): boolean {
-  const avail: Record<string, number> = {};
-  for (const ch of letters.toUpperCase()) avail[ch] = (avail[ch] || 0) + 1;
-  for (const ch of word.toUpperCase()) {
-    if (!avail[ch]) return false;
-    avail[ch] -= 1;
-  }
-  return true;
-}
+// Make as many words as you can from 7 letters in 60 seconds. Each rack carries
+// its own word list; a runtime letter-availability check guards against any
+// mis-listed word. Solo by default, with a one-tap "race on 2 phones" mode so
+// siblings race the SAME rack head-to-head.
 
 export default function WordSprint({ onComplete }: GameProps) {
-  const [rack] = useState(() => RACKS[Math.floor(Math.random() * RACKS.length)]);
+  const [mode, setMode] = useState<'solo' | 'multi'>('solo');
+  if (mode === 'multi') {
+    const game = getGame('word-sprint');
+    return game ? <MultiDeviceRoom game={game} onComplete={onComplete} /> : null;
+  }
+  return <WordSprintSolo onComplete={onComplete} onRace={() => setMode('multi')} />;
+}
+
+function WordSprintSolo({ onComplete, onRace }: GameProps & { onRace: () => void }) {
+  const [rack] = useState(pickRack);
   const valid = useMemo(
     () => new Set(rack.words.filter((w) => canMake(w, rack.letters)).map((w) => w.toLowerCase())),
     [rack],
@@ -95,6 +89,13 @@ export default function WordSprint({ onComplete }: GameProps) {
           <span key={w} className="bg-games-mint text-games-ink text-[11px] font-bold px-2 py-1 rounded-full">{w}</span>
         ))}
       </div>
+      {!done && (
+        <div className="text-center mt-5">
+          <button type="button" onClick={onRace} className="text-xs font-bold text-games-ink-soft underline">
+            📲 Race a friend on 2 phones
+          </button>
+        </div>
+      )}
     </div>
   );
 }
