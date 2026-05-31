@@ -49,11 +49,11 @@ export const GAME_WORLDS: WorldDef[] = [
 export const GAMES: GameDef[] = [
   // ── ⚡ Quick Plays (8 · solo · offline) ────────────────────────────
   { id: 'memory-match',  name: 'Memory Match',     world: 'quick', icon: '🧠', tone: 'coral',  minAge: 4, minutes: 3,  points: 15, device: 'solo', built: true },
-  { id: 'word-sprint',   name: 'Word Sprint',      world: 'quick', icon: '🔤', tone: 'violet', minAge: 6, minutes: 5,  points: 20, device: 'solo' },
+  { id: 'word-sprint',   name: 'Word Sprint',      world: 'quick', icon: '🔤', tone: 'violet', minAge: 6, minutes: 5,  points: 20, device: 'solo', built: true },
   { id: 'math-dash',     name: 'Math Dash',        world: 'quick', icon: '➕', tone: 'gold',   minAge: 5, minutes: 4,  points: 20, device: 'solo', built: true },
-  { id: '2048',          name: '2048',             world: 'quick', icon: '🔢', tone: 'sky',    minAge: 8, minutes: 10, points: 25, device: 'solo' },
-  { id: 'sliding-puzzle', name: 'Sliding Puzzle',  world: 'quick', icon: '🧩', tone: 'pink',   minAge: 5, minutes: 5,  points: 20, device: 'solo' },
-  { id: 'sudoku-lite',   name: 'Sudoku Lite',      world: 'quick', icon: '🔡', tone: 'teal',   minAge: 7, minutes: 8,  points: 25, device: 'solo' },
+  { id: '2048',          name: '2048',             world: 'quick', icon: '🔢', tone: 'sky',    minAge: 8, minutes: 10, points: 25, device: 'solo', built: true },
+  { id: 'sliding-puzzle', name: 'Sliding Puzzle',  world: 'quick', icon: '🧩', tone: 'pink',   minAge: 5, minutes: 5,  points: 20, device: 'solo', built: true },
+  { id: 'sudoku-lite',   name: 'Sudoku Lite',      world: 'quick', icon: '🔡', tone: 'teal',   minAge: 7, minutes: 8,  points: 25, device: 'solo', built: true },
   { id: 'snake',         name: 'Snake',            world: 'quick', icon: '🐍', tone: 'coral',  minAge: 5, minutes: 5,  points: 15, device: 'solo', built: true },
   { id: 'tic-tac-toe',   name: 'Tic-Tac-Toe',      world: 'quick', icon: '❌', tone: 'violet', minAge: 4, minutes: 2,  points: 10, device: 'solo', built: true, note: 'vs AI' },
 

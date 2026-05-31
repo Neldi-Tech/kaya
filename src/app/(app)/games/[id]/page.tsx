@@ -14,6 +14,10 @@ import GuidedBreathing from '@/components/games/GuidedBreathing';
 import GratitudeJar from '@/components/games/GratitudeJar';
 import FiveSenses from '@/components/games/FiveSenses';
 import MoodCheckin from '@/components/games/MoodCheckin';
+import Game2048 from '@/components/games/Game2048';
+import SlidingPuzzle from '@/components/games/SlidingPuzzle';
+import WordSprint from '@/components/games/WordSprint';
+import SudokuLite from '@/components/games/SudokuLite';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -27,6 +31,10 @@ const REGISTRY: Record<string, ComponentType<GameProps>> = {
   'gratitude-jar': GratitudeJar,
   'five-senses': FiveSenses,
   'mood-checkin': MoodCheckin,
+  '2048': Game2048,
+  'sliding-puzzle': SlidingPuzzle,
+  'word-sprint': WordSprint,
+  'sudoku-lite': SudokuLite,
 };
 
 function BurstRow() {
