@@ -309,6 +309,17 @@ service cloud.firestore {
           || isLegacyHelperWithoutLink(familyId);
       }
 
+      // ── Kaya Games · per-play records (gamePlays) ───────────────────
+      // Written ONLY by the server award route (Admin SDK bypasses rules),
+      // which derives the kid + the points and enforces the daily cap.
+      // Family members may READ their play history (hub progress, family
+      // leaderboard, weekly report); clients can never write — that's how
+      // the House Points economy stays forge-proof.
+      match /gamePlays/{playId} {
+        allow read: if belongsToFamily(familyId);
+        allow write: if false;
+      }
+
       // ── Helpers (per-family scoped credential) ───────────────────
       // One doc per helper at /helpers/{uid}. Parents manage; the
       // helper themselves can read their own doc so the UI can show

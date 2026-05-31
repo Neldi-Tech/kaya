@@ -147,6 +147,11 @@ export interface Family {
   // and faith communities consider only Female/Male appropriate, so the
   // option is opt-in. Parents can flip this in Settings.
   allowGenderOther?: boolean;
+  // ── Kaya Games · parental controls (play windows, daily caps, age
+  //   multiplier). Shape mirrors GamesConfig in lib/games.ts; partial or
+  //   absent → resolved against DEFAULT_GAMES_CONFIG. Family-readable,
+  //   parent-writable (rides the family doc — no extra rule).
+  gamesConfig?: Partial<import('./games').GamesConfig>;
   // ── Location ──
   // Where this family lives. Optional — when set, the country code
   // drives currency auto-detection (`countryToCurrency()` in
