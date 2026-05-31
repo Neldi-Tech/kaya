@@ -163,4 +163,5 @@ export interface GamePlay {
   resolvedAt?: number;  // ms epoch, set when approved/rejected
   resolvedBy?: string;  // parent uid who approved/rejected
   parentNote?: string;  // optional note shown to the kid (approve or reject)
+  proofUrl?: string;    // Real-World: the photo the kid uploaded as proof (shown in the approval card)
 }

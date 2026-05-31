@@ -25,6 +25,7 @@ import SnakesLadders from '@/components/games/SnakesLadders';
 import Charades from '@/components/games/Charades';
 import Pictionary from '@/components/games/Pictionary';
 import MultiDeviceRoom from '@/components/games/MultiDeviceRoom';
+import RealWorldChallenge from '@/components/games/RealWorldChallenge';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -65,6 +66,7 @@ export default function GameRunnerPage() {
   const game = getGame(id);
   const GameComp = REGISTRY[id];
   const isMulti = game?.device === 'multi';
+  const isRealWorld = game?.world === 'realworld';
 
   // Parent-set worth for this game (default 0). Drives the honest pre-game
   // badge: a valued game shows its points + that a parent has to OK them; a
@@ -108,7 +110,7 @@ export default function GameRunnerPage() {
     );
   }
 
-  if (!game.built || (!isMulti && !GameComp)) {
+  if (!game.built || (!isMulti && !isRealWorld && !GameComp)) {
     return (
       <Shell>
         <div className="text-center py-12">
@@ -142,6 +144,8 @@ export default function GameRunnerPage() {
 
       {isMulti ? (
         <MultiDeviceRoom game={game} onComplete={handleComplete} />
+      ) : isRealWorld ? (
+        <RealWorldChallenge game={game} />
       ) : GameComp ? (
         <GameComp key={round} onComplete={handleComplete} />
       ) : null}
