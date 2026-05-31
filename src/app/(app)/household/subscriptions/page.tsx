@@ -72,16 +72,28 @@ export default function SubscriptionsListPage() {
 
   const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
 
-  const kpis = useMemo(() => computeSubscriptionKpis(subs), [subs]);
-  const filtered = useMemo(
-    () => subs.filter((s) => {
-      if (activeCategory && s.category !== activeCategory) return false;
-      if (paidByFilter === 'all') return true;
-      const subPaidBy = s.paidByUid ?? null;
-      return subPaidBy === paidByFilter;
-    }),
-    [subs, activeCategory, paidByFilter],
+  // KPIs reflect the active Paid-by scope (all / Shared / a parent) so the
+  // hero cards change with the filter. Category chips still narrow the LIST
+  // only — the hero stays at the attribution level so "this parent's monthly
+  // commitment" reads true regardless of which category you're browsing.
+  const paidByScopedSubs = useMemo(
+    () => subs.filter((s) => paidByFilter === 'all' || (s.paidByUid ?? null) === paidByFilter),
+    [subs, paidByFilter],
   );
+  const kpis = useMemo(() => computeSubscriptionKpis(paidByScopedSubs), [paidByScopedSubs]);
+  const filtered = useMemo(
+    () => paidByScopedSubs.filter((s) => !activeCategory || s.category === activeCategory),
+    [paidByScopedSubs, activeCategory],
+  );
+
+  // Label + tone for the hero so it's obvious whose numbers these are.
+  const scopeMeta = useMemo(() => {
+    if (paidByFilter === 'all') return { label: 'Everyone', tone: 'all' as const };
+    if (paidByFilter === null) return { label: 'Shared only', tone: 'shared' as const };
+    const p = parents.find((x) => x.uid === paidByFilter);
+    const nm = (p?.displayName || p?.email || 'Parent').split(' ')[0];
+    return { label: `${nm} only`, tone: 'parent' as const };
+  }, [paidByFilter, parents]);
   // Counts per attribution bucket — live from the unfiltered subs.
   const paidByCounts = useMemo(() => {
     const c: Record<string, number> = { all: subs.length, shared: 0 };
@@ -129,6 +141,27 @@ export default function SubscriptionsListPage() {
       </header>
 
       <section className="mb-4">
+        {/* Scope pill — makes it obvious the hero numbers below follow the
+            Paid-by filter (Everyone / Shared / a specific parent). */}
+        <div className="mb-2 flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-extrabold ${
+              scopeMeta.tone === 'all'
+                ? 'bg-pulse-navy/8 text-pulse-navy/70'
+                : 'bg-pulse-gold/15 text-pulse-navy border border-pulse-gold/40'
+            }`}
+          >
+            {scopeMeta.tone === 'all' ? '👪' : scopeMeta.tone === 'shared' ? '👪' : '👤'} {scopeMeta.label}
+          </span>
+          {paidByFilter !== 'all' && (
+            <button
+              onClick={() => setPaidByFilter('all')}
+              className="text-[11px] font-bold uppercase tracking-wide text-pulse-gold hover:underline"
+            >
+              Show everyone
+            </button>
+          )}
+        </div>
         <KpiStrip
           items={[
             {
@@ -139,7 +172,7 @@ export default function SubscriptionsListPage() {
             {
               label: 'Monthly equivalent',
               value: formatCents(kpis.monthlyEquivalentCents, householdCurrency),
-              sub: 'Annualised smoothing',
+              sub: scopeMeta.tone === 'all' ? 'Annualised smoothing' : `${scopeMeta.label} · smoothed`,
             },
             {
               label: 'Annualized',
