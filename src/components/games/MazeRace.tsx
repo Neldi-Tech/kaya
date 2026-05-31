@@ -8,11 +8,11 @@ import {
   placeCoins, coinTarget, stageSize, bfsPath, progressPct, drawMaze, fmtTime,
 } from '@/lib/maze';
 
-// Two-phone Maze Race — lives inside MultiDeviceRoom's Play dispatch, like the
-// other multi games. Same maze on both phones (shared seed), best-of-3 growing
-// stages. Each device reports ONLY its own progress + finish; BOTH compute the
-// stage winner identically from the finishes map (no arbiter races). The host
-// writes the low-frequency stage transitions + the final 'done'.
+// Family Maze Race — lives inside MultiDeviceRoom's Play dispatch. EVERYONE in
+// the room races the SAME maze (shared seed) on their own phone, best-of-3
+// growing stages. Each device reports ONLY its own progress + finish; every
+// device computes the stage winner identically from the finishes map (no
+// arbiter races). The host writes the low-frequency stage transitions + 'done'.
 
 type Mode = 'first' | 'time';
 interface RaceFinish { ms: number; coins: number }
@@ -25,6 +25,12 @@ interface RaceState {
 }
 
 const TOTAL_STAGES = 3;
+const DNF = 9_999_999;
+// Distinct ghost runners + matching halo + progress-bar colour, by racer order.
+const GLYPHS = ['🐢', '🐰', '🦉', '🐱', '🐼', '🐸', '🦝', '🐧'];
+const HALOS = ['rgba(255,107,107,0.30)', 'rgba(45,212,191,0.32)', 'rgba(255,201,60,0.34)', 'rgba(255,143,177,0.30)', 'rgba(125,211,252,0.34)', 'rgba(167,243,208,0.42)', 'rgba(107,63,224,0.26)', 'rgba(90,79,122,0.30)'];
+const BARS = ['bg-games-coral', 'bg-games-teal', 'bg-games-gold', 'bg-games-pink', 'bg-games-sky', 'bg-games-mint', 'bg-games-violet', 'bg-games-ink-soft'];
+
 const center = (c: number, r: number, cell: number) => ({ x: (c + 0.5) * cell, y: (r + 0.5) * cell });
 const worldOf = (id?: string): MazeWorld => MAZE_WORLDS.find((w) => w.id === id) || MAZE_WORLDS[0];
 
@@ -45,19 +51,19 @@ function matchWinner(results: RaceResult[], racers: string[]): string {
   for (const uid of racers) { wins[uid] = 0; total[uid] = 0; }
   for (const r of results) {
     if (r.winnerUid) wins[r.winnerUid] = (wins[r.winnerUid] || 0) + 1;
-    for (const uid of racers) total[uid] += Number(r.times?.[uid] || 0) || 999999;
+    for (const uid of racers) total[uid] += Number(r.times?.[uid] || 0) || DNF;
   }
   const sorted = [...racers].sort((a, b) => (wins[b] - wins[a]) || (total[a] - total[b]));
-  if (racers.length === 2 && wins[sorted[0]] === wins[sorted[1]] && total[sorted[0]] === total[sorted[1]]) return '';
+  // ambiguous if the top two are level on both wins and total time
+  if (sorted.length >= 2 && wins[sorted[0]] === wins[sorted[1]] && total[sorted[0]] === total[sorted[1]]) return '';
   return sorted[0];
 }
 
 export default function MazeRaceMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
   const st = session.state as RaceState;
   const players = session.players;
-  const racers = players.slice(0, 2).map((p) => p.uid);
+  const racers = players.map((p) => p.uid); // everyone in the room races
   const isHost = session.hostUid === me;
-  const isRacer = racers.includes(me);
   const stage = st.stage ?? 0;
   const mode: Mode = st.mode === 'time' ? 'time' : 'first';
   const finishes = st.finishes || {};
@@ -99,14 +105,10 @@ export default function MazeRaceMultiPlay({ session, me, familyId }: { session: 
   }
 
   if (decided) {
-    return <StageTally session={session} me={me} mode={mode} stage={stage} winnerUid={winnerUid} finishes={finishes} results={results} />;
+    return <StageTally session={session} me={me} mode={mode} stage={stage} winnerUid={winnerUid} finishes={finishes} results={results} racers={racers} />;
   }
 
-  if (!isRacer) {
-    return <Spectator session={session} racers={racers} />;
-  }
-
-  return <RaceBoard key={stage} session={session} me={me} familyId={familyId} racers={racers} />;
+  return <RaceBoard key={stage} session={session} me={me} familyId={familyId} racers={racers} isHost={isHost} />;
 }
 
 // ── Host race setup ──────────────────────────────────────────────────────────
@@ -130,7 +132,8 @@ function RaceSetup({ familyId, session }: { familyId: string; session: GameSessi
 
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
-      <p className="text-center text-sm font-extrabold text-games-ink mb-4">Set up the race 🏁</p>
+      <p className="text-center text-sm font-extrabold text-games-ink mb-1">Set up the race 🏁</p>
+      <p className="text-center text-[11px] text-games-ink-soft mb-4">{session.players.length} players · same maze on every phone</p>
 
       <p className="text-[11px] font-extrabold uppercase tracking-wider text-games-ink-soft mb-2">How do you win?</p>
       <div className="flex bg-games-bg rounded-kaya p-1 gap-1">
@@ -186,36 +189,37 @@ function RaceSetup({ familyId, session }: { familyId: string; session: GameSessi
 
 // ── The live race board ──────────────────────────────────────────────────────
 interface BoardState {
-  maze: Maze; exit: Pt; coins: Coin[]; player: Entity; opp: Entity;
+  maze: Maze; exit: Pt; coins: Coin[]; player: Entity; opps: Record<string, Entity>;
   solution: Pt[]; cell: number; view: number;
   running: boolean; finished: boolean; heldDir: Dir | null; lastStep: number;
-  startMs: number; oppPct: number; lastProgress: number; lastProgWrite: number;
+  startMs: number; lastProgress: number; lastProgWrite: number;
 }
 
-function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me: string; familyId: string; racers: string[] }) {
+function RaceBoard({ session, me, familyId, racers, isHost }: { session: GameSession; me: string; familyId: string; racers: string[]; isHost: boolean }) {
   const st = session.state as RaceState;
   const world = worldOf(st.worldId);
   const diff = (st.diff || 'easy') as Difficulty;
   const stage = st.stage ?? 1;
   const seed = st.seed ?? 1;
   const goAt = st.goAt ?? Date.now();
-  const oppUid = racers.find((u) => u !== me) || '';
-  const oppName = session.players.find((p) => p.uid === oppUid)?.name || 'Them';
-  const oppPctLive = Number((st.progress || {})[oppUid] || 0);
+  const others = racers.filter((u) => u !== me);
+  const progress = st.progress || {};
+  const finishes = st.finishes || {};
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const gRef = useRef<BoardState | null>(null);
   const rafRef = useRef<number>(0);
-  const oppPctRef = useRef(0);
+  const progRef = useRef<Record<string, number>>({});
+  const othersRef = useRef<string[]>(others);
   const timeRef = useRef<HTMLSpanElement | null>(null);
   const coinRef = useRef<HTMLSpanElement | null>(null);
   const youBarRef = useRef<HTMLDivElement | null>(null);
-  const oppBarRef = useRef<HTMLDivElement | null>(null);
 
   const [countdown, setCountdown] = useState<number | null>(3);
   const [finishedView, setFinishedView] = useState(false);
 
-  oppPctRef.current = oppPctLive;
+  progRef.current = progress;
+  othersRef.current = others;
 
   const fitCanvas = useCallback(() => {
     const cv = canvasRef.current; const g = gRef.current;
@@ -226,7 +230,9 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
     const ctx = cv.getContext('2d');
     if (ctx) ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.view = w; g.cell = w / g.maze.cols;
-    for (const e of [g.player, g.opp]) { const p = center(e.c, e.r, g.cell); e.x = p.x; e.y = p.y; }
+    const snap = (e: Entity) => { const p = center(e.c, e.r, g.cell); e.x = p.x; e.y = p.y; };
+    snap(g.player);
+    for (const uid of Object.keys(g.opps)) snap(g.opps[uid]);
   }, []);
 
   const finish = useCallback(() => {
@@ -262,25 +268,38 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
         const p = center(g.player.c, g.player.r, g.cell);
         if (Math.hypot(g.player.x - p.x, g.player.y - p.y) < g.cell * 0.2) step(g.heldDir);
       }
-      // throttled progress report
+      // progress report — coarse (every ~8% / 1.5s) so many racers don't hammer
+      // the single session doc (Firestore ~1 write/sec/doc soft limit).
       const pct = progressPct(g.maze, g.player, g.exit);
-      if (now - g.lastProgWrite > 500 && Math.abs(pct - g.lastProgress) >= 2) {
+      if (now - g.lastProgWrite > 1500 && pct - g.lastProgress >= 8) {
         g.lastProgress = pct; g.lastProgWrite = now;
         void updateSessionFields(familyId, session.id, { [`state.progress.${me}`]: pct });
       }
       if (youBarRef.current) youBarRef.current.style.width = `${pct}%`;
     }
-    // opponent ghost from their reported pct
-    const op = oppPctRef.current;
-    if (oppBarRef.current) oppBarRef.current.style.width = `${Math.max(4, op)}%`;
-    const oi = Math.min(g.solution.length - 1, Math.max(0, Math.round((op / 100) * (g.solution.length - 1))));
-    const oc = g.solution[oi] || g.solution[0];
-    g.opp.c = oc.c; g.opp.r = oc.r;
+    // other racers' ghosts, placed along the shared solution path by their pct
+    for (const uid of othersRef.current) {
+      const ent = g.opps[uid];
+      if (!ent) continue;
+      const op = Number(progRef.current[uid] || 0);
+      const oi = Math.min(g.solution.length - 1, Math.max(0, Math.round((op / 100) * (g.solution.length - 1))));
+      const oc = g.solution[oi] || g.solution[0];
+      ent.c = oc.c; ent.r = oc.r;
+    }
+    const ease = (e: Entity) => { const p = center(e.c, e.r, g.cell); e.x += (p.x - e.x) * 0.38; e.y += (p.y - e.y) * 0.38; };
+    ease(g.player);
+    for (const uid of Object.keys(g.opps)) ease(g.opps[uid]);
 
-    for (const e of [g.player, g.opp]) { const p = center(e.c, e.r, g.cell); e.x += (p.x - e.x) * 0.38; e.y += (p.y - e.y) * 0.38; }
-
-    const cv = canvasRef.current; const ctx = cv?.getContext('2d');
-    if (ctx) drawMaze(ctx, { maze: g.maze, world, cell: g.cell, view: g.view, coins: g.coins, exit: g.exit, player: g.player, playerGlyph: '🦊', diana: g.opp, dianaGlyph: '🐢' });
+    const ctx = canvasRef.current?.getContext('2d');
+    if (ctx) {
+      drawMaze(ctx, {
+        maze: g.maze, world, cell: g.cell, view: g.view, coins: g.coins, exit: g.exit,
+        player: g.player, playerGlyph: '🦊',
+        opponents: othersRef.current
+          .map((uid, i) => { const e = g.opps[uid]; return e ? { e, glyph: GLYPHS[i % GLYPHS.length], halo: HALOS[i % HALOS.length] } : null; })
+          .filter((o): o is { e: Entity; glyph: string; halo: string } => o !== null),
+      });
+    }
     rafRef.current = window.requestAnimationFrame(loop);
   }, [goAt, world, step, familyId, session.id, me]);
 
@@ -291,12 +310,13 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
     const exit: Pt = { c: size - 1, r: size - 1 };
     const coins = placeCoins(maze, rng, exit, coinTarget(size));
     const start: Pt = { c: 0, r: 0 };
+    const opps: Record<string, Entity> = {};
+    for (const uid of othersRef.current) opps[uid] = { c: 0, r: 0, x: 0, y: 0 };
     gRef.current = {
-      maze, exit, coins,
-      player: { c: 0, r: 0, x: 0, y: 0 }, opp: { c: 0, r: 0, x: 0, y: 0 },
+      maze, exit, coins, player: { c: 0, r: 0, x: 0, y: 0 }, opps,
       solution: [start, ...bfsPath(maze, start, exit)],
       cell: 1, view: 300, running: false, finished: false, heldDir: null, lastStep: 0,
-      startMs: 0, oppPct: 0, lastProgress: 0, lastProgWrite: 0,
+      startMs: 0, lastProgress: 0, lastProgWrite: 0,
     };
     fitCanvas();
     rafRef.current = window.requestAnimationFrame(loop);
@@ -323,6 +343,14 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stage]);
 
+  // Host escape: in a time race, don't let one straggler stall everyone — the
+  // host can end the stage, scoring missing racers as DNF.
+  const endStageNow = () => {
+    const patch: Record<string, unknown> = {};
+    for (const uid of racers) if (!finishes[uid]) patch[`state.finishes.${uid}`] = { ms: DNF, coins: 0 };
+    if (Object.keys(patch).length) void updateSessionFields(familyId, session.id, patch);
+  };
+
   const held = (dir: Dir, on: boolean) => { const g = gRef.current; if (!g) return; if (on) { g.heldDir = dir; step(dir); } else if (g.heldDir === dir) g.heldDir = null; };
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -334,6 +362,8 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
     >{label}</button>
   );
 
+  const nameOf = (uid: string) => session.players.find((p) => p.uid === uid)?.name || '—';
+
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
       <div className="flex items-center gap-2 mb-2">
@@ -343,11 +373,25 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
         <span className="text-[11px] font-bold text-games-ink-soft">🪙 <span ref={coinRef}>0</span></span>
       </div>
 
-      <div className="flex items-center gap-2 mb-2 text-[11px] font-bold">
-        <span className="text-games-ink">🦊 You</span>
-        <div className="flex-1 h-2 bg-games-bg rounded-full overflow-hidden"><div ref={youBarRef} className="h-full bg-games-gold rounded-full transition-all" style={{ width: '4%' }} /></div>
-        <div className="flex-1 h-2 bg-games-bg rounded-full overflow-hidden"><div ref={oppBarRef} className="h-full bg-games-coral rounded-full transition-all" style={{ width: '4%' }} /></div>
-        <span className="text-games-ink">🐢 {oppName}</span>
+      {/* live standings — you + every other racer */}
+      <div className="space-y-1 mb-2">
+        {[me, ...others].map((uid) => {
+          const you = uid === me;
+          const oi = others.indexOf(uid);
+          const glyph = you ? '🦊' : GLYPHS[oi % GLYPHS.length];
+          const bar = you ? 'bg-games-gold' : BARS[oi % BARS.length];
+          const done = !!finishes[uid] && finishes[uid].ms < DNF;
+          const w = you ? 4 : Math.max(4, Number(progress[uid] || 0));
+          return (
+            <div key={uid} className="flex items-center gap-2 text-[11px] font-bold">
+              <span className="w-[70px] truncate text-games-ink">{glyph} {you ? 'You' : nameOf(uid)}</span>
+              <div className="flex-1 h-2 bg-games-bg rounded-full overflow-hidden">
+                <div ref={you ? youBarRef : undefined} className={`h-full ${bar} rounded-full transition-all`} style={{ width: `${done ? 100 : w}%` }} />
+              </div>
+              {done && <span className="text-games-teal">🏁</span>}
+            </div>
+          );
+        })}
       </div>
 
       <div className="relative mx-auto rounded-kaya overflow-hidden border border-games-bg" style={{ width: '100%', maxWidth: 320, aspectRatio: '1 / 1' }}>
@@ -358,7 +402,18 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
           className="block w-full h-full" style={{ touchAction: 'none' }}
         />
         {countdown !== null && <div className="absolute inset-0 grid place-items-center bg-games-bg/85 font-display font-black text-6xl text-games-violet">{countdown}</div>}
-        {finishedView && <div className="absolute inset-0 grid place-items-center bg-games-ink/55 text-center p-4"><div className="bg-games-card rounded-kaya-lg p-5"><div className="text-4xl">🏁</div><p className="font-display font-black text-games-ink mt-1">You finished!</p><p className="text-[12px] text-games-ink-soft mt-1">{st.mode === 'time' ? `Waiting for ${oppName}…` : 'Counting it up…'}</p></div></div>}
+        {finishedView && (
+          <div className="absolute inset-0 grid place-items-center bg-games-ink/55 text-center p-4">
+            <div className="bg-games-card rounded-kaya-lg p-5">
+              <div className="text-4xl">🏁</div>
+              <p className="font-display font-black text-games-ink mt-1">You finished!</p>
+              <p className="text-[12px] text-games-ink-soft mt-1">{st.mode === 'time' ? 'Waiting for the others…' : 'Counting it up…'}</p>
+              {st.mode === 'time' && isHost && (
+                <button type="button" onClick={endStageNow} className="mt-3 bg-games-bg text-games-violet-deep font-extrabold text-[12px] px-3 py-2 rounded-full">⏭️ End stage for everyone</button>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-1.5 w-fit mx-auto mt-3">
@@ -370,18 +425,18 @@ function RaceBoard({ session, me, familyId, racers }: { session: GameSession; me
   );
 }
 
-// ── Stage tally (shown to both while a stage is decided) ─────────────────────
-function StageTally({ session, me, mode, stage, winnerUid, finishes, results }: {
+// ── Stage tally (shown to everyone while a stage is decided) ─────────────────
+function StageTally({ session, me, mode, stage, winnerUid, finishes, results, racers }: {
   session: GameSession; me: string; mode: Mode; stage: number; winnerUid: string;
-  finishes: Record<string, RaceFinish>; results: RaceResult[];
+  finishes: Record<string, RaceFinish>; results: RaceResult[]; racers: string[];
 }) {
   const players = session.players;
-  const racers = players.slice(0, 2).map((p) => p.uid);
   const wName = players.find((p) => p.uid === winnerUid)?.name || 'Nobody';
   const youWon = winnerUid === me;
   const wins: Record<string, number> = {};
   for (const uid of racers) wins[uid] = 0;
-  for (const r of [...results, { stage, winnerUid, times: {} }]) if (r.winnerUid) wins[r.winnerUid] = (wins[r.winnerUid] || 0) + 1;
+  for (const r of [...results, { stage, winnerUid, times: {} as Record<string, number> }]) if (r.winnerUid) wins[r.winnerUid] = (wins[r.winnerUid] || 0) + 1;
+  const standings = [...players].sort((a, b) => (wins[b.uid] || 0) - (wins[a.uid] || 0));
 
   return (
     <div className="mx-auto text-center pt-6" style={{ maxWidth: 320 }}>
@@ -389,31 +444,13 @@ function StageTally({ session, me, mode, stage, winnerUid, finishes, results }: 
       <p className="font-display text-xl font-black text-games-ink">{wName} took stage {stage}!</p>
       {mode === 'time' && (
         <p className="text-[12px] text-games-ink-soft mt-1">
-          {racers.map((uid) => `${players.find((p) => p.uid === uid)?.name || '—'} ${finishes[uid] ? fmtTime(finishes[uid].ms) : 'DNF'}`).join('  ·  ')}
+          {racers.map((uid) => `${players.find((p) => p.uid === uid)?.name || '—'} ${finishes[uid] && finishes[uid].ms < 9_999_999 ? fmtTime(finishes[uid].ms) : 'DNF'}`).join('  ·  ')}
         </p>
       )}
       <div className="bg-games-bg rounded-kaya px-4 py-2 mt-3 inline-block text-sm font-extrabold text-games-ink">
-        🏆 {players.slice(0, 2).map((p) => `${p.name} ${wins[p.uid] || 0}`).join(' · ')}
+        🏆 {standings.map((p) => `${p.name} ${wins[p.uid] || 0}`).join(' · ')}
       </div>
       <p className="text-[12px] text-games-ink-soft mt-3">{stage >= 3 ? 'Final tally…' : 'Next maze is bigger — get ready! ⏳'}</p>
-    </div>
-  );
-}
-
-// ── Spectator (3rd+ joiner) ──────────────────────────────────────────────────
-function Spectator({ session, racers }: { session: GameSession; racers: string[] }) {
-  const st = session.state as RaceState;
-  const prog = st.progress || {};
-  return (
-    <div className="mx-auto text-center pt-8" style={{ maxWidth: 320 }}>
-      <div className="text-4xl mb-2">👀</div>
-      <p className="text-sm font-extrabold text-games-ink mb-4">Watching the race · Stage {st.stage ?? 1}</p>
-      {racers.map((uid) => (
-        <div key={uid} className="flex items-center gap-2 mb-2 text-[12px] font-bold">
-          <span className="w-16 text-left text-games-ink truncate">{session.players.find((p) => p.uid === uid)?.name || '—'}</span>
-          <div className="flex-1 h-2.5 bg-games-bg rounded-full overflow-hidden"><div className="h-full bg-games-violet rounded-full transition-all" style={{ width: `${Math.max(4, Number(prog[uid] || 0))}%` }} /></div>
-        </div>
-      ))}
     </div>
   );
 }
