@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import { useAuth } from '@/contexts/AuthContext';
 import type { GameDef } from '@/lib/gamesCatalog';
 import type { GameOutcome } from './types';
-import FamilyTriviaPlay, { triviaInitialState } from './FamilyTrivia';
+import FamilyTriviaPlay, { triviaInitialState, TRIVIA_SUBJECTS } from './FamilyTrivia';
+import { UNO_LEVELS } from '@/lib/uno';
 import {
   createSession, findSessionByCode, joinSession, subscribeSession, updateSession, updateSessionFields,
   type GameSession,
@@ -232,6 +233,69 @@ function WinnerView({ session, game, me }: { session: GameSession; game: GameDef
   );
 }
 
+// Per-game setup chosen in the LOBBY (the main screen) before the game starts,
+// so the host can lock the settings while waiting for the code + every player
+// sees them. Maze Quest has its own richer RaceConfig; these are the simple
+// pick-one settings. A game absent here just shows the plain Start button.
+type LobbyOption = { value: string; label: string; emoji?: string; hint?: string };
+const LOBBY_SETTINGS: Record<string, { key: string; label: string; options: LobbyOption[] }[]> = {
+  uno: [{
+    key: 'level', label: 'Difficulty',
+    options: UNO_LEVELS.map((l) => ({ value: l.id, label: l.label, emoji: l.emoji, hint: `×${l.funMult}` })),
+  }],
+  'family-trivia': [{
+    key: 'subject', label: 'Subject',
+    options: TRIVIA_SUBJECTS.map((s) => ({ value: s.id, label: s.label, emoji: s.icon })),
+  }],
+};
+
+/** Every required setting has been chosen → the host may start. */
+function settingsReady(session: GameSession): boolean {
+  const defs = LOBBY_SETTINGS[session.gameId];
+  if (!defs) return true;
+  return defs.every((d) => !!session.state[d.key]);
+}
+
+function LobbySettings({ session, familyId, readOnly }: { session: GameSession; familyId: string; readOnly?: boolean }) {
+  const defs = LOBBY_SETTINGS[session.gameId];
+  if (!defs) return null;
+  return (
+    <div className="bg-games-card rounded-kaya p-4 mt-4 shadow-[0_4px_12px_rgba(26,18,64,0.06)]">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-2">⚙️ Game setup{readOnly ? '' : ' — pick & lock'}</p>
+      {defs.map((d) => {
+        const cur = (session.state[d.key] as string) || '';
+        return (
+          <div key={d.key} className="mb-2.5 last:mb-0">
+            <p className="text-xs font-bold text-games-ink mb-1.5">
+              {d.label}
+              {!cur && !readOnly && <span className="text-games-coral ml-1">• choose one</span>}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {d.options.map((o) => {
+                const sel = cur === o.value;
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    disabled={readOnly}
+                    onClick={() => updateSessionFields(familyId, session.id, { [`state.${d.key}`]: o.value })}
+                    className={`text-xs font-extrabold px-3 py-1.5 rounded-full border transition-colors ${
+                      sel ? 'bg-games-violet text-white border-games-violet'
+                        : `bg-games-bg text-games-ink-soft border-transparent ${readOnly ? 'opacity-40' : ''}`
+                    }`}
+                  >
+                    {o.emoji} {o.label}{o.hint && sel ? ` ${o.hint}` : ''}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Lobby({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
   const isHost = session.hostUid === me;
   const url = typeof window !== 'undefined' ? `${window.location.origin}/games/join/${session.code}` : '';
@@ -279,17 +343,25 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
             <RaceConfig session={session} familyId={familyId} canStart={session.players.length >= 2} />
           </div>
         ) : (
-          <button
-            type="button"
-            disabled={session.players.length < 2}
-            onClick={() => updateSession(familyId, session.id, { status: 'playing' })}
-            className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full mt-4 disabled:opacity-50"
-          >
-            {session.players.length < 2 ? 'Waiting for players…' : 'Start game'}
-          </button>
+          <>
+            <LobbySettings session={session} familyId={familyId} />
+            <button
+              type="button"
+              disabled={session.players.length < 2 || !settingsReady(session)}
+              onClick={() => updateSession(familyId, session.id, { status: 'playing' })}
+              className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full mt-4 disabled:opacity-50"
+            >
+              {session.players.length < 2 ? 'Waiting for players…'
+                : !settingsReady(session) ? 'Pick the setup above ☝️'
+                  : 'Start game'}
+            </button>
+          </>
         )
       ) : (
-        <p className="text-center text-sm text-games-ink-soft mt-4">Waiting for the host to start…</p>
+        <>
+          <LobbySettings session={session} familyId={familyId} readOnly />
+          <p className="text-center text-sm text-games-ink-soft mt-4">Waiting for the host to start…</p>
+        </>
       )}
     </div>
   );
