@@ -10,6 +10,7 @@ import {
   type GameSession,
 } from '@/lib/gameSessions';
 import { type Cell, decideTicTacToe, tttGlyph } from '@/lib/ticTacToe';
+import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 
 type Mode = 'choose' | 'busy' | 'in' | 'error';
 interface Sentence { uid: string; name: string; text: string }
@@ -66,6 +67,7 @@ export default function MultiDeviceRoom({
       const initial = game.id === 'story-builder' ? { sentences: [], turn: 0 }
         : game.id === 'family-trivia' ? triviaInitialState()
         : game.id === 'tic-tac-toe' ? { board: Array(9).fill(null), turn: 0 }
+        : game.id === 'connect-4' ? { board: Array(C4_ROWS * C4_COLS).fill(0), turn: 0 }
         : {};
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
@@ -180,6 +182,7 @@ function Play({ game, session, me, familyId }: { game: GameDef; session: GameSes
   if (game.id === 'story-builder') return <StoryBuilderPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'family-trivia') return <FamilyTriviaPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'tic-tac-toe') return <TicTacToeMultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'connect-4') return <Connect4MultiPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
 }
 
@@ -304,6 +307,81 @@ function StoryBuilderPlay({ session, me, familyId }: { session: GameSession; me:
           Finish the story
         </button>
       )}
+    </div>
+  );
+}
+
+// Two-device Connect 4. players[0] is 🔴 (host), players[1] is 🟡; further
+// joiners watch. The board + whose-turn live in session.state and sync through
+// Firestore; only the player on turn can drop a disc.
+function Connect4MultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const board = (session.state.board as Disc[]) || Array(C4_ROWS * C4_COLS).fill(0);
+  const turn = (session.state.turn as number) || 0;
+  const players = session.players;
+  const myIndex = players.findIndex((p) => p.uid === me);
+  const isPlayer = myIndex === 0 || myIndex === 1; // index >= 2 = spectator
+  const myDisc: Disc = myIndex === 1 ? 2 : 1;      // seated player's disc (used only when isPlayer)
+  const currentIdx = turn % 2;                     // 0 → 🔴's turn, 1 → 🟡's turn
+  const myTurn = isPlayer && currentIdx === myIndex;
+
+  const drop = async (c: number) => {
+    if (!myTurn) return;
+    const idx = c4DropRow(board, c);
+    if (idx < 0) return;
+    const next = [...board];
+    next[idx] = myDisc;
+    const w = c4CheckWin(next, idx);
+    if (w) {
+      const winnerIdx = w === 1 ? 0 : 1;
+      const winnerName = players[winnerIdx]?.name || (w === 1 ? 'Red' : 'Yellow');
+      const doneMessage = `${w === 1 ? '🔴' : '🟡'} ${winnerName} wins! 🎉`;
+      await updateSession(familyId, session.id, {
+        state: { board: next, turn: turn + 1, doneMessage },
+        status: 'done',
+        winnerUid: players[winnerIdx]?.uid,
+      });
+    } else if (c4IsFull(next)) {
+      await updateSession(familyId, session.id, {
+        state: { board: next, turn: turn + 1, doneMessage: "It's a draw 🤝" },
+        status: 'done',
+      });
+    } else {
+      await updateSession(familyId, session.id, { state: { board: next, turn: turn + 1 } });
+    }
+  };
+
+  const redName = players[0]?.name || 'Player 1';
+  const yellowName = players[1]?.name || 'Player 2';
+  const turnName = currentIdx === 0 ? redName : yellowName;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 340 }}>
+      <div className="flex items-center justify-center gap-3 mb-2 text-xs font-bold">
+        <span className={currentIdx === 0 ? 'text-games-coral' : 'text-games-ink-soft'}>🔴 {redName}{myIndex === 0 ? ' (you)' : ''}</span>
+        <span className="text-games-ink-soft">vs</span>
+        <span className={currentIdx === 1 ? 'text-games-gold' : 'text-games-ink-soft'}>🟡 {yellowName}{myIndex === 1 ? ' (you)' : ''}</span>
+      </div>
+      <p className="text-center text-sm font-extrabold mb-3">
+        {myTurn
+          ? <span className="text-games-violet">Your turn {myDisc === 1 ? '🔴' : '🟡'}</span>
+          : <span className="text-games-ink-soft">Waiting for {turnName}…</span>}
+      </p>
+      <div className="grid grid-cols-7 gap-1.5 p-2 rounded-kaya bg-games-violet" style={{ width: 'min(92vw, 320px)', margin: '0 auto' }}>
+        {board.map((v, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => drop(i % C4_COLS)}
+            disabled={!myTurn}
+            className="aspect-square rounded-full flex items-center justify-center"
+            style={{ background: c4DiscColor(v) }}
+            aria-label={`Column ${(i % C4_COLS) + 1}`}
+          />
+        ))}
+      </div>
+      <p className="text-center text-[11px] text-games-ink-soft mt-3">
+        {!isPlayer ? 'You’re watching this game 👀' : 'Tap a column to drop your disc · 4 in a row wins'}
+      </p>
     </div>
   );
 }
