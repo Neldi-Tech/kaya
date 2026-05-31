@@ -115,10 +115,27 @@ export default function MazeRaceMultiPlay({ session, me, familyId }: { session: 
 // Rendered in the LOBBY (so the host picks 🏁/⏱️ + difficulty + world while
 // waiting for players) — and as a defensive fallback if a 'playing' session is
 // ever seen with no stage. `canStart` gates the button until ≥2 players.
+// Movement feel — the held-direction cadence. `gate` is how close (× cell) the
+// sprite must be to the cell centre before the next auto-step fires; a bigger
+// gate + lower cooldown + higher ease = snappier, less "stiff" movement. The
+// default is now 'normal' (much snappier than the old fixed 95 / 0.2 / 0.38).
+type MazeSpeed = 'chill' | 'normal' | 'fast';
+const MAZE_SENS: Record<MazeSpeed, { cool: number; gate: number; ease: number }> = {
+  chill:  { cool: 100, gate: 0.30, ease: 0.40 },
+  normal: { cool: 70,  gate: 0.46, ease: 0.50 },
+  fast:   { cool: 46,  gate: 0.62, ease: 0.62 },
+};
+const SPEED_OPTS: { id: MazeSpeed; emoji: string; label: string }[] = [
+  { id: 'chill', emoji: '🐢', label: 'Chill' },
+  { id: 'normal', emoji: '🐇', label: 'Normal' },
+  { id: 'fast', emoji: '⚡', label: 'Fast' },
+];
+
 export function RaceConfig({ session, familyId, canStart }: { session: GameSession; familyId: string; canStart: boolean }) {
   const [mode, setMode] = useState<Mode>('first');
   const [diff, setDiff] = useState<Difficulty>('easy');
   const [worldIdx, setWorldIdx] = useState(0);
+  const [speed, setSpeed] = useState<MazeSpeed>('normal');
   const [busy, setBusy] = useState(false);
 
   const start = async () => {
@@ -128,7 +145,7 @@ export function RaceConfig({ session, familyId, canStart }: { session: GameSessi
       status: 'playing',
       state: {
         seed: Math.floor(Math.random() * 1_000_000_000),
-        mode, diff, worldId: MAZE_WORLDS[worldIdx].id,
+        mode, diff, speed, worldId: MAZE_WORLDS[worldIdx].id,
         stage: 1, totalStages: TOTAL_STAGES, goAt: Date.now() + 3500,
         finishes: {}, progress: {}, results: [],
       },
@@ -185,6 +202,21 @@ export function RaceConfig({ session, familyId, canStart }: { session: GameSessi
         ))}
       </div>
 
+      <p className="text-[11px] font-extrabold uppercase tracking-wider text-games-ink-soft mt-4 mb-2">Move speed</p>
+      <div className="flex gap-2">
+        {SPEED_OPTS.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setSpeed(s.id)}
+            className={`flex-1 rounded-kaya-sm py-2.5 border-[1.5px] ${speed === s.id ? 'border-games-violet bg-games-bg' : 'border-transparent bg-games-card'} shadow-[0_4px_12px_rgba(26,18,64,0.06)]`}
+          >
+            <div className="text-base">{s.emoji}</div>
+            <div className="text-[12px] font-extrabold text-games-ink">{s.label}</div>
+          </button>
+        ))}
+      </div>
+
       <button type="button" disabled={busy || !canStart} onClick={start} className="w-full bg-games-violet text-white font-display font-extrabold py-3.5 rounded-full mt-5 disabled:opacity-50">
         {busy ? 'Starting…' : canStart ? 'Start race ▶ · best of 3' : 'Waiting for players…'}
       </button>
@@ -204,6 +236,7 @@ function RaceBoard({ session, me, familyId, racers, isHost }: { session: GameSes
   const st = session.state as RaceState;
   const world = worldOf(st.worldId);
   const diff = (st.diff || 'easy') as Difficulty;
+  const speed = ((st as { speed?: MazeSpeed }).speed) || 'normal';
   const stage = st.stage ?? 1;
   const seed = st.seed ?? 1;
   const goAt = st.goAt ?? Date.now();
@@ -219,6 +252,8 @@ function RaceBoard({ session, me, familyId, racers, isHost }: { session: GameSes
   const timeRef = useRef<HTMLSpanElement | null>(null);
   const coinRef = useRef<HTMLSpanElement | null>(null);
   const youBarRef = useRef<HTMLDivElement | null>(null);
+  const sensRef = useRef(MAZE_SENS.normal);
+  sensRef.current = MAZE_SENS[speed] || MAZE_SENS.normal;
 
   const [countdown, setCountdown] = useState<number | null>(3);
   const [finishedView, setFinishedView] = useState(false);
@@ -269,9 +304,9 @@ function RaceBoard({ session, me, familyId, racers, isHost }: { session: GameSes
 
     if (g.running) {
       if (timeRef.current) timeRef.current.textContent = fmtTime(now - goAt);
-      if (g.heldDir && ts - g.lastStep > 95) {
+      if (g.heldDir && ts - g.lastStep > sensRef.current.cool) {
         const p = center(g.player.c, g.player.r, g.cell);
-        if (Math.hypot(g.player.x - p.x, g.player.y - p.y) < g.cell * 0.2) step(g.heldDir);
+        if (Math.hypot(g.player.x - p.x, g.player.y - p.y) < g.cell * sensRef.current.gate) step(g.heldDir);
       }
       // progress report — coarse (every ~8% / 1.5s) so many racers don't hammer
       // the single session doc (Firestore ~1 write/sec/doc soft limit).
@@ -291,9 +326,9 @@ function RaceBoard({ session, me, familyId, racers, isHost }: { session: GameSes
       const oc = g.solution[oi] || g.solution[0];
       ent.c = oc.c; ent.r = oc.r;
     }
-    const ease = (e: Entity) => { const p = center(e.c, e.r, g.cell); e.x += (p.x - e.x) * 0.38; e.y += (p.y - e.y) * 0.38; };
-    ease(g.player);
-    for (const uid of Object.keys(g.opps)) ease(g.opps[uid]);
+    const ease = (e: Entity, k: number) => { const p = center(e.c, e.r, g.cell); e.x += (p.x - e.x) * k; e.y += (p.y - e.y) * k; };
+    ease(g.player, sensRef.current.ease);
+    for (const uid of Object.keys(g.opps)) ease(g.opps[uid], 0.4);
 
     const ctx = canvasRef.current?.getContext('2d');
     if (ctx) {
@@ -403,7 +438,7 @@ function RaceBoard({ session, me, familyId, racers, isHost }: { session: GameSes
         <canvas
           ref={canvasRef}
           onPointerDown={(e) => { swipeStart.current = { x: e.clientX, y: e.clientY }; }}
-          onPointerUp={(e) => { const s = swipeStart.current; swipeStart.current = null; if (!s) return; const dx = e.clientX - s.x, dy = e.clientY - s.y; if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return; if (Math.abs(dx) > Math.abs(dy)) step(dx > 0 ? 'E' : 'W'); else step(dy > 0 ? 'S' : 'N'); }}
+          onPointerUp={(e) => { const s = swipeStart.current; swipeStart.current = null; if (!s) return; const dx = e.clientX - s.x, dy = e.clientY - s.y; if (Math.abs(dx) < 13 && Math.abs(dy) < 13) return; if (Math.abs(dx) > Math.abs(dy)) step(dx > 0 ? 'E' : 'W'); else step(dy > 0 ? 'S' : 'N'); }}
           className="block w-full h-full" style={{ touchAction: 'none' }}
         />
         {countdown !== null && <div className="absolute inset-0 grid place-items-center bg-games-bg/85 font-display font-black text-6xl text-games-violet">{countdown}</div>}
