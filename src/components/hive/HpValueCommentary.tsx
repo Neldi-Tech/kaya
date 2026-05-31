@@ -20,6 +20,10 @@
 // right after they see the rates themselves.
 
 import { formatCashClean, formatHoney, formatHp, honeyToCashCents } from './format';
+import HoneyCoin from './HoneyCoin';
+
+// 🍯 in this card always means a Honey *Coin* (the unit), not the Pot.
+const Coin = () => <HoneyCoin size={14} className="inline align-middle -mt-px" />;
 
 interface Props {
   housePoints: number;
@@ -60,7 +64,7 @@ export default function HpValueCommentary({
     body = (
       <>
         💡 Every HP you earn ≈ <strong>{formatCashClean(perHpCents, currency)}</strong>.{' '}
-        Earn <strong>{formatHp(ppHP)} HP</strong> for your first 🍯 worth{' '}
+        Earn <strong>{formatHp(ppHP)} HP</strong> for your first <Coin /> worth{' '}
         <strong>{formatCashClean(oneHoneyCashCents, currency)}</strong>.
       </>
     );
@@ -69,7 +73,7 @@ export default function HpValueCommentary({
     body = (
       <>
         🛟 All your {formatHp(housePoints)} HP is in the {formatHp(minHpReserve)}-HP
-        safety reserve right now. Earn more to start saving into 🍯.
+        safety reserve right now. Earn more to start saving into <Coin />.
       </>
     );
   } else if (potentialHoney >= 1) {
@@ -77,7 +81,7 @@ export default function HpValueCommentary({
     body = (
       <>
         💡 Your <strong>{formatHp(usableHp)} HP</strong>{minHpReserve > 0 ? ' usable' : ''}{' '}
-        could become <strong>{formatHoney(potentialHoney)} 🍯</strong>{' '}
+        could become <strong>{formatHoney(potentialHoney)} <Coin /></strong>{' '}
         ≈ <strong>{formatCashClean(potentialCashCents, currency)}</strong> if you save it all.
       </>
     );
@@ -87,7 +91,7 @@ export default function HpValueCommentary({
     body = (
       <>
         💪 You&apos;re <strong>{formatHp(hpToNextHoney)} HP</strong> away from your{' '}
-        first 🍯 — worth about <strong>{formatCashClean(oneHoneyCashCents, currency)}</strong>.
+        first <Coin /> — worth about <strong>{formatCashClean(oneHoneyCashCents, currency)}</strong>.
         Keep earning!
       </>
     );

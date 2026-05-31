@@ -13,6 +13,11 @@
 // math is a no-op.
 
 import { formatCashClean } from './format';
+import HoneyCoin from './HoneyCoin';
+
+// Inline coin mark for the rate pills — 🍯 here is the Honey *Coin* unit
+// (HP → Coin → Pot → Cash), not the Honey Pot. Use the branded coin.
+const Coin = () => <HoneyCoin size={13} className="inline align-middle -mt-px" />;
 
 export default function RatePill({
   hpToHoneyRate,
@@ -40,22 +45,22 @@ export default function RatePill({
   if (variant === 'hp-to-honey') {
     return (
       <span className="inline-flex items-center gap-1.5 bg-hive-honey-soft/60 text-hive-honey-dk px-3 py-1.5 rounded-hive-pill font-nunito font-extrabold text-[11px]">
-        ⇆ {hpToHoneyRate} HP = 1 🍯
+        ⇆ {hpToHoneyRate} HP = 1 <Coin />
       </span>
     );
   }
   if (variant === 'honey-to-cash') {
     return (
       <span className="inline-flex items-center gap-1.5 bg-hive-honey-soft/60 text-hive-honey-dk px-3 py-1.5 rounded-hive-pill font-nunito font-extrabold text-[11px]">
-        ⇆ 1 🍯 = {cashSide}
+        ⇆ 1 <Coin /> = {cashSide}
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-2 bg-hive-honey-soft/60 text-hive-honey-dk px-3 py-1.5 rounded-hive-pill font-nunito font-extrabold text-[11px]">
-      <span>⇆ {hpToHoneyRate} HP = 1 🍯</span>
+      <span>⇆ {hpToHoneyRate} HP = 1 <Coin /></span>
       <span className="opacity-50">·</span>
-      <span>1 🍯 = {cashSide}</span>
+      <span>1 <Coin /> = {cashSide}</span>
     </span>
   );
 }

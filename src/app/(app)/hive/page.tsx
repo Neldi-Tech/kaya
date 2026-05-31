@@ -13,6 +13,7 @@ import { useHive } from '@/contexts/HiveContext';
 import { subscribeToKidBusinesses, readBusinessConfig } from '@/lib/business';
 import HoneyPotHero from '@/components/hive/HoneyPotHero';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
+import HoneyCoin from '@/components/hive/HoneyCoin';
 import WealthCard from '@/components/hive/WealthCard';
 import HpValueCommentary from '@/components/hive/HpValueCommentary';
 import TransactionRow from '@/components/hive/TransactionRow';
@@ -23,7 +24,7 @@ import PlanSummaryCard from '@/components/hive/PlanSummaryCard';
 import { honeyToCashCents } from '@/components/hive/format';
 
 const ACTIONS = [
-  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🍯',     href: '/hive/convert'  },
+  { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🪙',     href: '/hive/convert'  },
   { id: 'spend',    icon: '🛒', label: 'Spend',    desc: 'Request a spend',     href: '/hive/cash-out' },
   { id: 'plan',     icon: '🗓️', label: 'Plan',     desc: 'Budget the month',    href: '/hive/plan'     },
   { id: 'goals',    icon: '🎯', label: 'Goals',    desc: 'Save toward',         href: '/hive/goals'    },
@@ -96,7 +97,7 @@ export default function HiveHomePage() {
       {/* Quick commentary — the money ladder in one line. */}
       <div className="mb-4 text-center">
         <p className="text-[11px] text-hive-muted leading-relaxed">
-          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> → <span className="font-nunito font-extrabold text-hive-honey-dk">🪙 Coins</span> → <span className="font-nunito font-extrabold text-hive-honey-dk">🍯 Honey Pot</span>.{' '}
+          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> → <span className="font-nunito font-extrabold text-hive-honey-dk inline-flex items-center gap-1"><HoneyCoin size={13} /> Coins</span> → <span className="font-nunito font-extrabold text-hive-honey-dk inline-flex items-center gap-1"><HoneyPotIcon size={15} /> Honey Pot</span>.{' '}
           You spend from your Pot — a grown-up says yes.{' '}
           <Link href="/hive/guide" className="font-nunito font-extrabold text-hive-honey-dk hover:underline whitespace-nowrap">Read the Guide →</Link>
         </p>

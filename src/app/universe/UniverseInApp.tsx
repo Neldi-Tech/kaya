@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Timestamp } from "firebase/firestore";
 import styles from "./universeApp.module.css";
+import HoneyPotIcon from "@/components/hive/HoneyPotIcon";
 import {
   MODULES,
   GALAXY_PLANETS,
@@ -122,7 +123,7 @@ export default function UniverseInApp() {
       onClick={(e) => goToChapter(p.key, e.currentTarget)}
       aria-label={`${p.label}${p.small ? ` — ${p.small}` : ""}: jump to its chapter`}
     >
-      <span className={styles.ico}>{p.ico}</span>
+      <span className={styles.ico}>{p.ico === "🍯" ? <HoneyPotIcon size={28} /> : p.ico}</span>
       {p.label}
       {p.small && <small>{p.small}</small>}
     </button>
@@ -241,7 +242,7 @@ export default function UniverseInApp() {
                       style={{ background: m.bg }}
                       aria-hidden
                     >
-                      {m.icon}
+                      {m.icon === "🍯" ? <HoneyPotIcon size={36} /> : m.icon}
                     </div>
                     <h3>
                       {m.name}{" "}
