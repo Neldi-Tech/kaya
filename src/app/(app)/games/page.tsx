@@ -148,12 +148,20 @@ export default function GamesPage() {
               same Kaya economy. This is the kids&rsquo; view.
             </p>
             {profile?.role === 'parent' && (
-              <Link
-                href="/games/controls"
-                className="inline-flex items-center gap-1.5 mt-3 bg-games-ink text-white text-xs font-extrabold px-4 py-2 rounded-full"
-              >
-                🛡️ Games controls
-              </Link>
+              <div className="flex flex-wrap gap-2 mt-3">
+                <Link
+                  href="/games/controls"
+                  className="inline-flex items-center gap-1.5 bg-games-ink text-white text-xs font-extrabold px-4 py-2 rounded-full"
+                >
+                  🛡️ Games controls
+                </Link>
+                <Link
+                  href="/games/approvals"
+                  className="inline-flex items-center gap-1.5 bg-games-violet text-white text-xs font-extrabold px-4 py-2 rounded-full"
+                >
+                  ✅ Approvals
+                </Link>
+              </div>
             )}
           </div>
         )}

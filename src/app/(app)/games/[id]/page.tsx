@@ -4,6 +4,8 @@ import { useCallback, useRef, useState, type ComponentType, type ReactNode } fro
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getGame } from '@/lib/gamesCatalog';
+import { useFamily } from '@/contexts/FamilyContext';
+import { resolveGamesConfig, gamePointsValue } from '@/lib/games';
 import { awardGame, type AwardResult } from '@/lib/gamesClient';
 import type { GameOutcome, GameProps } from '@/components/games/types';
 import TicTacToe from '@/components/games/TicTacToe';
@@ -62,6 +64,12 @@ export default function GameRunnerPage() {
   const game = getGame(id);
   const GameComp = REGISTRY[id];
 
+  // Parent-set worth for this game (default 0). Drives the honest pre-game
+  // badge: a valued game shows its points + that a parent has to OK them; a
+  // 0-value game is just for fun.
+  const { family } = useFamily();
+  const gameValue = gamePointsValue(resolveGamesConfig(family?.gamesConfig), id);
+
   const startedAt = useRef<number>(Date.now());
   const [outcome, setOutcome] = useState<GameOutcome | null>(null);
   const [award, setAward] = useState<AwardResult | null>(null);
@@ -106,7 +114,7 @@ export default function GameRunnerPage() {
           <p className="font-display text-2xl font-black text-games-ink mb-1">{game.name}</p>
           <span className="inline-block bg-games-coral text-white text-xs font-extrabold px-3 py-1 rounded-full mb-4">Coming this week</span>
           <p className="text-sm text-games-ink-soft max-w-xs mx-auto mb-6">
-            We&rsquo;re still building this one. It drops soon — worth +{game.points} pts when it lands.
+            We&rsquo;re still building this one. It drops soon — a parent can make it worth House Points.
           </p>
           <BackLink />
         </div>
@@ -118,7 +126,11 @@ export default function GameRunnerPage() {
     <Shell>
       <div className="flex items-center justify-between mb-6">
         <Link href="/games" className="text-sm font-bold text-games-ink-soft">&larr; Games</Link>
-        <span className="bg-games-gold text-games-ink text-xs font-extrabold px-2.5 py-1 rounded-full">+{game.points} pts</span>
+        {gameValue > 0 ? (
+          <span className="bg-games-gold text-games-ink text-xs font-extrabold px-2.5 py-1 rounded-full">+{gameValue} pts · parent ✓</span>
+        ) : (
+          <span className="bg-games-bg text-games-ink-soft text-xs font-extrabold px-2.5 py-1 rounded-full">🎮 Just for fun</span>
+        )}
       </div>
       <div className="text-center mb-6">
         <div className="text-4xl mb-1">{game.icon}</div>
@@ -145,35 +157,51 @@ function ResultOverlay({
 }) {
   const lost = !outcome.success;
   const earned = award?.pointsAwarded ?? 0;
+  const pending = award?.status === 'pending';
+  const pendingPts = award?.pointsPending ?? 0;
+  const won = !lost && !awarding && !award?.error && !award?.skipped;
   const title = outcome.message || (outcome.success ? 'You did it! 🎉' : 'So close!');
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center p-4 bg-games-ink/40">
       <div className="bg-games-card rounded-kaya-lg w-full max-w-sm p-6 text-center animate-slide-up">
-        {!lost && earned > 0 && <BurstRow />}
+        {won && <BurstRow />}
         <h2 className="font-display text-2xl font-black text-games-ink mb-1">{title}</h2>
 
         {lost ? (
           <p className="text-sm text-games-ink-soft mb-5">Have another go — you&rsquo;ve got this.</p>
         ) : awarding ? (
-          <p className="text-sm text-games-ink-soft mb-5">Saving your points…</p>
+          <p className="text-sm text-games-ink-soft mb-5">Saving your game…</p>
         ) : award?.skipped ? (
-          <p className="text-sm text-games-ink-soft mb-5">Nice game! (Points are for kids&rsquo; accounts.)</p>
+          <p className="text-sm text-games-ink-soft mb-5">Nice game! (House Points are for kids&rsquo; accounts.)</p>
         ) : award?.error ? (
-          <p className="text-sm text-games-coral mb-5">Couldn&rsquo;t save points just now — try again.</p>
-        ) : (
+          <p className="text-sm text-games-coral mb-5">Couldn&rsquo;t save your game just now — try again.</p>
+        ) : pending ? (
+          <div className="mb-5">
+            <div className="text-3xl mb-1">🐝</div>
+            <p className="text-xl font-display font-black text-games-violet">Sent to a parent!</p>
+            <p className="text-sm font-bold text-games-ink-soft mt-1">
+              +{pendingPts} pts waiting for the OK
+            </p>
+            {award?.multiplier && award.multiplier > 1 && (
+              <p className="text-xs font-bold text-games-teal mt-1">{award.multiplier}× young-player bonus ✨</p>
+            )}
+            <p className="text-[11px] font-semibold text-games-ink-soft mt-2">
+              They&rsquo;ll pop into your House Points once a grown-up says yes.
+            </p>
+          </div>
+        ) : earned > 0 ? (
           <div className="mb-5">
             <p className="text-3xl font-display font-black text-games-violet">+{earned} pts</p>
             {award?.multiplier && award.multiplier > 1 && (
               <p className="text-xs font-bold text-games-teal mt-1">{award.multiplier}× young-player bonus ✨</p>
             )}
-            {award?.capped && (
-              <p className="text-xs font-semibold text-games-ink-soft mt-1">Daily games cap reached — more tomorrow!</p>
-            )}
             {typeof award?.newTotal === 'number' && (
               <p className="text-xs font-semibold text-games-ink-soft mt-1">⭐ {award.newTotal.toLocaleString()} pts total</p>
             )}
           </div>
+        ) : (
+          <p className="text-sm text-games-ink-soft mb-5">Great playing! 🎮 Just for fun this time.</p>
         )}
 
         <div className="flex gap-2.5">
