@@ -20,6 +20,10 @@ import {
 } from '@/lib/purchase';
 import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
+import { subscribeToSubscriptions, type Subscription } from '@/lib/subscriptions';
+import { subscribeToContributions, type Contribution } from '@/lib/contributions';
+import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import PerParentTotals from '@/components/household/PerParentTotals';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -77,12 +81,27 @@ export default function FinancesPage() {
 
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
   const [ledger, setLedger] = useState<SpendLedgerEntry[]>([]);
+  // Source collections for the per-parent card — these carry paidByUid
+  // (the spend_ledger doesn't yet), so the attribution sum reads them
+  // directly. Subs use monthly-equivalent; contributions use this
+  // month's actual; purchases use closed-this-month actuals.
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [contribs, setContribs] = useState<Contribution[]>([]);
+  const [parents, setParents] = useState<UserProfile[]>([]);
+  // Per-parent filter: 'all' | uid | null(=shared).
+  const [paidByFilter, setPaidByFilter] = useState<'all' | string | null>('all');
   useEffect(() => {
     if (!profile?.familyId) return;
     if (profile.role !== 'parent') return;
     const u1 = subscribeToRecentRequests(profile.familyId, setRecent);
     const u2 = subscribeToSpendLedger(profile.familyId, setLedger);
-    return () => { u1(); u2(); };
+    const u3 = subscribeToSubscriptions(profile.familyId, setSubs);
+    const u4 = subscribeToContributions(profile.familyId, setContribs);
+    let alive = true;
+    getFamilyMembers(profile.familyId).then((m) => {
+      if (alive) setParents(m.filter((x) => x.role === 'parent'));
+    });
+    return () => { u1(); u2(); u3(); u4(); alive = false; };
   }, [profile?.familyId, profile?.role]);
 
   const thisMonth = monthKey();
@@ -155,6 +174,65 @@ export default function FinancesPage() {
   // `utility` PurchaseModule below covers utility spend in the
   // request→approve→reconcile loop. Household Total now sums the live
   // PurchaseModules only.
+  // ── Per-parent attribution (2026-05-30) ──────────────────────────
+  // Flat list of attributable items this month, read from the SOURCE
+  // collections (paidByUid lives there, not on the ledger). Each carries
+  // a paidByUid (null = Shared). Subs contribute their monthly-equivalent
+  // (the recurring commitment); contributions + purchases their actuals.
+  type AttribItem = { id: string; label: string; sub: string; cents: number; paidByUid: string | null };
+  const attributable = useMemo<AttribItem[]>(() => {
+    const out: AttribItem[] = [];
+    for (const r of closedThisMonth) {
+      out.push({
+        id: `p_${r.id}`,
+        label: r.name || 'Purchase',
+        sub: MODULE_LABEL[(r.module ?? 'pantry') as PurchaseModule] ?? 'Purchase',
+        cents: r.actualTotalCents ?? r.estimatedTotalCents ?? 0,
+        paidByUid: r.paidByUid ?? null,
+      });
+    }
+    for (const s of subs) {
+      if (s.status === 'cancelled' || s.status === 'paused') continue;
+      if (s.isProfessionalExpense) continue;
+      out.push({
+        id: `s_${s.id}`,
+        label: s.name,
+        sub: 'Subscription · monthly equiv.',
+        cents: s.monthlyEquivalent || 0,
+        paidByUid: s.paidByUid ?? null,
+      });
+    }
+    for (const c of contribs) {
+      const at = c.dateGiven?.toDate?.();
+      if (!at || monthKey(at) !== thisMonth) continue;
+      out.push({
+        id: `c_${c.id}`,
+        label: c.recipientName || 'Contribution',
+        sub: 'Contribution',
+        cents: c.amountHousehold || 0,
+        paidByUid: c.paidByUid ?? null,
+      });
+    }
+    return out;
+  }, [closedThisMonth, subs, contribs, thisMonth]);
+
+  const byUid = useMemo(() => {
+    const m: Record<string, number> = { shared: 0 };
+    for (const it of attributable) {
+      const k = it.paidByUid ?? 'shared';
+      m[k] = (m[k] ?? 0) + it.cents;
+    }
+    return m;
+  }, [attributable]);
+
+  // Items matching the active filter (for the drill-down list).
+  const filteredAttrib = useMemo(() => {
+    if (paidByFilter === 'all') return [];
+    return attributable
+      .filter((it) => (it.paidByUid ?? null) === paidByFilter && it.cents > 0)
+      .sort((a, b) => b.cents - a.cents);
+  }, [attributable, paidByFilter]);
+
   const totalSpent = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].spent, 0);
   const totalCap = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].cap, 0);
   const totalPct = totalCap > 0 ? Math.min(100, Math.round((totalSpent / totalCap) * 100)) : 0;
@@ -220,6 +298,46 @@ export default function FinancesPage() {
           {closedThisMonth.length} closed request{closedThisMonth.length === 1 ? '' : 's'} this month
         </p>
       </div>
+
+      {/* Per-parent attribution card — stacked bar + tappable rows.
+          Reads source collections (subs / contribs / closed purchases)
+          so paidByUid is accurate. Only renders when ≥2 parents +
+          some attributable spend exists. */}
+      {parents.length >= 1 && (
+        <div className="mt-4">
+          <PerParentTotals
+            byUid={byUid}
+            parents={parents}
+            format={(c) => formatCentsBudgetNeat(c, currency)}
+            selected={paidByFilter}
+            onSelect={setPaidByFilter}
+            monthLabel={monthLabel()}
+          />
+          {/* Drill-down — the selected parent's / shared items, biggest
+              first. The cost-cutting view: see exactly what's driving
+              one person's spend so you can trim the bottom of the list. */}
+          {paidByFilter !== 'all' && filteredAttrib.length > 0 && (
+            <div className="mt-2 rounded-hive border border-pulse-navy/10 bg-pulse-cream/40 divide-y divide-pulse-navy/8">
+              {filteredAttrib.map((it) => (
+                <div key={it.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="text-[12.5px] font-bold text-pulse-navy truncate">{it.label}</div>
+                    <div className="text-[10.5px] text-pulse-navy/55">{it.sub}</div>
+                  </div>
+                  <div className="text-[12.5px] font-extrabold text-pulse-navy tabular-nums shrink-0">
+                    {formatCentsBudgetNeat(it.cents, currency)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {paidByFilter !== 'all' && filteredAttrib.length === 0 && (
+            <p className="mt-2 text-[11px] text-hive-muted px-1">
+              No attributable items in this bucket yet — tag costs with “Paid by” on each entry.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Per-module cards */}
       <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
