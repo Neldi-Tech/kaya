@@ -58,7 +58,7 @@ export default function SlidingPuzzle({ onComplete }: GameProps) {
   return (
     <div className="mx-auto" style={{ maxWidth: 320 }}>
       <p className="text-center text-xs font-bold text-games-ink-soft mb-3">Moves: {moves}</p>
-      <div className="grid grid-cols-3 gap-2 mx-auto" style={{ width: 'min(80vw, 280px)' }}>
+      <div className="grid grid-cols-3 gap-2 mx-auto" style={{ width: 'min(100%, 280px)' }}>
         {tiles.map((v, i) => (
           v === 0 ? (
             <div key={i} className="aspect-square rounded-kaya bg-games-bg" />

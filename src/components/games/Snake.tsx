@@ -112,7 +112,7 @@ export default function Snake({ onComplete }: GameProps) {
       <p className="text-center text-xs font-bold text-games-ink-soft mb-3">Score: {score}</p>
       <div
         className="mx-auto rounded-kaya overflow-hidden bg-games-bg p-1"
-        style={{ width: 'min(86vw, 300px)' }}
+        style={{ width: 'min(100%, 300px)' }}
       >
         <div className="grid" style={{ gridTemplateColumns: `repeat(${N}, 1fr)`, gap: 1 }}>
           {Array.from({ length: N * N }, (_, i) => {
