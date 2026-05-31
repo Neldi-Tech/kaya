@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
-  effectiveAutoApproveCents, currencySymbol,
+  effectiveAutoApproveCents, currencySymbol, spendableCents,
 } from '@/lib/hive';
 import { Business, subscribeToKidBusinesses, requestBusinessReinvest } from '@/lib/business';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -118,9 +118,9 @@ export default function CashOutPage() {
       return;
     }
 
-    // ── Normal cash spend ──
-    if (cents > wallet.cashCents) {
-      setError(`You only have ${formatCash(wallet.cashCents, config.currency)} in Cash.`);
+    // ── Normal spend — draws from the Honey Pot first, then Cash ──
+    if (cents > spendableCents(wallet)) {
+      setError(`You only have ${formatCash(spendableCents(wallet), config.currency)} to spend (Pot + Cash).`);
       return;
     }
     setSubmitting(true);
@@ -240,7 +240,7 @@ export default function CashOutPage() {
             <p className="text-[11px] text-hive-muted mt-1">
               {mode === 'business'
                 ? <>From 🍯 Honey Pot · {formatCash(wallet.treasuryCents || 0, config.currency)}</>
-                : <>Available: {formatCash(wallet.cashCents, config.currency)}</>}
+                : <>Available {formatCash(spendableCents(wallet), config.currency)} · 🍯 {formatCash(wallet.treasuryCents || 0, config.currency)} + 💵 {formatCash(wallet.cashCents, config.currency)}</>}
             </p>
           </div>
 

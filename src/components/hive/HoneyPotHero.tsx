@@ -46,7 +46,7 @@ export default function HoneyPotHero({
           <span className="font-nunito font-black text-[40px] leading-none">{formatCash(treasuryCents, currency)}</span>
         </div>
         <p className="text-[12px] text-hive-muted font-bold mt-2">
-          Your business pot — sales land here. A parent turns it into Cash.
+          Your spending pot — earnings &amp; sales land here. Spend straight from it, with a parent&apos;s OK.
         </p>
         <div className="mt-4 flex items-center gap-2 flex-wrap">
           <span

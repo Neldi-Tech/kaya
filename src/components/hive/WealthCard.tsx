@@ -43,8 +43,8 @@ export default function WealthCard({
   const tiers: Array<{ icon: ReactNode; name: string; amount: string; sub?: string; def: string; pot?: boolean }> = [
     { icon: '🏅', name: 'House Points', amount: `${formatHp(housePoints)} HP`, sub: `≈ ${money(hpCents)}`, def: 'Your effort score — chores, kindness, learning, your business.' },
     { icon: <HoneyCoin size={18} />, name: 'Honey Coins', amount: `${formatHoney(honeyCoins)} HC`, sub: `≈ ${money(coinsCents)}`, def: 'Swap House Points for Honey Coins — your in-Kaya money, ready to grow.' },
-    { icon: <HoneyPotIcon size={20} />, name: 'Treasury Reserve (Honey Pot)', amount: money(treasuryCents), def: 'Where your Honey Coins live. Business sales land here too — a parent turns it into Cash.', pot: true },
-    { icon: '💵', name: 'Cash', amount: money(cashCents), def: 'Real money to spend. Only a parent adds it — directly or from your Treasury Reserve.' },
+    { icon: <HoneyPotIcon size={20} />, name: 'Treasury Reserve (Honey Pot)', amount: money(treasuryCents), def: 'Your spending money — earnings, sales and Coins land here. Spend straight from it (a parent says yes).', pot: true },
+    { icon: '💵', name: 'Cash', amount: money(cashCents), def: 'A second pocket a parent can hand you directly. Spent after your Honey Pot.' },
   ];
 
   return (
