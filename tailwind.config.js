@@ -83,6 +83,25 @@ module.exports = {
           'joy-mint': '#4ECDC4',
           'joy-ink': '#2D1B5E',
         },
+        // ── Kaya Games · "planet" scoped palette (2026-05-31). The approved
+        //    Games design genome — violet/coral/teal — kept as a scoped block
+        //    like hive-*/pulse-*/brand-* so it never overwrites kaya-*. Use
+        //    only inside /games routes + Games components. (Distinct from the
+        //    `universe` MODULE id, which is the app-wide guided tour.)
+        games: {
+          violet: '#6B3FE0',
+          'violet-deep': '#4A1FB8',
+          coral: '#FF6B6B',
+          gold: '#FFC93C',
+          teal: '#2DD4BF',
+          mint: '#A7F3D0',
+          pink: '#FF8FB1',
+          sky: '#7DD3FC',
+          ink: '#1A1240',
+          'ink-soft': '#5A4F7A',
+          bg: '#F5F0FF',
+          card: '#FFFFFF',
+        },
       },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
