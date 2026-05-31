@@ -158,6 +158,14 @@ export default function GamesPage() {
           </div>
         )}
 
+        {/* Leaderboard entry */}
+        <Link
+          href="/games/board"
+          className="inline-flex items-center gap-1.5 mb-5 bg-games-card text-games-violet-deep text-xs font-extrabold px-4 py-2 rounded-full shadow-[0_4px_12px_rgba(26,18,64,0.06)]"
+        >
+          🏆 Family leaderboard
+        </Link>
+
         {/* Daily Pick */}
         {pick && (
           <div className="relative overflow-hidden rounded-kaya-lg p-5 mb-7 text-white bg-gradient-to-br from-games-violet to-games-coral">
