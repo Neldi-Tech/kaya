@@ -2,19 +2,21 @@
 
 import { useState } from 'react';
 import type { GameProps } from './types';
+import { getGame } from '@/lib/gamesCatalog';
+import { slAdvance, slRollDie } from '@/lib/snakesLadders';
+import SnakesLaddersBoard from './SnakesLaddersBoard';
+import MultiDeviceRoom from './MultiDeviceRoom';
 
-// Snakes & Ladders — pass-and-play, 2 players. Roll, climb ladders, dodge
-// snakes, first to exactly 100 wins. Same-device.
+// Snakes & Ladders, two ways:
+//   • 👫 Same device — pass-and-play, 2 players take turns on one device.
+//   • 📲 Two phones — each player on their own device via a room code.
+// Roll, climb ladders, dodge snakes, first to exactly 100 wins. Points follow
+// the parent's per-game value + approval, like every game.
 
-const LADDERS: Record<number, number> = { 1: 38, 4: 14, 9: 31, 21: 42, 28: 84, 51: 67, 72: 91, 80: 99 };
-const SNAKES: Record<number, number> = { 17: 7, 54: 34, 62: 19, 64: 60, 87: 24, 93: 73, 95: 75, 98: 79 };
-
-function cellNumber(rowFromTop: number, col: number): number {
-  const br = 9 - rowFromTop;
-  return br % 2 === 0 ? br * 10 + col + 1 : br * 10 + (10 - col);
-}
+type Mode = 'duo' | 'multi';
 
 export default function SnakesLadders({ onComplete }: GameProps) {
+  const [mode, setMode] = useState<Mode | null>(null);
   const [pos, setPos] = useState<[number, number]>([0, 0]);
   const [turn, setTurn] = useState<0 | 1>(0);
   const [die, setDie] = useState<number | null>(null);
@@ -24,13 +26,9 @@ export default function SnakesLadders({ onComplete }: GameProps) {
   const roll = () => {
     if (winner !== null || rolling) return;
     setRolling(true);
-    const d = 1 + Math.floor(Math.random() * 6);
+    const d = slRollDie();
     setDie(d);
-    const cur = pos[turn];
-    let next = cur + d;
-    if (next > 100) next = cur; // must land exactly on 100
-    if (LADDERS[next]) next = LADDERS[next];
-    else if (SNAKES[next]) next = SNAKES[next];
+    const next = slAdvance(pos[turn], d);
     const np: [number, number] = turn === 0 ? [next, pos[1]] : [pos[0], next];
     window.setTimeout(() => {
       setPos(np);
@@ -44,33 +42,40 @@ export default function SnakesLadders({ onComplete }: GameProps) {
     }, 350);
   };
 
+  // ── Mode picker ──────────────────────────────────────────────────────────
+  if (!mode) {
+    return (
+      <div className="mx-auto" style={{ maxWidth: 320 }}>
+        <p className="text-center text-sm font-extrabold text-games-ink mb-4">How do you want to play?</p>
+        <div className="space-y-2.5">
+          <button type="button" onClick={() => setMode('duo')} className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left">
+            <span className="text-3xl">👫</span>
+            <span>
+              <span className="block font-display font-extrabold text-games-ink">Same device</span>
+              <span className="block text-[11px] font-semibold text-games-ink-soft">Two players, take turns on this device</span>
+            </span>
+          </button>
+          <button type="button" onClick={() => setMode('multi')} className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left">
+            <span className="text-3xl">📲</span>
+            <span>
+              <span className="block font-display font-extrabold text-games-ink">Two phones</span>
+              <span className="block text-[11px] font-semibold text-games-ink-soft">Each player on their own device · room code</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'multi') {
+    const game = getGame('snakes-ladders');
+    if (!game) return null;
+    return <MultiDeviceRoom game={game} onComplete={onComplete} />;
+  }
+
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
-      <div className="grid grid-cols-10 gap-px rounded-kaya overflow-hidden bg-games-ink/10 p-1 mx-auto" style={{ width: 'min(100%, 330px)' }}>
-        {Array.from({ length: 100 }, (_, i) => {
-          const r = Math.floor(i / 10), c = i % 10;
-          const n = cellNumber(r, c);
-          const hasP1 = pos[0] === n;
-          const hasP2 = pos[1] === n;
-          const ladder = LADDERS[n] !== undefined;
-          const snake = SNAKES[n] !== undefined;
-          return (
-            <div
-              key={i}
-              className="aspect-square flex items-center justify-center relative"
-              style={{ background: n === 100 ? '#A7F3D0' : ladder ? '#DBEAFE' : snake ? '#FFE4E4' : '#FFFFFF', fontSize: 7 }}
-            >
-              <span className="absolute top-0 left-0.5 text-games-ink-soft font-bold" style={{ fontSize: 6 }}>{n}</span>
-              {ladder && <span style={{ fontSize: 9 }}>🪜</span>}
-              {snake && <span style={{ fontSize: 9 }}>🐍</span>}
-              <span className="absolute bottom-0 right-0 flex" style={{ fontSize: 8 }}>
-                {hasP1 && <span>🔴</span>}
-                {hasP2 && <span>🟡</span>}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+      <SnakesLaddersBoard pos={pos} />
 
       <div className="flex items-center justify-center gap-4 mt-5">
         <div className="text-center">

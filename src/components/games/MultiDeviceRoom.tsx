@@ -12,6 +12,8 @@ import {
 import { type Cell, decideTicTacToe, tttGlyph } from '@/lib/ticTacToe';
 import { recordWin } from '@/lib/gamesWinClient';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
+import { slAdvance, slRollDie } from '@/lib/snakesLadders';
+import SnakesLaddersBoard from './SnakesLaddersBoard';
 
 type Mode = 'choose' | 'busy' | 'in' | 'error';
 interface Sentence { uid: string; name: string; text: string }
@@ -69,6 +71,7 @@ export default function MultiDeviceRoom({
         : game.id === 'family-trivia' ? triviaInitialState()
         : game.id === 'tic-tac-toe' ? { board: Array(9).fill(null), turn: 0 }
         : game.id === 'connect-4' ? { board: Array(C4_ROWS * C4_COLS).fill(0), turn: 0 }
+        : game.id === 'snakes-ladders' ? { pos: [0, 0], turn: 0, die: null }
         : {};
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
@@ -241,6 +244,7 @@ function Play({ game, session, me, familyId }: { game: GameDef; session: GameSes
   if (game.id === 'family-trivia') return <FamilyTriviaPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'tic-tac-toe') return <TicTacToeMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'connect-4') return <Connect4MultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'snakes-ladders') return <SnakesLaddersMultiPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
 }
 
@@ -440,6 +444,69 @@ function Connect4MultiPlay({ session, me, familyId }: { session: GameSession; me
       <p className="text-center text-[11px] text-games-ink-soft mt-3">
         {!isPlayer ? 'You’re watching this game 👀' : 'Tap a column to drop your disc · 4 in a row wins'}
       </p>
+    </div>
+  );
+}
+
+// Two-device Snakes & Ladders. players[0] is 🔴, players[1] is 🟡; further
+// joiners watch. pos / whose-roll / last die live in session.state. The player
+// on turn rolls on their own device (client RNG) and writes the result; the
+// other just watches the synced board.
+function SnakesLaddersMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const pos = (session.state.pos as [number, number]) || [0, 0];
+  const turn = (session.state.turn as number) || 0; // player index whose roll it is (0 | 1)
+  const die = (session.state.die as number | null) ?? null;
+  const players = session.players;
+  const myIndex = players.findIndex((p) => p.uid === me);
+  const isPlayer = myIndex === 0 || myIndex === 1;
+  const myTurn = isPlayer && turn === myIndex;
+
+  const roll = async () => {
+    if (!myTurn) return;
+    const d = slRollDie();
+    const next = slAdvance(pos[myIndex], d);
+    const np: [number, number] = myIndex === 0 ? [next, pos[1]] : [pos[0], next];
+    if (next === 100) {
+      const name = players[myIndex]?.name || (myIndex === 0 ? 'Player 1' : 'Player 2');
+      const doneMessage = `${myIndex === 0 ? '🔴' : '🟡'} ${name} wins! 🎉`;
+      await updateSession(familyId, session.id, {
+        state: { pos: np, turn, die: d, doneMessage },
+        status: 'done',
+        winnerUid: players[myIndex]?.uid,
+      });
+    } else {
+      await updateSession(familyId, session.id, { state: { pos: np, turn: turn === 0 ? 1 : 0, die: d } });
+    }
+  };
+
+  const p1Name = players[0]?.name || 'Player 1';
+  const p2Name = players[1]?.name || 'Player 2';
+  const turnName = turn === 0 ? p1Name : p2Name;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 340 }}>
+      <div className="flex items-center justify-center gap-3 mb-2 text-xs font-bold">
+        <span className={turn === 0 ? 'text-games-coral' : 'text-games-ink-soft'}>🔴 {p1Name}{myIndex === 0 ? ' (you)' : ''} · {pos[0]}</span>
+        <span className="text-games-ink-soft">vs</span>
+        <span className={turn === 1 ? 'text-games-gold' : 'text-games-ink-soft'}>🟡 {p2Name}{myIndex === 1 ? ' (you)' : ''} · {pos[1]}</span>
+      </div>
+      <SnakesLaddersBoard pos={pos} />
+      <div className="flex items-center justify-center gap-4 mt-5">
+        <p className="text-sm font-extrabold text-center">
+          {myTurn
+            ? <span className="text-games-violet">Your roll!</span>
+            : <span className="text-games-ink-soft">Waiting for {turnName}…</span>}
+        </p>
+        <button
+          type="button"
+          onClick={roll}
+          disabled={!myTurn}
+          className="bg-games-violet text-white font-display font-black text-xl w-16 h-16 rounded-kaya shadow-[0_4px_12px_rgba(26,18,64,0.15)] active:scale-90 transition-transform disabled:opacity-50"
+        >
+          {die ?? '🎲'}
+        </button>
+      </div>
+      {!isPlayer && <p className="text-center text-[11px] text-games-ink-soft mt-3">You’re watching this game 👀</p>}
     </div>
   );
 }
