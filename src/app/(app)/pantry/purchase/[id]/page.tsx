@@ -59,6 +59,7 @@ import { uploadReceipt, clearReceipt } from '@/lib/receiptUpload';
 import ReceiptScanModal from '@/components/pantry/ReceiptScanModal';
 import type { ScanResult } from '@/lib/receiptScan';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
+import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
 import { toDisplayDate } from '@/lib/dates';
 
 /** Module → its list-page route. dineOut's URL is /pantry/dine-out (not
@@ -893,6 +894,22 @@ export default function PurchaseDetailPage() {
           pendingAmountCents={req.status === 'closed' ? 0 : (req.actualTotalCents ?? req.estimatedTotalCents ?? 0)}
           className="mb-4"
         />
+      )}
+
+      {/* Per-parent attribution — parent-only. Saves immediately on
+          change so it works at any status (draft → closed). Helpers +
+          kids never see this. */}
+      {role === 'parent' && profile?.familyId && (
+        <div className="mb-4 rounded-kaya bg-white border border-hive-line p-3">
+          <PaidByPicker
+            familyId={profile.familyId}
+            value={(req.paidByUid ?? null) as PaidByValue}
+            onChange={async (next) => {
+              try { await updateRequestMeta(profile.familyId!, req.id, { paidByUid: next }); }
+              catch (e) { console.error('paidBy update failed', e); }
+            }}
+          />
+        </div>
       )}
 
       {/* Banners per status */}
