@@ -7,8 +7,8 @@ import { updateSession, updateSessionFields, type GameSession } from '@/lib/game
 // TIMED and auto-advances (no host button). Points scale with speed and the
 // FIRST correct answer gets a bonus. The host's client is the single writer of
 // state transitions (reveal/advance) so devices never race; players only write
-// their own answer. v1 uses a hand-authored bank per subject; an AI generator
-// fills it with fresh questions in a fast-follow.
+// their own answer. The host generates fresh AI questions per subject via
+// /api/games/trivia, with the hand-authored bank below as an instant fallback.
 
 export interface TriviaQ { q: string; choices: string[]; answer: number }
 
@@ -92,6 +92,29 @@ export function pickQuestions(subject: string): TriviaQ[] {
   return shuffle(bank).slice(0, PER_GAME);
 }
 
+// Ask the server to generate FRESH AI questions for this subject. Returns []
+// on any failure / when the AI key isn't set, so the caller falls back to the
+// hand-authored bank above. Shape-guarded so a bad payload can't crash a game.
+async function fetchAiTrivia(subject: string, count: number): Promise<TriviaQ[]> {
+  try {
+    const res = await fetch('/api/games/trivia', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ subject, count }),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { questions?: TriviaQ[]; skipped?: boolean };
+    if (data.skipped || !Array.isArray(data.questions)) return [];
+    return data.questions.filter((q) =>
+      !!q && typeof q.q === 'string' && q.q.trim().length > 0
+      && Array.isArray(q.choices) && q.choices.length === 4
+      && q.choices.every((c) => typeof c === 'string' && c.trim().length > 0)
+      && typeof q.answer === 'number' && q.answer >= 0 && q.answer <= 3);
+  } catch {
+    return [];
+  }
+}
+
 // Empty until the host picks a subject in-game (keeps the subject picker inside
 // this component, so the multi-device room needs no trivia-specific edits).
 export function triviaInitialState(): Record<string, unknown> {
@@ -115,6 +138,7 @@ export default function FamilyTriviaPlay({
   const answers = (st.answers as Record<string, Ans>) || {};
   const scores = (st.scores as Record<string, number>) || {};
   const revealed = !!st.revealed;
+  const generating = !!st.generating;
   const isHost = session.hostUid === me;
   const players = session.players;
   const q = questions[qIndex];
@@ -130,6 +154,28 @@ export default function FamilyTriviaPlay({
   const elapsed = qStartAt ? Math.max(0, (nowMs - qStartAt) / 1000) : 0;
   const remaining = Math.max(0, Math.ceil(QUESTION_SECS - elapsed));
   const allAnswered = players.length > 0 && players.every((p) => answers[p.uid] !== undefined);
+
+  // Host generates the question set once a subject is picked: AI first, with
+  // the hand-authored bank as an instant fallback. Only the host writes them,
+  // so every device gets the same questions. Fires once per subject (genRef).
+  const genRef = useRef('');
+  useEffect(() => {
+    if (!isHost || subject === '' || questions.length > 0) return;
+    if (genRef.current === subject) return;
+    genRef.current = subject;
+    let cancelled = false;
+    (async () => {
+      let qs = await fetchAiTrivia(subject, PER_GAME);
+      if (qs.length < 4) qs = pickQuestions(subject); // AI down/keyless → bank
+      if (cancelled) return;
+      await updateSessionFields(familyId, session.id, {
+        'state.questions': qs.slice(0, PER_GAME),
+        'state.qStartAt': Date.now(),
+        'state.generating': false,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [isHost, subject, questions.length, familyId, session.id]);
 
   // Host writes the reveal once the timer runs out or everyone has answered.
   // Idempotent per question via revealedRef — safe to re-evaluate each tick.
@@ -180,7 +226,7 @@ export default function FamilyTriviaPlay({
               key={s.id}
               type="button"
               onClick={() => updateSession(familyId, session.id, {
-                state: { subject: s.id, questions: pickQuestions(s.id), qIndex: 0, qStartAt: Date.now(), answers: {}, scores: {}, revealed: false },
+                state: { subject: s.id, questions: [], qIndex: 0, qStartAt: 0, answers: {}, scores: {}, revealed: false, generating: true },
               })}
               className="bg-games-card rounded-kaya p-4 text-center shadow-[0_4px_12px_rgba(26,18,64,0.06)] active:scale-95 transition-transform"
             >
@@ -193,7 +239,11 @@ export default function FamilyTriviaPlay({
     );
   }
 
-  if (!q) return <p className="text-center text-sm text-games-ink-soft py-12">Loading questions…</p>;
+  if (!q) return (
+    <p className="text-center text-sm text-games-ink-soft py-12">
+      {generating ? '✨ Making fresh questions…' : 'Loading questions…'}
+    </p>
+  );
 
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
