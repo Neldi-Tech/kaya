@@ -328,6 +328,13 @@ export interface PurchaseRequest {
   createdByRole: 'parent' | 'helper';
   updatedAt?: Timestamp;
 
+  /** Per-parent cost attribution (2026-05-30). null/unset = Shared.
+   *  Set by a parent on the detail page (the cost is theirs vs the
+   *  shared family budget). For payroll requests it inherits from the
+   *  helper's payroll config `paidByUid` at generation time. Distinct
+   *  from `createdBy` (who raised the request — often a helper/kid). */
+  paidByUid?: string | null;
+
   /** For Payroll requests — the helper this request is FOR (not just
    *  who created it). Helpers see only payroll requests where
    *  `helperUid === their own uid`; parents see all. For non-payroll
@@ -830,7 +837,7 @@ export async function updateRequestItems(
 export async function updateRequestMeta(
   familyId: string,
   requestId: string,
-  patch: { name?: string; note?: string },
+  patch: { name?: string; note?: string; paidByUid?: string | null },
 ): Promise<void> {
   if (isGuestActive()) return;
   await updateDoc(requestDoc(familyId, requestId), {
