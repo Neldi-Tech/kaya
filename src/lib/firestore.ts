@@ -758,6 +758,13 @@ export interface Child {
   totalPoints: number;
   weeklyPoints: number;
   streak: number;
+  // ── Kaya Games — multi-device win tracking (written ONLY by the Admin
+  //   /api/games/win route on a finished multi-device game; the Games board
+  //   reads these). Game-points for the board are summed from approved
+  //   gamePlays (games only), not totalPoints.
+  gameWins?: number;        // total multi-device games won
+  gameWinStreak?: number;   // current consecutive-win streak
+  gameWinBest?: number;     // best streak ever reached
   badges: string[];
   // Per-kid Celebrations preference (Kaya Business · celebrate engine). Shape
   // mirrors CelebrationSettings in lib/celebrate.ts (inlined to avoid a
