@@ -15,7 +15,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   subscribeToSubscriptions, computeSubscriptionKpis,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
-  Subscription, SubscriptionCategory,
+  getGmailScanStatus, fetchGmailScanResults,
+  Subscription, SubscriptionCategory, type ParsedSubscriptionDraft,
 } from '@/lib/subscriptions';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
@@ -45,6 +46,9 @@ export default function SubscriptionsListPage() {
   const [activeCategory, setActiveCategory] = useState<SubscriptionCategory | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanToast, setScanToast] = useState('');
+  // Gmail one-tap scan — env-gated; drafts handed back from the callback.
+  const [gmailConfigured, setGmailConfigured] = useState(false);
+  const [gmailDrafts, setGmailDrafts] = useState<ParsedSubscriptionDraft[] | null>(null);
   // 'all' = no parent filter; null = Shared; uid = that parent
   const [paidByFilter, setPaidByFilter] = useState<PaidByValue | 'all'>('all');
   const [parents, setParents] = useState<UserProfile[]>([]);
@@ -72,6 +76,39 @@ export default function SubscriptionsListPage() {
       setLoadingList(false);
     });
   }, [profile?.familyId]);
+
+  // Is the Gmail one-tap scan available in this environment? (operator
+  // sets the Google OAuth client env — until then the button stays hidden.)
+  useEffect(() => {
+    if (!profile || profile.role !== 'parent') return;
+    let alive = true;
+    getGmailScanStatus().then((ok) => { if (alive) setGmailConfigured(ok); });
+    return () => { alive = false; };
+  }, [profile]);
+
+  // Returning from a Gmail scan (?gmailScan=…)? Pick up the stashed drafts
+  // and open the review sheet, or surface the right status toast. The flag
+  // is stripped immediately so a refresh can't replay it.
+  useEffect(() => {
+    if (!profile || profile.role !== 'parent') return;
+    const status = new URLSearchParams(window.location.search).get('gmailScan');
+    if (!status) return;
+    window.history.replaceState(null, '', '/household/subscriptions');
+    if (status === 'done') {
+      fetchGmailScanResults().then((drafts) => {
+        if (drafts.length > 0) { setGmailDrafts(drafts); setScanOpen(true); }
+        else setScanToast('No new subscriptions found in your recent receipt emails.');
+      });
+    } else if (status === 'empty') {
+      setScanToast('No subscription receipts found in your recent emails.');
+    } else if (status === 'skipped') {
+      setScanToast('AI is off in this preview — paste a receipt into “From receipt” instead.');
+    } else if (status === 'cancelled') {
+      setScanToast('Gmail scan cancelled — nothing was read.');
+    } else {
+      setScanToast('Couldn’t complete the Gmail scan — please try again.');
+    }
+  }, [profile]);
 
   const householdCurrency = family?.hiveConfig?.currency ?? 'USD';
 
@@ -131,12 +168,25 @@ export default function SubscriptionsListPage() {
             </Link>
             <button
               type="button"
-              onClick={() => setScanOpen(true)}
+              onClick={() => { setGmailDrafts(null); setScanOpen(true); }}
               className="rounded-full bg-pulse-gold/15 border border-pulse-gold/40 px-3 py-1.5 font-display font-extrabold text-pulse-navy hover:bg-pulse-gold/25 transition-colors text-[12px]"
               title="Paste or upload an App Store / Play / service receipt — Kaya reads off the subscriptions for you."
             >
               📩 From receipt
             </button>
+            {gmailConfigured && profile.familyId && (
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href =
+                    `/api/subscriptions/gmail/start?familyId=${encodeURIComponent(profile.familyId)}&uid=${encodeURIComponent(profile.uid)}`;
+                }}
+                className="rounded-full bg-white border border-pulse-navy/15 px-3 py-1.5 font-display font-extrabold text-pulse-navy hover:bg-pulse-navy/5 transition-colors text-[12px]"
+                title="Connect Gmail (read-only, one-time) so Kaya can find App Store / Play / streaming receipts for you. Nothing is added without your confirmation."
+              >
+                ✉️ Scan Gmail
+              </button>
+            )}
           </div>
         )}
       </header>
@@ -232,15 +282,19 @@ export default function SubscriptionsListPage() {
       {profile.role === 'parent' && profile.familyId && (
         <ScanReceiptSheet
           open={scanOpen}
-          onClose={() => setScanOpen(false)}
+          onClose={() => { setScanOpen(false); setGmailDrafts(null); }}
           familyId={profile.familyId}
           uid={profile.uid}
           currency={householdCurrency}
-          onImported={(n) => setScanToast(
-            n > 0
-              ? `✅ Added ${n} subscription${n === 1 ? '' : 's'} from your receipt.`
-              : 'Nothing added — none were ticked.',
-          )}
+          initialDrafts={gmailDrafts}
+          onImported={(n) => {
+            setGmailDrafts(null);
+            setScanToast(
+              n > 0
+                ? `✅ Added ${n} subscription${n === 1 ? '' : 's'} from your receipt.`
+                : 'Nothing added — none were ticked.',
+            );
+          }}
         />
       )}
     </div>
