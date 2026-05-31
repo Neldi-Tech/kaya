@@ -10,7 +10,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
-  effectiveAutoApproveCents, currencySymbol,
+  effectiveAutoApproveCents, currencySymbol, spendableCents, type HiveTransaction,
 } from '@/lib/hive';
 import { Business, subscribeToKidBusinesses, requestBusinessReinvest } from '@/lib/business';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -25,6 +25,16 @@ import NumberInput from '@/components/hive/NumberInput';
 // drop "Savings" because that's not a thing you spend money on, it's a
 // budget allocation choice on /hive/plan.
 const SPEND_CHIPS = PLAN_CATEGORIES.filter((c) => c.id !== 'savings');
+
+// A spend shown in "What I spent" — money OUT of a spendable pocket (Honey Pot
+// or Cash) for an actual purchase. Excludes the internal Pot→Cash 'convert'
+// transfer and 'business' reinvest (which lives in the business books). Since
+// a spend can now draw from the Pot, the Cash-only filter would have hidden
+// Pot-funded spends — this keeps the history complete across both pockets.
+const isSpendOut = (t: HiveTransaction): boolean =>
+  t.direction === 'out'
+  && (t.layer === 'cash' || t.layer === 'treasury')
+  && t.category !== 'convert' && t.category !== 'business';
 
 export default function CashOutPage() {
   const { profile, isGuest } = useAuth();
@@ -43,7 +53,7 @@ export default function CashOutPage() {
   const [autoApproveFlash, setAutoApproveFlash] = useState<{ amount: number; desc: string } | null>(null);
 
   const outgoing = useMemo(
-    () => transactions.filter((t) => t.layer === 'cash' && t.direction === 'out'),
+    () => transactions.filter(isSpendOut),
     [transactions],
   );
   const pendingSpends = useMemo(
@@ -57,11 +67,12 @@ export default function CashOutPage() {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
     let inMonth = 0, outMonth = 0;
     for (const t of transactions) {
-      if (t.layer !== 'cash') continue;
+      // Spendable pockets only (Honey Pot + Cash); skip internal Pot↔Cash transfers.
+      if ((t.layer !== 'cash' && t.layer !== 'treasury') || t.category === 'convert') continue;
       const ts = (t.createdAt as any)?.toMillis?.();
       if (typeof ts !== 'number' || ts < monthStart) continue;
       if (t.direction === 'in') inMonth += t.amount;
-      else outMonth += t.amount;
+      else if (t.category !== 'business') outMonth += t.amount;
     }
     const total = inMonth + outMonth;
     const saveRate = total === 0 ? null : Math.round((inMonth / total) * 100);
@@ -118,9 +129,9 @@ export default function CashOutPage() {
       return;
     }
 
-    // ── Normal cash spend ──
-    if (cents > wallet.cashCents) {
-      setError(`You only have ${formatCash(wallet.cashCents, config.currency)} in Cash.`);
+    // ── Normal spend — draws from the Honey Pot first, then Cash ──
+    if (cents > spendableCents(wallet)) {
+      setError(`You only have ${formatCash(spendableCents(wallet), config.currency)} to spend (Pot + Cash).`);
       return;
     }
     setSubmitting(true);
@@ -240,7 +251,7 @@ export default function CashOutPage() {
             <p className="text-[11px] text-hive-muted mt-1">
               {mode === 'business'
                 ? <>From 🍯 Honey Pot · {formatCash(wallet.treasuryCents || 0, config.currency)}</>
-                : <>Available: {formatCash(wallet.cashCents, config.currency)}</>}
+                : <>Available {formatCash(spendableCents(wallet), config.currency)} · 🍯 {formatCash(wallet.treasuryCents || 0, config.currency)} + 💵 {formatCash(wallet.cashCents, config.currency)}</>}
             </p>
           </div>
 
