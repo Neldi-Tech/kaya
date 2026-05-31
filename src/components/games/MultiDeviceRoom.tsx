@@ -9,6 +9,7 @@ import {
   createSession, findSessionByCode, joinSession, subscribeSession, updateSession,
   type GameSession,
 } from '@/lib/gameSessions';
+import { type Cell, decideTicTacToe, tttGlyph } from '@/lib/ticTacToe';
 
 type Mode = 'choose' | 'busy' | 'in' | 'error';
 interface Sentence { uid: string; name: string; text: string }
@@ -63,7 +64,9 @@ export default function MultiDeviceRoom({
     setMode('busy'); setErr('');
     try {
       const initial = game.id === 'story-builder' ? { sentences: [], turn: 0 }
-        : game.id === 'family-trivia' ? triviaInitialState() : {};
+        : game.id === 'family-trivia' ? triviaInitialState()
+        : game.id === 'tic-tac-toe' ? { board: Array(9).fill(null), turn: 0 }
+        : {};
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
     } catch (e) { setErr(friendlyErr(e)); setMode('error'); }
@@ -77,7 +80,8 @@ export default function MultiDeviceRoom({
   useEffect(() => {
     if (session?.status === 'done' && !awardedRef.current) {
       awardedRef.current = true;
-      onComplete({ success: true, score: session.players.length, message: 'Great game together! 🎉' });
+      const doneMessage = (session.state?.doneMessage as string) || 'Great game together! 🎉';
+      onComplete({ success: true, score: session.players.length, message: doneMessage });
     }
   }, [session?.status, session?.players.length, onComplete]);
 
@@ -175,7 +179,78 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
 function Play({ game, session, me, familyId }: { game: GameDef; session: GameSession; me: string; familyId: string }) {
   if (game.id === 'story-builder') return <StoryBuilderPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'family-trivia') return <FamilyTriviaPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'tic-tac-toe') return <TicTacToeMultiPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
+}
+
+// Two-device Tic-Tac-Toe. players[0] is ❌ (the host), players[1] is ⭕; any
+// further joiners watch. The board + whose-turn live in session.state and
+// sync through Firestore; only the player on turn can move.
+function TicTacToeMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const board = (session.state.board as Cell[]) || Array(9).fill(null);
+  const turn = (session.state.turn as number) || 0;
+  const players = session.players;
+  const myIndex = players.findIndex((p) => p.uid === me);
+  const mySymbol: Cell = myIndex === 0 ? 'X' : myIndex === 1 ? 'O' : null;
+  const currentIdx = turn % 2;                 // 0 → ❌'s turn, 1 → ⭕'s turn
+  const myTurn = mySymbol != null && currentIdx === myIndex;
+
+  const play = async (i: number) => {
+    if (!myTurn || board[i] || mySymbol == null) return;
+    const next = [...board];
+    next[i] = mySymbol;
+    const result = decideTicTacToe(next);
+    if (result) {
+      const draw = result === 'draw';
+      const winnerIdx = result === 'X' ? 0 : 1;
+      const winnerName = players[winnerIdx]?.name || result;
+      const doneMessage = draw ? "It's a draw 🤝" : `${tttGlyph(result)} ${winnerName} wins! 🎉`;
+      await updateSession(familyId, session.id, {
+        state: { board: next, turn: turn + 1, doneMessage },
+        status: 'done',
+        ...(draw ? {} : { winnerUid: players[winnerIdx]?.uid }),
+      });
+    } else {
+      await updateSession(familyId, session.id, { state: { board: next, turn: turn + 1 } });
+    }
+  };
+
+  const xName = players[0]?.name || 'Player 1';
+  const oName = players[1]?.name || 'Player 2';
+  const turnName = currentIdx === 0 ? xName : oName;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 320 }}>
+      <div className="flex items-center justify-center gap-3 mb-2 text-xs font-bold">
+        <span className={currentIdx === 0 ? 'text-games-violet' : 'text-games-ink-soft'}>❌ {xName}{myIndex === 0 ? ' (you)' : ''}</span>
+        <span className="text-games-ink-soft">vs</span>
+        <span className={currentIdx === 1 ? 'text-games-coral' : 'text-games-ink-soft'}>⭕ {oName}{myIndex === 1 ? ' (you)' : ''}</span>
+      </div>
+      <p className="text-center text-sm font-extrabold mb-3">
+        {myTurn
+          ? <span className="text-games-violet">Your turn {tttGlyph(mySymbol)}</span>
+          : <span className="text-games-ink-soft">Waiting for {turnName}…</span>}
+      </p>
+      <div className="grid grid-cols-3 gap-2.5">
+        {board.map((cell, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => play(i)}
+            disabled={!myTurn || !!cell}
+            aria-label={`Square ${i + 1}${cell ? `, ${cell}` : ''}`}
+            className={`aspect-square rounded-kaya bg-games-card shadow-[0_4px_12px_rgba(26,18,64,0.08)] flex items-center justify-center font-display font-black select-none transition-transform active:scale-95 ${
+              cell || !myTurn ? '' : 'hover:-translate-y-0.5'
+            }`}
+            style={{ fontSize: 44 }}
+          >
+            <span className={cell === 'X' ? 'text-games-violet' : 'text-games-coral'}>{cell ?? ''}</span>
+          </button>
+        ))}
+      </div>
+      {mySymbol == null && <p className="text-center text-[11px] text-games-ink-soft mt-3">You&rsquo;re watching this game 👀</p>}
+    </div>
+  );
 }
 
 function StoryBuilderPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {

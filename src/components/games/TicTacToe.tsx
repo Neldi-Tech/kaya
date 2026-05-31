@@ -2,48 +2,19 @@
 
 import { useCallback, useState } from 'react';
 import type { GameProps } from './types';
+import { getGame } from '@/lib/gamesCatalog';
+import { type Cell, decideTicTacToe as decide, aiMove, tttGlyph as glyph } from '@/lib/ticTacToe';
+import MultiDeviceRoom from './MultiDeviceRoom';
 
-// Tic-Tac-Toe, two ways:
-//   • "Play a friend" — pass-and-play, 2 family members on one device (X vs O).
-//   • "Play the computer" — vs a simple (beatable but not dumb) AI; kid is X.
-// Calls onComplete once the board resolves. Fully offline, no deps.
-// Points follow the same rules as every game: governed by the parent's
-// per-game value (default 0 = just for fun) + approval — nothing special here.
+// Tic-Tac-Toe, three ways:
+//   • 👫 Play a friend — pass-and-play, 2 family members on one device (X vs O).
+//   • 📲 Play on two phones — each player on their own device via a room code
+//     (reuses the multi-device room; board syncs through the session).
+//   • 🤖 Play the computer — vs a simple beatable AI; kid is X.
+// Points follow the same rules as every game: the parent's per-game value
+// (default 0 = just for fun) + approval — nothing special here.
 
-type Cell = 'X' | 'O' | null;
-type Mode = 'duo' | 'ai';
-
-const LINES = [
-  [0, 1, 2], [3, 4, 5], [6, 7, 8],
-  [0, 3, 6], [1, 4, 7], [2, 5, 8],
-  [0, 4, 8], [2, 4, 6],
-];
-
-function decide(b: Cell[]): Cell | 'draw' | null {
-  for (const [a, c, d] of LINES) {
-    if (b[a] && b[a] === b[c] && b[a] === b[d]) return b[a];
-  }
-  return b.every(Boolean) ? 'draw' : null;
-}
-
-function aiMove(b: Cell[]): number {
-  const empty = b.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0);
-  const tryWin = (p: Cell): number => {
-    for (const i of empty) {
-      const t = [...b]; t[i] = p;
-      if (decide(t) === p) return i;
-    }
-    return -1;
-  };
-  let m = tryWin('O'); if (m >= 0) return m;          // win if we can
-  m = tryWin('X'); if (m >= 0) return m;              // else block the kid
-  if (b[4] == null) return 4;                         // take centre
-  const corners = [0, 2, 6, 8].filter((i) => b[i] == null);
-  if (corners.length) return corners[0];              // then a corner
-  return empty[0] ?? -1;                              // then anything
-}
-
-const glyph = (p: Cell) => (p === 'X' ? '❌' : p === 'O' ? '⭕' : '');
+type Mode = 'duo' | 'multi' | 'ai';
 
 export default function TicTacToe({ onComplete }: GameProps) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -97,31 +68,19 @@ export default function TicTacToe({ onComplete }: GameProps) {
       <div className="mx-auto" style={{ maxWidth: 320 }}>
         <p className="text-center text-sm font-extrabold text-games-ink mb-4">How do you want to play?</p>
         <div className="space-y-2.5">
-          <button
-            type="button"
-            onClick={() => setMode('duo')}
-            className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left"
-          >
-            <span className="text-3xl">👫</span>
-            <span>
-              <span className="block font-display font-extrabold text-games-ink">Play a friend</span>
-              <span className="block text-[11px] font-semibold text-games-ink-soft">Two players, take turns on this device</span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode('ai')}
-            className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left"
-          >
-            <span className="text-3xl">🤖</span>
-            <span>
-              <span className="block font-display font-extrabold text-games-ink">Play the computer</span>
-              <span className="block text-[11px] font-semibold text-games-ink-soft">You&rsquo;re ❌ · beat the bot</span>
-            </span>
-          </button>
+          <PickerButton emoji="👫" title="Play a friend" sub="Two players, take turns on this device" onClick={() => setMode('duo')} />
+          <PickerButton emoji="📲" title="Play on two phones" sub="Each player on their own device · room code" onClick={() => setMode('multi')} />
+          <PickerButton emoji="🤖" title="Play the computer" sub="You're ❌ · beat the bot" onClick={() => setMode('ai')} />
         </div>
       </div>
     );
+  }
+
+  // ── Two-device room ────────────────────────────────────────────────────────
+  if (mode === 'multi') {
+    const game = getGame('tic-tac-toe');
+    if (!game) return null;
+    return <MultiDeviceRoom game={game} onComplete={onComplete} />;
   }
 
   const play = mode === 'ai' ? playAi : playDuo;
@@ -162,5 +121,21 @@ export default function TicTacToe({ onComplete }: GameProps) {
           : <>Pass the device after each turn · three in a row wins</>}
       </p>
     </div>
+  );
+}
+
+function PickerButton({ emoji, title, sub, onClick }: { emoji: string; title: string; sub: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left"
+    >
+      <span className="text-3xl">{emoji}</span>
+      <span>
+        <span className="block font-display font-extrabold text-games-ink">{title}</span>
+        <span className="block text-[11px] font-semibold text-games-ink-soft">{sub}</span>
+      </span>
+    </button>
   );
 }
