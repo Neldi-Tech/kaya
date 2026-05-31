@@ -46,7 +46,7 @@ export default function SnakesLadders({ onComplete }: GameProps) {
 
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
-      <div className="grid grid-cols-10 gap-px rounded-kaya overflow-hidden bg-games-ink/10 p-1 mx-auto" style={{ width: 'min(94vw, 330px)' }}>
+      <div className="grid grid-cols-10 gap-px rounded-kaya overflow-hidden bg-games-ink/10 p-1 mx-auto" style={{ width: 'min(100%, 330px)' }}>
         {Array.from({ length: 100 }, (_, i) => {
           const r = Math.floor(i / 10), c = i % 10;
           const n = cellNumber(r, c);

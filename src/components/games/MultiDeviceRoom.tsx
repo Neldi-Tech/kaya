@@ -202,7 +202,7 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
     <div className="mx-auto" style={{ maxWidth: 340 }}>
       <div className="rounded-kaya-lg p-5 text-white text-center bg-gradient-to-br from-games-violet to-[#9333EA]">
         <p className="text-[11px] font-bold uppercase tracking-wider opacity-90 mb-2">Room code</p>
-        <p className="font-display font-black tracking-[0.3em]" style={{ fontSize: 48 }}>{session.code}</p>
+        <p className="font-display font-black tracking-[0.3em]" style={{ fontSize: 'clamp(30px, 11vw, 48px)' }}>{session.code}</p>
         <p className="text-xs opacity-80 mt-1">Expires in 10 min</p>
         <div className="grid grid-cols-2 gap-2 mt-4">
           <button type="button" onClick={copy} className="bg-white/20 border border-white/25 rounded-kaya py-2.5 text-sm font-bold">{copied ? 'Copied ✓' : '📋 Copy code'}</button>
@@ -424,7 +424,7 @@ function Connect4MultiPlay({ session, me, familyId }: { session: GameSession; me
           ? <span className="text-games-violet">Your turn {myDisc === 1 ? '🔴' : '🟡'}</span>
           : <span className="text-games-ink-soft">Waiting for {turnName}…</span>}
       </p>
-      <div className="grid grid-cols-7 gap-1.5 p-2 rounded-kaya bg-games-violet" style={{ width: 'min(92vw, 320px)', margin: '0 auto' }}>
+      <div className="grid grid-cols-7 gap-1.5 p-2 rounded-kaya bg-games-violet" style={{ width: 'min(100%, 320px)', margin: '0 auto' }}>
         {board.map((v, i) => (
           <button
             key={i}

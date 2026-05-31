@@ -116,7 +116,7 @@ export default function Game2048({ onComplete }: GameProps) {
   return (
     <div className="mx-auto" style={{ maxWidth: 320 }}>
       <p className="text-center text-xs font-bold text-games-ink-soft mb-3">Score: {score} · reach 64+ to win</p>
-      <div className="grid grid-cols-4 gap-2 p-2 rounded-kaya bg-games-bg" style={{ width: 'min(86vw, 300px)', margin: '0 auto' }}>
+      <div className="grid grid-cols-4 gap-2 p-2 rounded-kaya bg-games-bg" style={{ width: 'min(100%, 300px)', margin: '0 auto' }}>
         {board.map((v, i) => (
           <div key={i} className="aspect-square rounded-kaya-sm flex items-center justify-center font-display font-black"
             style={{ background: TILE[v] || '#1A1240', color: v >= 8 ? '#fff' : '#4A1FB8', fontSize: v >= 1000 ? 16 : 20 }}>

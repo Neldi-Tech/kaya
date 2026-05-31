@@ -40,7 +40,7 @@ export default function SudokuLite({ onComplete }: GameProps) {
   return (
     <div className="mx-auto" style={{ maxWidth: 320 }}>
       <p className="text-center text-xs font-bold text-games-ink-soft mb-3">Fill 1–4 · no repeats in a row, column or box</p>
-      <div className="grid grid-cols-4 mx-auto rounded-kaya overflow-hidden" style={{ width: 'min(78vw, 264px)', border: '2px solid #4A1FB8' }}>
+      <div className="grid grid-cols-4 mx-auto rounded-kaya overflow-hidden" style={{ width: 'min(100%, 264px)', border: '2px solid #4A1FB8' }}>
         {board.map((v, i) => {
           const r = Math.floor(i / 4), c = i % 4;
           const given = isGiven(i);

@@ -81,7 +81,7 @@ export default function Connect4({ onComplete }: GameProps) {
           </span>
         )}
       </p>
-      <div className="grid grid-cols-7 gap-1.5 p-2 rounded-kaya bg-games-violet" style={{ width: 'min(92vw, 320px)', margin: '0 auto' }}>
+      <div className="grid grid-cols-7 gap-1.5 p-2 rounded-kaya bg-games-violet" style={{ width: 'min(100%, 320px)', margin: '0 auto' }}>
         {board.map((v, i) => (
           <button
             key={i}
