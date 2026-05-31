@@ -1,17 +1,25 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { getGame } from '@/lib/gamesCatalog';
 import { awardGame, type AwardResult } from '@/lib/gamesClient';
+import type { GameOutcome, GameProps } from '@/components/games/types';
 import TicTacToe from '@/components/games/TicTacToe';
+import MemoryMatch from '@/components/games/MemoryMatch';
+import MathDash from '@/components/games/MathDash';
+import Snake from '@/components/games/Snake';
 
-// Renders one game by slug. Built games run + award House Points server-side
-// on success; everything else shows a themed "coming soon". The catalog is
-// the single source of truth for which games are live.
-
-type Outcome = { won: boolean; draw: boolean };
+// Registry of live games. The catalog says which ids are `built`; this maps
+// each to its component. A built id with no component here falls back to the
+// friendly "coming soon" panel, so the two can never desync into a blank.
+const REGISTRY: Record<string, ComponentType<GameProps>> = {
+  'tic-tac-toe': TicTacToe,
+  'memory-match': MemoryMatch,
+  'math-dash': MathDash,
+  snake: Snake,
+};
 
 function BurstRow() {
   const glyphs = ['⭐', '🎉', '✨', '🌟', '🎈'];
@@ -28,20 +36,20 @@ export default function GameRunnerPage() {
   const params = useParams();
   const id = String((params as Record<string, string | string[]>)?.id || '');
   const game = getGame(id);
+  const GameComp = REGISTRY[id];
 
   const startedAt = useRef<number>(Date.now());
-  const [outcome, setOutcome] = useState<Outcome | null>(null);
+  const [outcome, setOutcome] = useState<GameOutcome | null>(null);
   const [award, setAward] = useState<AwardResult | null>(null);
   const [awarding, setAwarding] = useState(false);
   const [round, setRound] = useState(0);
 
-  const handleComplete = useCallback(async (r: Outcome) => {
-    setOutcome(r);
-    // Skill game: a win or a draw earns the points; a loss invites a retry.
-    if (game && (r.won || r.draw)) {
+  const handleComplete = useCallback(async (o: GameOutcome) => {
+    setOutcome(o);
+    if (game && o.success) {
       setAwarding(true);
       const durationSec = Math.round((Date.now() - startedAt.current) / 1000);
-      const res = await awardGame({ gameId: game.id, score: r.won ? 1 : 0, durationSec });
+      const res = await awardGame({ gameId: game.id, score: o.score, durationSec });
       setAward(res);
       setAwarding(false);
     }
@@ -54,19 +62,19 @@ export default function GameRunnerPage() {
     setRound((n) => n + 1);
   }, []);
 
-  // ── Unknown / not-yet-built ────────────────────────────────────────
   if (!game) {
     return (
       <Shell>
         <div className="text-center py-16">
           <p className="text-5xl mb-3">🕹️</p>
-          <p className="font-display text-xl font-extrabold text-games-ink mb-1">Game not found</p>
+          <p className="font-display text-xl font-extrabold text-games-ink mb-3">Game not found</p>
           <BackLink />
         </div>
       </Shell>
     );
   }
-  if (!game.built) {
+
+  if (!game.built || !GameComp) {
     return (
       <Shell>
         <div className="text-center py-12">
@@ -82,7 +90,6 @@ export default function GameRunnerPage() {
     );
   }
 
-  // ── Live game ──────────────────────────────────────────────────────
   return (
     <Shell>
       <div className="flex items-center justify-between mb-6">
@@ -92,17 +99,13 @@ export default function GameRunnerPage() {
       <div className="text-center mb-6">
         <div className="text-4xl mb-1">{game.icon}</div>
         <h1 className="font-display text-2xl font-black text-games-ink">{game.name}</h1>
+        {game.note && <p className="text-xs font-semibold text-games-ink-soft mt-1">{game.note}</p>}
       </div>
 
-      {id === 'tic-tac-toe' && <TicTacToe key={round} onComplete={handleComplete} />}
+      <GameComp key={round} onComplete={handleComplete} />
 
       {outcome && (
-        <ResultOverlay
-          outcome={outcome}
-          award={award}
-          awarding={awarding}
-          onPlayAgain={playAgain}
-        />
+        <ResultOverlay outcome={outcome} award={award} awarding={awarding} onPlayAgain={playAgain} />
       )}
     </Shell>
   );
@@ -111,14 +114,14 @@ export default function GameRunnerPage() {
 function ResultOverlay({
   outcome, award, awarding, onPlayAgain,
 }: {
-  outcome: Outcome;
+  outcome: GameOutcome;
   award: AwardResult | null;
   awarding: boolean;
   onPlayAgain: () => void;
 }) {
-  const lost = !outcome.won && !outcome.draw;
+  const lost = !outcome.success;
   const earned = award?.pointsAwarded ?? 0;
-  const title = outcome.won ? 'You won! 🎉' : outcome.draw ? "It's a draw 🤝" : 'So close!';
+  const title = outcome.message || (outcome.success ? 'You did it! 🎉' : 'So close!');
 
   return (
     <div className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center p-4 bg-games-ink/40">
@@ -127,7 +130,7 @@ function ResultOverlay({
         <h2 className="font-display text-2xl font-black text-games-ink mb-1">{title}</h2>
 
         {lost ? (
-          <p className="text-sm text-games-ink-soft mb-5">The robot got that one. Want another go?</p>
+          <p className="text-sm text-games-ink-soft mb-5">Have another go — you&rsquo;ve got this.</p>
         ) : awarding ? (
           <p className="text-sm text-games-ink-soft mb-5">Saving your points…</p>
         ) : award?.skipped ? (
@@ -150,17 +153,10 @@ function ResultOverlay({
         )}
 
         <div className="flex gap-2.5">
-          <button
-            type="button"
-            onClick={onPlayAgain}
-            className="flex-1 bg-games-violet text-white font-extrabold text-sm py-3 rounded-full"
-          >
+          <button type="button" onClick={onPlayAgain} className="flex-1 bg-games-violet text-white font-extrabold text-sm py-3 rounded-full">
             Play again
           </button>
-          <Link
-            href="/games"
-            className="flex-1 bg-games-bg text-games-violet-deep font-extrabold text-sm py-3 rounded-full"
-          >
+          <Link href="/games" className="flex-1 bg-games-bg text-games-violet-deep font-extrabold text-sm py-3 rounded-full">
             Done
           </Link>
         </div>
@@ -169,7 +165,7 @@ function ResultOverlay({
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
       <div className="mx-auto max-w-md w-full px-4 pt-4 pb-28">{children}</div>
