@@ -31,6 +31,9 @@ export async function awardGame(input: {
   gameId: string;
   score?: number | null;
   durationSec?: number;
+  /** Set when the completion came from a multi-device room → Fun-Points are
+   *  credited by /api/games/win for all players instead of here. */
+  multiplayer?: boolean;
 }): Promise<AwardResult> {
   const user = auth.currentUser;
   if (!user) return { error: 'not-signed-in' };
@@ -46,6 +49,7 @@ export async function awardGame(input: {
         score: input.score ?? null,
         durationSec: input.durationSec ?? 0,
         tzOffsetMinutes: -new Date().getTimezoneOffset(),
+        multiplayer: input.multiplayer ?? false,
       }),
     });
     return (await res.json()) as AwardResult;

@@ -21,6 +21,7 @@ import {
   resolveGamesConfig, ageFromBirthday, pointsMultiplier,
   localDateKey, localWeekStartKey, gamePointsValue,
 } from '@/lib/games';
+import { gameFunValue, nextFun } from '@/lib/gamesFun';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,9 @@ interface AwardBody {
   score?: number | null;
   durationSec?: number;
   tzOffsetMinutes?: number;
+  /** True when this completion came from a multi-device room — Fun-Points are
+   *  then credited by /api/games/win (all players) instead of here. */
+  multiplayer?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -89,6 +93,19 @@ export async function POST(req: NextRequest) {
   const weekKey = localWeekStartKey(Date.now(), tz);
   const score = body.score == null ? null : Number(body.score);
   const playsCol = db.collection('families').doc(familyId).collection('gamePlays');
+
+  // ── Fun-Points: every SOLO completion banks a little (gaming-only currency,
+  //    no approval). Multiplayer games are credited by /api/games/win instead,
+  //    so PARENTS are covered there too. Independent of the HP path below. ────
+  if (!body.multiplayer) {
+    const funRef = db.collection('families').doc(familyId).collection('gameStats').doc(uid);
+    const curFun = ((await funRef.get()).data() || {}) as { funPoints?: number; funWeekly?: number; funWeekKey?: string };
+    const fun = nextFun(curFun, gameFunValue(game.points), weekKey);
+    await funRef.set({
+      uid, name: kidName, role: 'kid',
+      funPoints: fun.funPoints, funWeekly: fun.funWeekly, funWeekKey: fun.funWeekKey, updatedAt: Date.now(),
+    }, { merge: true });
+  }
 
   // ── Value 0 → just log it. No HP, no approval. ───────────────────────────
   if (proposed <= 0) {

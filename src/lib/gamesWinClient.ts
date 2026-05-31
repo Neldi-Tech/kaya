@@ -24,7 +24,7 @@ export async function recordWin(sessionId: string): Promise<WinResult> {
     const res = await fetch('/api/games/win', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ sessionId }),
+      body: JSON.stringify({ sessionId, tzOffsetMinutes: -new Date().getTimezoneOffset() }),
     });
     return (await res.json()) as WinResult;
   } catch (e) {

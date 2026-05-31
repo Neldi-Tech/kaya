@@ -91,7 +91,7 @@ export default function GameRunnerPage() {
     if (game && o.success) {
       setAwarding(true);
       const durationSec = Math.round((Date.now() - startedAt.current) / 1000);
-      const res = await awardGame({ gameId: game.id, score: o.score, durationSec });
+      const res = await awardGame({ gameId: game.id, score: o.score, durationSec, multiplayer: o.multiplayer });
       setAward(res);
       setAwarding(false);
     }

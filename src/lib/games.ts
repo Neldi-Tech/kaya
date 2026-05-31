@@ -79,6 +79,9 @@ export const isMindGame = (gameId: string): boolean => MIND_GAME_IDS.has(gameId)
 /** The parent-assigned House-Points value for a game. Default 0 — a game
  *  mints nothing until a parent opts it in via Games Controls. */
 export function gamePointsValue(cfg: GamesConfig, gameId: string): number {
+  // House Points are reserved for mind-strengthening games. Every other game
+  // earns Fun-Points only, so it can never carry an HP value (even legacy ones).
+  if (!isMindGame(gameId)) return 0;
   const v = cfg.gamePoints?.[gameId];
   return typeof v === 'number' && v > 0 ? Math.round(v) : 0;
 }

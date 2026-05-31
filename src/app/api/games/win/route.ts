@@ -11,11 +11,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
+import { getGame } from '@/lib/gamesCatalog';
+import { localWeekStartKey } from '@/lib/games';
+import { gameFunValue, nextFun, FUN_WIN_MULT } from '@/lib/gamesFun';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-interface Body { sessionId?: string }
+interface Body { sessionId?: string; tzOffsetMinutes?: number }
 interface SPlayer { uid: string; name: string }
 
 export async function POST(req: NextRequest) {
@@ -45,7 +48,7 @@ export async function POST(req: NextRequest) {
   if (!sSnap.exists) return NextResponse.json({ error: 'no-session' }, { status: 404 });
   const s = sSnap.data() as {
     status?: string; players?: SPlayer[]; state?: Record<string, unknown>;
-    winnerUid?: string; winRecorded?: boolean;
+    winnerUid?: string; winRecorded?: boolean; gameId?: string;
   };
   if (s.status !== 'done') return NextResponse.json({ ok: true, skipped: true, reason: 'not-done' });
   if (s.winRecorded) return NextResponse.json({ ok: true, alreadyRecorded: true, winnerUid: s.winnerUid ?? null });
@@ -75,23 +78,34 @@ export async function POST(req: NextRequest) {
     info[p.uid] = { role: u?.role || 'parent', name: u?.displayName || u?.name || p.name };
   }));
 
+  // Fun-Points: every player earns the game's base; the winner earns FUN_WIN_MULT×.
+  const game = getGame(s.gameId || '');
+  const funBase = gameFunValue(game?.points);
+  const weekKey = localWeekStartKey(Date.now(), Number(body.tzOffsetMinutes) || 0);
+  const hasWinner = !!winnerUid;
+
   let winnerStreak = 0;
   const batch = db.batch();
   const statsCol = db.collection('families').doc(familyId).collection('gameStats');
   for (const p of players) {
     const ref = statsCol.doc(p.uid);
-    const cur = ((await ref.get()).data() || {}) as { wins?: number; streak?: number; best?: number };
+    const cur = ((await ref.get()).data() || {}) as
+      { wins?: number; streak?: number; best?: number; funPoints?: number; funWeekly?: number; funWeekKey?: string };
     const i = info[p.uid] || { role: 'parent', name: p.name };
-    if (p.uid === winnerUid) {
+    const isWinner = hasWinner && p.uid === winnerUid;
+    const fun = nextFun(cur, funBase * (isWinner ? FUN_WIN_MULT : 1), weekKey);
+    const base = {
+      uid: p.uid, name: i.name, role: i.role, updatedAt: Date.now(),
+      funPoints: fun.funPoints, funWeekly: fun.funWeekly, funWeekKey: fun.funWeekKey,
+    };
+    if (isWinner) {
       const streak = (cur.streak || 0) + 1;
       winnerStreak = streak;
-      batch.set(ref, {
-        uid: p.uid, name: i.name, role: i.role,
-        wins: (cur.wins || 0) + 1, streak, best: Math.max(cur.best || 0, streak),
-        updatedAt: Date.now(),
-      }, { merge: true });
+      batch.set(ref, { ...base, wins: (cur.wins || 0) + 1, streak, best: Math.max(cur.best || 0, streak) }, { merge: true });
+    } else if (hasWinner) {
+      batch.set(ref, { ...base, streak: 0 }, { merge: true }); // a real loser → streak resets
     } else {
-      batch.set(ref, { uid: p.uid, name: i.name, role: i.role, streak: 0, updatedAt: Date.now() }, { merge: true });
+      batch.set(ref, base, { merge: true }); // collaborative / tie → no winner: keep streaks, still bank Fun-Points
     }
   }
   batch.update(sRef, { winRecorded: true, ...(winnerUid ? { winnerUid } : {}) });

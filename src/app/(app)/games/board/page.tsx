@@ -1,28 +1,29 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { FUN_LABEL, FUN_EMOJI } from '@/lib/gamesFun';
 
-// Games Leaderboard — two tabs:
-//   ⭐ Game Points — House Points earned ONLY from games (sum of approved
+// Games Leaderboard — three tabs:
+//   ✨ Fun Points — the universal gaming score (every game, kids AND parents),
+//      from gameStats.funPoints. The Kids-only toggle filters to kids.
+//   🏆 Wins — multi-device wins from gameStats (kids + parents).
+//   ⭐ HP — House Points earned ONLY from mind games (sum of approved
 //      gamePlays). HP is a kid currency, so this board is always kids.
-//   🏆 Wins — multi-device wins from gameStats, which is keyed by auth uid →
-//      PARENTS and kids both appear. A "Kids only" toggle filters to kids.
-// Game Points reads family-readable gamePlays; Wins reads gameStats (a new
-// Admin-written, family-readable collection).
+// Fun + Wins read gameStats (Admin-written, family-readable); HP reads gamePlays.
 
 const MEDALS = ['🥇', '🥈', '🥉'];
-type Tab = 'points' | 'wins';
-type Stat = { uid: string; name: string; role: string; wins: number; streak: number; best: number };
+type Tab = 'fun' | 'wins' | 'points';
+type Stat = { uid: string; name: string; role: string; wins: number; streak: number; best: number; funPoints: number; funWeekly: number };
 
 export default function GamesBoardPage() {
   const { profile } = useAuth();
   const { children, loading } = useFamily();
-  const [tab, setTab] = useState<Tab>('points');
+  const [tab, setTab] = useState<Tab>('fun');
   const [gamePts, setGamePts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState<Stat[]>([]);
   const [kidsOnly, setKidsOnly] = useState(false);
@@ -30,7 +31,7 @@ export default function GamesBoardPage() {
   const myChildId = profile?.childId;
   const familyId = profile?.familyId;
 
-  // ⭐ Game Points = sum of APPROVED game plays per kid (games only).
+  // ⭐ HP = sum of APPROVED game plays per kid (mind games only).
   useEffect(() => {
     let cancelled = false;
     if (!familyId) return;
@@ -47,12 +48,12 @@ export default function GamesBoardPage() {
           if (p.kidId) acc[p.kidId] = (acc[p.kidId] || 0) + (Number(p.pointsAwarded) || 0);
         });
         setGamePts(acc);
-      } catch { /* board still works on the Wins tab */ }
+      } catch { /* board still works on the other tabs */ }
     })();
     return () => { cancelled = true; };
   }, [familyId]);
 
-  // 🏆 Wins = per-player gameStats (parents + kids, keyed by auth uid).
+  // ✨ Fun + 🏆 Wins = per-player gameStats (parents + kids, keyed by auth uid).
   useEffect(() => {
     let cancelled = false;
     if (!familyId) return;
@@ -70,10 +71,12 @@ export default function GamesBoardPage() {
             wins: Number(s.wins) || 0,
             streak: Number(s.streak) || 0,
             best: Number(s.best) || 0,
+            funPoints: Number(s.funPoints) || 0,
+            funWeekly: Number(s.funWeekly) || 0,
           });
         });
         setStats(rows);
-      } catch { /* Wins tab simply shows empty */ }
+      } catch { /* Fun + Wins tabs simply show empty */ }
     })();
     return () => { cancelled = true; };
   }, [familyId]);
@@ -90,11 +93,34 @@ export default function GamesBoardPage() {
     [...children].sort((a, b) => (gamePts[b.id] || 0) - (gamePts[a.id] || 0))
   ), [children, gamePts]);
 
-  const winsRanked = useMemo(() => (
-    [...stats]
-      .filter((s) => (kidsOnly ? s.role === 'kid' : true))
-      .sort((a, b) => b.wins - a.wins || b.best - a.best)
+  const filteredStats = useMemo(() => (
+    [...stats].filter((s) => (kidsOnly ? s.role === 'kid' : true))
   ), [stats, kidsOnly]);
+
+  const funRanked = useMemo(() => (
+    [...filteredStats].sort((a, b) => b.funPoints - a.funPoints)
+  ), [filteredStats]);
+
+  const winsRanked = useMemo(() => (
+    [...filteredStats].sort((a, b) => b.wins - a.wins || b.best - a.best)
+  ), [filteredStats]);
+
+  const Card = ({ rank, avatar, name, roleTag, me, children: right }: {
+    rank: number; avatar: string; name: string; roleTag?: string; me: boolean; children: ReactNode;
+  }) => (
+    <div className={`flex items-center gap-3 rounded-kaya p-3 shadow-[0_4px_12px_rgba(26,18,64,0.06)] ${
+      me ? 'bg-games-violet/10 ring-2 ring-games-violet' : 'bg-games-card'
+    }`}>
+      <span className="w-7 text-center font-display font-black text-games-ink-soft text-lg shrink-0">{rank < 3 ? MEDALS[rank] : rank + 1}</span>
+      <span className="text-2xl shrink-0">{avatar}</span>
+      <span className="flex-1 font-display font-extrabold text-games-ink truncate">
+        {name}
+        {roleTag && <span className="text-[10px] font-bold text-games-ink-soft ml-1.5">{roleTag}</span>}
+        {me && <span className="text-[10px] font-bold text-games-violet ml-1.5">you</span>}
+      </span>
+      {right}
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-games-bg to-transparent">
@@ -107,7 +133,7 @@ export default function GamesBoardPage() {
         </div>
 
         <div className="flex gap-1 mb-3 bg-games-bg rounded-full p-1">
-          {(['points', 'wins'] as const).map((t) => (
+          {([['fun', `${FUN_EMOJI} Fun`], ['wins', '🏆 Wins'], ['points', '⭐ HP']] as const).map(([t, label]) => (
             <button
               key={t}
               type="button"
@@ -116,14 +142,14 @@ export default function GamesBoardPage() {
                 tab === t ? 'bg-games-violet text-white' : 'text-games-ink-soft'
               }`}
             >
-              {t === 'points' ? '⭐ Game Points' : '🏆 Wins'}
+              {label}
             </button>
           ))}
         </div>
 
-        {/* Kids-only filter — only meaningful on the Wins tab (parents can win
-            but never earn House Points, so Game Points is always kids). */}
-        {tab === 'wins' && (
+        {/* Kids-only filter — for Fun + Wins (both include parents). HP is
+            always kids (parents never earn House Points). */}
+        {tab !== 'points' && (
           <button
             type="button"
             onClick={() => setKidsOnly((v) => !v)}
@@ -137,85 +163,70 @@ export default function GamesBoardPage() {
           </button>
         )}
 
-        {tab === 'points' ? (
+        {tab === 'fun' ? (
+          funRanked.length === 0 ? (
+            <p className="text-center text-sm text-games-ink-soft py-10">No {FUN_LABEL} yet — play any game!</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {funRanked.map((s, i) => (
+                <Card key={s.uid} rank={i} avatar={avatarFor(s)} name={s.name} me={!!myUid && s.uid === myUid}
+                  roleTag={s.role !== 'kid' ? (s.role === 'helper' ? 'helper' : 'parent') : undefined}>
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    {s.funWeekly > 0 && (
+                      <span className="bg-games-mint text-games-ink text-[10px] font-black px-2 py-0.5 rounded-full">+{s.funWeekly.toLocaleString()} wk</span>
+                    )}
+                    <span className="font-display font-black text-games-violet">
+                      {s.funPoints.toLocaleString()} <span aria-hidden>{FUN_EMOJI}</span>
+                    </span>
+                  </span>
+                </Card>
+              ))}
+            </div>
+          )
+        ) : tab === 'wins' ? (
+          winsRanked.length === 0 ? (
+            <p className="text-center text-sm text-games-ink-soft py-10">No wins yet — play a multi-device game!</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {winsRanked.map((s, i) => (
+                <Card key={s.uid} rank={i} avatar={avatarFor(s)} name={s.name} me={!!myUid && s.uid === myUid}
+                  roleTag={s.role !== 'kid' ? (s.role === 'helper' ? 'helper' : 'parent') : undefined}>
+                  <span className="flex items-center gap-1.5 shrink-0">
+                    <span className="font-display font-black text-games-violet">
+                      {s.wins}<span className="text-[10px] font-bold text-games-ink-soft ml-0.5">{s.wins === 1 ? 'win' : 'wins'}</span>
+                    </span>
+                    {s.streak > 0 && (
+                      <span className="bg-[#FFEDE0] text-[#C2410C] text-[10px] font-black px-2 py-0.5 rounded-full">🔥 {s.streak}</span>
+                    )}
+                  </span>
+                </Card>
+              ))}
+            </div>
+          )
+        ) : (
           loading ? (
             <p className="text-center text-sm text-games-ink-soft py-10">Loading…</p>
           ) : pointsRanked.length === 0 ? (
             <p className="text-center text-sm text-games-ink-soft py-10">No kids in the family yet.</p>
           ) : (
             <div className="flex flex-col gap-2">
-              {pointsRanked.map((c, i) => {
-                const me = !!myChildId && c.id === myChildId;
-                const points = gamePts[c.id] || 0;
-                return (
-                  <div
-                    key={c.id}
-                    className={`flex items-center gap-3 rounded-kaya p-3 shadow-[0_4px_12px_rgba(26,18,64,0.06)] ${
-                      me ? 'bg-games-violet/10 ring-2 ring-games-violet' : 'bg-games-card'
-                    }`}
-                  >
-                    <span className="w-7 text-center font-display font-black text-games-ink-soft text-lg shrink-0">
-                      {i < 3 ? MEDALS[i] : i + 1}
-                    </span>
-                    <span className="text-2xl shrink-0">{c.avatarEmoji || '🙂'}</span>
-                    <span className="flex-1 font-display font-extrabold text-games-ink truncate">
-                      {c.name}
-                      {me && <span className="text-[10px] font-bold text-games-violet ml-1.5">you</span>}
-                    </span>
-                    <span className="font-display font-black text-games-violet shrink-0">
-                      {points.toLocaleString()}<span className="text-[10px] font-bold text-games-ink-soft ml-0.5">pts</span>
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )
-        ) : (
-          winsRanked.length === 0 ? (
-            <p className="text-center text-sm text-games-ink-soft py-10">No wins yet — play a multi-device game!</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {winsRanked.map((s, i) => {
-                const me = !!myUid && s.uid === myUid;
-                return (
-                  <div
-                    key={s.uid}
-                    className={`flex items-center gap-3 rounded-kaya p-3 shadow-[0_4px_12px_rgba(26,18,64,0.06)] ${
-                      me ? 'bg-games-violet/10 ring-2 ring-games-violet' : 'bg-games-card'
-                    }`}
-                  >
-                    <span className="w-7 text-center font-display font-black text-games-ink-soft text-lg shrink-0">
-                      {i < 3 ? MEDALS[i] : i + 1}
-                    </span>
-                    <span className="text-2xl shrink-0">{avatarFor(s)}</span>
-                    <span className="flex-1 font-display font-extrabold text-games-ink truncate">
-                      {s.name}
-                      {s.role !== 'kid' && (
-                        <span className="text-[10px] font-bold text-games-ink-soft ml-1.5">
-                          {s.role === 'helper' ? 'helper' : 'parent'}
-                        </span>
-                      )}
-                      {me && <span className="text-[10px] font-bold text-games-violet ml-1.5">you</span>}
-                    </span>
-                    <span className="flex items-center gap-1.5 shrink-0">
-                      <span className="font-display font-black text-games-violet">
-                        {s.wins}<span className="text-[10px] font-bold text-games-ink-soft ml-0.5">{s.wins === 1 ? 'win' : 'wins'}</span>
-                      </span>
-                      {s.streak > 0 && (
-                        <span className="bg-[#FFEDE0] text-[#C2410C] text-[10px] font-black px-2 py-0.5 rounded-full">🔥 {s.streak}</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
+              {pointsRanked.map((c, i) => (
+                <Card key={c.id} rank={i} avatar={c.avatarEmoji || '🙂'} name={c.name} me={!!myChildId && c.id === myChildId}>
+                  <span className="font-display font-black text-games-violet shrink-0">
+                    {(gamePts[c.id] || 0).toLocaleString()}<span className="text-[10px] font-bold text-games-ink-soft ml-0.5">HP</span>
+                  </span>
+                </Card>
+              ))}
             </div>
           )
         )}
 
         <p className="text-center text-[11px] text-games-ink-soft mt-4">
-          {tab === 'points'
-            ? 'Only House Points earned from games — not chores or routines.'
-            : 'Wins from multi-device games — parents who play count too.'}
+          {tab === 'fun'
+            ? `${FUN_LABEL} — earned from every game (kids + parents). Just for fun, no real value.`
+            : tab === 'wins'
+              ? 'Wins from multi-device games — parents who play count too.'
+              : 'House Points — only from mind-strengthening games, after a parent approves.'}
         </p>
       </div>
     </div>

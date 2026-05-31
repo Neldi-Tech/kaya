@@ -280,7 +280,7 @@ export default function GamesControlsPage() {
                 <span className="text-[11px] font-bold text-games-violet">{valuedCount} earning</span>
               </div>
               <p className="text-[12px] text-games-ink-soft mb-2 leading-snug">
-                Pay more for games with more <strong>mind activation</strong> (🧠 tagged). Anything left at <strong>Off</strong> is just for fun.
+                House Points are only for <strong>mind-strengthening games</strong> (🧠). Every other game earns <strong>✨ Fun Points</strong> instead — automatic, no approval.
               </p>
               <div className="flex gap-2 mb-1">
                 <button type="button" onClick={suggestMindGames} className="flex-1 h-9 rounded-full bg-games-teal/15 text-games-teal font-extrabold text-[12px]">🧠 Value mind games</button>
@@ -297,15 +297,25 @@ export default function GamesControlsPage() {
                       {world.uncapped && <span className="text-[10px] font-bold text-games-ink-soft normal-case">· cap-free</span>}
                     </p>
                     {games.map((g) => (
-                      <GamePointsRow
-                        key={g.id}
-                        icon={g.icon}
-                        name={g.name}
-                        suggested={g.points}
-                        mind={isMindGame(g.id)}
-                        value={cfg.gamePoints?.[g.id] ?? 0}
-                        onChange={(v) => setGameValue(g.id, v)}
-                      />
+                      isMindGame(g.id) ? (
+                        <GamePointsRow
+                          key={g.id}
+                          icon={g.icon}
+                          name={g.name}
+                          suggested={g.points}
+                          mind
+                          value={cfg.gamePoints?.[g.id] ?? 0}
+                          onChange={(v) => setGameValue(g.id, v)}
+                        />
+                      ) : (
+                        <div key={g.id} className="flex items-center justify-between gap-3 py-3 border-b border-games-ink/8 last:border-0">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="text-xl shrink-0">{g.icon}</span>
+                            <p className="text-sm font-bold text-games-ink truncate">{g.name}</p>
+                          </div>
+                          <span className="shrink-0 text-[11px] font-extrabold text-games-violet bg-games-violet/10 px-2.5 py-1 rounded-full">✨ Fun only</span>
+                        </div>
+                      )
                     ))}
                   </div>
                 );

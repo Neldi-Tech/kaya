@@ -97,7 +97,7 @@ export default function MultiDeviceRoom({
     if (session?.status === 'done' && !awardedRef.current) {
       awardedRef.current = true;
       const doneMessage = (session.state?.doneMessage as string) || 'Great game together! 🎉';
-      onComplete({ success: true, score: session.players.length, message: doneMessage });
+      onComplete({ success: true, score: session.players.length, message: doneMessage, multiplayer: true });
     }
   }, [session?.status, session?.players.length, onComplete]);
 
