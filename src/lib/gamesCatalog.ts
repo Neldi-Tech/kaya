@@ -106,7 +106,7 @@ const DEVICE_LABEL: Record<DeviceMode, string> = {
   solo: 'Solo',
   same: '📱 Same device',
   multi: '📲 Multi-device',
-  both: '📱📲 Any device',
+  both: '📱📲 Multi',
 };
 
 export function deviceLabel(device: DeviceMode): string {

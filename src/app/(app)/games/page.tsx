@@ -27,7 +27,7 @@ const DEVICE_TAG: Record<DeviceMode, { cls: string; label: string } | null> = {
   solo: null,
   same: { cls: 'bg-[#DBEAFE] text-[#1E40AF]', label: '📱 Same' },
   multi: { cls: 'bg-[#DCFCE7] text-[#166534]', label: '📲 Multi' },
-  both: { cls: 'bg-[#FEF3C7] text-[#92400E]', label: '📱📲 Both' },
+  both: { cls: 'bg-[#FEF3C7] text-[#92400E]', label: '📱📲 Multi' },
 };
 
 function metaLine(g: GameDef): string {
