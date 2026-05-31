@@ -10,6 +10,7 @@ import {
   type GameSession,
 } from '@/lib/gameSessions';
 import { type Cell, decideTicTacToe, tttGlyph } from '@/lib/ticTacToe';
+import { recordWin } from '@/lib/gamesWinClient';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 
 type Mode = 'choose' | 'busy' | 'in' | 'error';
@@ -121,7 +122,64 @@ export default function MultiDeviceRoom({
   if (!session) return <Center>Loading room…</Center>;
   if (session.status === 'lobby') return <Lobby session={session} me={me} familyId={familyId} />;
   if (session.status === 'playing') return <Play game={game} session={session} me={me} familyId={familyId} />;
-  return <Center>🎉 Game over!</Center>;
+  return <WinnerView session={session} game={game} me={me} />;
+}
+
+function WinnerView({ session, game, me }: { session: GameSession; game: GameDef; me: string }) {
+  const players = session.players;
+  const scoresObj = session.state.scores as Record<string, number> | undefined;
+  let winnerUid = session.winnerUid || '';
+  if (!winnerUid && scoresObj) {
+    let best = -1;
+    for (const p of players) { const v = Number(scoresObj[p.uid] || 0); if (v > best) { best = v; winnerUid = p.uid; } }
+    if (players.filter((p) => Number(scoresObj[p.uid] || 0) === best).length !== 1) winnerUid = '';
+  }
+  const winner = players.find((p) => p.uid === winnerUid);
+  const collaborative = game.id === 'story-builder';
+  const isHost = session.hostUid === me;
+  const [streak, setStreak] = useState<number | null>(null);
+  const recordedRef = useRef(false);
+
+  useEffect(() => {
+    if (isHost && !recordedRef.current) {
+      recordedRef.current = true;
+      void recordWin(session.id).then((r) => { if (typeof r.winnerStreak === 'number') setStreak(r.winnerStreak); });
+    }
+  }, [isHost, session.id]);
+
+  const ranked = scoresObj
+    ? [...players].sort((a, b) => Number(scoresObj[b.uid] || 0) - Number(scoresObj[a.uid] || 0))
+    : players;
+  const medal = ['🥇', '🥈', '🥉'];
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-games-ink/60">
+      <div className="bg-games-card rounded-kaya-lg w-full max-w-sm p-6 text-center animate-slide-up">
+        <div className="text-5xl mb-1">{collaborative ? '📖' : '🏆'}</div>
+        <h2 className="font-display text-2xl font-black text-games-ink mb-1">
+          {collaborative ? 'Great story together!' : winner ? `${winner.name} wins! 🎉` : 'Game over!'}
+        </h2>
+        {!collaborative && (
+          <div className="bg-games-bg rounded-kaya p-3 my-3 text-left">
+            {ranked.map((p, i) => (
+              <div key={p.uid} className="flex items-center justify-between py-1 text-sm">
+                <span className="font-bold text-games-ink">{i < 3 ? medal[i] : `${i + 1}.`} {p.name}{p.uid === me ? ' (you)' : ''}</span>
+                {scoresObj && <span className="font-display font-black text-games-violet">{Number(scoresObj[p.uid] || 0)}</span>}
+              </div>
+            ))}
+          </div>
+        )}
+        {!collaborative && winner && streak != null && streak > 1 && (
+          <div className="flex items-center justify-center gap-1.5 bg-[#FFEDE0] text-[#C2410C] font-extrabold text-sm rounded-kaya py-2 mb-2">🔥 {winner.name} is on a {streak}-win streak!</div>
+        )}
+        {!collaborative && winner && <p className="text-[11px] text-games-teal font-bold mb-3">✓ Win recorded · counts on the leaderboard</p>}
+        <div className="flex gap-2.5">
+          <a href={`/games/${game.id}`} className="flex-1 bg-games-violet text-white font-extrabold py-3 rounded-full">Play again</a>
+          <a href="/games" className="flex-1 bg-games-bg text-games-violet-deep font-extrabold py-3 rounded-full">Done</a>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Lobby({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
