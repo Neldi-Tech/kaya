@@ -22,6 +22,7 @@ import Connect4 from '@/components/games/Connect4';
 import SnakesLadders from '@/components/games/SnakesLadders';
 import Charades from '@/components/games/Charades';
 import Pictionary from '@/components/games/Pictionary';
+import MultiDeviceRoom from '@/components/games/MultiDeviceRoom';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -61,6 +62,7 @@ export default function GameRunnerPage() {
   const id = String((params as Record<string, string | string[]>)?.id || '');
   const game = getGame(id);
   const GameComp = REGISTRY[id];
+  const isMulti = game?.device === 'multi';
 
   const startedAt = useRef<number>(Date.now());
   const [outcome, setOutcome] = useState<GameOutcome | null>(null);
@@ -98,7 +100,7 @@ export default function GameRunnerPage() {
     );
   }
 
-  if (!game.built || !GameComp) {
+  if (!game.built || (!isMulti && !GameComp)) {
     return (
       <Shell>
         <div className="text-center py-12">
@@ -126,7 +128,11 @@ export default function GameRunnerPage() {
         {game.note && <p className="text-xs font-semibold text-games-ink-soft mt-1">{game.note}</p>}
       </div>
 
-      <GameComp key={round} onComplete={handleComplete} />
+      {isMulti ? (
+        <MultiDeviceRoom game={game} onComplete={handleComplete} />
+      ) : GameComp ? (
+        <GameComp key={round} onComplete={handleComplete} />
+      ) : null}
 
       {outcome && (
         <ResultOverlay outcome={outcome} award={award} awarding={awarding} onPlayAgain={playAgain} />
