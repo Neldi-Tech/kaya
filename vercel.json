@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/gmail-subscriptions",
       "schedule": "0 8 * * 1"
+    },
+    {
+      "path": "/api/cron/games-weekly-report",
+      "schedule": "0 19 * * 0"
     }
   ]
 }
