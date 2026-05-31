@@ -142,10 +142,20 @@ export default function GamesPage() {
         </div>
 
         {!isKid && (
-          <p className="text-sm text-games-ink-soft mb-4 -mt-2 max-w-xl leading-relaxed">
-            Your family&rsquo;s play hub — 22 games across 4 worlds, no ads, House Points that feed the
-            same Kaya economy. This is the kids&rsquo; view.
-          </p>
+          <div className="mb-4 -mt-2">
+            <p className="text-sm text-games-ink-soft max-w-xl leading-relaxed">
+              Your family&rsquo;s play hub — 22 games across 4 worlds, no ads, House Points that feed the
+              same Kaya economy. This is the kids&rsquo; view.
+            </p>
+            {profile?.role === 'parent' && (
+              <Link
+                href="/games/controls"
+                className="inline-flex items-center gap-1.5 mt-3 bg-games-ink text-white text-xs font-extrabold px-4 py-2 rounded-full"
+              >
+                🛡️ Games controls
+              </Link>
+            )}
+          </div>
         )}
 
         {/* Daily Pick */}
