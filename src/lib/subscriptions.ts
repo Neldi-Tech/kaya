@@ -540,12 +540,23 @@ export async function scanReceiptImage(file: File, currency?: string): Promise<S
   }
 }
 
-// ── Gmail one-tap scan (Phase 2 · config-gated) ──────────────────────
+// ── Gmail scheduled scan (config-gated) ──────────────────────────────
 //
-// A read-only, single-use Gmail scan that finds subscription receipts
-// from known senders, parses them with the SAME parser as paste/upload,
-// and hands the drafts to the review sheet. The whole feature is dormant
-// until the operator sets the Google OAuth client env (see status probe).
+// The parent connects Gmail once (read-only). Kaya re-scans on a weekly
+// cron and surfaces new subscriptions as suggestions the parent confirms —
+// no one has to remember to do anything. Dormant until the operator sets
+// the Google OAuth client env (see status probe).
+
+/** A pending suggestion = a parsed draft plus its server id (so the review
+ *  sheet can mark it added/dismissed). */
+export type GmailSuggestion = ParsedSubscriptionDraft & { id: string };
+
+export interface GmailState {
+  connected: boolean;
+  email: string | null;
+  lastScanAtMs: number | null;
+  suggestions: GmailSuggestion[];
+}
 
 /** Is the Gmail-connect path available in this environment? The UI hides
  *  the entry point unless this is true. */
@@ -560,20 +571,52 @@ export async function getGmailScanStatus(): Promise<boolean> {
   }
 }
 
-/** Pick up the drafts a completed Gmail scan stashed for this parent
- *  (consume-once on the server). Returns [] if nothing is waiting. */
-export async function fetchGmailScanResults(): Promise<ParsedSubscriptionDraft[]> {
+/** Connection + pending-suggestion state for the signed-in parent. */
+export async function getGmailState(): Promise<GmailState> {
+  const empty: GmailState = { connected: false, email: null, lastScanAtMs: null, suggestions: [] };
   const u = auth.currentUser;
-  if (!u) return [];
+  if (!u) return empty;
   try {
     const token = await u.getIdToken();
-    const res = await fetch('/api/subscriptions/gmail/results', {
+    const res = await fetch('/api/subscriptions/gmail/state', {
       headers: { authorization: `Bearer ${token}` },
     });
-    if (!res.ok) return [];
+    if (!res.ok) return empty;
     const data = await res.json();
-    return (data?.drafts ?? []) as ParsedSubscriptionDraft[];
+    return {
+      connected: !!data?.connected,
+      email: data?.email ?? null,
+      lastScanAtMs: data?.lastScanAtMs ?? null,
+      suggestions: (data?.suggestions ?? []) as GmailSuggestion[],
+    };
   } catch {
-    return [];
+    return empty;
   }
+}
+
+/** Mark suggestions added (turned into subs) or dismissed (skipped). */
+export async function resolveGmailSuggestions(addedIds: string[], dismissedIds: string[]): Promise<void> {
+  const u = auth.currentUser;
+  if (!u) return;
+  try {
+    const token = await u.getIdToken();
+    await fetch('/api/subscriptions/gmail/resolve', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ addedIds, dismissedIds }),
+    });
+  } catch { /* non-fatal — worst case a resolved suggestion re-shows next load */ }
+}
+
+/** Disconnect Gmail: revoke the token at Google + delete the connection. */
+export async function disconnectGmail(): Promise<void> {
+  const u = auth.currentUser;
+  if (!u) return;
+  try {
+    const token = await u.getIdToken();
+    await fetch('/api/subscriptions/gmail/disconnect', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    });
+  } catch { /* best-effort */ }
 }

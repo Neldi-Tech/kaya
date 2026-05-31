@@ -1,31 +1,34 @@
-// Gmail connect — step 2: the OAuth callback.
+// Gmail connect — OAuth callback.
 //
 // Google redirects the parent's browser here after consent. We:
 //   1. verify the returned `state` against the httpOnly nonce cookie (CSRF),
-//   2. exchange the one-time code for a short-lived access token,
-//   3. search the inbox for known subscription-sender receipts (read-only),
-//   4. parse each body into subscription drafts (same Claude parser as paste),
-//   5. de-dupe and stash ONLY the drafts under the parent's uid (admin write,
-//      no rules deploy needed), then DISCARD the token + clear the cookie,
-//   6. redirect back to /household/subscriptions with a status flag.
+//   2. exchange the code for an access token + (offline) refresh token,
+//   3. run a first scan (last 12 months), parse + de-dupe, and write the
+//      finds as PENDING suggestions (deduped vs existing subs/suggestions),
+//   4. if a refresh token came back AND the encryption key is set, store it
+//      ENCRYPTED so the weekly cron can re-scan without re-consent,
+//   5. redirect back to /household/subscriptions with a status flag.
 //
-// The raw email bodies and the access token are never persisted — we keep
-// only the parsed drafts, which the parent reviews + confirms before any
-// subscription is created. Single-use: access_type was 'online', so there
-// is no refresh token and no standing mailbox access.
+// The access token lives only inside this request; the refresh token is only
+// ever persisted encrypted (gmailTokenCrypto). Raw email bodies are never
+// stored — only the structured suggestions, which the parent confirms.
 //
 // Config-gated — 404s while Gmail is off.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isGmailConfigured, exchangeCodeForToken, fetchSubscriptionEmailBodies } from '@/lib/gmailSubscriptionScan';
+import {
+  isGmailConfigured, exchangeCodeForToken, fetchSubscriptionEmailBodies, fetchGmailAddress,
+} from '@/lib/gmailSubscriptionScan';
 import { parseSubscriptionsFromText, dedupeDrafts, type ParsedSubDraft } from '@/lib/subscriptionReceiptParse';
-import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { isTokenCryptoConfigured, encryptToken } from '@/lib/gmailTokenCrypto';
+import { saveConnection, writeSuggestions } from '@/lib/gmailConnections';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const COOKIE = 'kaya_gmail_state';
 const BACK = '/household/subscriptions';
+const READONLY_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
 
 /** Redirect home with a status flag; always clears the state cookie. */
 function done(origin: string, status: string): NextResponse {
@@ -58,40 +61,36 @@ export async function GET(req: NextRequest) {
   if (!familyId || !uid) return done(origin, 'error');
 
   try {
-    const accessToken = await exchangeCodeForToken(origin, code);
-    if (!accessToken) return done(origin, 'error');
+    const tokens = await exchangeCodeForToken(origin, code);
+    if (!tokens) return done(origin, 'error');
 
-    const bodies = await fetchSubscriptionEmailBodies(accessToken, { months: 12, max: 25 });
-    // Token has done its job — nothing about it is retained beyond this scope.
+    // Store the refresh token (encrypted) so the cron can re-scan. Needs the
+    // encryption key; without it we still do this one scan, just no schedule.
+    if (tokens.refreshToken && isTokenCryptoConfigured()) {
+      const email = await fetchGmailAddress(tokens.accessToken);
+      await saveConnection(familyId, uid, {
+        refreshTokenEnc: encryptToken(tokens.refreshToken),
+        email,
+        scope: READONLY_SCOPE,
+      });
+    }
 
-    if (bodies.length === 0) return done(origin, 'empty');
+    // First scan: last 12 months.
+    const bodies = await fetchSubscriptionEmailBodies(tokens.accessToken, { months: 12, max: 25 });
+    if (bodies.length === 0) return done(origin, 'connected_empty');
 
-    // Parse each email body, then de-dupe across them (the same service
-    // recurs month to month). Bodies are ordered newest-first by Gmail.
     let drafts: ParsedSubDraft[] = [];
     for (const body of bodies) {
-      try {
-        const found = await parseSubscriptionsFromText(body);
-        drafts.push(...found);
-      } catch { /* skip a body that fails to parse; keep the rest */ }
+      try { drafts.push(...await parseSubscriptionsFromText(body)); }
+      catch { /* skip a body that fails to parse */ }
     }
     drafts = dedupeDrafts(drafts);
-
-    // AI key missing → parser returns nothing; tell the user it's off.
     if (drafts.length === 0) {
-      return done(origin, process.env.ANTHROPIC_API_KEY ? 'empty' : 'skipped');
+      return done(origin, process.env.ANTHROPIC_API_KEY ? 'connected_empty' : 'skipped');
     }
 
-    // Stash ONLY the parsed drafts (no raw email text) for the page to pick
-    // up. Admin write = no Firestore-rules change. Consumed + deleted on read.
-    const db = getAdminFirestore();
-    if (!db) return done(origin, 'error');
-    await db
-      .collection('families').doc(familyId)
-      .collection('subscriptionScans').doc(uid)
-      .set({ drafts, source: 'gmail', count: drafts.length, createdAt: new Date() });
-
-    return done(origin, 'done');
+    const written = await writeSuggestions(familyId, uid, drafts);
+    return done(origin, written > 0 ? 'connected' : 'connected_empty');
   } catch {
     return done(origin, 'error');
   }
