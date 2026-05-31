@@ -2,27 +2,17 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GameProps } from './types';
+import { getGame } from '@/lib/gamesCatalog';
+import MultiDeviceRoom from './MultiDeviceRoom';
+import { shuffledDeck } from '@/lib/memoryMatch';
 
-// Flip cards, find the 6 pairs. Two ways:
+// Flip cards, find the 6 pairs. Three ways:
 //   • 🙂 Just me — fewer moves = better (solo).
-//   • 👫 Play a friend — pass-and-play: take turns; a match keeps your turn
-//     and scores a pair; most pairs wins.
-// Fully offline. Points follow the parent's per-game value + approval.
+//   • 👫 Same device — pass-and-play: take turns; a match keeps your turn.
+//   • 📲 Two phones — each player on their own device via a room code.
+// Points follow the parent's per-game value + approval.
 
-const DECK = ['🦁', '🐼', '🦊', '🐸', '🐙', '🦄'];
-type Mode = 'solo' | 'duo';
-
-function shuffledDeck(): { key: number; emoji: string }[] {
-  const cards = DECK.flatMap((e, i) => [
-    { key: i * 2, emoji: e },
-    { key: i * 2 + 1, emoji: e },
-  ]);
-  for (let i = cards.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cards[i], cards[j]] = [cards[j], cards[i]];
-  }
-  return cards;
-}
+type Mode = 'solo' | 'duo' | 'multi';
 
 export default function MemoryMatch({ onComplete }: GameProps) {
   const [mode, setMode] = useState<Mode | null>(null);
@@ -63,6 +53,7 @@ export default function MemoryMatch({ onComplete }: GameProps) {
   };
 
   useEffect(() => {
+    if (mode === 'multi' || mode === null) return;
     if (cards.length === 0 || matched.size !== cards.length || doneRef.current) return;
     doneRef.current = true;
     const [p1, p2] = scores;
@@ -85,8 +76,15 @@ export default function MemoryMatch({ onComplete }: GameProps) {
           <button type="button" onClick={() => setMode('duo')} className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left">
             <span className="text-3xl">👫</span>
             <span>
-              <span className="block font-display font-extrabold text-games-ink">Play a friend</span>
+              <span className="block font-display font-extrabold text-games-ink">Same device</span>
               <span className="block text-[11px] font-semibold text-games-ink-soft">Take turns · a match keeps your go · most pairs wins</span>
+            </span>
+          </button>
+          <button type="button" onClick={() => setMode('multi')} className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left">
+            <span className="text-3xl">📲</span>
+            <span>
+              <span className="block font-display font-extrabold text-games-ink">Two phones</span>
+              <span className="block text-[11px] font-semibold text-games-ink-soft">Each player on their own device · room code</span>
             </span>
           </button>
           <button type="button" onClick={() => setMode('solo')} className="w-full flex items-center gap-3 bg-games-card rounded-kaya p-4 shadow-[0_4px_12px_rgba(26,18,64,0.08)] active:scale-95 transition-transform text-left">
@@ -99,6 +97,11 @@ export default function MemoryMatch({ onComplete }: GameProps) {
         </div>
       </div>
     );
+  }
+
+  if (mode === 'multi') {
+    const game = getGame('memory-match');
+    return game ? <MultiDeviceRoom game={game} onComplete={onComplete} /> : null;
   }
 
   return (

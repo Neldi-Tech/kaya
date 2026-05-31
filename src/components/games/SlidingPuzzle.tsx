@@ -2,46 +2,31 @@
 
 import { useEffect, useState } from 'react';
 import type { GameProps } from './types';
+import { getGame } from '@/lib/gamesCatalog';
+import MultiDeviceRoom from './MultiDeviceRoom';
+import { spIsSolved, spShuffled, spAdjacent } from '@/lib/slidingPuzzle';
 
 // 3×3 sliding puzzle. Tap a tile next to the gap to slide it. Order 1–8 wins.
-
-const N = 3;
-
-function isSolved(a: number[]): boolean {
-  for (let i = 0; i < a.length - 1; i++) if (a[i] !== i + 1) return false;
-  return a[a.length - 1] === 0;
-}
-function solvable(a: number[]): boolean {
-  const t = a.filter((v) => v !== 0);
-  let inv = 0;
-  for (let i = 0; i < t.length; i++) for (let j = i + 1; j < t.length; j++) if (t[i] > t[j]) inv++;
-  return inv % 2 === 0; // odd-width board → solvable iff inversions even
-}
-function shuffled(): number[] {
-  let a: number[];
-  do {
-    a = [...Array(N * N).keys()];
-    for (let i = a.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [a[i], a[j]] = [a[j], a[i]];
-    }
-  } while (!solvable(a) || isSolved(a));
-  return a;
-}
+// Solo by default, with a one-tap "race on 2 phones" mode — same scramble,
+// first to solve wins.
 
 export default function SlidingPuzzle({ onComplete }: GameProps) {
-  const [tiles, setTiles] = useState<number[]>(shuffled);
+  const [mode, setMode] = useState<'solo' | 'multi'>('solo');
+  if (mode === 'multi') {
+    const game = getGame('sliding-puzzle');
+    return game ? <MultiDeviceRoom game={game} onComplete={onComplete} /> : null;
+  }
+  return <SlidingPuzzleSolo onComplete={onComplete} onRace={() => setMode('multi')} />;
+}
+
+function SlidingPuzzleSolo({ onComplete, onRace }: GameProps & { onRace: () => void }) {
+  const [tiles, setTiles] = useState<number[]>(spShuffled);
   const [moves, setMoves] = useState(0);
   const blank = tiles.indexOf(0);
-
-  const adjacent = (i: number): boolean => {
-    const r = Math.floor(i / N), c = i % N;
-    const br = Math.floor(blank / N), bc = blank % N;
-    return Math.abs(r - br) + Math.abs(c - bc) === 1;
-  };
+  const solved = spIsSolved(tiles);
 
   const tap = (i: number) => {
-    if (!adjacent(i)) return;
+    if (!spAdjacent(i, blank)) return;
     const nt = [...tiles];
     [nt[i], nt[blank]] = [nt[blank], nt[i]];
     setTiles(nt);
@@ -49,7 +34,7 @@ export default function SlidingPuzzle({ onComplete }: GameProps) {
   };
 
   useEffect(() => {
-    if (isSolved(tiles)) {
+    if (spIsSolved(tiles)) {
       const t = window.setTimeout(() => onComplete({ success: true, score: moves, message: 'Solved! 🎉' }), 320);
       return () => window.clearTimeout(t);
     }
@@ -75,6 +60,13 @@ export default function SlidingPuzzle({ onComplete }: GameProps) {
         ))}
       </div>
       <p className="text-center text-[11px] text-games-ink-soft mt-4">Slide tiles into order: 1–8 with the gap last.</p>
+      {!solved && (
+        <div className="text-center mt-3">
+          <button type="button" onClick={onRace} className="text-xs font-bold text-games-ink-soft underline">
+            📲 Race a friend on 2 phones
+          </button>
+        </div>
+      )}
     </div>
   );
 }
