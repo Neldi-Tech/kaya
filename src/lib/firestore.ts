@@ -81,6 +81,10 @@ export interface UserProfile {
   // Which module chapters the user has marked "explored". Lives on the
   // user's own doc so the owner reads/writes it with no rules change.
   universeProgress?: { exploredKeys: string[]; updatedAt?: Timestamp };
+  // ── Kaya Lab beta ratings — the kid's own 1–5★ ratings of beta games,
+  //   keyed by game id. Lives on the user's own doc (owner reads/writes, no
+  //   rules change). Drives the Lab UI + the Tester Badge (3 distinct rated).
+  labRatings?: Record<string, { stars: number; comment?: string; at: number }>;
   // ── First-week intent (2026-05-30) — what's drawing the parent to
   //   Kaya. Captured on onboarding Step 4. Drives the order of the
   //   FirstWeekChecklist on Discover (the parent's "why" sits at
