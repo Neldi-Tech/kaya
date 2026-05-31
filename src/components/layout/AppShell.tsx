@@ -13,6 +13,7 @@ import { useBranding } from '@/lib/brandingClient';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import { PulseMark } from '@/components/pulse/ui';
 import SparksIcon from '@/components/brand/SparksIcon';
+import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import GuestBanner from './GuestBanner';
 import InfoIcon from '@/components/ui/InfoIcon';
 
@@ -730,6 +731,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (iconNode) {
       return <span className={`inline-flex items-center justify-center ${nodeClass}`}>{iconNode}</span>;
     }
+    // The Honey Pot uses the real artwork, not the 🍯 emoji. Render it
+    // sized to the same box as an SVG iconNode.
+    if (icon === '🍯') {
+      return (
+        <span className={`inline-flex items-center justify-center ${nodeClass}`}>
+          <HoneyPotIcon className="w-full h-full" />
+        </span>
+      );
+    }
     return <span className={`leading-none ${emojiClass}`}>{icon}</span>;
   };
 
@@ -847,7 +857,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 }`;
                 const inner = (
                   <>
-                    <span className="text-sm leading-none">{item.icon}</span>
+                    <span className="text-sm leading-none">{item.icon === '🍯' ? <HoneyPotIcon size={18} /> : item.icon}</span>
                     <span className="text-left flex-1 truncate">{item.label}</span>
                     {item.tooltip && (
                       <InfoIcon tooltip={item.tooltip} size="xs" align="left" />
@@ -1107,7 +1117,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   {g.iconNode ? (
                     <span className="w-6 h-6 inline-flex items-center justify-center">{g.iconNode}</span>
                   ) : (
-                    <span className="text-xl leading-none">{g.icon}</span>
+                    <span className="text-xl leading-none">{g.icon === '🍯' ? <HoneyPotIcon size={24} /> : g.icon}</span>
                   )}
                   <span className="text-[10px] font-extrabold">{g.label}</span>
                   {active && <div className="w-1 h-1 rounded-full bg-kaya-gold mt-0.5" />}
@@ -1198,7 +1208,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             : 'text-kaya-chocolate hover:bg-white font-medium'
                         }`}
                       >
-                        <span className="text-lg leading-none">{item.icon}</span>
+                        <span className="text-lg leading-none">{item.icon === '🍯' ? <HoneyPotIcon size={20} /> : item.icon}</span>
                         <span className="text-left flex-1 truncate">{item.label}</span>
                         {item.soon && (
                           <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
