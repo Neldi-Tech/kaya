@@ -10,6 +10,10 @@ import TicTacToe from '@/components/games/TicTacToe';
 import MemoryMatch from '@/components/games/MemoryMatch';
 import MathDash from '@/components/games/MathDash';
 import Snake from '@/components/games/Snake';
+import GuidedBreathing from '@/components/games/GuidedBreathing';
+import GratitudeJar from '@/components/games/GratitudeJar';
+import FiveSenses from '@/components/games/FiveSenses';
+import MoodCheckin from '@/components/games/MoodCheckin';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -19,6 +23,10 @@ const REGISTRY: Record<string, ComponentType<GameProps>> = {
   'memory-match': MemoryMatch,
   'math-dash': MathDash,
   snake: Snake,
+  breathing: GuidedBreathing,
+  'gratitude-jar': GratitudeJar,
+  'five-senses': FiveSenses,
+  'mood-checkin': MoodCheckin,
 };
 
 function BurstRow() {

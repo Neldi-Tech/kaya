@@ -66,10 +66,10 @@ export const GAMES: GameDef[] = [
   { id: 'story-builder',  name: 'Story Builder',   world: 'family', icon: '📖', tone: 'pink',   minAge: 0, minutes: 8,  points: 30, device: 'multi', players: '2–6' },
 
   // ── 🌿 Calm Corner (4 · mindful · uncapped) ────────────────────────
-  { id: 'breathing',     name: 'Guided Breathing', world: 'calm', icon: '🫁', tone: 'teal',   minAge: 0, minutes: 3, points: 10, device: 'solo' },
-  { id: 'gratitude-jar', name: 'Gratitude Jar',    world: 'calm', icon: '🙏', tone: 'pink',   minAge: 0, minutes: 2, points: 10, device: 'solo' },
-  { id: 'five-senses',   name: '5-Senses Grounding', world: 'calm', icon: '👀', tone: 'violet', minAge: 0, minutes: 4, points: 10, device: 'solo' },
-  { id: 'mood-checkin',  name: 'Mood Check-in',    world: 'calm', icon: '😊', tone: 'gold',   minAge: 0, minutes: 1, points: 5,  device: 'solo' },
+  { id: 'breathing',     name: 'Guided Breathing', world: 'calm', icon: '🫁', tone: 'teal',   minAge: 0, minutes: 3, points: 10, device: 'solo', built: true },
+  { id: 'gratitude-jar', name: 'Gratitude Jar',    world: 'calm', icon: '🙏', tone: 'pink',   minAge: 0, minutes: 2, points: 10, device: 'solo', built: true },
+  { id: 'five-senses',   name: '5-Senses Grounding', world: 'calm', icon: '👀', tone: 'violet', minAge: 0, minutes: 4, points: 10, device: 'solo', built: true },
+  { id: 'mood-checkin',  name: 'Mood Check-in',    world: 'calm', icon: '😊', tone: 'gold',   minAge: 0, minutes: 1, points: 5,  device: 'solo', built: true },
 
   // ── 🌍 Real-World (4 rotating · parent verifies a photo) ───────────
   { id: 'build-a-fort',   name: 'Build a Fort',    world: 'realworld', icon: '🏰', tone: 'gold',  minAge: 0, minutes: 0, points: 75, device: 'solo', photoProof: true },
