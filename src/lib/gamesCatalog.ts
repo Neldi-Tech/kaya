@@ -62,7 +62,7 @@ export const GAMES: GameDef[] = [
   { id: 'family-trivia',  name: 'Family Trivia',   world: 'family', icon: '🎯', tone: 'violet', minAge: 0, minutes: 15, points: 50, device: 'multi', players: '2–8', built: true, note: 'Buzz in on your phone' },
   { id: 'charades',       name: 'Charades',        world: 'family', icon: '🎭', tone: 'coral',  minAge: 0, minutes: 10, points: 40, device: 'same',  players: '3+',  built: true, note: 'Pass-and-play' },
   { id: 'pictionary',     name: 'Pictionary',      world: 'family', icon: '✏️', tone: 'gold',   minAge: 0, minutes: 10, points: 40, device: 'same',  players: '3+',  built: true, note: 'Pass-and-play' },
-  { id: 'connect-4',      name: 'Connect 4',       world: 'family', icon: '🔵', tone: 'sky',    minAge: 0, minutes: 5,  points: 25, device: 'same',  players: '2',  built: true, note: 'Pass-and-play' },
+  { id: 'connect-4',      name: 'Connect 4',       world: 'family', icon: '🔵', tone: 'sky',    minAge: 0, minutes: 5,  points: 25, device: 'both',  players: '2',  built: true, note: 'Same device or two phones' },
   { id: 'snakes-ladders', name: 'Snakes & Ladders', world: 'family', icon: '🎲', tone: 'teal',  minAge: 0, minutes: 12, points: 30, device: 'same',  players: '2',  built: true, note: 'Pass-and-play' },
   { id: 'story-builder',  name: 'Story Builder',   world: 'family', icon: '📖', tone: 'pink',   minAge: 0, minutes: 8,  points: 30, device: 'multi', players: '2–6', built: true },
 
