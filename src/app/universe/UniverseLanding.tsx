@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import styles from "./universe.module.css";
+import HoneyPotIcon from "@/components/hive/HoneyPotIcon";
 import {
   MODULES,
   GALAXY_PLANETS,
@@ -60,7 +61,7 @@ export default function UniverseLanding() {
       onClick={(e) => goToChapter(p.key, e.currentTarget)}
       aria-label={`${p.label}${p.small ? ` — ${p.small}` : ""}: read its story`}
     >
-      <span className={styles.ico}>{p.ico}</span>
+      <span className={styles.ico}>{p.ico === "🍯" ? <HoneyPotIcon size={28} /> : p.ico}</span>
       {p.label}
       {p.small && <small>{p.small}</small>}
     </button>
@@ -225,7 +226,7 @@ export default function UniverseLanding() {
                       style={{ background: m.bg }}
                       aria-hidden
                     >
-                      {m.icon}
+                      {m.icon === "🍯" ? <HoneyPotIcon size={36} /> : m.icon}
                     </div>
                     <h3>
                       {m.name}{" "}
