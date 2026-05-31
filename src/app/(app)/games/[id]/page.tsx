@@ -18,6 +18,10 @@ import Game2048 from '@/components/games/Game2048';
 import SlidingPuzzle from '@/components/games/SlidingPuzzle';
 import WordSprint from '@/components/games/WordSprint';
 import SudokuLite from '@/components/games/SudokuLite';
+import Connect4 from '@/components/games/Connect4';
+import SnakesLadders from '@/components/games/SnakesLadders';
+import Charades from '@/components/games/Charades';
+import Pictionary from '@/components/games/Pictionary';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -35,6 +39,10 @@ const REGISTRY: Record<string, ComponentType<GameProps>> = {
   'sliding-puzzle': SlidingPuzzle,
   'word-sprint': WordSprint,
   'sudoku-lite': SudokuLite,
+  'connect-4': Connect4,
+  'snakes-ladders': SnakesLadders,
+  charades: Charades,
+  pictionary: Pictionary,
 };
 
 function BurstRow() {
