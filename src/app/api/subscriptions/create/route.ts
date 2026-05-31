@@ -44,6 +44,8 @@ interface Body {
   accountHolderUid?: string;
   beneficiaryUids?: string[];
   paymentMethodId?: string;
+  /** 2026-05-30 — per-parent cost attribution; null = Shared. */
+  paidByUid?: string | null;
 
   vendorSupplierId?: string | null;
   isProfessionalExpense?: boolean;
@@ -164,6 +166,9 @@ async function run(req: NextRequest) {
     accountHolderUid: body.accountHolderUid!,
     beneficiaryUids: body.beneficiaryUids ?? [],
     paymentMethodId: body.paymentMethodId ?? '',
+    // Per-parent attribution — null = Shared (default for legacy +
+    // new entries until the parent explicitly picks Dad / Mum).
+    paidByUid: body.paidByUid ?? null,
 
     vendorSupplierId: body.vendorSupplierId ?? null,
     linkedWealthAssetId: null,

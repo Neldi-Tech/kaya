@@ -23,6 +23,9 @@ import { KpiStrip } from '@/components/household/KpiStrip';
 import { FilterChips } from '@/components/household/FilterChips';
 import { EntryRow } from '@/components/household/EntryRow';
 import { StatusBadge } from '@/components/household/StatusBadge';
+import PaidByFilterRow, { PaidByTag } from '@/components/household/PaidByFilterRow';
+import { type PaidByValue } from '@/components/household/PaidByPicker';
+import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 
 function tsToIso(ts: Subscription['nextBillingDate']): string {
   if (!ts) return '';
@@ -39,6 +42,19 @@ export default function SubscriptionsListPage() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [activeCategory, setActiveCategory] = useState<SubscriptionCategory | null>(null);
+  // 'all' = no parent filter; null = Shared; uid = that parent
+  const [paidByFilter, setPaidByFilter] = useState<PaidByValue | 'all'>('all');
+  const [parents, setParents] = useState<UserProfile[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    let alive = true;
+    (async () => {
+      const members = await getFamilyMembers(profile.familyId);
+      if (!alive) return;
+      setParents(members.filter((m) => m.role === 'parent'));
+    })();
+    return () => { alive = false; };
+  }, [profile?.familyId]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -58,9 +74,24 @@ export default function SubscriptionsListPage() {
 
   const kpis = useMemo(() => computeSubscriptionKpis(subs), [subs]);
   const filtered = useMemo(
-    () => activeCategory ? subs.filter((s) => s.category === activeCategory) : subs,
-    [subs, activeCategory],
+    () => subs.filter((s) => {
+      if (activeCategory && s.category !== activeCategory) return false;
+      if (paidByFilter === 'all') return true;
+      const subPaidBy = s.paidByUid ?? null;
+      return subPaidBy === paidByFilter;
+    }),
+    [subs, activeCategory, paidByFilter],
   );
+  // Counts per attribution bucket — live from the unfiltered subs.
+  const paidByCounts = useMemo(() => {
+    const c: Record<string, number> = { all: subs.length, shared: 0 };
+    for (const s of subs) {
+      const uid = s.paidByUid ?? null;
+      if (uid === null) c.shared = (c.shared ?? 0) + 1;
+      else c[uid] = (c[uid] ?? 0) + 1;
+    }
+    return c;
+  }, [subs]);
   const chips = useMemo(() => {
     return SUBSCRIPTION_CATEGORIES
       .filter((c) => kpis.byCategory.has(c.id))
@@ -119,6 +150,19 @@ export default function SubscriptionsListPage() {
         />
       </section>
 
+      {/* Filter by who's paying — sits above category chips so parents
+          slice by attribution first, then by Netflix-vs-Disney etc. */}
+      {profile.familyId && parents.length > 0 && (
+        <section className="mb-3">
+          <PaidByFilterRow
+            familyId={profile.familyId}
+            selected={paidByFilter}
+            onChange={setPaidByFilter}
+            counts={paidByCounts}
+          />
+        </section>
+      )}
+
       {chips.length > 1 && (
         <section className="mb-4">
           <FilterChips
@@ -154,6 +198,7 @@ export default function SubscriptionsListPage() {
               rightBottom={`Next ${toDisplayDate(tsToIso(s.nextBillingDate))}`}
               badges={
                 <>
+                  <PaidByTag uid={s.paidByUid ?? null} parents={parents} />
                   {s.status === 'trial'  && <StatusBadge tone="gold">Trial</StatusBadge>}
                   {s.status === 'paused' && <StatusBadge tone="muted">Paused</StatusBadge>}
                   {s.billingMode === 'manual' && <StatusBadge tone="gold">Manual</StatusBadge>}
