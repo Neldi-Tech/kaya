@@ -66,6 +66,7 @@ export const GAMES: GameDef[] = [
   { id: 'connect-4',      name: 'Connect 4',       world: 'family', icon: '🔵', tone: 'sky',    minAge: 0, minutes: 5,  points: 25, device: 'both',  players: '2',  built: true, note: 'Same device or two phones' },
   { id: 'snakes-ladders', name: 'Snakes & Ladders', world: 'family', icon: '🎲', tone: 'teal',  minAge: 0, minutes: 12, points: 30, device: 'both',  players: '2',  built: true, note: 'Same device or two phones' },
   { id: 'story-builder',  name: 'Story Builder',   world: 'family', icon: '📖', tone: 'pink',   minAge: 0, minutes: 8,  points: 30, device: 'multi', players: '2–6', built: true },
+  { id: 'uno',            name: 'UNO',             world: 'family', icon: '🎴', tone: 'coral',  minAge: 5, minutes: 10, points: 30, device: 'multi', players: '2–6', built: true, note: 'Two phones · first to empty their hand' },
 
   // ── 🌿 Calm Corner (4 · mindful · uncapped) ────────────────────────
   { id: 'breathing',     name: 'Guided Breathing', world: 'calm', icon: '🫁', tone: 'teal',   minAge: 0, minutes: 3, points: 10, device: 'solo', built: true },
