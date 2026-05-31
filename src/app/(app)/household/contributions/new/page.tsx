@@ -28,6 +28,7 @@ import {
 import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/household/CurrencyAmountInput';
 import { FrequencyPicker, CONTRIB_FREQUENCY_OPTIONS } from '@/components/household/FrequencyPicker';
 import { OccasionPicker, type OccasionValue } from '@/components/household/OccasionPicker';
+import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
 
 const PAYMENT_METHODS: { id: ContributionPaymentMethod; label: string }[] = [
   { id: 'mpesa',   label: 'M-Pesa / mobile money' },
@@ -82,6 +83,14 @@ export default function NewContributionPage() {
   const [dateGivenIso, setDateGivenIso] = useState(todayIso());
   const [paymentMethod, setPaymentMethod] = useState<ContributionPaymentMethod>('mpesa');
   const [givenOnBehalfOf, setGivenOnBehalfOf] = useState('');
+  // 2026-05-30 — per-parent attribution; defaults to current user
+  // (most common: "I just gave to the church → counts against me").
+  // Parents flip to Shared / the other parent via the picker.
+  const [paidByUid, setPaidByUid] = useState<PaidByValue>(null);
+  useEffect(() => {
+    if (profile?.uid && paidByUid === null) setPaidByUid(profile.uid);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.uid]);
 
   // Tithe shortcut
   const isTithe = category === 'faith' && subCategory.toLowerCase().includes('tithe');
@@ -154,6 +163,7 @@ export default function NewContributionPage() {
         dateGivenIso,
         givenByUid: profile.uid,
         givenOnBehalfOf: givenOnBehalfOf.trim() || undefined,
+        paidByUid,
         paymentMethod,
         inKindDescription: paymentMethod === 'in_kind' ? inKindDesc.trim() : undefined,
         isPercentOfIncome,
@@ -309,6 +319,15 @@ export default function NewContributionPage() {
             />
           </div>
         </div>
+
+        {/* Per-parent attribution — for filtering + per-parent budget views. */}
+        {profile?.familyId && (
+          <PaidByPicker
+            familyId={profile.familyId}
+            value={paidByUid}
+            onChange={setPaidByUid}
+          />
+        )}
 
         {/* Payment method */}
         <div className="space-y-1">
