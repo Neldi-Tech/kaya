@@ -63,7 +63,7 @@ export const GAMES: GameDef[] = [
   { id: 'pictionary',     name: 'Pictionary',      world: 'family', icon: '✏️', tone: 'gold',   minAge: 0, minutes: 10, points: 40, device: 'same',  players: '3+',  built: true, note: 'Pass-and-play' },
   { id: 'connect-4',      name: 'Connect 4',       world: 'family', icon: '🔵', tone: 'sky',    minAge: 0, minutes: 5,  points: 25, device: 'same',  players: '2',  built: true, note: 'Pass-and-play' },
   { id: 'snakes-ladders', name: 'Snakes & Ladders', world: 'family', icon: '🎲', tone: 'teal',  minAge: 0, minutes: 12, points: 30, device: 'same',  players: '2',  built: true, note: 'Pass-and-play' },
-  { id: 'story-builder',  name: 'Story Builder',   world: 'family', icon: '📖', tone: 'pink',   minAge: 0, minutes: 8,  points: 30, device: 'multi', players: '2–6' },
+  { id: 'story-builder',  name: 'Story Builder',   world: 'family', icon: '📖', tone: 'pink',   minAge: 0, minutes: 8,  points: 30, device: 'multi', players: '2–6', built: true },
 
   // ── 🌿 Calm Corner (4 · mindful · uncapped) ────────────────────────
   { id: 'breathing',     name: 'Guided Breathing', world: 'calm', icon: '🫁', tone: 'teal',   minAge: 0, minutes: 3, points: 10, device: 'solo', built: true },
