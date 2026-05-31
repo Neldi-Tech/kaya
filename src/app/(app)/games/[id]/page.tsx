@@ -28,6 +28,7 @@ import MultiDeviceRoom from '@/components/games/MultiDeviceRoom';
 import RealWorldChallenge from '@/components/games/RealWorldChallenge';
 import BubblePop from '@/components/games/BubblePop';
 import ReactionTap from '@/components/games/ReactionTap';
+import MazeQuest from '@/components/games/MazeQuest';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -51,6 +52,7 @@ const REGISTRY: Record<string, ComponentType<GameProps>> = {
   pictionary: Pictionary,
   'bubble-pop': BubblePop,
   reaction: ReactionTap,
+  'maze-quest': MazeQuest,
 };
 
 function BurstRow() {

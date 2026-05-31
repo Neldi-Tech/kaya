@@ -19,6 +19,7 @@ import { shuffledDeck, type MemoryCard } from '@/lib/memoryMatch';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 import { slAdvance, slRollDie } from '@/lib/snakesLadders';
 import SnakesLaddersBoard from './SnakesLaddersBoard';
+import MazeRaceMultiPlay from './MazeRace';
 
 type Mode = 'choose' | 'busy' | 'in' | 'error';
 interface Sentence { uid: string; name: string; text: string }
@@ -294,6 +295,7 @@ function Play({ game, session, me, familyId }: { game: GameDef; session: GameSes
   if (game.id === 'word-sprint') return <WordSprintMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'sliding-puzzle') return <SlidingPuzzleMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'memory-match') return <MemoryMatchMultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'maze-quest') return <MazeRaceMultiPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
 }
 
