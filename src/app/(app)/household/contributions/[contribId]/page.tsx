@@ -15,6 +15,7 @@ import {
   type ContributionPaymentMethod, type ContributionVisibility,
 } from '@/lib/contributions';
 import { Timestamp } from 'firebase/firestore';
+import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
 import { StatusBadge, type StatusTone } from '@/components/household/StatusBadge';
@@ -230,6 +231,7 @@ function ContributionEditSheet({
   const [paymentMethod, setPaymentMethod] = useState<ContributionPaymentMethod>(contrib.paymentMethod);
   const [visibility, setVisibility] = useState<ContributionVisibility>(contrib.visibility);
   const [notes, setNotes] = useState(contrib.notes || '');
+  const [paidByUid, setPaidByUid] = useState<PaidByValue>(contrib.paidByUid ?? null);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
 
@@ -258,6 +260,7 @@ function ContributionEditSheet({
         paymentMethod,
         visibility,
         notes,
+        paidByUid,
       });
       onSaved();
     } catch (e) {
@@ -326,6 +329,12 @@ function ContributionEditSheet({
             <option value="private_to_giver">Private</option>
           </select>
         </Field>
+
+        <PaidByPicker
+          familyId={familyId}
+          value={paidByUid}
+          onChange={setPaidByUid}
+        />
 
         <Field label="Notes">
           <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold resize-none" />

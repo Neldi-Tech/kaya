@@ -66,6 +66,12 @@ export interface Contribution {
 
   givenByUid: string;
   givenOnBehalfOf: string;
+  /** Per-parent cost attribution (2026-05-30) — distinct from
+   *  `givenByUid` (who physically handed over the money). null/unset
+   *  = Shared; a parent uid attributes the spend to that parent's
+   *  budget. e.g. Dad gives money to church but it counts against
+   *  the shared family budget → paidByUid = null. */
+  paidByUid?: string | null;
 
   paymentMethod: ContributionPaymentMethod;
   inKindDescription: string | null;
@@ -281,6 +287,8 @@ export interface CreateContributionInput {
   // People
   givenByUid: string;
   givenOnBehalfOf?: string;
+  /** Per-parent attribution (2026-05-30); null/undefined = Shared. */
+  paidByUid?: string | null;
 
   // Payment
   paymentMethod: ContributionPaymentMethod;
@@ -337,7 +345,7 @@ export type ContributionEditableFields = Partial<Pick<
   | 'amountOriginal' | 'currencyOriginal' | 'fxRate'
   | 'amountHousehold' | 'monthlyEquivalent'
   | 'frequency' | 'customMonths' | 'dateGiven'
-  | 'givenByUid' | 'givenOnBehalfOf'
+  | 'givenByUid' | 'givenOnBehalfOf' | 'paidByUid'
   | 'paymentMethod' | 'inKindDescription' | 'estimatedValue'
   | 'isPercentOfIncome' | 'percentRate' | 'incomeBasis' | 'incomeSourceRef'
   | 'taxDeductible' | 'receiptHeld'

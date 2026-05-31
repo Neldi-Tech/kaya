@@ -25,6 +25,9 @@ import { GivingProgress } from '@/components/household/GivingProgress';
 import { FilterChips } from '@/components/household/FilterChips';
 import { EntryRow } from '@/components/household/EntryRow';
 import { StatusBadge } from '@/components/household/StatusBadge';
+import PaidByFilterRow, { PaidByTag } from '@/components/household/PaidByFilterRow';
+import { type PaidByValue } from '@/components/household/PaidByPicker';
+import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 
 function tsToIso(ts: Contribution['dateGiven']): string {
   if (!ts) return '';
@@ -41,6 +44,18 @@ export default function ContributionsListPage() {
   const [contribs, setContribs] = useState<Contribution[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [activeCategory, setActiveCategory] = useState<ContributionCategory | null>(null);
+  const [paidByFilter, setPaidByFilter] = useState<PaidByValue | 'all'>('all');
+  const [parents, setParents] = useState<UserProfile[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    let alive = true;
+    (async () => {
+      const members = await getFamilyMembers(profile.familyId);
+      if (!alive) return;
+      setParents(members.filter((m) => m.role === 'parent'));
+    })();
+    return () => { alive = false; };
+  }, [profile?.familyId]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -62,9 +77,23 @@ export default function ContributionsListPage() {
   // Derived
   const kpis = useMemo(() => computeContributionKpis(contribs), [contribs]);
   const filtered = useMemo(
-    () => activeCategory ? contribs.filter((c) => c.category === activeCategory) : contribs,
-    [contribs, activeCategory],
+    () => contribs.filter((c) => {
+      if (activeCategory && c.category !== activeCategory) return false;
+      if (paidByFilter === 'all') return true;
+      const pb = c.paidByUid ?? null;
+      return pb === paidByFilter;
+    }),
+    [contribs, activeCategory, paidByFilter],
   );
+  const paidByCounts = useMemo(() => {
+    const out: Record<string, number> = { all: contribs.length, shared: 0 };
+    for (const c of contribs) {
+      const uid = c.paidByUid ?? null;
+      if (uid === null) out.shared = (out.shared ?? 0) + 1;
+      else out[uid] = (out[uid] ?? 0) + 1;
+    }
+    return out;
+  }, [contribs]);
   const chips = useMemo(() => {
     const counts = new Map<ContributionCategory, number>();
     for (const c of contribs) counts.set(c.category, (counts.get(c.category) ?? 0) + 1);
@@ -130,6 +159,18 @@ export default function ContributionsListPage() {
         </section>
       )}
 
+      {/* Per-parent attribution filter — sits above category chips. */}
+      {profile.familyId && parents.length > 0 && (
+        <section className="mb-3">
+          <PaidByFilterRow
+            familyId={profile.familyId}
+            selected={paidByFilter}
+            onChange={setPaidByFilter}
+            counts={paidByCounts}
+          />
+        </section>
+      )}
+
       {/* Filters */}
       {chips.length > 1 && (
         <section className="mb-4">
@@ -167,6 +208,7 @@ export default function ContributionsListPage() {
               rightBottom={toDisplayDate(tsToIso(c.dateGiven))}
               badges={
                 <>
+                  <PaidByTag uid={c.paidByUid ?? null} parents={parents} />
                   {c.visibility === 'family' && <StatusBadge tone="green">Kid-visible</StatusBadge>}
                   {c.taxDeductible            && <StatusBadge tone="gold">Tax</StatusBadge>}
                   {c.anonymousFlag            && <StatusBadge tone="neutral">Anon</StatusBadge>}

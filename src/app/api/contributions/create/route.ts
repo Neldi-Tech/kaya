@@ -43,6 +43,8 @@ interface Body {
 
   givenByUid?: string;
   givenOnBehalfOf?: string;
+  /** 2026-05-30 — per-parent attribution; null = Shared. */
+  paidByUid?: string | null;
 
   paymentMethod?: 'mpesa' | 'bank' | 'cash' | 'cheque' | 'in_kind' | 'other';
   inKindDescription?: string;
@@ -158,6 +160,7 @@ async function run(req: NextRequest) {
 
     givenByUid:      body.givenByUid!,
     givenOnBehalfOf: body.givenOnBehalfOf ?? '',
+    paidByUid:       body.paidByUid ?? null,
 
     paymentMethod:     body.paymentMethod!,
     inKindDescription: body.inKindDescription ?? null,
