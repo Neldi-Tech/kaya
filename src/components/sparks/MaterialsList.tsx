@@ -12,9 +12,22 @@ import {
   visibleToKid, type SparksMaterial,
 } from '@/lib/sparks/materials';
 import { deleteMaterial } from '@/lib/sparks/materialsFirestore';
-import { downloadImage } from '@/lib/downloadImage';
+import { materialInlineUrl, materialDownloadUrl } from '@/lib/sparks/materialFileUrl';
 import DocActionSheet from '@/components/DocActionSheet';
 import DocViewer from '@/components/DocViewer';
+
+// Trigger a same-origin download via a transient anchor. Going through our
+// own /api proxy means no cross-origin fetch (which CORS blocks) and iOS
+// honours the attachment disposition. No blob needed — the server already
+// sets Content-Disposition: attachment.
+function triggerDownload(href: string) {
+  const a = document.createElement('a');
+  a.href = href;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
 
 interface Props {
   items: SparksMaterial[];
@@ -160,40 +173,47 @@ export default function MaterialsList({
             };
             return (
               <li key={m.id} className="bg-white border border-[#ECE4D3] rounded-[14px] p-3 flex items-center gap-2.5">
+                {/* The whole card body (icon + title + meta) is one tap target
+                    so kids don't have to hit the small arrow. Edit/Delete sit
+                    OUTSIDE this button and stop propagation. */}
                 <button
                   type="button"
                   onClick={onTap}
-                  className="w-[42px] h-[48px] rounded-[8px] grid place-items-center text-[18px] shrink-0"
-                  style={{ background: meta.bg, color: meta.color }}
+                  className="flex-1 min-w-0 flex items-center gap-2.5 text-left rounded-[10px] hover:bg-[#FBF7EE] active:scale-[0.99] transition -m-1 p-1"
                   aria-label={`Open ${m.title}`}
                 >
-                  {icon}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <div className="font-display font-extrabold text-[13px] text-[#0F1F44] truncate">{m.title}</div>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                    <span
-                      className="text-[10px] font-extrabold rounded-full px-2 py-[1px]"
-                      style={{ background: meta.bg, color: meta.color }}
-                    >
-                      {meta.emoji} {m.subject}
-                    </span>
-                    <span className="text-[10.5px] text-[#5A6488] truncate">
-                      {m.kind === 'link' ? 'Link' : (m.file_mime || 'File').split('/').pop()?.toUpperCase()}
-                      {sizeLabel ? ` · ${sizeLabel}` : ''}
-                      {' · '}
-                      {m.uploaded_by_name}
-                    </span>
-                    {!allKids && Array.isArray(m.shared_with) && (
-                      <span className="text-[9.5px] font-bold rounded-full px-1.5 py-[1px] bg-[#FFF1C9] text-[#8A6800]">
-                        🎯 {m.shared_with.length} {m.shared_with.length === 1 ? 'kid' : 'kids'}
+                  <span
+                    className="w-[42px] h-[48px] rounded-[8px] grid place-items-center text-[18px] shrink-0"
+                    style={{ background: meta.bg, color: meta.color }}
+                  >
+                    {icon}
+                  </span>
+                  <span className="flex-1 min-w-0 block">
+                    <span className="font-display font-extrabold text-[13px] text-[#0F1F44] truncate block">{m.title}</span>
+                    <span className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                      <span
+                        className="text-[10px] font-extrabold rounded-full px-2 py-[1px]"
+                        style={{ background: meta.bg, color: meta.color }}
+                      >
+                        {meta.emoji} {m.subject}
                       </span>
+                      <span className="text-[10.5px] text-[#5A6488] truncate">
+                        {m.kind === 'link' ? 'Link' : (m.file_mime || 'File').split('/').pop()?.toUpperCase()}
+                        {sizeLabel ? ` · ${sizeLabel}` : ''}
+                        {' · '}
+                        {m.uploaded_by_name}
+                      </span>
+                      {!allKids && Array.isArray(m.shared_with) && (
+                        <span className="text-[9.5px] font-bold rounded-full px-1.5 py-[1px] bg-[#FFF1C9] text-[#8A6800]">
+                          🎯 {m.shared_with.length} {m.shared_with.length === 1 ? 'kid' : 'kids'}
+                        </span>
+                      )}
+                    </span>
+                    {m.description && (
+                      <span className="text-[11.5px] text-[#0F1F44] mt-1 leading-snug block">{m.description}</span>
                     )}
-                  </div>
-                  {m.description && (
-                    <div className="text-[11.5px] text-[#0F1F44] mt-1 leading-snug">{m.description}</div>
-                  )}
-                </div>
+                  </span>
+                </button>
                 <div className="flex flex-col items-end gap-1 shrink-0">
                   <button
                     type="button"
@@ -207,7 +227,7 @@ export default function MaterialsList({
                     <div className="flex items-center gap-0.5">
                       <button
                         type="button"
-                        onClick={() => onEdit?.(m)}
+                        onClick={(e) => { e.stopPropagation(); onEdit?.(m); }}
                         className="text-[10px] font-bold text-[#5A6488] hover:text-[#5A3CB8] px-1.5"
                         title="Edit"
                       >
@@ -215,7 +235,7 @@ export default function MaterialsList({
                       </button>
                       <button
                         type="button"
-                        onClick={() => onDelete(m)}
+                        onClick={(e) => { e.stopPropagation(); onDelete(m); }}
                         disabled={busyDeleteId === m.id}
                         className="text-[10px] font-bold text-[#A33A2A] hover:underline px-1.5 disabled:opacity-40"
                         title="Delete"
@@ -245,7 +265,9 @@ export default function MaterialsList({
         onDownload={() => {
           if (!docMenu || !docMenu.file_url) return;
           const tgt = docMenu;
-          downloadImage(tgt.file_url!, tgt.file_name || tgt.title || 'material').catch((err) => console.error('Material download failed', err));
+          // Same-origin proxy → attachment disposition. Avoids the CORS-blocked
+          // cross-origin fetch that silently failed before.
+          triggerDownload(materialDownloadUrl(tgt.file_url, tgt.file_name || tgt.title || 'material'));
           setDocMenu(null);
         }}
       />
@@ -254,14 +276,21 @@ export default function MaterialsList({
       <DocViewer
         open={!!docView}
         doc={docView ? {
+          // Keep the REAL storage url here so the docx path (which posts to
+          // /api/docx-render, allow-listed to firebasestorage URLs) still works.
           url: docView.file_url || '',
           name: docView.file_name || docView.title,
           mime: docView.file_mime,
         } : null}
+        // PDF iframe + image render go through the same-origin proxy so iOS
+        // keeps the PWA in the foreground (a cross-origin storage URL in the
+        // iframe hijacked the webview and broke "back" → kid hit an error
+        // profile). docx ignores this and uses doc.url server-side.
+        viewerUrl={docView?.file_url ? materialInlineUrl(docView.file_url, docView.file_name || docView.title) : undefined}
         onClose={() => setDocView(null)}
         onDownload={() => {
           if (!docView || !docView.file_url) return;
-          downloadImage(docView.file_url, docView.file_name || docView.title || 'material').catch((err) => console.error('Material download failed', err));
+          triggerDownload(materialDownloadUrl(docView.file_url, docView.file_name || docView.title || 'material'));
         }}
       />
     </div>

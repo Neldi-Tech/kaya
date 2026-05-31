@@ -24,6 +24,11 @@ export interface DocViewerProps {
   onClose: () => void;
   /** Triggered from the top bar — typically a fetch-blob + saveAs. */
   onDownload?: () => void;
+  /** Optional same-origin URL to render the PDF iframe / image from, instead
+   *  of `doc.url`. Used by Sparks Materials to route inline viewing through a
+   *  proxy (iOS hijacks a cross-origin storage URL in an iframe and breaks
+   *  navigation). The docx path always uses `doc.url` (server-side render). */
+  viewerUrl?: string;
 }
 
 type ViewerKind = 'pdf' | 'image' | 'docx' | 'other';
@@ -128,7 +133,7 @@ function DocxBody({ url, name }: { url: string; name: string }) {
   );
 }
 
-export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerProps) {
+export default function DocViewer({ open, doc, onClose, onDownload, viewerUrl }: DocViewerProps) {
   // Lock body scroll while the viewer is up so a long PDF doesn't tug
   // the underlying chat / materials list around.
   useEffect(() => {
@@ -187,7 +192,7 @@ export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerP
       <div className="flex-1 min-h-0 relative">
         {kind === 'pdf' && (
           <iframe
-            src={doc.url}
+            src={viewerUrl || doc.url}
             title={safeName}
             className="absolute inset-0 w-full h-full border-0 bg-white"
           />
@@ -195,7 +200,7 @@ export default function DocViewer({ open, doc, onClose, onDownload }: DocViewerP
         {kind === 'image' && (
           <div className="absolute inset-0 grid place-items-center p-3">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={doc.url} alt={safeName} className="max-w-full max-h-full object-contain" />
+            <img src={viewerUrl || doc.url} alt={safeName} className="max-w-full max-h-full object-contain" />
           </div>
         )}
         {kind === 'docx' && (
