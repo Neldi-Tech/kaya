@@ -14,6 +14,8 @@ import { recordWin } from '@/lib/gamesWinClient';
 import { saveStory } from '@/lib/gamesStoryClient';
 import { makeProblems, type MathProblem, MATH_DASH_SECONDS } from '@/lib/mathDash';
 import { pickRack, validWords, canMake, type WordRack, WORD_RACKS, WORD_SPRINT_SECONDS } from '@/lib/wordSprint';
+import { spIsSolved, spShuffled, spAdjacent } from '@/lib/slidingPuzzle';
+import { shuffledDeck, type MemoryCard } from '@/lib/memoryMatch';
 import { type Disc, C4_COLS, C4_ROWS, c4DropRow, c4CheckWin, c4IsFull, c4DiscColor } from '@/lib/connect4';
 import { slAdvance, slRollDie } from '@/lib/snakesLadders';
 import SnakesLaddersBoard from './SnakesLaddersBoard';
@@ -77,6 +79,8 @@ export default function MultiDeviceRoom({
         : game.id === 'snakes-ladders' ? { pos: [0, 0], turn: 0, die: null }
         : game.id === 'math-dash' ? { problems: makeProblems(60), startAt: 0, scores: {} }
         : game.id === 'word-sprint' ? { rack: pickRack(), startAt: 0, scores: {} }
+        : game.id === 'sliding-puzzle' ? { scramble: spShuffled(), moves: {} }
+        : game.id === 'memory-match' ? { cards: shuffledDeck(), flipped: [], matched: [], scores: {}, turn: 0 }
         : {};
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
@@ -288,6 +292,8 @@ function Play({ game, session, me, familyId }: { game: GameDef; session: GameSes
   if (game.id === 'snakes-ladders') return <SnakesLaddersMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'math-dash') return <MathDashMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'word-sprint') return <WordSprintMultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'sliding-puzzle') return <SlidingPuzzleMultiPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'memory-match') return <MemoryMatchMultiPlay session={session} me={me} familyId={familyId} />;
   return <Center>This game&rsquo;s multi-device mode is coming soon.</Center>;
 }
 
@@ -448,6 +454,140 @@ function WordSprintMultiPlay({ session, me, familyId }: { session: GameSession; 
         </>
       )}
       <RaceScoreboard session={session} me={me} />
+    </div>
+  );
+}
+
+// Two-phone Sliding Puzzle race. Everyone starts from the SAME scramble on
+// their own board; the FIRST to solve wins. Live move-counts show progress.
+function SlidingPuzzleMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const movesMap = (session.state.moves as Record<string, number>) || {};
+  const players = session.players;
+  const someoneWon = !!session.winnerUid;
+
+  const [tiles, setTiles] = useState<number[]>(() => (session.state.scramble as number[]) || spShuffled());
+  const [myMoves, setMyMoves] = useState(0);
+  const solvedRef = useRef(false);
+  const blank = tiles.indexOf(0);
+
+  const tap = (i: number) => {
+    if (someoneWon || solvedRef.current || !spAdjacent(i, blank)) return;
+    const nt = [...tiles];
+    [nt[i], nt[blank]] = [nt[blank], nt[i]];
+    setTiles(nt);
+    const m = myMoves + 1;
+    setMyMoves(m);
+    if (spIsSolved(nt)) {
+      solvedRef.current = true;
+      void updateSession(familyId, session.id, {
+        winnerUid: me, status: 'done',
+        state: { ...session.state, moves: { ...movesMap, [me]: m } },
+      });
+    } else {
+      void updateSessionFields(familyId, session.id, { [`state.moves.${me}`]: m });
+    }
+  };
+
+  if (!session.state.scramble) return <Center>Get ready… 🏁</Center>;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 320 }}>
+      <p className="text-center text-xs font-bold text-games-ink-soft mb-2">🧩 First to solve wins! · your moves: {myMoves}</p>
+      <div className="grid grid-cols-3 gap-2 mx-auto" style={{ width: 'min(100%, 260px)' }}>
+        {tiles.map((v, i) => (v === 0 ? (
+          <div key={i} className="aspect-square rounded-kaya bg-games-bg" />
+        ) : (
+          <button key={i} type="button" onClick={() => tap(i)} disabled={someoneWon}
+            className="aspect-square rounded-kaya bg-gradient-to-br from-games-violet to-games-violet-deep text-white font-display font-black text-2xl shadow-[0_4px_12px_rgba(26,18,64,0.12)] active:scale-95 transition-transform">{v}</button>
+        )))}
+      </div>
+      <div className="bg-games-bg rounded-kaya p-3 mt-4">
+        {players.map((p) => (
+          <div key={p.uid} className="flex justify-between text-sm py-0.5">
+            <span className="font-bold text-games-ink">{p.name}{p.uid === me ? ' (you)' : ''}</span>
+            <span className="font-display font-black text-games-violet">{movesMap[p.uid] || 0}<span className="text-[10px] text-games-ink-soft ml-0.5">moves</span></span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Two-phone Memory Match. Shared board in session.state; players take turns
+// (a match keeps your go), each on their own device. Most pairs wins. Only the
+// player on turn writes, and that same device resolves the 2-card flip.
+function MemoryMatchMultiPlay({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
+  const cards = (session.state.cards as MemoryCard[]) || [];
+  const flipped = (session.state.flipped as number[]) || [];
+  const matched = (session.state.matched as number[]) || [];
+  const scores = (session.state.scores as Record<string, number>) || {};
+  const turn = (session.state.turn as number) || 0;
+  const players = session.players;
+  const currentIdx = players.length ? turn % players.length : 0;
+  const isMyTurn = players[currentIdx]?.uid === me;
+  const matchedSet = new Set(matched);
+
+  const flip = (i: number) => {
+    if (!isMyTurn || flipped.length >= 2 || flipped.includes(i) || matchedSet.has(i)) return;
+    void updateSessionFields(familyId, session.id, { 'state.flipped': [...flipped, i] });
+  };
+
+  // The on-turn player's device resolves a 2-card flip (single writer → no race).
+  const resolveRef = useRef('');
+  useEffect(() => {
+    if (!isMyTurn || flipped.length !== 2) return;
+    const key = flipped.join('-');
+    if (resolveRef.current === key) return;
+    resolveRef.current = key;
+    const [a, b] = flipped;
+    const isMatch = cards[a]?.emoji === cards[b]?.emoji;
+    const t = window.setTimeout(() => {
+      if (isMatch) {
+        const nm = [...matched, a, b];
+        const ns = { ...scores, [me]: (scores[me] || 0) + 1 };
+        if (nm.length >= cards.length) {
+          void updateSession(familyId, session.id, { state: { cards, flipped: [], matched: nm, scores: ns, turn }, status: 'done' });
+        } else {
+          void updateSessionFields(familyId, session.id, { 'state.matched': nm, 'state.scores': ns, 'state.flipped': [] });
+        }
+      } else {
+        void updateSessionFields(familyId, session.id, { 'state.flipped': [], 'state.turn': turn + 1 });
+      }
+    }, isMatch ? 500 : 900);
+    return () => window.clearTimeout(t);
+  }, [isMyTurn, flipped, cards, matched, scores, turn, me, familyId, session.id]);
+
+  const turnName = players[currentIdx]?.name || 'Player';
+
+  if (cards.length === 0) return <Center>Get ready… 🏁</Center>;
+
+  return (
+    <div className="mx-auto" style={{ maxWidth: 320 }}>
+      <div className="flex items-center justify-center gap-2 mb-3 flex-wrap text-xs font-extrabold">
+        {players.map((p, i) => (
+          <span key={p.uid} className={`px-2.5 py-1 rounded-full ${i === currentIdx ? 'bg-games-violet text-white' : 'bg-games-bg text-games-ink-soft'}`}>
+            {p.name}{p.uid === me ? ' (you)' : ''} · {scores[p.uid] || 0}
+          </span>
+        ))}
+      </div>
+      <p className="text-center text-sm font-extrabold mb-3">
+        {isMyTurn ? <span className="text-games-violet">Your turn — flip two!</span> : <span className="text-games-ink-soft">Waiting for {turnName}…</span>}
+      </p>
+      <div className="grid grid-cols-4 gap-2.5">
+        {cards.map((c, i) => {
+          const show = flipped.includes(i) || matchedSet.has(i);
+          return (
+            <button key={c.key} type="button" onClick={() => flip(i)} disabled={!isMyTurn || show || flipped.length >= 2}
+              aria-label={show ? c.emoji : 'Hidden card'}
+              className={`aspect-square rounded-kaya flex items-center justify-center text-2xl select-none transition-all ${
+                show ? 'bg-games-card shadow-[0_4px_12px_rgba(26,18,64,0.08)]' : 'bg-gradient-to-br from-games-violet to-games-violet-deep text-white/90'
+              } ${matchedSet.has(i) ? 'opacity-60' : ''}`}>
+              {show ? c.emoji : '?'}
+            </button>
+          );
+        })}
+      </div>
+      {!isMyTurn && <p className="text-center text-[11px] text-games-ink-soft mt-3">Watch — it&rsquo;s {turnName}&rsquo;s turn 👀</p>}
     </div>
   );
 }
