@@ -265,6 +265,14 @@ export default function GamesControlsPage() {
               </Row>
             </div>
 
+            {/* Story keepsakes — how long saved Story Builder stories stay readable. */}
+            <div className="bg-games-card rounded-kaya p-4 mb-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-1">📖 Story keepsakes</p>
+              <Row label="Keep saved stories" hint="Days a saved story stays in the gallery before it&rsquo;s tidied away">
+                <ManualStepper value={cfg.storyRetentionDays} onChange={(v) => patch({ storyRetentionDays: v })} min={0} max={365} step={5} suffix="days" zeroLabel="Forever" width="w-14" />
+              </Row>
+            </div>
+
             {/* Per-game points — the heart of the request. */}
             <div className="bg-games-card rounded-kaya p-4 mb-4">
               <div className="flex items-center justify-between gap-2 mb-1">
