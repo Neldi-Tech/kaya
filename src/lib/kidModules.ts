@@ -106,7 +106,11 @@ export const KID_MODULES: KidModule[] = [
   // The parent Dashboard (/pulse) redirects non-parents, so it isn't gated here.
   { id: 'pulse',     label: 'Kaya Pulse',     icon: '📈', path: '/pulse/today', extraPaths: ['/pulse/log', '/pulse/ledger'] },
   { id: 'directory', label: 'Directory',      icon: '📞', path: '/directory' },
-  { id: 'fun',       label: 'Fun',            icon: '🎮', path: '/videos', extraPaths: ['/games'] },
+  { id: 'fun',       label: 'Fun',            icon: '🎮', path: '/videos' },
+  // Kaya Games — the family play hub (22 games, 4 worlds). Its own toggle
+  // so parents can grant Games without Videos. Credits House Points via the
+  // server award route. Was previously folded into `fun` via extraPaths.
+  { id: 'games',     label: 'Games',          icon: '🎮', path: '/games' },
   { id: 'wealth',    label: 'Kaya Wealth',    icon: '💎', path: '/wealth',   soon: true },
   { id: 'wellness',  label: 'Kaya Wellness',  icon: '🧘', path: '/wellness', soon: true },
   { id: 'chef',      label: 'Kaya Chef',      icon: '🍳', path: '/chef',     soon: true },
@@ -131,7 +135,7 @@ export const KID_MODULES: KidModule[] = [
 export const DEFAULT_KID_MODULES = [
   'home', 'myday', 'workplan', 'moments', 'messages', 'buzz', 'sparks',
   'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
-  'hive', 'fun', 'discover', 'stats',
+  'hive', 'fun', 'games', 'discover', 'stats',
 ];
 
 /** Resolve the granted module-id set for a family. Adds `home`

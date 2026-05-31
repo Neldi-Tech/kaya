@@ -285,13 +285,11 @@ const STATS_NAV: NavItem[] = [
 // Fun · games & surprises. Both items "Soon" today.
 const FUN_NAV: NavItem[] = [
   { path: '/videos', icon: '📺', label: 'Videos', soon: true },
-  { path: '/games',  icon: '🎮', label: 'Games',  soon: true },
 ];
 
 // Kid Fun sheet (parents see the same emoji set in their Fun section).
 const KID_FUN_NAV: NavItem[] = [
   { path: '/videos', icon: '📺', label: 'Videos', mobileLabel: 'Videos', soon: true },
-  { path: '/games',  icon: '🎮', label: 'Games',  mobileLabel: 'Games',  soon: true },
 ];
 
 // Kid Kaya section — the point-system surfaces a kid can use. Rate +
@@ -341,7 +339,8 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'kidsworkplan', path: '/workplan', icon: '🗓️', label: "Kids' Workplan" },
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
-  { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: FUN_NAV },
+  { kind: 'link',    id: 'games',     path: '/games',    icon: '🎮', label: 'Games' },
+  { kind: 'section', id: 'fun',       icon: '📺', label: 'Videos', items: FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness', icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',     icon: '🍳', label: 'Kaya Chef',     soon: true },
@@ -401,7 +400,8 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'pulse',     path: '/pulse/today', iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
   { kind: 'link',    id: 'directory', path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: KID_STATS_NAV },
-  { kind: 'section', id: 'fun',       icon: '🎮', label: 'Fun', items: KID_FUN_NAV },
+  { kind: 'link',    id: 'games',     path: '/games',     icon: '🎮', label: 'Games' },
+  { kind: 'section', id: 'fun',       icon: '📺', label: 'Videos', items: KID_FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
   { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
