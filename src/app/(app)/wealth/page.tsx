@@ -27,6 +27,7 @@ import VaultLock from '@/components/wealth/VaultLock';
 import WealthDocuments from '@/components/wealth/WealthDocuments';
 import BankVault from '@/components/wealth/BankVault';
 import IncomeEngine from '@/components/wealth/IncomeEngine';
+import SavingsQueue from '@/components/wealth/SavingsQueue';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -151,6 +152,7 @@ export default function KayaWealthPage() {
         {(mode === 'shared' || mode === 'personal') && (
           <>
             <IncomeEngine data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
+            <SavingsQueue data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
             <StockMarkets />
             <AssetRegister data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
             <WealthDocuments data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
