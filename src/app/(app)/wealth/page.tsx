@@ -22,6 +22,7 @@ import { computeWealthSummary, type WealthAsset, type WealthSummary } from '@/li
 import { useWealthData } from '@/components/wealth/useWealthData';
 import AssetRegister from '@/components/wealth/AssetRegister';
 import { compactCents, curLabel, kcFromUsdCents } from '@/components/wealth/wealthFormat';
+import VaultLock from '@/components/wealth/VaultLock';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -172,42 +173,7 @@ export default function KayaWealthPage() {
   );
 }
 
-// ── Vault lock ───────────────────────────────────────────────────────
-
-function VaultLock({ onUnlock }: { onUnlock: () => void }) {
-  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const refs = useRef<(HTMLInputElement | null)[]>([]);
-  const ready = digits.every((d) => d.length === 1);
-
-  const onChange = (i: number, v: string) => {
-    const c = v.replace(/\D/g, '').slice(-1);
-    setDigits((prev) => { const n = [...prev]; n[i] = c; return n; });
-    if (c && refs.current[i + 1]) refs.current[i + 1]?.focus();
-  };
-
-  return (
-    <div className="lockbox">
-      <div className="vault-ring"><svg viewBox="0 0 48 48"><path d="M24 3 L42 11 V24 C42 35 34 43 24 46 C14 43 6 35 6 24 V11 Z" fill="none" stroke="#D4A847" strokeWidth="2" /><rect x="18" y="22" width="12" height="11" rx="2" fill="#D4A847" /><path d="M20 22 V18 a4 4 0 0 1 8 0 V22" fill="none" stroke="#D4A847" strokeWidth="2" /></svg></div>
-      <h2>Kaya <span>Vault</span></h2>
-      <p>Enter the 6-digit code from your authenticator app.</p>
-      <div className="otp">
-        {digits.map((d, i) => (
-          <input key={i} ref={(el) => { refs.current[i] = el; }} maxLength={1} inputMode="numeric"
-            value={d} onChange={(e) => onChange(i, e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && ready) onUnlock(); }} />
-        ))}
-      </div>
-      <div className="authrow">
-        <span className="authchip">🔵 Google Authenticator</span>
-        <span className="authchip">🟦 Microsoft Authenticator</span>
-        <span className="authchip">Authy</span>
-      </div>
-      <button className="unlock-btn" disabled={!ready} onClick={onUnlock}>Unlock Vault</button>
-      <button className="bio" onClick={onUnlock}>👤 Use Face ID instead</button>
-      <div className="lock-meta">🔒 Any TOTP app works · Auto-locks after 5 min idle</div>
-    </div>
-  );
-}
+// VaultLock lives in components/wealth/VaultLock.tsx (real TOTP 2FA · PR2).
 
 // ── Hero (shared / personal) ─────────────────────────────────────────
 
