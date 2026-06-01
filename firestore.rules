@@ -210,6 +210,14 @@ service cloud.firestore {
         allow read: if isSignedIn() && request.auth.uid == userId;
         allow write: if false;
       }
+
+      // ── Kaya Wealth · Legacy & Next of Kin (Phase 2 · PR8 · 2026-06-01) ──
+      // Owner-only config: inactivity period, pre-release check-ins, and the
+      // chosen next of kin. SETUP ONLY — no release mechanics exist yet, so
+      // this just stores the owner's intent, which they manage directly.
+      match /legacy/{docId} {
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
     }
 
     // ── Families ───────────────────────────────────
