@@ -14,13 +14,14 @@ import { formatCents } from '@/components/pantry/format';
 import { SUPPORTED_CURRENCIES } from '@/lib/fx';
 import {
   ASSET_CLASSES, assetClassDef, LIQUIDITY_LABEL, computeWealthSummary,
-  createWealthAsset, updateWealthAsset, subscribeToEditLog,
+  createWealthAsset, updateWealthAsset, getWealthAsset, subscribeToEditLog,
   type WealthAsset, type WealthVisibility, type AssetClassId,
   type WealthEditLogEntry, type WealthInsurance,
 } from '@/lib/wealth';
 import { CLASS_ICON_BG, liqPillClass, tsToDisplay } from './wealthFormat';
 import type { WealthData } from './useWealthData';
 import DocumentScanner from './DocumentScanner';
+import { syncInsuranceMirror } from './wealthInsuranceMirror';
 
 interface Props {
   data: WealthData;
@@ -279,13 +280,15 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
     setBusy(true);
     try {
       const insurance = buildInsurance();
+      let savedId = asset?.id ?? '';
       if (mode === 'add') {
-        await createWealthAsset({
+        const res = await createWealthAsset({
           familyId, class: klass, name: name.trim(), valueCents, currency,
           visibility: view, ownerId: author.uid,
           meta: subtitle.trim() ? { subtitle: subtitle.trim() } : {},
           insurance, author,
         });
+        savedId = res.assetId;
       } else if (asset) {
         const valueChanged = valueCents !== asset.valueCents;
         const insChanged = JSON.stringify(insurance) !== JSON.stringify(asset.insurance ?? null);
@@ -307,6 +310,13 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
             insurance,
           },
         });
+      }
+      // Funnel (down only, Non-Negotiable #8): mirror this asset's insurance
+      // to Household → Subscriptions. Re-fetch the saved doc so the mirror
+      // sees canonical state (incl. an existing mirroredSubscriptionId).
+      if (savedId) {
+        const saved = await getWealthAsset(familyId, savedId);
+        if (saved) await syncInsuranceMirror({ familyId, asset: saved, householdCurrency, author });
       }
       onClose();
     } catch (err) {
