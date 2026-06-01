@@ -112,6 +112,7 @@ export interface WealthMedia {
   kind: WealthMediaKind;
   label: string;
   storagePath: string;        // Firebase Storage path
+  url: string;                // download URL (for gallery display)
   enhanced?: boolean;         // ran through scan + auto-enhance
   uploadedAt: Timestamp;
 }
