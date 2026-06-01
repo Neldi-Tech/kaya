@@ -307,6 +307,44 @@ function LobbySettings({ session, familyId, readOnly }: { session: GameSession; 
   );
 }
 
+// Host-only "Invite a guest" card. Builds the public play link
+// (/play/<code>?f=<familyId>) so a visitor can join on their own phone with no
+// account. The guest page handles everything (anon sign-in, the bring-it-home
+// card) — here we just share the link.
+function GuestInvite({ session, familyId }: { session: GameSession; familyId: string }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const link = typeof window !== 'undefined' ? `${window.location.origin}/play/${session.code}?f=${familyId}` : '';
+
+  const flash = () => { setCopied(true); window.setTimeout(() => setCopied(false), 1600); };
+  const copy = async () => { try { await navigator.clipboard?.writeText(link); flash(); } catch { /* noop */ } };
+  const share = async () => {
+    const data = { title: 'Play with us on Kaya!', text: 'Join our game — tap to play 👋', url: link };
+    try { if (navigator.share) await navigator.share(data); else { await navigator.clipboard?.writeText(link); flash(); } } catch { /* cancelled */ }
+  };
+
+  return (
+    <div className="bg-games-card rounded-kaya p-4 mt-4 border border-games-gold/40 shadow-[0_4px_12px_rgba(26,18,64,0.06)]">
+      {!open ? (
+        <button type="button" onClick={() => setOpen(true)} className="w-full flex items-center justify-between">
+          <span className="text-sm font-extrabold text-games-ink">👋 Friends over? Invite a guest</span>
+          <span className="text-games-violet font-black text-lg leading-none">＋</span>
+        </button>
+      ) : (
+        <>
+          <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-1">👋 Invite a guest — no sign-up</p>
+          <p className="text-[11px] text-games-ink-soft mb-2">Share this link — they play on their own phone as a guest.</p>
+          <div className="bg-games-bg border border-dashed border-games-violet/30 rounded-kaya px-3 py-2 text-[11px] font-display font-extrabold text-games-violet-deep break-all">{link}</div>
+          <div className="grid grid-cols-2 gap-2 mt-2.5">
+            <button type="button" onClick={copy} className="bg-games-bg text-games-violet-deep font-extrabold text-sm py-2.5 rounded-kaya">{copied ? 'Copied ✓' : '📋 Copy'}</button>
+            <button type="button" onClick={share} className="bg-games-gold text-games-ink font-extrabold text-sm py-2.5 rounded-kaya">💬 Share</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Lobby({ session, me, familyId }: { session: GameSession; me: string; familyId: string }) {
   const isHost = session.hostUid === me;
   const url = typeof window !== 'undefined' ? `${window.location.origin}/games/join/${session.code}` : '';
@@ -346,28 +384,30 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
       </div>
 
       {isHost ? (
-        // Maze Quest sets up its race (🏁/⏱️ + difficulty + world) right here in
-        // the lobby, so the host picks while waiting. Its own button starts the
-        // race (writes status:'playing'). Other games use the generic start.
-        session.gameId === 'maze-quest' ? (
-          <div className="mt-5 pt-4 border-t border-games-bg">
-            <RaceConfig session={session} familyId={familyId} canStart={session.players.length >= 2} />
-          </div>
-        ) : (
-          <>
-            <LobbySettings session={session} familyId={familyId} />
-            <button
-              type="button"
-              disabled={session.players.length < 2 || !settingsReady(session)}
-              onClick={() => updateSession(familyId, session.id, { status: 'playing' })}
-              className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full mt-4 disabled:opacity-50"
-            >
-              {session.players.length < 2 ? 'Waiting for players…'
-                : !settingsReady(session) ? 'Pick the setup above ☝️'
-                  : 'Start game'}
-            </button>
-          </>
-        )
+        <>
+          {/* Maze Quest sets up its race (🏁/⏱️ + difficulty + world) right here
+              in the lobby; other games use the generic start. */}
+          {session.gameId === 'maze-quest' ? (
+            <div className="mt-5 pt-4 border-t border-games-bg">
+              <RaceConfig session={session} familyId={familyId} canStart={session.players.length >= 2} />
+            </div>
+          ) : (
+            <>
+              <LobbySettings session={session} familyId={familyId} />
+              <button
+                type="button"
+                disabled={session.players.length < 2 || !settingsReady(session)}
+                onClick={() => updateSession(familyId, session.id, { status: 'playing' })}
+                className="w-full bg-games-violet text-white font-extrabold py-3.5 rounded-full mt-4 disabled:opacity-50"
+              >
+                {session.players.length < 2 ? 'Waiting for players…'
+                  : !settingsReady(session) ? 'Pick the setup above ☝️'
+                    : 'Start game'}
+              </button>
+            </>
+          )}
+          <GuestInvite session={session} familyId={familyId} />
+        </>
       ) : (
         <>
           <LobbySettings session={session} familyId={familyId} readOnly />
