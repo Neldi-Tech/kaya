@@ -29,6 +29,7 @@ import BankVault from '@/components/wealth/BankVault';
 import IncomeEngine from '@/components/wealth/IncomeEngine';
 import SavingsQueue from '@/components/wealth/SavingsQueue';
 import LegacyVault from '@/components/wealth/LegacyVault';
+import StockMarkets from '@/components/wealth/StockMarkets';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -385,33 +386,7 @@ function Juniors({ kids, assets, householdCurrency, rateFor }: {
 
 // IncomeEngine → components/wealth/IncomeEngine.tsx (live · PR6).
 
-function StockMarkets() {
-  return (
-    <div className="adult-block">
-      <div className="section-title"><h2>📡 Stock Markets <span className="pilltag">Local · Live + AI</span></h2><a>Phase 2</a></div>
-      <div className="grid g2">
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-            <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--navy)' }}>🇹🇿 Dar es Salaam · DSE</div>
-            <span className="live"><span className="blink" />LIVE</span>
-          </div>
-          <div className="market"><div className="t">CRDB<small>CRDB Bank</small></div><svg className="spark" viewBox="0 0 64 24"><polyline points="0,18 13,15 26,16 39,10 52,8 64,5" fill="none" stroke="#2E7D34" strokeWidth="2" /></svg><div className="p"><div className="px">TZS 640</div><div className="pc up">+2.4%</div></div></div>
-          <div className="market"><div className="t">DSE ASI<small>All-Share Index</small></div><svg className="spark" viewBox="0 0 64 24"><polyline points="0,12 13,14 26,10 39,12 52,7 64,6" fill="none" stroke="#2E7D34" strokeWidth="2" /></svg><div className="p"><div className="px">2,114</div><div className="pc up">+0.8%</div></div></div>
-          <div className="market"><div className="t">TBL<small>Tanzania Breweries</small></div><svg className="spark" viewBox="0 0 64 24"><polyline points="0,8 13,10 26,9 39,14 52,15 64,17" fill="none" stroke="#E85C5C" strokeWidth="2" /></svg><div className="p"><div className="px">TZS 10,900</div><div className="pc down">−1.1%</div></div></div>
-          <div className="aiupdate"><span className="ai-orb" /><div><b>AI market update:</b> Local exchange feed + plain-language updates tied to your holdings arrive in Phase 2.</div></div>
-        </div>
-        <div className="card glocked">
-          <div className="gtitle">🌍 Global Markets <span className="tag" style={{ background: '#fbf3df', color: '#9a7b27' }}>🔒 Locked</span></div>
-          <div className="grow"><span>NYSE · S&amp;P 500</span><span>4,930 ▲ 0.4%</span></div>
-          <div className="grow"><span>NASDAQ Composite</span><span>15,620 ▲ 0.6%</span></div>
-          <div className="grow"><span>LSE · FTSE 100</span><span>7,690 ▼ 0.2%</span></div>
-          <button className="glock-cta">⭐ Unlock global markets — Phase 3 (paid)</button>
-          <div className="glock-note">Kaya Wealth shows your <b>local exchange (DSE)</b> first. Global data &amp; AI-assisted live trading is a future paid upgrade — it requires brokerage licensing, KYC, and stronger AI safeguards before any live trade is allowed.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// StockMarkets → components/wealth/StockMarkets.tsx (live DSE + AI · PR9).
 
 // DocumentVault → components/wealth/WealthDocuments.tsx (live gallery + scanner · PR3).
 
