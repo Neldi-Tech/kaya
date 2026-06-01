@@ -28,6 +28,7 @@ import WealthDocuments from '@/components/wealth/WealthDocuments';
 import BankVault from '@/components/wealth/BankVault';
 import IncomeEngine from '@/components/wealth/IncomeEngine';
 import SavingsQueue from '@/components/wealth/SavingsQueue';
+import LegacyVault from '@/components/wealth/LegacyVault';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -163,7 +164,7 @@ export default function KayaWealthPage() {
         {mode === 'personal' && (
           <>
             <BankVault uid={author.uid} />
-            <Legacy />
+            <LegacyVault uid={author.uid} />
           </>
         )}
 
@@ -416,29 +417,4 @@ function StockMarkets() {
 
 // BankAccounts → components/wealth/BankVault.tsx (live, step-up 2FA · PR5).
 
-function Legacy() {
-  return (
-    <div className="personal-block">
-      <div className="section-title"><h2>🕊️ Legacy &amp; Next of Kin <span className="pilltag">Personal vault only</span></h2></div>
-      <div className="grid g2">
-        <div className="kin">
-          <div className="h"><div className="ki">🔑</div><div className="t">Inactivity Transfer<small>A safe handover if something happens to you</small></div></div>
-          <p className="exp">If your vault is inactive for the period you set, Kaya privately releases your Personal vault to your chosen next of kin — in order. Nothing is shared while you are active.</p>
-          <div className="cond">
-            <div className="row"><span className="lab">Release after inactivity of</span><span className="mval" style={{ color: '#cdbdf0' }}>6 months</span></div>
-            <div className="row"><span className="lab">Pre-release check-in reminders</span><span className="mval" style={{ color: '#cdbdf0' }}>On</span></div>
-          </div>
-          <div className="kin-note">ℹ️ Minimum 6 months. Kaya sends repeated confirmations before any release is triggered. <b>(Phase 2.)</b></div>
-        </div>
-        <div className="kin" style={{ background: 'linear-gradient(135deg,#2c2150,#241a44)' }}>
-          <div className="h"><div className="ki">👪</div><div className="t">Chosen Next of Kin<small>At least 2 required · released in order</small></div></div>
-          <div className="kin-list">
-            <div className="kinrow"><div className="ka">+</div><div className="kn">Add your first of kin<small>Spouse, child, sibling…</small></div><span className="order">1st</span></div>
-          </div>
-          <button className="add-kin">+ Add next of kin</button>
-          <div className="kin-note">🔐 Each kin verifies identity (2FA) before receiving anything. Re-order or remove anyone, anytime.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Legacy → components/wealth/LegacyVault.tsx (live, setup-only · PR8).

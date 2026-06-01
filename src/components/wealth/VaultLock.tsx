@@ -11,7 +11,7 @@
 // On a verified unlock it calls onUnlock() — the page then holds the session
 // open (sessionStorage) with idle auto-lock, exactly as before.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { auth } from '@/lib/firebase';
 
 type Phase = 'loading' | 'legacy' | 'unlock' | 'enroll' | 'enroll-show' | 'enroll-confirm';
@@ -42,28 +42,62 @@ const RING = (
   <div className="vault-ring"><svg viewBox="0 0 48 48"><path d="M24 3 L42 11 V24 C42 35 34 43 24 46 C14 43 6 35 6 24 V11 Z" fill="none" stroke="#D4A847" strokeWidth="2" /><rect x="18" y="22" width="12" height="11" rx="2" fill="#D4A847" /><path d="M20 22 V18 a4 4 0 0 1 8 0 V22" fill="none" stroke="#D4A847" strokeWidth="2" /></svg></div>
 );
 
-function CodeEntry({ onSubmit, busy, label }: { onSubmit: (code: string) => void; busy: boolean; label: string }) {
+function CodeEntry({ onSubmit, busy, label }: { onSubmit: (code: string) => boolean | void | Promise<boolean | void>; busy: boolean; label: string }) {
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const refs = useRef<(HTMLInputElement | null)[]>([]);
   const ready = digits.every((d) => d.length === 1);
+
+  // Submit, then CLEAR the boxes on success — so a re-lock always starts fresh.
+  const submit = async (code: string) => {
+    if (busy) return;
+    const ok = await onSubmit(code);
+    if (ok) { setDigits(['', '', '', '', '', '']); refs.current[0]?.focus(); }
+  };
+
   const onChange = (i: number, v: string) => {
     const c = v.replace(/\D/g, '').slice(-1);
     const next = [...digits]; next[i] = c;
     setDigits(next);
     if (c && refs.current[i + 1]) refs.current[i + 1]?.focus();
     // Auto-submit the moment all six digits are in — no Enter / button needed.
-    if (next.every((d) => d.length === 1) && !busy) onSubmit(next.join(''));
+    if (next.every((d) => d.length === 1) && !busy) void submit(next.join(''));
   };
+
+  // Swift delete: backspace clears the current box, or hops back and clears the
+  // previous one — hold it and the whole code sweeps out (no manual clicking).
+  const onKeyDown = (i: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') { if (ready && !busy) void submit(digits.join('')); return; }
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      const next = [...digits];
+      if (next[i]) { next[i] = ''; setDigits(next); }
+      else if (i > 0) { next[i - 1] = ''; setDigits(next); refs.current[i - 1]?.focus(); }
+    }
+  };
+
+  // Paste a whole code (same-device copy/paste) — distribute across the boxes.
+  const onPaste = (e: ClipboardEvent<HTMLInputElement>) => {
+    const text = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+    if (!text) return;
+    e.preventDefault();
+    const next = ['', '', '', '', '', ''];
+    for (let k = 0; k < text.length; k++) next[k] = text[k];
+    setDigits(next);
+    refs.current[Math.min(text.length, 5)]?.focus();
+    if (text.length === 6 && !busy) void submit(text);
+  };
+
   return (
     <>
       <div className="otp">
         {digits.map((d, i) => (
           <input key={i} ref={(el) => { refs.current[i] = el; }} maxLength={1} inputMode="numeric" value={d}
             onChange={(e) => onChange(i, e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && ready && !busy) onSubmit(digits.join('')); }} />
+            onKeyDown={(e) => onKeyDown(i, e)}
+            onPaste={onPaste} />
         ))}
       </div>
-      <button className="unlock-btn" disabled={!ready || busy} onClick={() => onSubmit(digits.join(''))}>
+      <button className="unlock-btn" disabled={!ready || busy} onClick={() => void submit(digits.join(''))}>
         {busy ? 'Checking…' : label}
       </button>
     </>
@@ -90,11 +124,13 @@ export default function VaultLock({ onUnlock }: { onUnlock: () => void }) {
     return () => { cancelled = true; };
   }, []);
 
-  const doUnlock = async (code: string) => {
+  const doUnlock = async (code: string): Promise<boolean> => {
     setBusy(true); setError('');
     const r = await vaultFetch('/api/wealth/vault/unlock', { code });
     setBusy(false);
-    if (r?.ok) onUnlock(); else setError('That code didn’t work. Try again, or use a recovery code.');
+    if (r?.ok) { onUnlock(); return true; }
+    setError('That code didn’t work. Try again, or use a recovery code.');
+    return false;
   };
   const startEnroll = async () => {
     setBusy(true); setError('');
@@ -105,11 +141,13 @@ export default function VaultLock({ onUnlock }: { onUnlock: () => void }) {
       setPhase('enroll-show');
     } else setError('Couldn’t start setup. Please try again.');
   };
-  const confirmEnroll = async (code: string) => {
+  const confirmEnroll = async (code: string): Promise<boolean> => {
     setBusy(true); setError('');
     const r = await vaultFetch('/api/wealth/vault/enroll-verify', { code });
     setBusy(false);
-    if (r?.ok) onUnlock(); else setError('That code didn’t match. Check your authenticator and try again.');
+    if (r?.ok) { onUnlock(); return true; }
+    setError('That code didn’t match. Check your authenticator and try again.');
+    return false;
   };
 
   // ── Loading ──
@@ -202,7 +240,7 @@ export default function VaultLock({ onUnlock }: { onUnlock: () => void }) {
       {RING}
       <h2>Kaya <span>Vault</span></h2>
       <p>Enter any 6-digit code to open the vault.</p>
-      <CodeEntry onSubmit={() => onUnlock()} busy={false} label="Unlock Vault" />
+      <CodeEntry onSubmit={() => { onUnlock(); return true; }} busy={false} label="Unlock Vault" />
       <button className="bio" onClick={() => onUnlock()}>👤 Use Face ID instead</button>
       <div className="lock-meta">🔒 2FA activates once your vault key is set · Auto-locks after 5 min idle</div>
     </div>
