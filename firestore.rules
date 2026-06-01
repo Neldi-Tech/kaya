@@ -190,6 +190,15 @@ service cloud.firestore {
         allow read: if isSignedIn() && request.auth.uid == userId;
         allow write: if false;
       }
+
+      // ── Kaya Wealth · vault 2FA secret (server-only) ──────────────
+      // The encrypted per-user TOTP secret + hashed recovery codes that
+      // gate the Wealth vault. The raw secret must NEVER reach a client,
+      // so even the owner is denied — all access is via the Admin SDK
+      // (/api/wealth/vault/*), which bypasses these rules.
+      match /security/{docId} {
+        allow read, write: if false;
+      }
     }
 
     // ── Families ───────────────────────────────────

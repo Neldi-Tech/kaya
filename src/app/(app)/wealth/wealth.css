@@ -51,6 +51,17 @@
 .kw .bio{margin-top:11px;font-size:12px;color:#cdd6ee;background:transparent;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .kw .lock-meta{font-size:11px;color:#7f8fb5;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:6px}
 .kw .lock-err{font-size:11.5px;color:#ff9d9d;margin-top:10px;min-height:14px}
+/* vault 2FA — enrollment + recovery (dark lockbox context) */
+.kw .v-enroll{text-align:left;margin-top:6px}
+.kw .v-qr{display:block;width:180px;height:180px;margin:0 auto 12px;border-radius:12px;background:#fff;padding:8px;object-fit:contain}
+.kw .v-secret{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;letter-spacing:2px;color:#fff;background:rgba(255,255,255,.06);border:1px solid rgba(212,168,71,.35);border-radius:10px;padding:9px 11px;text-align:center;word-break:break-all;margin-bottom:12px}
+.kw .v-label{font-size:11px;color:#9fb0d6;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin:2px 0 6px}
+.kw .v-reco{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:6px}
+.kw .v-reco span{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;color:#e7c679;background:rgba(212,168,71,.1);border:1px solid rgba(212,168,71,.25);border-radius:8px;padding:7px;text-align:center}
+.kw .v-warn{font-size:11px;color:#ffd9a0;margin:8px 0 14px;line-height:1.5}
+.kw .v-link{background:none;border:none;color:#cdd6ee;font-size:12px;text-decoration:underline;cursor:pointer;margin-top:12px}
+.kw .v-recinput{width:100%;text-align:center;font-size:16px;letter-spacing:2px;color:#fff;background:rgba(255,255,255,.05);border:1px solid rgba(212,168,71,.35);border-radius:11px;padding:12px;outline:none;margin-bottom:12px;text-transform:uppercase}
+.kw .v-spin{color:#9fb0d6;font-size:13px;margin-top:20px}
 
 /* ===== TOP BAR ===== */
 .kw .topbar{display:flex;align-items:center;justify-content:space-between;padding:18px 0 12px;position:sticky;top:0;background:linear-gradient(var(--cream) 72%, rgba(251,247,238,0));z-index:20;gap:10px;flex-wrap:wrap}
