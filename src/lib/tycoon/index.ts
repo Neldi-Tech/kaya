@@ -5,3 +5,4 @@ export * from './types';
 export * from './data';
 export * from './currency';
 export * from './engine';
+export * from './sync';

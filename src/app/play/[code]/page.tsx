@@ -6,6 +6,7 @@ import { auth } from '@/lib/firebase';
 import { ensureGuestAuth } from '@/lib/guestAuth';
 import { getGame } from '@/lib/gamesCatalog';
 import MultiDeviceRoom from '@/components/games/MultiDeviceRoom';
+import TycoonRoom from '@/components/games/tycoon/TycoonRoom';
 import GuestEndCard from '@/components/games/GuestEndCard';
 
 // PUBLIC guest play page (outside the (app) auth gate). A visitor opens the
@@ -64,13 +65,18 @@ function GuestPlay() {
   const game = joined ? getGame(joined.gameId) : undefined;
 
   if (phase === 'playing' && joined && game) {
+    const guestIdentity = { uid: joined.uid, name: name.trim(), familyId: joined.familyId, sessionId: joined.sessionId };
+    // Tycoon is a full-screen board game with its own room UI.
+    if (joined.gameId === 'tycoon') {
+      return <TycoonRoom guestIdentity={guestIdentity} onComplete={() => setPhase('done')} />;
+    }
     return (
       <div className="min-h-screen bg-games-bg">
         <div className="mx-auto max-w-md px-4 py-6">
           <p className="text-center text-[11px] font-bold text-games-ink-soft mb-3">Playing with {joined.hostFamilyName} · you&rsquo;re a guest 👋</p>
           <MultiDeviceRoom
             game={game}
-            guestIdentity={{ uid: joined.uid, name: name.trim(), familyId: joined.familyId, sessionId: joined.sessionId }}
+            guestIdentity={guestIdentity}
             onComplete={() => setPhase('done')}
           />
         </div>

@@ -29,7 +29,7 @@ import RealWorldChallenge from '@/components/games/RealWorldChallenge';
 import BubblePop from '@/components/games/BubblePop';
 import ReactionTap from '@/components/games/ReactionTap';
 import MazeQuest from '@/components/games/MazeQuest';
-import KayaTycoon from '@/components/games/KayaTycoon';
+import TycoonEntry from '@/components/games/tycoon/TycoonEntry';
 
 // Registry of live games. The catalog says which ids are `built`; this maps
 // each to its component. A built id with no component here falls back to the
@@ -117,9 +117,10 @@ export default function GameRunnerPage() {
     );
   }
 
-  // Kaya Tycoon is a full-screen, immersive board game (its own setup → board
-  // → win flow), so it renders outside the narrow snackable-game Shell.
-  if (id === 'tycoon') return <KayaTycoon />;
+  // Kaya Tycoon is a full-screen, immersive board game with its own entry
+  // chooser (this device / multi-device room / big-screen), so it renders
+  // outside the narrow snackable-game Shell.
+  if (id === 'tycoon') return <TycoonEntry />;
 
   if (!game.built || (!isMulti && !isRealWorld && !GameComp)) {
     return (

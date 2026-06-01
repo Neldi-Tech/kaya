@@ -10,7 +10,7 @@ import {
   PACKS, TOKENS, orderedCountries, NEIGHBOURS, availableCurrencies, ensureCurrency,
 } from '@/lib/tycoon';
 
-export default function SetupScreen({ onStart }: { onStart: (c: GameConfig) => void }) {
+export default function SetupScreen({ onStart, variant = 'local' }: { onStart: (c: GameConfig) => void; variant?: 'local' | 'host' }) {
   const [theme, setTheme] = useState<Theme>('cities');
   const [homeCountry, setHomeCountry] = useState('tanzania');
   const [country, setCountry] = useState('tanzania');
@@ -132,26 +132,33 @@ export default function SetupScreen({ onStart }: { onStart: (c: GameConfig) => v
         </div>
       </div>
 
-      <div className="kt-card">
-        <h3>4 · Who&rsquo;s playing? <span style={{ fontSize: 13, fontWeight: 400 }}>(2–6 players)</span></h3>
-        <div>
-          {players.map((p, i) => (
-            <div key={i} className="kt-pl-row">
-              <input value={p.name} onChange={(e) => setName(i, e.target.value)} placeholder={`Player ${i + 1} name`} />
-              <div className="kt-token-pick">
-                {TOKENS.map((t) => (
-                  <div key={t} className={`kt-tok${p.token === t ? ' sel' : ''}`} onClick={() => pickTok(i, t)} role="button" tabIndex={0}>{t}</div>
-                ))}
+      {variant === 'local' ? (
+        <div className="kt-card">
+          <h3>4 · Who&rsquo;s playing? <span style={{ fontSize: 13, fontWeight: 400 }}>(2–6 players)</span></h3>
+          <div>
+            {players.map((p, i) => (
+              <div key={i} className="kt-pl-row">
+                <input value={p.name} onChange={(e) => setName(i, e.target.value)} placeholder={`Player ${i + 1} name`} />
+                <div className="kt-token-pick">
+                  {TOKENS.map((t) => (
+                    <div key={t} className={`kt-tok${p.token === t ? ' sel' : ''}`} onClick={() => pickTok(i, t)} role="button" tabIndex={0}>{t}</div>
+                  ))}
+                </div>
+                {players.length > 2 && <button type="button" className="kt-btn-ghost" onClick={() => delPlayer(i)} style={{ padding: '8px 12px' }}>✕</button>}
               </div>
-              {players.length > 2 && <button type="button" className="kt-btn-ghost" onClick={() => delPlayer(i)} style={{ padding: '8px 12px' }}>✕</button>}
-            </div>
-          ))}
+            ))}
+          </div>
+          {players.length < 6 && <button type="button" className="kt-btn-ghost" onClick={addPlayer} style={{ marginTop: 8 }}>＋ Add player</button>}
+          <div className="kt-small-note">Pass the device around — each player takes their turn on the same screen.</div>
         </div>
-        {players.length < 6 && <button type="button" className="kt-btn-ghost" onClick={addPlayer} style={{ marginTop: 8 }}>＋ Add player</button>}
-        <div className="kt-small-note">Pass the device around — each player takes their turn on the same screen.</div>
-      </div>
+      ) : (
+        <div className="kt-card">
+          <h3>4 · Players join next 📲</h3>
+          <div className="kt-small-note">Create the room, then family &amp; guests join from their own devices (or add players on this device in the lobby).</div>
+        </div>
+      )}
 
-      <button type="button" className="kt-btn-go" onClick={start} style={{ marginTop: 6 }}>▶ Start Game</button>
+      <button type="button" className="kt-btn-go" onClick={start} style={{ marginTop: 6 }}>{variant === 'host' ? '✓ Create room' : '▶ Start Game'}</button>
       <div className="kt-small-note" style={{ marginTop: 16 }}>
         An original Kaya family game. The mechanics are classic property-trading; all names, board &amp; art are original to Kaya.
       </div>
