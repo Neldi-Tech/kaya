@@ -24,6 +24,7 @@ import AssetRegister from '@/components/wealth/AssetRegister';
 import { compactCents, curLabel, kcFromUsdCents } from '@/components/wealth/wealthFormat';
 import VaultLock from '@/components/wealth/VaultLock';
 import WealthDocuments from '@/components/wealth/WealthDocuments';
+import BankVault from '@/components/wealth/BankVault';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -155,7 +156,7 @@ export default function KayaWealthPage() {
         {/* PERSONAL-ONLY SECTIONS */}
         {mode === 'personal' && (
           <>
-            <BankAccounts />
+            <BankVault uid={author.uid} />
             <Legacy />
           </>
         )}
@@ -456,20 +457,7 @@ function StockMarkets() {
 
 // DocumentVault → components/wealth/WealthDocuments.tsx (live gallery + scanner · PR3).
 
-function BankAccounts() {
-  return (
-    <div className="personal-block">
-      <div className="section-title"><h2>🏦 Bank Accounts <span className="pilltag">Personal · extra-protected</span></h2><a>Phase 2</a></div>
-      <div className="card">
-        <div className="bankhead"><span className="protected">🔒 Sensitive — re-auth to reveal</span></div>
-        <div className="bankrow"><div className="blogo">NMB</div><div className="bi"><div className="bn">NMB Current <span className="acctype op">Operating</span></div><div className="bm">•••• •••• 4821</div></div><div className="bv"><div className="amt">TZS 42M</div><button className="reveal">Reveal number</button></div></div>
-        <div className="bankrow"><div className="blogo">CRDB</div><div className="bi"><div className="bn">CRDB Savings <span className="acctype">Savings</span></div><div className="bm">•••• •••• 1190</div></div><div className="bv"><div className="amt">TZS 56M</div><button className="reveal">Reveal number</button></div></div>
-        <button className="addbtn">+ Add bank account</button>
-        <div className="bankguard">🛡️ <span><b>Extra protection:</b> account numbers are encrypted and masked by default. Revealing, editing, or adding an account requires a fresh 2FA check — even inside an unlocked vault. Visible only to you. <b>(Phase 2.)</b></span></div>
-      </div>
-    </div>
-  );
-}
+// BankAccounts → components/wealth/BankVault.tsx (live, step-up 2FA · PR5).
 
 function Legacy() {
   return (

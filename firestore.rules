@@ -199,6 +199,17 @@ service cloud.firestore {
       match /security/{docId} {
         allow read, write: if false;
       }
+
+      // ── Kaya Wealth · Bank Accounts vault (Phase 2 · PR5 · 2026-06-01) ──
+      // The owner may READ their own accounts — the number is AES-encrypted
+      // (`numberEnc`, opaque to the client) and only the last 4 (`tail`)
+      // show masked. ALL writes go through the Admin-SDK step-up routes
+      // (/api/wealth/bank/*), which require a fresh 2FA — so the raw number
+      // is encrypted/decrypted server-side and clients never write it.
+      match /bankAccounts/{acctId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow write: if false;
+      }
     }
 
     // ── Families ───────────────────────────────────
