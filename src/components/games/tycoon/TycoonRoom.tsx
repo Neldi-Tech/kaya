@@ -30,6 +30,23 @@ function firstFreeToken(seats: Seat[]): string {
   return TOKENS.find((t) => !seats.some((s) => s.token === t)) || TOKENS[seats.length % TOKENS.length];
 }
 
+// Full-screen frame. MUST live at module scope — a component defined inside
+// TycoonRoom gets a fresh identity on every render, so React would remount the
+// whole subtree on each keystroke and inputs (room code, player names) would
+// lose focus, making them impossible to type into.
+function Frame({ isGuest, children }: { isGuest: boolean; children: ReactNode }) {
+  return (
+    <div className="kt-root" style={{ position: 'fixed', inset: 0, zIndex: 50, overflowY: 'auto', background: 'linear-gradient(135deg,#1A1240,#2A1A63)' }}>
+      <TycoonStyles />
+      <div className="kt-topbar">
+        {isGuest ? <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>👋 Guest</span> : <Link href="/games">&larr; Games</Link>}
+        <span className="kt-tb-title">🎲 Kaya Tycoon</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function TycoonRoom({ guestIdentity, onComplete }: { guestIdentity?: GuestIdentity; onComplete?: () => void }) {
   const { profile } = useAuth();
   const me = guestIdentity?.uid || profile?.uid || '';
@@ -90,23 +107,10 @@ export default function TycoonRoom({ guestIdentity, onComplete }: { guestIdentit
     } catch (e) { setErr(friendlyErr(e)); setMode('error'); }
   }, [familyId, me, myName]);
 
-  function Frame({ children }: { children: ReactNode }) {
-    return (
-      <div className="kt-root" style={{ position: 'fixed', inset: 0, zIndex: 50, overflowY: 'auto', background: 'linear-gradient(135deg,#1A1240,#2A1A63)' }}>
-        <TycoonStyles />
-        <div className="kt-topbar">
-          {isGuest ? <span style={{ color: '#fff', fontWeight: 800, fontSize: 14 }}>👋 Guest</span> : <Link href="/games">&larr; Games</Link>}
-          <span className="kt-tb-title">🎲 Kaya Tycoon</span>
-        </div>
-        {children}
-      </div>
-    );
-  }
-
-  if (mode === 'busy') return <Frame><p className="kt-small-note" style={{ textAlign: 'center', padding: 40 }}>Connecting…</p></Frame>;
+  if (mode === 'busy') return <Frame isGuest={isGuest}><p className="kt-small-note" style={{ textAlign: 'center', padding: 40 }}>Connecting…</p></Frame>;
   if (mode === 'error') {
     return (
-      <Frame>
+      <Frame isGuest={isGuest}>
         <div style={{ textAlign: 'center', padding: 40, color: '#fff' }}>
           <div style={{ fontSize: 40, marginBottom: 10 }}>📡</div>
           <p className="kt-small-note">{err}</p>
@@ -117,12 +121,12 @@ export default function TycoonRoom({ guestIdentity, onComplete }: { guestIdentit
   }
 
   if (mode === 'config') {
-    return <Frame><SetupScreen variant="host" onStart={createRoom} /></Frame>;
+    return <Frame isGuest={isGuest}><SetupScreen variant="host" onStart={createRoom} /></Frame>;
   }
 
   if (mode === 'choose') {
     return (
-      <Frame>
+      <Frame isGuest={isGuest}>
         <div className="kt-setup" style={{ maxWidth: 420 }}>
           <div className="kt-logo" style={{ fontSize: 'clamp(30px,7vw,46px)' }}>KAYA TYCOON</div>
           <div className="kt-tag">📲 Everyone on their own device · 📺 big-screen · 👋 guests welcome</div>
@@ -131,7 +135,8 @@ export default function TycoonRoom({ guestIdentity, onComplete }: { guestIdentit
             <p className="kt-small-note" style={{ margin: '14px 0 6px' }}>— or join one —</p>
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={codeInput} onChange={(e) => setCodeInput(e.target.value.toUpperCase())} placeholder="CODE" maxLength={4}
-                style={{ flex: 1, textAlign: 'center', letterSpacing: 4, fontWeight: 900, textTransform: 'uppercase' }} />
+                autoCapitalize="characters" autoCorrect="off" autoComplete="off" aria-label="Room code"
+                style={{ flex: 1, minWidth: 0, textAlign: 'center', letterSpacing: 4, fontWeight: 900, textTransform: 'uppercase', background: '#fff', color: 'var(--kt-ink)', border: 'none', borderRadius: 12, padding: '10px 12px', fontSize: 16 }} />
               <button type="button" className="kt-btn-primary" disabled={codeInput.length < 4} onClick={() => doJoin(codeInput)}>Join</button>
             </div>
           </div>
@@ -141,10 +146,10 @@ export default function TycoonRoom({ guestIdentity, onComplete }: { guestIdentit
   }
 
   // mode 'in'
-  if (!session) return <Frame><p className="kt-small-note" style={{ textAlign: 'center', padding: 40 }}>Loading room…</p></Frame>;
+  if (!session) return <Frame isGuest={isGuest}><p className="kt-small-note" style={{ textAlign: 'center', padding: 40 }}>Loading room…</p></Frame>;
   if (session.status === 'lobby') {
     return (
-      <Frame>
+      <Frame isGuest={isGuest}>
         <Lobby session={session} familyId={familyId} me={me} myName={myName} isGuest={isGuest}
           asDisplay={asDisplay} setAsDisplay={setAsDisplay} />
       </Frame>
@@ -152,7 +157,7 @@ export default function TycoonRoom({ guestIdentity, onComplete }: { guestIdentit
   }
   // playing / done
   return (
-    <Frame>
+    <Frame isGuest={isGuest}>
       <TycoonRoomPlay session={session} familyId={familyId} myUid={me} display={asDisplay} />
     </Frame>
   );
