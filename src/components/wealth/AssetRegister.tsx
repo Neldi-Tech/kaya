@@ -21,6 +21,7 @@ import {
 import { CLASS_ICON_BG, liqPillClass, tsToDisplay } from './wealthFormat';
 import type { WealthData } from './useWealthData';
 import DocumentScanner from './DocumentScanner';
+import { MoneyInput, moneyToCents, formatMoneyInput } from './MoneyInput';
 import { syncInsuranceMirror } from './wealthInsuranceMirror';
 
 interface Props {
@@ -252,16 +253,16 @@ interface ModalProps {
 function AssetModal({ mode, asset, view, familyId, householdCurrency, author, onClose }: ModalProps) {
   const [name, setName] = useState(asset?.name ?? '');
   const [klass, setKlass] = useState<AssetClassId>(asset?.class ?? 'cash');
-  const [value, setValue] = useState(asset ? String(asset.valueCents / 100) : '');
+  const [value, setValue] = useState(asset ? formatMoneyInput(String(asset.valueCents / 100)) : '');
   const [currency, setCurrency] = useState(asset?.currency ?? householdCurrency);
   const [subtitle, setSubtitle] = useState(asset?.meta?.subtitle ?? '');
   const [insured, setInsured] = useState(!!asset?.insurance?.insured);
   const [provider, setProvider] = useState(asset?.insurance?.provider ?? '');
-  const [premium, setPremium] = useState(asset?.insurance?.premiumCents ? String(asset.insurance.premiumCents / 100) : '');
+  const [premium, setPremium] = useState(asset?.insurance?.premiumCents ? formatMoneyInput(String(asset.insurance.premiumCents / 100)) : '');
   const [renewal, setRenewal] = useState(asset?.insurance?.renewalIso ?? '');
   const [busy, setBusy] = useState(false);
 
-  const valueCents = Math.round((parseFloat(value) || 0) * 100);
+  const valueCents = moneyToCents(value);
   const canSave = name.trim().length > 0 && valueCents >= 0 && !busy;
 
   const buildInsurance = (): WealthInsurance | null => {
@@ -269,7 +270,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
     return {
       insured: true,
       provider: provider.trim() || undefined,
-      premiumCents: premium ? Math.round((parseFloat(premium) || 0) * 100) : undefined,
+      premiumCents: premium ? moneyToCents(premium) : undefined,
       premiumCurrency: currency,
       renewalIso: renewal || undefined,
     };
@@ -354,7 +355,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
 
         <div className="kw-field">
           <label>{assetClassDef(klass).isLiability ? 'Amount owed' : 'Value'} ({currency})</label>
-          <input type="number" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0" />
+          <MoneyInput value={value} onChange={setValue} placeholder="0" />
         </div>
 
         <div className="kw-field">
@@ -372,7 +373,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
               <div style={{ marginTop: 10 }}>
                 <div className="kw-row2">
                   <div className="kw-field"><label>Provider</label><input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="Jubilee" /></div>
-                  <div className="kw-field"><label>Premium / yr ({currency})</label><input type="number" value={premium} onChange={(e) => setPremium(e.target.value)} placeholder="0" /></div>
+                  <div className="kw-field"><label>Premium / yr ({currency})</label><MoneyInput value={premium} onChange={setPremium} placeholder="0" /></div>
                 </div>
                 <div className="kw-field" style={{ marginBottom: 0 }}><label>Renews on</label><input type="date" value={renewal} onChange={(e) => setRenewal(e.target.value)} /></div>
               </div>

@@ -45,6 +45,7 @@ export interface IncomeSource {
   kind: IncomeKind;
   category: string;
   label: string;
+  employer: string;   // which employer (for capturing multiple salaries)
   grossMonthlyCents: number;
   currency: string;
   taxPct: number;     // active: PAYE/tax %; passive: 0
@@ -81,6 +82,7 @@ export interface CreateIncomeInput {
   kind: IncomeKind;
   category: string;
   label: string;
+  employer?: string;
   grossMonthlyCents: number;
   currency: string;
   taxPct?: number;
@@ -96,6 +98,7 @@ export async function createIncome(input: CreateIncomeInput): Promise<{ id: stri
     kind: input.kind,
     category: input.category,
     label: input.label,
+    employer: input.employer ?? '',
     grossMonthlyCents: input.grossMonthlyCents,
     currency: input.currency,
     taxPct: input.kind === 'active' ? (input.taxPct ?? 0) : 0,
@@ -109,7 +112,7 @@ export async function createIncome(input: CreateIncomeInput): Promise<{ id: stri
 }
 
 export type IncomePatch = Partial<Pick<IncomeSource,
-  'category' | 'label' | 'grossMonthlyCents' | 'currency' | 'taxPct' | 'savedPct'>>;
+  'category' | 'label' | 'employer' | 'grossMonthlyCents' | 'currency' | 'taxPct' | 'savedPct'>>;
 
 export async function updateIncome(familyId: string, id: string, patch: IncomePatch): Promise<void> {
   if (isGuestActive()) return;

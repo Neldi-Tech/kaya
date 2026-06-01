@@ -14,6 +14,7 @@ import {
   subscribeBankAccounts, addBank, revealBank, deleteBank,
   BANK_TYPE_LABEL, type BankAccountMasked, type BankAccountType,
 } from './bankVaultClient';
+import { MoneyInput, moneyToCents } from './MoneyInput';
 
 const groupDigits = (n: string) => n.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
 
@@ -170,7 +171,7 @@ function AddBankModal({ onClose }: { onClose: () => void }) {
     setBusy(true); setErr('');
     const r = await addBank({
       code, bankName: bankName.trim(), type, currency,
-      balanceCents: balance ? Math.round((parseFloat(balance) || 0) * 100) : null,
+      balanceCents: balance ? moneyToCents(balance) : null,
       fullNumber,
     });
     if (r.ok) { onClose(); return; }
@@ -196,7 +197,7 @@ function AddBankModal({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <div className="kw-field"><label>Account number</label><input inputMode="numeric" value={fullNumber} onChange={(e) => setFullNumber(e.target.value)} placeholder="0000 0000 0000" /></div>
-        <div className="kw-field"><label>Balance ({currency}) <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label><input type="number" inputMode="decimal" value={balance} onChange={(e) => setBalance(e.target.value)} placeholder="0" /></div>
+        <div className="kw-field"><label>Balance ({currency}) <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label><MoneyInput value={balance} onChange={setBalance} placeholder="0" /></div>
         <div className="kw-field" style={{ marginBottom: 6 }}><label>🔐 Your 2FA code (to save)</label><input inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" /></div>
         {err && <div style={{ color: '#c0392b', fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{err}</div>}
         <div className="kw-modal-actions">

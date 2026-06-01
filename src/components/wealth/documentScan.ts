@@ -1,70 +1,18 @@
-// Kaya Wealth · document scan + enhance engine (PR3 · 2026-06-01).
+// Kaya Wealth · document scan + enhance engine (canvas-only · 2026-06-01).
 //
 // Turns a phone photo of a document into a clean, official-looking scan —
-// "not just a photo" (Non-Negotiable #18: crop, flatten, de-shadow, sharpen).
+// "not just a photo" (Non-Negotiable #18): de-shadow, contrast, sharpen.
 //
-// Two stages:
-//   1. Crop + flatten — jscanify (auto paper-edge detection + perspective
-//      warp), which runs on OpenCV.js. Both are heavy + client-only, so we
-//      lazy-load them from CDN the first time the scanner opens. Neither is
-//      bundled (jscanify's npm build drags in node-canvas — a native Vercel
-//      build risk — so we load the prebuilt browser bundles instead).
-//   2. De-shadow + contrast + sharpen — a pure-canvas pass that always runs.
-//
-// Graceful fallback: if OpenCV/jscanify fail to load or find no document,
-// we skip the crop and still return the enhanced full image, so a scan
-// never hard-fails.
+// Pure canvas — fast and reliable, NO external CV libraries. (The earlier
+// build lazy-loaded OpenCV.js + jscanify from CDN for auto edge-crop +
+// perspective flatten, but that load could hang the scan for many seconds and
+// made it feel broken. Reliable enhancement matters more than auto-crop, which
+// can come back later as an opt-in once it's robust.)
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
-const OPENCV_SRC = 'https://docs.opencv.org/4.10.0/opencv.js';
-const JSCANIFY_SRC = 'https://cdn.jsdelivr.net/npm/jscanify@1.4.2/dist/jscanify.min.js';
-const MAX_EDGE = 1800;
+const MAX_EDGE = 1500;
 const JPEG_Q = 0.9;
 
 export interface ScanResult { blob: Blob; dataUrl: string; autoCropped: boolean }
-
-function loadScript(id: string, src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (document.getElementById(id)) { resolve(); return; }
-    const s = document.createElement('script');
-    s.id = id; s.src = src; s.async = true;
-    s.onload = () => resolve();
-    s.onerror = () => { s.remove(); reject(new Error(`script-failed:${id}`)); };
-    document.body.appendChild(s);
-  });
-}
-
-let openCvReady: Promise<any> | null = null;
-function loadOpenCv(): Promise<any> {
-  if (openCvReady) return openCvReady;
-  openCvReady = (async () => {
-    await loadScript('kw-opencv-js', OPENCV_SRC);
-    const w = window as any;
-    const cv = w.cv;
-    if (cv && typeof cv.then === 'function') { const real = await cv; w.cv = real; return real; }
-    if (cv && cv.Mat) return cv;
-    await new Promise<void>((res, rej) => {
-      const t = setTimeout(() => rej(new Error('opencv-init-timeout')), 25000);
-      w.cv = w.cv || {};
-      w.cv.onRuntimeInitialized = () => { clearTimeout(t); res(); };
-    });
-    return w.cv;
-  })().catch((e) => { openCvReady = null; throw e; });
-  return openCvReady;
-}
-
-let jscanifyReady: Promise<any> | null = null;
-function loadJscanify(): Promise<any> {
-  if (jscanifyReady) return jscanifyReady;
-  jscanifyReady = (async () => {
-    await loadScript('kw-jscanify-js', JSCANIFY_SRC);
-    const ctor = (window as any).jscanify;
-    if (!ctor) throw new Error('jscanify-missing');
-    return ctor;
-  })().catch((e) => { jscanifyReady = null; throw e; });
-  return jscanifyReady;
-}
 
 function loadImage(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -77,11 +25,11 @@ function loadImage(file: File): Promise<HTMLImageElement> {
 }
 
 function downscale(img: HTMLImageElement, maxEdge: number): HTMLCanvasElement {
-  const longEdge = Math.max(img.naturalWidth, img.naturalHeight);
+  const longEdge = Math.max(img.naturalWidth, img.naturalHeight) || 1;
   const scale = longEdge > maxEdge ? maxEdge / longEdge : 1;
   const c = document.createElement('canvas');
-  c.width = Math.round(img.naturalWidth * scale);
-  c.height = Math.round(img.naturalHeight * scale);
+  c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  c.height = Math.max(1, Math.round(img.naturalHeight * scale));
   const ctx = c.getContext('2d')!;
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(img, 0, 0, c.width, c.height);
@@ -117,17 +65,17 @@ function boxBlur(src: Float32Array, w: number, h: number, r: number): Float32Arr
   return out;
 }
 
-/** De-shadow (local background normalisation) + contrast + unsharp sharpen.
- *  Keeps colour so stamps/signatures survive. Pure canvas — always runs. */
+/** De-shadow (local background normalisation) + contrast + a fast unsharp.
+ *  All O(n) plus one GPU blur — quick even on a phone. Keeps colour. */
 function enhance(src: HTMLCanvasElement): HTMLCanvasElement {
   const w = src.width, h = src.height;
   const ctx = src.getContext('2d', { willReadFrequently: true })!;
   const image = ctx.getImageData(0, 0, w, h);
   const d = image.data;
 
-  // 1. Estimate paper-white background on a coarse grid (brightest sample per
-  //    cell ≈ paper), blur it, then scale each pixel so its local background
-  //    maps to near-white — this removes uneven lighting + shadows.
+  // 1. De-shadow — estimate paper-white background on a coarse grid (brightest
+  //    sample per cell ≈ paper), blur it, then scale each pixel so its local
+  //    background maps near white. Removes uneven lighting + shadows.
   const gw = Math.max(2, Math.round(w / 24)), gh = Math.max(2, Math.round(h / 24));
   const cellW = w / gw, cellH = h / gh;
   const grid = new Float32Array(gw * gh);
@@ -147,73 +95,53 @@ function enhance(src: HTMLCanvasElement): HTMLCanvasElement {
   }
   const bg = boxBlur(grid, gw, gh, 2);
   const TARGET = 244;
+  const C = 1.16;
   for (let y = 0; y < h; y++) {
     const gy = Math.min(gh - 1, Math.floor(y / cellH));
     for (let x = 0; x < w; x++) {
       const gx = Math.min(gw - 1, Math.floor(x / cellW));
       const scale = TARGET / (bg[gy * gw + gx] || 1);
       const i = (y * w + x) * 4;
-      d[i] = clamp255(d[i] * scale);
-      d[i + 1] = clamp255(d[i + 1] * scale);
-      d[i + 2] = clamp255(d[i + 2] * scale);
+      // de-shadow scale, then contrast around the midpoint, in one pass.
+      d[i]     = clamp255((clamp255(d[i]     * scale) - 128) * C + 128);
+      d[i + 1] = clamp255((clamp255(d[i + 1] * scale) - 128) * C + 128);
+      d[i + 2] = clamp255((clamp255(d[i + 2] * scale) - 128) * C + 128);
     }
   }
+  ctx.putImageData(image, 0, 0);
 
-  // 2. Contrast around the midpoint (crisp blacks, clean whites).
-  const C = 1.16;
-  for (let i = 0; i < d.length; i += 4) {
-    d[i] = clamp255((d[i] - 128) * C + 128);
-    d[i + 1] = clamp255((d[i + 1] - 128) * C + 128);
-    d[i + 2] = clamp255((d[i + 2] - 128) * C + 128);
-  }
-
-  // 3. Unsharp sharpen via a 3×3 convolution on a copy of the de-shadowed data.
-  const out = ctx.createImageData(w, h);
-  const o = out.data;
-  const a = 0.45, centre = 1 + 4 * a;
-  const at = (x: number, y: number, ch: number) =>
-    d[(Math.min(h - 1, Math.max(0, y)) * w + Math.min(w - 1, Math.max(0, x))) * 4 + ch];
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      for (let ch = 0; ch < 3; ch++) {
-        o[i + ch] = clamp255(centre * at(x, y, ch) - a * (at(x - 1, y, ch) + at(x + 1, y, ch) + at(x, y - 1, ch) + at(x, y + 1, ch)));
-      }
-      o[i + 3] = 255;
+  // 2. Fast unsharp — blur a copy on a temp canvas (GPU), combine in one O(n)
+  //    pass. No per-pixel convolution, so it stays quick on large images.
+  try {
+    const blurC = document.createElement('canvas');
+    blurC.width = w; blurC.height = h;
+    const bctx = blurC.getContext('2d')!;
+    bctx.filter = 'blur(1.1px)';
+    bctx.drawImage(src, 0, 0);
+    const blur = bctx.getImageData(0, 0, w, h).data;
+    const sharp = ctx.getImageData(0, 0, w, h);
+    const s = sharp.data;
+    const amt = 0.7;
+    for (let i = 0; i < s.length; i += 4) {
+      s[i]     = clamp255(s[i]     + amt * (s[i]     - blur[i]));
+      s[i + 1] = clamp255(s[i + 1] + amt * (s[i + 1] - blur[i + 1]));
+      s[i + 2] = clamp255(s[i + 2] + amt * (s[i + 2] - blur[i + 2]));
     }
-  }
-  ctx.putImageData(out, 0, 0);
+    ctx.putImageData(sharp, 0, 0);
+  } catch { /* blur filter unsupported — de-shadow + contrast already applied */ }
+
   return src;
 }
 
-/** Main entry: File → cropped + enhanced JPEG scan. Stages are reported via
- *  `onStage` so the UI can show progress. Never throws on CV failure — it
- *  falls back to enhance-only. */
+/** File → enhanced JPEG scan. Fast, never hangs. */
 export async function scanDocument(file: File, opts?: { autoCrop?: boolean; onStage?: (s: string) => void }): Promise<ScanResult> {
   const onStage = opts?.onStage ?? (() => {});
-  const wantCrop = opts?.autoCrop !== false;
   onStage('Reading photo…');
   const img = await loadImage(file);
-  let working = downscale(img, MAX_EDGE);
-  let autoCropped = false;
-
-  if (wantCrop) {
-    try {
-      onStage('Loading scanner…');
-      await loadOpenCv();
-      const Jscanify = await loadJscanify();
-      onStage('Finding the document…');
-      const scanner = new Jscanify();
-      const paper: HTMLCanvasElement = scanner.extractPaper(working, working.width, working.height);
-      if (paper && paper.width > 40 && paper.height > 40) { working = paper; autoCropped = true; }
-    } catch {
-      autoCropped = false; // fall back to enhance-only
-    }
-  }
-
+  const canvas = downscale(img, MAX_EDGE);
   onStage('Enhancing…');
-  const enhanced = enhance(working);
+  const enhanced = enhance(canvas);
   const blob = await canvasToBlob(enhanced, JPEG_Q);
   const dataUrl = enhanced.toDataURL('image/jpeg', JPEG_Q);
-  return { blob, dataUrl, autoCropped };
+  return { blob, dataUrl, autoCropped: false };
 }

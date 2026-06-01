@@ -17,6 +17,7 @@ import {
   subscribeAdvisories, dismissAdvisory, markAdvisoryActed, refreshAdvisories, type Advisory,
 } from '@/lib/wealthAdvisoriesClient';
 import type { WealthData } from './useWealthData';
+import { MoneyInput, moneyToCents, formatMoneyInput } from './MoneyInput';
 
 const refreshed = new Set<string>(); // one auto-refresh per family per session
 const INVEST_CLASSES = ASSET_CLASSES.filter((c) => !c.isLiability);
@@ -115,14 +116,14 @@ function DepositModal({ householdCurrency, onClose, onDeposit, onWithdraw }: {
 }) {
   const [amount, setAmount] = useState('');
   const [busy, setBusy] = useState(false);
-  const cents = Math.round((parseFloat(amount) || 0) * 100);
+  const cents = moneyToCents(amount);
   const run = async (fn?: (c: number) => Promise<void>) => { if (!fn || cents <= 0 || busy) return; setBusy(true); await fn(cents); };
   return (
     <div className="kw-modal-back" onClick={onClose}>
       <div className="kw-modal" onClick={(e) => e.stopPropagation()}>
         <h3>🐷 Savings Queue</h3>
         <div className="msub">Set money aside for investing later — or take some back.</div>
-        <div className="kw-field"><label>Amount ({householdCurrency})</label><input autoFocus type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></div>
+        <div className="kw-field"><label>Amount ({householdCurrency})</label><MoneyInput value={amount} onChange={setAmount} placeholder="0" autoFocus /></div>
         <div className="kw-modal-actions">
           {onWithdraw && <button className="kw-btn-ghost" disabled={cents <= 0 || busy} onClick={() => run(onWithdraw)}>Withdraw</button>}
           <button className="kw-btn-ghost" onClick={onClose}>Cancel</button>
@@ -139,11 +140,11 @@ function PromoteModal({ max, householdCurrency, onClose, onPromote }: {
   max: number; householdCurrency: string; onClose: () => void;
   onPromote: (cents: number, name: string, cls: AssetClassId) => Promise<void>;
 }) {
-  const [amount, setAmount] = useState(String(max / 100));
+  const [amount, setAmount] = useState(formatMoneyInput(String(max / 100)));
   const [name, setName] = useState('');
   const [cls, setCls] = useState<AssetClassId>('public_markets');
   const [busy, setBusy] = useState(false);
-  const cents = Math.round((parseFloat(amount) || 0) * 100);
+  const cents = moneyToCents(amount);
   const canSave = cents > 0 && cents <= max && name.trim().length > 0 && !busy;
   const go = async () => { if (!canSave) return; setBusy(true); try { await onPromote(cents, name.trim(), cls); } catch { setBusy(false); } };
   return (
@@ -152,7 +153,7 @@ function PromoteModal({ max, householdCurrency, onClose, onPromote }: {
         <h3>📈 Promote to investment</h3>
         <div className="msub">Moves money from the queue into a real holding in your Asset Register. You confirm — nothing is automatic.</div>
         <div className="kw-row2">
-          <div className="kw-field"><label>Amount ({householdCurrency})</label><input autoFocus type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></div>
+          <div className="kw-field"><label>Amount ({householdCurrency})</label><MoneyInput value={amount} onChange={setAmount} placeholder="0" autoFocus /></div>
           <div className="kw-field"><label>Invest as</label>
             <select value={cls} onChange={(e) => setCls(e.target.value as AssetClassId)}>
               {INVEST_CLASSES.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
