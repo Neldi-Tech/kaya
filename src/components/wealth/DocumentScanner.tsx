@@ -19,24 +19,21 @@ export default function DocumentScanner({ familyId, assetId, assetName, author, 
 }) {
   const [stage, setStage] = useState<Stage>('idle');
   const [stageMsg, setStageMsg] = useState('');
-  const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [label, setLabel] = useState('');
-  const [autoCrop, setAutoCrop] = useState(true);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  const process = async (f: File, crop: boolean) => {
+  const process = async (f: File) => {
     setStage('processing'); setError('');
     try {
-      const r = await scanDocument(f, { autoCrop: crop, onStage: setStageMsg });
+      const r = await scanDocument(f, { onStage: setStageMsg });
       setResult(r); setStage('preview');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not process that image.'); setStage('error');
     }
   };
-  const onPick = (f: File | null) => { if (!f) return; setFile(f); void process(f, autoCrop); };
-  const toggleCrop = (next: boolean) => { setAutoCrop(next); if (file) void process(file, next); };
+  const onPick = (f: File | null) => { if (!f) return; void process(f); };
 
   const save = async () => {
     if (!result) return;
@@ -61,7 +58,7 @@ export default function DocumentScanner({ familyId, assetId, assetName, author, 
             <div className="kw-scan-drop" onClick={() => inputRef.current?.click()} role="button">
               <div style={{ fontSize: 34 }}>📷</div>
               <div style={{ fontWeight: 800, color: '#0F1F44' }}>Take a photo or choose a file</div>
-              <div style={{ fontSize: 12, color: '#5A5A5A', marginTop: 4 }}>Lay it flat in good light — we&apos;ll auto-crop, de-shadow &amp; sharpen it.</div>
+              <div style={{ fontSize: 12, color: '#5A5A5A', marginTop: 4 }}>Lay it flat in good light — we&apos;ll de-shadow, sharpen &amp; clean it up.</div>
             </div>
             <input ref={inputRef} type="file" accept="image/*" capture="environment" hidden
               onChange={(e) => onPick(e.target.files?.[0] ?? null)} />
@@ -78,20 +75,14 @@ export default function DocumentScanner({ familyId, assetId, assetName, author, 
             <img className="kw-scan-preview" src={result.dataUrl} alt="Enhanced document preview" />
             <div className="kw-scan-badges">
               <span className="kw-badge-ok">✨ Enhanced</span>
-              {result.autoCropped
-                ? <span className="kw-badge-ok">✓ auto-cropped</span>
-                : <span className="kw-badge-muted">full frame</span>}
+              <span className="kw-badge-muted">de-shadowed &amp; sharpened</span>
             </div>
-            <label className="kw-crop-row">
-              <input type="checkbox" checked={autoCrop} onChange={(e) => toggleCrop(e.target.checked)} />
-              Auto-crop &amp; flatten the document
-            </label>
             <div className="kw-field" style={{ marginTop: 10 }}>
               <label>Name</label>
               <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Title deed" />
             </div>
             <div className="kw-modal-actions">
-              <button className="kw-btn-ghost" onClick={() => { setResult(null); setFile(null); setStage('idle'); }}>Retake</button>
+              <button className="kw-btn-ghost" onClick={() => { setResult(null); setStage('idle'); }}>Retake</button>
               <button className="kw-btn-primary" onClick={save}>Save to vault</button>
             </div>
           </>

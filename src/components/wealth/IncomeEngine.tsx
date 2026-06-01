@@ -16,6 +16,7 @@ import {
   type IncomeSource, type IncomeKind, type IncomeVisibility, type IncomeConfig,
 } from '@/lib/wealthIncome';
 import type { WealthData } from './useWealthData';
+import { MoneyInput, moneyToCents, formatMoneyInput } from './MoneyInput';
 
 export default function IncomeEngine({ data, view }: { data: WealthData; view: IncomeVisibility }) {
   const { familyId, author, householdCurrency, rateFor, isParent } = data;
@@ -55,7 +56,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
           {s.active.map((src) => (
             <div className="iline" key={src.id} role={isParent ? 'button' : undefined} style={isParent ? { cursor: 'pointer' } : undefined}
               onClick={() => isParent && setModal({ kind: 'active', source: src })}>
-              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}</span>
+              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}{src.employer ? <span className="sub"> · {src.employer}</span> : null}</span>
               <span className="r">{formatCents(toH(src), householdCurrency)}</span>
             </div>
           ))}
@@ -79,7 +80,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
           {s.passive.map((src) => (
             <div className="iline pos" key={src.id} role={isParent ? 'button' : undefined} style={isParent ? { cursor: 'pointer' } : undefined}
               onClick={() => isParent && setModal({ kind: 'passive', source: src })}>
-              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}</span>
+              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}{src.employer ? <span className="sub"> · {src.employer}</span> : null}</span>
               <span className="r">+ {formatCents(toH(src), householdCurrency)}</span>
             </div>
           ))}
@@ -127,34 +128,40 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
   const cats = INCOME_CATEGORIES.filter((c) => c.kind === kind);
   const [category, setCategory] = useState(source?.category ?? cats[0].id);
   const [label, setLabel] = useState(source?.label ?? '');
-  const [gross, setGross] = useState(source ? String(source.grossMonthlyCents / 100) : '');
+  const [gross, setGross] = useState(source ? formatMoneyInput(String(source.grossMonthlyCents / 100)) : '');
   const [currency, setCurrency] = useState(source?.currency ?? householdCurrency);
+  const [employer, setEmployer] = useState(source?.employer ?? '');
   const [taxPct, setTaxPct] = useState(source ? String(source.taxPct) : '');
   const [savedPct, setSavedPct] = useState(source ? String(source.savedPct) : '');
   const [busy, setBusy] = useState(false);
-  const grossCents = Math.round((parseFloat(gross) || 0) * 100);
+  const [err, setErr] = useState('');
+  const grossCents = moneyToCents(gross);
   const canSave = grossCents > 0 && !busy;
 
   const save = async () => {
     if (!canSave) return;
-    setBusy(true);
+    setBusy(true); setErr('');
     const lbl = label.trim() || incomeCatDef(category).label;
+    const emp = kind === 'active' ? employer.trim() : '';
     try {
       if (source) {
         await updateIncome(familyId, source.id, {
-          category, label: lbl, grossMonthlyCents: grossCents, currency,
+          category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
           taxPct: kind === 'active' ? (parseFloat(taxPct) || 0) : 0,
           savedPct: kind === 'active' ? (parseFloat(savedPct) || 0) : 0,
         });
       } else {
         await createIncome({
-          familyId, kind, category, label: lbl, grossMonthlyCents: grossCents, currency,
+          familyId, kind, category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
           taxPct: parseFloat(taxPct) || 0, savedPct: parseFloat(savedPct) || 0,
           visibility: view, ownerId: authorUid,
         });
       }
       onClose();
-    } catch { setBusy(false); }
+    } catch (e) {
+      setErr(e instanceof Error && /permission/i.test(e.message) ? 'Permission denied — reload and try again.' : 'Couldn’t save. Please try again.');
+      setBusy(false);
+    }
   };
   const remove = async () => { if (source) { await deleteIncome(familyId, source.id); onClose(); } };
 
@@ -169,8 +176,11 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
           </select>
         </div>
         <div className="kw-field"><label>Label</label><input value={label} onChange={(e) => setLabel(e.target.value)} placeholder={incomeCatDef(category).label} /></div>
+        {kind === 'active' && (
+          <div className="kw-field"><label>Employer <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label><input value={employer} onChange={(e) => setEmployer(e.target.value)} placeholder="e.g. Neldi Inc — to capture multiple salaries" /></div>
+        )}
         <div className="kw-row2">
-          <div className="kw-field"><label>Gross / month ({currency})</label><input type="number" inputMode="decimal" value={gross} onChange={(e) => setGross(e.target.value)} placeholder="0" /></div>
+          <div className="kw-field"><label>Gross / month ({currency})</label><MoneyInput value={gross} onChange={setGross} placeholder="0" /></div>
           <div className="kw-field"><label>Currency</label>
             <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
               {SUPPORTED_CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
@@ -183,6 +193,7 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
             <div className="kw-field"><label>Saved to queue %</label><input type="number" inputMode="decimal" value={savedPct} onChange={(e) => setSavedPct(e.target.value)} placeholder="0" /></div>
           </div>
         )}
+        {err && <div style={{ color: '#c0392b', fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{err}</div>}
         <div className="kw-modal-actions">
           {source && <button className="kw-btn-ghost" style={{ color: '#E85C5C' }} onClick={remove}>Delete</button>}
           <button className="kw-btn-ghost" onClick={onClose}>Cancel</button>
