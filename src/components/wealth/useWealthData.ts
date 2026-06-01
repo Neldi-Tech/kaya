@@ -39,11 +39,12 @@ export function useWealthData(): WealthData {
   const [rates, setRates] = useState<Record<string, number>>({});
   const [usdPerHousehold, setUsdPerHousehold] = useState<number | null>(null);
 
+  const uid = user?.uid;
   useEffect(() => {
-    if (!familyId) { setAssets([]); setLoading(false); return; }
+    if (!familyId || !uid) { setAssets([]); setLoading(false); return; }
     setLoading(true);
-    return subscribeToWealthAssets(familyId, (a) => { setAssets(a); setLoading(false); });
-  }, [familyId]);
+    return subscribeToWealthAssets(familyId, uid, (a) => { setAssets(a); setLoading(false); });
+  }, [familyId, uid]);
 
   // Resolve FX once per distinct set of currencies present (+ the USD
   // benchmark). Unknown rates fall back to 1 — the roll-up never throws.

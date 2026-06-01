@@ -22,7 +22,7 @@
 // linkedWealthAssetId → /families/{f}/wealth_assets/{id}).
 
 import {
-  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy,
+  collection, doc, getDoc, getDocs, onSnapshot, query, orderBy, where,
   serverTimestamp, writeBatch, Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -185,23 +185,39 @@ const logCol = (familyId: string, assetId: string) =>
  *  filtered out here; pass `includeArchived` to keep them. */
 export function subscribeToWealthAssets(
   familyId: string,
+  uid: string,
   cb: (assets: WealthAsset[]) => void,
   opts: { includeArchived?: boolean } = {},
 ): () => void {
   if (isGuestActive()) { cb([]); return () => {}; }
-  return onSnapshot(
-    assetsCol(familyId),
-    (snap) => {
-      let list = snap.docs.map((d) => ({ id: d.id, ...d.data() } as WealthAsset));
-      if (!opts.includeArchived) list = list.filter((a) => !a.archivedAt);
-      cb(list);
-    },
-    (err) => {
-      // eslint-disable-next-line no-console
-      console.error('[wealth] subscribe failed:', err);
-      cb([]);
-    },
-  );
+  const col = assetsCol(familyId);
+  // The read rule is row-conditional — a parent may read non-personal rows OR
+  // their own personal rows, but NOT a co-parent's personal rows. Firestore
+  // rejects an UNCONSTRAINED collection query against such a rule ("rules are
+  // not filters"), so a plain onSnapshot(col) returns permission-denied and
+  // the vault looks empty. We instead run two rule-satisfying queries and
+  // merge them: every row I own (any visibility) + every non-personal row.
+  // A co-parent's personal rows match neither query, so they never leak.
+  const mine = new Map<string, WealthAsset>();
+  const open = new Map<string, WealthAsset>();
+  const seen = { mine: false, open: false };
+  const emit = () => {
+    if (!seen.mine || !seen.open) return; // wait for both first snapshots
+    const m = new Map<string, WealthAsset>(open);
+    for (const [k, v] of mine) m.set(k, v); // own rows win on overlap
+    let list = Array.from(m.values());
+    if (!opts.includeArchived) list = list.filter((a) => !a.archivedAt);
+    cb(list);
+  };
+  const u1 = onSnapshot(query(col, where('ownerId', '==', uid)),
+    (snap) => { mine.clear(); snap.forEach((d) => mine.set(d.id, { id: d.id, ...d.data() } as WealthAsset)); seen.mine = true; emit(); },
+    // eslint-disable-next-line no-console
+    (err) => { seen.mine = true; console.error('[wealth] subscribe (own) failed:', err); emit(); });
+  const u2 = onSnapshot(query(col, where('visibility', 'in', ['shared', 'junior'])),
+    (snap) => { open.clear(); snap.forEach((d) => open.set(d.id, { id: d.id, ...d.data() } as WealthAsset)); seen.open = true; emit(); },
+    // eslint-disable-next-line no-console
+    (err) => { seen.open = true; console.error('[wealth] subscribe (shared) failed:', err); emit(); });
+  return () => { u1(); u2(); };
 }
 
 export async function listWealthAssets(familyId: string): Promise<WealthAsset[]> {

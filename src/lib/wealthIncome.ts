@@ -10,7 +10,7 @@
 // the coverage meter) live on families/{f}/wealth_config/income.
 
 import {
-  collection, doc, getDocs, onSnapshot, setDoc, updateDoc, deleteDoc,
+  collection, doc, getDocs, onSnapshot, query, where, setDoc, updateDoc, deleteDoc,
   serverTimestamp, Timestamp,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -58,17 +58,33 @@ export interface IncomeSource {
 
 const incomeCol = (familyId: string) => collection(db, 'families', familyId, 'wealth_income');
 
-export function subscribeToIncome(familyId: string, cb: (s: IncomeSource[]) => void): () => void {
+export function subscribeToIncome(familyId: string, uid: string, cb: (s: IncomeSource[]) => void): () => void {
   if (isGuestActive()) { cb([]); return () => {}; }
-  return onSnapshot(
-    incomeCol(familyId),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() } as IncomeSource))),
-    (err) => {
-      // eslint-disable-next-line no-console
-      console.error('[wealth/income] subscribe failed:', err);
-      cb([]);
-    },
-  );
+  const col = incomeCol(familyId);
+  // Row-conditional read rule (personal rows are owner-only) means an
+  // UNCONSTRAINED collection query is rejected by Firestore — a plain
+  // onSnapshot(col) returns permission-denied, so saved income never appears
+  // and the engine looks broken. Run two rule-satisfying queries and merge:
+  // every row I own (my personal + shared I added) + every shared row. A
+  // co-parent's personal income matches neither, so it stays private.
+  const mine = new Map<string, IncomeSource>();
+  const shared = new Map<string, IncomeSource>();
+  const seen = { mine: false, shared: false };
+  const emit = () => {
+    if (!seen.mine || !seen.shared) return;
+    const m = new Map<string, IncomeSource>(shared);
+    for (const [k, v] of mine) m.set(k, v);
+    cb(Array.from(m.values()));
+  };
+  const u1 = onSnapshot(query(col, where('ownerId', '==', uid)),
+    (snap) => { mine.clear(); snap.forEach((d) => mine.set(d.id, { id: d.id, ...d.data() } as IncomeSource)); seen.mine = true; emit(); },
+    // eslint-disable-next-line no-console
+    (err) => { seen.mine = true; console.error('[wealth/income] subscribe (own) failed:', err); emit(); });
+  const u2 = onSnapshot(query(col, where('visibility', '==', 'shared')),
+    (snap) => { shared.clear(); snap.forEach((d) => shared.set(d.id, { id: d.id, ...d.data() } as IncomeSource)); seen.shared = true; emit(); },
+    // eslint-disable-next-line no-console
+    (err) => { seen.shared = true; console.error('[wealth/income] subscribe (shared) failed:', err); emit(); });
+  return () => { u1(); u2(); };
 }
 
 export async function listIncome(familyId: string): Promise<IncomeSource[]> {

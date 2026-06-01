@@ -33,7 +33,7 @@ export default function WealthDocuments({ data, view }: {
             <button className="sb-scan" onClick={() => canScan && setPickOpen(true)} disabled={!canScan}>📷 Scan document</button>
             <button className="sb-enh" onClick={() => canScan && setPickOpen(true)} disabled={!canScan}>✨ Add &amp; enhance</button>
           </div>
-          <div className="enhance-row">✨ <span><b>Enhance</b> auto-crops edges, flattens, de-shadows &amp; sharpens — not just a photo.{assets.length === 0 ? ' Add an asset first.' : ''}</span></div>
+          <div className="enhance-row">✨ <span><b>Enhance</b> de-shadows, sharpens &amp; cleans up your scan — not just a photo.{assets.length === 0 ? ' Add an asset first to attach a document.' : ''}</span></div>
         </div>
         <div className="gallery">
           <div className="gt">Attached to your assets</div>
