@@ -102,6 +102,29 @@ module.exports = {
           bg: '#F5F0FF',
           card: '#FFFFFF',
         },
+        // ── Kaya Wealth · "vault" scoped palette (2026-06-01). The
+        //    approved Wealth mockup's premium navy/gold/cream register,
+        //    with violet = Personal and green = Juniors mode signals.
+        //    Scoped like pulse-*/games-* so it never overwrites kaya-*.
+        //    Use only inside /wealth routes + Wealth components. The core
+        //    navy/gold/cream/green deliberately match pulse-* (shared
+        //    premium genome); the rest are Wealth-specific hexes lifted
+        //    1:1 from the approved mockup's :root.
+        wealth: {
+          navy: '#0F1F44',
+          'navy-2': '#19306A',
+          gold: '#D4A847',
+          'gold-soft': '#E7C679',
+          cream: '#FBF7EE',
+          green: '#2E7D34',
+          'green-soft': '#E3F0E4',
+          coral: '#E85C5C',
+          violet: '#6B4FA0',
+          blue: '#2E6FB0',
+          ink: '#1A1A1A',
+          grey: '#5A5A5A',
+          line: '#E7E0D0',
+        },
       },
       fontFamily: {
         display: ['var(--font-display)', 'system-ui', 'sans-serif'],
