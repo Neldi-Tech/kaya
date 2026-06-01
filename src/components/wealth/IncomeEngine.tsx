@@ -25,7 +25,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
   const [modal, setModal] = useState<null | { kind: IncomeKind; source?: IncomeSource }>(null);
   const [expEdit, setExpEdit] = useState<string | null>(null);
 
-  useEffect(() => { if (familyId) return subscribeToIncome(familyId, setSources); }, [familyId]);
+  useEffect(() => { if (familyId) return subscribeToIncome(familyId, author.uid, setSources); }, [familyId, author.uid]);
   useEffect(() => { if (familyId) return subscribeIncomeConfig(familyId, setConfig); }, [familyId]);
 
   const s = useMemo(
@@ -62,7 +62,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
           ))}
           {s.activeGrossCents > 0 && (
             <>
-              <div className="iline neg"><span className="l"><span className="ic">🧾</span>PAYE &amp; taxes</span><span className="r">− {formatCents(s.activeTaxCents, householdCurrency)}</span></div>
+              <div className="iline neg"><span className="l"><span className="ic">🛡️</span>Social Security <small style={{ color: 'var(--grey)', fontWeight: 600 }}>(future savings)</small></span><span className="r">− {formatCents(s.activeTaxCents, householdCurrency)}</span></div>
               <div className="iline pos"><span className="l"><span className="ic">🐷</span>Saved to queue</span><span className="r">+ {formatCents(s.activeSavedCents, householdCurrency)}</span></div>
               <div className="iline"><span className="l"><span className="ic">🏠</span>Net to household spend</span><span className="r">{formatCents(s.activeNetCents, householdCurrency)}</span></div>
             </>
@@ -189,7 +189,7 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
         </div>
         {kind === 'active' && (
           <div className="kw-row2">
-            <div className="kw-field"><label>Tax / PAYE %</label><input type="number" inputMode="decimal" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} placeholder="0" /></div>
+            <div className="kw-field"><label>Social Security % <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(future savings)</span></label><input type="number" inputMode="decimal" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} placeholder="0" /></div>
             <div className="kw-field"><label>Saved to queue %</label><input type="number" inputMode="decimal" value={savedPct} onChange={(e) => setSavedPct(e.target.value)} placeholder="0" /></div>
           </div>
         )}
