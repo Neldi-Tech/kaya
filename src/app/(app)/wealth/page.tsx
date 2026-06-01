@@ -23,6 +23,7 @@ import { useWealthData } from '@/components/wealth/useWealthData';
 import AssetRegister from '@/components/wealth/AssetRegister';
 import { compactCents, curLabel, kcFromUsdCents } from '@/components/wealth/wealthFormat';
 import VaultLock from '@/components/wealth/VaultLock';
+import WealthDocuments from '@/components/wealth/WealthDocuments';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -147,7 +148,7 @@ export default function KayaWealthPage() {
             <IncomeEngine mode={mode} />
             <StockMarkets />
             <AssetRegister data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
-            <DocumentVault />
+            <WealthDocuments data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
           </>
         )}
 
@@ -453,31 +454,7 @@ function StockMarkets() {
   );
 }
 
-function DocumentVault() {
-  return (
-    <div className="adult-block">
-      <div className="section-title"><h2>🗂️ Document Vault <span className="pilltag">Scan · Enhance · Store</span></h2><a>Phase 2</a></div>
-      <div className="scanwrap">
-        <div className="scanner">
-          <div className="scan-frame"><span className="corner c1" /><span className="corner c2" /><span className="corner c3" /><span className="corner c4" /><div className="doc" /><div className="scan-line" /></div>
-          <div className="scan-actions"><button className="sb-scan">📷 Scan document</button><button className="sb-enh">✨ Auto-enhance</button></div>
-          <div className="enhance-row">✨ <span><b>Enhance</b> auto-crops edges, flattens, de-shadows &amp; sharpens — not just a photo.</span></div>
-        </div>
-        <div className="gallery">
-          <div className="gt">Attached to your assets</div>
-          <div className="thumbs">
-            <div className="thumb enh"><span className="em">📄</span>Title deed<span className="badge2">Enhanced</span></div>
-            <div className="thumb"><span className="em">🧾</span>Insurance<span className="badge2">PDF</span></div>
-            <div className="thumb vid"><span className="em">🎥</span>Walk-through<span className="badge2">Video</span></div>
-            <div className="thumb"><span className="em">🖼️</span>Front photo<span className="badge2">JPG</span></div>
-            <div className="thumb enh"><span className="em">📑</span>Survey map<span className="badge2">Enhanced</span></div>
-            <div className="thumb"><span className="em">➕</span>Add file</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// DocumentVault → components/wealth/WealthDocuments.tsx (live gallery + scanner · PR3).
 
 function BankAccounts() {
   return (

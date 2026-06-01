@@ -69,6 +69,22 @@ service firebase.storage {
       allow delete: if belongsToFamily(familyId);
     }
 
+    // ── Kaya Wealth · asset documents (PR3, 2026-06-01) ────────
+    // Scanned + enhanced documents (title deeds, policies, surveys…)
+    // attached to a wealth asset, at:
+    //   families/{f}/wealth/{assetId}/{docId}.jpg
+    // PARENT-ONLY — the vault is a parent space. The download URL is only
+    // discoverable via the asset doc, which is itself visibility-gated in
+    // firestore.rules (personal assets' docs stay hidden from the
+    // co-parent there). Image-only, <10 MB after the client-side enhance.
+    match /families/{familyId}/wealth/{assetId}/{file} {
+      allow read: if belongsToFamily(familyId) && getUserProfile().role == 'parent';
+      allow write: if belongsToFamily(familyId) && getUserProfile().role == 'parent'
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if belongsToFamily(familyId) && getUserProfile().role == 'parent';
+    }
+
     // ── Kaya Business → stock-take + product/project photos (2026-05-21) ──
     // One folder per business. Family-scoped (parent + owner kid both upload).
     //   families/{f}/businesses/{businessId}/photos/{photoId}.jpg

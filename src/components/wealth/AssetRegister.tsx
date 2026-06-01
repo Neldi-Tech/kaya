@@ -20,6 +20,7 @@ import {
 } from '@/lib/wealth';
 import { CLASS_ICON_BG, liqPillClass, tsToDisplay } from './wealthFormat';
 import type { WealthData } from './useWealthData';
+import DocumentScanner from './DocumentScanner';
 
 interface Props {
   data: WealthData;
@@ -46,6 +47,7 @@ export default function AssetRegister({ data, view }: Props) {
   const [hidden, setHidden] = useState<Set<AssetClassId>>(new Set());
   const [openLog, setOpenLog] = useState<string | null>(null);
   const [modal, setModal] = useState<{ mode: 'add' | 'edit'; asset?: WealthAsset } | null>(null);
+  const [scanAsset, setScanAsset] = useState<WealthAsset | null>(null);
 
   const toggleClass = (id: AssetClassId) => {
     if (!present.has(id)) return;
@@ -134,6 +136,9 @@ export default function AssetRegister({ data, view }: Props) {
                     {isParent && (
                       <button className="iconbtn" title="Edit" onClick={() => setModal({ mode: 'edit', asset: a })}>✏️</button>
                     )}
+                    {isParent && (
+                      <button className="iconbtn" title="Add document" onClick={() => setScanAsset(a)}>📎</button>
+                    )}
                     <button
                       className="iconbtn"
                       title="Edit log"
@@ -162,6 +167,16 @@ export default function AssetRegister({ data, view }: Props) {
           householdCurrency={householdCurrency}
           author={author}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {scanAsset && familyId && (
+        <DocumentScanner
+          familyId={familyId}
+          assetId={scanAsset.id}
+          assetName={scanAsset.name}
+          author={author}
+          onClose={() => setScanAsset(null)}
         />
       )}
     </div>
