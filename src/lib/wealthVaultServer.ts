@@ -10,16 +10,20 @@
 // cryptoConfigured=false and the UI falls back to the session-gate lock.
 
 import { createHash, randomBytes } from 'crypto';
-import { authenticator } from 'otplib';
+import { TOTP, Secret } from 'otpauth';
 import QRCode from 'qrcode';
 import { Timestamp } from 'firebase-admin/firestore';
 import { getAdminAuth, getAdminFirestore } from './firebaseAdmin';
 import { isVaultCryptoConfigured, encryptSecret, decryptSecret } from './wealthVaultCrypto';
 
-// ±1 step (30s) clock-skew tolerance.
-authenticator.options = { window: 1 };
-
 const ISSUER = 'Kaya Wealth';
+
+// Build a TOTP generator/verifier for a stored base32 secret. SHA1/6/30 are
+// the universal authenticator defaults. `validate({window:1})` tolerates ±1
+// step (30s) of clock skew and returns the delta (or null when invalid).
+function makeTotp(base32: string, label = 'member'): TOTP {
+  return new TOTP({ issuer: ISSUER, label, algorithm: 'SHA1', digits: 6, period: 30, secret: Secret.fromBase32(base32) });
+}
 
 function vaultRef(uid: string) {
   const db = getAdminFirestore();
@@ -86,17 +90,17 @@ export interface EnrollResult {
  *  PENDING state (encrypted), and return the QR + manual key + codes. */
 export async function startEnrollment(uid: string, email: string | null): Promise<EnrollResult> {
   if (!isVaultCryptoConfigured()) throw new Error('vault-crypto-not-configured');
-  const secret = authenticator.generateSecret();
-  const otpauth = authenticator.keyuri(email || 'member', ISSUER, secret);
-  const qrDataUrl = await QRCode.toDataURL(otpauth, { margin: 1, width: 220 });
+  const base32 = new Secret({ size: 20 }).base32;
+  const totp = makeTotp(base32, email || 'member');
+  const qrDataUrl = await QRCode.toDataURL(totp.toString(), { margin: 1, width: 220 });
   const recoveryCodes = genRecoveryCodes();
   await vaultRef(uid).set({
     enrolled: false,
-    pendingSecretEnc: encryptSecret(secret),
+    pendingSecretEnc: encryptSecret(base32),
     recoveryHashes: recoveryCodes.map(hashCode),
     updatedAt: Timestamp.now(),
   }, { merge: true });
-  return { qrDataUrl, secret, recoveryCodes };
+  return { qrDataUrl, secret: base32, recoveryCodes };
 }
 
 /** Confirm enrollment: the user proves they scanned the secret by entering a
@@ -104,9 +108,9 @@ export async function startEnrollment(uid: string, email: string | null): Promis
 export async function confirmEnrollment(uid: string, token: string): Promise<boolean> {
   const d = (await vaultRef(uid).get()).data() as VaultDoc | undefined;
   if (!d?.pendingSecretEnc) return false;
-  const secret = decryptSecret(d.pendingSecretEnc);
-  if (!secret) return false;
-  if (!authenticator.verify({ token: normalise(token), secret })) return false;
+  const base32 = decryptSecret(d.pendingSecretEnc);
+  if (!base32) return false;
+  if (makeTotp(base32).validate({ token: normalise(token), window: 1 }) === null) return false;
   await vaultRef(uid).set({
     enrolled: true,
     secretEnc: d.pendingSecretEnc,
@@ -124,12 +128,12 @@ export async function confirmEnrollment(uid: string, token: string): Promise<boo
 export async function verifyUnlock(uid: string, code: string): Promise<boolean> {
   const d = (await vaultRef(uid).get()).data() as VaultDoc | undefined;
   if (!d?.enrolled || !d.secretEnc) return false;
-  const secret = decryptSecret(d.secretEnc);
-  if (!secret) return false;
+  const base32 = decryptSecret(d.secretEnc);
+  if (!base32) return false;
 
   const tok = normalise(code);
   // TOTP path — exactly 6 digits.
-  if (/^\d{6}$/.test(tok) && authenticator.verify({ token: tok, secret })) {
+  if (/^\d{6}$/.test(tok) && makeTotp(base32).validate({ token: tok, window: 1 }) !== null) {
     await vaultRef(uid).set({ lastUnlockAt: Timestamp.now() }, { merge: true });
     return true;
   }

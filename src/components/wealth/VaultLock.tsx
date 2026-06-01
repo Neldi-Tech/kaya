@@ -97,7 +97,7 @@ export default function VaultLock({ onUnlock }: { onUnlock: () => void }) {
     setBusy(true); setError('');
     const r = await vaultFetch('/api/wealth/vault/enroll', {});
     setBusy(false);
-    if (r?.ok && r.qrDataUrl && r.secret && r.recoveryCodes) {
+    if (r && r.ok && r.qrDataUrl && r.secret && r.recoveryCodes) {
       setEnroll({ qrDataUrl: r.qrDataUrl, secret: r.secret, recoveryCodes: r.recoveryCodes });
       setPhase('enroll-show');
     } else setError('Couldn’t start setup. Please try again.');
