@@ -1433,6 +1433,14 @@ service cloud.firestore {
       allow read: if isOperator();
       allow write: if false;
     }
+    // ── Guest Play · pending family connections (guestConnections) ─────
+    // A guest who's already on Kaya taps "connect us" after a game → saved
+    // here (guest @handle ⇄ host family), dormant until family-to-family
+    // connections ship. Written ONLY by /api/games/guest/connect (Admin).
+    match /guestConnections/{connId} {
+      allow read: if isOperator();
+      allow write: if false;
+    }
 
     // ── Global counters (meta/{docId}, e.g. meta/global) ──────────────
     // meta/global holds `familyCount` — the monotonic family-join ordinal

@@ -20,12 +20,14 @@ export async function POST(req: NextRequest) {
   const db = getAdminFirestore();
   if (!db) return NextResponse.json({ error: 'admin-not-configured' }, { status: 503 });
 
-  let body: { name?: string; email?: string; country?: string };
+  let body: { name?: string; email?: string; country?: string; ref?: string; source?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
 
   const name = String(body.name ?? '').trim().slice(0, 80);
   const email = String(body.email ?? '').trim().toLowerCase();
   const country = body.country ? String(body.country).trim().slice(0, 60) : null;
+  const referredBy = body.ref ? String(body.ref).trim().slice(0, 40) : null;
+  const source = /^[a-z][a-z-]{1,20}$/.test(String(body.source || '')) ? String(body.source) : 'login';
 
   if (!name) return NextResponse.json({ error: 'name-required' }, { status: 400 });
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: 'invalid-email' }, { status: 400 });
@@ -35,7 +37,8 @@ export async function POST(req: NextRequest) {
       name,
       email,
       country,
-      source: 'login',
+      source,
+      referredBy,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     },
