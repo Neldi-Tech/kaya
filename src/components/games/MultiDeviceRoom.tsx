@@ -37,16 +37,20 @@ function Center({ children }: { children: ReactNode }) {
 }
 
 export default function MultiDeviceRoom({
-  game, onComplete, joinCode,
+  game, onComplete, joinCode, guestIdentity,
 }: {
   game: GameDef;
   onComplete: (o: GameOutcome) => void;
   joinCode?: string;
+  /** When set, this is an invited GUEST already added to a session server-side
+   *  (via /api/games/guest/join). Their identity comes from here, not a family
+   *  profile, and they drop straight into the room. */
+  guestIdentity?: { uid: string; name: string; familyId: string; sessionId: string };
 }) {
   const { profile } = useAuth();
-  const me = profile?.uid || '';
-  const myName = (profile?.displayName || 'Player').split(' ')[0];
-  const familyId = profile?.familyId || '';
+  const me = guestIdentity?.uid || profile?.uid || '';
+  const myName = guestIdentity?.name || (profile?.displayName || 'Player').split(' ')[0];
+  const familyId = guestIdentity?.familyId || profile?.familyId || '';
 
   const [mode, setMode] = useState<Mode>('choose');
   const [err, setErr] = useState('');
@@ -59,6 +63,11 @@ export default function MultiDeviceRoom({
     if (!familyId || !sessionId) return;
     return subscribeSession(familyId, sessionId, setSession);
   }, [familyId, sessionId]);
+
+  // A guest is already in the session (server added them) — drop straight in.
+  useEffect(() => {
+    if (guestIdentity?.sessionId) { setSessionId(guestIdentity.sessionId); setMode('in'); }
+  }, [guestIdentity?.sessionId]);
 
   const doJoin = useCallback(async (code: string) => {
     if (!familyId || !me) return;
@@ -137,6 +146,8 @@ export default function MultiDeviceRoom({
   if (!session) return <Center>Loading room…</Center>;
   if (session.status === 'lobby') return <Lobby session={session} me={me} familyId={familyId} />;
   if (session.status === 'playing') return <Play game={game} session={session} me={me} familyId={familyId} />;
+  // A guest's end-of-game card is rendered by the public /play page (via onComplete).
+  if (guestIdentity) return <Center>🎉 Great game!</Center>;
   return <WinnerView session={session} game={game} me={me} />;
 }
 
