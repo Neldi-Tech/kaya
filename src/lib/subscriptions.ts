@@ -350,6 +350,12 @@ export interface CreateSubscriptionInput {
   familyId: string;
   createdByUid: string;
   clientToken: string;
+
+  // Wealth → Household mirror (Non-Negotiable #8). Omit for normal
+  // household subscriptions; Kaya Wealth sets these when an insured asset's
+  // premium flows down.
+  sourceModule?: SubscriptionSourceModule;
+  linkedWealthAssetId?: string | null;
 }
 
 export async function createSubscription(

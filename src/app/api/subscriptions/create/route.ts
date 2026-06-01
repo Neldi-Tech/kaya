@@ -54,6 +54,12 @@ interface Body {
 
   createdByUid?: string;
   clientToken?: string;
+
+  /** Wealth → Household mirror (Non-Negotiable #8): an insured asset's
+   *  premium/renewal flows down read-only. Default is a household-originated
+   *  subscription. */
+  sourceModule?: 'household' | 'wealth';
+  linkedWealthAssetId?: string | null;
 }
 
 function monthlyEquivalentCents(
@@ -171,8 +177,8 @@ async function run(req: NextRequest) {
     paidByUid: body.paidByUid ?? null,
 
     vendorSupplierId: body.vendorSupplierId ?? null,
-    linkedWealthAssetId: null,
-    sourceModule: 'household' as const,
+    linkedWealthAssetId: body.linkedWealthAssetId ?? null,
+    sourceModule: body.sourceModule === 'wealth' ? ('wealth' as const) : ('household' as const),
     isProfessionalExpense: !!body.isProfessionalExpense,
 
     reminderDaysBefore: reminders,

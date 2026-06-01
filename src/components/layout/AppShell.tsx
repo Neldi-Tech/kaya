@@ -346,7 +346,7 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'pages',     path: '/directory', icon: '📞', label: 'Directory' },
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: STATS_NAV },
   { kind: 'section', id: 'fun',       iconNode: <KayaFunIcon className="w-4 h-4" />, label: 'Kaya Fun', items: FUN_NAV },
-  { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth',   soon: true },
+  { kind: 'link',    id: 'wealth',    path: '/wealth',   icon: '💎', label: 'Kaya Wealth' },
   { kind: 'link',    id: 'wellness',  path: '/wellness', icon: '🧘', label: 'Kaya Wellness', soon: true },
   { kind: 'link',    id: 'chef',      path: '/chef',     icon: '🍳', label: 'Kaya Chef',     soon: true },
   // Buzz stays last — the ideas/help community sits below the apps.
