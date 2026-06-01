@@ -323,11 +323,18 @@ service cloud.firestore {
       // ── Kaya Games · multi-device room sessions (gameSessions) ──────
       // Live room state for multi-device family games (4-letter code +
       // turn-based shared state). Any family member can host, join and
-      // advance the shared state; only a parent can delete. Scoped to the
-      // family, so no outside kid can ever see or join a room.
+      // advance the shared state; only a parent can delete.
+      //
+      // Invited GUESTS (anonymous accounts, not in the family) can read +
+      // update a room ONLY once the server has added their uid to playerUids
+      // (via /api/games/guest/join). That scopes a guest to exactly one game
+      // session and nothing else in the family. create stays family-only.
       match /gameSessions/{sessionId} {
-        allow read: if belongsToFamily(familyId);
-        allow create, update: if belongsToFamily(familyId);
+        allow read: if belongsToFamily(familyId)
+          || (isSignedIn() && request.auth.uid in resource.data.get('playerUids', []));
+        allow update: if belongsToFamily(familyId)
+          || (isSignedIn() && request.auth.uid in resource.data.get('playerUids', []));
+        allow create: if belongsToFamily(familyId);
         allow delete: if isParentInFamily(familyId);
       }
 
