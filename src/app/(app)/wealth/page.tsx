@@ -15,6 +15,7 @@
 // Phase 2 per the concept note §15.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useFamily } from '@/contexts/FamilyContext';
 import { formatCents } from '@/components/pantry/format';
 import { fmt } from '@/lib/format';
@@ -25,6 +26,7 @@ import { compactCents, curLabel, kcFromUsdCents } from '@/components/wealth/weal
 import VaultLock from '@/components/wealth/VaultLock';
 import WealthDocuments from '@/components/wealth/WealthDocuments';
 import BankVault from '@/components/wealth/BankVault';
+import IncomeEngine from '@/components/wealth/IncomeEngine';
 import './wealth.css';
 
 type Mode = 'shared' | 'personal' | 'juniors';
@@ -34,6 +36,7 @@ const IDLE_MS = 5 * 60 * 1000;
 export default function KayaWealthPage() {
   const data = useWealthData();
   const { children } = useFamily();
+  const router = useRouter();
   const { householdCurrency, rateFor, usdPerHousehold, author, isParent, loading } = data;
 
   const [mode, setMode] = useState<Mode>('shared');
@@ -93,6 +96,7 @@ export default function KayaWealthPage() {
     <div className={`kw mode-${mode}`}>
       {/* LOCK */}
       <div className={`lockscreen ${locked ? '' : 'hidden'}`}>
+        <button className="kw-lock-home" onClick={() => router.push('/home')}>← Kaya Home</button>
         <VaultLock onUnlock={unlock} />
       </div>
 
@@ -146,7 +150,7 @@ export default function KayaWealthPage() {
         {/* ADULT SECTIONS (shared + personal) */}
         {(mode === 'shared' || mode === 'personal') && (
           <>
-            <IncomeEngine mode={mode} />
+            <IncomeEngine data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
             <StockMarkets />
             <AssetRegister data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
             <WealthDocuments data={data} view={mode === 'shared' ? 'shared' : 'personal'} />
@@ -376,56 +380,7 @@ function Juniors({ kids, assets, householdCurrency, rateFor }: {
 
 // ── Phase-2 presentational sections (approved design; wired in P2) ─────
 
-function IncomeEngine({ mode }: { mode: Mode }) {
-  const shared = mode === 'shared';
-  return (
-    <div className="adult-block">
-      <div className="section-title"><h2>💵 Income Engine <span className="pilltag">Active vs Passive</span></h2><a>Phase 2</a></div>
-      <div className="grid g2">
-        <div className="card inc">
-          <div className="head"><div className="t"><span className="badge b-active">🛠️</span> Active Income <small style={{ color: 'var(--grey)', fontWeight: 600 }}>/ month</small></div>
-            <div className="total">{shared ? 'TZS 18.0M' : 'TZS 6.0M'} <small>gross</small></div></div>
-          {shared ? (
-            <>
-              <div className="iline"><span className="l"><span className="ic">💼</span>Salaries (both parents)</span><span className="r">TZS 18.0M</span></div>
-              <div className="iline neg"><span className="l"><span className="ic">🧾</span>PAYE &amp; taxes <span className="sub">· 20%</span></span><span className="r">− TZS 3.6M</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">🐷</span>Saved to queue <span className="sub">· 34%</span></span><span className="r">+ TZS 6.2M</span></div>
-              <div className="iline"><span className="l"><span className="ic">🏠</span>Net to household spend</span><span className="r">TZS 8.2M</span></div>
-            </>
-          ) : (
-            <>
-              <div className="iline"><span className="l"><span className="ic">💼</span>Director fees</span><span className="r">TZS 6.0M</span></div>
-              <div className="iline neg"><span className="l"><span className="ic">🧾</span>Taxes <span className="sub">· 18%</span></span><span className="r">− TZS 1.1M</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">🐷</span>Saved <span className="sub">· 40%</span></span><span className="r">+ TZS 2.4M</span></div>
-            </>
-          )}
-        </div>
-        <div className="card inc">
-          <div className="head"><div className="t"><span className="badge b-passive">🌙</span> Passive Income <small style={{ color: 'var(--grey)', fontWeight: 600 }}>/ month</small></div>
-            <div className="total">{shared ? 'TZS 5.84M' : 'TZS 0.95M'}</div></div>
-          {shared ? (
-            <>
-              <div className="iline pos"><span className="l"><span className="ic">📜</span>Bond coupons</span><span className="r">+ TZS 2.25M</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">🏦</span>Fixed-deposit interest</span><span className="r">+ TZS 0.69M</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">📈</span>Dividends (DSE)</span><span className="r">+ TZS 1.10M</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">🏘️</span>Rental income</span><span className="r">+ TZS 1.80M</span></div>
-            </>
-          ) : (
-            <>
-              <div className="iline pos"><span className="l"><span className="ic">🏦</span>Fixed-deposit interest</span><span className="r">+ TZS 0.35M</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">📜</span>T-bill yield</span><span className="r">+ TZS 0.60M</span></div>
-            </>
-          )}
-          <div className="cover">
-            <div className="cmrow"><span className="g">Passive covers your monthly expenses</span><span className="p">{shared ? 'TZS 5.84M / 9.5M' : 'TZS 0.95M / 3.2M'}</span></div>
-            <div className="track"><i style={{ width: shared ? '61%' : '30%' }} /></div>
-            <div className="fi">🎯 {shared ? '61%' : '30%'} to financial independence — when passive ≥ expenses</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// IncomeEngine → components/wealth/IncomeEngine.tsx (live · PR6).
 
 function StockMarkets() {
   return (

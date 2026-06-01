@@ -1446,6 +1446,27 @@ service cloud.firestore {
           allow update, delete: if false;
         }
       }
+
+      // ── Wealth · Income Engine (Phase 2 · PR6 · 2026-06-01) ─────────
+      // Active + passive income sources. Same visibility rules as the asset
+      // register: parents read/write; 'personal' rows are owner-only.
+      match /wealth_income/{incomeId} {
+        allow read: if isParentInFamily(familyId)
+                    && (resource.data.visibility != 'personal'
+                        || resource.data.ownerId == request.auth.uid);
+        allow create: if isParentInFamily(familyId)
+                      && (request.resource.data.visibility != 'personal'
+                          || request.resource.data.ownerId == request.auth.uid);
+        allow update, delete: if isParentInFamily(familyId)
+                      && (resource.data.visibility != 'personal'
+                          || resource.data.ownerId == request.auth.uid);
+      }
+
+      // ── Wealth · config (monthly-expenses figures for the coverage
+      //    meter, and future small settings). Parent-managed. ─────────
+      match /wealth_config/{docId} {
+        allow read, write: if isParentInFamily(familyId);
+      }
     }
 
     // ── Kaya Business · market quotes (global, server-written) ───────
