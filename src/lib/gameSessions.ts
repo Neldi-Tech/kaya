@@ -22,7 +22,7 @@ export function genCode(): string {
   return s;
 }
 
-export interface SessionPlayer { uid: string; name: string }
+export interface SessionPlayer { uid: string; name: string; guest?: boolean }
 export type SessionStatus = 'lobby' | 'playing' | 'done';
 
 export interface GameSession {
@@ -32,6 +32,10 @@ export interface GameSession {
   hostUid: string;
   status: SessionStatus;
   players: SessionPlayer[];
+  /** Flat array of player auth uids — lets the security rules check membership
+   *  so an invited guest (not in the family) can read/write THIS one session.
+   *  Kept in sync with `players`. */
+  playerUids?: string[];
   state: Record<string, unknown>;
   winnerUid?: string;
   expiresAt?: number;
@@ -52,6 +56,7 @@ export async function createSession(
   const ref = await addDoc(colRef(familyId), {
     code, gameId, hostUid, status: 'lobby',
     players: [{ uid: hostUid, name: hostName }],
+    playerUids: [hostUid],
     state: initialState,
     createdAt: serverTimestamp(),
     expiresAt: Date.now() + CODE_TTL_MS,
@@ -70,7 +75,7 @@ export async function findSessionByCode(familyId: string, code: string): Promise
 }
 
 export async function joinSession(familyId: string, sessionId: string, uid: string, name: string): Promise<void> {
-  await updateDoc(docRef(familyId, sessionId), { players: arrayUnion({ uid, name }) });
+  await updateDoc(docRef(familyId, sessionId), { players: arrayUnion({ uid, name }), playerUids: arrayUnion(uid) });
 }
 
 export function subscribeSession(

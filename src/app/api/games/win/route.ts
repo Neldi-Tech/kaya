@@ -19,7 +19,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface Body { sessionId?: string; tzOffsetMinutes?: number }
-interface SPlayer { uid: string; name: string }
+interface SPlayer { uid: string; name: string; guest?: boolean }
 
 export async function POST(req: NextRequest) {
   const db = getAdminFirestore();
@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
   const batch = db.batch();
   const statsCol = db.collection('families').doc(familyId).collection('gameStats');
   for (const p of players) {
+    if (p.guest) continue; // guests bank nothing — their scores stay in-game
     const ref = statsCol.doc(p.uid);
     const cur = ((await ref.get()).data() || {}) as
       { wins?: number; streak?: number; best?: number; funPoints?: number; funWeekly?: number; funWeekKey?: string };
