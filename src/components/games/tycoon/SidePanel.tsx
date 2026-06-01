@@ -19,9 +19,13 @@ interface SidePanelProps {
   onManage: () => void;
   onGuide: () => void;
   onInvestor: (pid: number) => void;
+  /** Multi-device: hide the action buttons when this device can't act now. */
+  canAct?: boolean;
+  /** Multi-device: name of the player we're waiting on (when not our turn). */
+  waitingFor?: string | null;
 }
 
-export default function SidePanel({ state, dice, busy, log, onRoll, onEndTurn, onManage, onGuide, onInvestor }: SidePanelProps) {
+export default function SidePanel({ state, dice, busy, log, onRoll, onEndTurn, onManage, onGuide, onInvestor, canAct = true, waitingFor = null }: SidePanelProps) {
   const p = state.players[state.current];
   const jw = state.theme === 'universe' ? 'Black Hole' : 'Time-Out';
   const word = state.theme === 'universe' ? 'planets' : 'cities';
@@ -29,12 +33,13 @@ export default function SidePanel({ state, dice, busy, log, onRoll, onEndTurn, o
   useEffect(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, [log]);
 
   const idle = !state.prompt && !state.over;
-  const showRoll = idle && !state.rolled;
-  const showEnd = idle && state.rolled;
-  const showManage = idle && state.mode === 'long';
+  const showRoll = idle && !state.rolled && canAct;
+  const showEnd = idle && state.rolled && canAct;
+  const showManage = idle && state.mode === 'long' && canAct;
 
   let tip: string;
-  if (p.jail) tip = `🛑 You're in ${jw.toLowerCase()}! Roll a double to escape, or wait — after 3 tries you pay ${money(state.cur, cv(state, JAIL_FEE))}.`;
+  if (!canAct && waitingFor) tip = `⏳ Waiting for ${waitingFor}… watch the board!`;
+  else if (p.jail) tip = `🛑 You're in ${jw.toLowerCase()}! Roll a double to escape, or wait — after 3 tries you pay ${money(state.cur, cv(state, JAIL_FEE))}.`;
   else if (!state.rolled) tip = `👉 ${p.name}, tap Roll Dice to move! Watch your token hop around the board.`;
   else tip = '✅ Turn done — tap End Turn to pass to the next player.';
 
