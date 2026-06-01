@@ -1393,6 +1393,39 @@ service cloud.firestore {
                            .hasOnly(['status', 'actedAt', 'actedBy', 'resultingInvestmentId']);
         allow create, delete: if false;
       }
+
+      // ── Wealth · Asset Register (Phase 1 · 2026-06-01) ──────────────
+      // The family vault's holdings — parent-facing only (no helpers, no
+      // kids). Visibility tiers per the approved design + Non-Negotiables:
+      //   'shared'   → both parents read + write
+      //   'personal' → ONLY the owning parent; hidden from the co-parent
+      //                AND the family admin (Non-Negotiable #6).
+      //   'junior'   → parent-guided child wealth (parents read + write)
+      // Amounts are CENTS of the asset's own `currency`.
+      match /wealth_assets/{assetId} {
+        allow read: if isParentInFamily(familyId)
+                    && (resource.data.visibility != 'personal'
+                        || resource.data.ownerId == request.auth.uid);
+        allow create: if isParentInFamily(familyId)
+                      && (request.resource.data.visibility != 'personal'
+                          || request.resource.data.ownerId == request.auth.uid);
+        allow update, delete: if isParentInFamily(familyId)
+                      && (resource.data.visibility != 'personal'
+                          || resource.data.ownerId == request.auth.uid);
+
+        // Edit log — the family's auditable history. Author + timestamp on
+        // every create / value-update / insurance-change / document-add.
+        // Append-only: NEVER editable or deletable (Non-Negotiable #9).
+        match /editLog/{entryId} {
+          allow read: if isParentInFamily(familyId)
+                      && (
+                        get(/databases/$(database)/documents/families/$(familyId)/wealth_assets/$(assetId)).data.visibility != 'personal'
+                        || get(/databases/$(database)/documents/families/$(familyId)/wealth_assets/$(assetId)).data.ownerId == request.auth.uid
+                      );
+          allow create: if isParentInFamily(familyId);
+          allow update, delete: if false;
+        }
+      }
     }
 
     // ── Kaya Business · market quotes (global, server-written) ───────

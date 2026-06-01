@@ -1,0 +1,365 @@
+// Kaya Wealth · Asset Register (Phase 1 · 2026-06-01).
+//
+// The live, class-grouped register from the approved mockup — shown in both
+// Shared and Personal modes, filtered to that view's assets. Owns the class
+// legend (filter chips), the liquidity-grouped cards with subtotals, the
+// per-asset read-only edit log, the property insurance prompt, and the
+// add/edit modal. Every create/edit writes its audit entry in the same
+// batch (see lib/wealth.ts) — the log can never be missing or edited.
+
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { formatCents } from '@/components/pantry/format';
+import { SUPPORTED_CURRENCIES } from '@/lib/fx';
+import {
+  ASSET_CLASSES, assetClassDef, LIQUIDITY_LABEL, computeWealthSummary,
+  createWealthAsset, updateWealthAsset, subscribeToEditLog,
+  type WealthAsset, type WealthVisibility, type AssetClassId,
+  type WealthEditLogEntry, type WealthInsurance,
+} from '@/lib/wealth';
+import { CLASS_ICON_BG, liqPillClass, tsToDisplay } from './wealthFormat';
+import type { WealthData } from './useWealthData';
+
+interface Props {
+  data: WealthData;
+  view: Extract<WealthVisibility, 'shared' | 'personal'>;
+}
+
+const ACTION_EMOJI: Record<string, string> = {
+  created: '✨', value_updated: '📈', insurance_changed: '🛡️',
+  document_added: '📎', edited: '✏️', archived: '🗄️',
+};
+
+export default function AssetRegister({ data, view }: Props) {
+  const { householdCurrency, rateFor, author, isParent, familyId } = data;
+  const assets = useMemo(
+    () => data.assets.filter((a) => a.visibility === view),
+    [data.assets, view],
+  );
+  const summary = useMemo(
+    () => computeWealthSummary(assets, householdCurrency, rateFor),
+    [assets, householdCurrency, rateFor],
+  );
+
+  const present = useMemo(() => new Set(assets.map((a) => a.class)), [assets]);
+  const [hidden, setHidden] = useState<Set<AssetClassId>>(new Set());
+  const [openLog, setOpenLog] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ mode: 'add' | 'edit'; asset?: WealthAsset } | null>(null);
+
+  const toggleClass = (id: AssetClassId) => {
+    if (!present.has(id)) return;
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const tagFor = view === 'shared' ? 'Shared' : null;
+  const groups = summary.groups.filter((g) => !hidden.has(g.def.id));
+
+  return (
+    <div className="adult-block">
+      <div className="section-title">
+        <h2>📚 Asset Register <span className="pilltag">By class &amp; liquidity</span></h2>
+        {isParent && <a onClick={() => setModal({ mode: 'add' })}>+ Add asset</a>}
+      </div>
+
+      <div className="legend" style={{ marginBottom: 14 }}>
+        {ASSET_CLASSES.map((c) => {
+          const isOn = present.has(c.id) && !hidden.has(c.id);
+          return (
+            <span
+              key={c.id}
+              className={`lchip ${isOn ? 'on' : 'off'}`}
+              onClick={() => toggleClass(c.id)}
+              role="button"
+            >
+              {isOn && <span className="dotc" />}{c.label}
+            </span>
+          );
+        })}
+      </div>
+
+      {assets.length === 0 ? (
+        <div className="card">
+          <div className="empty">
+            <div className="ee">🗄️</div>
+            <div className="eh">Your vault is ready</div>
+            <div className="ep">
+              Add what the {view === 'personal' ? 'you own privately' : 'family owns'} — property, accounts,
+              investments, pensions. Everything you add is logged and kept current.
+            </div>
+            {isParent && (
+              <button className="addbtn" style={{ marginTop: 14 }} onClick={() => setModal({ mode: 'add' })}>
+                + Add your first asset
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        groups.map((g) => (
+          <div className="card" style={{ marginBottom: 14 }} key={g.def.id}>
+            <div className="grouphead">
+              <div className="gl">
+                {g.def.emoji} {g.def.label}{' '}
+                <span className={`liq ${liqPillClass(g.def.liquidity)}`}>{LIQUIDITY_LABEL[g.def.liquidity]}</span>
+              </div>
+              <div className="gt">{formatCents(g.subtotalCents, householdCurrency)}</div>
+            </div>
+
+            {g.assets.map((a) => (
+              <div key={a.id}>
+                <div className="asset">
+                  <div className={`icon ${CLASS_ICON_BG[a.class]}`}>{g.def.emoji}</div>
+                  <div className="info">
+                    <div className="nm">
+                      {a.name}
+                      {tagFor && <span className="tag t-shared">{tagFor}</span>}
+                      {a.media?.length ? <span className="tag t-docs">📎 {a.media.length} docs</span> : null}
+                    </div>
+                    {a.meta?.subtitle && <div className="meta">{a.meta.subtitle}</div>}
+                    {a.meta?.maturityNote && <span className="matur">{a.meta.maturityNote}</span>}
+                  </div>
+                  <div className="val">
+                    <div className="amt">{formatCents(a.valueCents, a.currency)}</div>
+                    {typeof a.meta?.changePct === 'number' && (
+                      <div className={`chg ${a.meta.changePct >= 0 ? 'up' : 'down'}`}>
+                        {a.meta.changePct >= 0 ? '▲' : '▼'} {Math.abs(a.meta.changePct)}%
+                      </div>
+                    )}
+                  </div>
+                  <div className="acts">
+                    {isParent && (
+                      <button className="iconbtn" title="Edit" onClick={() => setModal({ mode: 'edit', asset: a })}>✏️</button>
+                    )}
+                    <button
+                      className="iconbtn"
+                      title="Edit log"
+                      onClick={() => setOpenLog(openLog === a.id ? null : a.id)}
+                    >🕘</button>
+                  </div>
+                </div>
+
+                {openLog === a.id && familyId && (
+                  <EditLogPanel familyId={familyId} assetId={a.id} name={a.name} />
+                )}
+
+                {a.class === 'real_estate' && <InsuranceBlock asset={a} />}
+              </div>
+            ))}
+          </div>
+        ))
+      )}
+
+      {modal && familyId && (
+        <AssetModal
+          mode={modal.mode}
+          asset={modal.asset}
+          view={view}
+          familyId={familyId}
+          householdCurrency={householdCurrency}
+          author={author}
+          onClose={() => setModal(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Edit log panel (live, read-only) ─────────────────────────────────
+
+function EditLogPanel({ familyId, assetId, name }: { familyId: string; assetId: string; name: string }) {
+  const [entries, setEntries] = useState<WealthEditLogEntry[]>([]);
+  useEffect(() => subscribeToEditLog(familyId, assetId, setEntries), [familyId, assetId]);
+  return (
+    <div className="editlog open">
+      <div className="et">🕘 Edit log — {name}</div>
+      {entries.length === 0 ? (
+        <div className="logrow"><span className="what">No history yet.</span></div>
+      ) : (
+        entries.map((e) => (
+          <div className="logrow" key={e.id}>
+            <span className="when">{tsToDisplay(e.ts)}</span>
+            <span className="what">{ACTION_EMOJI[e.action] ?? '•'} {e.summary}</span>
+            <span className="who">{e.authorName}</span>
+          </div>
+        ))
+      )}
+      <div className="note">🔐 Every create, edit and document change is logged with author &amp; timestamp. Logs are read-only and cannot be deleted.</div>
+    </div>
+  );
+}
+
+// ── Property insurance prompt (display) ──────────────────────────────
+
+function InsuranceBlock({ asset }: { asset: WealthAsset }) {
+  const ins = asset.insurance;
+  const insured = !!ins?.insured;
+  return (
+    <div className="ins">
+      <div className="q">
+        Is this property insured?
+        <span className="toggle">
+          <button className={insured ? 'on' : ''}>Yes</button>
+          <button className={!insured ? 'on' : ''}>No</button>
+        </span>
+      </div>
+      {insured && ins && (
+        <>
+          <div className="det">
+            <div><div className="k">Insured amount</div><div className="v">{ins.amountCents != null ? formatCents(ins.amountCents, asset.currency) : '—'}</div></div>
+            <div><div className="k">Provider</div><div className="v">{ins.provider || '—'}</div></div>
+            <div><div className="k">Premium</div><div className="v">{ins.premiumCents != null ? `${formatCents(ins.premiumCents, ins.premiumCurrency || asset.currency)} / yr` : '—'}</div></div>
+            <div><div className="k">Renews</div><div className="v">{ins.renewalIso || '—'}</div></div>
+          </div>
+          <div className="flow">↳ Premium &amp; renewal mirror to Household → Subscriptions (read-only)</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Add / edit modal ─────────────────────────────────────────────────
+
+interface ModalProps {
+  mode: 'add' | 'edit';
+  asset?: WealthAsset;
+  view: Extract<WealthVisibility, 'shared' | 'personal'>;
+  familyId: string;
+  householdCurrency: string;
+  author: { uid: string; name: string };
+  onClose: () => void;
+}
+
+function AssetModal({ mode, asset, view, familyId, householdCurrency, author, onClose }: ModalProps) {
+  const [name, setName] = useState(asset?.name ?? '');
+  const [klass, setKlass] = useState<AssetClassId>(asset?.class ?? 'cash');
+  const [value, setValue] = useState(asset ? String(asset.valueCents / 100) : '');
+  const [currency, setCurrency] = useState(asset?.currency ?? householdCurrency);
+  const [subtitle, setSubtitle] = useState(asset?.meta?.subtitle ?? '');
+  const [insured, setInsured] = useState(!!asset?.insurance?.insured);
+  const [provider, setProvider] = useState(asset?.insurance?.provider ?? '');
+  const [premium, setPremium] = useState(asset?.insurance?.premiumCents ? String(asset.insurance.premiumCents / 100) : '');
+  const [renewal, setRenewal] = useState(asset?.insurance?.renewalIso ?? '');
+  const [busy, setBusy] = useState(false);
+
+  const valueCents = Math.round((parseFloat(value) || 0) * 100);
+  const canSave = name.trim().length > 0 && valueCents >= 0 && !busy;
+
+  const buildInsurance = (): WealthInsurance | null => {
+    if (klass !== 'real_estate' || !insured) return klass === 'real_estate' ? { insured: false } : null;
+    return {
+      insured: true,
+      provider: provider.trim() || undefined,
+      premiumCents: premium ? Math.round((parseFloat(premium) || 0) * 100) : undefined,
+      premiumCurrency: currency,
+      renewalIso: renewal || undefined,
+    };
+  };
+
+  const save = async () => {
+    if (!canSave) return;
+    setBusy(true);
+    try {
+      const insurance = buildInsurance();
+      if (mode === 'add') {
+        await createWealthAsset({
+          familyId, class: klass, name: name.trim(), valueCents, currency,
+          visibility: view, ownerId: author.uid,
+          meta: subtitle.trim() ? { subtitle: subtitle.trim() } : {},
+          insurance, author,
+        });
+      } else if (asset) {
+        const valueChanged = valueCents !== asset.valueCents;
+        const insChanged = JSON.stringify(insurance) !== JSON.stringify(asset.insurance ?? null);
+        const change = valueChanged
+          ? {
+              action: 'value_updated' as const,
+              summary: `Value updated ${formatCents(asset.valueCents, asset.currency)} → ${formatCents(valueCents, currency)}`,
+              before: { valueCents: asset.valueCents, currency: asset.currency },
+              after: { valueCents, currency },
+            }
+          : insChanged
+            ? { action: 'insurance_changed' as const, summary: insured ? `Insurance set — ${provider || 'provider'}` : 'Insurance removed' }
+            : { action: 'edited' as const, summary: `Edited — ${name.trim()}` };
+        await updateWealthAsset({
+          familyId, assetId: asset.id, author, change,
+          patch: {
+            class: klass, name: name.trim(), valueCents, currency,
+            meta: subtitle.trim() ? { ...asset.meta, subtitle: subtitle.trim() } : asset.meta,
+            insurance,
+          },
+        });
+      }
+      onClose();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[wealth] save failed:', err);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="kw-modal-back" onClick={onClose}>
+      <div className="kw-modal" onClick={(e) => e.stopPropagation()}>
+        <h3>{mode === 'add' ? '➕ Add asset' : '✏️ Edit asset'}</h3>
+        <div className="msub">{view === 'personal' ? 'Private to you — hidden from the family.' : 'Shared with the family.'} Every change is logged.</div>
+
+        <div className="kw-field">
+          <label>Name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Mbezi Beach House" />
+        </div>
+
+        <div className="kw-row2">
+          <div className="kw-field">
+            <label>Class</label>
+            <select value={klass} onChange={(e) => setKlass(e.target.value as AssetClassId)}>
+              {ASSET_CLASSES.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
+            </select>
+          </div>
+          <div className="kw-field">
+            <label>Currency</label>
+            <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              {SUPPORTED_CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="kw-field">
+          <label>{assetClassDef(klass).isLiability ? 'Amount owed' : 'Value'} ({currency})</label>
+          <input type="number" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="0" />
+        </div>
+
+        <div className="kw-field">
+          <label>Detail <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label>
+          <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Plot 412 · Title CT-88291" />
+        </div>
+
+        {klass === 'real_estate' && (
+          <div className="kw-field" style={{ background: '#FBF7EE', border: '1px dashed #E7E0D0', borderRadius: 11, padding: 12 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" style={{ width: 'auto' }} checked={insured} onChange={(e) => setInsured(e.target.checked)} />
+              Insured? (premium mirrors to Household → Subscriptions)
+            </label>
+            {insured && (
+              <div style={{ marginTop: 10 }}>
+                <div className="kw-row2">
+                  <div className="kw-field"><label>Provider</label><input value={provider} onChange={(e) => setProvider(e.target.value)} placeholder="Jubilee" /></div>
+                  <div className="kw-field"><label>Premium / yr ({currency})</label><input type="number" value={premium} onChange={(e) => setPremium(e.target.value)} placeholder="0" /></div>
+                </div>
+                <div className="kw-field" style={{ marginBottom: 0 }}><label>Renews on</label><input type="date" value={renewal} onChange={(e) => setRenewal(e.target.value)} /></div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="kw-modal-actions">
+          <button className="kw-btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="kw-btn-primary" disabled={!canSave} onClick={save}>{busy ? 'Saving…' : mode === 'add' ? 'Add to vault' : 'Save changes'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
