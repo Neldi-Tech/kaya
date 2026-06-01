@@ -50,6 +50,8 @@
 .kw .unlock-btn:disabled{opacity:.55;cursor:not-allowed}
 .kw .bio{margin-top:11px;font-size:12px;color:#cdd6ee;background:transparent;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
 .kw .lock-meta{font-size:11px;color:#7f8fb5;margin-top:14px;display:flex;align-items:center;justify-content:center;gap:6px}
+.kw .kw-lock-home{position:absolute;top:18px;left:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:#cdd6ee;font-size:12.5px;font-weight:700;padding:8px 14px;border-radius:20px;cursor:pointer;z-index:2;transition:.15s}
+.kw .kw-lock-home:hover{background:rgba(255,255,255,.14);color:#fff}
 .kw .lock-err{font-size:11.5px;color:#ff9d9d;margin-top:10px;min-height:14px}
 /* vault 2FA — enrollment + recovery (dark lockbox context) */
 .kw .v-enroll{text-align:left;margin-top:6px}

@@ -48,8 +48,11 @@ function CodeEntry({ onSubmit, busy, label }: { onSubmit: (code: string) => void
   const ready = digits.every((d) => d.length === 1);
   const onChange = (i: number, v: string) => {
     const c = v.replace(/\D/g, '').slice(-1);
-    setDigits((p) => { const n = [...p]; n[i] = c; return n; });
+    const next = [...digits]; next[i] = c;
+    setDigits(next);
     if (c && refs.current[i + 1]) refs.current[i + 1]?.focus();
+    // Auto-submit the moment all six digits are in — no Enter / button needed.
+    if (next.every((d) => d.length === 1) && !busy) onSubmit(next.join(''));
   };
   return (
     <>
