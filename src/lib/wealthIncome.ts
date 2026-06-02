@@ -46,14 +46,17 @@ export interface IncomeSource {
   category: string;
   label: string;
   employer: string;   // which employer (for capturing multiple salaries)
-  grossMonthlyCents: number;
+  grossMonthlyCents: number;   // NET take-home / month — the amount actually received
   currency: string;
-  taxPct: number;     // active: PAYE/tax %; passive: 0
-  savedPct: number;   // active: % saved to the queue; passive: 0
+  socialSecurityCents: number; // active: monthly Social Security (you + employer) → Fund; passive: 0
+  taxCents: number;            // active: monthly tax paid — INFORMATION ONLY (never affects any total); passive: 0
   visibility: IncomeVisibility;
   ownerId: string;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+  /** Legacy %-deduction model (pre net-model, 2026-06-02) — no longer used. */
+  taxPct?: number;
+  savedPct?: number;
 }
 
 const incomeCol = (familyId: string) => collection(db, 'families', familyId, 'wealth_income');
@@ -101,8 +104,8 @@ export interface CreateIncomeInput {
   employer?: string;
   grossMonthlyCents: number;
   currency: string;
-  taxPct?: number;
-  savedPct?: number;
+  socialSecurityCents?: number;
+  taxCents?: number;
   visibility: IncomeVisibility;
   ownerId: string;
 }
@@ -117,8 +120,8 @@ export async function createIncome(input: CreateIncomeInput): Promise<{ id: stri
     employer: input.employer ?? '',
     grossMonthlyCents: input.grossMonthlyCents,
     currency: input.currency,
-    taxPct: input.kind === 'active' ? (input.taxPct ?? 0) : 0,
-    savedPct: input.kind === 'active' ? (input.savedPct ?? 0) : 0,
+    socialSecurityCents: input.kind === 'active' ? (input.socialSecurityCents ?? 0) : 0,
+    taxCents: input.kind === 'active' ? (input.taxCents ?? 0) : 0,
     visibility: input.visibility,
     ownerId: input.ownerId,
     createdAt: serverTimestamp(),
@@ -128,7 +131,7 @@ export async function createIncome(input: CreateIncomeInput): Promise<{ id: stri
 }
 
 export type IncomePatch = Partial<Pick<IncomeSource,
-  'category' | 'label' | 'employer' | 'grossMonthlyCents' | 'currency' | 'taxPct' | 'savedPct'>>;
+  'category' | 'label' | 'employer' | 'grossMonthlyCents' | 'currency' | 'socialSecurityCents' | 'taxCents'>>;
 
 export async function updateIncome(familyId: string, id: string, patch: IncomePatch): Promise<void> {
   if (isGuestActive()) return;
@@ -173,10 +176,9 @@ export type FxResolver = (currency: string) => number;
 export interface IncomeSummary {
   active: IncomeSource[];
   passive: IncomeSource[];
-  activeGrossCents: number;
-  activeTaxCents: number;
-  activeSavedCents: number;
-  activeNetCents: number;     // gross − tax − saved (to household spend)
+  activeNetCents: number;        // sum of net take-home amounts (no deductions)
+  socialSecurityCents: number;   // sum of monthly Social Security (you + employer) → Fund
+  taxInfoCents: number;          // sum of monthly tax paid — INFORMATION ONLY
   passiveTotalCents: number;
   expensesCents: number;
   coveragePct: number;        // passive / expenses, 0–100+ (capped at 100 for the bar)
@@ -199,12 +201,18 @@ export function computeIncomeSummary(
   const active = filtered.filter((s) => s.kind === 'active').sort((a, b) => toH(b) - toH(a));
   const passive = filtered.filter((s) => s.kind === 'passive').sort((a, b) => toH(b) - toH(a));
 
-  let gross = 0, tax = 0, saved = 0;
+  // Net model: the entered amount IS take-home. Social Security and tax are
+  // tracked separately as monthly amounts — Social Security feeds the Fund,
+  // tax is information-only. Neither is subtracted from the net total.
+  const toHCents = (cents: number, currency: string) => {
+    const r = rateFor(currency);
+    return Math.round(cents * (Number.isFinite(r) && r > 0 ? r : 1));
+  };
+  let net = 0, social = 0, taxInfo = 0;
   for (const s of active) {
-    const g = toH(s);
-    gross += g;
-    tax += Math.round(g * (s.taxPct || 0) / 100);
-    saved += Math.round(g * (s.savedPct || 0) / 100);
+    net += toH(s);
+    social += toHCents(s.socialSecurityCents || 0, s.currency);
+    taxInfo += toHCents(s.taxCents || 0, s.currency);
   }
   const passiveTotal = passive.reduce((sum, s) => sum + toH(s), 0);
   const expensesCents = view === 'shared' ? config.expensesShared : (config.expensesPersonal[ownerId] ?? 0);
@@ -212,10 +220,9 @@ export function computeIncomeSummary(
 
   return {
     active, passive,
-    activeGrossCents: gross,
-    activeTaxCents: tax,
-    activeSavedCents: saved,
-    activeNetCents: gross - tax - saved,
+    activeNetCents: net,
+    socialSecurityCents: social,
+    taxInfoCents: taxInfo,
     passiveTotalCents: passiveTotal,
     expensesCents,
     coveragePct,
