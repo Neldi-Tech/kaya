@@ -19,7 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useFamily } from '@/contexts/FamilyContext';
 import { formatCents } from '@/components/pantry/format';
 import { fmt } from '@/lib/format';
-import { computeWealthSummary, type WealthAsset, type WealthSummary } from '@/lib/wealth';
+import { computeWealthSummary, assetInView, type WealthAsset, type WealthSummary } from '@/lib/wealth';
 import { useWealthData } from '@/components/wealth/useWealthData';
 import AssetRegister from '@/components/wealth/AssetRegister';
 import { compactCents, curLabel, kcFromUsdCents } from '@/components/wealth/wealthFormat';
@@ -73,12 +73,12 @@ export default function KayaWealthPage() {
 
   // ── Per-view summaries (live) ──────────────────────────────────────
   const sharedSummary = useMemo(
-    () => computeWealthSummary(data.assets.filter((a) => a.visibility === 'shared'), householdCurrency, rateFor),
-    [data.assets, householdCurrency, rateFor],
+    () => computeWealthSummary(data.assets.filter((a) => assetInView(a, 'shared', author.uid)), householdCurrency, rateFor),
+    [data.assets, householdCurrency, rateFor, author.uid],
   );
   const personalSummary = useMemo(
     () => computeWealthSummary(
-      data.assets.filter((a) => a.visibility === 'personal' && a.ownerId === author.uid),
+      data.assets.filter((a) => assetInView(a, 'personal', author.uid)),
       householdCurrency, rateFor,
     ),
     [data.assets, householdCurrency, rateFor, author.uid],

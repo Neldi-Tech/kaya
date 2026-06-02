@@ -1433,7 +1433,8 @@ service cloud.firestore {
       match /wealth_assets/{assetId} {
         allow read: if isParentInFamily(familyId)
                     && (resource.data.visibility != 'personal'
-                        || resource.data.ownerId == request.auth.uid);
+                        || resource.data.ownerId == request.auth.uid
+                        || resource.data.sharedWithPartner == true);
         allow create: if isParentInFamily(familyId)
                       && (request.resource.data.visibility != 'personal'
                           || request.resource.data.ownerId == request.auth.uid);
