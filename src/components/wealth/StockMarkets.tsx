@@ -10,7 +10,7 @@ import { useEffect, useState } from 'react';
 import { auth } from '@/lib/firebase';
 
 interface DseQuote { symbol: string; name: string; price: string; changePct: number }
-interface MarketUpdate { quotes: DseQuote[]; asOf: string; commentary: string; ai: boolean }
+interface MarketUpdate { quotes: DseQuote[]; asOf: string; commentary: string; ai: boolean; live: boolean }
 
 // Indicative Bank of Tanzania Treasury Bond / Bill auction yields. Curated +
 // labelled honestly (not a live feed) — government securities are a low-risk
@@ -46,7 +46,7 @@ export default function StockMarkets() {
     try {
       const r = await fetch('/api/wealth/markets/ai-update', { method: 'POST', headers: { authorization: `Bearer ${token}` } });
       const j = await r.json();
-      if (j?.ok) setData({ quotes: j.quotes ?? [], asOf: j.asOf ?? '', commentary: j.commentary ?? '', ai: !!j.ai });
+      if (j?.ok) setData({ quotes: j.quotes ?? [], asOf: j.asOf ?? '', commentary: j.commentary ?? '', ai: !!j.ai, live: !!j.live });
     } catch { /* keep prior */ }
     setLoading(false);
   };
@@ -62,8 +62,8 @@ export default function StockMarkets() {
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--navy)' }}>🇹🇿 Dar es Salaam · DSE</div>
-            <span style={{ fontSize: '9.5px', fontWeight: 800, color: 'var(--navy)', background: 'var(--gold)', padding: '3px 8px', borderRadius: 20, letterSpacing: '.04em' }}>
-              DAILY CLOSE{data?.asOf ? ` · ${data.asOf}` : ''}
+            <span style={{ fontSize: '9.5px', fontWeight: 800, color: data?.live ? '#fff' : 'var(--navy)', background: data?.live ? 'var(--green)' : 'var(--gold)', padding: '3px 8px', borderRadius: 20, letterSpacing: '.04em' }}>
+              {data?.live ? '🟢 LIVE' : 'DAILY CLOSE'}{data?.asOf ? ` · ${data.asOf}` : ''}
             </span>
           </div>
           {loading && !data && <div className="market"><div className="t">Loading DSE…</div></div>}
@@ -78,7 +78,7 @@ export default function StockMarkets() {
             <span className="ai-orb" />
             <div><b>AI market update:</b> {loading ? 'Reading your holdings…' : (data?.commentary || 'The DSE is your local market.')}</div>
           </div>
-          <div className="glock-note" style={{ marginTop: 8 }}>Indicative daily-close levels — a near-live feed is a future upgrade. AI gives context only, never trade advice.</div>
+          <div className="glock-note" style={{ marginTop: 8 }}>{data?.live ? 'Live prices read from the Dar es Salaam Stock Exchange (dse.co.tz), cached briefly.' : 'Indicative daily-close levels.'} AI gives context only, never trade advice.</div>
         </div>
 
         <div className="card glocked">
