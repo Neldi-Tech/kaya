@@ -15,8 +15,9 @@ import { SUPPORTED_CURRENCIES } from '@/lib/fx';
 import {
   ASSET_CLASSES, assetClassDef, LIQUIDITY_LABEL, computeWealthSummary,
   createWealthAsset, updateWealthAsset, getWealthAsset, subscribeToEditLog,
+  subTypesFor, subTypeLabel,
   type WealthAsset, type WealthVisibility, type AssetClassId,
-  type WealthEditLogEntry, type WealthInsurance,
+  type WealthEditLogEntry, type WealthInsurance, type WealthHolding,
 } from '@/lib/wealth';
 import { CLASS_ICON_BG, liqPillClass, tsToDisplay } from './wealthFormat';
 import type { WealthData } from './useWealthData';
@@ -120,6 +121,7 @@ export default function AssetRegister({ data, view }: Props) {
                   <div className="info">
                     <div className="nm">
                       {a.name}
+                      {subTypeLabel(a.class, a.subType) && <span className="tag t-docs">{subTypeLabel(a.class, a.subType)}</span>}
                       {tagFor && <span className="tag t-shared">{tagFor}</span>}
                       {a.media?.length ? <span className="tag t-docs">📎 {a.media.length} docs</span> : null}
                     </div>
@@ -253,6 +255,10 @@ interface ModalProps {
 function AssetModal({ mode, asset, view, familyId, householdCurrency, author, onClose }: ModalProps) {
   const [name, setName] = useState(asset?.name ?? '');
   const [klass, setKlass] = useState<AssetClassId>(asset?.class ?? 'cash');
+  const [subType, setSubType] = useState<string>(asset?.subType ?? '');
+  const [holdings, setHoldings] = useState<HoldingDraft[]>(
+    (asset?.holdings ?? []).map((h) => ({ id: h.id, symbol: h.symbol, units: h.units, valueStr: formatMoneyInput(String(h.valueCents / 100)) })),
+  );
   const [value, setValue] = useState(asset ? formatMoneyInput(String(asset.valueCents / 100)) : '');
   const [currency, setCurrency] = useState(asset?.currency ?? householdCurrency);
   const [subtitle, setSubtitle] = useState(asset?.meta?.subtitle ?? '');
@@ -262,8 +268,11 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
   const [renewal, setRenewal] = useState(asset?.insurance?.renewalIso ?? '');
   const [busy, setBusy] = useState(false);
 
-  const valueCents = moneyToCents(value);
+  const isBroker = klass === 'investments' && subType === 'broker';
+  const holdingsCents = holdings.reduce((s, h) => s + moneyToCents(h.valueStr), 0);
+  const valueCents = isBroker ? holdingsCents : moneyToCents(value);
   const canSave = name.trim().length > 0 && valueCents >= 0 && !busy;
+  const changeKlass = (k: AssetClassId) => { setKlass(k); setSubType(''); if (k !== 'investments') setHoldings([]); };
 
   const buildInsurance = (): WealthInsurance | null => {
     if (klass !== 'real_estate' || !insured) return klass === 'real_estate' ? { insured: false } : null;
@@ -281,10 +290,15 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
     setBusy(true);
     try {
       const insurance = buildInsurance();
+      const subTypeVal = subTypesFor(klass).length > 0 ? (subType || null) : null;
+      const builtHoldings: WealthHolding[] | null = isBroker
+        ? holdings.filter((h) => h.symbol.trim() || moneyToCents(h.valueStr) > 0)
+                  .map((h) => ({ id: h.id, symbol: h.symbol.trim(), units: h.units, valueCents: moneyToCents(h.valueStr) }))
+        : null;
       let savedId = asset?.id ?? '';
       if (mode === 'add') {
         const res = await createWealthAsset({
-          familyId, class: klass, name: name.trim(), valueCents, currency,
+          familyId, class: klass, subType: subTypeVal, name: name.trim(), valueCents, currency, holdings: builtHoldings,
           visibility: view, ownerId: author.uid,
           meta: subtitle.trim() ? { subtitle: subtitle.trim() } : {},
           insurance, author,
@@ -306,7 +320,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
         await updateWealthAsset({
           familyId, assetId: asset.id, author, change,
           patch: {
-            class: klass, name: name.trim(), valueCents, currency,
+            class: klass, subType: subTypeVal, name: name.trim(), valueCents, currency, holdings: builtHoldings,
             meta: subtitle.trim() ? { ...asset.meta, subtitle: subtitle.trim() } : asset.meta,
             insurance,
           },
@@ -341,7 +355,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
         <div className="kw-row2">
           <div className="kw-field">
             <label>Class</label>
-            <select value={klass} onChange={(e) => setKlass(e.target.value as AssetClassId)}>
+            <select value={klass} onChange={(e) => changeKlass(e.target.value as AssetClassId)}>
               {ASSET_CLASSES.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
             </select>
           </div>
@@ -353,10 +367,31 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
           </div>
         </div>
 
-        <div className="kw-field">
-          <label>{assetClassDef(klass).isLiability ? 'Amount owed' : 'Value'} ({currency})</label>
-          <MoneyInput value={value} onChange={setValue} placeholder="0" />
-        </div>
+        {subTypesFor(klass).length > 0 && (
+          <div className="kw-field">
+            <label>Type</label>
+            <select value={subType} onChange={(e) => setSubType(e.target.value)}>
+              <option value="">— choose —</option>
+              {subTypesFor(klass).map((s) => <option key={s.id} value={s.id}>{s.emoji} {s.label}</option>)}
+            </select>
+          </div>
+        )}
+
+        {isBroker ? (
+          <>
+            <HoldingsEditor holdings={holdings} setHoldings={setHoldings} currency={currency} />
+            <div className="kw-field">
+              <label>Total value ({currency})</label>
+              <input value={formatMoneyInput(String(holdingsCents / 100))} readOnly style={{ background: '#FBF7EE', color: '#0F1F44', fontWeight: 700 }} />
+              <div style={{ fontSize: 11.5, color: '#9a9a9a', marginTop: 4 }}>Sum of the holdings above.</div>
+            </div>
+          </>
+        ) : (
+          <div className="kw-field">
+            <label>{assetClassDef(klass).isLiability ? 'Amount owed' : 'Value'} ({currency})</label>
+            <MoneyInput value={value} onChange={setValue} placeholder="0" />
+          </div>
+        )}
 
         <div className="kw-field">
           <label>Detail <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label>
@@ -386,6 +421,35 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
           <button className="kw-btn-primary" disabled={!canSave} onClick={save}>{busy ? 'Saving…' : mode === 'add' ? 'Add to vault' : 'Save changes'}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Brokerage holdings editor (split a broker account by what you own) ─
+
+type HoldingDraft = { id: string; symbol: string; units: number | null; valueStr: string };
+
+function HoldingsEditor({ holdings, setHoldings, currency }: {
+  holdings: HoldingDraft[]; setHoldings: (h: HoldingDraft[]) => void; currency: string;
+}) {
+  const update = (i: number, patch: Partial<HoldingDraft>) =>
+    setHoldings(holdings.map((h, j) => (j === i ? { ...h, ...patch } : h)));
+  const add = () => setHoldings([...holdings, { id: `h${Date.now().toString(36)}${holdings.length}`, symbol: '', units: null, valueStr: '' }]);
+  const remove = (i: number) => setHoldings(holdings.filter((_, j) => j !== i));
+  return (
+    <div className="kw-field" style={{ background: '#FBF7EE', border: '1px dashed #E7E0D0', borderRadius: 11, padding: 12 }}>
+      <label>Holdings — split by what you own</label>
+      {holdings.length === 0 && <div style={{ fontSize: 11.5, color: '#9a9a9a', margin: '2px 0 8px' }}>Add each position; the total sums them.</div>}
+      {holdings.map((h, i) => (
+        <div key={h.id} style={{ display: 'grid', gridTemplateColumns: '1.3fr .8fr 1.1fr auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+          <input value={h.symbol} onChange={(e) => update(i, { symbol: e.target.value })} placeholder="AAPL" />
+          <input inputMode="decimal" value={h.units ?? ''} placeholder="units"
+            onChange={(e) => { const v = e.target.value.replace(/[^\d.]/g, ''); update(i, { units: v ? parseFloat(v) : null }); }} />
+          <MoneyInput value={h.valueStr} onChange={(v) => update(i, { valueStr: v })} placeholder={`value (${currency})`} />
+          <button className="kw-btn-ghost" style={{ padding: '6px 10px' }} onClick={() => remove(i)} title="Remove">✕</button>
+        </div>
+      ))}
+      <button className="kw-btn-ghost" style={{ marginTop: 2 }} onClick={add}>+ Add holding</button>
     </div>
   );
 }

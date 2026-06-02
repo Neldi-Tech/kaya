@@ -55,6 +55,7 @@ export function tsToDisplay(ts: Timestamp | null | undefined): string {
 /** Asset class → the mockup's icon-tile background utility class. */
 export const CLASS_ICON_BG: Record<AssetClassId, string> = {
   cash: 'i-cash', public_markets: 'i-stk', private_alt: 'i-biz',
+  investments: 'i-stk',
   real_estate: 'i-home', retirement: 'i-pen', vehicles: 'i-home',
   valuables: 'i-biz', receivables: 'i-fin', insurance: 'i-fin',
   digital: 'i-stk', liabilities: 'i-pen',

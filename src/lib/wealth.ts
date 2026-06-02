@@ -50,6 +50,7 @@ export type AssetClassId =
   | 'cash'           // Cash & Equivalents
   | 'public_markets' // Public Markets
   | 'private_alt'    // Private & Alternative
+  | 'investments'    // Investments — ownership stakes, angel, funds, brokerage
   | 'real_estate'    // Real Estate & Land
   | 'retirement'     // Retirement & Pension
   | 'vehicles'       // Vehicles & Equipment
@@ -73,6 +74,7 @@ export const ASSET_CLASSES: AssetClassDef[] = [
   { id: 'cash',           label: 'Cash & Equivalents',     emoji: '💵', liquidity: 'high',   examples: 'Bank balances, mobile money, FX cash' },
   { id: 'public_markets', label: 'Public Markets',         emoji: '📈', liquidity: 'high',   examples: 'Listed stocks, ETFs, bonds, T-bills, unit trusts' },
   { id: 'private_alt',    label: 'Private & Alternative',  emoji: '🏢', liquidity: 'low',    examples: 'Startup equity, private business stakes' },
+  { id: 'investments',    label: 'Investments',            emoji: '📊', liquidity: 'varies', examples: 'Controlling / minority stakes, angel, funds, brokerage (IBKR)' },
   { id: 'real_estate',    label: 'Real Estate & Land',     emoji: '🏠', liquidity: 'medium', examples: 'Houses, plots, developments' },
   { id: 'retirement',     label: 'Retirement & Pension',   emoji: '🌅', liquidity: 'locked', examples: 'NSSF / PSSSF, private pension top-ups' },
   { id: 'vehicles',       label: 'Vehicles & Equipment',   emoji: '🚗', liquidity: 'medium', examples: 'Cars, machinery — depreciating assets' },
@@ -82,6 +84,34 @@ export const ASSET_CLASSES: AssetClassDef[] = [
   { id: 'digital',        label: 'Digital Assets',         emoji: '🪙', liquidity: 'varies', examples: 'Crypto, domains, IP / royalties' },
   { id: 'liabilities',    label: 'Liabilities (offset)',   emoji: '⚖️', liquidity: 'none',   examples: 'Mortgages, loans — reduce net worth', isLiability: true },
 ];
+
+export interface SubTypeDef { id: string; label: string; emoji: string }
+
+/** Investment ownership levels (class === 'investments'). */
+export const INVESTMENT_SUBTYPES: SubTypeDef[] = [
+  { id: 'controlling', label: 'Controlling Interest (>50%)', emoji: '👑' },
+  { id: 'minority',    label: 'Minority (<50%)',             emoji: '🤝' },
+  { id: 'angel',       label: 'Angel / Early-stage',         emoji: '🚀' },
+  { id: 'general',     label: 'General Investment',          emoji: '📈' },
+  { id: 'funds',       label: 'Funds / ETFs',                emoji: '🧺' },
+  { id: 'broker',      label: 'Brokerage account',           emoji: '🏦' },
+];
+
+/** Cash kinds (class === 'cash') — Stablecoins join the liquid pool. */
+export const CASH_SUBTYPES: SubTypeDef[] = [
+  { id: 'bank',       label: 'Bank balance',             emoji: '🏦' },
+  { id: 'mobile',     label: 'Mobile money',             emoji: '📱' },
+  { id: 'fx',         label: 'FX cash',                  emoji: '💱' },
+  { id: 'stablecoin', label: 'Stablecoin (USDT / USDC)', emoji: '🪙' },
+];
+
+export function subTypesFor(klass: AssetClassId): SubTypeDef[] {
+  return klass === 'investments' ? INVESTMENT_SUBTYPES : klass === 'cash' ? CASH_SUBTYPES : [];
+}
+export function subTypeLabel(klass: AssetClassId, id?: string | null): string | null {
+  if (!id) return null;
+  return subTypesFor(klass).find((s) => s.id === id)?.label ?? null;
+}
 
 const CLASS_BY_ID: Record<AssetClassId, AssetClassDef> =
   Object.fromEntries(ASSET_CLASSES.map((c) => [c.id, c])) as Record<AssetClassId, AssetClassDef>;
@@ -126,14 +156,27 @@ export interface WealthAssetMeta {
   tag?: string;               // "Shared", "Guided"
 }
 
+export interface WealthHolding {
+  id: string;
+  symbol: string;        // 'AAPL', 'VWRA ETF', 'Cash'…
+  units: number | null;  // shares/units; null for a cash line
+  valueCents: number;    // value in the asset's own currency
+}
+
 export interface WealthAsset {
   id: string;
   class: AssetClassId;
+  /** Optional sub-type within the class — investment ownership level
+   *  ('controlling'|'minority'|'angel'|'general'|'funds'|'broker') or a cash
+   *  kind ('bank'|'mobile'|'fx'|'stablecoin'). UI-driven, free-form. */
+  subType?: string | null;
   name: string;
 
   // money — CENTS of `currency`
   valueCents: number;
   currency: string;           // ISO 4217 ('TZS', 'USD'…)
+  /** Brokerage / fund holdings that sum to valueCents (optional breakdown). */
+  holdings?: WealthHolding[] | null;
 
   visibility: WealthVisibility;
   ownerId: string;            // uid — load-bearing for `personal` privacy
@@ -261,9 +304,11 @@ export interface WealthAuthor { uid: string; name: string }
 export interface CreateWealthAssetInput {
   familyId: string;
   class: AssetClassId;
+  subType?: string | null;
   name: string;
   valueCents: number;
   currency: string;
+  holdings?: WealthHolding[] | null;
   visibility: WealthVisibility;
   /** For 'personal' this MUST be the author's uid (rules enforce it). */
   ownerId: string;
@@ -284,9 +329,11 @@ export async function createWealthAsset(
   const batch = writeBatch(db);
   batch.set(ref, {
     class: input.class,
+    subType: input.subType ?? null,
     name: input.name,
     valueCents: input.valueCents,
     currency: input.currency,
+    holdings: input.holdings ?? null,
     visibility: input.visibility,
     ownerId: input.ownerId,
     juniorId: input.juniorId ?? null,
@@ -315,7 +362,7 @@ export async function createWealthAsset(
  *  immutable from the UI; visibility changes are a deliberate, separate
  *  flow (moving an asset between Shared/Personal/Junior re-checks rules). */
 export type WealthAssetPatch = Partial<Pick<WealthAsset,
-  | 'class' | 'name' | 'valueCents' | 'currency'
+  | 'class' | 'subType' | 'name' | 'valueCents' | 'currency' | 'holdings'
   | 'meta' | 'insurance' | 'juniorId'
 >>;
 
