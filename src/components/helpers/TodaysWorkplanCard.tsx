@@ -21,7 +21,7 @@ import {
   todayDateString,
 } from '@/lib/workplan';
 import {
-  subscribeToOwnerTasks, subscribeToTrackables, generateTasksNow,
+  subscribeToOwnerTasks, subscribeToAssistTasks, subscribeToTrackables, generateTasksNow,
   type PulseTask, type Trackable,
 } from '@/lib/pulse';
 import { toDisplayDate } from '@/lib/dates';
@@ -66,6 +66,10 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
   // task's name + emoji for a friendly tile.
   const [pulseTasks, setPulseTasks] = useState<PulseTask[] | null>(null);
   const [trackById, setTrackById] = useState<Record<string, Trackable>>({});
+  // Kid + Helper backup tasks — readings where THIS helper is the backup for a
+  // kid. Shown in a separate "you're backup" strip; their entry goes to a
+  // parent to approve (not folded into the helper's own progress %).
+  const [assistTasks, setAssistTasks] = useState<PulseTask[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -84,10 +88,11 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
 
   useEffect(() => {
     const unsubTasks = subscribeToOwnerTasks(familyId, helperUid, dateStr, setPulseTasks);
+    const unsubAssist = subscribeToAssistTasks(familyId, helperUid, dateStr, setAssistTasks);
     const unsubTr = subscribeToTrackables(familyId, (list) => {
       setTrackById(Object.fromEntries(list.map((t) => [t.id, t])));
     });
-    return () => { unsubTasks(); unsubTr(); };
+    return () => { unsubTasks(); unsubAssist(); unsubTr(); };
   }, [familyId, helperUid, dateStr]);
 
   // Ensure today's reading tasks exist when the helper opens their plan — an
@@ -104,7 +109,7 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
   const scheduled = itemsScheduledOn(items, date);
   const pulseForDay = pulseTasks;
   const pulseDoneCount = pulseForDay.filter(isPulseDone).length;
-  if (scheduled.length === 0 && pulseForDay.length === 0) {
+  if (scheduled.length === 0 && pulseForDay.length === 0 && assistTasks.length === 0) {
     // Today / helper-home: render nothing rather than an empty card.
     // Read-only day views DO show a friendly note so the card doesn't
     // silently vanish when you step to a day with nothing scheduled.
@@ -274,6 +279,50 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* ── 🤝 Backup readings ── Kid + Helper tasks where this helper is the
+          backup. Tapping opens Quick Entry in "submit for approval" mode (the
+          kid keeps the credit when THEY log; a helper entry goes to a parent). */}
+      {assistTasks.length > 0 && (
+        <div className="mb-3 -mx-1 px-3 py-2.5 bg-[#0F1F44]/[0.04] border-2 border-[#0F1F44]/15 rounded-kaya">
+          <p className="text-[10px] uppercase tracking-wider font-bold mb-2 inline-flex items-center gap-1.5 text-[#0F1F44]">
+            🤝 <span>Backup readings · you can help</span>
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
+            {assistTasks.map((t) => {
+              const tr = trackById[t.trackableId];
+              const emoji = tr?.emoji ?? '📊';
+              const name = tr?.name ?? 'Reading';
+              const done = isPulseDone(t);
+              const inReview = t.status === 'review';
+              const canHelp = isToday && !readOnly && !done && !inReview;
+              const inner = (
+                <>
+                  <span className="text-3xl lg:text-4xl">{emoji}</span>
+                  <span className="text-[10px] lg:text-[11px] font-bold text-center leading-tight line-clamp-2 px-1 text-[#0F1F44]">{name}</span>
+                  {done ? (
+                    <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-green-500 text-white flex items-center justify-center"><Check size={12} strokeWidth={3} /></span>
+                  ) : inReview ? (
+                    <span className="absolute top-1 right-1 text-[8px] uppercase tracking-wider font-black bg-[#5A3CB8] text-white px-1 rounded">Sent</span>
+                  ) : canHelp ? (
+                    <span className="absolute top-1 right-1 text-[#0F1F44]"><ChevronRight size={14} strokeWidth={3} /></span>
+                  ) : null}
+                  {canHelp && <span className="text-[9px] font-bold text-[#0F1F44] uppercase tracking-wide">Tap to help</span>}
+                  {inReview && <span className="text-[9px] font-bold text-[#5A3CB8] uppercase tracking-wide">Awaiting parent</span>}
+                </>
+              );
+              const tileBase = 'relative aspect-square flex flex-col items-center justify-center gap-0.5 p-2 rounded-kaya border-2 transition-all';
+              const tone = done ? 'bg-green-50 border-green-400' : inReview ? 'bg-[#F3EEFF] border-[#5A3CB8]/40' : 'bg-white border-[#0F1F44]/25';
+              return canHelp ? (
+                <Link key={t.id} href={`/pulse/log/${t.id}`} className={`${tileBase} ${tone} hover:shadow-sm no-underline`}>{inner}</Link>
+              ) : (
+                <div key={t.id} className={`${tileBase} ${tone} cursor-default`} aria-disabled>{inner}</div>
+              );
+            })}
+          </div>
+          <p className="text-[9px] text-kaya-sand mt-1.5">Your entry goes to a parent to approve.</p>
         </div>
       )}
 

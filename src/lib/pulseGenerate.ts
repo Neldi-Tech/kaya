@@ -115,7 +115,7 @@ type TemplateData = {
   cadence?: string; cadenceN?: number; trackableId?: string; trackableSource?: string;
   ownerKind?: string; ownerType?: string; ownerId?: string;
   rotationCurrent?: string; rotationPool?: string[];
-  pointsValue?: number; dueTimeLocal?: string;
+  pointsValue?: number; dueTimeLocal?: string; assistHelperUid?: string;
 };
 
 /** Materialise today's tasks for ONE family from its active templates.
@@ -151,6 +151,8 @@ export async function generateForFamily(
         dueAt,
         status: 'pending',
         pointsValue: Number(tpl.pointsValue ?? 0),
+        // Kid + Helper: snapshot the backup helper so they can see + assist.
+        ...(tpl.assistHelperUid ? { assistHelperUid: tpl.assistHelperUid } : {}),
       });
       created++;
       await notifyPulseOwner(famRef, { kind: tpl.ownerKind, id: ownerId }, {
@@ -170,18 +172,25 @@ export async function generateForFamily(
       try {
         const taskRef = famRef.collection('pulseTasks').doc(`${tplDoc.id}_${dayKey}`);
         const existing = await taskRef.get();
-        const d = existing.data() as { ownerId?: string; ownerKind?: string; status?: string } | undefined;
+        const d = existing.data() as { ownerId?: string; ownerKind?: string; status?: string; assistHelperUid?: string } | undefined;
         if (d && (d.status === 'pending' || d.status === 'missed')) {
           const desiredKind = tpl.ownerKind ?? 'kid';
+          const desiredAssist = tpl.assistHelperUid || null; // '' (cleared) → none
           const ownerChanged = d.ownerId !== ownerId || (d.ownerKind ?? 'kid') !== desiredKind;
-          if (ownerChanged) {
-            await taskRef.update({ ownerId, ownerKind: desiredKind, status: 'pending', missedAt: null });
-            await notifyPulseOwner(famRef, { kind: desiredKind, id: ownerId }, {
-              type: 'pulse-reading-due',
-              title: '📈 Reading to log',
-              message: 'A meter reading was assigned to you today.',
-              link: `/pulse/log/${tplDoc.id}_${dayKey}`,
-            });
+          const assistChanged = (d.assistHelperUid || null) !== desiredAssist;
+          if (ownerChanged || assistChanged) {
+            const patch: Record<string, unknown> = {};
+            if (ownerChanged) { patch.ownerId = ownerId; patch.ownerKind = desiredKind; patch.status = 'pending'; patch.missedAt = null; }
+            if (assistChanged) { patch.assistHelperUid = desiredAssist; }
+            await taskRef.update(patch);
+            if (ownerChanged) {
+              await notifyPulseOwner(famRef, { kind: desiredKind, id: ownerId }, {
+                type: 'pulse-reading-due',
+                title: '📈 Reading to log',
+                message: 'A meter reading was assigned to you today.',
+                link: `/pulse/log/${tplDoc.id}_${dayKey}`,
+              });
+            }
           }
         }
       } catch {
