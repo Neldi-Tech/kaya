@@ -145,20 +145,70 @@ export async function deleteIncome(familyId: string, id: string): Promise<void> 
 
 // ── Monthly-expenses config (for the passive-coverage meter) ─────────
 
-export interface IncomeConfig { expensesShared: number; expensesPersonal: Record<string, number> }
+export interface IncomeConfig {
+  expensesShared: number;
+  expensesPersonal: Record<string, number>;
+  // Social Security Fund (setup-only): opening balance + start date; the
+  // current balance is projected client-side as opening + monthlySS × months.
+  ssOpeningShared: number;
+  ssSinceShared: string;                      // 'YYYY-MM-DD'
+  ssOpeningPersonal: Record<string, number>;
+  ssSincePersonal: Record<string, string>;
+}
+
+export const EMPTY_INCOME_CONFIG: IncomeConfig = {
+  expensesShared: 0, expensesPersonal: {},
+  ssOpeningShared: 0, ssSinceShared: '', ssOpeningPersonal: {}, ssSincePersonal: {},
+};
 
 const configRef = (familyId: string) => doc(db, 'families', familyId, 'wealth_config', 'income');
 
 export function subscribeIncomeConfig(familyId: string, cb: (c: IncomeConfig) => void): () => void {
-  if (isGuestActive()) { cb({ expensesShared: 0, expensesPersonal: {} }); return () => {}; }
+  if (isGuestActive()) { cb(EMPTY_INCOME_CONFIG); return () => {}; }
   return onSnapshot(
     configRef(familyId),
     (snap) => {
       const d = (snap.data() as Partial<IncomeConfig> | undefined) ?? {};
-      cb({ expensesShared: d.expensesShared ?? 0, expensesPersonal: d.expensesPersonal ?? {} });
+      cb({
+        expensesShared: d.expensesShared ?? 0,
+        expensesPersonal: d.expensesPersonal ?? {},
+        ssOpeningShared: d.ssOpeningShared ?? 0,
+        ssSinceShared: d.ssSinceShared ?? '',
+        ssOpeningPersonal: d.ssOpeningPersonal ?? {},
+        ssSincePersonal: d.ssSincePersonal ?? {},
+      });
     },
-    () => cb({ expensesShared: 0, expensesPersonal: {} }),
+    () => cb(EMPTY_INCOME_CONFIG),
   );
+}
+
+/** Whole months elapsed from a 'YYYY-MM-DD' start to `now` (local), ≥ 0. */
+export function monthsElapsed(sinceIso: string, now: Date): number {
+  if (!sinceIso) return 0;
+  const [y, m, d] = sinceIso.split('-').map(Number);
+  if (!y || !m) return 0;
+  let months = (now.getFullYear() - y) * 12 + (now.getMonth() - (m - 1));
+  if (now.getDate() < (d || 1)) months -= 1;
+  return Math.max(0, months);
+}
+
+/** Projected Social Security Fund balance = opening + monthlySS × months. */
+export function projectSsBalance(openingCents: number, sinceIso: string, monthlyCents: number, now: Date): number {
+  return Math.max(0, Math.round(openingCents + monthlyCents * monthsElapsed(sinceIso, now)));
+}
+
+export function ssFundSetup(config: IncomeConfig, view: IncomeVisibility, ownerId: string): { opening: number; since: string } {
+  return view === 'shared'
+    ? { opening: config.ssOpeningShared, since: config.ssSinceShared }
+    : { opening: config.ssOpeningPersonal[ownerId] ?? 0, since: config.ssSincePersonal[ownerId] ?? '' };
+}
+
+export async function setSsFund(familyId: string, view: IncomeVisibility, ownerId: string, openingCents: number, sinceIso: string): Promise<void> {
+  if (isGuestActive()) return;
+  const patch = view === 'shared'
+    ? { ssOpeningShared: openingCents, ssSinceShared: sinceIso }
+    : { ssOpeningPersonal: { [ownerId]: openingCents }, ssSincePersonal: { [ownerId]: sinceIso } };
+  await setDoc(configRef(familyId), patch, { merge: true });
 }
 
 export async function setMonthlyExpenses(familyId: string, view: IncomeVisibility, ownerId: string, cents: number): Promise<void> {
