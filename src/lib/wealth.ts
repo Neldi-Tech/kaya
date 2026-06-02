@@ -180,6 +180,9 @@ export interface WealthAsset {
 
   visibility: WealthVisibility;
   ownerId: string;            // uid — load-bearing for `personal` privacy
+  /** Personal asset only: the owner toggled it visible to the co-parent(s) —
+   *  they can then read it and it counts in the shared net worth. Default false. */
+  sharedWithPartner?: boolean | null;
   juniorId: string | null;    // childId when visibility === 'junior'
 
   meta: WealthAssetMeta;
@@ -241,12 +244,17 @@ export function subscribeToWealthAssets(
   // the vault looks empty. We instead run two rule-satisfying queries and
   // merge them: every row I own (any visibility) + every non-personal row.
   // A co-parent's personal rows match neither query, so they never leak.
+  // Three rule-satisfying queries, merged: my own rows + every non-personal
+  // row + every personal row toggled "visible to partner" (so a co-parent
+  // sees what was shared, and it counts in the shared net worth).
   const mine = new Map<string, WealthAsset>();
   const open = new Map<string, WealthAsset>();
-  const seen = { mine: false, open: false };
+  const sharedP = new Map<string, WealthAsset>();
+  const seen = { mine: false, open: false, sharedP: false };
   const emit = () => {
-    if (!seen.mine || !seen.open) return; // wait for both first snapshots
+    if (!seen.mine || !seen.open || !seen.sharedP) return; // wait for all three
     const m = new Map<string, WealthAsset>(open);
+    for (const [k, v] of sharedP) m.set(k, v);
     for (const [k, v] of mine) m.set(k, v); // own rows win on overlap
     let list = Array.from(m.values());
     if (!opts.includeArchived) list = list.filter((a) => !a.archivedAt);
@@ -260,7 +268,11 @@ export function subscribeToWealthAssets(
     (snap) => { open.clear(); snap.forEach((d) => open.set(d.id, { id: d.id, ...d.data() } as WealthAsset)); seen.open = true; emit(); },
     // eslint-disable-next-line no-console
     (err) => { seen.open = true; console.error('[wealth] subscribe (shared) failed:', err); emit(); });
-  return () => { u1(); u2(); };
+  const u3 = onSnapshot(query(col, where('sharedWithPartner', '==', true)),
+    (snap) => { sharedP.clear(); snap.forEach((d) => sharedP.set(d.id, { id: d.id, ...d.data() } as WealthAsset)); seen.sharedP = true; emit(); },
+    // eslint-disable-next-line no-console
+    (err) => { seen.sharedP = true; console.error('[wealth] subscribe (sharedWithPartner) failed:', err); emit(); });
+  return () => { u1(); u2(); u3(); };
 }
 
 export async function listWealthAssets(familyId: string): Promise<WealthAsset[]> {
@@ -312,6 +324,7 @@ export interface CreateWealthAssetInput {
   visibility: WealthVisibility;
   /** For 'personal' this MUST be the author's uid (rules enforce it). */
   ownerId: string;
+  sharedWithPartner?: boolean;
   juniorId?: string | null;
   meta?: WealthAssetMeta;
   insurance?: WealthInsurance | null;
@@ -336,6 +349,7 @@ export async function createWealthAsset(
     holdings: input.holdings ?? null,
     visibility: input.visibility,
     ownerId: input.ownerId,
+    sharedWithPartner: input.sharedWithPartner ?? false,
     juniorId: input.juniorId ?? null,
     meta: input.meta ?? {},
     media: [],
@@ -363,8 +377,18 @@ export async function createWealthAsset(
  *  flow (moving an asset between Shared/Personal/Junior re-checks rules). */
 export type WealthAssetPatch = Partial<Pick<WealthAsset,
   | 'class' | 'subType' | 'name' | 'valueCents' | 'currency' | 'holdings'
-  | 'meta' | 'insurance' | 'juniorId'
+  | 'meta' | 'insurance' | 'juniorId' | 'sharedWithPartner'
 >>;
+
+/** Which assets belong in a given view for a given parent.
+ *  - personal: the viewer's OWN personal assets.
+ *  - shared:   family-shared assets + personal assets any parent toggled
+ *              "visible to partner" (so the shared net worth is symmetric).
+ *  A co-parent's private (non-shared) personal assets never appear. */
+export function assetInView(a: WealthAsset, view: 'shared' | 'personal', uid: string): boolean {
+  if (view === 'personal') return a.visibility === 'personal' && a.ownerId === uid;
+  return a.visibility === 'shared' || (a.visibility === 'personal' && a.sharedWithPartner === true);
+}
 
 export interface WealthChange {
   action: WealthEditAction;

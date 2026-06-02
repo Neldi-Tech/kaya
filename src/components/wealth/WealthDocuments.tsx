@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import DocumentScanner from './DocumentScanner';
 import { subscribeUnfiledDocs, type WealthDocEntry } from './wealthDocs';
-import type { WealthVisibility } from '@/lib/wealth';
+import { assetInView, type WealthVisibility } from '@/lib/wealth';
 import type { WealthData } from './useWealthData';
 
 export default function WealthDocuments({ data, view }: {
@@ -18,7 +18,7 @@ export default function WealthDocuments({ data, view }: {
   view: Extract<WealthVisibility, 'shared' | 'personal'>;
 }) {
   const { isParent, familyId, author } = data;
-  const assets = data.assets.filter((a) => a.visibility === view);
+  const assets = data.assets.filter((a) => assetInView(a, view, author.uid));
   const assetDocs = assets.flatMap((a) => (a.media || []).map((m) => ({ m, asset: a })));
   const [unfiled, setUnfiled] = useState<WealthDocEntry[]>([]);
   const [scanOpen, setScanOpen] = useState(false);

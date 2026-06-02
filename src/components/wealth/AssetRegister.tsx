@@ -15,7 +15,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/fx';
 import {
   ASSET_CLASSES, assetClassDef, LIQUIDITY_LABEL, computeWealthSummary,
   createWealthAsset, updateWealthAsset, getWealthAsset, subscribeToEditLog,
-  subTypesFor, subTypeLabel,
+  subTypesFor, subTypeLabel, assetInView,
   type WealthAsset, type WealthVisibility, type AssetClassId,
   type WealthEditLogEntry, type WealthInsurance, type WealthHolding,
 } from '@/lib/wealth';
@@ -38,8 +38,8 @@ const ACTION_EMOJI: Record<string, string> = {
 export default function AssetRegister({ data, view }: Props) {
   const { householdCurrency, rateFor, author, isParent, familyId } = data;
   const assets = useMemo(
-    () => data.assets.filter((a) => a.visibility === view),
-    [data.assets, view],
+    () => data.assets.filter((a) => assetInView(a, view, author.uid)),
+    [data.assets, view, author.uid],
   );
   const summary = useMemo(
     () => computeWealthSummary(assets, householdCurrency, rateFor),
@@ -122,7 +122,8 @@ export default function AssetRegister({ data, view }: Props) {
                     <div className="nm">
                       {a.name}
                       {subTypeLabel(a.class, a.subType) && <span className="tag t-docs">{subTypeLabel(a.class, a.subType)}</span>}
-                      {tagFor && <span className="tag t-shared">{tagFor}</span>}
+                      {tagFor && a.visibility === 'shared' && <span className="tag t-shared">{tagFor}</span>}
+                      {a.visibility === 'personal' && a.ownerId !== author.uid && <span className="tag t-shared">🔓 Shared personal</span>}
                       {a.media?.length ? <span className="tag t-docs">📎 {a.media.length} docs</span> : null}
                     </div>
                     {a.meta?.subtitle && <div className="meta">{a.meta.subtitle}</div>}
@@ -153,6 +154,10 @@ export default function AssetRegister({ data, view }: Props) {
 
                 {openLog === a.id && familyId && (
                   <EditLogPanel familyId={familyId} assetId={a.id} name={a.name} />
+                )}
+
+                {a.visibility === 'personal' && a.ownerId === author.uid && familyId && (
+                  <TransparencyToggle asset={a} familyId={familyId} author={author} />
                 )}
 
                 {a.class === 'real_estate' && <InsuranceBlock asset={a} />}
@@ -421,6 +426,36 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
           <button className="kw-btn-primary" disabled={!canSave} onClick={save}>{busy ? 'Saving…' : mode === 'add' ? 'Add to vault' : 'Save changes'}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Transparency toggle (share a personal asset with the co-parent) ───
+
+function TransparencyToggle({ asset, familyId, author }: {
+  asset: WealthAsset; familyId: string; author: { uid: string; name: string };
+}) {
+  const [busy, setBusy] = useState(false);
+  const on = asset.sharedWithPartner === true;
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await updateWealthAsset({
+        familyId, assetId: asset.id, author,
+        change: { action: 'edited', summary: on ? 'Made private — hidden from the co-parent' : 'Shared with family — visible to the co-parent' },
+        patch: { sharedWithPartner: !on },
+      });
+    } catch { /* ignore */ } finally { setBusy(false); }
+  };
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '4px 2px 12px', fontSize: 12.5, flexWrap: 'wrap' }}>
+      <button onClick={toggle} disabled={busy} aria-pressed={on} title="Show this asset to your co-parent in full"
+        style={{ width: 40, height: 22, borderRadius: 999, border: 'none', cursor: busy ? 'default' : 'pointer', position: 'relative', flex: 'none', background: on ? '#2E7D34' : '#d9d2c2', transition: '.2s' }}>
+        <span style={{ position: 'absolute', top: 2, left: on ? 20 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: '.2s', boxShadow: '0 1px 2px rgba(0,0,0,.25)' }} />
+      </button>
+      <span style={{ fontWeight: 700, color: on ? '#2E7D34' : '#5A5A5A' }}>{on ? '👁️ Visible to family' : '🔒 Private to you'}</span>
+      <span style={{ color: '#9a9a9a', fontWeight: 500 }}>· {on ? 'counts in the shared net worth' : 'only you can see it'}</span>
     </div>
   );
 }
