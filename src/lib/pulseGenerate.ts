@@ -160,7 +160,33 @@ export async function generateForFamily(
         link: `/pulse/log/${tplDoc.id}_${dayKey}`,
       });
     } catch {
-      // ALREADY_EXISTS → idempotent no-op (already generated today).
+      // ALREADY_EXISTS → today's task is already there. Reconcile it to the
+      // template's CURRENT reader so a reassignment actually takes effect: if
+      // an OPEN task's owner drifted from the template (parent changed the
+      // reader after generation), re-point + un-miss it so the new person can
+      // still log. A logged/closed/review task is left alone (never disturb a
+      // completed or in-approval reading). This is what makes "Update reader"
+      // move today's task to whoever is now assigned.
+      try {
+        const taskRef = famRef.collection('pulseTasks').doc(`${tplDoc.id}_${dayKey}`);
+        const existing = await taskRef.get();
+        const d = existing.data() as { ownerId?: string; ownerKind?: string; status?: string } | undefined;
+        if (d && (d.status === 'pending' || d.status === 'missed')) {
+          const desiredKind = tpl.ownerKind ?? 'kid';
+          const ownerChanged = d.ownerId !== ownerId || (d.ownerKind ?? 'kid') !== desiredKind;
+          if (ownerChanged) {
+            await taskRef.update({ ownerId, ownerKind: desiredKind, status: 'pending', missedAt: null });
+            await notifyPulseOwner(famRef, { kind: desiredKind, id: ownerId }, {
+              type: 'pulse-reading-due',
+              title: '📈 Reading to log',
+              message: 'A meter reading was assigned to you today.',
+              link: `/pulse/log/${tplDoc.id}_${dayKey}`,
+            });
+          }
+        }
+      } catch {
+        /* best-effort reconcile */
+      }
     }
   }
   return { scanned, created };
