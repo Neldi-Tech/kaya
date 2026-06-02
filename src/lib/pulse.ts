@@ -160,6 +160,10 @@ export interface PulseTemplate {
   ownerType: OwnerType;
   /** fixed: Child id (kid) or helper uid. */
   ownerId?: string;
+  /** Kid + Helper mode: the primary reader is the KID (ownerKind 'kid',
+   *  ownerId = childId) and this is the backup helper's uid. The helper can
+   *  see + log the kid's reading, but a helper log needs parent approval. */
+  assistHelperUid?: string;
   /** rotating: Child ids or helper uids. */
   rotationPool?: string[];
   rotationPeriod?: RotationPeriod;
@@ -195,6 +199,15 @@ export interface PulseTask {
   loggedBy?: string;
   missedAt?: Timestamp;
   note?: string;
+  /** Kid + Helper backup (snapshot from template) — this helper can see +
+   *  assist the kid's reading. */
+  assistHelperUid?: string;
+  /** Helper-assist pending parent approval: the helper proposed a value; the
+   *  task sits at status 'review' until a parent approves (→ logged, no kid
+   *  points) or rejects (→ pending). No reading is written until approval. */
+  assistProposedValue?: number;
+  assistLoggedBy?: string;     // the helper uid who proposed
+  assistSubmittedAt?: Timestamp;
 }
 
 /* ============================================================
@@ -792,6 +805,61 @@ export function subscribeToTasksForDay(
       cb([]);
     },
   );
+}
+
+/** Tasks where THIS helper is the Kid + Helper backup, for one day. Powers the
+ *  "assist" strip in the helper's workplan — they can step in for the kid. */
+export function subscribeToAssistTasks(
+  fid: string,
+  helperUid: string,
+  dayKey: string,
+  cb: (t: PulseTask[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(pulseTasksCol(fid), where('assistHelperUid', '==', helperUid)),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as PulseTask))
+        .filter((t) => t.dayKey === dayKey)
+        .sort((a, b) => (a.dueAt?.toMillis() ?? 0) - (b.dueAt?.toMillis() ?? 0));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] assist tasks subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
+/** Helper proposes a value for a kid's reading → pending parent approval. */
+export async function submitAssistReading(familyId: string, taskId: string, value: number, actorUid: string): Promise<boolean> {
+  if (isGuestActive()) return true;
+  try {
+    const res = await fetch('/api/pulse/assist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ familyId, taskId, value, actorUid, action: 'submit' }),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
+/** Parent approves / rejects a helper's on-behalf reading. */
+export async function resolveAssist(familyId: string, taskId: string, action: 'approve' | 'reject', actorUid: string): Promise<boolean> {
+  if (isGuestActive()) return true;
+  try {
+    const res = await fetch('/api/pulse/assist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ familyId, taskId, actorUid, action }),
+    });
+    return res.ok;
+  } catch { return false; }
 }
 
 /* ============================================================

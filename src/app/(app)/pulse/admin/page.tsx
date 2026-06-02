@@ -361,7 +361,11 @@ function TrackableShell({ emoji, name, enabled, sub, template, owners, toggle, o
   toggle?: React.ReactNode; open: boolean; setOpen: (v: boolean) => void; children: React.ReactNode;
 }) {
   const ownerName = (id?: string) => owners.find((o) => o.id === id)?.name ?? 'someone';
-  const readerLabel = !template ? undefined : template.ownerType === 'fixed' ? ownerName(template.ownerId) : `Rotating: ${(template.rotationPool ?? []).map(ownerName).join(' / ')}`;
+  const readerLabel = !template
+    ? undefined
+    : template.ownerType === 'fixed'
+      ? (template.assistHelperUid ? `${ownerName(template.ownerId)} + ${ownerName(template.assistHelperUid)} (backup)` : ownerName(template.ownerId))
+      : `Rotating: ${(template.rotationPool ?? []).map(ownerName).join(' / ')}`;
   return (
     <div className={`rounded-2xl p-3 border ${enabled ? 'bg-pulse-bone border-pulse-gold' : 'bg-white border-pulse-gold/30'}`}>
       <div className="flex items-center gap-3">
@@ -441,8 +445,13 @@ function ThresholdInput({ unit, value, onChange, onBlur }: { unit?: string; valu
 function ReaderAssign({ familyId, trackableId, source, owners, template, createdBy }: {
   familyId: string; trackableId: string; source: TrackableSource; owners: Owner[]; template?: PulseTemplate; createdBy: string;
 }) {
-  const [ownerType, setOwnerType] = useState<OwnerType>(template?.ownerType ?? 'fixed');
+  // UI reader mode: One person · Kid + Helper (kid primary + backup helper) ·
+  // Rotating. 'kidHelper' saves as a fixed kid owner + assistHelperUid.
+  const [mode, setMode] = useState<'one' | 'kidHelper' | 'rotating'>(
+    template?.assistHelperUid ? 'kidHelper' : template?.ownerType === 'rotating' ? 'rotating' : 'one',
+  );
   const [fixedOwnerId, setFixedOwnerId] = useState<string>(template?.ownerType === 'fixed' ? template.ownerId ?? '' : '');
+  const [assistHelperUid, setAssistHelperUid] = useState<string>(template?.assistHelperUid ?? '');
   const [rotateKind, setRotateKind] = useState<OwnerKind>((template?.ownerKind as OwnerKind) ?? 'kid');
   const [pool, setPool] = useState<string[]>(template?.rotationPool ?? []);
   const [cadence, setCadence] = useState<PulseCadence>(template?.cadence ?? 'daily');
@@ -456,21 +465,31 @@ function ReaderAssign({ familyId, trackableId, source, owners, template, created
   const kindOf = (id: string) => owners.find((o) => o.id === id)?.kind ?? 'kid';
   const togglePool = (id: string) => { setSaved(false); setPool((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id])); };
   const rotatable = owners.filter((o) => o.kind === rotateKind);
-  const canSave = ownerType === 'fixed' ? !!fixedOwnerId : pool.length >= 2;
+  const kids = owners.filter((o) => o.kind === 'kid');
+  const helpers = owners.filter((o) => o.kind === 'helper');
+  const canSave = mode === 'rotating'
+    ? pool.length >= 2
+    : mode === 'kidHelper'
+      ? (!!fixedOwnerId && !!assistHelperUid)
+      : !!fixedOwnerId;
 
   const save = async () => {
     if (!canSave || !createdBy || saving) return;
     setSaving(true); setSaved(false);
     try {
+      const isRotating = mode === 'rotating';
       const data = {
         trackableId, trackableSource: source, cadence,
         cadenceN: cadence === 'everyNWeeks' ? cadenceN : undefined,
-        ownerType,
-        ownerId: ownerType === 'fixed' ? fixedOwnerId : undefined,
-        ownerKind: (ownerType === 'fixed' ? kindOf(fixedOwnerId) : rotateKind) as OwnerKind,
-        rotationPool: ownerType === 'rotating' ? pool : undefined,
-        rotationPeriod: ownerType === 'rotating' ? rotationPeriod : undefined,
-        rotationCurrent: ownerType === 'rotating' ? pool[0] : undefined,
+        ownerType: (isRotating ? 'rotating' : 'fixed') as OwnerType,
+        ownerId: isRotating ? undefined : fixedOwnerId,
+        ownerKind: (mode === 'kidHelper' ? 'kid' : mode === 'one' ? kindOf(fixedOwnerId) : rotateKind) as OwnerKind,
+        // Kid + Helper backup. '' clears it for the other modes (ignoreUndefined
+        // would otherwise leave a stale helper on the template).
+        assistHelperUid: mode === 'kidHelper' ? assistHelperUid : '',
+        rotationPool: isRotating ? pool : undefined,
+        rotationPeriod: isRotating ? rotationPeriod : undefined,
+        rotationCurrent: isRotating ? pool[0] : undefined,
         pointsValue: points, dueTimeLocal: dueTime, createdBy,
       };
       if (template) await updateTemplate(familyId, template.id, data);
@@ -487,11 +506,12 @@ function ReaderAssign({ familyId, trackableId, source, owners, template, created
   return (
     <div>
       <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Reader</span>
-      <div className="flex gap-1.5 mt-1 mb-2">
-        <button type="button" onClick={() => { setOwnerType('fixed'); setSaved(false); }} className={chip(ownerType === 'fixed')}>One person</button>
-        <button type="button" onClick={() => { setOwnerType('rotating'); setSaved(false); }} className={chip(ownerType === 'rotating')}>Rotating</button>
+      <div className="flex flex-wrap gap-1.5 mt-1 mb-2">
+        <button type="button" onClick={() => { setMode('one'); setSaved(false); }} className={chip(mode === 'one')}>One person</button>
+        <button type="button" onClick={() => { setMode('kidHelper'); setSaved(false); }} className={chip(mode === 'kidHelper')}>Kid + Helper</button>
+        <button type="button" onClick={() => { setMode('rotating'); setSaved(false); }} className={chip(mode === 'rotating')}>Rotating</button>
       </div>
-      {ownerType === 'fixed' ? (
+      {mode === 'one' ? (
         <div className="flex flex-wrap gap-1.5">
           {owners.map((o) => (
             <button key={`${o.kind}:${o.id}`} type="button" onClick={() => { setFixedOwnerId(o.id); setSaved(false); }} className={chip(fixedOwnerId === o.id)}>
@@ -499,6 +519,24 @@ function ReaderAssign({ familyId, trackableId, source, owners, template, created
             </button>
           ))}
         </div>
+      ) : mode === 'kidHelper' ? (
+        <>
+          <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Kid (whose task it is)</span>
+          <div className="flex flex-wrap gap-1.5 mt-1 mb-2">
+            {kids.length === 0 && <span className="text-[10px] text-pulse-coral font-bold">No kids yet.</span>}
+            {kids.map((o) => (
+              <button key={o.id} type="button" onClick={() => { setFixedOwnerId(o.id); setSaved(false); }} className={chip(fixedOwnerId === o.id)}>{o.emoji} {o.name}</button>
+            ))}
+          </div>
+          <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Helper (backup · assists)</span>
+          <div className="flex flex-wrap gap-1.5 mt-1">
+            {helpers.length === 0 && <span className="text-[10px] text-pulse-coral font-bold">No helpers yet.</span>}
+            {helpers.map((o) => (
+              <button key={o.id} type="button" onClick={() => { setAssistHelperUid(o.id); setSaved(false); }} className={chip(assistHelperUid === o.id)}>{o.emoji} {o.name}</button>
+            ))}
+          </div>
+          <p className="text-[10px] text-hive-muted mt-1.5 leading-snug">The kid logs it + earns the points. The helper can step in if the kid misses — their entry goes to a parent to approve.</p>
+        </>
       ) : (
         <>
           <div className="flex gap-1.5 mb-2">

@@ -12,7 +12,7 @@ import { useHive } from '@/contexts/HiveContext';
 import { formatCents } from '@/components/pantry/format';
 import {
   type PulseTask, type Trackable, type PulseReading, type LogReadingResult,
-  getPulseTask, getLatestReading, subscribeToTrackables, logReading,
+  getPulseTask, getLatestReading, subscribeToTrackables, logReading, submitAssistReading,
   computeConsumption, computeDeltaCostCents,
 } from '@/lib/pulse';
 
@@ -31,7 +31,13 @@ export default function QuickEntryPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<LogReadingResult | null>(null);
+  const [submittedForApproval, setSubmittedForApproval] = useState(false);
   const [error, setError] = useState('');
+
+  // This viewer is the Kid + Helper BACKUP (not the primary owner): their entry
+  // is a proposal that goes to a parent to approve, not a direct log.
+  const isAssistHelper = !!task && !!profile
+    && task.assistHelperUid === profile.uid && task.ownerId !== profile.uid;
 
   useEffect(() => {
     if (!profile?.familyId || !taskId) {
@@ -73,6 +79,14 @@ export default function QuickEntryPage() {
     setSaving(true);
     setError('');
     try {
+      // Backup helper: propose the value → goes to a parent to approve.
+      if (isAssistHelper) {
+        const ok = await submitAssistReading(profile.familyId, taskId, numeric, profile.uid);
+        if (!ok) { setError('Could not send for approval — try again.'); setSaving(false); return; }
+        setSubmittedForApproval(true);
+        setTimeout(() => router.push('/pulse/today'), 1600);
+        return;
+      }
       const r = await logReading({
         familyId: profile.familyId, taskId, value: numeric,
         actorUid: profile.uid, actorRole: profile.role,
@@ -112,6 +126,33 @@ export default function QuickEntryPage() {
     );
   }
 
+  // Helper just sent their entry for approval.
+  if (submittedForApproval) {
+    return (
+      <Shell>
+        <div className="text-center pt-16">
+          <div className="text-5xl mb-3">📝</div>
+          <h2 className="font-nunito font-black text-xl text-pulse-joy-ink">Sent for approval</h2>
+          <p className="text-hive-muted text-sm mt-2">A parent will review your reading. Thanks for helping!</p>
+        </div>
+      </Shell>
+    );
+  }
+
+  // Already submitted by the helper (or anomaly-flagged) → awaiting a parent.
+  if (task.status === 'review') {
+    return (
+      <Shell>
+        <div className="text-center pt-12">
+          <div className="text-4xl mb-2">⏳</div>
+          <h2 className="font-nunito font-black text-pulse-joy-ink">Waiting for a parent to review</h2>
+          <p className="text-hive-muted text-sm mt-2">This reading was submitted and needs a parent to approve it.</p>
+          <Link href="/pulse/today" className="text-pulse-joy-purple font-bold text-sm underline mt-3 inline-block">← Back to Today</Link>
+        </div>
+      </Shell>
+    );
+  }
+
   // Success celebration.
   if (result && !result.alreadyLogged) {
     return (
@@ -140,6 +181,12 @@ export default function QuickEntryPage() {
       <h1 className="font-nunito font-black text-xl text-pulse-joy-ink">
         {trackable?.emoji ?? '📊'} Log {trackable?.name ?? 'reading'}
       </h1>
+
+      {isAssistHelper && (
+        <div className="bg-[#0F1F44]/[0.05] border border-[#0F1F44]/15 rounded-2xl p-3 mt-3 text-[12px] font-bold text-[#0F1F44] leading-snug">
+          🤝 You&apos;re the backup for this reading. Enter the value to <span className="font-black">verify + send it to a parent to approve</span> — the kid keeps the credit when they log it themselves.
+        </div>
+      )}
 
       {/* Previous reading */}
       <div className="bg-white border-2 border-pulse-joy-purple/15 rounded-2xl p-3.5 mt-4">
@@ -196,7 +243,9 @@ export default function QuickEntryPage() {
         disabled={!hasValue || saving}
         className="w-full mt-4 bg-gradient-to-r from-pulse-joy-purple to-pulse-joy-coral text-white rounded-2xl py-3.5 font-nunito font-black text-[15px] disabled:opacity-50"
       >
-        {saving ? 'Saving…' : `Save · +${task.pointsValue} pts ⭐`}
+        {saving
+          ? (isAssistHelper ? 'Sending…' : 'Saving…')
+          : isAssistHelper ? '🤝 Verify & send for approval' : `Save · +${task.pointsValue} pts ⭐`}
       </button>
     </Shell>
   );

@@ -25,7 +25,7 @@ import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import AskKaya from '@/components/pulse/AskKaya';
 import {
   type PulseReading, type Trackable, type PulseTask,
-  subscribeToReadingsInMonth, subscribeToTrackables, subscribeToTasksForDay,
+  subscribeToReadingsInMonth, subscribeToTrackables, subscribeToTasksForDay, resolveAssist,
   projectMonthSpendCents,
 } from '@/lib/pulse';
 import { listHelpers } from '@/lib/helpers';
@@ -84,6 +84,15 @@ export default function PulseDashboardPage() {
   // (kid names come from the family context) so we can show who's logged what.
   const [tasksToday, setTasksToday] = useState<PulseTask[]>([]);
   const [helpers, setHelpers] = useState<HelperLink[]>([]);
+  const [assistBusy, setAssistBusy] = useState('');   // taskId being approved/rejected
+
+  const onResolveAssist = async (taskId: string, action: 'approve' | 'reject') => {
+    if (!profile?.familyId || assistBusy) return;
+    setAssistBusy(taskId);
+    try { await resolveAssist(profile.familyId, taskId, action, profile.uid); }
+    finally { setAssistBusy(''); }
+    // tasksToday is realtime → the row updates itself on the status change.
+  };
   // Daily scrubber state + cache of readings from previous months that the
   // user has scrubbed into (keyed by YYYY-MM).
   const today = useMemo(() => todayDayKey(), []);
@@ -215,26 +224,32 @@ export default function PulseDashboardPage() {
   // via the helper list) + the trackable's name/emoji. 'review'/'logged'/
   // 'closed' all count as filled; 'pending'/'missed' are what a parent can log.
   const readingsOversight = useMemo(() => {
-    const DONE = ['logged', 'review', 'closed'];
-    const nameFor = (t: PulseTask): string => {
-      if (t.ownerKind === 'kid') return children.find((c) => c.id === t.ownerId)?.name ?? 'Kid';
-      return helpers.find((h) => h.uid === t.ownerId)?.displayName ?? 'Helper';
-    };
+    const kidName = (id?: string) => children.find((c) => c.id === id)?.name ?? 'Kid';
+    const helperName = (uid?: string) => helpers.find((h) => h.uid === uid)?.displayName ?? 'Helper';
+    const nameFor = (t: PulseTask): string => (t.ownerKind === 'kid' ? kidName(t.ownerId) : helperName(t.ownerId));
     const rows = tasksToday.map((t) => {
       const tk = trackables.find((x) => x.id === t.trackableId);
+      // A helper-assist submission sits at 'review' with assistLoggedBy set —
+      // it needs a parent to approve. (An anomaly 'review' has no assistLoggedBy
+      // and is already logged, so it counts as done here.)
+      const isAssistReview = t.status === 'review' && !!t.assistLoggedBy;
       return {
         id: t.id,
         name: tk?.name ?? 'Reading',
         emoji: tk?.emoji ?? '📊',
+        unit: tk?.unit ?? '',
         owner: nameFor(t),
-        done: DONE.includes(t.status),
+        isAssistReview,
+        assistBy: isAssistReview ? helperName(t.assistLoggedBy) : '',
+        proposed: t.assistProposedValue,
+        done: t.status === 'logged' || t.status === 'closed' || (t.status === 'review' && !isAssistReview),
         missed: t.status === 'missed',
       };
     });
-    const unfilled = rows.filter((r) => !r.done);
     return {
       total: rows.length,
-      unfilled,
+      unfilled: rows.filter((r) => !r.done && !r.isAssistReview),
+      pendingApproval: rows.filter((r) => r.isAssistReview),
       loggedCount: rows.filter((r) => r.done).length,
       missedCount: rows.filter((r) => r.missed).length,
     };
@@ -372,11 +387,40 @@ export default function PulseDashboardPage() {
               {readingsOversight.missedCount > 0 && <span className="text-pulse-coral"> · {readingsOversight.missedCount} missed</span>}
             </span>
           </div>
-          {readingsOversight.unfilled.length === 0 ? (
+          {/* Helper assists awaiting your approval — Approve writes the reading
+              (no kid points); Reject sends it back to the kid. */}
+          {readingsOversight.pendingApproval.length > 0 && (
+            <div className="flex flex-col gap-2 mb-2">
+              {readingsOversight.pendingApproval.map((r) => (
+                <div key={r.id} className="bg-[#F3EEFF] border border-[#5A3CB8]/35 rounded-2xl p-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-white flex items-center justify-center text-base shrink-0">{r.emoji}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-nunito font-black text-sm text-pulse-navy truncate">{r.name}</div>
+                      <div className="text-[11px] text-hive-muted font-bold">
+                        <span className="text-[#5A3CB8] font-black">{r.assistBy}</span> logged {typeof r.proposed === 'number' ? `${r.proposed}${r.unit ? ' ' + r.unit : ''}` : 'a reading'} for {r.owner} · needs approval
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-2.5">
+                    <button type="button" disabled={assistBusy === r.id} onClick={() => onResolveAssist(r.id, 'approve')}
+                      className="flex-1 text-[12px] font-black px-3 py-2 rounded-full bg-pulse-green text-white disabled:opacity-50">
+                      {assistBusy === r.id ? '…' : '✓ Approve'}
+                    </button>
+                    <button type="button" disabled={assistBusy === r.id} onClick={() => onResolveAssist(r.id, 'reject')}
+                      className="flex-1 text-[12px] font-black px-3 py-2 rounded-full bg-white border border-pulse-coral/40 text-pulse-coral disabled:opacity-50">
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {readingsOversight.unfilled.length === 0 && readingsOversight.pendingApproval.length === 0 ? (
             <div className="bg-white border border-pulse-green/40 rounded-2xl p-4 text-center text-[12.5px] font-bold text-pulse-green">
               ✓ All readings logged today
             </div>
-          ) : (
+          ) : readingsOversight.unfilled.length > 0 ? (
             <div className="flex flex-col gap-2">
               {readingsOversight.unfilled.map((r) => (
                 <div key={r.id} className={`bg-white border rounded-2xl p-3 flex items-center gap-3 ${r.missed ? 'border-pulse-coral/40' : 'border-pulse-gold/30'}`}>
@@ -396,7 +440,7 @@ export default function PulseDashboardPage() {
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
