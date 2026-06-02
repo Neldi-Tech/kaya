@@ -13,6 +13,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/fx';
 import {
   subscribeToIncome, subscribeIncomeConfig, computeIncomeSummary, setMonthlyExpenses,
   createIncome, updateIncome, deleteIncome, incomeCatDef, INCOME_CATEGORIES,
+  setSsFund, projectSsBalance, ssFundSetup, EMPTY_INCOME_CONFIG,
   type IncomeSource, type IncomeKind, type IncomeVisibility, type IncomeConfig,
 } from '@/lib/wealthIncome';
 import type { WealthData } from './useWealthData';
@@ -21,7 +22,8 @@ import { MoneyInput, moneyToCents, formatMoneyInput } from './MoneyInput';
 export default function IncomeEngine({ data, view }: { data: WealthData; view: IncomeVisibility }) {
   const { familyId, author, householdCurrency, rateFor, isParent } = data;
   const [sources, setSources] = useState<IncomeSource[]>([]);
-  const [config, setConfig] = useState<IncomeConfig>({ expensesShared: 0, expensesPersonal: {} });
+  const [config, setConfig] = useState<IncomeConfig>(EMPTY_INCOME_CONFIG);
+  const [ssEdit, setSsEdit] = useState<null | { opening: string; since: string }>(null);
   const [modal, setModal] = useState<null | { kind: IncomeKind; source?: IncomeSource }>(null);
   const [expEdit, setExpEdit] = useState<string | null>(null);
 
@@ -41,6 +43,14 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
   const addLink = (kind: IncomeKind, label: string) => isParent
     ? <a onClick={() => setModal({ kind })} style={{ cursor: 'pointer', color: 'var(--blue)', fontSize: 12, fontWeight: 700 }}>{label}</a>
     : null;
+
+  const ssSetup = ssFundSetup(config, view, author.uid);
+  const ssBalance = projectSsBalance(ssSetup.opening, ssSetup.since, s.socialSecurityCents, new Date());
+  const openSsEdit = () => setSsEdit({ opening: ssSetup.opening ? formatMoneyInput(String(ssSetup.opening / 100)) : '', since: ssSetup.since || '' });
+  const saveSsFund = async () => {
+    if (familyId && ssEdit) await setSsFund(familyId, view, author.uid, moneyToCents(ssEdit.opening), ssEdit.since);
+    setSsEdit(null);
+  };
 
   return (
     <div className="adult-block">
@@ -112,6 +122,41 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
             <div className="fi">🎯 {s.coveragePct}% to financial independence — when passive ≥ expenses</div>
           </div>
         </div>
+      </div>
+
+      {/* SOCIAL SECURITY FUND — grows by the monthly amount set on active income */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ background: '#ede9f7', width: 34, height: 34, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 17 }}>🛡️</span>
+            <div>
+              <div style={{ fontWeight: 800, color: 'var(--navy)', fontSize: 14.5 }}>Social Security Fund</div>
+              <div style={{ fontSize: 11.5, color: 'var(--grey)' }}>Your future-savings pot — grows every month</div>
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--navy)' }}>{formatCents(ssBalance, householdCurrency)}</div>
+            {s.socialSecurityCents > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>▲ +{formatCents(s.socialSecurityCents, householdCurrency)} / mo</div>}
+          </div>
+        </div>
+
+        {isParent && (ssEdit ? (
+          <div style={{ marginTop: 12, borderTop: '1px dashed var(--line)', paddingTop: 12 }}>
+            <div className="kw-row2">
+              <div className="kw-field"><label>Opening balance ({householdCurrency})</label><MoneyInput value={ssEdit.opening} onChange={(v) => setSsEdit({ ...ssEdit, opening: v })} placeholder="0" /></div>
+              <div className="kw-field"><label>Saving since</label><input type="date" value={ssEdit.since} onChange={(e) => setSsEdit({ ...ssEdit, since: e.target.value })} /></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button className="kw-btn-ghost" onClick={() => setSsEdit(null)}>Cancel</button>
+              <button className="kw-btn-primary" onClick={saveSsFund}>Save</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'var(--grey)' }}>Balance = opening + monthly Social Security × months since you started. Setup-only — auto-posting &amp; release come later.</span>
+            <a onClick={openSsEdit} style={{ cursor: 'pointer', color: 'var(--blue)', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' }}>⚙︎ Set opening &amp; start date</a>
+          </div>
+        ))}
       </div>
 
       {modal && familyId && (
