@@ -50,7 +50,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
         <div className="card inc">
           <div className="head">
             <div className="t"><span className="badge b-active">🛠️</span> Active Income <small style={{ color: 'var(--grey)', fontWeight: 600 }}>/ month</small></div>
-            <div className="total">{formatCents(s.activeGrossCents, householdCurrency)} <small>gross</small></div>
+            <div className="total">{formatCents(s.activeNetCents, householdCurrency)} <small>net take-home</small></div>
           </div>
           {s.active.length === 0 && <div className="iline"><span className="l">No active income yet</span><span className="r">{addLink('active', '+ Add')}</span></div>}
           {s.active.map((src) => (
@@ -60,11 +60,14 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
               <span className="r">{formatCents(toH(src), householdCurrency)}</span>
             </div>
           ))}
-          {s.activeGrossCents > 0 && (
+          {(s.socialSecurityCents > 0 || s.taxInfoCents > 0) && (
             <>
-              <div className="iline neg"><span className="l"><span className="ic">🛡️</span>Social Security <small style={{ color: 'var(--grey)', fontWeight: 600 }}>(future savings)</small></span><span className="r">− {formatCents(s.activeTaxCents, householdCurrency)}</span></div>
-              <div className="iline pos"><span className="l"><span className="ic">🐷</span>Saved to queue</span><span className="r">+ {formatCents(s.activeSavedCents, householdCurrency)}</span></div>
-              <div className="iline"><span className="l"><span className="ic">🏠</span>Net to household spend</span><span className="r">{formatCents(s.activeNetCents, householdCurrency)}</span></div>
+              {s.socialSecurityCents > 0 && (
+                <div className="iline pos"><span className="l"><span className="ic">🛡️</span>Social Security <small style={{ color: 'var(--grey)', fontWeight: 600 }}>you + employer → Fund</small></span><span className="r">+ {formatCents(s.socialSecurityCents, householdCurrency)}</span></div>
+              )}
+              {s.taxInfoCents > 0 && (
+                <div className="iline" style={{ opacity: .68 }}><span className="l"><span className="ic">🧾</span>Tax paid <small style={{ color: 'var(--grey)', fontWeight: 600 }}>(information only)</small></span><span className="r" style={{ color: 'var(--grey)' }}>{formatCents(s.taxInfoCents, householdCurrency)}</span></div>
+              )}
             </>
           )}
           {s.active.length > 0 && <div style={{ marginTop: 8 }}>{addLink('active', '+ Add active income')}</div>}
@@ -131,8 +134,8 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
   const [gross, setGross] = useState(source ? formatMoneyInput(String(source.grossMonthlyCents / 100)) : '');
   const [currency, setCurrency] = useState(source?.currency ?? householdCurrency);
   const [employer, setEmployer] = useState(source?.employer ?? '');
-  const [taxPct, setTaxPct] = useState(source ? String(source.taxPct) : '');
-  const [savedPct, setSavedPct] = useState(source ? String(source.savedPct) : '');
+  const [social, setSocial] = useState(source ? formatMoneyInput(String((source.socialSecurityCents ?? 0) / 100)) : '');
+  const [tax, setTax] = useState(source ? formatMoneyInput(String((source.taxCents ?? 0) / 100)) : '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const grossCents = moneyToCents(gross);
@@ -147,13 +150,14 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
       if (source) {
         await updateIncome(familyId, source.id, {
           category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
-          taxPct: kind === 'active' ? (parseFloat(taxPct) || 0) : 0,
-          savedPct: kind === 'active' ? (parseFloat(savedPct) || 0) : 0,
+          socialSecurityCents: kind === 'active' ? moneyToCents(social) : 0,
+          taxCents: kind === 'active' ? moneyToCents(tax) : 0,
         });
       } else {
         await createIncome({
           familyId, kind, category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
-          taxPct: parseFloat(taxPct) || 0, savedPct: parseFloat(savedPct) || 0,
+          socialSecurityCents: kind === 'active' ? moneyToCents(social) : 0,
+          taxCents: kind === 'active' ? moneyToCents(tax) : 0,
           visibility: view, ownerId: authorUid,
         });
       }
@@ -169,7 +173,7 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
     <div className="kw-modal-back" onClick={onClose}>
       <div className="kw-modal" onClick={(e) => e.stopPropagation()}>
         <h3>{source ? '✏️ Edit' : '➕ Add'} {kind} income</h3>
-        <div className="msub">{view === 'personal' ? 'Private to you.' : 'Shared with the family.'} Enter the monthly figure.</div>
+        <div className="msub">{view === 'personal' ? 'Private to you.' : 'Shared with the family.'} Enter the net (take-home) monthly figure.</div>
         <div className="kw-field"><label>Source</label>
           <select value={category} onChange={(e) => setCategory(e.target.value)}>
             {cats.map((c) => <option key={c.id} value={c.id}>{c.emoji} {c.label}</option>)}
@@ -180,7 +184,7 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
           <div className="kw-field"><label>Employer <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label><input value={employer} onChange={(e) => setEmployer(e.target.value)} placeholder="e.g. Neldi Inc — to capture multiple salaries" /></div>
         )}
         <div className="kw-row2">
-          <div className="kw-field"><label>Gross / month ({currency})</label><MoneyInput value={gross} onChange={setGross} placeholder="0" /></div>
+          <div className="kw-field"><label>Net take-home / month ({currency})</label><MoneyInput value={gross} onChange={setGross} placeholder="0" /></div>
           <div className="kw-field"><label>Currency</label>
             <select value={currency} onChange={(e) => setCurrency(e.target.value)}>
               {SUPPORTED_CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
@@ -188,10 +192,16 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
           </div>
         </div>
         {kind === 'active' && (
-          <div className="kw-row2">
-            <div className="kw-field"><label>Social Security % <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(future savings)</span></label><input type="number" inputMode="decimal" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} placeholder="0" /></div>
-            <div className="kw-field"><label>Saved to queue %</label><input type="number" inputMode="decimal" value={savedPct} onChange={(e) => setSavedPct(e.target.value)} placeholder="0" /></div>
-          </div>
+          <>
+            <div className="kw-row2">
+              <div className="kw-field"><label>Social Security / month ({currency})</label><MoneyInput value={social} onChange={setSocial} placeholder="0" /></div>
+              <div className="kw-field"><label>Tax paid / month ({currency})</label><MoneyInput value={tax} onChange={setTax} placeholder="0" /></div>
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--grey)', marginTop: -2, marginBottom: 10, lineHeight: 1.5 }}>
+              🛡️ <b>Social Security</b> — your + the employer&apos;s contribution; it builds your Social Security Fund (counts as savings, not lost).<br />
+              🧾 <b>Tax paid</b> is recorded for information only — it never changes any total.
+            </div>
+          </>
         )}
         {err && <div style={{ color: '#c0392b', fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{err}</div>}
         <div className="kw-modal-actions">
