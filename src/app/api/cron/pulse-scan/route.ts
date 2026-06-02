@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
-import { notifyPulseOwner } from '@/lib/pulseGenerate';
+import { notifyPulseOwner, notifyFamilyParents } from '@/lib/pulseGenerate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -44,6 +44,7 @@ async function run(req: NextRequest) {
     } catch {
       continue;
     }
+    let missedThisFam = 0;
     for (const taskDoc of taskSnap.docs) {
       const t = taskDoc.data() as { dueAt?: FirebaseFirestore.Timestamp; ownerKind?: string; ownerId?: string };
       const dueAt = t.dueAt?.toMillis?.();
@@ -52,6 +53,7 @@ async function run(req: NextRequest) {
       try {
         await taskDoc.ref.update({ status: 'missed', missedAt: new Date() });
         missed++;
+        missedThisFam++;
         // Kid: missing an owned task breaks the streak.
         if (t.ownerKind === 'kid' && t.ownerId) {
           await fam.ref.collection('pulseProfiles').doc(t.ownerId).set({ currentStreak: 0 }, { merge: true });
@@ -69,6 +71,17 @@ async function run(req: NextRequest) {
       } catch {
         /* best-effort per task */
       }
+    }
+
+    // One summary alert to the family's parents so they can step in + log the
+    // unfilled reading on the reader's behalf (parent oversight).
+    if (missedThisFam > 0) {
+      await notifyFamilyParents(fam.ref, {
+        type: 'pulse-missed-parent',
+        title: '⚠ Reading missed',
+        message: `${missedThisFam} reading${missedThisFam === 1 ? '' : 's'} ${missedThisFam === 1 ? 'was' : 'were'} missed today — tap to review or log.`,
+        link: '/pulse',
+      });
     }
   }
 

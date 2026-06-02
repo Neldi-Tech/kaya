@@ -24,10 +24,12 @@ import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import AskKaya from '@/components/pulse/AskKaya';
 import {
-  type PulseReading, type Trackable,
-  subscribeToReadingsInMonth, subscribeToTrackables,
+  type PulseReading, type Trackable, type PulseTask,
+  subscribeToReadingsInMonth, subscribeToTrackables, subscribeToTasksForDay,
   projectMonthSpendCents,
 } from '@/lib/pulse';
+import { listHelpers } from '@/lib/helpers';
+import type { HelperLink } from '@/lib/firestore';
 import { dayKeyInTZ, toDisplayDate, relativeDayLabel } from '@/lib/dates';
 
 // Cash lens covers all 9 Household buckets. Subscriptions + Contributions
@@ -64,7 +66,7 @@ const shiftDayKey = (dayKey: string, delta: number): string => {
 export default function PulseDashboardPage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { family } = useFamily();
+  const { family, children } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
   const thisMonth = monthKeyOf();
@@ -78,6 +80,10 @@ export default function PulseDashboardPage() {
   const [ledger, setLedger] = useState<SpendLedgerEntry[]>([]);
   const [readings, setReadings] = useState<PulseReading[]>([]);
   const [trackables, setTrackables] = useState<Trackable[]>([]);
+  // Parent oversight: every reader's reading tasks for today + helper names
+  // (kid names come from the family context) so we can show who's logged what.
+  const [tasksToday, setTasksToday] = useState<PulseTask[]>([]);
+  const [helpers, setHelpers] = useState<HelperLink[]>([]);
   // Daily scrubber state + cache of readings from previous months that the
   // user has scrubbed into (keyed by YYYY-MM).
   const today = useMemo(() => todayDayKey(), []);
@@ -93,8 +99,10 @@ export default function PulseDashboardPage() {
     const u2 = subscribeToReadingsInMonth(profile.familyId, thisMonth, setReadings);
     const u3 = subscribeToTrackables(profile.familyId, setTrackables);
     const u4 = subscribeToSpendLedger(profile.familyId, setLedger);
-    return () => { u1(); u2(); u3(); u4(); };
-  }, [profile?.familyId, profile?.role, thisMonth]);
+    const u5 = subscribeToTasksForDay(profile.familyId, today, setTasksToday);
+    listHelpers(profile.familyId).then(setHelpers).catch(() => {});
+    return () => { u1(); u2(); u3(); u4(); u5(); };
+  }, [profile?.familyId, profile?.role, thisMonth, today]);
 
   // Lazily subscribe to a previous month's readings when the user scrubs into
   // it. We never tear these down — once cached, the data stays for the rest of
@@ -201,6 +209,36 @@ export default function PulseDashboardPage() {
       .sort((a, b) => b.cents - a.cents);
     return { rows, total, hasReadings: dayReads.length > 0, loadingMonth: m !== thisMonth && !extraMonth[m] };
   }, [selectedDay, thisMonth, readings, extraMonth, trackables]);
+
+  // Parent oversight of TODAY's readings — who's logged, what's still pending
+  // or missed. Resolves each task's owner name (kid via family context, helper
+  // via the helper list) + the trackable's name/emoji. 'review'/'logged'/
+  // 'closed' all count as filled; 'pending'/'missed' are what a parent can log.
+  const readingsOversight = useMemo(() => {
+    const DONE = ['logged', 'review', 'closed'];
+    const nameFor = (t: PulseTask): string => {
+      if (t.ownerKind === 'kid') return children.find((c) => c.id === t.ownerId)?.name ?? 'Kid';
+      return helpers.find((h) => h.uid === t.ownerId)?.displayName ?? 'Helper';
+    };
+    const rows = tasksToday.map((t) => {
+      const tk = trackables.find((x) => x.id === t.trackableId);
+      return {
+        id: t.id,
+        name: tk?.name ?? 'Reading',
+        emoji: tk?.emoji ?? '📊',
+        owner: nameFor(t),
+        done: DONE.includes(t.status),
+        missed: t.status === 'missed',
+      };
+    });
+    const unfilled = rows.filter((r) => !r.done);
+    return {
+      total: rows.length,
+      unfilled,
+      loggedCount: rows.filter((r) => r.done).length,
+      missedCount: rows.filter((r) => r.missed).length,
+    };
+  }, [tasksToday, trackables, children, helpers]);
 
   // Day-scrub controls. Stepping past today or before SCRUB_MAX_DAYS is a
   // no-op so the buttons stay UI-disabled instead of throwing.
@@ -319,6 +357,47 @@ export default function PulseDashboardPage() {
           currency={currency}
           facts={askKayaFacts}
         />
+      )}
+
+      {/* 📊 Readings today — parent oversight. Shows who's logged what; any
+          pending/missed reading can be logged here on the reader's behalf so
+          nothing goes unrecorded (the reader still gets the credit when THEY
+          log; a parent log is attributed to the parent, no kid points). */}
+      {readingsOversight.total > 0 && (
+        <div className="mt-6">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">📊 Readings today</div>
+            <span className="text-[10px] font-bold text-hive-muted">
+              {readingsOversight.loggedCount}/{readingsOversight.total} logged
+              {readingsOversight.missedCount > 0 && <span className="text-pulse-coral"> · {readingsOversight.missedCount} missed</span>}
+            </span>
+          </div>
+          {readingsOversight.unfilled.length === 0 ? (
+            <div className="bg-white border border-pulse-green/40 rounded-2xl p-4 text-center text-[12.5px] font-bold text-pulse-green">
+              ✓ All readings logged today
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {readingsOversight.unfilled.map((r) => (
+                <div key={r.id} className={`bg-white border rounded-2xl p-3 flex items-center gap-3 ${r.missed ? 'border-pulse-coral/40' : 'border-pulse-gold/30'}`}>
+                  <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base shrink-0">{r.emoji}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-nunito font-black text-sm text-pulse-navy truncate">{r.name}</div>
+                    <div className="text-[11px] text-hive-muted font-bold">
+                      {r.owner} · {r.missed ? <span className="text-pulse-coral font-black">Missed</span> : 'Pending'}
+                    </div>
+                  </div>
+                  <Link
+                    href={`/pulse/log/${r.id}`}
+                    className="shrink-0 text-[11px] font-black px-3 py-1.5 rounded-full bg-pulse-navy text-pulse-cream no-underline hover:bg-pulse-navy/90"
+                  >
+                    Log
+                  </Link>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Top buckets — cash */}
