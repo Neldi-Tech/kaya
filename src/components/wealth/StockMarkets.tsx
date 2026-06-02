@@ -12,6 +12,20 @@ import { auth } from '@/lib/firebase';
 interface DseQuote { symbol: string; name: string; price: string; changePct: number }
 interface MarketUpdate { quotes: DseQuote[]; asOf: string; commentary: string; ai: boolean }
 
+// Indicative Bank of Tanzania Treasury Bond / Bill auction yields. Curated +
+// labelled honestly (not a live feed) — government securities are a low-risk
+// home for idle cash. Swap for an operator/feed-maintained store later.
+const TBONDS: { name: string; yieldPct: string }[] = [
+  { name: '25-yr T-Bond', yieldPct: '15.4%' },
+  { name: '20-yr T-Bond', yieldPct: '15.1%' },
+  { name: '15-yr T-Bond', yieldPct: '13.9%' },
+  { name: '10-yr T-Bond', yieldPct: '12.6%' },
+  { name: '7-yr T-Bond',  yieldPct: '11.3%' },
+  { name: '5-yr T-Bond',  yieldPct: '10.2%' },
+  { name: '364-day T-Bill', yieldPct: '9.8%' },
+  { name: '182-day T-Bill', yieldPct: '8.4%' },
+];
+
 function sparkline(up: boolean) {
   return (
     <svg className="spark" viewBox="0 0 64 24">
@@ -75,6 +89,24 @@ export default function StockMarkets() {
           <button className="glock-cta">⭐ Unlock global markets — Phase 3 (paid)</button>
           <div className="glock-note">Kaya Wealth shows your <b>local exchange (DSE)</b> first. Global data &amp; AI-assisted live trading is a future paid upgrade — it requires brokerage licensing, KYC, and stronger AI safeguards before any live trade is allowed.</div>
         </div>
+      </div>
+
+      {/* Treasury Bonds & Bills — a low-risk home for idle cash */}
+      <div className="card" style={{ marginTop: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ fontWeight: 800, fontSize: '13.5px', color: 'var(--navy)' }}>🏦 Treasury Bonds &amp; Bills <small style={{ color: 'var(--grey)', fontWeight: 600 }}>· Bank of Tanzania</small></div>
+          <span style={{ fontSize: '9.5px', fontWeight: 800, color: '#9a7b27', background: '#fbf3df', padding: '3px 8px', borderRadius: 20, letterSpacing: '.04em' }}>INDICATIVE</span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+          {TBONDS.map((b) => (
+            <div key={b.name} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '9px 11px', background: '#fff' }}>
+              <div style={{ fontSize: 12, color: 'var(--navy)', fontWeight: 700 }}>{b.name}</div>
+              <div style={{ fontSize: 19, fontWeight: 800, color: 'var(--green)' }}>{b.yieldPct}</div>
+              <div style={{ fontSize: 10, color: 'var(--grey)' }}>p.a. yield</div>
+            </div>
+          ))}
+        </div>
+        <div className="glock-note" style={{ marginTop: 10 }}>Indicative auction yields — check the latest BoT auction for live rates. Government securities (T-Bonds &amp; T-Bills) are a low-risk way to put idle cash to work; add one to your Asset Register under Public Markets.</div>
       </div>
     </div>
   );
