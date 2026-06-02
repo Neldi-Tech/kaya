@@ -28,12 +28,74 @@ export const DSE_QUOTES: DseQuote[] = [
   { symbol: 'TBL',  name: 'Tanzania Breweries',  price: 'TZS 10,900', changePct: -1.1 },
 ];
 
-export interface MarketUpdate { quotes: DseQuote[]; asOf: string; commentary: string; ai: boolean }
+export interface MarketUpdate { quotes: DseQuote[]; asOf: string; commentary: string; ai: boolean; live: boolean }
 
 const FALLBACK = 'The Dar es Salaam exchange (DSE) is your local market. As you add DSE holdings, Kaya will explain the moves here in plain language.';
 
+// ── Live DSE read (dse.co.tz) ─────────────────────────────────────────
+// The DSE publishes the day's prices as a server-rendered HTML table on its
+// homepage. We parse it server-side (symbol · closing price · change%), cache
+// it briefly, and fall back to the indicative levels above on ANY failure — so
+// the markets card never breaks if the site is slow or changes its markup.
+
+const DSE_NAMES: Record<string, string> = {
+  CRDB: 'CRDB Bank', NMB: 'NMB Bank', DSE: 'DSE PLC', NICO: 'NICO', TBL: 'Tanzania Breweries',
+  TCC: 'Tanzania Cigarette', TPCC: 'Twiga Cement', TOL: 'TOL Gases', SWIS: 'Swissport',
+  DCB: 'DCB Commercial Bank', MCB: 'Mwalimu Commercial Bank', MUCOBA: 'Mucoba Bank',
+  MKCB: 'Mkombozi Bank', KCB: 'KCB Group', JHL: 'Jubilee Holdings', NMG: 'Nation Media',
+  EABL: 'East African Breweries', AFRIPRISE: 'Afriprise Investment', PAL: 'Maendeleo Bank',
+  YETU: 'Yetu Microfinance', MBP: 'Mufindi Community Bank', VODA: 'Vodacom Tanzania',
+};
+
+let dseCache: { quotes: DseQuote[]; asOf: string; at: number } | null = null;
+const DSE_TTL_MS = 15 * 60 * 1000;
+
+function parseDseHtml(html: string): { quotes: DseQuote[]; asOf: string } | null {
+  const rows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)];
+  const raw: (DseQuote & { turnover: number })[] = [];
+  for (const rm of rows) {
+    const cells = [...rm[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)]
+      .map((m) => m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim());
+    if (cells.length < 7) continue;
+    const symbol = cells[0];
+    if (!/^[A-Z][A-Z0-9 ]{1,12}$/.test(symbol)) continue;          // first cell is a ticker
+    const priceNum = parseInt(cells[3].replace(/[^\d]/g, ''), 10); // col 3 = closing price
+    if (!priceNum) continue;
+    const cm = cells[6].match(/(-?\d+(?:\.\d+)?)\s*$/);            // col 6 = "+▲ 0.72" / "-▼ -1.83"
+    const changePct = cm ? parseFloat(cm[1]) : 0;
+    const turnover = parseInt((cells[7] || '').replace(/[^\d]/g, ''), 10) || 0;
+    raw.push({ symbol, name: DSE_NAMES[symbol] || symbol, price: `TZS ${priceNum.toLocaleString('en-US')}`, changePct, turnover });
+  }
+  if (raw.length < 3) return null; // parse almost certainly failed → fall back
+  raw.sort((a, b) => b.turnover - a.turnover); // most active first
+  const quotes: DseQuote[] = raw.slice(0, 12).map(({ symbol, name, price, changePct }) => ({ symbol, name, price, changePct }));
+  const dm = html.match(/\b(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})\b/i);
+  return { quotes, asOf: dm ? `${dm[1]} ${dm[2].slice(0, 3)} ${dm[3]}` : '' };
+}
+
+async function fetchDseLive(): Promise<{ quotes: DseQuote[]; asOf: string } | null> {
+  if (dseCache && Date.now() - dseCache.at < DSE_TTL_MS) return { quotes: dseCache.quotes, asOf: dseCache.asOf };
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch('https://dse.co.tz/', {
+      headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36' },
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const parsed = parseDseHtml(await r.text());
+    if (parsed) dseCache = { ...parsed, at: Date.now() };
+    return parsed;
+  } catch { return null; }
+}
+
 export async function getMarketUpdate(familyId: string, asOfIso: string): Promise<MarketUpdate> {
-  const quotes = DSE_QUOTES;
+  // Live from dse.co.tz; falls back to indicative levels on any failure.
+  const live = await fetchDseLive();
+  const quotes = live?.quotes ?? DSE_QUOTES;
+  const isLive = !!live;
+  const asOf = live?.asOf || asOfIso;
 
   // The family's public-markets (DSE) holdings, for the AI context.
   let holdings: { name: string; value: number; currency: string }[] = [];
@@ -49,7 +111,7 @@ export async function getMarketUpdate(familyId: string, asOfIso: string): Promis
     } catch { /* holdings stay empty */ }
   }
 
-  if (!client) return { quotes, asOf: asOfIso, commentary: FALLBACK, ai: false };
+  if (!client) return { quotes, asOf, commentary: FALLBACK, ai: false, live: isLive };
 
   try {
     const holdingsStr = holdings.length
@@ -62,14 +124,14 @@ export async function getMarketUpdate(familyId: string, asOfIso: string): Promis
       messages: [{
         role: 'user',
         content:
-          "You are Kaya's calm, plain-language family wealth assistant. Write ONE short, friendly paragraph (max 2 sentences) of market context for THIS family, tied to their DSE holdings and today's indicative DSE levels. Plain language, no jargon, warm. This is general context, NOT financial advice — never recommend buying, selling, holding, or any trade, and never mention specific actions to take. If they hold nothing on the DSE, gently note the local market is here when they're ready.\n\n" +
-          `Their DSE holdings: ${holdingsStr}.\nToday's DSE (indicative, daily close): ${quotesStr}.`,
+          "You are Kaya's calm, plain-language family wealth assistant. Write ONE short, friendly paragraph (max 2 sentences) of market context for THIS family, tied to their DSE holdings and today's DSE levels. Plain language, no jargon, warm. This is general context, NOT financial advice — never recommend buying, selling, holding, or any trade, and never mention specific actions to take. If they hold nothing on the DSE, gently note the local market is here when they're ready.\n\n" +
+          `Their DSE holdings: ${holdingsStr}.\nToday's DSE (${isLive ? 'live, from the Dar es Salaam Stock Exchange' : 'indicative daily close'}): ${quotesStr}.`,
       }],
     });
     const block = resp.content.find((b) => b.type === 'text');
     const text = block && block.type === 'text' ? block.text.trim() : '';
-    return { quotes, asOf: asOfIso, commentary: text || FALLBACK, ai: !!text };
+    return { quotes, asOf, commentary: text || FALLBACK, ai: !!text, live: isLive };
   } catch {
-    return { quotes, asOf: asOfIso, commentary: FALLBACK, ai: false };
+    return { quotes, asOf, commentary: FALLBACK, ai: false, live: isLive };
   }
 }
