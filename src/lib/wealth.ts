@@ -154,6 +154,7 @@ export interface WealthAssetMeta {
   changePct?: number;         // +6.2 → "▲ 6.2%"
   maturityNote?: string;      // "Matures 28 Jun" / "Land rent due 12 Aug"
   tag?: string;               // "Shared", "Guided"
+  country?: string;           // ISO-ish country code for property address format
 }
 
 export interface WealthHolding {

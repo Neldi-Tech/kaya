@@ -25,6 +25,7 @@ import type { WealthData } from './useWealthData';
 import DocumentScanner from './DocumentScanner';
 import { MoneyInput, moneyToCents, formatMoneyInput } from './MoneyInput';
 import { syncInsuranceMirror } from './wealthInsuranceMirror';
+import { COUNTRIES, countryDef, countryForCurrency } from '@/lib/wealthGeo';
 
 interface Props {
   data: WealthData;
@@ -272,6 +273,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
   const [value, setValue] = useState(asset ? formatMoneyInput(String(asset.valueCents / 100)) : '');
   const [currency, setCurrency] = useState(asset?.currency ?? householdCurrency);
   const [subtitle, setSubtitle] = useState(asset?.meta?.subtitle ?? '');
+  const [country, setCountry] = useState(asset?.meta?.country ?? countryForCurrency(householdCurrency));
   const [insured, setInsured] = useState(!!asset?.insurance?.insured);
   const [provider, setProvider] = useState(asset?.insurance?.provider ?? '');
   const [premium, setPremium] = useState(asset?.insurance?.premiumCents ? formatMoneyInput(String(asset.insurance.premiumCents / 100)) : '');
@@ -317,7 +319,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
         const res = await createWealthAsset({
           familyId, class: klass, subType: subTypeVal, name: name.trim(), valueCents, currency, holdings: builtHoldings,
           visibility: view, ownerId: author.uid,
-          meta: subtitle.trim() ? { subtitle: subtitle.trim() } : {},
+          meta: { ...(subtitle.trim() ? { subtitle: subtitle.trim() } : {}), ...(klass === 'real_estate' ? { country } : {}) },
           insurance, rental: builtRental, author,
         });
         savedId = res.assetId;
@@ -338,7 +340,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
           familyId, assetId: asset.id, author, change,
           patch: {
             class: klass, subType: subTypeVal, name: name.trim(), valueCents, currency, holdings: builtHoldings,
-            meta: subtitle.trim() ? { ...asset.meta, subtitle: subtitle.trim() } : asset.meta,
+            meta: { ...asset.meta, ...(subtitle.trim() ? { subtitle: subtitle.trim() } : {}), ...(klass === 'real_estate' ? { country } : {}) },
             insurance, rental: builtRental,
           },
         });
@@ -411,9 +413,16 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
         )}
 
         <div className="kw-field">
-          <label>Detail <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label>
-          <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder="Plot 412 · Title CT-88291" />
+          <label>{klass === 'real_estate' ? 'Address / detail' : 'Detail'} <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label>
+          <input value={subtitle} onChange={(e) => setSubtitle(e.target.value)} placeholder={klass === 'real_estate' ? countryDef(country).addressPlaceholder : 'Plot 412 · Title CT-88291'} />
         </div>
+        {klass === 'real_estate' && (
+          <div className="kw-field"><label>Country</label>
+            <select value={country} onChange={(e) => setCountry(e.target.value)}>
+              {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
+            </select>
+          </div>
+        )}
 
         {klass === 'real_estate' && (
           <div className="kw-field" style={{ background: '#FBF7EE', border: '1px dashed #E7E0D0', borderRadius: 11, padding: 12 }}>
