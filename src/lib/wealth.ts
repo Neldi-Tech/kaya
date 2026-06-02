@@ -163,6 +163,27 @@ export interface WealthHolding {
   valueCents: number;    // value in the asset's own currency
 }
 
+/** A tenant paying rent on a property. Rent isn't auto-collected, so `status`
+ *  doubles as a paid/due reminder the parent flips each period. */
+export interface Tenant {
+  id: string;
+  name: string;            // tenant name / unit ("Unit A · J. Mushi")
+  rentCents: number;       // rent per period, in `currency`
+  currency: string;        // ISO 4217
+  frequency: 'month' | 'day';
+  status: 'paid' | 'due';
+  nextDueIso?: string;     // 'YYYY-MM-DD' — optional next-due date
+}
+
+export interface WealthRental {
+  tenants: Tenant[];
+}
+
+/** A tenant's rent normalised to a MONTHLY amount in its own currency. */
+export function tenantMonthlyCents(t: Tenant): number {
+  return t.frequency === 'day' ? Math.round(t.rentCents * 30) : t.rentCents;
+}
+
 export interface WealthAsset {
   id: string;
   class: AssetClassId;
@@ -188,6 +209,9 @@ export interface WealthAsset {
   meta: WealthAssetMeta;
   media: WealthMedia[];
   insurance: WealthInsurance | null;
+  /** Rental — tenants paying rent on this property; the total monthly rent is
+   *  the property's passive income. Real estate only. */
+  rental?: WealthRental | null;
   /** The mirrored Household → Subscriptions doc id, once insurance flows
    *  down. null until mirrored. */
   mirroredSubscriptionId: string | null;
@@ -328,6 +352,7 @@ export interface CreateWealthAssetInput {
   juniorId?: string | null;
   meta?: WealthAssetMeta;
   insurance?: WealthInsurance | null;
+  rental?: WealthRental | null;
   author: WealthAuthor;
 }
 
@@ -354,6 +379,7 @@ export async function createWealthAsset(
     meta: input.meta ?? {},
     media: [],
     insurance: input.insurance ?? null,
+    rental: input.rental ?? null,
     mirroredSubscriptionId: null,
     createdBy: input.author.uid,
     createdAt: serverTimestamp(),
@@ -377,7 +403,7 @@ export async function createWealthAsset(
  *  flow (moving an asset between Shared/Personal/Junior re-checks rules). */
 export type WealthAssetPatch = Partial<Pick<WealthAsset,
   | 'class' | 'subType' | 'name' | 'valueCents' | 'currency' | 'holdings'
-  | 'meta' | 'insurance' | 'juniorId' | 'sharedWithPartner'
+  | 'meta' | 'insurance' | 'juniorId' | 'sharedWithPartner' | 'rental'
 >>;
 
 /** Which assets belong in a given view for a given parent.
