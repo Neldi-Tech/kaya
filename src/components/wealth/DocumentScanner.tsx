@@ -8,19 +8,23 @@
 
 import { useRef, useState } from 'react';
 import { scanDocument, type ScanResult } from './documentScan';
-import { uploadWealthDocument } from './wealthDocs';
+import { uploadWealthDocument, uploadUnfiledDocument } from './wealthDocs';
 import type { WealthAuthor, WealthMedia } from '@/lib/wealth';
 
 type Stage = 'idle' | 'processing' | 'preview' | 'uploading' | 'error';
 
-export default function DocumentScanner({ familyId, assetId, assetName, author, onClose, onAttached }: {
-  familyId: string; assetId: string; assetName: string; author: WealthAuthor;
-  onClose: () => void; onAttached?: (m: WealthMedia) => void;
+export default function DocumentScanner({ familyId, author, onClose, assets = [], defaultAssetId = null, onAttached, onSaved }: {
+  familyId: string; author: WealthAuthor; onClose: () => void;
+  assets?: { id: string; name: string }[];
+  defaultAssetId?: string | null;
+  onAttached?: (m: WealthMedia) => void;
+  onSaved?: () => void;
 }) {
   const [stage, setStage] = useState<Stage>('idle');
   const [stageMsg, setStageMsg] = useState('');
   const [result, setResult] = useState<ScanResult | null>(null);
   const [label, setLabel] = useState('');
+  const [attachTo, setAttachTo] = useState<string>(defaultAssetId ?? '');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -39,8 +43,13 @@ export default function DocumentScanner({ familyId, assetId, assetName, author, 
     if (!result) return;
     setStage('uploading');
     try {
-      const media = await uploadWealthDocument({ familyId, assetId, blob: result.blob, label, enhanced: true, author });
-      if (media && onAttached) onAttached(media);
+      if (attachTo) {
+        const media = await uploadWealthDocument({ familyId, assetId: attachTo, blob: result.blob, label, enhanced: true, author });
+        if (media && onAttached) onAttached(media);
+      } else {
+        await uploadUnfiledDocument({ familyId, blob: result.blob, label, enhanced: true, author });
+      }
+      onSaved?.();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed — try again.'); setStage('error');
@@ -51,7 +60,7 @@ export default function DocumentScanner({ familyId, assetId, assetName, author, 
     <div className="kw-modal-back" onClick={onClose}>
       <div className="kw-modal" onClick={(e) => e.stopPropagation()}>
         <h3>🗂️ Scan a document</h3>
-        <div className="msub">Attaching to <b>{assetName}</b> · scanned, enhanced &amp; stored in the vault.</div>
+        <div className="msub">Scan a document — it&apos;s enhanced &amp; stored in your Wealth vault.</div>
 
         {stage === 'idle' && (
           <>
@@ -76,6 +85,13 @@ export default function DocumentScanner({ familyId, assetId, assetName, author, 
             <div className="kw-scan-badges">
               <span className="kw-badge-ok">✨ Enhanced</span>
               <span className="kw-badge-muted">de-shadowed &amp; sharpened</span>
+            </div>
+            <div className="kw-field" style={{ marginTop: 10 }}>
+              <label>Attach to</label>
+              <select value={attachTo} onChange={(e) => setAttachTo(e.target.value)}>
+                <option value="">📂 General vault (unfiled)</option>
+                {assets.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
             </div>
             <div className="kw-field" style={{ marginTop: 10 }}>
               <label>Name</label>

@@ -177,9 +177,9 @@ export default function AssetRegister({ data, view }: Props) {
       {scanAsset && familyId && (
         <DocumentScanner
           familyId={familyId}
-          assetId={scanAsset.id}
-          assetName={scanAsset.name}
           author={author}
+          defaultAssetId={scanAsset.id}
+          assets={assets.map((a) => ({ id: a.id, name: a.name }))}
           onClose={() => setScanAsset(null)}
         />
       )}

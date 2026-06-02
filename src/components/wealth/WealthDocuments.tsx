@@ -1,14 +1,16 @@
 'use client';
 
-// Kaya Wealth · Document Vault section (PR3 · 2026-06-01).
+// Kaya Wealth · Document Vault section (PR3 · standalone scan, 2026-06-02).
 //
-// The roll-up of every document attached across the current view's assets,
-// plus the scan entry point. Scanning is per-asset (documents belong to an
-// asset), so "Scan document" first asks which asset, then opens the scanner.
+// Scan a document ANY time — no asset required. The scan lands in the general
+// vault, and you can optionally attach it to an asset from inside the scanner.
+// The gallery shows both the unfiled docs and everything attached across this
+// view's assets.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import DocumentScanner from './DocumentScanner';
-import { assetClassDef, type WealthVisibility } from '@/lib/wealth';
+import { subscribeUnfiledDocs, type WealthDocEntry } from './wealthDocs';
+import type { WealthVisibility } from '@/lib/wealth';
 import type { WealthData } from './useWealthData';
 
 export default function WealthDocuments({ data, view }: {
@@ -17,11 +19,15 @@ export default function WealthDocuments({ data, view }: {
 }) {
   const { isParent, familyId, author } = data;
   const assets = data.assets.filter((a) => a.visibility === view);
-  const docs = assets.flatMap((a) => (a.media || []).map((m) => ({ m, asset: a })));
-  const [pickOpen, setPickOpen] = useState(false);
-  const [scanAssetId, setScanAssetId] = useState<string | null>(null);
-  const scanAsset = assets.find((a) => a.id === scanAssetId) || null;
-  const canScan = isParent && assets.length > 0;
+  const assetDocs = assets.flatMap((a) => (a.media || []).map((m) => ({ m, asset: a })));
+  const [unfiled, setUnfiled] = useState<WealthDocEntry[]>([]);
+  const [scanOpen, setScanOpen] = useState(false);
+
+  useEffect(() => { if (familyId) return subscribeUnfiledDocs(familyId, setUnfiled); }, [familyId]);
+
+  const canScan = isParent;
+  const assetList = assets.map((a) => ({ id: a.id, name: a.name }));
+  const total = unfiled.length + assetDocs.length;
 
   return (
     <div className="adult-block">
@@ -30,18 +36,28 @@ export default function WealthDocuments({ data, view }: {
         <div className="scanner">
           <div className="scan-frame"><span className="corner c1" /><span className="corner c2" /><span className="corner c3" /><span className="corner c4" /><div className="doc" /><div className="scan-line" /></div>
           <div className="scan-actions">
-            <button className="sb-scan" onClick={() => canScan && setPickOpen(true)} disabled={!canScan}>📷 Scan document</button>
-            <button className="sb-enh" onClick={() => canScan && setPickOpen(true)} disabled={!canScan}>✨ Add &amp; enhance</button>
+            <button className="sb-scan" onClick={() => canScan && setScanOpen(true)} disabled={!canScan}>📷 Scan document</button>
+            <button className="sb-enh" onClick={() => canScan && setScanOpen(true)} disabled={!canScan}>✨ Add &amp; enhance</button>
           </div>
-          <div className="enhance-row">✨ <span><b>Enhance</b> de-shadows, sharpens &amp; cleans up your scan — not just a photo.{assets.length === 0 ? ' Add an asset first to attach a document.' : ''}</span></div>
+          <div className="enhance-row">✨ <span><b>Enhance</b> de-shadows, sharpens &amp; cleans up your scan — not just a photo. Scan now; attach it to an asset later, or keep it in the general vault.</span></div>
         </div>
         <div className="gallery">
-          <div className="gt">Attached to your assets</div>
+          <div className="gt">Your documents</div>
           <div className="thumbs">
-            {docs.length === 0 && (
+            {total === 0 && (
               <div className="thumb"><span className="em">🗂️</span>No documents yet</div>
             )}
-            {docs.map(({ m, asset }) => (
+            {unfiled.map((d) => (
+              <div className="thumb docfile enh" key={d.id} role="button"
+                title={`${d.label} · general vault`}
+                onClick={() => window.open(d.url, '_blank', 'noopener')}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={d.url} alt={d.label} />
+                <span className="lbl">{d.label}</span>
+                {d.enhanced && <span className="badge2">Enhanced</span>}
+              </div>
+            ))}
+            {assetDocs.map(({ m, asset }) => (
               <div className="thumb docfile enh" key={m.id} role="button"
                 title={`${m.label} · ${asset.name}`}
                 onClick={() => window.open(m.url, '_blank', 'noopener')}>
@@ -52,31 +68,15 @@ export default function WealthDocuments({ data, view }: {
               </div>
             ))}
             {canScan && (
-              <div className="thumb" role="button" onClick={() => setPickOpen(true)}><span className="em">➕</span>Add file</div>
+              <div className="thumb" role="button" onClick={() => setScanOpen(true)}><span className="em">➕</span>Scan / add</div>
             )}
           </div>
         </div>
       </div>
 
-      {pickOpen && (
-        <div className="kw-modal-back" onClick={() => setPickOpen(false)}>
-          <div className="kw-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>🗂️ Attach to which asset?</h3>
-            <div className="msub">Documents live with the asset they belong to.</div>
-            {assets.map((a) => (
-              <button key={a.id} className="kw-pick-row" onClick={() => { setScanAssetId(a.id); setPickOpen(false); }}>
-                <span>{assetClassDef(a.class).emoji} {a.name}</span>
-                <span className="kw-pick-count">{a.media?.length ? `${a.media.length} 📎` : ''}</span>
-              </button>
-            ))}
-            <div className="kw-modal-actions"><button className="kw-btn-ghost" onClick={() => setPickOpen(false)}>Cancel</button></div>
-          </div>
-        </div>
-      )}
-
-      {scanAsset && familyId && (
-        <DocumentScanner familyId={familyId} assetId={scanAsset.id} assetName={scanAsset.name} author={author}
-          onClose={() => setScanAssetId(null)} />
+      {scanOpen && familyId && (
+        <DocumentScanner familyId={familyId} author={author} assets={assetList}
+          onClose={() => setScanOpen(false)} />
       )}
     </div>
   );
