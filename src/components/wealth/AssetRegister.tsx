@@ -15,9 +15,10 @@ import { SUPPORTED_CURRENCIES } from '@/lib/fx';
 import {
   ASSET_CLASSES, assetClassDef, LIQUIDITY_LABEL, computeWealthSummary,
   createWealthAsset, updateWealthAsset, getWealthAsset, subscribeToEditLog,
-  subTypesFor, subTypeLabel, assetInView,
+  subTypesFor, subTypeLabel, assetInView, tenantMonthlyCents,
   type WealthAsset, type WealthVisibility, type AssetClassId,
   type WealthEditLogEntry, type WealthInsurance, type WealthHolding,
+  type Tenant, type WealthRental,
 } from '@/lib/wealth';
 import { CLASS_ICON_BG, liqPillClass, tsToDisplay } from './wealthFormat';
 import type { WealthData } from './useWealthData';
@@ -160,6 +161,10 @@ export default function AssetRegister({ data, view }: Props) {
                   <TransparencyToggle asset={a} familyId={familyId} author={author} />
                 )}
 
+                {a.class === 'real_estate' && a.rental?.tenants?.length && familyId
+                  ? <RentalBlock asset={a} familyId={familyId} author={author} rateFor={rateFor} householdCurrency={householdCurrency} />
+                  : null}
+
                 {a.class === 'real_estate' && <InsuranceBlock asset={a} />}
               </div>
             ))}
@@ -271,6 +276,9 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
   const [provider, setProvider] = useState(asset?.insurance?.provider ?? '');
   const [premium, setPremium] = useState(asset?.insurance?.premiumCents ? formatMoneyInput(String(asset.insurance.premiumCents / 100)) : '');
   const [renewal, setRenewal] = useState(asset?.insurance?.renewalIso ?? '');
+  const [tenants, setTenants] = useState<TenantDraft[]>(
+    (asset?.rental?.tenants ?? []).map((t) => ({ id: t.id, name: t.name, rentStr: formatMoneyInput(String(t.rentCents / 100)), currency: t.currency, frequency: t.frequency, status: t.status })),
+  );
   const [busy, setBusy] = useState(false);
 
   const isBroker = klass === 'investments' && subType === 'broker';
@@ -300,13 +308,17 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
         ? holdings.filter((h) => h.symbol.trim() || moneyToCents(h.valueStr) > 0)
                   .map((h) => ({ id: h.id, symbol: h.symbol.trim(), units: h.units, valueCents: moneyToCents(h.valueStr) }))
         : null;
+      const builtRental: WealthRental | null = klass === 'real_estate' && tenants.length
+        ? { tenants: tenants.filter((t) => t.name.trim() || moneyToCents(t.rentStr) > 0)
+              .map((t) => ({ id: t.id, name: t.name.trim(), rentCents: moneyToCents(t.rentStr), currency: t.currency, frequency: t.frequency, status: t.status })) }
+        : null;
       let savedId = asset?.id ?? '';
       if (mode === 'add') {
         const res = await createWealthAsset({
           familyId, class: klass, subType: subTypeVal, name: name.trim(), valueCents, currency, holdings: builtHoldings,
           visibility: view, ownerId: author.uid,
           meta: subtitle.trim() ? { subtitle: subtitle.trim() } : {},
-          insurance, author,
+          insurance, rental: builtRental, author,
         });
         savedId = res.assetId;
       } else if (asset) {
@@ -327,7 +339,7 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
           patch: {
             class: klass, subType: subTypeVal, name: name.trim(), valueCents, currency, holdings: builtHoldings,
             meta: subtitle.trim() ? { ...asset.meta, subtitle: subtitle.trim() } : asset.meta,
-            insurance,
+            insurance, rental: builtRental,
           },
         });
       }
@@ -421,6 +433,10 @@ function AssetModal({ mode, asset, view, familyId, householdCurrency, author, on
           </div>
         )}
 
+        {klass === 'real_estate' && (
+          <TenantsEditor tenants={tenants} setTenants={setTenants} currency={currency} />
+        )}
+
         <div className="kw-modal-actions">
           <button className="kw-btn-ghost" onClick={onClose}>Cancel</button>
           <button className="kw-btn-primary" disabled={!canSave} onClick={save}>{busy ? 'Saving…' : mode === 'add' ? 'Add to vault' : 'Save changes'}</button>
@@ -456,6 +472,72 @@ function TransparencyToggle({ asset, familyId, author }: {
       </button>
       <span style={{ fontWeight: 700, color: on ? '#2E7D34' : '#5A5A5A' }}>{on ? '👁️ Visible to family' : '🔒 Private to you'}</span>
       <span style={{ color: '#9a9a9a', fontWeight: 500 }}>· {on ? 'counts in the shared net worth' : 'only you can see it'}</span>
+    </div>
+  );
+}
+
+// ── Rental tenants editor + display (a property's passive income) ─────
+
+type TenantDraft = { id: string; name: string; rentStr: string; currency: string; frequency: 'month' | 'day'; status: 'paid' | 'due' };
+
+function TenantsEditor({ tenants, setTenants, currency }: {
+  tenants: TenantDraft[]; setTenants: (t: TenantDraft[]) => void; currency: string;
+}) {
+  const update = (i: number, patch: Partial<TenantDraft>) => setTenants(tenants.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  const add = () => setTenants([...tenants, { id: `t${Date.now().toString(36)}${tenants.length}`, name: '', rentStr: '', currency, frequency: 'month', status: 'due' }]);
+  const remove = (i: number) => setTenants(tenants.filter((_, j) => j !== i));
+  return (
+    <div className="kw-field" style={{ background: '#eef4ee', border: '1px dashed #cfe0cf', borderRadius: 11, padding: 12 }}>
+      <label>🏘️ Rental — tenants <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(this property&apos;s passive income)</span></label>
+      {tenants.length === 0 && <div style={{ fontSize: 11.5, color: '#9a9a9a', margin: '2px 0 8px' }}>Add each tenant; the rent shows a paid / due reminder on the property.</div>}
+      {tenants.map((t, i) => (
+        <div key={t.id} style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr .8fr .8fr auto', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+          <input value={t.name} onChange={(e) => update(i, { name: e.target.value })} placeholder="Unit A · J. Mushi" />
+          <MoneyInput value={t.rentStr} onChange={(v) => update(i, { rentStr: v })} placeholder="rent" />
+          <select value={t.currency} onChange={(e) => update(i, { currency: e.target.value })}>
+            {SUPPORTED_CURRENCIES.map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
+          </select>
+          <select value={t.frequency} onChange={(e) => update(i, { frequency: e.target.value as 'month' | 'day' })}>
+            <option value="month">/mo</option><option value="day">/day</option>
+          </select>
+          <button className="kw-btn-ghost" style={{ padding: '6px 9px' }} onClick={() => remove(i)} title="Remove">✕</button>
+        </div>
+      ))}
+      <button className="kw-btn-ghost" style={{ marginTop: 2 }} onClick={add}>+ Add tenant</button>
+    </div>
+  );
+}
+
+function RentalBlock({ asset, familyId, author, rateFor, householdCurrency }: {
+  asset: WealthAsset; familyId: string; author: { uid: string; name: string };
+  rateFor: (c: string) => number; householdCurrency: string;
+}) {
+  const tenants = asset.rental?.tenants ?? [];
+  const totalH = tenants.reduce((s, t) => s + Math.round(tenantMonthlyCents(t) * (rateFor(t.currency) || 1)), 0);
+  const toggleStatus = async (t: Tenant) => {
+    const next: Tenant[] = tenants.map((x) => (x.id === t.id ? { ...x, status: x.status === 'paid' ? 'due' : 'paid' } : x));
+    try {
+      await updateWealthAsset({
+        familyId, assetId: asset.id, author,
+        change: { action: 'edited', summary: `Rent ${t.status === 'paid' ? 'marked due' : 'marked paid'} — ${t.name || 'tenant'}` },
+        patch: { rental: { tenants: next } },
+      });
+    } catch { /* ignore */ }
+  };
+  return (
+    <div className="ins" style={{ background: '#f3f8f3' }}>
+      <div className="q" style={{ marginBottom: 6 }}>🏘️ Rental income <span style={{ marginLeft: 'auto', fontWeight: 800, color: 'var(--green)' }}>+ {formatCents(totalH, householdCurrency)} / mo</span></div>
+      {tenants.map((t) => (
+        <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', fontSize: 12.5, borderTop: '1px solid var(--line)' }}>
+          <span style={{ fontWeight: 700, color: 'var(--navy)' }}>{t.name || 'Tenant'}</span>
+          <span style={{ color: 'var(--grey)' }}>{formatCents(t.rentCents, t.currency)} /{t.frequency === 'day' ? 'day' : 'mo'}</span>
+          <button onClick={() => toggleStatus(t)} title="Toggle paid / due"
+            style={{ marginLeft: 'auto', cursor: 'pointer', border: 'none', borderRadius: 999, padding: '2px 10px', fontSize: 10.5, fontWeight: 800,
+              background: t.status === 'paid' ? '#E3F0E4' : '#fdecea', color: t.status === 'paid' ? '#2E7D34' : '#c0392b' }}>
+            {t.status === 'paid' ? '✓ PAID' : '● DUE'}
+          </button>
+        </div>
+      ))}
     </div>
   );
 }
