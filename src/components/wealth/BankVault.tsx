@@ -15,6 +15,7 @@ import {
   BANK_TYPE_LABEL, type BankAccountMasked, type BankAccountType,
 } from './bankVaultClient';
 import { MoneyInput, moneyToCents } from './MoneyInput';
+import { COUNTRIES, countryDef, countryForCurrency } from '@/lib/wealthGeo';
 
 const groupDigits = (n: string) => n.replace(/\D/g, '').replace(/(.{4})/g, '$1 ').trim();
 
@@ -157,6 +158,7 @@ function StepUpModal({ title, confirmLabel, danger, onClose, onSubmit }: {
 
 function AddBankModal({ onClose }: { onClose: () => void }) {
   const [bankName, setBankName] = useState('');
+  const [country, setCountry] = useState(countryForCurrency('TZS'));
   const [type, setType] = useState<BankAccountType>('operating');
   const [currency, setCurrency] = useState('TZS');
   const [fullNumber, setFullNumber] = useState('');
@@ -183,7 +185,19 @@ function AddBankModal({ onClose }: { onClose: () => void }) {
       <div className="kw-modal" onClick={(e) => e.stopPropagation()}>
         <h3>🏦 Add bank account</h3>
         <div className="msub">Private to you. The number is encrypted; only the last 4 show until you reveal it.</div>
-        <div className="kw-field"><label>Bank</label><input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="NMB" /></div>
+        <div className="kw-row2">
+          <div className="kw-field"><label>Country</label>
+            <select value={country} onChange={(e) => setCountry(e.target.value)}>
+              {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.name}</option>)}
+            </select>
+          </div>
+          <div className="kw-field"><label>Bank <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(suggested for {countryDef(country).name})</span></label>
+            <input list="kw-bank-suggestions" value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="Start typing — or any bank" />
+            <datalist id="kw-bank-suggestions">
+              {countryDef(country).banks.map((b) => <option key={b} value={b} />)}
+            </datalist>
+          </div>
+        </div>
         <div className="kw-row2">
           <div className="kw-field"><label>Type</label>
             <select value={type} onChange={(e) => setType(e.target.value as BankAccountType)}>
