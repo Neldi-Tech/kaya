@@ -73,9 +73,15 @@ export default function QuickEntryPage() {
     setSaving(true);
     setError('');
     try {
-      const r = await logReading({ familyId: profile.familyId, taskId, value: numeric });
+      const r = await logReading({
+        familyId: profile.familyId, taskId, value: numeric,
+        actorUid: profile.uid, actorRole: profile.role,
+      });
       setResult(r);
-      setTimeout(() => router.push('/pulse/today'), 1500);
+      // Parents log on a reader's behalf from the dashboard — send them back
+      // there; readers go to their daily Pulse view.
+      const back = profile.role === 'parent' ? '/pulse' : '/pulse/today';
+      setTimeout(() => router.push(back), 1500);
     } catch {
       setError('Could not save — check your connection and try again.');
       setSaving(false);

@@ -21,7 +21,7 @@ import {
   todayDateString,
 } from '@/lib/workplan';
 import {
-  subscribeToOwnerTasks, subscribeToTrackables,
+  subscribeToOwnerTasks, subscribeToTrackables, generateTasksNow,
   type PulseTask, type Trackable,
 } from '@/lib/pulse';
 import { toDisplayDate } from '@/lib/dates';
@@ -89,6 +89,14 @@ export default function TodaysWorkplanCard({ familyId, helperUid, date, readOnly
     });
     return () => { unsubTasks(); unsubTr(); };
   }, [familyId, helperUid, dateStr]);
+
+  // Ensure today's reading tasks exist when the helper opens their plan — an
+  // idempotent server materialise, so a freshly-assigned meter shows up right
+  // away instead of waiting for the daily cron. Today only.
+  useEffect(() => {
+    if (!isToday) return;
+    generateTasksNow(familyId).catch(() => {});
+  }, [familyId, isToday]);
 
   // Wait for BOTH stores so a readings-only helper (no workplan items)
   // doesn't flash an empty card before their Pulse tasks arrive.

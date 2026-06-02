@@ -49,12 +49,18 @@ async function run(req: NextRequest) {
   const db = getAdminFirestore();
   if (!db) return NextResponse.json({ error: 'admin-not-configured' }, { status: 503 });
 
-  let body: { familyId?: string; taskId?: string; value?: number };
+  let body: { familyId?: string; taskId?: string; value?: number; actorUid?: string; actorRole?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
   const familyId = body.familyId;
   const taskId = body.taskId;
   const value = Number(body.value);
   if (!familyId || !taskId || !Number.isFinite(value)) return NextResponse.json({ error: 'missing-fields' }, { status: 400 });
+
+  // A parent can log an unfilled reading on the reader's behalf (parent
+  // oversight). When they do, the reading is recorded + attributed to the
+  // parent, but the kid earns NO points/streak (they didn't do it).
+  const actorUid = typeof body.actorUid === 'string' ? body.actorUid : '';
+  const onBehalf = body.actorRole === 'parent' && !!actorUid;
 
   const famRef = db.collection('families').doc(familyId);
   const taskRef = famRef.collection('pulseTasks').doc(taskId);
@@ -116,8 +122,9 @@ async function run(req: NextRequest) {
     event,
     ...(toppedUpUnits != null ? { toppedUpUnits } : {}),
     module: moduleKey,
-    capturedBy: task.ownerId,
-    capturedByKind: task.ownerKind ?? 'kid',
+    capturedBy: onBehalf ? actorUid : task.ownerId,
+    capturedByKind: onBehalf ? 'parent' : (task.ownerKind ?? 'kid'),
+    ...(onBehalf ? { onBehalf: true } : {}),
     capturedAt: now,
     dayKey: task.dayKey ?? '',
     isAnomaly,
@@ -129,15 +136,18 @@ async function run(req: NextRequest) {
     status: isAnomaly ? 'review' : 'logged',
     readingId: readingRef.id,
     loggedAt: now,
-    loggedBy: task.ownerId,
-    pointsAwarded: true,
+    loggedBy: onBehalf ? actorUid : task.ownerId,
+    pointsAwarded: !onBehalf,
+    ...(onBehalf ? { note: 'Logged by parent' } : {}),
   });
 
   const points = Number(task.pointsValue ?? 0);
   let streak = 0;
 
   // 3) Reward (kid only in Phase 1): streak then points. Helper performance later.
-  if ((task.ownerKind ?? 'kid') === 'kid') {
+  //    Skipped when a parent logged on the kid's behalf — no points/streak for
+  //    work they didn't do (the reading is still recorded above).
+  if (!onBehalf && (task.ownerKind ?? 'kid') === 'kid') {
     const today = task.dayKey ?? '';
     const profRef = famRef.collection('pulseProfiles').doc(task.ownerId);
     const profSnap = await profRef.get();
@@ -211,7 +221,7 @@ async function run(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true, consumedUnits, deltaCost, event, points, isAnomaly, streak });
+  return NextResponse.json({ ok: true, consumedUnits, deltaCost, event, points: onBehalf ? 0 : points, isAnomaly, streak, onBehalf });
 }
 
 export async function POST(req: NextRequest) {

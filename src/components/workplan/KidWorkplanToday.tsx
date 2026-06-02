@@ -17,7 +17,7 @@ import {
   type KidWorkplanItem, type KidWorkplanCompletion, type KidWorkplanProof,
   subscribeKidWorkplanItems, subscribeKidCompletion, completeKidTask,
   subscribeKidWorkplanProofs, submitKidWorkplanProof,
-  kidItemsScheduledOn, partitionKidByTime, dailyKidPct,
+  kidItemsScheduledOn, partitionKidByTime,
   formatTimeLocal, categoryMeta, todayDateString, todayDayOfWeek,
 } from '@/lib/kidWorkplan';
 import { uploadWorkplanProofMedia } from '@/lib/workplanProofUpload';
@@ -26,6 +26,14 @@ import {
   subscribeToKidBusinesses, subscribeToStockTakes,
   isStockTakeScheduledOn, todayKey,
 } from '@/lib/business';
+import {
+  subscribeToOwnerTasks, subscribeToTrackables, generateTasksNow,
+  type PulseTask, type Trackable,
+} from '@/lib/pulse';
+
+// A Pulse reading counts as "done" once logged (or moved through review/closed).
+const PULSE_DONE: ReadonlyArray<PulseTask['status']> = ['logged', 'review', 'closed'];
+const isPulseDone = (t: PulseTask) => PULSE_DONE.includes(t.status);
 
 const JOY = { purple: '#9B5DE5', green: '#6BCB77', coral: '#FF6B6B', yellow: '#FFD93D', ink: '#2D1B5E', border: '#F0E8FF' };
 
@@ -55,6 +63,11 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   // stockTake doc itself is the completion signal.
   const [ownedBusinesses, setOwnedBusinesses] = useState<Business[]>([]);
   const [stockTakeDoneToday, setStockTakeDoneToday] = useState<Record<string, boolean>>({});
+  // Kaya Pulse reading tasks assigned to THIS kid for the day — surfaced in
+  // the same plan so "what do I do today" is one place. `trackById` resolves
+  // each task's name + emoji. Realtime so a log flips the tile to ✓.
+  const [pulseTasks, setPulseTasks] = useState<PulseTask[] | null>(null);
+  const [trackById, setTrackById] = useState<Record<string, Trackable>>({});
 
   useEffect(() => {
     const unsubItems = subscribeKidWorkplanItems(familyId, childId, setItems);
@@ -66,6 +79,23 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
     const unsubBiz = subscribeToKidBusinesses(familyId, childId, setOwnedBusinesses);
     return () => { unsubItems(); unsubComp(); unsubProofs(); unsubBiz(); };
   }, [familyId, childId, dateStr]);
+
+  // Pulse reading tasks for this kid + day (their pulse ownerId = childId).
+  useEffect(() => {
+    const unsubTasks = subscribeToOwnerTasks(familyId, childId, dateStr, setPulseTasks);
+    const unsubTr = subscribeToTrackables(familyId, (list) => {
+      setTrackById(Object.fromEntries(list.map((t) => [t.id, t])));
+    });
+    return () => { unsubTasks(); unsubTr(); };
+  }, [familyId, childId, dateStr]);
+
+  // Ensure today's reading tasks exist the moment the kid opens their plan —
+  // an idempotent server materialise, so a freshly-assigned meter appears
+  // without waiting for the daily cron. Today only (can't backfill other days).
+  useEffect(() => {
+    if (!isToday) return;
+    generateTasksNow(familyId).catch(() => {});
+  }, [familyId, isToday]);
 
   // One subscription per owned business → did a stockTake doc land for today?
   // The realtime flip is what auto-ticks the synthetic row green when the kid
@@ -126,7 +156,7 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   const scheduled = useMemo(() => (allItems ? kidItemsScheduledOn(allItems, date) : []), [allItems, date]);
   const { timed, anytime } = useMemo(() => partitionKidByTime(scheduled), [scheduled]);
 
-  if (items === null) {
+  if (items === null || pulseTasks === null) {
     return <div className="rounded-2xl bg-white/70 border-2 border-[#F0E8FF] p-6 text-center text-sm font-extrabold text-[#9B5DE5]">Loading your day…</div>;
   }
 
@@ -138,14 +168,17 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   };
   const doneCount = scheduled.filter((i) => isDone(i.id)).length;
   const total = scheduled.length;
-  // dailyKidPct uses the stored completion doc — bring synthetic rows into the
-  // count so the hero % reflects the kid's full day, including stock-takes.
-  const pctFromAll = total > 0 ? Math.round((doneCount / total) * 100) : 0;
-  const pct = syntheticItems.length > 0 ? pctFromAll : dailyKidPct(scheduled, completion);
+  // Pulse readings count toward the day's progress too (equal weight) — same
+  // as the helper card — so the hero % reflects the kid's WHOLE day.
+  const pulseForDay = pulseTasks;
+  const pulseDoneCount = pulseForDay.filter(isPulseDone).length;
+  const combinedTotal = total + pulseForDay.length;
+  const combinedDone = doneCount + pulseDoneCount;
+  const pct = combinedTotal > 0 ? Math.round((combinedDone / combinedTotal) * 100) : 0;
   const pointsToday = scheduled
     .filter((i) => isDone(i.id))
     .reduce((s, i) => s + (i.pointsValue ?? 0), 0);
-  const allDone = total > 0 && doneCount === total;
+  const allDone = combinedTotal > 0 && combinedDone === combinedTotal;
 
   const toggle = async (item: KidWorkplanItem) => {
     if (readOnly || !isToday) return;
@@ -173,7 +206,7 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
     }
   };
 
-  if (total === 0) {
+  if (total === 0 && pulseForDay.length === 0) {
     return (
       <div className="rounded-2xl bg-white border-2 border-dashed border-[#F0E8FF] p-8 text-center">
         <div className="text-4xl mb-2">🗓️</div>
@@ -254,7 +287,8 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
               {allDone ? '🎉 All done!' : childName ? `Habari, ${childName.split(' ')[0]} 👋` : 'My day'}
             </p>
             <p className="text-[12px] font-bold opacity-90 mt-0.5">
-              {doneCount} of {total} done{pointsToday > 0 ? ` · ⭐ ${pointsToday} pts` : ''}
+              {combinedDone} of {combinedTotal} done{pointsToday > 0 ? ` · ⭐ ${pointsToday} pts` : ''}
+              {pulseForDay.length > 0 && <span className="opacity-90"> · 📊 {pulseDoneCount}/{pulseForDay.length} readings</span>}
             </p>
           </div>
           <div className="flex items-center justify-center w-14 h-14 rounded-full bg-white/20 font-black text-[16px] flex-shrink-0 border-2 border-white/40">
@@ -269,6 +303,59 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
       {allDone && (
         <div className="rounded-2xl p-3 mb-3 text-center font-black text-[13px]" style={{ background: JOY.yellow, color: '#5A3D00' }}>
           🌟 You finished everything {isToday ? 'today' : 'this day'}! Amazing!
+        </div>
+      )}
+
+      {/* 📊 Readings — meter/utility readings assigned to this kid for the day.
+          Navy Pulse-brand tint so it reads distinct from the workplan tiles.
+          Tap a pending tile to log it (routes to Quick Entry). */}
+      {pulseForDay.length > 0 && (
+        <div className="rounded-2xl p-3 mb-3 border-2" style={{ background: 'rgba(15,31,68,0.04)', borderColor: 'rgba(15,31,68,0.16)' }}>
+          <p className="text-[10px] font-black uppercase tracking-wider mb-2 flex items-center gap-1.5" style={{ color: '#0F1F44' }}>
+            📊 Readings to log
+            <span className="text-[9px] font-bold normal-case" style={{ color: '#5C6975' }}>({pulseDoneCount}/{pulseForDay.length} done)</span>
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {pulseForDay.map((t) => {
+              const tr = trackById[t.trackableId];
+              const emoji = tr?.emoji ?? '📊';
+              const name = tr?.name ?? 'Reading';
+              const done = isPulseDone(t);
+              const missed = t.status === 'missed';
+              const canLog = isToday && !readOnly && !done;
+              const inner = (
+                <>
+                  <span className="text-3xl" aria-hidden>{emoji}</span>
+                  <span
+                    className="text-[11px] font-extrabold text-center leading-tight line-clamp-2 px-1"
+                    style={{ color: done ? '#2E7D34' : missed ? '#C0392B' : '#0F1F44' }}
+                  >
+                    {name}
+                  </span>
+                  {done ? (
+                    <span className="absolute top-1 right-1 w-5 h-5 rounded-full bg-[#6BCB77] text-white flex items-center justify-center text-[12px] font-black">✓</span>
+                  ) : missed ? (
+                    <span className="absolute top-1 right-1 text-[8px] uppercase tracking-wider font-black bg-[#FF6B6B] text-white px-1 rounded">Missed</span>
+                  ) : canLog ? (
+                    <span className="text-[9px] font-black uppercase tracking-wide" style={{ color: JOY.purple }}>Tap to log</span>
+                  ) : null}
+                </>
+              );
+              const base = 'relative aspect-square flex flex-col items-center justify-center gap-1 p-2 rounded-2xl border-2 transition-all';
+              const tone = done
+                ? 'bg-[#F1FBF2] border-[#6BCB77]'
+                : missed
+                  ? 'bg-[#FFF1EE] border-[#FF6B6B]'
+                  : 'bg-white border-[#0F1F44]/25';
+              return canLog ? (
+                <button key={t.id} type="button" onClick={() => router.push(`/pulse/log/${t.id}`)} className={`${base} ${tone} hover:shadow-sm active:scale-[0.99]`}>
+                  {inner}
+                </button>
+              ) : (
+                <div key={t.id} className={`${base} ${tone} cursor-default`}>{inner}</div>
+              );
+            })}
+          </div>
         </div>
       )}
 

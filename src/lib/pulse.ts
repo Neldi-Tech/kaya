@@ -766,6 +766,34 @@ export function subscribeToOwnerTasks(
   );
 }
 
+/** Every owner's pulseTasks for one day — backs the parent "Readings today"
+ *  oversight card (who's logged what, what's still pending/missed). Scoped by
+ *  dayKey (single-field auto-index) so it never reads the whole history. */
+export function subscribeToTasksForDay(
+  fid: string,
+  dayKey: string,
+  cb: (t: PulseTask[]) => void,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  return onSnapshot(
+    query(pulseTasksCol(fid), where('dayKey', '==', dayKey)),
+    (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as PulseTask))
+        .sort((a, b) => (a.dueAt?.toMillis() ?? 0) - (b.dueAt?.toMillis() ?? 0));
+      cb(list);
+    },
+    (err) => {
+      // eslint-disable-next-line no-console
+      console.error('[pulse] day tasks subscribe failed:', err);
+      cb([]);
+    },
+  );
+}
+
 /* ============================================================
    READING — one-shot reads + the log write path
    ============================================================ */
@@ -790,6 +818,11 @@ export interface LogReadingInput {
   familyId: string;
   taskId: string;
   value: number;
+  /** Who is logging — lets a parent log on a reader's behalf. When actorRole
+   *  is 'parent', the reading is attributed to the parent + the kid earns no
+   *  points/streak. Omit for a reader logging their own. */
+  actorUid?: string;
+  actorRole?: string;
 }
 export interface LogReadingResult {
   ok: boolean;
@@ -800,6 +833,7 @@ export interface LogReadingResult {
   points: number;
   isAnomaly: boolean;
   streak?: number;
+  onBehalf?: boolean;
 }
 
 /** The reading write path runs server-side (Admin SDK) at /api/pulse/log so the

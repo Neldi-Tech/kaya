@@ -59,6 +59,38 @@ export async function notifyPulseOwner(
   }
 }
 
+/** Notify every PARENT in the family (feed + push). Used by the scan cron to
+ *  flag missed readings so a parent can step in + log on the reader's behalf.
+ *  Best-effort — never throws. */
+export async function notifyFamilyParents(
+  famRef: FirebaseFirestore.DocumentReference,
+  note: { type: string; title: string; message: string; link: string },
+): Promise<void> {
+  try {
+    // Single-field query (auto-indexed) + filter role in code → no composite index.
+    const us = await famRef.firestore.collection('users').where('familyId', '==', famRef.id).get();
+    const parents = us.docs.filter((d) => (d.data() as { role?: string }).role === 'parent');
+    for (const p of parents) {
+      await famRef.collection('notifications').add({
+        type: note.type,
+        title: note.title,
+        message: note.message,
+        read: false,
+        forUserId: p.id,
+        link: note.link,
+        createdAt: new Date(),
+      });
+      void fetch(`${APP_URL}/api/push`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ uid: p.id, title: note.title, body: note.message, url: note.link, tag: note.type }),
+      }).catch(() => {});
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 function weekdayOf(dayKey: string): number {
   return new Date(`${dayKey}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
 }
