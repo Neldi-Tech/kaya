@@ -50,6 +50,9 @@ export interface IncomeSource {
   currency: string;
   socialSecurityCents: number; // active: monthly Social Security (you + employer) → Fund; passive: 0
   taxCents: number;            // active: monthly tax paid — INFORMATION ONLY (never affects any total); passive: 0
+  /** Personal→shared: route a % (0–100) or a fixed amount (cents) of this
+   *  income into the shared family pool. Only meaningful when personal. */
+  shareToFamily?: { mode: 'pct' | 'amount'; value: number } | null;
   visibility: IncomeVisibility;
   ownerId: string;
   createdAt: Timestamp;
@@ -106,6 +109,7 @@ export interface CreateIncomeInput {
   currency: string;
   socialSecurityCents?: number;
   taxCents?: number;
+  shareToFamily?: { mode: 'pct' | 'amount'; value: number } | null;
   visibility: IncomeVisibility;
   ownerId: string;
 }
@@ -122,6 +126,7 @@ export async function createIncome(input: CreateIncomeInput): Promise<{ id: stri
     currency: input.currency,
     socialSecurityCents: input.kind === 'active' ? (input.socialSecurityCents ?? 0) : 0,
     taxCents: input.kind === 'active' ? (input.taxCents ?? 0) : 0,
+    shareToFamily: input.visibility === 'personal' ? (input.shareToFamily ?? null) : null,
     visibility: input.visibility,
     ownerId: input.ownerId,
     createdAt: serverTimestamp(),
@@ -131,7 +136,18 @@ export async function createIncome(input: CreateIncomeInput): Promise<{ id: stri
 }
 
 export type IncomePatch = Partial<Pick<IncomeSource,
-  'category' | 'label' | 'employer' | 'grossMonthlyCents' | 'currency' | 'socialSecurityCents' | 'taxCents'>>;
+  'category' | 'label' | 'employer' | 'grossMonthlyCents' | 'currency' | 'socialSecurityCents' | 'taxCents' | 'shareToFamily'>>;
+
+/** Monthly amount this income routes into the shared family pool (in its own
+ *  currency's cents). 0 unless it's a personal income with shareToFamily set. */
+export function incomeContributionCents(s: IncomeSource): number {
+  if (s.visibility !== 'personal' || !s.shareToFamily) return 0;
+  const { mode, value } = s.shareToFamily;
+  if (!value || value <= 0) return 0;
+  return mode === 'pct'
+    ? Math.round(s.grossMonthlyCents * Math.min(100, value) / 100)
+    : Math.min(value, s.grossMonthlyCents);
+}
 
 export async function updateIncome(familyId: string, id: string, patch: IncomePatch): Promise<void> {
   if (isGuestActive()) return;
@@ -230,6 +246,7 @@ export interface IncomeSummary {
   socialSecurityCents: number;   // sum of monthly Social Security (you + employer) → Fund
   taxInfoCents: number;          // sum of monthly tax paid — INFORMATION ONLY
   passiveTotalCents: number;
+  contributedToSharedCents: number; // viewer's own personal→shared contributions
   expensesCents: number;
   coveragePct: number;        // passive / expenses, 0–100+ (capped at 100 for the bar)
   householdCurrency: string;
@@ -268,12 +285,22 @@ export function computeIncomeSummary(
   const expensesCents = view === 'shared' ? config.expensesShared : (config.expensesPersonal[ownerId] ?? 0);
   const coveragePct = expensesCents > 0 ? Math.round((passiveTotal / expensesCents) * 100) : 0;
 
+  // The viewer's own personal→shared contributions (visible to them; a
+  // co-parent's contributions need the shared mirror — a noted follow-up).
+  let contributed = 0;
+  for (const s of sources) {
+    if (s.visibility === 'personal' && s.ownerId === ownerId) {
+      contributed += toHCents(incomeContributionCents(s), s.currency);
+    }
+  }
+
   return {
     active, passive,
     activeNetCents: net,
     socialSecurityCents: social,
     taxInfoCents: taxInfo,
     passiveTotalCents: passiveTotal,
+    contributedToSharedCents: contributed,
     expensesCents,
     coveragePct,
     householdCurrency,

@@ -13,7 +13,7 @@ import { SUPPORTED_CURRENCIES } from '@/lib/fx';
 import {
   subscribeToIncome, subscribeIncomeConfig, computeIncomeSummary, setMonthlyExpenses,
   createIncome, updateIncome, deleteIncome, incomeCatDef, INCOME_CATEGORIES,
-  setSsFund, projectSsBalance, ssFundSetup, EMPTY_INCOME_CONFIG,
+  setSsFund, projectSsBalance, ssFundSetup, EMPTY_INCOME_CONFIG, incomeContributionCents,
   type IncomeSource, type IncomeKind, type IncomeVisibility, type IncomeConfig,
 } from '@/lib/wealthIncome';
 import type { WealthData } from './useWealthData';
@@ -66,7 +66,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
           {s.active.map((src) => (
             <div className="iline" key={src.id} role={isParent ? 'button' : undefined} style={isParent ? { cursor: 'pointer' } : undefined}
               onClick={() => isParent && setModal({ kind: 'active', source: src })}>
-              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}{src.employer ? <span className="sub"> · {src.employer}</span> : null}</span>
+              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}{src.employer ? <span className="sub"> · {src.employer}</span> : null}{view === 'personal' && incomeContributionCents(src) > 0 ? <span className="sub" style={{ color: 'var(--purple)' }}> · ↗ {formatCents(Math.round(incomeContributionCents(src) * (rateFor(src.currency) || 1)), householdCurrency)} to family</span> : null}</span>
               <span className="r">{formatCents(toH(src), householdCurrency)}</span>
             </div>
           ))}
@@ -93,7 +93,7 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
           {s.passive.map((src) => (
             <div className="iline pos" key={src.id} role={isParent ? 'button' : undefined} style={isParent ? { cursor: 'pointer' } : undefined}
               onClick={() => isParent && setModal({ kind: 'passive', source: src })}>
-              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}{src.employer ? <span className="sub"> · {src.employer}</span> : null}</span>
+              <span className="l"><span className="ic">{incomeCatDef(src.category).emoji}</span>{src.label}{src.employer ? <span className="sub"> · {src.employer}</span> : null}{view === 'personal' && incomeContributionCents(src) > 0 ? <span className="sub" style={{ color: 'var(--purple)' }}> · ↗ {formatCents(Math.round(incomeContributionCents(src) * (rateFor(src.currency) || 1)), householdCurrency)} to family</span> : null}</span>
               <span className="r">+ {formatCents(toH(src), householdCurrency)}</span>
             </div>
           ))}
@@ -123,6 +123,13 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
           </div>
         </div>
       </div>
+
+      {view === 'shared' && s.contributedToSharedCents > 0 && (
+        <div className="card" style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, background: '#f6f2fc', borderColor: '#e6ddf4' }}>
+          <span style={{ fontSize: 18 }}>↗</span>
+          <div style={{ fontSize: 13, color: 'var(--navy)' }}><b>{formatCents(s.contributedToSharedCents, householdCurrency)}/mo</b> contributed from your personal income into the shared family pool.</div>
+        </div>
+      )}
 
       {/* SOCIAL SECURITY FUND — grows by the monthly amount set on active income */}
       <div className="card" style={{ marginTop: 14 }}>
@@ -181,6 +188,12 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
   const [employer, setEmployer] = useState(source?.employer ?? '');
   const [social, setSocial] = useState(source ? formatMoneyInput(String((source.socialSecurityCents ?? 0) / 100)) : '');
   const [tax, setTax] = useState(source ? formatMoneyInput(String((source.taxCents ?? 0) / 100)) : '');
+  const [shareMode, setShareMode] = useState<'pct' | 'amount'>(source?.shareToFamily?.mode ?? 'pct');
+  const [shareValue, setShareValue] = useState(
+    source?.shareToFamily
+      ? (source.shareToFamily.mode === 'amount' ? formatMoneyInput(String(source.shareToFamily.value / 100)) : String(source.shareToFamily.value))
+      : '',
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const grossCents = moneyToCents(gross);
@@ -191,18 +204,23 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
     setBusy(true); setErr('');
     const lbl = label.trim() || incomeCatDef(category).label;
     const emp = kind === 'active' ? employer.trim() : '';
+    const share: { mode: 'pct' | 'amount'; value: number } | null = view === 'personal' && shareValue.trim()
+      ? { mode: shareMode, value: shareMode === 'amount' ? moneyToCents(shareValue) : (parseFloat(shareValue) || 0) }
+      : null;
     try {
       if (source) {
         await updateIncome(familyId, source.id, {
           category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
           socialSecurityCents: kind === 'active' ? moneyToCents(social) : 0,
           taxCents: kind === 'active' ? moneyToCents(tax) : 0,
+          shareToFamily: share,
         });
       } else {
         await createIncome({
           familyId, kind, category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
           socialSecurityCents: kind === 'active' ? moneyToCents(social) : 0,
           taxCents: kind === 'active' ? moneyToCents(tax) : 0,
+          shareToFamily: share,
           visibility: view, ownerId: authorUid,
         });
       }
@@ -247,6 +265,21 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
               🧾 <b>Tax paid</b> is recorded for information only — it never changes any total.
             </div>
           </>
+        )}
+        {view === 'personal' && (
+          <div className="kw-field" style={{ background: '#f3effb', border: '1px dashed #d9cdee', borderRadius: 11, padding: 12 }}>
+            <label style={{ color: 'var(--purple)' }}>↗ Contribute to the shared family pool <span style={{ color: '#9a9a9a', fontWeight: 500 }}>(optional)</span></label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <select value={shareMode} onChange={(e) => setShareMode(e.target.value as 'pct' | 'amount')} style={{ width: 'auto', flex: 'none' }}>
+                <option value="pct">%</option>
+                <option value="amount">{currency}</option>
+              </select>
+              {shareMode === 'amount'
+                ? <MoneyInput value={shareValue} onChange={setShareValue} placeholder="0" />
+                : <input inputMode="decimal" value={shareValue} onChange={(e) => setShareValue(e.target.value.replace(/[^\d.]/g, ''))} placeholder="0" />}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--grey)', marginTop: 6 }}>This portion counts in the family&apos;s shared pool; the rest stays private to you.</div>
+          </div>
         )}
         {err && <div style={{ color: '#c0392b', fontSize: 12.5, fontWeight: 600, marginBottom: 8 }}>{err}</div>}
         <div className="kw-modal-actions">
