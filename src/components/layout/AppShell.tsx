@@ -265,9 +265,10 @@ const BUSINESS_NAV: NavItem[] = [
 // Kaya Pulse · finance intelligence. Overview hub + parent task setup
 // today; kid/helper Today + the dashboards land as the slice fills in.
 const PULSE_NAV: NavItem[] = [
-  { path: '/pulse',        icon: '📊', label: 'Dashboard' },
-  { path: '/pulse/today',  icon: '✅', label: 'Today' },
-  { path: '/pulse/plan',   icon: '🎯', label: 'Savings plan' },
+  { path: '/pulse',           icon: '📊', label: 'Dashboard' },
+  { path: '/pulse/analytics', icon: '📈', label: 'Savings Analytics' },
+  { path: '/pulse/today',     icon: '✅', label: 'Today' },
+  { path: '/pulse/plan',      icon: '🎯', label: 'Savings plan' },
   { path: '/pulse/ledger', icon: '🏆', label: 'Ledger' },
   { path: '/pulse/admin',  icon: '⚙️', label: 'Trackables & tasks' },
 ];
