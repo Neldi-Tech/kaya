@@ -246,6 +246,10 @@ export interface BudgetSnapshot {
   totalCapCents: number;
   perModule: Partial<Record<PurchaseModule, { spentCents: number; capCents: number; deltaPct: number }>>;
   savingsCents: number;
+  /** The savings TARGET the family had set that month (cents) — frozen so the
+   *  trend can plot actual-saved vs the plan as the plan changes over time.
+   *  Optional: months frozen before this field existed have no target. */
+  planTargetCents?: number;
   finalized: boolean;
   finalizedAt?: Timestamp;
 }
