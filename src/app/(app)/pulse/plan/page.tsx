@@ -197,13 +197,26 @@ export default function PulsePlanPage() {
       .map(([name, cents]) => ({ name, cents }));
   }, [recent]);
 
+  // Use the plan's frozen baseline only if it actually carries data; otherwise
+  // the live baseline (which itself falls back to the budget caps). This stops
+  // the analytics from rendering empty just because the plan was created before
+  // any spend history existed.
+  const planBaseline = (() => {
+    const b = plan?.baselineByModule;
+    const sum = b ? Object.values(b).reduce((s: number, v) => s + (v ?? 0), 0) : 0;
+    return sum > 0 && b ? b : baseline;
+  })();
+  // The monthly amount the Wealth projection compounds — the goal the parent
+  // actually set (amount mode), else the resolved target from the baseline.
+  const monthlySaveTarget = plan ? (plan.targetSavingsCents || resolvePlan(plan, planBaseline).targetSavingsCents) : 0;
+
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <PulseHeader back={{ href: '/pulse', label: 'Dashboard' }} eyebrow="Savings plan" title="Save with a plan" subtitle="Set a monthly target, then track against it." />
 
       {plan && <PlanTracking plan={plan} caps={family?.householdBudgets} spent={spentThisMonth} currency={currency} />}
 
-      {plan && <BudgetVsSave plan={plan} baseline={plan.baselineByModule ?? baseline} currency={currency} />}
+      {plan && <BudgetVsSave plan={plan} baseline={planBaseline} currency={currency} />}
 
       <PlanSetup
         familyId={profile?.familyId ?? ''}
@@ -223,7 +236,7 @@ export default function PulsePlanPage() {
         </div>
       )}
 
-      {plan && <WealthProjection monthlyCents={resolvePlan(plan, plan.baselineByModule ?? baseline).targetSavingsCents} currency={currency} />}
+      {plan && <WealthProjection monthlyCents={monthlySaveTarget} currency={currency} />}
 
       <SavingsTrend monthly={savings.monthly} currency={currency} />
       <SavingsByModule rows={savings.byModule} currency={currency} />
@@ -273,7 +286,7 @@ function SavingsTrend({ monthly, currency }: { monthly: MonthSaved[]; currency: 
     <div className="mt-6">
       <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">📈 Savings vs your plan</div>
       <div className="bg-white border border-pulse-gold/40 rounded-2xl p-4">
-        <div className="flex items-end gap-2" style={{ height: H + 26 }}>
+        <div className="flex items-end gap-1.5 sm:gap-2" style={{ height: H + 46 }}>
           {data.map((d) => {
             const barH = Math.max(4, Math.round((d.saved / max) * H));
             const tgtH = d.target > 0 ? Math.round((d.target / max) * H) : 0;
@@ -320,7 +333,16 @@ function BudgetVsSave({ plan, baseline, currency }: {
     const keep = resolved.capsByModule[m] ?? 0;
     return { m, keep, save: Math.max(0, base - keep) };
   }).filter((r) => r.keep > 0 || r.save > 0);
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    return (
+      <div className="mt-4">
+        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Per category · budget vs save</div>
+        <div className="bg-white border border-pulse-gold/40 rounded-2xl p-4 text-center text-[12px] text-hive-muted italic">
+          Set budget caps + a savings target to see each bucket&apos;s keep-vs-save split.
+        </div>
+      </div>
+    );
+  }
   const totalKeep = rows.reduce((s, r) => s + r.keep, 0);
   const totalSave = rows.reduce((s, r) => s + r.save, 0);
   const renderRow = (key: string, emoji: string, label: string, keep: number, save: number, bold: boolean) => {
@@ -363,7 +385,17 @@ function BudgetVsSave({ plan, baseline, currency }: {
    at an illustrative bond rate; inspires saving by showing the compounded value. */
 const PULSE_BOND_RATE = 0.15; // illustrative annual rate — wire to a Kaya Wealth-set rate later
 function WealthProjection({ monthlyCents, currency }: { monthlyCents: number; currency: string }) {
-  if (!monthlyCents || monthlyCents <= 0) return null;
+  const ratePctEmpty = Math.round(PULSE_BOND_RATE * 100);
+  if (!monthlyCents || monthlyCents <= 0) {
+    return (
+      <div className="mt-6">
+        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">💎 What your savings become</div>
+        <div className="rounded-2xl p-4 text-white" style={{ background: 'linear-gradient(135deg,#13234d,#0c1733)' }}>
+          <div className="text-[13px] font-bold leading-snug">Set a monthly save target above — Kaya will show what it grows to at a {ratePctEmpty}% bond, in 1, 5 and 10 years.</div>
+        </div>
+      </div>
+    );
+  }
   const i = PULSE_BOND_RATE / 12;
   const fv = (n: number) => Math.round(monthlyCents * ((Math.pow(1 + i, n) - 1) / i));
   const years = Array.from({ length: 10 }, (_, k) => k + 1);
