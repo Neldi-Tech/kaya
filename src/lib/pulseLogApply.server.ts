@@ -51,6 +51,10 @@ export interface ApplyReadingParams {
   awardKid?: boolean;
   /** Optional task note (e.g. "Logged by parent"). */
   note?: string;
+  /** Force the task to a terminal 'logged' state even if the reading looks
+   *  anomalous — used when a PARENT is approving (they're already the review,
+   *  so don't re-flag to 'review' and leave it stuck in the approval list). */
+  forceClose?: boolean;
 }
 
 export interface ApplyReadingResult {
@@ -144,15 +148,20 @@ export async function applyReadingLog(db: Firestore, p: ApplyReadingParams): Pro
     ...(reason ? { anomalyReason: reason } : {}),
   });
 
-  // 2) Task → logged (or review when an anomaly needs a parent tap).
+  // 2) Task → logged (or 'review' when an anomaly needs a parent tap — unless
+  //    forceClose, i.e. a parent is already approving, in which case close it).
   await taskRef.update({
-    status: isAnomaly ? 'review' : 'logged',
+    status: (isAnomaly && !p.forceClose) ? 'review' : 'logged',
     readingId: readingRef.id,
     loggedAt: now,
     loggedBy,
     pointsAwarded: awardKid,
     ...(p.note ? { note: p.note } : {}),
-    assistProposedValue: null, // clear any assist proposal now it's resolved
+    // Clear ALL assist-proposal state now it's resolved so the task can never
+    // be mis-classified as still-pending-approval (no-op on a normal log).
+    assistProposedValue: null,
+    assistLoggedBy: null,
+    assistSubmittedAt: null,
   });
 
   const points = Number(task.pointsValue ?? 0);
