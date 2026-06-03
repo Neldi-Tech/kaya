@@ -121,16 +121,12 @@ export default function PulsePlanPage() {
     const months = Array.from(new Set([...Object.keys(spend), ...Object.keys(snapByMonth)]))
       .sort((a, b) => b.localeCompare(a)).slice(0, 6); // newest first
 
-    // The plan target the family has set now — used for months that don't yet
-    // carry a frozen target (so the trend's plan line still has a value).
-    const curTarget = family?.pulsePlan?.targetSavingsCents ?? 0;
-
     const monthly = months.map((mk) => {
       const snap = snapByMonth[mk];
-      if (snap) return { mk, spent: snap.totalSpentCents, saved: snap.savingsCents, target: snap.planTargetCents ?? curTarget };
+      if (snap) return { mk, spent: snap.totalSpentCents, saved: snap.savingsCents };
       let spent = 0, saved = 0;
       for (const m of PLAN_MODULES) { const sp = spend[mk]?.[m] ?? 0; spent += sp; saved += Math.max(0, (caps[m] ?? 0) - sp); }
-      return { mk, spent, saved, target: curTarget };
+      return { mk, spent, saved };
     });
 
     const byModule = PLAN_MODULES.map((m) => {
@@ -160,11 +156,11 @@ export default function PulsePlanPage() {
         perModule[m] = { spentCents: sp, capCents: cap, deltaPct: cap > 0 ? Math.round(((sp - cap) / cap) * 100) : 0 };
         totalSpentCents += sp; totalCapCents += cap; savingsCents += Math.max(0, cap - sp);
       }
-      return { monthKey: mk, totalSpentCents, totalCapCents, perModule, savingsCents, planTargetCents: curTarget, finalized: true } as Omit<BudgetSnapshot, 'id' | 'finalizedAt'>;
+      return { monthKey: mk, totalSpentCents, totalCapCents, perModule, savingsCents, finalized: true } as Omit<BudgetSnapshot, 'id' | 'finalizedAt'>;
     });
 
     return { monthly, byModule, toBackfill };
-  }, [recent, thisMonth, family?.householdBudgets, family?.pulsePlan?.targetSavingsCents, snapByMonth]);
+  }, [recent, thisMonth, family?.householdBudgets, snapByMonth]);
 
   // Running Wealth balance = all frozen snapshots, all-time.
   const wealthBalanceCents = useMemo(() => snapshots.reduce((s, x) => s + (x.savingsCents ?? 0), 0), [snapshots]);
@@ -197,26 +193,11 @@ export default function PulsePlanPage() {
       .map(([name, cents]) => ({ name, cents }));
   }, [recent]);
 
-  // Use the plan's frozen baseline only if it actually carries data; otherwise
-  // the live baseline (which itself falls back to the budget caps). This stops
-  // the analytics from rendering empty just because the plan was created before
-  // any spend history existed.
-  const planBaseline = (() => {
-    const b = plan?.baselineByModule;
-    const sum = b ? Object.values(b).reduce((s: number, v) => s + (v ?? 0), 0) : 0;
-    return sum > 0 && b ? b : baseline;
-  })();
-  // The monthly amount the Wealth projection compounds — the goal the parent
-  // actually set (amount mode), else the resolved target from the baseline.
-  const monthlySaveTarget = plan ? (plan.targetSavingsCents || resolvePlan(plan, planBaseline).targetSavingsCents) : 0;
-
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <PulseHeader back={{ href: '/pulse', label: 'Dashboard' }} eyebrow="Savings plan" title="Save with a plan" subtitle="Set a monthly target, then track against it." />
 
       {plan && <PlanTracking plan={plan} caps={family?.householdBudgets} spent={spentThisMonth} currency={currency} />}
-
-      {plan && <BudgetVsSave plan={plan} baseline={planBaseline} currency={currency} />}
 
       <PlanSetup
         familyId={profile?.familyId ?? ''}
@@ -235,8 +216,6 @@ export default function PulsePlanPage() {
           <div className="text-[11px] font-bold opacity-85 text-right leading-tight">{snapshots.length} month{snapshots.length === 1 ? '' : 's'}<br />frozen</div>
         </div>
       )}
-
-      {plan && <WealthProjection monthlyCents={monthlySaveTarget} currency={currency} />}
 
       <SavingsTrend monthly={savings.monthly} currency={currency} />
       <SavingsByModule rows={savings.byModule} currency={currency} />
@@ -259,9 +238,8 @@ function compactMajor(cents: number): string {
   return String(v);
 }
 
-interface MonthSaved { mk: string; spent: number; saved: number; target: number }
-interface ModuleMonth { mk: string; spent: number; saved: number }
-interface ModuleSaved { m: PurchaseModule; cap: number; totalSaved: number; totalSpent: number; perMonth: ModuleMonth[] }
+interface MonthSaved { mk: string; spent: number; saved: number }
+interface ModuleSaved { m: PurchaseModule; cap: number; totalSaved: number; totalSpent: number; perMonth: MonthSaved[] }
 
 /* Overall savings trendline — bars over the completed months. */
 function SavingsTrend({ monthly, currency }: { monthly: MonthSaved[]; currency: string }) {
@@ -276,170 +254,27 @@ function SavingsTrend({ monthly, currency }: { monthly: MonthSaved[]; currency: 
     );
   }
   const data = [...monthly].reverse(); // oldest → newest
-  const H = 84;
-  // Scale to the bigger of saved/target so the (varying) target line fits.
-  const max = Math.max(1, ...data.flatMap((d) => [d.saved, d.target]));
+  const max = Math.max(1, ...data.map((d) => d.saved));
   const total = monthly.reduce((s, d) => s + d.saved, 0);
-  const withTarget = data.filter((d) => d.target > 0);
-  const metOrBeat = withTarget.filter((d) => d.saved >= d.target).length;
   return (
     <div className="mt-6">
-      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">📈 Savings vs your plan</div>
+      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">📈 Savings trend</div>
       <div className="bg-white border border-pulse-gold/40 rounded-2xl p-4">
-        <div className="flex items-end gap-1.5 sm:gap-2" style={{ height: H + 46 }}>
-          {data.map((d) => {
-            const barH = Math.max(4, Math.round((d.saved / max) * H));
-            const tgtH = d.target > 0 ? Math.round((d.target / max) * H) : 0;
-            const beat = d.target > 0 && d.saved >= d.target;
-            return (
-              <div key={d.mk} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
-                <div className={`text-[9px] font-nunito font-black ${beat ? 'text-pulse-green' : 'text-pulse-navy'}`}>{compactMajor(d.saved)}</div>
-                {/* fixed-height plot area: saved bar (gold) + dashed target line */}
-                <div className="relative w-full" style={{ height: H }}>
-                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[72%] rounded-t-md bg-pulse-gold" style={{ height: barH }} />
-                  {tgtH > 0 && (
-                    <div className="absolute left-0 right-0 border-t-2 border-dashed border-pulse-navy/70" style={{ bottom: tgtH }} title={`Plan ${compactMajor(d.target)}`} />
-                  )}
-                </div>
-                <div className="text-[9px] text-hive-muted font-bold truncate w-full text-center">{monthLabelOf(d.mk).split(' ')[0]}</div>
-              </div>
-            );
-          })}
-        </div>
-        <div className="legend flex gap-4 mt-1">
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold text-hive-muted"><i className="inline-block w-3.5 h-2 rounded-sm bg-pulse-gold"></i> Actual saved</span>
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold text-hive-muted"><i className="inline-block w-3.5 border-t-2 border-dashed border-pulse-navy/70"></i> Your plan (per month)</span>
-        </div>
-        <div className="flex items-center justify-between mt-3 pt-3 border-t border-pulse-gold/15">
-          <span className="text-[12px] font-nunito font-black text-pulse-navy">
-            {withTarget.length > 0 ? `Met/beat plan ${metOrBeat}/${withTarget.length} mo` : `Total saved · ${data.length} mo`}
-          </span>
-          <span className="text-[15px] font-nunito font-black text-pulse-green">{formatCentsBudgetNeat(total, currency)}</span>
-        </div>
-      </div>
-      <p className="text-[10px] text-hive-muted mt-1.5">Bars = what you actually saved · dashed line = the target you'd set that month (it can change month to month). Each completed month is frozen.</p>
-    </div>
-  );
-}
-
-/* Per category · budget (keep) vs save — Elia update 1. Each bucket's working
-   budget alongside the slice routed to savings, with a keep/save split bar. */
-function BudgetVsSave({ plan, baseline, currency }: {
-  plan: PulsePlan; baseline: Partial<Record<PurchaseModule, number>>; currency: string;
-}) {
-  const resolved = resolvePlan(plan, baseline);
-  const rows = PLAN_MODULES.map((m) => {
-    const base = baseline[m] ?? 0;
-    const keep = resolved.capsByModule[m] ?? 0;
-    return { m, keep, save: Math.max(0, base - keep) };
-  }).filter((r) => r.keep > 0 || r.save > 0);
-  if (rows.length === 0) {
-    return (
-      <div className="mt-4">
-        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Per category · budget vs save</div>
-        <div className="bg-white border border-pulse-gold/40 rounded-2xl p-4 text-center text-[12px] text-hive-muted italic">
-          Set budget caps + a savings target to see each bucket&apos;s keep-vs-save split.
-        </div>
-      </div>
-    );
-  }
-  const totalKeep = rows.reduce((s, r) => s + r.keep, 0);
-  const totalSave = rows.reduce((s, r) => s + r.save, 0);
-  const renderRow = (key: string, emoji: string, label: string, keep: number, save: number, bold: boolean) => {
-    const tot = Math.max(1, keep + save);
-    const keepPct = Math.round((keep / tot) * 100);
-    return (
-      <div key={key} className={`grid grid-cols-2 gap-x-3 gap-y-1.5 items-center py-2 ${bold ? 'border-t-2 border-pulse-navy/30 mt-1' : 'border-t border-pulse-gold/15'}`}>
-        <div className="min-w-0">
-          <div className="text-[12.5px] font-nunito font-black text-pulse-navy truncate">{emoji} {label}</div>
-          <div className="text-[10px] text-hive-muted font-bold">budget {formatCents(keep, currency)}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-[12.5px] font-nunito font-black text-pulse-green">save {formatCents(save, currency)}</div>
-          <div className="text-[10px] text-hive-muted font-bold">{100 - keepPct}% of bucket</div>
-        </div>
-        <div className="col-span-2 h-2.5 rounded-full bg-pulse-cream overflow-hidden flex">
-          <div className="h-full bg-pulse-gold" style={{ width: `${keepPct}%` }} />
-          <div className="h-full bg-pulse-green" style={{ width: `${100 - keepPct}%` }} />
-        </div>
-      </div>
-    );
-  };
-  return (
-    <div className="mt-4">
-      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">Per category · budget vs save</div>
-      <div className="bg-white border border-pulse-gold/40 rounded-2xl p-4">
-        {rows.map((r) => renderRow(r.m, MODULE_EMOJI[r.m], MODULE_LABEL[r.m], r.keep, r.save, false))}
-        {renderRow('__total', '∑', 'Total', totalKeep, totalSave, true)}
-        <div className="flex gap-4 mt-3 pt-2 border-t border-pulse-gold/15">
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold text-hive-muted"><i className="inline-block w-3 h-2 rounded-sm bg-pulse-gold"></i> Keep (budget)</span>
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold text-hive-muted"><i className="inline-block w-3 h-2 rounded-sm bg-pulse-green"></i> Save → Wealth</span>
-        </div>
-      </div>
-      <p className="text-[10px] text-hive-muted mt-1.5">Each bucket&apos;s working budget vs the slice that goes to savings. Edit the plan to rebalance.</p>
-    </div>
-  );
-}
-
-/* From Kaya Wealth · what your savings become — Elia update 3. Annuity growth
-   at an illustrative bond rate; inspires saving by showing the compounded value. */
-const PULSE_BOND_RATE = 0.15; // illustrative annual rate — wire to a Kaya Wealth-set rate later
-function WealthProjection({ monthlyCents, currency }: { monthlyCents: number; currency: string }) {
-  const ratePctEmpty = Math.round(PULSE_BOND_RATE * 100);
-  if (!monthlyCents || monthlyCents <= 0) {
-    return (
-      <div className="mt-6">
-        <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">💎 What your savings become</div>
-        <div className="rounded-2xl p-4 text-white" style={{ background: 'linear-gradient(135deg,#13234d,#0c1733)' }}>
-          <div className="text-[13px] font-bold leading-snug">Set a monthly save target above — Kaya will show what it grows to at a {ratePctEmpty}% bond, in 1, 5 and 10 years.</div>
-        </div>
-      </div>
-    );
-  }
-  const i = PULSE_BOND_RATE / 12;
-  const fv = (n: number) => Math.round(monthlyCents * ((Math.pow(1 + i, n) - 1) / i));
-  const years = Array.from({ length: 10 }, (_, k) => k + 1);
-  const valByYear = years.map((y) => fv(y * 12));
-  const putByYear = years.map((y) => monthlyCents * 12 * y);
-  const maxV = Math.max(1, valByYear[valByYear.length - 1]);
-  const pts = (arr: number[]) => arr.map((v, idx) => `${Math.round(30 + idx * (300 / 9))},${Math.round(150 - (v / maxV) * 120)}`).join(' ');
-  const y1 = fv(12), y5 = fv(60), y10 = fv(120);
-  const doublingYrs = (72 / (PULSE_BOND_RATE * 100)).toFixed(1);
-  const ratePct = Math.round(PULSE_BOND_RATE * 100);
-  const chips: Array<[string, number, number]> = [['1 year', y1, monthlyCents * 12], ['5 years', y5, monthlyCents * 60], ['10 years', y10, monthlyCents * 120]];
-  return (
-    <div className="mt-6">
-      <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">💎 What your savings become</div>
-      <div className="rounded-2xl p-4 text-white" style={{ background: 'linear-gradient(135deg,#13234d,#0c1733)' }}>
-        <div className="text-[13.5px] font-bold leading-snug">
-          Save <b>{formatCentsBudgetNeat(monthlyCents, currency)}/mo</b> and invest at <span style={{ color: '#D4A847' }}>{ratePct}% (bond)</span> → in 5 years ≈ <span style={{ color: '#D4A847' }}>{formatCentsBudgetNeat(y5, currency)}</span>.
-        </div>
-        <svg viewBox="0 0 340 168" width="100%" height="150" style={{ marginTop: 8 }} role="img" aria-label="Savings growth at a bond rate">
-          <polyline fill="none" stroke="rgba(255,255,255,.5)" strokeWidth="2" strokeDasharray="5 5" points={pts(putByYear)} />
-          <polyline fill="none" stroke="#D4A847" strokeWidth="3" strokeLinejoin="round" points={pts(valByYear)} />
-          <g fontSize="9" fontWeight="700" fill="rgba(255,255,255,.6)" textAnchor="middle">
-            <text x="30" y="164">1y</text><text x="163" y="164">5y</text><text x="330" y="164">10y</text>
-          </g>
-        </svg>
-        <div className="flex gap-4">
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold" style={{ color: 'rgba(255,255,255,.75)' }}><i className="inline-block w-3.5 h-1 rounded" style={{ background: '#D4A847' }}></i> Value (with growth)</span>
-          <span className="inline-flex items-center gap-1.5 text-[10.5px] font-bold" style={{ color: 'rgba(255,255,255,.75)' }}><i className="inline-block w-3.5 border-t-2 border-dashed" style={{ borderColor: 'rgba(255,255,255,.6)' }}></i> What you put in</span>
-        </div>
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          {chips.map(([lbl, val, put]) => (
-            <div key={lbl} className="rounded-xl p-2.5 text-center" style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.14)' }}>
-              <div className="text-[9.5px] font-bold uppercase tracking-wide" style={{ opacity: .7 }}>In {lbl}</div>
-              <div className="text-[14px] font-nunito font-black" style={{ color: '#D4A847' }}>{formatCentsBudgetNeat(val, currency)}</div>
-              <div className="text-[9px]" style={{ opacity: .65 }}>put in {formatCentsBudgetNeat(put, currency)}</div>
+        <div className="flex items-end gap-2" style={{ height: 110 }}>
+          {data.map((d) => (
+            <div key={d.mk} className="flex-1 flex flex-col items-center justify-end gap-1 min-w-0">
+              <div className="text-[9px] font-nunito font-black text-pulse-green">{compactMajor(d.saved)}</div>
+              <div className="w-full rounded-t-md bg-pulse-green/80" style={{ height: Math.max(4, Math.round((d.saved / max) * 80)) }} />
+              <div className="text-[9px] text-hive-muted font-bold truncate w-full text-center">{monthLabelOf(d.mk).split(' ')[0]}</div>
             </div>
           ))}
         </div>
-        <div className="rounded-xl p-3 mt-3 text-[12.5px] leading-snug" style={{ background: 'rgba(212,168,71,.14)', border: '1px solid rgba(212,168,71,.4)' }}>
-          ⏳ At {ratePct}%, money <b>doubles in ~{doublingYrs} years</b>. Saving today buys your future self more.
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-pulse-gold/15">
+          <span className="text-[12px] font-nunito font-black text-pulse-navy">Total saved · {data.length} mo</span>
+          <span className="text-[15px] font-nunito font-black text-pulse-green">{formatCentsBudgetNeat(total, currency)}</span>
         </div>
-        <Link href="/wealth" className="block text-center font-nunito font-black rounded-xl mt-3 py-2.5 text-[13.5px]" style={{ background: '#D4A847', color: '#0F1F44', textDecoration: 'none' }}>See it in Kaya Wealth →</Link>
-        <div className="text-[10px] text-center mt-2" style={{ opacity: .6 }}>Illustrative · {ratePct}% bond · not financial advice.</div>
       </div>
+      <p className="text-[10px] text-hive-muted mt-1.5">Each completed month is frozen as a permanent record. Past months were backfilled at today’s caps; new months snapshot accurately at close.</p>
     </div>
   );
 }
