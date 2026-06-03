@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     const res = await applyReadingLog(db, {
       familyId, taskId, value: task.assistProposedValue,
       capturedBy: task.assistLoggedBy, capturedByKind: 'helper', loggedBy: task.assistLoggedBy,
-      awardKid: false, note: 'Helper logged · parent-approved',
+      awardKid: false, note: 'Helper logged · parent-approved', forceClose: true,
     });
     if (!res.ok) return NextResponse.json({ error: res.error }, { status: res.errorStatus ?? 500 });
     // Tell the helper it was approved.
