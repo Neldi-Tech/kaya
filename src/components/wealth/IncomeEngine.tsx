@@ -14,6 +14,7 @@ import {
   subscribeToIncome, subscribeIncomeConfig, computeIncomeSummary, setMonthlyExpenses,
   createIncome, updateIncome, deleteIncome, incomeCatDef, INCOME_CATEGORIES,
   setSsFund, projectSsBalance, ssFundSetup, EMPTY_INCOME_CONFIG, incomeContributionCents,
+  reconcileContributionMirror,
   type IncomeSource, type IncomeKind, type IncomeVisibility, type IncomeConfig,
 } from '@/lib/wealthIncome';
 import type { WealthData } from './useWealthData';
@@ -29,6 +30,23 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
 
   useEffect(() => { if (familyId) return subscribeToIncome(familyId, author.uid, setSources); }, [familyId, author.uid]);
   useEffect(() => { if (familyId) return subscribeIncomeConfig(familyId, setConfig); }, [familyId]);
+
+  // Self-healing mirror: keep the shared-pool entries for MY OWN personal income
+  // in sync with the wealth_config mirror — so a contribution set before this
+  // shipped (or changed elsewhere) shows up in Shared without a manual re-save.
+  // Each parent reconciles only their own rows; converges then stops writing.
+  useEffect(() => {
+    if (!familyId) return;
+    for (const src of sources) {
+      if (src.visibility !== 'personal' || src.ownerId !== author.uid) continue;
+      const want = incomeContributionCents(src);
+      const cur = config.contributions?.[src.id];
+      const inSync = want > 0
+        ? !!cur && cur.cents === want && cur.currency === src.currency && cur.label === src.label
+        : !cur;
+      if (!inSync) void reconcileContributionMirror(familyId, src);
+    }
+  }, [sources, config.contributions, familyId, author.uid]);
 
   const s = useMemo(
     () => computeIncomeSummary(sources, view, author.uid, householdCurrency, rateFor, config),
@@ -60,9 +78,9 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
         <div className="card inc">
           <div className="head">
             <div className="t"><span className="badge b-active">🛠️</span> Active Income <small style={{ color: 'var(--grey)', fontWeight: 600 }}>/ month</small></div>
-            <div className="total">{formatCents(s.activeNetCents, householdCurrency)} <small>net take-home</small></div>
+            <div className="total">{formatCents(s.activeNetCents + (view === 'shared' ? s.pooledContributionsCents : 0), householdCurrency)} <small>{view === 'shared' && s.pooledContributionsCents > 0 ? 'incl. ↗ personal' : 'net take-home'}</small></div>
           </div>
-          {s.active.length === 0 && <div className="iline"><span className="l">No active income yet</span><span className="r">{addLink('active', '+ Add')}</span></div>}
+          {s.active.length === 0 && s.pooledContributionsCents === 0 && <div className="iline"><span className="l">No active income yet</span><span className="r">{addLink('active', '+ Add')}</span></div>}
           {s.active.map((src) => (
             <div className="iline" key={src.id} role={isParent ? 'button' : undefined} style={isParent ? { cursor: 'pointer' } : undefined}
               onClick={() => isParent && setModal({ kind: 'active', source: src })}>
@@ -70,6 +88,9 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
               <span className="r">{formatCents(toH(src), householdCurrency)}</span>
             </div>
           ))}
+          {view === 'shared' && s.pooledContributionsCents > 0 && (
+            <div className="iline pos"><span className="l"><span className="ic">↗</span>From personal income <small style={{ color: 'var(--grey)', fontWeight: 600 }}>shared to the pool</small></span><span className="r">+ {formatCents(s.pooledContributionsCents, householdCurrency)}</span></div>
+          )}
           {(s.socialSecurityCents > 0 || s.taxInfoCents > 0) && (
             <>
               {s.socialSecurityCents > 0 && (
@@ -124,10 +145,10 @@ export default function IncomeEngine({ data, view }: { data: WealthData; view: I
         </div>
       </div>
 
-      {view === 'shared' && s.contributedToSharedCents > 0 && (
+      {view === 'shared' && s.pooledContributionsCents > 0 && (
         <div className="card" style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10, background: '#f6f2fc', borderColor: '#e6ddf4' }}>
           <span style={{ fontSize: 18 }}>↗</span>
-          <div style={{ fontSize: 13, color: 'var(--navy)' }}><b>{formatCents(s.contributedToSharedCents, householdCurrency)}/mo</b> contributed from your personal income into the shared family pool.</div>
+          <div style={{ fontSize: 13, color: 'var(--navy)' }}><b>{formatCents(s.pooledContributionsCents, householdCurrency)}/mo</b> contributed from family members&apos; personal income into the shared pool — only this portion is shared; the rest stays private.</div>
         </div>
       )}
 
@@ -205,7 +226,8 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
     const lbl = label.trim() || incomeCatDef(category).label;
     const emp = kind === 'active' ? employer.trim() : '';
     const share: { mode: 'pct' | 'amount'; value: number } | null = view === 'personal' && shareValue.trim()
-      ? { mode: shareMode, value: shareMode === 'amount' ? moneyToCents(shareValue) : (parseFloat(shareValue) || 0) }
+      // % is clamped to 0–100 so an over-typed value can never balloon into the whole income.
+      ? { mode: shareMode, value: shareMode === 'amount' ? moneyToCents(shareValue) : Math.min(100, Math.max(0, parseFloat(shareValue) || 0)) }
       : null;
     try {
       if (source) {
@@ -215,14 +237,16 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
           taxCents: kind === 'active' ? moneyToCents(tax) : 0,
           shareToFamily: share,
         });
+        await reconcileContributionMirror(familyId, { id: source.id, visibility: view, ownerId: source.ownerId, kind, label: lbl, currency, grossMonthlyCents: grossCents, shareToFamily: share });
       } else {
-        await createIncome({
+        const { id } = await createIncome({
           familyId, kind, category, label: lbl, employer: emp, grossMonthlyCents: grossCents, currency,
           socialSecurityCents: kind === 'active' ? moneyToCents(social) : 0,
           taxCents: kind === 'active' ? moneyToCents(tax) : 0,
           shareToFamily: share,
           visibility: view, ownerId: authorUid,
         });
+        await reconcileContributionMirror(familyId, { id, visibility: view, ownerId: authorUid, kind, label: lbl, currency, grossMonthlyCents: grossCents, shareToFamily: share });
       }
       onClose();
     } catch (e) {
@@ -230,7 +254,13 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
       setBusy(false);
     }
   };
-  const remove = async () => { if (source) { await deleteIncome(familyId, source.id); onClose(); } };
+  const remove = async () => {
+    if (!source) return;
+    await deleteIncome(familyId, source.id);
+    // Clear any shared-pool mirror entry this income left behind.
+    await reconcileContributionMirror(familyId, { id: source.id, visibility: source.visibility, ownerId: source.ownerId, kind: source.kind, label: source.label, currency: source.currency, grossMonthlyCents: 0, shareToFamily: null });
+    onClose();
+  };
 
   return (
     <div className="kw-modal-back" onClick={onClose}>
@@ -278,6 +308,21 @@ function IncomeModal({ kind, source, view, familyId, householdCurrency, authorUi
                 ? <MoneyInput value={shareValue} onChange={setShareValue} placeholder="0" />
                 : <input inputMode="decimal" value={shareValue} onChange={(e) => setShareValue(e.target.value.replace(/[^\d.]/g, ''))} placeholder="0" />}
             </div>
+            {/* Live mirror: fill % → see the amount; fill amount → see the %. */}
+            {(() => {
+              const raw = shareValue.trim();
+              if (!raw || grossCents <= 0) return null;
+              if (shareMode === 'pct') {
+                const rawPct = parseFloat(raw) || 0;
+                const pct = Math.min(100, Math.max(0, rawPct));
+                const amt = Math.round(grossCents * pct / 100);
+                return <div style={{ fontSize: 12, color: 'var(--purple)', fontWeight: 700, marginTop: 6 }}>= {formatCents(amt, currency)}/mo to family{rawPct > 100 ? ' · capped at 100%' : ''}</div>;
+              }
+              const amt = moneyToCents(raw);
+              const capped = Math.min(amt, grossCents);
+              const pct = grossCents > 0 ? Math.round((capped / grossCents) * 100) : 0;
+              return <div style={{ fontSize: 12, color: 'var(--purple)', fontWeight: 700, marginTop: 6 }}>= {pct}% of your {formatCents(grossCents, currency)} net{amt > grossCents ? ' · capped at your net' : ''}</div>;
+            })()}
             <div style={{ fontSize: 11, color: 'var(--grey)', marginTop: 6 }}>This portion counts in the family&apos;s shared pool; the rest stays private to you.</div>
           </div>
         )}
