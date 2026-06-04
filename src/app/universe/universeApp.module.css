@@ -163,14 +163,17 @@
 @keyframes spinBack { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
 /* Pause whole galaxy via the pause button. */
 .galaxy.paused .orbit, .galaxy.paused .planet { animation-play-state: paused; }
-/* A rolling planet stays selectable — hovering a ring parks it under the
-   cursor so it's easy to grab, but a tap works mid-spin regardless. */
-.orbit:hover, .orbit:hover > .planet { animation-play-state: paused; }
+/* A rolling planet stays selectable without hitting Pause first. On hover
+   (web) the whole map parks so any planet is easy to click; on touch, a
+   press parks it — the galaxy gets `.paused` on pointer-down (see JSX). */
+.galaxy:hover .orbit, .galaxy:hover .planet { animation-play-state: paused; }
+/* Legend sits BELOW the galaxy (in normal flow) so it never covers a planet. */
 .legend {
-  position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%);
+  margin: 6px auto 0; width: fit-content; max-width: 100%;
   background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(6px);
   padding: 10px 18px; border-radius: 14px; font-size: 12px; color: var(--ink-soft);
   display: flex; gap: 14px; align-items: center; white-space: nowrap;
+  box-shadow: var(--shadow);
 }
 .legend b { color: var(--ink); }
 .legend .pill {

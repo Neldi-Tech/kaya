@@ -31,6 +31,9 @@ export default function UniverseInApp() {
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
+  // Touch devices have no hover, so a press parks the orbit — the planet
+  // freezes under the finger and the tap lands, no need to hit Pause first.
+  const [grabbed, setGrabbed] = useState(false);
 
   // `explored` drives the progress bar + end-state copy + persistence.
   // The per-chapter / per-planet ✓ badges are applied imperatively (below)
@@ -176,8 +179,12 @@ export default function UniverseInApp() {
 
         {/* ===== GALAXY ===== */}
         <div
-          className={`${styles.galaxy} ${paused ? styles.paused : ""}`}
+          className={`${styles.galaxy} ${paused || grabbed ? styles.paused : ""}`}
           id="galaxy"
+          onPointerDown={() => setGrabbed(true)}
+          onPointerUp={() => setGrabbed(false)}
+          onPointerCancel={() => setGrabbed(false)}
+          onPointerLeave={() => setGrabbed(false)}
         >
           <button
             type="button"
@@ -198,14 +205,15 @@ export default function UniverseInApp() {
           <div className={styles.sunCore}>
             KAYA<small>home base</small>
           </div>
+        </div>
 
-          <div className={styles.legend}>
-            <span>
-              <b>Tap a planet</b> — jump to that chapter
-            </span>
-            <span style={{ opacity: 0.4 }}>·</span>
-            <span className={styles.pill}>YOU ARE HERE</span>
-          </div>
+        {/* Legend lives BELOW the galaxy so it never covers a planet. */}
+        <div className={styles.legend}>
+          <span>
+            <b>Tap a planet</b> — jump to that chapter
+          </span>
+          <span style={{ opacity: 0.4 }}>·</span>
+          <span className={styles.pill}>YOU ARE HERE</span>
         </div>
 
         {/* ===== STORY BRIDGE ===== */}
