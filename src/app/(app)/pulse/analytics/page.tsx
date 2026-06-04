@@ -60,6 +60,15 @@ const compactMajor = (cents: number): string => {
   if (v >= 1_000) return `${Math.round(v / 1_000)}k`;
   return String(v);
 };
+// Compact currency for tight spots (e.g. the 3-col Wealth chips on mobile):
+// "TZS 550.4M" / "TZS 24.0M" / "TZS 200k" — keeps big projections from overlapping.
+const compactMoney = (cents: number, currency: string): string => {
+  const major = Math.round(cents / 100);
+  const abs = Math.abs(major);
+  if (abs >= 1_000_000) return `${currency} ${(major / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${currency} ${(major / 1_000).toFixed(abs >= 100_000 ? 0 : 1)}k`;
+  return `${currency} ${major.toLocaleString()}`;
+};
 
 interface BudgetRow { key: string; emoji: string; label: string; budget: number; save: number; fixed: boolean }
 
@@ -522,7 +531,7 @@ function WealthProjection({ monthlyCents, currency }: { monthlyCents: number; cu
       <div className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pulse-gold-dk mb-2">💎 What your savings become</div>
       <div className="rounded-2xl p-4 text-white" style={{ background: 'linear-gradient(135deg,#13234d,#0c1733)' }}>
         <div className="text-[13.5px] font-bold leading-snug">
-          Save your <b>{formatCentsBudgetNeat(monthlyCents, currency)}/mo</b> target and invest at <span style={{ color: '#D4A847' }}>{ratePct}% (bond)</span> → in 5 years ≈ <span style={{ color: '#D4A847' }}>{formatCentsBudgetNeat(y5, currency)}</span>.
+          Save your <b>{formatCentsBudgetNeat(monthlyCents, currency)}/mo</b> target and invest at <span style={{ color: '#D4A847' }}>{ratePct}% (bond)</span> → in 5 years ≈ <span style={{ color: '#D4A847' }}>{compactMoney(y5, currency)}</span>.
         </div>
         <svg viewBox="0 0 340 168" width="100%" height="150" style={{ marginTop: 8 }} role="img" aria-label="Savings growth at a bond rate">
           <polyline fill="none" stroke="rgba(255,255,255,.5)" strokeWidth="2" strokeDasharray="5 5" points={pts(putByYear)} />
@@ -539,8 +548,8 @@ function WealthProjection({ monthlyCents, currency }: { monthlyCents: number; cu
           {chips.map(([lbl, val, put]) => (
             <div key={lbl} className="rounded-xl p-2.5 text-center" style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(255,255,255,.14)' }}>
               <div className="text-[9.5px] font-bold uppercase tracking-wide" style={{ opacity: .7 }}>In {lbl}</div>
-              <div className="text-[14px] font-nunito font-black" style={{ color: '#D4A847' }}>{formatCentsBudgetNeat(val, currency)}</div>
-              <div className="text-[9px]" style={{ opacity: .65 }}>put in {formatCentsBudgetNeat(put, currency)}</div>
+              <div className="text-[14px] font-nunito font-black whitespace-nowrap" style={{ color: '#D4A847' }}>{compactMoney(val, currency)}</div>
+              <div className="text-[9px] whitespace-nowrap" style={{ opacity: .65 }}>put in {compactMoney(put, currency)}</div>
             </div>
           ))}
         </div>
