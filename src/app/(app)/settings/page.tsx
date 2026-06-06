@@ -47,6 +47,7 @@ import { ReferralBadge } from '@/components/referral/ReferralBadge';
 import { KayaCoin } from '@/components/referral/KayaCoin';
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
+import LanguageCard from '@/components/settings/LanguageCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
 import NotificationSettings from '@/components/settings/NotificationSettings';
@@ -1047,6 +1048,9 @@ export default function SettingsPage() {
       <div className="lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
         {/* ── Left column: account + family + preferences ──────── */}
         <div className="lg:col-span-7 space-y-4">
+
+          {/* Language (i18n) — everyone picks their own; parents set the family default. */}
+          <LanguageCard />
 
           {/* Profile card · anchored at #profile so deep links from the
               Family Tree land directly on it. */}

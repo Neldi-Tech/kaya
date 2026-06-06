@@ -2,8 +2,12 @@
 
 import BackButton from '@/components/ui/BackButton';
 import { MODULE_GUIDES, openModuleGuide } from '@/lib/moduleGuides';
+import { useLocale } from '@/lib/useLocale';
+import { t } from '@/lib/i18n';
 
 export default function VideosPage() {
+  const locale = useLocale();
+  const sw = locale === 'sw';
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="lg:hidden"><BackButton /></div>
@@ -16,7 +20,7 @@ export default function VideosPage() {
       </div>
 
       {/* ── Module guides (live) ─────────────────────────────────────────── */}
-      <h2 className="font-display text-lg font-extrabold mb-3 flex items-center gap-2">▶ How Kaya works</h2>
+      <h2 className="font-display text-lg font-extrabold mb-3 flex items-center gap-2">{sw ? "▶ Jinsi Kaya inavyofanya kazi" : "▶ How Kaya works"}</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
         {MODULE_GUIDES.filter((g) => !g.parentId).map((g) => (
           g.available ? (
@@ -28,19 +32,19 @@ export default function VideosPage() {
             >
               <span className="text-2xl shrink-0">{g.emoji}</span>
               <span className="min-w-0">
-                <span className="block text-sm font-bold">{g.title}</span>
-                <span className="block text-[12px] text-kaya-sand leading-snug truncate">{g.blurb}</span>
+                <span className="block text-sm font-bold">{t(g.title, locale)}</span>
+                <span className="block text-[12px] text-kaya-sand leading-snug truncate">{t(g.blurb, locale)}</span>
               </span>
-              <span className="ml-auto text-[11px] font-extrabold text-kaya-gold shrink-0">▶ Watch</span>
+              <span className="ml-auto text-[11px] font-extrabold text-kaya-gold shrink-0">{sw ? "▶ Tazama" : "▶ Watch"}</span>
             </button>
           ) : (
             <div key={g.id} className="flex items-center gap-3 bg-white/60 border border-kaya-warm-dark/50 rounded-kaya p-3.5 opacity-70">
               <span className="text-2xl shrink-0 grayscale">{g.emoji}</span>
               <span className="min-w-0">
-                <span className="block text-sm font-bold">{g.title}</span>
-                <span className="block text-[12px] text-kaya-sand leading-snug truncate">{g.blurb}</span>
+                <span className="block text-sm font-bold">{t(g.title, locale)}</span>
+                <span className="block text-[12px] text-kaya-sand leading-snug truncate">{t(g.blurb, locale)}</span>
               </span>
-              <span className="ml-auto text-[10px] font-extrabold uppercase tracking-wide text-kaya-sand shrink-0">Soon</span>
+              <span className="ml-auto text-[10px] font-extrabold uppercase tracking-wide text-kaya-sand shrink-0">{sw ? "Hivi karibuni" : "Soon"}</span>
             </div>
           )
         ))}

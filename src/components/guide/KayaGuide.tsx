@@ -16,6 +16,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { saveGuideChat, newConversationId, type GuideRole, type GuideTurn } from '@/lib/guide';
 import { guideForPath, openModuleGuide } from '@/lib/moduleGuides';
+import { useLocale } from '@/lib/useLocale';
+import { t } from '@/lib/i18n';
 
 // Map the current route to a friendly section name the API uses for context.
 // Longest prefixes first so e.g. /pulse/today resolves before a bare /pulse.
@@ -66,6 +68,7 @@ export default function KayaGuide() {
   const displayName = (profile?.displayName || '').split(' ')[0] || '';
   const moduleName = moduleNameFor(pathname);
   const moduleGuide = guideForPath(pathname); // a "show me how it works" guide for this screen, if any
+  const locale = useLocale();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<UiMsg[]>([]);
@@ -208,8 +211,12 @@ export default function KayaGuide() {
                 >
                   <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
                   <span className="leading-tight">
-                    <span className="block font-nunito font-black text-[13px]">Show me how {moduleGuide.title} works</span>
-                    <span className="block text-[10.5px] opacity-75">A quick guided walk-through</span>
+                    <span className="block font-nunito font-black text-[13px]">
+                      {locale === 'sw'
+                        ? <>Nionyesha jinsi {t(moduleGuide.title, locale)} inavyofanya kazi</>
+                        : <>Show me how {t(moduleGuide.title, locale)} works</>}
+                    </span>
+                    <span className="block text-[10.5px] opacity-75">{locale === 'sw' ? 'Mwongozo wa haraka' : 'A quick guided walk-through'}</span>
                   </span>
                 </button>
               )}

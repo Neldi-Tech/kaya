@@ -54,6 +54,11 @@ export interface UserProfile {
   role: Role;
   familyId: string;
   childId?: string; // if role === 'kid', which child they are
+  // ── Language (i18n) ──
+  // This person's own language choice. Unset = follow the family's
+  // primaryLanguage (which itself falls back to the country, then English).
+  // See lib/i18n + useLocale.
+  languagePref?: import('./i18n').Locale;
   // ── Public identity ──
   handle?: string;          // case-preserved, e.g. "Daniella"
   handleLower?: string;     // lowercase mirror for unique lookup
@@ -167,6 +172,12 @@ export interface Family {
     country: string;   // ISO 3166 alpha-2 (e.g., "TZ", "US", "IN")
     city?: string;     // free-text, e.g., "Dar es Salaam"
   };
+  // ── Primary language (i18n) ──
+  // The family's default app language — auto-suggested from `location.country`
+  // at sign-up, parent-confirmed. Everyone (incl. helpers) sees this unless
+  // they set their own `languagePref`. Unset = derive from country, else
+  // English. See lib/i18n + useLocale.
+  primaryLanguage?: import('./i18n').Locale;
   // ── Keepsake subscription plan ────────────────────────────────
   // Drives gating across Albums (album/photo caps, sub-albums,
   // custom access, AI features). Defaults to 'free' when missing —
