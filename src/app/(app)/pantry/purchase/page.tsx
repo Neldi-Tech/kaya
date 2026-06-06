@@ -33,6 +33,7 @@ import {
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
+import { openModuleGuide } from '@/lib/moduleGuides';
 import { useConfirm } from '@/contexts/ConfirmContext';
 
 // Auto-name now comes from createDraftRequest itself (MOD-NNNN ·
@@ -171,6 +172,20 @@ export default function PurchaseHomePage() {
             : 'Build a request, send for the nod, then reconcile after the shop.'}
         </p>
       </div>
+
+      {/* "How it flows" — step-by-step walk-through of the request loop. */}
+      <button
+        type="button"
+        onClick={() => openModuleGuide('purchases')}
+        className="w-full flex items-center gap-2.5 rounded-hive-lg bg-hive-navy text-white px-3.5 py-2.5 mb-4 text-left active:scale-[0.99] transition-transform"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
+        <span className="leading-tight">
+          <span className="block font-nunito font-black text-[13px]">How Purchases flows</span>
+          <span className="block text-[10.5px] opacity-75">Step-by-step: request → approve → reconcile</span>
+        </span>
+        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">Watch →</span>
+      </button>
 
       {/* 2026-05-19 — Top CTA block. Primary new-request action sits
           ABOVE the actionable piles so it's visible without scrolling

@@ -14,7 +14,10 @@ export type GuideSceneVisual =
   | { kind: 'flow'; steps: { emoji: string; label: string }[] }
   | { kind: 'grid'; items: { emoji: string; label: string }[] }
   | { kind: 'pair'; items: { emoji: string; label: string; sub: string }[] }
-  | { kind: 'budget'; label: string; pct: number; note: string };
+  | { kind: 'budget'; label: string; pct: number; note: string }
+  // A deep "how it flows" step: renders a small mock of the real screen with
+  // one part spotlighted, so the guide teaches the actual sequence.
+  | { kind: 'screen'; screen: 'purchases'; highlight: 'new' | 'basket' | 'submit' | 'pending' | 'reconcile' };
 
 export interface GuideScene {
   visual: GuideSceneVisual;
@@ -39,6 +42,12 @@ export interface ModuleGuide {
   scenes: GuideScene[];
   /** false = shown in the library as "Coming soon" (no player yet). */
   available: boolean;
+  /** Optional "go one level deeper" link shown on the end card (e.g. an
+   *  overview → its step-by-step flow). */
+  deeperGuideId?: string;
+  /** Marks a deep "how it flows" walk-through (sub-guide of a module). The
+   *  library groups these under their parent rather than as top-level tiles. */
+  parentId?: string;
 }
 
 // ── Household ──────────────────────────────────────────────────────────────
@@ -51,6 +60,7 @@ const HOUSEHOLD_GUIDE: ModuleGuide = {
   ctaLabel: 'Open Purchases',
   ctaHref: '/pantry/purchase',
   available: true,
+  deeperGuideId: 'purchases',
   scenes: [
     {
       visual: { kind: 'hero', emoji: '🏡' },
@@ -99,11 +109,53 @@ const HOUSEHOLD_GUIDE: ModuleGuide = {
   ],
 };
 
+// ── Purchases · "how it flows" (deep walk-through of the request loop) ───────
+const PURCHASES_FLOW: ModuleGuide = {
+  id: 'purchases',
+  title: 'Purchases — how it flows',
+  emoji: '🧾',
+  blurb: 'The full request loop, step by step.',
+  paths: ['/pantry/purchase'],
+  parentId: 'household',
+  ctaLabel: 'Open Purchases',
+  ctaHref: '/pantry/purchase',
+  available: true,
+  scenes: [
+    {
+      visual: { kind: 'screen', screen: 'purchases', highlight: 'new' },
+      title: 'Start a shop run',
+      body: 'Tap ＋ New request. Kaya opens a fresh draft and names it for you, like PAN-1042.',
+    },
+    {
+      visual: { kind: 'screen', screen: 'purchases', highlight: 'basket' },
+      title: 'Add what you’re buying',
+      body: 'List each item and its amount. Re-buy your regulars in one tap with Recycle.',
+    },
+    {
+      visual: { kind: 'screen', screen: 'purchases', highlight: 'submit' },
+      title: 'Send it for approval',
+      body: 'Done shopping? Submit. The total locks in your currency and it heads off.',
+    },
+    {
+      visual: { kind: 'screen', screen: 'purchases', highlight: 'pending' },
+      title: 'Approval',
+      body: 'It lands in your Approvals as pending — tap approve, or reject with a note.',
+      bodyHelper: 'It goes to a parent’s Approvals — they approve or reject, and you get notified.',
+    },
+    {
+      visual: { kind: 'screen', screen: 'purchases', highlight: 'reconcile' },
+      title: 'Reconcile & close',
+      body: 'Once approved, reconcile it against the budget before the timer ends. That’s the full loop! 🎉',
+    },
+  ],
+};
+
 // ── Registry ────────────────────────────────────────────────────────────────
 // `available: false` entries appear in the library as "Coming soon" so the
 // roadmap is visible without a player behind them yet.
 export const MODULE_GUIDES: ModuleGuide[] = [
   HOUSEHOLD_GUIDE,
+  PURCHASES_FLOW,
   { id: 'hive', title: 'The Hive', emoji: '🐝', blurb: 'Points → Honey → real cash.', paths: ['/hive'], scenes: [], available: false },
   { id: 'games', title: 'Kaya Games', emoji: '🎮', blurb: 'Play, earn House Points, stay safe.', paths: ['/games'], scenes: [], available: false },
   { id: 'wealth', title: 'Kaya Wealth', emoji: '💎', blurb: 'The family vault & investments.', paths: ['/wealth'], scenes: [], available: false },
@@ -114,10 +166,20 @@ export function getGuide(id: string | null | undefined): ModuleGuide | undefined
   return MODULE_GUIDES.find((g) => g.id === id);
 }
 
-/** The guide whose module owns this route (for the FAB's contextual offer). */
+/** The guide whose module owns this route (for the FAB's contextual offer).
+ *  Prefers the MOST specific match, so /pantry/purchase offers the Purchases
+ *  flow rather than the broader Household overview. */
 export function guideForPath(pathname: string | null | undefined): ModuleGuide | undefined {
   if (!pathname) return undefined;
-  return MODULE_GUIDES.find((g) => g.available && g.paths.some((p) => pathname === p || pathname.startsWith(p + '/')));
+  let best: ModuleGuide | undefined;
+  let bestLen = -1;
+  for (const g of MODULE_GUIDES) {
+    if (!g.available) continue;
+    for (const p of g.paths) {
+      if ((pathname === p || pathname.startsWith(p + '/')) && p.length > bestLen) { best = g; bestLen = p.length; }
+    }
+  }
+  return best;
 }
 
 export const GUIDE_EVENT = 'kaya:open-guide';
