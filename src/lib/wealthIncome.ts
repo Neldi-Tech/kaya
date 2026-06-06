@@ -11,7 +11,7 @@
 
 import {
   collection, doc, getDocs, onSnapshot, query, where, setDoc, updateDoc, deleteDoc,
-  serverTimestamp, Timestamp,
+  serverTimestamp, Timestamp, deleteField,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -139,8 +139,12 @@ export type IncomePatch = Partial<Pick<IncomeSource,
   'category' | 'label' | 'employer' | 'grossMonthlyCents' | 'currency' | 'socialSecurityCents' | 'taxCents' | 'shareToFamily'>>;
 
 /** Monthly amount this income routes into the shared family pool (in its own
- *  currency's cents). 0 unless it's a personal income with shareToFamily set. */
-export function incomeContributionCents(s: IncomeSource): number {
+ *  currency's cents). 0 unless it's a personal income with shareToFamily set.
+ *  Always clamped: a % can't exceed 100, an amount can't exceed the take-home —
+ *  so an over-typed value can never balloon into the whole income. */
+export function incomeContributionCents(
+  s: Pick<IncomeSource, 'visibility' | 'shareToFamily' | 'grossMonthlyCents'>,
+): number {
   if (s.visibility !== 'personal' || !s.shareToFamily) return 0;
   const { mode, value } = s.shareToFamily;
   if (!value || value <= 0) return 0;
@@ -161,6 +165,19 @@ export async function deleteIncome(familyId: string, id: string): Promise<void> 
 
 // ── Monthly-expenses config (for the passive-coverage meter) ─────────
 
+/** A personal income's shared-pool contribution, mirrored into wealth_config
+ *  so BOTH parents see the pooled inflow WITHOUT exposing the private income.
+ *  Only the contributed portion + a label are stored here — the full take-home,
+ *  employer, Social Security + tax stay owner-only on wealth_income. Keyed by
+ *  the income doc id. */
+export interface IncomeContribEntry {
+  ownerId: string;
+  cents: number;       // contributed amount/month, in `currency` cents
+  currency: string;
+  label: string;
+  kind: IncomeKind;
+}
+
 export interface IncomeConfig {
   expensesShared: number;
   expensesPersonal: Record<string, number>;
@@ -170,11 +187,14 @@ export interface IncomeConfig {
   ssSinceShared: string;                      // 'YYYY-MM-DD'
   ssOpeningPersonal: Record<string, number>;
   ssSincePersonal: Record<string, string>;
+  // Personal→shared contribution mirror (privacy-preserving), by income id.
+  contributions: Record<string, IncomeContribEntry>;
 }
 
 export const EMPTY_INCOME_CONFIG: IncomeConfig = {
   expensesShared: 0, expensesPersonal: {},
   ssOpeningShared: 0, ssSinceShared: '', ssOpeningPersonal: {}, ssSincePersonal: {},
+  contributions: {},
 };
 
 const configRef = (familyId: string) => doc(db, 'families', familyId, 'wealth_config', 'income');
@@ -192,6 +212,7 @@ export function subscribeIncomeConfig(familyId: string, cb: (c: IncomeConfig) =>
         ssSinceShared: d.ssSinceShared ?? '',
         ssOpeningPersonal: d.ssOpeningPersonal ?? {},
         ssSincePersonal: d.ssSincePersonal ?? {},
+        contributions: d.contributions ?? {},
       });
     },
     () => cb(EMPTY_INCOME_CONFIG),
@@ -235,6 +256,30 @@ export async function setMonthlyExpenses(familyId: string, view: IncomeVisibilit
   await setDoc(configRef(familyId), patch, { merge: true });
 }
 
+/** Mirror a personal income's shared-pool contribution into wealth_config so
+ *  BOTH parents see the pooled inflow — without exposing the private income.
+ *  Writes only the contributed portion + label; removes the entry when there's
+ *  no contribution (or the income is shared/deleted). Best-effort: a mirror
+ *  failure never blocks the income save (re-saving retries). Call after every
+ *  create / update / delete of an income. */
+export async function reconcileContributionMirror(
+  familyId: string,
+  income: Pick<IncomeSource, 'id' | 'visibility' | 'ownerId' | 'kind' | 'label' | 'currency' | 'grossMonthlyCents' | 'shareToFamily'>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const cents = incomeContributionCents(income);
+  try {
+    if (income.visibility === 'personal' && cents > 0) {
+      const entry: IncomeContribEntry = {
+        ownerId: income.ownerId, cents, currency: income.currency, label: income.label, kind: income.kind,
+      };
+      await setDoc(configRef(familyId), { contributions: { [income.id]: entry } }, { merge: true });
+    } else {
+      await setDoc(configRef(familyId), { contributions: { [income.id]: deleteField() } }, { merge: true });
+    }
+  } catch { /* best-effort mirror — never blocks the income save */ }
+}
+
 // ── Summary (active/passive totals + passive coverage) ───────────────
 
 export type FxResolver = (currency: string) => number;
@@ -247,6 +292,7 @@ export interface IncomeSummary {
   taxInfoCents: number;          // sum of monthly tax paid — INFORMATION ONLY
   passiveTotalCents: number;
   contributedToSharedCents: number; // viewer's own personal→shared contributions
+  pooledContributionsCents: number; // ALL members' personal→shared (mirror) → shown in Shared
   expensesCents: number;
   coveragePct: number;        // passive / expenses, 0–100+ (capped at 100 for the bar)
   householdCurrency: string;
@@ -285,13 +331,20 @@ export function computeIncomeSummary(
   const expensesCents = view === 'shared' ? config.expensesShared : (config.expensesPersonal[ownerId] ?? 0);
   const coveragePct = expensesCents > 0 ? Math.round((passiveTotal / expensesCents) * 100) : 0;
 
-  // The viewer's own personal→shared contributions (visible to them; a
-  // co-parent's contributions need the shared mirror — a noted follow-up).
+  // The viewer's own personal→shared contributions (from their own rows).
   let contributed = 0;
   for (const s of sources) {
     if (s.visibility === 'personal' && s.ownerId === ownerId) {
       contributed += toHCents(incomeContributionCents(s), s.currency);
     }
+  }
+  // ALL members' personal→shared contributions, from the privacy-preserving
+  // config mirror (so both parents see the same pooled inflow in Shared, even
+  // though a co-parent's underlying personal income stays owner-only).
+  let pooled = 0;
+  for (const key of Object.keys(config.contributions ?? {})) {
+    const c = config.contributions[key];
+    if (c && c.cents > 0) pooled += toHCents(c.cents, c.currency);
   }
 
   return {
@@ -301,6 +354,7 @@ export function computeIncomeSummary(
     taxInfoCents: taxInfo,
     passiveTotalCents: passiveTotal,
     contributedToSharedCents: contributed,
+    pooledContributionsCents: pooled,
     expensesCents,
     coveragePct,
     householdCurrency,
