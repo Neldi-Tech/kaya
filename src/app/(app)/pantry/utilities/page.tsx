@@ -387,6 +387,11 @@ function UtilityRow({
   const cadence = CADENCES.find((c) => c.id === utility.cadence);
   const monthly = monthlyEquivalentCents(utility.amountCents || 0, utility.cadence);
   const status = paymentStatus(utility);
+  // Has THIS period's payment request already been auto-created? (register +
+  // status so a parent can see it's been sent and jump to it — no double-send.)
+  const monthKey = currentPeriodKey();
+  const paidThisPeriod = utility.lastPaymentPeriodKey === monthKey;
+  const requestSent = !!utility.lastGeneratedKey && utility.lastGeneratedKey.startsWith(monthKey);
 
   if (editing) {
     return (
@@ -432,6 +437,22 @@ function UtilityRow({
             )}
             {utility.dueDay > 0 && <span>· due {ordinal(utility.dueDay)}</span>}
           </p>
+          {/* Sent-register: has this period's payment request already gone out? */}
+          {!paidThisPeriod && (
+            requestSent ? (
+              utility.lastGeneratedRequestId ? (
+                <Link href={`/pantry/purchase/${utility.lastGeneratedRequestId}`} className="inline-flex items-center mt-1 text-[10px] font-nunito font-extrabold text-hive-blue bg-[#E5EFF8] rounded-full px-2 py-0.5 no-underline">📤 Request sent · awaiting payment ›</Link>
+              ) : (
+                <span className="inline-flex items-center mt-1 text-[10px] font-nunito font-extrabold text-hive-blue bg-[#E5EFF8] rounded-full px-2 py-0.5">📤 Request sent · awaiting payment</span>
+              )
+            ) : utility.dueDay > 0 ? (
+              utility.autoRequest && utility.amountCents > 0 ? (
+                <span className="inline-flex items-center mt-1 text-[10px] font-nunito font-extrabold text-hive-muted bg-hive-cream rounded-full px-2 py-0.5">⚡ Auto-sends on the {ordinal(utility.dueDay)}</span>
+              ) : (
+                <span className="inline-flex items-center mt-1 text-[10px] font-nunito font-extrabold text-hive-muted bg-hive-cream rounded-full px-2 py-0.5">✋ Manual · record via the request flow</span>
+              )
+            ) : null
+          )}
           {utility.accountRef && (
             <p className="text-[10px] text-hive-muted truncate mt-0.5">Ref: {utility.accountRef}</p>
           )}
