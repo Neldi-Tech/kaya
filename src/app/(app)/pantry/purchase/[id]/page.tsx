@@ -32,6 +32,8 @@ import {
   formatRequestSeq, MODULE_EMOJI, MODULE_LABEL,
   recordSavingsDecision, recommendedSavingsDecision,
   submitForCloseReview, approveCloseAndPost, kickBackToReconcile,
+  readPurchaseConfig, bandPctFor, priceBandRange, priceWithinBand,
+  resolvePriceException, hasUnresolvedPriceException,
 } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
@@ -250,7 +252,11 @@ export default function PurchaseDetailPage() {
     );
     patchItems(next);
   };
-  const setItemActual = (id: string, patch: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => {
+  const setItemActual = (
+    id: string,
+    patch: Partial<Pick<PurchaseRequestItem,
+      'actualQty' | 'actualCents' | 'priceException' | 'priceExceptionReason'>>,
+  ) => {
     const next = req.items.map((i) => i.id === id ? { ...i, ...patch } : i);
     patchItems(next);
   };
@@ -508,6 +514,17 @@ export default function PurchaseDetailPage() {
   // ready for review). State flips reconciling → pending_close.
   const submitClose = async () => {
     if (!profile?.familyId || !profile.uid) return;
+    // Guardrail (2026-05-31): an over-band price must carry a reason
+    // before the helper can hand off. The reconcile rows already flag
+    // these; this is the belt-and-braces gate so a no-reason exception
+    // can never reach the parent's review as a silent over-band line.
+    const missingReason = req.items.find(
+      (i) => i.priceException === 'pending' && !(i.priceExceptionReason ?? '').trim(),
+    );
+    if (missingReason) {
+      window.alert(`"${missingReason.name}" is priced over the allowed limit. Add a short reason on that item before submitting.`);
+      return;
+    }
     setBusy(true);
     try {
       await submitForCloseReview(profile.familyId, req.id, req.items, {
@@ -678,6 +695,9 @@ export default function PurchaseDetailPage() {
   // Outdoor requests see only outdoor staples. Missing `module` on
   // legacy staples defaults to 'pantry'.
   const reqModule = req.module ?? 'pantry';
+  // Price-change guardrail band for this module (family default unless a
+  // per-module override is set). 0 = guardrail off. (2026-05-31)
+  const bandPct = bandPctFor(readPurchaseConfig(family), reqModule);
   // 2026-05-18 — viewer for bilingual display.
   const viewer: ViewerRole = role;
   const pickable = staples.filter((s) =>
@@ -1151,6 +1171,7 @@ export default function PurchaseDetailPage() {
             onPrice={(cents) => setItemPrice(it.id, cents)}
             onActual={(p) => setItemActual(it.id, p)}
             onRemove={() => removeItem(it.id)}
+            bandPct={bandPct}
             canPromote={role === 'parent'}
             pendingCard={
               role === 'parent' && it.pendingPromote && it.stapleId
@@ -1776,7 +1797,7 @@ function Banner({ tone, title, body }: { tone: 'amber' | 'leaf' | 'rose'; title:
 
 function ItemRow({
   item, viewer, module: itemModule, currency, editable, reconcilable,
-  onQty, onPrice, onActual, onRemove,
+  onQty, onPrice, onActual, onRemove, bandPct,
   canPromote, pendingCard,
   varianceOnClose,
 }: {
@@ -1792,8 +1813,12 @@ function ItemRow({
    *  (helper sets the initial estimate) and pending_approval (parent
    *  may correct it before approving). 2026-05-18. */
   onPrice: (cents: number | undefined) => void;
-  onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
+  onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents' | 'priceException' | 'priceExceptionReason'>>) => void;
   onRemove: () => void;
+  /** ± price-change band percent for this module (0 = guardrail off).
+   *  An actual per-unit price outside ± this of the approved price needs
+   *  a parent OK before the request can close. (2026-05-31) */
+  bandPct: number;
   /** Whether the viewer is allowed to promote/keep this pending
    *  item. Parents only — helpers can't write to the catalogue. */
   canPromote: boolean;
@@ -1951,64 +1976,74 @@ function ItemRow({
           : pct > 0
             ? 'bg-[#FCEAEA] text-hive-rose'
             : 'bg-[#E6F7EE] text-hive-green';
+        // ── Price-change band (2026-05-31) ──────────────────────────
+        // Band is anchored to the APPROVED per-unit price. An ad-hoc line
+        // added at the shop has no approval baseline, so the guardrail
+        // doesn't apply to it. Over-band → the helper must leave a reason
+        // and the line travels as a pending exception for the parent.
+        const band = item.addedDuringReconcile ? null : priceBandRange(ePrice, bandPct);
+        const overBand = band != null && aPrice != null && (aPrice < band.minCents || aPrice > band.maxCents);
         return (
           <div className="border-t border-hive-line/60 p-3 space-y-2">
-            {/* Live actual qty + price inputs */}
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block">
-                <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
-                  <span>Actual qty</span>
-                  {qtyPct != null && qtyPct !== 0 && (
-                    <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(qtyPct)}`}>{fmt(qtyPct)}</span>
-                  )}
-                </span>
-                <input
-                  type="number" min={0} step="0.01"
-                  value={aQty ?? ''}
-                  onChange={(e) => onActual({ actualQty: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                  className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
-                />
-              </label>
-              <label className="block">
-                <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
-                  <span>Actual price ea</span>
-                  {pricePct != null && pricePct !== 0 && (
-                    <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(pricePct)}`}>{fmt(pricePct)}</span>
-                  )}
-                </span>
-                <NumberInput
-                  value={aPrice != null ? aPrice / 100 : 0}
-                  onChange={(n) => onActual({ actualCents: n > 0 ? Math.round(n * 100) : 0 })}
-                  allowDecimal={currencyAllowsDecimals(currency)}
-                  min={0}
-                  ariaLabel="Actual price each"
-                  placeholder="0"
-                  className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
-                />
-              </label>
-            </div>
-
-            {/* From-total calculator. (2026-05-19 — Elia: helper has a
-                line total off the receipt + the count; doing per-unit
-                math in their head was producing wrong per-unit prices
-                that broke future budget signals.) The helper enters
-                Total spent for this line + (optionally) sets Actual qty
-                above; we compute total / qty → per-unit and write it
-                back to actualCents. canonical storage stays per-unit so
-                Finances + Staples last-bought price keep working
-                unchanged. */}
-            <FromTotalCalculator
+            {/* PRIMARY entry — receipt shape: Total spent + How many.
+                Per-unit auto-computes (read-only) so the helper never does
+                per-unit math in their head (the #1 mistake source).
+                (2026-05-31 — Diana's ask.) */}
+            <TotalCountEntry
               currency={currency}
+              unit={item.unit}
               actualQty={aQty}
-              onComputed={(perUnitCents, qty) => {
-                // If the user typed a qty alongside the total, set both;
-                // otherwise only the per-unit price.
+              actualCents={aPrice}
+              approvedPriceCents={ePrice}
+              band={band}
+              onChange={({ totalCents, qty }) => {
+                const perUnit = qty > 0 ? Math.round(totalCents / qty) : 0;
+                const within = band == null || (perUnit >= band.minCents && perUnit <= band.maxCents);
                 onActual({
-                  actualCents: perUnitCents,
-                  ...(qty != null ? { actualQty: qty } : {}),
+                  actualQty: qty,
+                  actualCents: perUnit,
+                  // Clear a stale exception once the helper brings it back
+                  // in band; over-band keeps whatever reason they've typed.
+                  ...(within ? { priceException: undefined, priceExceptionReason: undefined } : {}),
                 });
               }}
             />
+
+            {/* Advanced — edit per-unit directly (rare). Collapsed; the
+                band still checks whatever per-unit they set here. */}
+            <AdvancedPerUnit
+              currency={currency}
+              actualQty={aQty}
+              actualCents={aPrice}
+              qtyPct={qtyPct}
+              pricePct={pricePct}
+              chipCls={chipCls}
+              fmt={fmt}
+              onActual={onActual}
+            />
+
+            {/* Over-band → required reason + ⚠ held-for-parent state. */}
+            {overBand && band && (
+              <div className="bg-[#FCEEEE] border border-[#E8B5B5] rounded-lg p-2.5 space-y-1.5">
+                <div className="text-[11px] font-nunito font-extrabold text-hive-rose">
+                  ⚠ Over the ±{bandPct}% limit · allowed {formatCents(band.minCents, currency)}–{formatCents(band.maxCents, currency)} ea
+                </div>
+                <div className="text-[10.5px] text-hive-navy/70 font-bold">This price needs a parent OK. Add a reason:</div>
+                <textarea
+                  value={item.priceExceptionReason ?? ''}
+                  onChange={(e) => onActual({
+                    priceException: 'pending',
+                    priceExceptionReason: e.target.value,
+                  })}
+                  placeholder="e.g. Market price jumped this week — whole market the same"
+                  rows={2}
+                  className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-[12px] font-bold resize-none"
+                />
+                {!(item.priceExceptionReason ?? '').trim() && (
+                  <div className="text-[10px] text-hive-rose font-bold">A reason is required before you can submit.</div>
+                )}
+              </div>
+            )}
 
             {/* Approved-vs-actual comparison strip — gives the helper a
                 clear anchor for what the parent signed off on, with a
@@ -2068,105 +2103,144 @@ function ItemRow({
   );
 }
 
-/** Inline "enter total → per-unit auto" helper. Collapsed by default
- *  (link); expands into a 2-field calculator that mirrors the receipt
- *  shape (Total + count). Writes the computed per-unit back to the
- *  parent row. Local state only — no Firestore writes until the
- *  parent's onActual fires. */
-function FromTotalCalculator({
-  currency, actualQty, onComputed,
+/** PRIMARY reconcile entry (2026-05-31 — Diana's ask). The helper enters
+ *  what the receipt shows — Total spent + How many — and the per-unit
+ *  price auto-computes (shown read-only). Canonical storage stays
+ *  per-unit so Finances + Staples last-price keep working. The unit
+ *  label is whatever the line already uses (kg/pcs/×) — unchanged. */
+function TotalCountEntry({
+  currency, unit, actualQty, actualCents, approvedPriceCents, band, onChange,
 }: {
   currency: string;
-  /** Current actualQty on the line — pre-fills the qty field when set. */
+  unit: string;
   actualQty: number | undefined;
-  /** Called once we have a per-unit value. `qty` is the qty the helper
-   *  typed into the calculator (may differ from actualQty if they
-   *  corrected the count); parent decides whether to set actualQty. */
-  onComputed: (perUnitCents: number, qty: number | null) => void;
+  actualCents: number | undefined;
+  approvedPriceCents: number | undefined;
+  band: { minCents: number; maxCents: number } | null;
+  onChange: (v: { totalCents: number; qty: number }) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [totalDraft, setTotalDraft] = useState('');
-  const [qtyDraft, setQtyDraft] = useState<string>(actualQty != null && actualQty > 0 ? String(actualQty) : '');
+  // Seed the visible fields from any existing actuals so re-opening a
+  // line shows what was entered. Total = per-unit × qty.
+  const seededTotal = (actualCents != null && actualQty != null && actualQty > 0)
+    ? ((actualCents * actualQty) / 100).toString() : '';
+  const seededQty = actualQty != null && actualQty > 0 ? String(actualQty) : '';
+  const [totalDraft, setTotalDraft] = useState(seededTotal);
+  const [qtyDraft, setQtyDraft] = useState(seededQty);
 
-  // Live preview of per-unit while the user is typing.
   const totalNum = totalDraft === '' ? null : parseFloat(totalDraft);
   const qtyNum = qtyDraft === '' ? null : parseFloat(qtyDraft);
-  const perUnit = (totalNum != null && qtyNum != null && qtyNum > 0 && totalNum >= 0)
-    ? totalNum / qtyNum
-    : null;
+  const perUnitCents = (totalNum != null && qtyNum != null && qtyNum > 0 && totalNum >= 0)
+    ? Math.round((totalNum / qtyNum) * 100) : null;
+  const within = band == null || perUnitCents == null || (perUnitCents >= band.minCents && perUnitCents <= band.maxCents);
 
-  const apply = () => {
-    if (perUnit == null) return;
-    onComputed(Math.round(perUnit * 100), qtyNum);
-    // Reset + collapse.
-    setTotalDraft('');
-    setOpen(false);
+  // Push computed values up whenever both fields are valid.
+  const push = (t: string, q: string) => {
+    const tn = t === '' ? null : parseFloat(t);
+    const qn = q === '' ? null : parseFloat(q);
+    if (tn != null && qn != null && qn > 0 && tn >= 0) {
+      onChange({ totalCents: Math.round(tn * 100), qty: qn });
+    }
   };
 
+  return (
+    <div className="bg-pantry-leaf-soft/30 border border-pantry-leaf/30 rounded-lg p-2.5 space-y-2">
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">Total spent ({currency})</span>
+          <input
+            type="number" min={0} step="0.01" inputMode="decimal"
+            value={totalDraft}
+            onChange={(e) => { setTotalDraft(e.target.value); push(e.target.value, qtyDraft); }}
+            placeholder="0.00"
+            className="w-full border border-hive-line rounded-lg px-2 py-2 text-base font-nunito font-black mt-0.5"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">How many ({unit})</span>
+          <input
+            type="number" min={0} step="0.01" inputMode="decimal"
+            value={qtyDraft}
+            onChange={(e) => { setQtyDraft(e.target.value); push(totalDraft, e.target.value); }}
+            placeholder="0"
+            className="w-full border border-hive-line rounded-lg px-2 py-2 text-base font-nunito font-black mt-0.5"
+          />
+        </label>
+      </div>
+      <div className={`text-[12px] font-nunito font-extrabold flex items-center gap-1.5 ${within ? 'text-pantry-leaf-dk' : 'text-hive-rose'}`}>
+        {perUnitCents != null ? (
+          <>= <span className="font-black">{formatCents(perUnitCents, currency)}</span> each (auto)
+            {band != null && (within
+              ? <span className="text-hive-green">· within range ✓</span>
+              : <span>· over the limit ⚠</span>)}
+          </>
+        ) : (
+          <span className="text-hive-muted italic font-bold">Enter total + how many — Kaya works out the price each</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Advanced — edit the per-unit price directly. Collapsed by default so
+ *  the receipt-shape entry above is the obvious path; kept for the rare
+ *  case a helper genuinely wants per-unit. The band still checks it. */
+function AdvancedPerUnit({
+  currency, actualQty, actualCents, qtyPct, pricePct, chipCls, fmt, onActual,
+}: {
+  currency: string;
+  actualQty: number | undefined;
+  actualCents: number | undefined;
+  qtyPct: number | null;
+  pricePct: number | null;
+  chipCls: (pct: number) => string;
+  fmt: (pct: number) => string;
+  onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
+}) {
+  const [open, setOpen] = useState(false);
   if (!open) {
     return (
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-[10px] text-pantry-leaf-dk font-nunito font-extrabold underline underline-offset-2"
+        className="text-[10px] text-hive-muted font-nunito font-extrabold underline underline-offset-2"
       >
-        🧮 From total → per-unit (when the receipt shows the line total)
+        · edit per-unit instead (advanced)
       </button>
     );
   }
   return (
-    <div className="mt-1 bg-pantry-leaf-soft/40 border border-pantry-leaf/30 rounded-lg p-2.5">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">🧮 From total → per-unit</span>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="text-[10px] text-hive-muted font-bold"
-          aria-label="Close calculator"
-        >✕</button>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="text-[9px] font-bold text-hive-muted uppercase tracking-[1px]">Total spent ({currency})</span>
-          <input
-            type="number" min={0} step="0.01"
-            value={totalDraft}
-            onChange={(e) => setTotalDraft(e.target.value)}
-            placeholder="0.00"
-            className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
-            inputMode="decimal"
-            autoFocus
-          />
-        </label>
-        <label className="block">
-          <span className="text-[9px] font-bold text-hive-muted uppercase tracking-[1px]">Count / qty</span>
-          <input
-            type="number" min={0} step="0.01"
-            value={qtyDraft}
-            onChange={(e) => setQtyDraft(e.target.value)}
-            placeholder="0"
-            className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
-            inputMode="decimal"
-          />
-        </label>
-      </div>
-      <div className="flex items-center justify-between gap-2 mt-2">
-        <div className="text-[11px] font-nunito font-bold text-hive-ink">
-          {perUnit != null ? (
-            <>= <span className="font-black">{formatCents(Math.round(perUnit * 100), currency)}</span> per unit</>
-          ) : (
-            <span className="text-hive-muted italic">Enter total + qty to compute…</span>
+    <div className="grid grid-cols-2 gap-2 bg-hive-cream/40 border border-hive-line/60 rounded-lg p-2">
+      <label className="block">
+        <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
+          <span>Actual qty</span>
+          {qtyPct != null && qtyPct !== 0 && (
+            <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(qtyPct)}`}>{fmt(qtyPct)}</span>
           )}
-        </div>
-        <button
-          type="button"
-          onClick={apply}
-          disabled={perUnit == null}
-          className="bg-pantry-leaf text-white rounded-lg px-3 py-1.5 text-xs font-nunito font-black disabled:opacity-50"
-        >
-          Apply
-        </button>
-      </div>
+        </span>
+        <input
+          type="number" min={0} step="0.01"
+          value={actualQty ?? ''}
+          onChange={(e) => onActual({ actualQty: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+          className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+        />
+      </label>
+      <label className="block">
+        <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
+          <span>Actual price ea</span>
+          {pricePct != null && pricePct !== 0 && (
+            <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(pricePct)}`}>{fmt(pricePct)}</span>
+          )}
+        </span>
+        <NumberInput
+          value={actualCents != null ? actualCents / 100 : 0}
+          onChange={(n) => onActual({ actualCents: n > 0 ? Math.round(n * 100) : 0 })}
+          allowDecimal={currencyAllowsDecimals(currency)}
+          min={0}
+          ariaLabel="Actual price each"
+          placeholder="0"
+          className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-sm font-nunito font-bold mt-0.5"
+        />
+      </label>
     </div>
   );
 }
@@ -2479,6 +2553,74 @@ function cryptoRandomId(): string {
 // Single "Approve & post to budget" CTA fires all three atomically,
 // then redirects to /pantry/budget so the parent sees the budget
 // view immediately after posting.
+/** Parent-facing review of one over-band price line (2026-05-31).
+ *  Shows approved vs entered + the helper's reason, then Approve / Reject.
+ *  Either decision keeps the comment; only an approved/rejected line lets
+ *  the request post. The parent can also add a short note. */
+function PriceExceptionRow({
+  familyId, requestId, parentUid, item, currency,
+}: {
+  familyId: string;
+  requestId: string;
+  parentUid: string;
+  item: PurchaseRequestItem;
+  currency: string;
+}) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const approved = item.estimatedCents ?? 0;
+  const entered = item.actualCents ?? 0;
+  const pct = approved > 0 ? Math.round(((entered - approved) / approved) * 100) : 0;
+  const resolve = async (decision: 'approved' | 'rejected') => {
+    setBusy(true);
+    try {
+      await resolvePriceException(familyId, requestId, item.id, decision, parentUid, note);
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="bg-[#FCEEEE] border border-[#E8B5B5] rounded-lg p-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-nunito font-extrabold text-[13px] text-hive-navy">{item.name}</span>
+        <span className="text-[10px] font-extrabold text-hive-rose bg-white/70 rounded px-1.5 py-0.5">
+          {pct > 0 ? '+' : ''}{pct}%
+        </span>
+      </div>
+      <div className="text-[11px] text-hive-navy/70 font-bold mt-0.5">
+        approved {formatCents(approved, currency)} → entered <strong className="text-hive-rose">{formatCents(entered, currency)}</strong> ea
+      </div>
+      {(item.priceExceptionReason ?? '').trim() && (
+        <div className="text-[11px] text-hive-navy mt-1.5 bg-white/60 rounded p-1.5">
+          💬 <span className="italic">“{item.priceExceptionReason}”</span>
+        </div>
+      )}
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Add a note (optional)"
+        className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-[12px] font-bold mt-2 bg-white"
+      />
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => resolve('rejected')}
+          className="rounded-lg border border-hive-line bg-white text-hive-muted font-nunito font-extrabold text-[12px] py-2 disabled:opacity-50"
+        >
+          Reject price
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => resolve('approved')}
+          className="rounded-lg bg-pantry-leaf-dk text-white font-nunito font-extrabold text-[12px] py-2 disabled:opacity-50"
+        >
+          {busy ? '…' : `Approve ${formatCents(entered, currency)}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CloseReviewCard({
   familyId, parentUid, request, onPosted,
 }: {
@@ -2534,6 +2676,10 @@ function CloseReviewCard({
 
   const apply = async () => {
     setError('');
+    if (hasUnresolvedPriceException(request)) {
+      setError('Resolve the over-limit price(s) above — approve or reject each — before posting.');
+      return;
+    }
     if (isUnder && savingsChoice === 'tip' && !helperUid) {
       setError('Pick a helper to tip, or change the savings choice.');
       return;
@@ -2593,6 +2739,27 @@ function CloseReviewCard({
         {(isOver || isUnder) && <> ({variancePctValue}% {isOver ? 'over' : 'under'})</>}.
         Allocate the {isOver ? 'overrun' : 'savings'}, add a note if useful, then post to the budget.
       </p>
+
+      {/* Over-band price exceptions — each must be resolved before posting.
+          (2026-05-31) The helper flagged a price beyond the ±band with a
+          reason; the parent OKs or rejects each here. */}
+      {request.items.filter((i) => i.priceException === 'pending').length > 0 && (
+        <div className="mb-3 space-y-2">
+          <p className="text-[10px] font-bold text-hive-rose uppercase tracking-[1.5px]">
+            ⚠ Prices over the limit · needs your OK
+          </p>
+          {request.items.filter((i) => i.priceException === 'pending').map((i) => (
+            <PriceExceptionRow
+              key={i.id}
+              familyId={familyId}
+              requestId={request.id}
+              parentUid={parentUid}
+              item={i}
+              currency={currency}
+            />
+          ))}
+        </div>
+      )}
 
       {/* Overrun allocation (only when actual > approved) */}
       {isOver && (
