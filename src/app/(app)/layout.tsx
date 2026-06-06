@@ -8,6 +8,7 @@ import { CelebrationProvider } from '@/components/celebrate/CelebrationProvider'
 import { PresenceHeartbeat } from '@/components/messaging/PresenceHeartbeat';
 import AppShell from '@/components/layout/AppShell';
 import KayaGuide from '@/components/guide/KayaGuide';
+import GuideHost from '@/components/guide/GuideHost';
 import { ACTIVE_POLICY_VERSION, ACCEPT_SESSION_KEY } from '@/lib/coppa/constants';
 import type { UserProfile } from '@/lib/firestore';
 
@@ -70,6 +71,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <AppShell>{children}</AppShell>
         {/* App-wide help bubble for both kids and parents (2026-05-28). */}
         <KayaGuide />
+        {/* App-wide "how it works" guide player (launched from the FAB,
+            a module's ▶ pill, or the Videos library). */}
+        <GuideHost />
       </CelebrationProvider>
     </ConfirmProvider>
   );

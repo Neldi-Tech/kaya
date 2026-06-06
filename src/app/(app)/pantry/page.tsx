@@ -23,6 +23,7 @@ import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
 import InfoIcon from '@/components/ui/InfoIcon';
 import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
+import { openModuleGuide } from '@/lib/moduleGuides';
 
 export default function PantryHomePage() {
   const router = useRouter();
@@ -114,6 +115,20 @@ export default function PantryHomePage() {
           Run the week 🛒
         </h1>
       </div>
+
+      {/* "How it works" guide — plays a quick walk-through of Household. */}
+      <button
+        type="button"
+        onClick={() => openModuleGuide('household')}
+        className="w-full flex items-center gap-2.5 rounded-hive-lg bg-hive-navy text-white px-3.5 py-2.5 mb-4 text-left active:scale-[0.99] transition-transform"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
+        <span className="leading-tight">
+          <span className="block font-nunito font-black text-[13px]">How Household works</span>
+          <span className="block text-[10.5px] opacity-75">60-second guided walk-through</span>
+        </span>
+        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">Watch →</span>
+      </button>
 
       {/* Active list card — or "Start a new list" empty state. */}
       {loading ? (

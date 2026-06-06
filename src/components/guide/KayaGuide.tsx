@@ -15,6 +15,7 @@ import { MessageCircleQuestion, X, Send, Sparkles } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { saveGuideChat, newConversationId, type GuideRole, type GuideTurn } from '@/lib/guide';
+import { guideForPath, openModuleGuide } from '@/lib/moduleGuides';
 
 // Map the current route to a friendly section name the API uses for context.
 // Longest prefixes first so e.g. /pulse/today resolves before a bare /pulse.
@@ -64,6 +65,7 @@ export default function KayaGuide() {
   const role: GuideRole = isGuest ? 'guest' : ((profile?.role as GuideRole) || 'parent');
   const displayName = (profile?.displayName || '').split(' ')[0] || '';
   const moduleName = moduleNameFor(pathname);
+  const moduleGuide = guideForPath(pathname); // a "show me how it works" guide for this screen, if any
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<UiMsg[]>([]);
@@ -198,6 +200,19 @@ export default function KayaGuide() {
 
             {/* Transcript */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 bg-kaya-cream/40">
+              {moduleGuide && (
+                <button
+                  type="button"
+                  onClick={() => { openModuleGuide(moduleGuide.id); setOpen(false); }}
+                  className="w-full flex items-center gap-2.5 rounded-2xl bg-hive-navy text-white px-3 py-2.5 mb-1 text-left active:scale-[0.98] transition-transform"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
+                  <span className="leading-tight">
+                    <span className="block font-nunito font-black text-[13px]">Show me how {moduleGuide.title} works</span>
+                    <span className="block text-[10.5px] opacity-75">A quick guided walk-through</span>
+                  </span>
+                </button>
+              )}
               {messages.map((m) => (
                 <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                   <div
