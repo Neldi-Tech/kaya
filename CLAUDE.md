@@ -40,3 +40,24 @@ description with the grade and update it on every push. Do not say a task is
 - If the user says the bug is still happening, the first thing I check is
   which gate the PR is sitting at — not the code.
 - A draft PR cannot reach gate 4. Flag the draft state to the user early.
+
+## Autonomous release (Elia-authorised SDP mode)
+
+When Elia approves a scope and says to **proceed autonomously** (e.g. "proceed
+PR 1→N autonomously, following SDP"), run the whole multi-PR programme to
+production without waiting for per-step sign-off:
+
+- **Decompose first.** The approved design → a match checklist (the contract).
+  Nothing on it is skipped, stubbed, or "good-enough'd".
+- **Green increments, one PR per logical step.** Each PR: typecheck + `next
+  build` + Vercel green + prod-verified (route 200 / health) before the next.
+- **Auto-merge each PR on Vercel green** (standing preference), branch fresh off
+  `origin/main` for the next — never keep committing on a merged branch.
+- **Report at every milestone** in the SDP shape: 📐 Design-Match % (checklist
+  ✅/🟡/⬜) · 📦 Delivery % (PRs shipped-green, with SHAs) · 🛫 Flight Check RAG
+  (Preserve · Test · Merge · Launch · Notify), driving every gate to 🟢.
+- **Finish the job.** Drive Design-Match + Delivery to 100%. Pause **only** if an
+  action would negatively impact the project (real money/email side-effects,
+  destructive git/Firestore/rules/index deploys) — flag those, don't guess.
+- Preserve 100%-approved designs EXACTLY; deliver complete files; increment
+  versions; close with every gate 🟢 + 🎉 + honest notes on anything deferred.
