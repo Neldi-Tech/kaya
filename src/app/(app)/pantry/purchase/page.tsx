@@ -172,12 +172,14 @@ export default function PurchaseHomePage() {
           Household · Purchase
         </p>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {role === 'parent' ? 'Requests' : 'Shop runs'}
+          {role === 'parent' ? 'Requests' : (sw ? 'Safari za ununuzi' : 'Shop runs')}
         </h1>
         <p className="text-hive-muted text-sm mt-1">
           {role === 'parent'
             ? 'Approve, reject, or watch a shop close out.'
-            : 'Build a request, send for the nod, then reconcile after the shop.'}
+            : (sw
+              ? 'Tengeneza ombi, tuma kwa idhini, kisha linganisha baada ya kununua.'
+              : 'Build a request, send for the nod, then reconcile after the shop.')}
         </p>
       </div>
 
@@ -215,7 +217,7 @@ export default function PurchaseHomePage() {
             disabled={creating}
             className="w-full bg-pantry-leaf text-white rounded-hive py-3 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60 mb-2"
           >
-            {creating ? 'Starting…' : '＋ New request'}
+            {creating ? (sw ? 'Inaanza…' : 'Starting…') : (sw ? '＋ Ombi jipya' : '＋ New request')}
           </button>
           <TemplatePicker
             familyId={profile.familyId}
@@ -247,12 +249,12 @@ export default function PurchaseHomePage() {
       {role === 'helper' && (drafts.length > 0 || inProgress.length > 0) && (
         <>
           {drafts.length > 0 && (
-            <Section title="Your drafts" tone="leaf" count={drafts.length}>
+            <Section title={sw ? 'Rasimu zako' : 'Your drafts'} tone="leaf" count={drafts.length}>
               {drafts.map((r) => <RequestRow key={r.id} req={r} currency={currency} onDelete={() => handleDeleteDraft(r)} />)}
             </Section>
           )}
           {inProgress.length > 0 && (
-            <Section title="Ready to shop · reconcile" tone="leaf" count={inProgress.length}>
+            <Section title={sw ? 'Tayari kununua · linganisha' : 'Ready to shop · reconcile'} tone="leaf" count={inProgress.length}>
               {inProgress.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
             </Section>
           )}
@@ -273,7 +275,7 @@ export default function PurchaseHomePage() {
 
       {/* Helper: pending approval (informational) */}
       {role === 'helper' && pending.length > 0 && (
-        <Section title="Awaiting parent approval" tone="amber" count={pending.length}>
+        <Section title={sw ? 'Inasubiri idhini ya mzazi' : 'Awaiting parent approval'} tone="amber" count={pending.length}>
           {pending.map((r) => <RequestRow key={r.id} req={r} currency={currency} />)}
         </Section>
       )}
