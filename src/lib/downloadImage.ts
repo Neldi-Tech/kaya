@@ -6,9 +6,18 @@
 // bar. Fetching the bytes and saving them via a synthetic blob URL
 // keeps the storage domain hidden and gives the saved file a
 // human-friendly name.
+//
+// IMPORTANT (iOS / CORS): a direct browser fetch() of a cross-origin Storage
+// URL is CORS-blocked (the bucket has no CORS config) and the save silently
+// fails. So for our own Storage files we fetch the SAME-ORIGIN /api/file proxy
+// instead — which streams the bytes from our origin. External URLs fall back
+// to the direct fetch.
+
+import { isProxyableStorageUrl, fileDownloadUrl } from './fileUrl';
 
 export async function downloadImage(url: string, filename: string): Promise<void> {
-  const res = await fetch(url);
+  const fetchUrl = isProxyableStorageUrl(url) ? fileDownloadUrl(url, filename) : url;
+  const res = await fetch(fetchUrl);
   if (!res.ok) throw new Error(`Download failed: ${res.status}`);
   const blob = await res.blob();
   const objectUrl = URL.createObjectURL(blob);
