@@ -37,6 +37,7 @@ import {
 } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
+import { useLocale } from '@/lib/useLocale';
 import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 import {
   addStaple, type Staple, type Cadence, STAPLE_CATEGORIES,
@@ -131,6 +132,8 @@ export default function PurchaseDetailPage() {
   const confirmAction = useConfirm();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
+  // Helper-facing Swahili (Phase 2, 2026-06-06). English is the fallback.
+  const sw = useLocale() === 'sw';
   // Per-category approval policy: try the explicit `pantry` entry first
   // (set in Settings → Household policies), fall back to the legacy
   // family-wide `approvalMode`, then to 'either'. Keeps existing
@@ -988,8 +991,11 @@ export default function PurchaseDetailPage() {
           Helper can't take further action until parent approves or
           kicks back. (2026-05-19) */}
       {isPendingClose && role === 'helper' && (
-        <Banner tone="amber" title="Submitted · waiting for parent"
-          body="You finished reconciling. Your parent is reviewing the actuals before posting to the budget." />
+        <Banner tone="amber"
+          title={sw ? 'Imetumwa · inasubiri mzazi' : 'Submitted · waiting for parent'}
+          body={sw
+            ? 'Umemaliza kulinganisha. Mzazi anakagua bei halisi kabla ya kuingiza kwenye bajeti.'
+            : 'You finished reconciling. Your parent is reviewing the actuals before posting to the budget.'} />
       )}
 
       {/* Parent close-review card — appears when the helper has
@@ -1137,7 +1143,9 @@ export default function PurchaseDetailPage() {
         <label className="flex items-center justify-center gap-2 border-2 border-dashed rounded-hive py-2.5 mb-3 cursor-pointer font-nunito font-black text-[13px] transition-colors"
           style={{ borderColor: '#E8C3AE', background: '#FBF3DF', color: '#B8860B' }}>
           <input type="file" accept="image/*" capture="environment" className="hidden" onChange={onPickReceipt} />
-          📷 Scan receipt {reconcilable ? '· fill actual prices' : '· add items'}
+          {sw
+            ? <>📷 Piga picha risiti {reconcilable ? '· jaza bei halisi' : '· ongeza vitu'}</>
+            : <>📷 Scan receipt {reconcilable ? '· fill actual prices' : '· add items'}</>}
         </label>
       )}
       {scanFile && (
@@ -1696,7 +1704,7 @@ export default function PurchaseDetailPage() {
         )}
         {isReconciling && (
           <button onClick={submitClose} disabled={busy} className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30">
-            Submit for review →
+            {sw ? 'Tuma kwa ukaguzi →' : 'Submit for review →'}
           </button>
         )}
         {/* Delete a reopened request — appears only after a parent has
@@ -1833,6 +1841,7 @@ function ItemRow({
   // remove. Always-on inputs made the basket noisy + tall — most
   // items are correct as-typed; the parent only needs to fix a few.
   const [open, setOpen] = useState(false);
+  const sw = useLocale() === 'sw';
   const est = (item.estimatedCents ?? 0) * item.qty;
   const act = (item.actualCents ?? 0) * (item.actualQty ?? 0);
   const vDelta = est > 0 ? Math.round(((act - est) / est) * 100) : 0;
@@ -1865,7 +1874,7 @@ function ItemRow({
             )}
             {item.addedDuringReconcile && (
               <span className="text-[9px] bg-pantry-leaf-soft border border-pantry-leaf text-pantry-leaf-dk px-1.5 py-0.5 rounded font-extrabold uppercase tracking-[1px]">
-                + Added at shop
+                {sw ? '+ Imeongezwa dukani' : '+ Added at shop'}
               </span>
             )}
           </div>
@@ -2026,21 +2035,23 @@ function ItemRow({
             {overBand && band && (
               <div className="bg-[#FCEEEE] border border-[#E8B5B5] rounded-lg p-2.5 space-y-1.5">
                 <div className="text-[11px] font-nunito font-extrabold text-hive-rose">
-                  ⚠ Over the ±{bandPct}% limit · allowed {formatCents(band.minCents, currency)}–{formatCents(band.maxCents, currency)} ea
+                  {sw
+                    ? <>⚠ Zaidi ya kiwango cha ±{bandPct}% · kinachoruhusiwa {formatCents(band.minCents, currency)}–{formatCents(band.maxCents, currency)} kila moja</>
+                    : <>⚠ Over the ±{bandPct}% limit · allowed {formatCents(band.minCents, currency)}–{formatCents(band.maxCents, currency)} ea</>}
                 </div>
-                <div className="text-[10.5px] text-hive-navy/70 font-bold">This price needs a parent OK. Add a reason:</div>
+                <div className="text-[10.5px] text-hive-navy/70 font-bold">{sw ? 'Bei hii inahitaji ruhusa ya mzazi. Andika sababu:' : 'This price needs a parent OK. Add a reason:'}</div>
                 <textarea
                   value={item.priceExceptionReason ?? ''}
                   onChange={(e) => onActual({
                     priceException: 'pending',
                     priceExceptionReason: e.target.value,
                   })}
-                  placeholder="e.g. Market price jumped this week — whole market the same"
+                  placeholder={sw ? 'mf. Bei sokoni imepanda wiki hii — soko zima ni hivyo' : 'e.g. Market price jumped this week — whole market the same'}
                   rows={2}
                   className="w-full border border-hive-line rounded-lg px-2 py-1.5 text-[12px] font-bold resize-none"
                 />
                 {!(item.priceExceptionReason ?? '').trim() && (
-                  <div className="text-[10px] text-hive-rose font-bold">A reason is required before you can submit.</div>
+                  <div className="text-[10px] text-hive-rose font-bold">{sw ? 'Sababu inahitajika kabla ya kutuma.' : 'A reason is required before you can submit.'}</div>
                 )}
               </div>
             )}
@@ -2058,7 +2069,7 @@ function ItemRow({
             <div className="bg-hive-cream/60 border border-hive-line/50 rounded-lg p-2 text-[11px] font-bold">
               <div className="flex items-center justify-between gap-2 text-hive-muted">
                 <span>
-                  <span className="uppercase tracking-[1px] text-[9px]">Approved</span>
+                  <span className="uppercase tracking-[1px] text-[9px]">{sw ? 'Imeidhinishwa' : 'Approved'}</span>
                   <span className="ml-1.5 text-hive-navy">
                     {eQty} {item.unit}{ePrice != null && ` × ${formatCents(ePrice, currency)}`}
                   </span>
@@ -2069,7 +2080,7 @@ function ItemRow({
                 <>
                   <div className="flex items-center justify-between gap-2 mt-1 pt-1 border-t border-hive-line/40">
                     <span>
-                      <span className="uppercase tracking-[1px] text-[9px] text-hive-muted">Actual</span>
+                      <span className="uppercase tracking-[1px] text-[9px] text-hive-muted">{sw ? 'Halisi' : 'Actual'}</span>
                       <span className="ml-1.5 text-hive-navy">
                         {aQty ?? 0} {item.unit}{aPrice != null && ` × ${formatCents(aPrice, currency)}`}
                       </span>
@@ -2088,8 +2099,8 @@ function ItemRow({
                       totalDelta > 0 ? 'text-hive-rose' : 'text-hive-green'
                     }`}>
                       {totalDelta > 0
-                        ? `+${formatCents(totalDelta, currency)} over`
-                        : `${formatCents(-totalDelta, currency)} saved`}
+                        ? `+${formatCents(totalDelta, currency)} ${sw ? 'zaidi' : 'over'}`
+                        : `${formatCents(-totalDelta, currency)} ${sw ? 'umeokoa' : 'saved'}`}
                     </div>
                   )}
                 </>
@@ -2121,6 +2132,7 @@ function TotalCountEntry({
 }) {
   // Seed the visible fields from any existing actuals so re-opening a
   // line shows what was entered. Total = per-unit × qty.
+  const sw = useLocale() === 'sw';
   const seededTotal = (actualCents != null && actualQty != null && actualQty > 0)
     ? ((actualCents * actualQty) / 100).toString() : '';
   const seededQty = actualQty != null && actualQty > 0 ? String(actualQty) : '';
@@ -2146,7 +2158,7 @@ function TotalCountEntry({
     <div className="bg-pantry-leaf-soft/30 border border-pantry-leaf/30 rounded-lg p-2.5 space-y-2">
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
-          <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">Total spent ({currency})</span>
+          <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">{sw ? 'Jumla uliyolipa' : 'Total spent'} ({currency})</span>
           <input
             type="number" min={0} step="0.01" inputMode="decimal"
             value={totalDraft}
@@ -2156,7 +2168,7 @@ function TotalCountEntry({
           />
         </label>
         <label className="block">
-          <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">How many ({unit})</span>
+          <span className="text-[10px] font-bold text-pantry-leaf-dk uppercase tracking-[1px]">{sw ? 'Idadi (ngapi)' : 'How many'} ({unit})</span>
           <input
             type="number" min={0} step="0.01" inputMode="decimal"
             value={qtyDraft}
@@ -2168,13 +2180,13 @@ function TotalCountEntry({
       </div>
       <div className={`text-[12px] font-nunito font-extrabold flex items-center gap-1.5 ${within ? 'text-pantry-leaf-dk' : 'text-hive-rose'}`}>
         {perUnitCents != null ? (
-          <>= <span className="font-black">{formatCents(perUnitCents, currency)}</span> each (auto)
+          <>= <span className="font-black">{formatCents(perUnitCents, currency)}</span> {sw ? 'kila moja (otomatiki)' : 'each (auto)'}
             {band != null && (within
-              ? <span className="text-hive-green">· within range ✓</span>
-              : <span>· over the limit ⚠</span>)}
+              ? <span className="text-hive-green">· {sw ? 'ndani ya kiwango ✓' : 'within range ✓'}</span>
+              : <span>· {sw ? 'zaidi ya kiwango ⚠' : 'over the limit ⚠'}</span>)}
           </>
         ) : (
-          <span className="text-hive-muted italic font-bold">Enter total + how many — Kaya works out the price each</span>
+          <span className="text-hive-muted italic font-bold">{sw ? 'Weka jumla + idadi — Kaya itahesabu bei ya kila moja' : 'Enter total + how many — Kaya works out the price each'}</span>
         )}
       </div>
     </div>
@@ -2197,6 +2209,7 @@ function AdvancedPerUnit({
   onActual: (p: Partial<Pick<PurchaseRequestItem, 'actualQty' | 'actualCents'>>) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const sw = useLocale() === 'sw';
   if (!open) {
     return (
       <button
@@ -2204,7 +2217,7 @@ function AdvancedPerUnit({
         onClick={() => setOpen(true)}
         className="text-[10px] text-hive-muted font-nunito font-extrabold underline underline-offset-2"
       >
-        · edit per-unit instead (advanced)
+        {sw ? '· badili bei ya kila moja (ya juu)' : '· edit per-unit instead (advanced)'}
       </button>
     );
   }
@@ -2212,7 +2225,7 @@ function AdvancedPerUnit({
     <div className="grid grid-cols-2 gap-2 bg-hive-cream/40 border border-hive-line/60 rounded-lg p-2">
       <label className="block">
         <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
-          <span>Actual qty</span>
+          <span>{sw ? 'Idadi halisi' : 'Actual qty'}</span>
           {qtyPct != null && qtyPct !== 0 && (
             <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(qtyPct)}`}>{fmt(qtyPct)}</span>
           )}
@@ -2226,7 +2239,7 @@ function AdvancedPerUnit({
       </label>
       <label className="block">
         <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1px] flex items-center justify-between gap-1">
-          <span>Actual price ea</span>
+          <span>{sw ? 'Bei halisi kila moja' : 'Actual price ea'}</span>
           {pricePct != null && pricePct !== 0 && (
             <span className={`text-[9px] font-extrabold px-1 py-0.5 rounded ${chipCls(pricePct)}`}>{fmt(pricePct)}</span>
           )}
