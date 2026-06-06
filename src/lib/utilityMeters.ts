@@ -105,6 +105,21 @@ export interface UtilityMeter {
   /** When balanceUnits falls below this, Pulse auto-creates a utility top-up
    *  purchaseRequest — the Kaya Plus seam. 'down' meters only. */
   minUnitsThreshold?: number;
+  // ── Auto top-up config (Kaya Plus, 2026-06-06) ─────────────────────
+  /** Master switch — when on + balanceUnits < minUnitsThreshold, Kaya
+   *  auto-creates a pending-approval top-up request for this meter. */
+  autoTopUp?: boolean;
+  /** Amount source for the auto request: 'last' = repeat the most recent
+   *  approved top-up for this meter; 'fixed' = autoTopUpAmountCents. */
+  autoTopUpSource?: 'last' | 'fixed';
+  /** Fixed top-up amount (display-currency cents) when source = 'fixed'. */
+  autoTopUpAmountCents?: number;
+  /** Email + notification when an auto top-up fires (default on). */
+  autoTopUpAlert?: boolean;
+  /** Idempotency: the open auto-request currently outstanding for this
+   *  meter. Set by the trigger; cleared when the balance recovers above
+   *  the threshold. Prevents re-firing while one is pending. */
+  autoTopUpPendingRequestId?: string;
   /** Surfaced as a Kaya Pulse trackable (gets a reading task + history). */
   pulseEnabled?: boolean;
   /** Pause without deleting. False meters don't appear in the
