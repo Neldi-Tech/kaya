@@ -272,6 +272,12 @@ export interface Family {
   // as a partial and merged with DEFAULT_BUSINESS_CONFIG by
   // `readBusinessConfig(family)`.
   businessConfig?: Partial<BusinessConfig>;
+  // ── Household purchase guardrails (2026-05-31) ──
+  // Parent-controlled ± price-change band a helper can apply during
+  // reconcile, plus optional per-module overrides. Canonical shape is
+  // `PurchaseConfig` in `src/lib/purchase.ts`; persisted as a partial and
+  // merged with DEFAULT_PURCHASE_CONFIG by `readPurchaseConfig(family)`.
+  purchaseConfig?: Partial<import('./purchase').PurchaseConfig>;
   // ── External email contacts ──────────────────────────────────
   // Email-only contacts (grandparents, godparents, tutors…) who get
   // the same rating / award notifications as parents/helpers in the

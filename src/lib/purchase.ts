@@ -63,6 +63,86 @@ export type PurchaseRequestStatus =
  *  `module` discriminates the surface. */
 export type PurchaseModule = 'pantry' | 'outdoor' | 'drivers' | 'utility' | 'payroll' | 'dineOut' | 'home' | 'subscriptions' | 'contributions';
 
+// ── Price-change guardrail config (2026-05-31) ──────────────────────
+// A helper's reconciled price-per-unit must stay within ± this percent
+// of the parent-approved price. Outside the band → the line needs a
+// parent OK (see PurchaseRequestItem.priceException). Stored on the
+// Family as a Partial and merged with DEFAULT_PURCHASE_CONFIG by
+// `readPurchaseConfig(family)` — same pattern as readBusinessConfig.
+//
+// A single family-wide default applies to every module; `perModule`
+// lets a parent loosen/tighten one module (e.g. fuel swings more than
+// groceries) without affecting the rest. The band guards PRICE PER UNIT
+// only — quantity edits stay free, and the unit model is untouched.
+export interface PurchaseConfig {
+  /** Family-wide max ± price change a helper can make, as a percent
+   *  (e.g. 15 = ±15%). 0 disables the guardrail (any price allowed). */
+  maxPriceChangePct: number;
+  /** Optional per-module overrides of `maxPriceChangePct`. */
+  perModule?: Partial<Record<PurchaseModule, number>>;
+}
+
+export const DEFAULT_PURCHASE_CONFIG: PurchaseConfig = {
+  maxPriceChangePct: 15,
+};
+
+/** Merge the family's stored partial config over the defaults. */
+export function readPurchaseConfig(
+  family: { purchaseConfig?: Partial<PurchaseConfig> } | null | undefined,
+): PurchaseConfig {
+  const f = family?.purchaseConfig || {};
+  const pct = typeof f.maxPriceChangePct === 'number' && f.maxPriceChangePct >= 0
+    ? f.maxPriceChangePct
+    : DEFAULT_PURCHASE_CONFIG.maxPriceChangePct;
+  return {
+    maxPriceChangePct: pct,
+    ...(f.perModule ? { perModule: f.perModule } : {}),
+  };
+}
+
+/** The effective band percent for a given module — the per-module
+ *  override if set, else the family-wide default. */
+export function bandPctFor(config: PurchaseConfig, module: PurchaseModule): number {
+  const override = config.perModule?.[module];
+  return typeof override === 'number' && override >= 0 ? override : config.maxPriceChangePct;
+}
+
+/** Inclusive [min, max] per-unit cents allowed for an approved price at
+ *  a given band percent. Returns null when there's no anchor to compare
+ *  against (no approved price, or band disabled with pct <= 0). */
+export function priceBandRange(
+  approvedCents: number | undefined,
+  bandPct: number,
+): { minCents: number; maxCents: number } | null {
+  if (!approvedCents || approvedCents <= 0) return null;
+  if (!bandPct || bandPct <= 0) return null;
+  const delta = approvedCents * (bandPct / 100);
+  return {
+    minCents: Math.floor(approvedCents - delta),
+    maxCents: Math.ceil(approvedCents + delta),
+  };
+}
+
+/** True when an entered per-unit price is within the allowed band of the
+ *  approved price. When there's no anchor/band (range null), nothing is
+ *  out of band — returns true (the guardrail simply doesn't apply). */
+export function priceWithinBand(
+  approvedCents: number | undefined,
+  enteredCents: number | undefined,
+  bandPct: number,
+): boolean {
+  const range = priceBandRange(approvedCents, bandPct);
+  if (!range) return true;
+  if (enteredCents == null) return true;
+  return enteredCents >= range.minCents && enteredCents <= range.maxCents;
+}
+
+/** Whether a reconciled line is currently blocking a clean close — i.e.
+ *  its price is over-band and the exception is still pending a parent. */
+export function itemPriceExceptionPending(item: PurchaseRequestItem): boolean {
+  return item.priceException === 'pending';
+}
+
 /** Categories specific to the Outdoor module. Used in the catalogue
  *  picker + Quick-add form. Tags `module: 'outdoor'` on the underlying
  *  Staple doc so the picker can filter cleanly. (Vehicle moved to the
@@ -258,6 +338,21 @@ export interface PurchaseRequestItem {
    *  ad-hoc additions versus part of the approved scope.
    *  (2026-05-19.) */
   addedDuringReconcile?: boolean;
+  // ── Price-change guardrail (2026-05-31) ──────────────────────────
+  // When a helper's actual price-per-unit lands OUTSIDE the family's
+  // allowed ± band (vs the approved estimate), the line can't post on
+  // the helper's say-so. They attach a reason; the line travels with
+  // `priceException: 'pending'` and surfaces to the parent at close
+  // review, who flips it to 'approved' or 'rejected'. Comments are kept
+  // permanently for the audit trail. Lines within band never set these.
+  /** Set when the actual per-unit price is outside the allowed band. */
+  priceException?: 'pending' | 'approved' | 'rejected';
+  /** Helper's required reason for the over-band price. */
+  priceExceptionReason?: string;
+  /** Parent's note left when resolving the exception (approve or reject). */
+  priceExceptionParentNote?: string;
+  /** Parent uid who resolved the exception. */
+  priceExceptionResolvedBy?: string;
 }
 
 export interface PurchaseRequest {
@@ -833,6 +928,16 @@ export async function updateRequestItems(
   await updateDoc(requestDoc(familyId, requestId), patch);
 }
 
+/** Persist the family's purchase guardrail config (parent-only; rules
+ *  enforce). Stored as a partial + merged on read by readPurchaseConfig. */
+export async function setPurchaseConfig(
+  familyId: string,
+  patch: Partial<PurchaseConfig>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await setDoc(doc(db, 'families', familyId), { purchaseConfig: patch } as Record<string, unknown>, { merge: true });
+}
+
 /** Rename + edit metadata on a draft. */
 export async function updateRequestMeta(
   familyId: string,
@@ -1293,6 +1398,43 @@ export async function closeReconcile(
 // we now insert a parent review step: helper submits → parent reviews
 // (allocates overrun, decides savings, leaves a note) → parent posts
 // to budget. State machine: reconciling → pending_close → closed.
+
+/** Parent resolves a single over-band price exception on a request that
+ *  is in close review. 'approved' lets the helper's price stand;
+ *  'rejected' is recorded too (the parent can then kick back or post — the
+ *  comment is always kept either way). Stamps who decided + an optional
+ *  note onto the item. (2026-05-31) */
+export async function resolvePriceException(
+  familyId: string,
+  requestId: string,
+  itemId: string,
+  decision: 'approved' | 'rejected',
+  resolvedBy: string,
+  parentNote?: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const reqRef = requestDoc(familyId, requestId);
+  const snap = await getDoc(reqRef);
+  if (!snap.exists()) return;
+  const req = snap.data() as PurchaseRequest;
+  const items = (req.items || []).map((i) =>
+    i.id === itemId
+      ? {
+          ...i,
+          priceException: decision,
+          priceExceptionResolvedBy: resolvedBy,
+          ...(parentNote && parentNote.trim() ? { priceExceptionParentNote: parentNote.trim() } : {}),
+        }
+      : i,
+  );
+  await updateDoc(reqRef, { items, updatedAt: serverTimestamp() });
+}
+
+/** True when a request still has an over-band price line awaiting a
+ *  parent decision — used to gate the "post to budget" action. */
+export function hasUnresolvedPriceException(req: Pick<PurchaseRequest, 'items'>): boolean {
+  return (req.items || []).some((i) => i.priceException === 'pending');
+}
 
 /** Helper hands off a reconciled request to the parent for review.
  *  Writes the final items + actualTotalCents now (so the parent sees

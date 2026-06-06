@@ -18,8 +18,10 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import {
   type PurchaseRequest,
+  type PurchaseModule,
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
@@ -29,6 +31,9 @@ import {
   createDraftFromTemplate,
   createDraftFromRequest,
   deleteRequest,
+  readPurchaseConfig,
+  setPurchaseConfig,
+  type PurchaseConfig,
 } from '@/lib/purchase';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
@@ -44,6 +49,7 @@ export default function PurchaseHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
   const { config } = useHive();
+  const { family } = useFamily();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
 
@@ -186,6 +192,13 @@ export default function PurchaseHomePage() {
         </span>
         <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">Watch →</span>
       </button>
+
+      {/* Helper price guardrails — parent-only setup (2026-05-31). Sets
+          the ± band a helper can move a price during reconcile, family-wide
+          + optional per-module overrides. Collapsed by default. */}
+      {role === 'parent' && profile?.familyId && !isGuest && (
+        <GuardrailsCard familyId={profile.familyId} family={family} />
+      )}
 
       {/* 2026-05-19 — Top CTA block. Primary new-request action sits
           ABOVE the actionable piles so it's visible without scrolling
@@ -346,6 +359,141 @@ function Section({
         <span className="bg-hive-paper border border-hive-line rounded-full px-2 py-0.5 text-[10px] text-hive-muted">{count}</span>
       </div>
       <div className="flex flex-col gap-2">{children}</div>
+    </div>
+  );
+}
+
+// ── Helper price guardrails setup (parent-only) ─────────────────────
+// Sets the ± price-change band a helper can apply during reconcile.
+// One family-wide default + optional per-module overrides. Collapsed by
+// default so it doesn't crowd the requests list. (2026-05-31)
+const GUARDRAIL_MODULES: { id: PurchaseModule; emoji: string; label: string }[] = [
+  { id: 'pantry',  emoji: '🛒', label: 'Pantry' },
+  { id: 'outdoor', emoji: '🌿', label: 'Outdoor' },
+  { id: 'drivers', emoji: '🚗', label: 'Drivers' },
+  { id: 'utility', emoji: '⚡', label: 'Utilities' },
+  { id: 'home',    emoji: '🛋️', label: 'Home' },
+  { id: 'dineOut', emoji: '🍽️', label: 'Dine Out' },
+];
+
+function GuardrailsCard({
+  familyId, family,
+}: {
+  familyId: string;
+  family: { purchaseConfig?: Partial<PurchaseConfig> } | null | undefined;
+}) {
+  const cfg = readPurchaseConfig(family);
+  const [open, setOpen] = useState(false);
+  const [familyPct, setFamilyPct] = useState<number>(cfg.maxPriceChangePct);
+  const [perModule, setPerModule] = useState<Partial<Record<PurchaseModule, number>>>(cfg.perModule ?? {});
+  const [showPerModule, setShowPerModule] = useState<boolean>(!!cfg.perModule && Object.keys(cfg.perModule).length > 0);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const clampPct = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try {
+      // Drop empty per-module entries so we don't persist noise.
+      const cleanPer: Partial<Record<PurchaseModule, number>> = {};
+      for (const m of GUARDRAIL_MODULES) {
+        const v = perModule[m.id];
+        if (typeof v === 'number' && v !== familyPct) cleanPer[m.id] = clampPct(v);
+      }
+      const patch: Partial<PurchaseConfig> = {
+        maxPriceChangePct: clampPct(familyPct),
+        ...(showPerModule && Object.keys(cleanPer).length > 0 ? { perModule: cleanPer } : { perModule: {} }),
+      };
+      await setPurchaseConfig(familyId, patch);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="mb-4 bg-hive-paper border border-hive-line rounded-hive overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-2.5 p-3 text-left hover:bg-hive-cream/40"
+        aria-expanded={open}
+      >
+        <span className="text-lg">🛡️</span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-nunito font-extrabold text-sm text-hive-navy">Helper price guardrails</span>
+          <span className="block text-[11px] text-hive-muted font-bold">
+            {familyPct > 0 ? `Max ±${familyPct}% price change` : 'Off — any price allowed'}
+            {showPerModule && Object.keys(perModule).length > 0 ? ' · per-module set' : ''}
+          </span>
+        </span>
+        <span className="text-hive-muted text-xs">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-hive-line p-3 space-y-3">
+          <p className="text-[11.5px] text-hive-ink/75 leading-snug">
+            How far a helper can move a price (up or down) from the one you approved, during reconcile.
+            Beyond this, the line needs your OK with a reason — so a mistyped price can&apos;t quietly inflate the total.
+          </p>
+
+          <div>
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Max price change · all modules</span>
+            <div className="flex items-center gap-3 mt-1.5">
+              <div className="inline-flex items-center rounded-full border border-hive-line bg-white overflow-hidden">
+                <button type="button" onClick={() => setFamilyPct((p) => clampPct(p - 5))} className="w-9 h-9 font-nunito font-black text-hive-navy">−</button>
+                <span className="min-w-[58px] text-center font-nunito font-black text-base">{familyPct === 0 ? 'Off' : `±${familyPct}%`}</span>
+                <button type="button" onClick={() => setFamilyPct((p) => clampPct(p + 5))} className="w-9 h-9 font-nunito font-black text-hive-navy">＋</button>
+              </div>
+              <span className="text-[11px] text-hive-muted font-bold">up or down, vs the approved price</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowPerModule((v) => !v)}
+            className="text-[11px] text-pantry-leaf-dk font-nunito font-extrabold underline underline-offset-2"
+          >
+            {showPerModule ? 'Hide per-module overrides' : '+ Set a different limit per module (optional)'}
+          </button>
+
+          {showPerModule && (
+            <div className="space-y-1.5 bg-hive-cream/40 rounded-lg p-2">
+              {GUARDRAIL_MODULES.map((m) => {
+                const v = perModule[m.id];
+                const effective = typeof v === 'number' ? v : familyPct;
+                return (
+                  <div key={m.id} className="flex items-center justify-between gap-2">
+                    <span className="text-[12px] font-bold text-hive-navy">{m.emoji} {m.label}</span>
+                    <div className="inline-flex items-center rounded-full border border-hive-line bg-white overflow-hidden">
+                      <button type="button" onClick={() => setPerModule((p) => ({ ...p, [m.id]: clampPct(effective - 5) }))} className="w-7 h-7 font-nunito font-black text-hive-navy text-sm">−</button>
+                      <span className="min-w-[52px] text-center font-nunito font-extrabold text-[12px]">
+                        {typeof v === 'number' ? (v === 0 ? 'Off' : `±${v}%`) : `default`}
+                      </span>
+                      <button type="button" onClick={() => setPerModule((p) => ({ ...p, [m.id]: clampPct(effective + 5) }))} className="w-7 h-7 font-nunito font-black text-hive-navy text-sm">＋</button>
+                      {typeof v === 'number' && (
+                        <button type="button" onClick={() => setPerModule((p) => { const n = { ...p }; delete n[m.id]; return n; })} className="px-2 text-[10px] text-hive-muted font-bold" title="Reset to family default">✕</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="bg-pantry-leaf text-white rounded-hive px-4 py-2 font-nunito font-black text-[13px] disabled:opacity-50"
+            >
+              {saving ? 'Saving…' : 'Save guardrails'}
+            </button>
+            {saved && <span className="text-[12px] font-bold text-pantry-leaf-dk">Saved ✓</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
