@@ -1,16 +1,37 @@
 'use client';
 
 // Plays a ModuleGuide like a short video: auto-advancing scenes, a progress
-// bar, optional 🔊 voiceover (on-device speech), role-aware copy, and a
-// Try-it-now hand-off into the real screen. Built from the live app, so it
-// never goes stale. Launched via openModuleGuide() → GuideHost renders this.
+// bar, optional 🔊 voiceover (on-device speech), role-aware copy, a 🌍
+// language toggle, and a Try-it-now hand-off into the real screen. Built from
+// the live app, so it never goes stale. Launched via openModuleGuide().
+//
+// Language: defaults to the resolved app locale (useLocale); the 🌍 toggle
+// overrides AND persists the person's choice, so every translated surface
+// follows it. All copy resolves via t() with an English fallback.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { openModuleGuide, getGuide, type ModuleGuide, type GuideScene } from '@/lib/moduleGuides';
+import { t, type Locale, type Localized } from '@/lib/i18n';
+import { useLocale, setUserLocale } from '@/lib/useLocale';
 
 const RING = 'ring-2 ring-hive-honey ring-offset-2 ring-offset-white';
+const SCENE_MS = 4600;
+
+// Player chrome strings (small, localized inline).
+const CH: Record<string, Localized> = {
+  guide: { en: 'Guide', sw: 'Mwongozo' },
+  voice: { en: '🔊 Voice', sw: '🔊 Sauti' },
+  voiceOn: { en: '🔊 Voice on', sw: '🔊 Sauti imewashwa' },
+  pause: { en: '⏸ Pause', sw: '⏸ Sitisha' },
+  play: { en: '▶ Play', sw: '▶ Cheza' },
+  replay: { en: '↺ Replay', sw: '↺ Cheza tena' },
+  watchAgain: { en: '↺ Watch again', sw: '↺ Tazama tena' },
+  helper: { en: '👤 Helper', sw: '👤 Msaidizi' },
+  deeper: { en: 'Go deeper', sw: 'Nenda ndani zaidi' },
+  open: { en: 'Open', sw: 'Fungua' },
+};
 
 // A compact mock of the real Purchases screen with one step spotlighted.
 function PurchasesScreen({ highlight }: { highlight: 'new' | 'basket' | 'submit' | 'pending' | 'reconcile' }) {
@@ -35,8 +56,7 @@ function PurchasesScreen({ highlight }: { highlight: 'new' | 'basket' | 'submit'
   );
 }
 
-const SCENE_MS = 4600;
-
+// Scene illustration. Micro-labels stay English in v1 — narration carries the language.
 function Visual({ scene }: { scene: GuideScene }) {
   const v = scene.visual;
   if (v.kind === 'flow') {
@@ -106,39 +126,42 @@ export default function ModuleGuidePlayer({
   onWatched: (id: string) => void;
 }) {
   const { profile } = useAuth();
+  const resolved = useLocale();
   const isHelper = profile?.role === 'helper';
   const scenes = guide.scenes;
   const last = scenes.length - 1;
 
+  const [lang, setLang] = useState<Locale>(resolved);
   const [i, setI] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [voiceOn, setVoiceOn] = useState(false);
   const timer = useRef<number | null>(null);
   const watchedRef = useRef(false);
 
+  const tl = useCallback((v: Localized) => t(v, lang), [lang]);
   const bodyFor = useCallback(
-    (s: GuideScene) => (isHelper && s.bodyHelper ? s.bodyHelper : s.body),
-    [isHelper],
+    (s: GuideScene) => t((isHelper && s.bodyHelper) ? s.bodyHelper : s.body, lang),
+    [isHelper, lang],
   );
 
-  const speak = useCallback((s: GuideScene) => {
-    if (!voiceOn || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+  const utter = useCallback((s: GuideScene) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(`${s.title}. ${bodyFor(s)}`);
-    u.lang = 'en-US'; u.rate = 1; u.pitch = 1.05;
+    const u = new SpeechSynthesisUtterance(`${t(s.title, lang)}. ${bodyFor(s)}`);
+    u.lang = lang === 'sw' ? 'sw-TZ' : 'en-US';
+    u.rate = 1; u.pitch = 1.05;
     window.speechSynthesis.speak(u);
-  }, [voiceOn, bodyFor]);
+  }, [lang, bodyFor]);
 
+  const speak = useCallback((s: GuideScene) => { if (voiceOn) utter(s); }, [voiceOn, utter]);
   const stopVoice = () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) window.speechSynthesis.cancel();
   };
 
-  // Mark watched once the kid/parent reaches the final scene.
   useEffect(() => {
     if (i === last && !watchedRef.current) { watchedRef.current = true; onWatched(guide.id); }
   }, [i, last, guide.id, onWatched]);
 
-  // Auto-advance + narrate the current scene.
   useEffect(() => {
     speak(scenes[i]);
     if (timer.current) window.clearTimeout(timer.current);
@@ -155,12 +178,14 @@ export default function ModuleGuidePlayer({
   const close = () => { stopVoice(); onClose(); };
   const toggleVoice = () => {
     const next = !voiceOn; setVoiceOn(next);
-    if (next) {
-      const s = scenes[i];
-      window.speechSynthesis?.cancel();
-      const u = new SpeechSynthesisUtterance(`${s.title}. ${bodyFor(s)}`);
-      u.rate = 1; u.pitch = 1.05; window.speechSynthesis?.speak(u);
-    } else stopVoice();
+    if (next) utter(scenes[i]); else stopVoice();
+  };
+  const toggleLang = () => {
+    const next: Locale = lang === 'sw' ? 'en' : 'sw';
+    setLang(next);
+    stopVoice();
+    // Persist so every translated surface follows the choice (best-effort).
+    if (profile?.uid) void setUserLocale(profile.uid, next).catch(() => {});
   };
   const replay = () => { setI(0); setPlaying(true); };
   const togglePlay = () => {
@@ -170,6 +195,7 @@ export default function ModuleGuidePlayer({
 
   const scene = scenes[i];
   const onEnd = i === last;
+  const deeper = guide.deeperGuideId ? getGuide(guide.deeperGuideId) : undefined;
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/55 backdrop-blur-sm" onClick={close}>
@@ -180,14 +206,20 @@ export default function ModuleGuidePlayer({
         {/* top bar */}
         <div className="flex items-center gap-1.5 mb-3">
           <span className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-hive-navy/55 mr-auto">
-            {guide.emoji} {guide.title} · Guide
+            {guide.emoji} {tl(guide.title)} · {tl(CH.guide)}
           </span>
-          {isHelper && <span className="text-[10px] font-nunito font-black bg-black/8 text-hive-navy rounded-full px-2 py-1">👤 Helper</span>}
+          {isHelper && <span className="text-[10px] font-nunito font-black bg-black/8 text-hive-navy rounded-full px-2 py-1">{tl(CH.helper)}</span>}
+          <button
+            type="button" onClick={toggleLang}
+            className="text-[11px] font-nunito font-black rounded-full px-2.5 py-1 bg-black/8 text-hive-navy"
+          >
+            🌍 {lang.toUpperCase()}
+          </button>
           <button
             type="button" onClick={toggleVoice}
             className={`text-[11px] font-nunito font-black rounded-full px-2.5 py-1 ${voiceOn ? 'bg-hive-honey text-white' : 'bg-black/8 text-hive-navy'}`}
           >
-            {voiceOn ? '🔊 Voice on' : '🔊 Voice'}
+            {voiceOn ? tl(CH.voiceOn) : tl(CH.voice)}
           </button>
           <button type="button" onClick={close} aria-label="Close" className="w-7 h-7 rounded-full bg-black/8 text-hive-navy font-black">✕</button>
         </div>
@@ -196,7 +228,7 @@ export default function ModuleGuidePlayer({
         <div className="flex gap-1.5 mb-3">
           {scenes.map((_, n) => (
             <div key={n} className="h-1 flex-1 rounded-full bg-black/10 overflow-hidden">
-              <div className="h-full bg-hive-honey rounded-full transition-all" style={{ width: n < i ? '100%' : n === i ? '100%' : '0%' }} />
+              <div className="h-full bg-hive-honey rounded-full transition-all" style={{ width: n <= i ? '100%' : '0%' }} />
             </div>
           ))}
         </div>
@@ -206,23 +238,23 @@ export default function ModuleGuidePlayer({
           {onEnd ? (
             <div className="text-center">
               <div className="text-[42px] leading-none">🎉</div>
-              <h3 className="font-nunito font-black text-hive-navy text-lg mt-1">{scene.title}</h3>
+              <h3 className="font-nunito font-black text-hive-navy text-lg mt-1">{tl(scene.title)}</h3>
               <p className="text-[12px] font-nunito font-semibold text-hive-navy/60 mt-1 mb-3 max-w-[260px] mx-auto">{bodyFor(scene)}</p>
               {guide.ctaHref && (
                 <Link href={guide.ctaHref} onClick={close} className="inline-block bg-hive-honey text-white font-nunito font-black text-[13px] px-5 py-2.5 rounded-full">
-                  {guide.ctaLabel || 'Open'} ▶
+                  {guide.ctaLabel ? tl(guide.ctaLabel) : tl(CH.open)} ▶
                 </Link>
               )}
-              {guide.deeperGuideId && getGuide(guide.deeperGuideId)?.available && (
+              {deeper?.available && (
                 <button
                   type="button"
-                  onClick={() => openModuleGuide(guide.deeperGuideId as string)}
+                  onClick={() => openModuleGuide(deeper.id)}
                   className="block mx-auto mt-3 text-[12.5px] font-nunito font-black text-hive-navy bg-black/8 rounded-full px-4 py-2"
                 >
-                  ⤵ Go deeper: {getGuide(guide.deeperGuideId)?.title}
+                  ⤵ {tl(CH.deeper)}: {tl(deeper.title)}
                 </button>
               )}
-              <button type="button" onClick={replay} className="block mx-auto mt-2.5 text-[12px] font-nunito font-extrabold text-hive-navy/55">↺ Watch again</button>
+              <button type="button" onClick={replay} className="block mx-auto mt-2.5 text-[12px] font-nunito font-extrabold text-hive-navy/55">{tl(CH.watchAgain)}</button>
             </div>
           ) : (
             <Visual scene={scene} />
@@ -232,7 +264,7 @@ export default function ModuleGuidePlayer({
         {/* copy */}
         {!onEnd && (
           <div className="min-h-[64px] mb-3">
-            <h3 className="font-nunito font-black text-hive-navy text-[18px] mb-1">{scene.title}</h3>
+            <h3 className="font-nunito font-black text-hive-navy text-[18px] mb-1">{tl(scene.title)}</h3>
             <p className="text-[13px] font-nunito font-semibold text-hive-navy/65 leading-snug">{bodyFor(scene)}</p>
           </div>
         )}
@@ -243,7 +275,7 @@ export default function ModuleGuidePlayer({
             className="w-11 h-11 rounded-full bg-black/8 text-hive-navy font-black text-lg disabled:opacity-40">‹</button>
           <button type="button" onClick={togglePlay}
             className="flex-1 h-11 rounded-full bg-hive-navy text-white font-nunito font-black text-sm">
-            {onEnd ? '↺ Replay' : playing ? '⏸ Pause' : '▶ Play'}
+            {onEnd ? tl(CH.replay) : playing ? tl(CH.pause) : tl(CH.play)}
           </button>
           <span className="text-[11px] font-nunito font-extrabold text-hive-navy/55 w-9 text-center">{i + 1}/{scenes.length}</span>
           <button type="button" onClick={() => setI((n) => Math.min(last, n + 1))} disabled={i === last}

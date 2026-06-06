@@ -24,6 +24,7 @@ import SupplierBadge from '@/components/pantry/SupplierBadge';
 import InfoIcon from '@/components/ui/InfoIcon';
 import { useHelperGrants, helperGrantsAllow } from '@/lib/useHelperGrants';
 import { openModuleGuide } from '@/lib/moduleGuides';
+import { useLocale } from '@/lib/useLocale';
 
 export default function PantryHomePage() {
   const router = useRouter();
@@ -34,6 +35,7 @@ export default function PantryHomePage() {
   const isHelper = profile?.role === 'helper';
   const { config } = useHive();
   const currency = config.currency;
+  const sw = useLocale() === 'sw';
 
   // 2026-05-19 — Pantry tile gating for helpers. Each tile maps to a
   // composite key on HelperLink.moduleAccess; tiles without view tier
@@ -124,10 +126,10 @@ export default function PantryHomePage() {
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
         <span className="leading-tight">
-          <span className="block font-nunito font-black text-[13px]">How Household works</span>
-          <span className="block text-[10.5px] opacity-75">60-second guided walk-through</span>
+          <span className="block font-nunito font-black text-[13px]">{sw ? 'Jinsi Household inavyofanya kazi' : 'How Household works'}</span>
+          <span className="block text-[10.5px] opacity-75">{sw ? 'Mwongozo wa sekunde 60' : '60-second guided walk-through'}</span>
         </span>
-        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">Watch →</span>
+        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">{sw ? 'Tazama →' : 'Watch →'}</span>
       </button>
 
       {/* Active list card — or "Start a new list" empty state. */}

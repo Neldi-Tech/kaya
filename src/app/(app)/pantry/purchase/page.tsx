@@ -39,6 +39,7 @@ import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
 import { openModuleGuide } from '@/lib/moduleGuides';
+import { useLocale } from '@/lib/useLocale';
 import { useConfirm } from '@/contexts/ConfirmContext';
 
 // Auto-name now comes from createDraftRequest itself (MOD-NNNN ·
@@ -52,6 +53,7 @@ export default function PurchaseHomePage() {
   const { family } = useFamily();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
+  const sw = useLocale() === 'sw';
 
   const [open, setOpen] = useState<PurchaseRequest[]>([]);
   const [recent, setRecent] = useState<PurchaseRequest[]>([]);
@@ -187,10 +189,10 @@ export default function PurchaseHomePage() {
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-hive-honey text-white text-sm shrink-0">▶</span>
         <span className="leading-tight">
-          <span className="block font-nunito font-black text-[13px]">How Purchases flows</span>
-          <span className="block text-[10.5px] opacity-75">Step-by-step: request → approve → reconcile</span>
+          <span className="block font-nunito font-black text-[13px]">{sw ? 'Jinsi Purchases inavyofanya kazi' : 'How Purchases flows'}</span>
+          <span className="block text-[10.5px] opacity-75">{sw ? 'Hatua kwa hatua: omba → idhinisha → linganisha' : 'Step-by-step: request → approve → reconcile'}</span>
         </span>
-        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">Watch →</span>
+        <span className="ml-auto text-[11px] font-nunito font-extrabold opacity-80">{sw ? 'Tazama →' : 'Watch →'}</span>
       </button>
 
       {/* Helper price guardrails — parent-only setup (2026-05-31). Sets
