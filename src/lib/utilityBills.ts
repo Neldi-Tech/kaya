@@ -147,6 +147,47 @@ export async function runUtilityBillGenerator(
   return run;
 }
 
+/** Force-send ONE bill's payment request right now (the "Send now" action on a
+ *  not-gone-through bill) — bypasses the due-day check but reuses the same
+ *  pending_approval request + email + idempotency stamp as the auto-generator.
+ *  Safe to call again: the lastGeneratedKey guard means the bill reads as
+ *  "sent this period" afterwards. Throws if no amount is set. */
+export async function sendUtilityBillNow(
+  familyId: string,
+  byUid: string,
+  utility: Utility,
+  opts: { parentEmails?: string[]; currency?: string; appUrl?: string } = {},
+): Promise<{ requestId: string }> {
+  if (isGuestActive()) return { requestId: 'guest' };
+  const name = utility.name || 'Utility bill';
+  if (!utility.amountCents || utility.amountCents <= 0) {
+    throw new Error('Set an amount on this bill before sending a request.');
+  }
+  const item: PurchaseRequestItem = {
+    id: `${Date.now().toString(36)}-bill`, name, category: 'other', qty: 1, unit: 'x',
+    estimatedCents: utility.amountCents,
+  };
+  const requestId = await createDraftRequest(familyId, {
+    module: 'utility', createdBy: byUid, createdByRole: 'parent',
+    initialStatus: 'pending_approval', generatedBy: 'system',
+    items: [item], context: name, utilityId: utility.id,
+  });
+  await updateUtility(familyId, utility.id, {
+    lastGeneratedKey: currentPeriodKey(), lastGeneratedRequestId: requestId,
+  });
+  if (opts.parentEmails && opts.parentEmails.length > 0) {
+    void notifyUtilityBillDue({
+      to: opts.parentEmails,
+      billName: name,
+      amountFormatted: formatCents(utility.amountCents, opts.currency || 'USD'),
+      accountRef: utility.accountRef || undefined,
+      dueLabel: utility.dueDay && utility.dueDay > 0 ? `due on the ${ordinal(utility.dueDay)}` : 'due now',
+      requestUrl: `${opts.appUrl || ''}/pantry/purchase/${requestId}`,
+    });
+  }
+  return { requestId };
+}
+
 /** 1 → "1st", 2 → "2nd", 15 → "15th". */
 function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd'];
