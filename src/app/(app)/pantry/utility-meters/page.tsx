@@ -81,6 +81,7 @@ export default function UtilityMetersPage() {
     preferredSupplierId: '', reminderDays: [],
   });
   const [saving, setSaving] = useState(false);
+  const [autoTU, setAutoTU] = useState<AutoTopUpState>(EMPTY_AUTOTU);
 
   // Changing frequency re-seeds the suggested reminder days (editable).
   const setFrequency = (frequency: Cadence) => {
@@ -111,12 +112,14 @@ export default function UtilityMetersPage() {
         unit: form.unit.trim() || undefined,
         preferredSupplierId: form.preferredSupplierId || undefined,
         reminderDays: form.reminderDays.length > 0 ? form.reminderDays : undefined,
+        ...autoTopUpPatch(autoTU),
       });
       setForm({
         type: 'electric', label: '', providerRef: '', frequency: 'weekly',
         estimatedMajor: 0, pricePerUnitMajor: 0, unit: '',
         preferredSupplierId: '', reminderDays: [],
       });
+      setAutoTU(EMPTY_AUTOTU);
       setAdding(false);
     } finally { setSaving(false); }
   };
@@ -329,6 +332,9 @@ export default function UtilityMetersPage() {
             </div>
           )}
 
+          {/* Auto top-up (Kaya Plus) */}
+          <AutoTopUpFields value={autoTU} onChange={(p) => setAutoTU((s) => ({ ...s, ...p }))} currency={currency} pricePerUnitMajor={form.pricePerUnitMajor} />
+
           <div className="grid grid-cols-2 gap-2 mt-2">
             <button onClick={() => setAdding(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
             <button onClick={submit} disabled={saving || !form.label.trim()} className="bg-hive-honey text-white rounded-lg py-2 font-nunito font-black text-sm disabled:opacity-60">
@@ -392,6 +398,13 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
   const [unit, setUnit] = useState<string>(meter.unit ?? '');
   const [supplierId, setSupplierId] = useState<string>(meter.preferredSupplierId ?? '');
   const [reminderDays, setReminderDays] = useState<number[]>(meter.reminderDays ?? []);
+  const [autoTU, setAutoTU] = useState<AutoTopUpState>({
+    on: meter.autoTopUp ?? false,
+    threshold: meter.minUnitsThreshold ?? 0,
+    source: meter.autoTopUpSource ?? 'last',
+    amountMajor: meter.autoTopUpAmountCents ? meter.autoTopUpAmountCents / 100 : 0,
+    alert: meter.autoTopUpAlert ?? true,
+  });
 
   const setFrequency = (f: Cadence) => {
     setFrequencyState(f);
@@ -416,6 +429,7 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
         unit: unit.trim() || undefined,
         preferredSupplierId: supplierId || undefined,
         reminderDays: reminderDays.length > 0 ? reminderDays : undefined,
+        ...autoTopUpPatch(autoTU),
       });
       setEditing(false);
     } finally { setBusy(false); }
@@ -531,6 +545,9 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
             </div>
           </div>
         )}
+        {/* Auto top-up (Kaya Plus) */}
+        <AutoTopUpFields value={autoTU} onChange={(p) => setAutoTU((s) => ({ ...s, ...p }))} currency={currency} pricePerUnitMajor={pricePerUnitMajor} />
+
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setEditing(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
           <button onClick={save} disabled={busy} className="bg-hive-honey text-white rounded-lg py-2 font-nunito font-black text-sm">Save</button>
@@ -580,11 +597,86 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
             🔔 Reminds on the {meter.reminderDays.map((d) => ordinalDay(d)).join(', ')}
           </div>
         )}
+        {meter.autoTopUp && (
+          <div className="text-[10px] text-hive-honey-dk font-nunito font-extrabold mt-0.5 break-words">
+            🔄 Auto top-up{meter.minUnitsThreshold ? ` below ${meter.minUnitsThreshold}${meter.unit ? ` ${meter.unit}` : ' units'}` : ''} → {meter.autoTopUpSource === 'fixed' && meter.autoTopUpAmountCents ? `set ${formatCents(meter.autoTopUpAmountCents, currency)}` : 'same as last'}
+          </div>
+        )}
       </div>
       <div className="flex flex-col items-end gap-1 shrink-0">
         <button onClick={() => setEditing(true)} className="text-xs font-nunito font-bold text-hive-honey-dk px-2">Edit</button>
         <button onClick={remove} disabled={busy} className="text-xs font-nunito font-bold text-hive-rose px-2">Remove</button>
       </div>
+    </div>
+  );
+}
+
+// ── Auto top-up (Kaya Plus) — shared form block used by add + edit ──────
+// NB: not exported — a Next.js page file may only export the default component.
+interface AutoTopUpState { on: boolean; threshold: number; source: 'last' | 'fixed'; amountMajor: number; alert: boolean }
+const EMPTY_AUTOTU: AutoTopUpState = { on: false, threshold: 0, source: 'last', amountMajor: 0, alert: true };
+
+/** Map the form state → the UtilityMeter auto-top-up fields (undefined when off
+ *  so Firestore drops them). */
+function autoTopUpPatch(s: AutoTopUpState): Partial<UtilityMeter> {
+  return {
+    autoTopUp: s.on,
+    minUnitsThreshold: s.on && s.threshold > 0 ? s.threshold : undefined,
+    autoTopUpSource: s.on ? s.source : undefined,
+    autoTopUpAmountCents: s.on && s.source === 'fixed' && s.amountMajor > 0 ? Math.round(s.amountMajor * 100) : undefined,
+    autoTopUpAlert: s.on ? s.alert : undefined,
+  };
+}
+
+function AutoTopUpFields({ value, onChange, currency, pricePerUnitMajor }: {
+  value: AutoTopUpState; onChange: (patch: Partial<AutoTopUpState>) => void; currency: string; pricePerUnitMajor: number;
+}) {
+  const unitsHint = value.source === 'fixed' && value.amountMajor > 0 && pricePerUnitMajor > 0
+    ? `≈ ${Math.round(value.amountMajor / pricePerUnitMajor).toLocaleString()} units`
+    : '';
+  return (
+    <div className="rounded-lg border border-dashed border-hive-honey-soft bg-[#FEF6E8] p-3 mb-2">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-nunito font-black text-hive-honey-dk">🔄 Auto top-up</span>
+        <button type="button" aria-label="Toggle auto top-up" onClick={() => onChange({ on: !value.on })}
+          className={`w-11 h-6 rounded-full relative transition-colors ${value.on ? 'bg-hive-honey' : 'bg-hive-line'}`}>
+          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full transition-all ${value.on ? 'right-0.5' : 'left-0.5'}`} />
+        </button>
+      </div>
+      <p className="text-[10px] text-hive-muted mt-1 leading-snug">When the balance runs low, Kaya creates the top-up request for you — you still approve it.</p>
+      {value.on && (
+        <div className="mt-2.5 flex flex-col gap-2.5">
+          <label className="block">
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Minimum units balance</span>
+            <div className="flex items-center gap-1 border border-hive-line rounded-lg px-3 py-2 mt-1 bg-white focus-within:border-hive-honey">
+              <input type="number" min={0} step="1" value={value.threshold || ''} onChange={(e) => onChange({ threshold: Number(e.target.value) })} placeholder="50" className="flex-1 text-sm font-nunito font-bold focus:outline-none bg-transparent" />
+              <span className="text-[10px] text-hive-muted font-bold">units left</span>
+            </div>
+          </label>
+          <div>
+            <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">When low, top up by</span>
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              <button type="button" onClick={() => onChange({ source: 'last' })}
+                className={`text-[11px] font-nunito font-extrabold px-2 py-2 rounded-lg border ${value.source === 'last' ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}>Same as last top-up</button>
+              <button type="button" onClick={() => onChange({ source: 'fixed' })}
+                className={`text-[11px] font-nunito font-extrabold px-2 py-2 rounded-lg border ${value.source === 'fixed' ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}>A set amount</button>
+            </div>
+          </div>
+          {value.source === 'fixed' && (
+            <label className="block">
+              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Set amount {unitsHint && <span className="text-hive-honey-dk normal-case">· {unitsHint}</span>}</span>
+              <div className="flex items-center gap-1 border border-hive-line rounded-lg px-3 py-2 mt-1 bg-white focus-within:border-hive-honey">
+                <span className="text-xs text-hive-muted font-bold">{currency}</span>
+                <input type="number" min={0} step="0.01" value={value.amountMajor || ''} onChange={(e) => onChange({ amountMajor: Number(e.target.value) })} placeholder="0.00" className="flex-1 text-sm font-nunito font-bold focus:outline-none bg-transparent" />
+              </div>
+            </label>
+          )}
+          <button type="button" onClick={() => onChange({ alert: !value.alert })} className="flex items-center gap-2 text-[11px] font-bold text-hive-navy">
+            <span className={`w-4 h-4 rounded flex items-center justify-center text-[10px] font-black flex-shrink-0 ${value.alert ? 'bg-pantry-leaf-dk text-white' : 'bg-white border border-hive-line text-transparent'}`}>✓</span>
+            Alert me by email + notification
+          </button>
+        </div>
+      )}
     </div>
   );
 }
