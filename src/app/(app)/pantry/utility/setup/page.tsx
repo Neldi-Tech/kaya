@@ -19,10 +19,13 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useHive } from '@/contexts/HiveContext';
+import BillsActivity from '@/components/pantry/BillsActivity';
 
 export default function UtilitySetupHub() {
   const router = useRouter();
   const { profile } = useAuth();
+  const { config } = useHive();
 
   // Parent-only — same policy as the two config pages it fronts.
   useEffect(() => {
@@ -111,6 +114,11 @@ export default function UtilitySetupHub() {
           </div>
         </div>
       </div>
+
+      {/* Bills activity — sent register + reminder-engine status */}
+      {profile?.familyId && (
+        <BillsActivity familyId={profile.familyId} byUid={profile.uid} currency={config.currency} isParent />
+      )}
     </div>
   );
 }

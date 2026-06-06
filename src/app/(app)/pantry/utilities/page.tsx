@@ -29,6 +29,7 @@ import { formatCents } from '@/components/pantry/format';
 import SupplierBadge from '@/components/pantry/SupplierBadge';
 import NumberInput from '@/components/ui/NumberInput';
 import BackButton from '@/components/ui/BackButton';
+import BillsActivity from '@/components/pantry/BillsActivity';
 
 type Filter = 'all' | UtilityCategory;
 
@@ -305,6 +306,11 @@ export default function UtilitiesPage() {
             />
           ))}
         </div>
+      )}
+
+      {/* Bills activity — sent register + reminder-engine status (parent-managed) */}
+      {profile?.role === 'parent' && profile.familyId && (
+        <BillsActivity familyId={profile.familyId} byUid={profile.uid} currency={currency} isParent />
       )}
 
       {/* Bridge note → Budget */}
