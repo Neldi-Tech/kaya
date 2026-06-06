@@ -24,6 +24,7 @@ export default function GuideHost() {
   if (!guide) return null;
   return (
     <ModuleGuidePlayer
+      key={guide.id}                 /* remount on guide switch (e.g. "go deeper") */
       guide={guide}
       onClose={() => setGuide(null)}
       onWatched={(id) => markGuideWatched(id)}

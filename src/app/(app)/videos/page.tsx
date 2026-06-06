@@ -18,7 +18,7 @@ export default function VideosPage() {
       {/* ── Module guides (live) ─────────────────────────────────────────── */}
       <h2 className="font-display text-lg font-extrabold mb-3 flex items-center gap-2">▶ How Kaya works</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
-        {MODULE_GUIDES.map((g) => (
+        {MODULE_GUIDES.filter((g) => !g.parentId).map((g) => (
           g.available ? (
             <button
               key={g.id}

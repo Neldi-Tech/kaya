@@ -8,7 +8,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
-import type { ModuleGuide, GuideScene } from '@/lib/moduleGuides';
+import { openModuleGuide, getGuide, type ModuleGuide, type GuideScene } from '@/lib/moduleGuides';
+
+const RING = 'ring-2 ring-hive-honey ring-offset-2 ring-offset-white';
+
+// A compact mock of the real Purchases screen with one step spotlighted.
+function PurchasesScreen({ highlight }: { highlight: 'new' | 'basket' | 'submit' | 'pending' | 'reconcile' }) {
+  const dim = (on: boolean) => (on ? '' : 'opacity-40');
+  return (
+    <div className="w-full max-w-[300px] text-left space-y-1.5">
+      <div className={`rounded-lg bg-hive-navy text-white text-[11px] font-nunito font-black px-3 py-2 ${highlight === 'new' ? RING : 'opacity-40'}`}>＋ New request</div>
+      <div className={`rounded-lg bg-white border border-black/10 p-2 ${highlight === 'basket' ? RING : (highlight === 'submit' ? '' : 'opacity-40')}`}>
+        <div className="text-[10px] font-nunito font-black text-hive-navy">🛒 PAN-1042 · Saturday shop</div>
+        <div className="text-[9px] text-hive-navy/60 font-semibold">Rice · Oil · Milk ×6</div>
+        <div className={`mt-1 rounded-md bg-hive-honey text-white text-[10px] font-nunito font-black text-center py-1 ${highlight === 'submit' ? RING : ''}`}>Submit for approval →</div>
+      </div>
+      <div className={`flex items-center gap-2 rounded-lg bg-white border border-black/10 px-2.5 py-1.5 ${dim(highlight === 'pending')} ${highlight === 'pending' ? RING : ''}`}>
+        <span className="text-sm">🧾</span><span className="text-[10px] font-nunito font-bold text-hive-navy">PAN-1042 · 29,300</span>
+        <span className="ml-auto text-[8px] font-black bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5">PENDING</span>
+      </div>
+      <div className={`flex items-center gap-2 rounded-lg bg-white border border-black/10 px-2.5 py-1.5 ${dim(highlight === 'reconcile')} ${highlight === 'reconcile' ? RING : ''}`}>
+        <span className="text-sm">🧾</span><span className="text-[10px] font-nunito font-bold text-hive-navy">PAN-1039 · approved</span>
+        <span className="ml-auto text-[8px] font-black bg-emerald-100 text-emerald-700 rounded-full px-1.5 py-0.5">RECONCILE</span>
+      </div>
+    </div>
+  );
+}
 
 const SCENE_MS = 4600;
 
@@ -66,6 +91,9 @@ function Visual({ scene }: { scene: GuideScene }) {
         </div>
       </div>
     );
+  }
+  if (v.kind === 'screen') {
+    return <PurchasesScreen highlight={v.highlight} />;
   }
   return <div className="text-[56px] leading-none">{v.emoji}</div>;
 }
@@ -184,6 +212,15 @@ export default function ModuleGuidePlayer({
                 <Link href={guide.ctaHref} onClick={close} className="inline-block bg-hive-honey text-white font-nunito font-black text-[13px] px-5 py-2.5 rounded-full">
                   {guide.ctaLabel || 'Open'} ▶
                 </Link>
+              )}
+              {guide.deeperGuideId && getGuide(guide.deeperGuideId)?.available && (
+                <button
+                  type="button"
+                  onClick={() => openModuleGuide(guide.deeperGuideId as string)}
+                  className="block mx-auto mt-3 text-[12.5px] font-nunito font-black text-hive-navy bg-black/8 rounded-full px-4 py-2"
+                >
+                  ⤵ Go deeper: {getGuide(guide.deeperGuideId)?.title}
+                </button>
               )}
               <button type="button" onClick={replay} className="block mx-auto mt-2.5 text-[12px] font-nunito font-extrabold text-hive-navy/55">↺ Watch again</button>
             </div>
