@@ -15,8 +15,10 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   subscribeToSubscriptions, computeSubscriptionKpis,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
+  computePlatformBreakdown, platformLabel,
   getGmailScanStatus, getGmailState, resolveGmailSuggestions, disconnectGmail,
-  Subscription, SubscriptionCategory, type GmailState,
+  Subscription, SubscriptionCategory, type GmailState, type SubscriptionPlatform,
+  type PlatformBucket,
 } from '@/lib/subscriptions';
 import { formatCents } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
@@ -29,7 +31,7 @@ import { type PaidByValue } from '@/components/household/PaidByPicker';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import ScanReceiptSheet, { type ReviewDraft } from '@/components/household/ScanReceiptSheet';
 
-function tsToIso(ts: Subscription['nextBillingDate']): string {
+function tsToIso(ts: Subscription['nextBillingDate'] | null): string {
   if (!ts) return '';
   const d = ts.toDate();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -44,6 +46,12 @@ export default function SubscriptionsListPage() {
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [activeCategory, setActiveCategory] = useState<SubscriptionCategory | null>(null);
+  // Status view: 'all' shows everything; default 'active' keeps held + stopped
+  // out of the way until the parent asks for them. 'paused' = On hold,
+  // 'cancelled' = Stopped.
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'paused' | 'cancelled'>('active');
+  // Platform narrowing — only surfaced inside the Mobile Apps & Software category.
+  const [platformFilter, setPlatformFilter] = useState<SubscriptionPlatform | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanToast, setScanToast] = useState('');
   // Gmail scheduled scan — env-gated. Connection state + pending suggestions.
@@ -153,9 +161,43 @@ export default function SubscriptionsListPage() {
     [subs, paidByFilter],
   );
   const kpis = useMemo(() => computeSubscriptionKpis(paidByScopedSubs), [paidByScopedSubs]);
+
+  // Status bucket for a sub: trial folds into Active (both are "live").
+  const statusBucket = (s: Subscription): 'active' | 'paused' | 'cancelled' =>
+    s.status === 'paused' ? 'paused' : s.status === 'cancelled' ? 'cancelled' : 'active';
+
+  // Counts per status bucket — live from the paid-by-scoped (not yet
+  // category/status filtered) set, so the chip numbers stay stable.
+  const statusCounts = useMemo(() => {
+    const c = { all: paidByScopedSubs.length, active: 0, paused: 0, cancelled: 0 };
+    for (const s of paidByScopedSubs) c[statusBucket(s)] += 1;
+    return c;
+  }, [paidByScopedSubs]);
+
+  const showPlatform = activeCategory === 'mobile_apps';
+
+  // Platform breakdown reflects the Mobile Apps & Software subs in the current
+  // status scope (before the platform chip narrows the list further).
+  const platformScoped = useMemo(
+    () => paidByScopedSubs.filter(
+      (s) => s.category === 'mobile_apps'
+        && (statusFilter === 'all' || statusBucket(s) === statusFilter),
+    ),
+    [paidByScopedSubs, statusFilter],
+  );
+  const platformBreakdown = useMemo(
+    () => computePlatformBreakdown(platformScoped),
+    [platformScoped],
+  );
+
   const filtered = useMemo(
-    () => paidByScopedSubs.filter((s) => !activeCategory || s.category === activeCategory),
-    [paidByScopedSubs, activeCategory],
+    () => paidByScopedSubs.filter((s) => {
+      if (activeCategory && s.category !== activeCategory) return false;
+      if (statusFilter !== 'all' && statusBucket(s) !== statusFilter) return false;
+      if (showPlatform && platformFilter && (s.platform ?? 'other') !== platformFilter) return false;
+      return true;
+    }),
+    [paidByScopedSubs, activeCategory, statusFilter, platformFilter, showPlatform],
   );
 
   // Label + tone for the hero so it's obvious whose numbers these are.
@@ -329,11 +371,49 @@ export default function SubscriptionsListPage() {
       )}
 
       {chips.length > 1 && (
-        <section className="mb-4">
+        <section className="mb-3">
           <FilterChips
             chips={chips}
             activeId={activeCategory}
-            onChange={(id) => setActiveCategory(id as SubscriptionCategory | null)}
+            onChange={(id) => {
+              const cat = id as SubscriptionCategory | null;
+              setActiveCategory(cat);
+              if (cat !== 'mobile_apps') setPlatformFilter(null);
+            }}
+          />
+        </section>
+      )}
+
+      {/* Status view — All / Active / On hold / Stopped. Default Active keeps
+          held + stopped out of the way until asked for. The hero KPIs above
+          stay at live commitment regardless of this filter. */}
+      <section className="mb-3">
+        <FilterChips
+          allLabel="All"
+          chips={[
+            { id: 'active',    label: 'Active',  count: statusCounts.active },
+            { id: 'paused',    label: 'On hold', count: statusCounts.paused },
+            { id: 'cancelled', label: 'Stopped', count: statusCounts.cancelled },
+          ]}
+          activeId={statusFilter === 'all' ? null : statusFilter}
+          onChange={(id) => setStatusFilter((id as 'active' | 'paused' | 'cancelled' | null) ?? 'all')}
+        />
+      </section>
+
+      {/* Platform — only inside Mobile Apps & Software. Breakdown card shows
+          which phone (or the web) carries the most software subscriptions. */}
+      {showPlatform && platformBreakdown.length > 0 && (
+        <section className="mb-4 space-y-3">
+          <PlatformBreakdownCard breakdown={platformBreakdown} currency={householdCurrency} />
+          <FilterChips
+            allLabel="All platforms"
+            chips={platformBreakdown.map((b) => ({
+              id: b.platform,
+              label: platformLabel(b.platform),
+              count: b.count,
+            }))}
+            activeId={platformFilter}
+            onChange={(id) => setPlatformFilter(id as SubscriptionPlatform | null)}
           />
         </section>
       )}
@@ -343,7 +423,9 @@ export default function SubscriptionsListPage() {
           Loading…
         </div>
       ) : filtered.length === 0 ? (
-        subs.length === 0 ? <EmptyState canAdd={profile.role === 'parent'} /> : <NoMatchesState onClear={() => setActiveCategory(null)} />
+        subs.length === 0
+          ? <EmptyState canAdd={profile.role === 'parent'} />
+          : <NoMatchesState onClear={() => { setActiveCategory(null); setStatusFilter('active'); setPlatformFilter(null); }} />
       ) : (
         <div className="space-y-2">
           {filtered.map((s) => (
@@ -352,6 +434,7 @@ export default function SubscriptionsListPage() {
               href={`/household/subscriptions/${s.id}`}
               emoji={subCategoryEmoji(s.category)}
               title={s.name}
+              dimmed={s.status === 'paused' || s.status === 'cancelled'}
               subtitle={
                 <>
                   <span>{subCategoryLabel(s.category)}</span>
@@ -360,12 +443,20 @@ export default function SubscriptionsListPage() {
                 </>
               }
               rightTop={formatCents(s.amountHousehold, householdCurrency)}
-              rightBottom={`Next ${toDisplayDate(tsToIso(s.nextBillingDate))}`}
+              rightBottom={
+                s.status === 'paused'
+                  ? 'On hold'
+                  : s.status === 'cancelled'
+                    ? `Ended ${toDisplayDate(tsToIso(s.endedOn)) || '—'}`
+                    : `Next ${toDisplayDate(tsToIso(s.nextBillingDate))}`
+              }
               badges={
                 <>
                   <PaidByTag uid={s.paidByUid ?? null} parents={parents} />
-                  {s.status === 'trial'  && <StatusBadge tone="gold">Trial</StatusBadge>}
-                  {s.status === 'paused' && <StatusBadge tone="muted">Paused</StatusBadge>}
+                  {s.status === 'trial'     && <StatusBadge tone="gold">Trial</StatusBadge>}
+                  {s.status === 'paused'    && <StatusBadge tone="muted">On hold</StatusBadge>}
+                  {s.status === 'cancelled' && <StatusBadge tone="coral">Stopped</StatusBadge>}
+                  {showPlatform && <StatusBadge tone="neutral">{platformLabel(s.platform)}</StatusBadge>}
                   {s.billingMode === 'manual' && <StatusBadge tone="gold">Manual</StatusBadge>}
                   {s.sourceModule === 'wealth' && <StatusBadge tone="muted">Wealth</StatusBadge>}
                 </>
@@ -394,6 +485,46 @@ export default function SubscriptionsListPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ── By-platform breakdown (Mobile Apps & Software) ───────────────────
+// Stacked bar + per-platform rows so a parent can see at a glance which
+// phone (or the web) is carrying the most software subscriptions.
+function PlatformBreakdownCard({
+  breakdown, currency,
+}: { breakdown: PlatformBucket[]; currency: string }) {
+  const totalMonthly = breakdown.reduce((s, b) => s + b.monthlyCents, 0);
+  // Segment colours — navy / gold / steel-blue / coral, cycled.
+  const seg = ['bg-pulse-navy', 'bg-pulse-gold', 'bg-house-white', 'bg-pulse-coral'];
+  return (
+    <div className="rounded-kaya bg-white border border-pulse-navy/10 px-4 py-3">
+      <div className="text-[11px] font-bold uppercase tracking-wide text-pulse-navy/55">
+        By platform
+      </div>
+      <div className="mt-2 flex gap-[3px] h-2.5 rounded-full overflow-hidden">
+        {breakdown.map((b, i) => (
+          <div
+            key={b.platform}
+            className={`${seg[i % seg.length]} rounded-full`}
+            style={{ flex: Math.max(totalMonthly > 0 ? b.monthlyCents : b.count, 1) }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 space-y-1">
+        {breakdown.map((b, i) => (
+          <div key={b.platform} className="flex items-center justify-between text-[12.5px] font-bold text-pulse-navy">
+            <span className="flex items-center gap-1.5">
+              <span className={`inline-block w-2 h-2 rounded-full ${seg[i % seg.length]}`} />
+              {platformLabel(b.platform)}
+            </span>
+            <span className="font-semibold text-pulse-navy/55">
+              {b.count} · {formatCents(b.monthlyCents, currency)}/mo
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

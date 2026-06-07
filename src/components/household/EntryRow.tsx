@@ -15,15 +15,16 @@ export interface EntryRowProps {
   rightTop: ReactNode;           // amount string
   rightBottom?: ReactNode;       // date / next-bill / "monthly" hint
   badges?: ReactNode;            // <StatusBadge>...</StatusBadge> instances
+  dimmed?: boolean;              // greyed treatment for held / stopped rows
 }
 
 export function EntryRow({
-  href, emoji, title, subtitle, rightTop, rightBottom, badges,
+  href, emoji, title, subtitle, rightTop, rightBottom, badges, dimmed = false,
 }: EntryRowProps) {
   return (
     <Link
       href={href}
-      className="flex items-center gap-3 rounded-kaya bg-white border border-pulse-navy/10 px-4 py-3 hover:border-pulse-gold/60 hover:shadow-sm transition-shadow"
+      className={`flex items-center gap-3 rounded-kaya bg-white border border-pulse-navy/10 px-4 py-3 hover:border-pulse-gold/60 hover:shadow-sm transition-shadow ${dimmed ? 'opacity-60' : ''}`}
     >
       <div className="text-2xl shrink-0">{emoji}</div>
 

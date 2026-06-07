@@ -25,6 +25,8 @@ import {
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
   updateSubscription, deleteSubscription, SUBSCRIPTION_SUBCATEGORIES,
   subMonthlyEquivalentCents,
+  holdSubscription, resumeSubscription, stopSubscription, reactivateSubscription,
+  isPrepaidFrequency,
   type SubscriptionCategory, type SubscriptionStatus, type SubscriptionFrequency,
 } from '@/lib/subscriptions';
 import { Timestamp } from 'firebase/firestore';
@@ -48,6 +50,13 @@ const STATUS_TONE: Record<Subscription['status'], StatusTone> = {
   cancelled: 'coral',
 };
 
+const STATUS_LABEL: Record<Subscription['status'], string> = {
+  active:    'Active',
+  trial:     'Trial',
+  paused:    'On hold',
+  cancelled: 'Stopped',
+};
+
 function tsToIso(ts: Subscription['nextBillingDate']): string {
   if (!ts) return '';
   const d = ts.toDate();
@@ -69,6 +78,8 @@ export default function SubscriptionDetailPage() {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const [actionSheet, setActionSheet] = useState<'hold' | 'stop' | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -95,6 +106,14 @@ export default function SubscriptionDetailPage() {
     if (!profile?.familyId) return;
     return subscribeToOpenAdvisories(profile.familyId, setAdvisories);
   }, [profile?.familyId]);
+
+  // Re-fetch the sub after a status action so the page reflects the new
+  // state (banner, badges, action row) immediately.
+  const refreshSub = async () => {
+    if (!profile?.familyId || !subId) return;
+    const fresh = await getSubscription(profile.familyId, subId);
+    if (fresh) setSub(fresh);
+  };
 
   if (authLoading || loading) {
     return <div className="p-6 text-pulse-navy/60">Loading…</div>;
@@ -134,7 +153,7 @@ export default function SubscriptionDetailPage() {
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <StatusBadge tone={STATUS_TONE[sub.status]}>{sub.status}</StatusBadge>
+          <StatusBadge tone={STATUS_TONE[sub.status]}>{STATUS_LABEL[sub.status]}</StatusBadge>
           <StatusBadge tone={sub.billingMode === 'auto' ? 'neutral' : 'gold'}>
             {sub.billingMode === 'auto' ? 'Auto' : 'Manual'}
           </StatusBadge>
@@ -143,6 +162,37 @@ export default function SubscriptionDetailPage() {
           {sub.platform && <StatusBadge tone="neutral">{sub.platform}</StatusBadge>}
         </div>
       </header>
+
+      {/* Status banner — only when held or stopped, so the parent sees at a
+          glance what's happening to the cost. */}
+      {sub.status === 'paused' && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-kaya bg-pulse-navy/5 border border-pulse-navy/12 px-4 py-3">
+          <span className="text-lg leading-none">⏸</span>
+          <p className="text-sm font-semibold text-pulse-navy/75">
+            <b className="font-extrabold">On hold.</b> Not counted in your monthly or annual totals, and
+            reminders are paused.
+            {sub.autoResumeOn
+              ? ` Auto-resumes ${toDisplayDate(tsToIso(sub.autoResumeOn))}.`
+              : ' Resume it any time below.'}
+          </p>
+        </div>
+      )}
+      {sub.status === 'cancelled' && (() => {
+        const prepaidStillCounting =
+          isPrepaidFrequency(sub.frequency, sub.customMonths) &&
+          (sub.nextBillingDate?.toMillis?.() ?? 0) > Date.now();
+        return (
+          <div className="mb-4 flex items-start gap-2.5 rounded-kaya bg-pulse-coral/8 border border-pulse-coral/30 px-4 py-3">
+            <span className="text-lg leading-none">⏹</span>
+            <p className="text-sm font-semibold text-pulse-navy/75">
+              <b className="font-extrabold">Stopped{sub.endedOn ? ` on ${toDisplayDate(tsToIso(sub.endedOn))}` : ''}.</b>{' '}
+              {prepaidStillCounting
+                ? `Already paid for, so it stays in your monthly & annual totals until ${toDisplayDate(tsToIso(sub.nextBillingDate))}, then drops off automatically.`
+                : 'Removed from your spend totals. History &amp; receipts are kept — you can reactivate it any time.'}
+            </p>
+          </div>
+        );
+      })()}
 
       {/* Amount + cadence */}
       <div className="rounded-kaya bg-white border border-pulse-navy/10 px-5 py-5 sm:px-6 sm:py-6 space-y-4">
@@ -272,36 +322,112 @@ export default function SubscriptionDetailPage() {
         </p>
       </div>
 
-      {/* Parent actions — Edit + Delete. Hidden for from-Wealth subs
-          since the canonical edit happens in Kaya Wealth there. */}
+      {/* Parent actions — status-aware. Hold / Stop for live subs, Resume /
+          Reactivate for held / stopped. Hidden for from-Wealth subs since the
+          canonical edit happens in Kaya Wealth. */}
       {!fromWealth && profile?.role === 'parent' && (
-        <div className="mt-5 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setEditOpen(true)}
-            className="flex-1 rounded-kaya bg-pulse-gold/15 border border-pulse-gold/30 text-pulse-navy font-extrabold text-sm py-2.5 hover:bg-pulse-gold/25 transition"
-          >
-            ✏️ Edit
-          </button>
-          <button
-            type="button"
-            onClick={async () => {
-              if (!profile?.familyId || !subId) return;
-              const ok = typeof window !== 'undefined' && window.confirm(
-                `Delete "${sub.name}"?\n\nCycles + ledger history stay intact, but this entry will disappear from the list. This can’t be undone.`,
-              );
-              if (!ok) return;
-              try {
-                await deleteSubscription(profile.familyId, subId);
-                router.replace('/household/subscriptions');
-              } catch (e) {
-                window.alert(`Delete failed: ${(e as Error).message || 'unknown error'}`);
-              }
-            }}
-            className="rounded-kaya bg-pulse-coral/12 border border-pulse-coral/35 text-pulse-coral font-extrabold text-sm py-2.5 px-4 hover:bg-pulse-coral/22 transition"
-          >
-            🗑 Delete
-          </button>
+        <div className="mt-5 space-y-2">
+          {/* Primary status actions */}
+          {(sub.status === 'active' || sub.status === 'trial') && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="flex-1 rounded-kaya bg-pulse-gold/15 border border-pulse-gold/30 text-pulse-navy font-extrabold text-sm py-2.5 hover:bg-pulse-gold/25 transition"
+              >
+                ✏️ Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionSheet('hold')}
+                className="flex-1 rounded-kaya bg-pulse-navy/5 border border-pulse-navy/15 text-pulse-navy font-extrabold text-sm py-2.5 hover:bg-pulse-navy/10 transition"
+              >
+                ⏸ Hold
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionSheet('stop')}
+                className="flex-1 rounded-kaya bg-pulse-coral/10 border border-pulse-coral/35 text-pulse-coral font-extrabold text-sm py-2.5 hover:bg-pulse-coral/20 transition"
+              >
+                ⏹ Stop
+              </button>
+            </div>
+          )}
+
+          {sub.status === 'paused' && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={async () => {
+                  if (!profile?.familyId || !subId) return;
+                  setActionBusy(true);
+                  try { await resumeSubscription(profile.familyId, subId); await refreshSub(); }
+                  catch (e) { window.alert(`Resume failed: ${(e as Error).message || 'unknown error'}`); }
+                  finally { setActionBusy(false); }
+                }}
+                className="flex-1 rounded-kaya bg-pulse-green text-white font-extrabold text-sm py-2.5 hover:opacity-90 transition disabled:opacity-50"
+              >
+                ▶ Resume now
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionSheet('stop')}
+                className="flex-1 rounded-kaya bg-pulse-coral/10 border border-pulse-coral/35 text-pulse-coral font-extrabold text-sm py-2.5 hover:bg-pulse-coral/20 transition"
+              >
+                ⏹ Stop
+              </button>
+            </div>
+          )}
+
+          {sub.status === 'cancelled' && (
+            <button
+              type="button"
+              disabled={actionBusy}
+              onClick={async () => {
+                if (!profile?.familyId || !subId) return;
+                setActionBusy(true);
+                try { await reactivateSubscription(profile.familyId, subId); await refreshSub(); }
+                catch (e) { window.alert(`Reactivate failed: ${(e as Error).message || 'unknown error'}`); }
+                finally { setActionBusy(false); }
+              }}
+              className="w-full rounded-kaya bg-pulse-green/12 border border-pulse-green/40 text-pulse-green font-extrabold text-sm py-2.5 hover:bg-pulse-green/20 transition disabled:opacity-50"
+            >
+              ▶ Reactivate
+            </button>
+          )}
+
+          {/* Secondary — Edit (when not shown above) + Delete */}
+          <div className="flex items-center gap-2 pt-1">
+            {sub.status !== 'active' && sub.status !== 'trial' && (
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="flex-1 rounded-kaya bg-white border border-pulse-navy/15 text-pulse-navy/70 font-bold text-sm py-2 hover:bg-pulse-navy/5 transition"
+              >
+                ✏️ Edit details
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                if (!profile?.familyId || !subId) return;
+                const ok = typeof window !== 'undefined' && window.confirm(
+                  `Delete "${sub.name}"?\n\nThis removes the entry entirely. To just stop it counting, use Hold or Stop instead — those keep the history. Delete can’t be undone.`,
+                );
+                if (!ok) return;
+                try {
+                  await deleteSubscription(profile.familyId, subId);
+                  router.replace('/household/subscriptions');
+                } catch (e) {
+                  window.alert(`Delete failed: ${(e as Error).message || 'unknown error'}`);
+                }
+              }}
+              className="rounded-kaya bg-white border border-pulse-navy/12 text-pulse-navy/45 font-bold text-[13px] py-2 px-4 hover:text-pulse-coral hover:border-pulse-coral/30 transition"
+            >
+              🗑 Delete
+            </button>
+          </div>
         </div>
       )}
 
@@ -326,6 +452,186 @@ export default function SubscriptionDetailPage() {
           }}
         />
       )}
+
+      {/* Hold confirm sheet */}
+      {actionSheet === 'hold' && !fromWealth && profile?.familyId && subId && (
+        <HoldSheet
+          subName={sub.name}
+          onClose={() => setActionSheet(null)}
+          onConfirm={async (resumeOn) => {
+            await holdSubscription(profile.familyId!, subId, resumeOn);
+            await refreshSub();
+            setActionSheet(null);
+          }}
+        />
+      )}
+
+      {/* Stop confirm sheet */}
+      {actionSheet === 'stop' && !fromWealth && profile?.familyId && subId && (
+        <StopSheet
+          subName={sub.name}
+          prepaid={isPrepaidFrequency(sub.frequency, sub.customMonths)}
+          paidThroughIso={tsToIso(sub.nextBillingDate)}
+          onClose={() => setActionSheet(null)}
+          onConfirm={async (endedOn) => {
+            await stopSubscription(profile.familyId!, subId, endedOn);
+            await refreshSub();
+            setActionSheet(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Hold sheet ───────────────────────────────────────────────────────
+// Pause a subscription. Either hold until the parent resumes, or schedule
+// an automatic return on a chosen date (the cron flips it back).
+function HoldSheet({
+  subName, onClose, onConfirm,
+}: {
+  subName: string;
+  onClose: () => void;
+  onConfirm: (resumeOn: Timestamp | null) => Promise<void>;
+}) {
+  const [mode, setMode] = useState<'manual' | 'date'>('manual');
+  const [resumeIso, setResumeIso] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const confirm = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      let resumeOn: Timestamp | null = null;
+      if (mode === 'date') {
+        const [y, m, d] = resumeIso.split('-').map(Number);
+        if (!y || !m || !d) throw new Error('Pick a resume date or switch to “until I resume”.');
+        resumeOn = Timestamp.fromDate(new Date(y, m - 1, d));
+      }
+      await onConfirm(resumeOn);
+    } catch (e) {
+      setErr((e as Error).message || 'Could not hold');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-3 bg-black/40" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-md bg-white rounded-3xl shadow-2xl p-5 space-y-3">
+        <h3 className="font-display font-extrabold text-[18px] text-pulse-navy">⏸ Hold this subscription?</h3>
+        <p className="text-sm font-semibold text-pulse-navy/65">
+          <b>{subName}</b> stops counting toward your monthly totals and reminders pause. You can resume any time.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => setMode('manual')}
+          className={`w-full text-left rounded-kaya border px-3.5 py-2.5 transition ${mode === 'manual' ? 'border-pulse-gold bg-pulse-gold/8' : 'border-pulse-navy/12'}`}
+        >
+          <div className="font-display font-extrabold text-[13.5px] text-pulse-navy">Hold until I resume</div>
+          <div className="text-[11.5px] font-semibold text-pulse-navy/55">Stays on hold until you tap Resume.</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode('date')}
+          className={`w-full text-left rounded-kaya border px-3.5 py-2.5 transition ${mode === 'date' ? 'border-pulse-gold bg-pulse-gold/8' : 'border-pulse-navy/12'}`}
+        >
+          <div className="font-display font-extrabold text-[13.5px] text-pulse-navy">Auto-resume on a date</div>
+          <div className="text-[11.5px] font-semibold text-pulse-navy/55">Kaya flips it back to active for you.</div>
+        </button>
+        {mode === 'date' && (
+          <div className="space-y-1">
+            <label className="block text-[10.5px] font-bold uppercase tracking-wide text-pulse-navy/65">Resume on</label>
+            <input
+              type="date"
+              value={resumeIso}
+              onChange={(e) => setResumeIso(e.target.value)}
+              className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold"
+            />
+          </div>
+        )}
+
+        {err && <div className="text-[12px] font-bold text-pulse-coral">{err}</div>}
+
+        <div className="flex items-center gap-2 pt-1">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-kaya-sm text-sm font-bold text-pulse-navy/65 hover:bg-pulse-navy/5">Cancel</button>
+          <button type="button" onClick={confirm} disabled={busy} className="flex-1 rounded-kaya-sm bg-pulse-navy text-white font-extrabold text-sm py-2.5 disabled:opacity-50">
+            {busy ? 'Holding…' : 'Hold subscription'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Stop sheet ───────────────────────────────────────────────────────
+// Deactivate a subscription. Stamps an end date (defaults to today). The
+// counting note adapts: a prepaid sub keeps counting until paid-through.
+function StopSheet({
+  subName, prepaid, paidThroughIso, onClose, onConfirm,
+}: {
+  subName: string;
+  prepaid: boolean;
+  paidThroughIso: string;
+  onClose: () => void;
+  onConfirm: (endedOn: Timestamp | null) => Promise<void>;
+}) {
+  const today = (() => {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  })();
+  const [endedIso, setEndedIso] = useState(today);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const confirm = async () => {
+    setBusy(true);
+    setErr('');
+    try {
+      const [y, m, d] = endedIso.split('-').map(Number);
+      const endedOn = (y && m && d) ? Timestamp.fromDate(new Date(y, m - 1, d)) : Timestamp.now();
+      await onConfirm(endedOn);
+    } catch (e) {
+      setErr((e as Error).message || 'Could not stop');
+      setBusy(false);
+    }
+  };
+
+  const prepaidStillCounting = prepaid && paidThroughIso &&
+    new Date(paidThroughIso).getTime() > Date.now();
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-3 bg-black/40" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="w-full sm:max-w-md bg-white rounded-3xl shadow-2xl p-5 space-y-3">
+        <h3 className="font-display font-extrabold text-[18px] text-pulse-navy">⏹ Stop this subscription?</h3>
+        <p className="text-sm font-semibold text-pulse-navy/65">
+          We&apos;ll mark <b>{subName}</b> ended and {prepaidStillCounting
+            ? `keep its cost in your totals until ${toDisplayDate(paidThroughIso)} (you&apos;ve already paid for it), then drop it.`
+            : 'remove it from your spend totals straight away.'} Your payment history and receipts are kept, and you can reactivate it later.
+        </p>
+
+        <div className="space-y-1">
+          <label className="block text-[10.5px] font-bold uppercase tracking-wide text-pulse-navy/65">Ended on</label>
+          <input
+            type="date"
+            value={endedIso}
+            onChange={(e) => setEndedIso(e.target.value)}
+            className="w-full bg-white border border-pulse-navy/15 rounded-kaya-sm px-3 py-2 text-sm font-semibold focus:outline-none focus:border-pulse-gold"
+          />
+        </div>
+
+        {err && <div className="text-[12px] font-bold text-pulse-coral">{err}</div>}
+
+        <div className="flex items-center gap-2 pt-1">
+          <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-kaya-sm text-sm font-bold text-pulse-navy/65 hover:bg-pulse-navy/5">Cancel</button>
+          <button type="button" onClick={confirm} disabled={busy} className="flex-1 rounded-kaya-sm bg-pulse-coral text-white font-extrabold text-sm py-2.5 disabled:opacity-50">
+            {busy ? 'Stopping…' : 'Stop subscription'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

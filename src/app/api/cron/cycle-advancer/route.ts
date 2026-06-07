@@ -43,9 +43,33 @@ async function run(req: NextRequest) {
   const nowDate = now.toDate();
   let promotedOverdue = 0;
   let remindersSent = 0;
+  let autoResumed = 0;
   let scanned = 0;
 
   try {
+    // ── Pass 0: auto-resume held subs ────────────────────────────────
+    // A sub put On hold with a chosen return date carries autoResumeOn.
+    // Once that date arrives, flip it back to active and clear the field.
+    const resumeSnap = await db.collectionGroup('subscriptions')
+      .where('status', '==', 'paused')
+      .where('autoResumeOn', '<=', now)
+      .get();
+
+    scanned += resumeSnap.size;
+    if (resumeSnap.size > 0) {
+      const batch = db.batch();
+      for (const doc of resumeSnap.docs) {
+        // Guard: only resume when there's a real date that has arrived. A
+        // hold-until-I-resume sub stores autoResumeOn = null, which a range
+        // query can still surface — skip those so they stay held.
+        const ar = doc.get('autoResumeOn') as Timestamp | null | undefined;
+        if (!ar || typeof ar.toMillis !== 'function' || ar.toMillis() > now.toMillis()) continue;
+        batch.update(doc.ref, { status: 'active', autoResumeOn: null, updatedAt: now });
+        autoResumed += 1;
+      }
+      if (autoResumed > 0) await batch.commit();
+    }
+
     // ── Pass 1: promote overdue ──────────────────────────────────────
     const overdueSnap = await db.collectionGroup('cycles')
       .where('status', 'in', ['upcoming', 'due'])
@@ -150,6 +174,7 @@ async function run(req: NextRequest) {
     scanned,
     promotedOverdue,
     remindersSent,
+    autoResumed,
     note: 'In-app bell only for v1. FCM web-push + WhatsApp share layer next.',
   });
 }
