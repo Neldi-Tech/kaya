@@ -39,7 +39,7 @@ import SparksIcon from '@/components/brand/SparksIcon';
 // shape the mockup designs around. Keep edits in lockstep with the
 // mockup so the parent landing stays faithful.
 
-type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop';
+type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit';
 
 const AREA_PITCH: Record<SparksArea, {
   badge: Badge;
@@ -131,6 +131,20 @@ const AREA_PITCH: Record<SparksArea, {
     ],
     aiTag: '✨ AI scores + tailors next round',
     workplanTag: '🎉 Earns Kaya Points',
+  },
+  reflection: {
+    badge: '07 · Daily Habit',
+    badgeBg: '#DCEEFB', badgeFg: '#3F6FA0', cornerBg: '#5AB7D6',
+    purpose: 'A daily self-reflection habit. On school days the kid writes how their day went BY HAND and scans it; Kaya reads the handwriting and replies with warm, structured feedback. A streak keeps them consistent so parents see real daily progress.',
+    features: [
+      'Scan-first — kid writes by hand, AI reads it (handwriting OCR)',
+      'Structured feedback: 🌟 what went well · 💡 one tip · 👏 cheer',
+      'School-day-aware streak + week strip',
+      'Parent controls typing: master toggle + which weekdays it’s allowed',
+      'Every entry + AI reply visible to the parent',
+    ],
+    aiTag: '✨ AI reads handwriting + gives kind feedback',
+    workplanTag: '🔥 Builds a daily streak',
   },
 };
 

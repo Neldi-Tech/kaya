@@ -234,6 +234,7 @@ const AREA_ACCENT: Record<SparksArea, string> = {
   academic:            '#A66CFF',
   sports_subscription: '#4ECDC4',
   revision:            '#5A3CB8',
+  reflection:          '#5AB7D6',
 };
 
 export function categoryBreakdown(
@@ -261,6 +262,7 @@ export function categoryBreakdown(
     academic:            { count: academicCount, stars: 0, sn: 0, pct: 0, pn: 0 },
     sports_subscription: { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     revision:            { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
+    reflection:          { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
   };
 
   for (const it of items) {

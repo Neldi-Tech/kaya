@@ -1275,6 +1275,29 @@ service cloud.firestore {
         allow create, update, delete: if isParentInFamily(familyId);
       }
 
+      // sparks_reflections · Daily Reflection entries (2026-06-07).
+      // One doc per kid per day (id = `${kidId}_${YYYY-MM-DD}`). The kid
+      // writes their OWN reflection (camelCase `kidId` field); a parent
+      // can write any (e.g. help a young kid). Read: parents always; the
+      // kid themselves; siblings only when the owner's visibility is open.
+      match /sparks_reflections/{docId} {
+        function _vis(kidId) {
+          return exists(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId))
+            ? get(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId)).data.sibling_visibility
+            : 'open';
+        }
+        allow read: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.kidId)
+          || (
+              getUserProfile().role == 'kid'
+              && belongsToFamily(familyId)
+              && _vis(resource.data.kidId) == 'open'
+            );
+        allow create, update: if isParentInFamily(familyId)
+          || isThisKid(familyId, request.resource.data.kidId);
+        allow delete: if isParentInFamily(familyId);
+      }
+
       // sparks_tasks · workplan-wired tasks. Mirrors workplanItems —
       // parents author + edit; the kid can flip only the submission
       // fields when they upload proof; helpers READ-ONLY.

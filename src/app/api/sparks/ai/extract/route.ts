@@ -35,7 +35,8 @@ type ExtractKind =
   | 'academic'
   | 'school_project'
   | 'home_project'
-  | 'sports_subscription';
+  | 'sports_subscription'
+  | 'reflection';
 
 interface ExtractBody {
   imageBase64: string;
@@ -177,6 +178,25 @@ const SPORTS_SUBSCRIPTION_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+const REFLECTION_SYSTEM = `You read a photo of a child's HANDWRITTEN daily reflection — a few sentences about how their school day went — and transcribe it faithfully so it can be saved as typed text.
+
+Return JSON: {
+  "text": the transcribed reflection in plain text, preserving the child's own words, sentence order, and meaning. Fix only obvious spelling so it reads cleanly; keep it in the child's voice. Use normal sentence spacing; join wrapped lines into sentences.
+}
+
+Rules:
+- Transcribe ONLY what is written. Never add, summarise, or invent content.
+- If a word is illegible, use [?] in its place rather than guessing.
+- If the image is not a handwritten reflection (blank page, unrelated photo), return "".
+- Do not include the child's name or any header/date line — just the reflection body.`;
+
+const REFLECTION_SCHEMA = {
+  type: 'object',
+  properties: { text: { type: 'string' } },
+  required: ['text'],
+  additionalProperties: false,
+} as const;
+
 export async function POST(req: NextRequest) {
   if (!client) {
     return NextResponse.json({ skipped: true, reason: 'ANTHROPIC_API_KEY not set' });
@@ -203,18 +223,21 @@ export async function POST(req: NextRequest) {
     : kind === 'academic'          ? ACADEMIC_SYSTEM
     : kind === 'school_project'    ? SCHOOL_PROJECT_SYSTEM
     : kind === 'home_project'      ? HOME_PROJECT_SYSTEM
+    : kind === 'reflection'        ? REFLECTION_SYSTEM
     :                                SPORTS_SUBSCRIPTION_SYSTEM;
   const schema =
     kind === 'achievement'         ? ACHIEVEMENT_SCHEMA
     : kind === 'academic'          ? ACADEMIC_SCHEMA
     : kind === 'school_project'    ? SCHOOL_PROJECT_SCHEMA
     : kind === 'home_project'      ? HOME_PROJECT_SCHEMA
+    : kind === 'reflection'        ? REFLECTION_SCHEMA
     :                                SPORTS_SUBSCRIPTION_SCHEMA;
 
   const emptyFallback =
     kind === 'achievement'         ? { awardName: '', issuer: '', date: '', category: 'other' }
     : kind === 'academic'          ? { term: '', year: 0, subjects: [], teacherNotes: '' }
     : kind === 'school_project'    ? { title: '', description: '', subject: '' }
+    : kind === 'reflection'        ? { text: '' }
     :                                { title: '', description: '' };
 
   try {

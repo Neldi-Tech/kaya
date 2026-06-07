@@ -38,6 +38,7 @@ import {
 import {
   countItemsByArea, getAcademicCount, subscribeToAllKidItems,
 } from '@/lib/sparks/firestore';
+import { subscribeToReflections, computeReflectionStreak } from '@/lib/sparks/reflection';
 
 // Kid palette accents per area — direct from the mockup
 // (Step 2 · Module landing). Coral · Yellow · Green · Purple · Mint
@@ -49,6 +50,7 @@ const AREA_ACCENT: Record<SparksArea, { bg: string; fg: string }> = {
   academic:            { bg: '#E5D6FF', fg: '#5A3CB8' }, // bg-purple
   sports_subscription: { bg: '#C9F0EC', fg: '#1E7873' }, // bg-mint
   revision:            { bg: '#E0D7FF', fg: '#1B1547' }, // bg-deep-purple (study vibe)
+  reflection:          { bg: '#DCEEFB', fg: '#3F6FA0' }, // bg-sky (calm mirror vibe)
 };
 
 // Short single-line subtitles for the row cards — punchier than the
@@ -60,6 +62,7 @@ const AREA_SUB: Record<SparksArea, string> = {
   academic:            'Results, behavior, follow-ups',
   sports_subscription: 'Subscriptions, schedules',
   revision:            'Practice · AI scores + suggests',
+  reflection:          'Daily · scan + AI feedback',
 };
 
 export default function KidSparksHomePage() {
@@ -97,9 +100,18 @@ export default function KidSparksHomePage() {
   const familyId = profile?.familyId;
   const [items, setItems] = useState<SparksItem[]>([]);
   const [academicCount, setAcademicCount] = useState<number | null>(null);
+  // Daily Reflection isn't a sparks_item — the card's chip shows the
+  // current streak (🔥) instead of a row count. (2026-06-07)
+  const [reflectionStreak, setReflectionStreak] = useState<number | null>(null);
   useEffect(() => {
     if (!familyId || !kidId) return;
     return subscribeToAllKidItems(familyId, kidId, setItems);
+  }, [familyId, kidId]);
+  useEffect(() => {
+    if (!familyId || !kidId) { setReflectionStreak(null); return; }
+    return subscribeToReflections(familyId, kidId, (entries) => {
+      setReflectionStreak(computeReflectionStreak(entries).current);
+    });
   }, [familyId, kidId]);
   useEffect(() => {
     if (!familyId || !kidId) { setAcademicCount(null); return; }
@@ -113,12 +125,15 @@ export default function KidSparksHomePage() {
   const itemCounts = useMemo(() => countItemsByArea(items), [items]);
   function countForArea(area: SparksArea): number | null {
     if (area === 'academic') return academicCount;
+    if (area === 'reflection') return reflectionStreak;
     return itemCounts[area];
   }
   function chipFor(area: SparksArea): string {
     const c = countForArea(area);
     if (c === null) return '…'; // loading
     if (c === 0) return 'Start';
+    // Reflection chip reads as a streak ("🔥5"), others as a plain count.
+    if (area === 'reflection') return `🔥${c}`;
     return String(c);
   }
 
