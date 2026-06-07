@@ -229,6 +229,12 @@ export default function RevisionsPage() {
                             {score}%
                           </span>
                         )}
+                        {/* Slice 7i · coverage chip — N/N questions read. */}
+                        {d?.ai_breakdown_structured && d.ai_breakdown_structured.coverage.total > 0 && (
+                          <span className="text-[10.5px] font-extrabold rounded-full px-2 py-0.5 bg-[#E5D6FF] text-[#5A3CB8]">
+                            📋 {d.ai_breakdown_structured.coverage.read} / {d.ai_breakdown_structured.coverage.total} read
+                          </span>
+                        )}
                         {d?.points_awarded && (
                           <span className="text-[10.5px] font-extrabold rounded-full px-2 py-0.5 bg-[#FFF1C9] text-[#8A6800]">
                             🎉 +pts
@@ -289,12 +295,18 @@ export default function RevisionsPage() {
                       )}
                     </div>
                   </div>
-                  {d?.ai_notes && (
+                  {/* Slice 7i · Structured feedback when present, legacy
+                      blob fallback otherwise. The disclaimer renders only
+                      below the structured layout — old rows already have
+                      a tone we don't want to add a warning to retroactively. */}
+                  {d?.ai_breakdown_structured ? (
+                    <StructuredFeedback s={d.ai_breakdown_structured} />
+                  ) : d?.ai_notes ? (
                     <div className="mt-2.5 bg-[#FBF7EE] rounded-lg px-3 py-2 text-[12px] text-[#0F1F44] leading-snug">
                       <span className="text-[#5A3CB8] font-bold">✨ </span>
                       {d.ai_notes}
                     </div>
-                  )}
+                  ) : null}
                   {/* Question-mode rows show the parsed questions; answers-mode
                       rows show the next 3 follow-ups Claude generated. */}
                   {isQuestionsMode && d?.parsed_questions && d.parsed_questions.length > 0 && (
@@ -390,5 +402,110 @@ export default function RevisionsPage() {
         />
       )}
     </>
+  );
+}
+
+// ── Slice 7i · structured AI feedback renderer ───────────────────────
+//
+// Mirrors the approved design proposal exactly:
+//   💪 Strengths   (green block · 2-5 specific bullets · always shown)
+//   📝 Areas       (coral block · only wrong/partial · ref + topic + what + tip)
+//   📊 Q-by-Q      (collapsible · every question · ✓ / ~ / ✗)
+//   ⚠️ Disclaimer (amber dashed · always shown)
+
+function StructuredFeedback({ s }: { s: NonNullable<SparksItem['revision_data']>['ai_breakdown_structured'] }) {
+  if (!s) return null;
+  const hasStrengths = s.strengths.length > 0;
+  const hasAreas = s.areas.length > 0;
+  const hasQbq = s.qbq.length > 0;
+
+  return (
+    <div className="mt-2.5 space-y-2">
+      {hasStrengths && (
+        <div className="bg-[#DDF5DF] border border-[#2E7D34]/20 rounded-lg px-3 py-2">
+          <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#2E7D34] mb-1">
+            💪 Strengths
+          </div>
+          <ul className="m-0 pl-4 text-[12px] leading-snug text-[#1F4F23]">
+            {s.strengths.map((line, idx) => (
+              <li key={idx} className="py-0.5">{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {hasAreas && (
+        <div className="border border-[#ECE4D3] rounded-lg overflow-hidden">
+          <div className="bg-[#FFF5F2] px-3 py-1.5 border-b border-[#ECE4D3]">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#A33A2A]">
+              📝 Areas to revisit · {s.areas.length}
+            </div>
+          </div>
+          <ul className="m-0 p-0 list-none">
+            {s.areas.map((a, idx) => (
+              <li key={idx} className={`px-3 py-2 ${idx < s.areas.length - 1 ? 'border-b border-[#ECE4D3]' : ''}`}>
+                <div className="text-[12.5px]">
+                  {a.question_ref && (
+                    <span className="inline-block bg-[#FFE7E0] text-[#A33A2A] text-[10px] font-extrabold px-2 py-0.5 rounded-full mr-2">
+                      {a.question_ref}
+                    </span>
+                  )}
+                  <span className="font-extrabold text-[#0F1F44]">{a.topic}</span>
+                </div>
+                <div className="text-[12px] text-[#0F1F44] mt-1 leading-snug">{a.what_happened}</div>
+                {a.tip && (
+                  <div className="text-[11.5px] text-[#5A3CB8] bg-[#F6EFFF] mt-1.5 px-2 py-1 rounded">
+                    💡 <strong>Tip:</strong> {a.tip}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {hasQbq && (
+        <details className="border border-[#ECE4D3] rounded-lg group">
+          <summary className="cursor-pointer bg-[#FBF7EE] px-3 py-1.5 text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] list-none flex items-center justify-between">
+            <span>📊 Full breakdown · all {s.qbq.length} questions</span>
+            <span className="text-[11px] font-extrabold text-[#5A3CB8] group-open:rotate-180 transition-transform">▾</span>
+          </summary>
+          <ul className="m-0 p-0 list-none grid grid-cols-1 sm:grid-cols-2">
+            {s.qbq.map((q, idx) => {
+              const isLastRow = idx >= s.qbq.length - 2;
+              const isRightCol = idx % 2 === 1;
+              return (
+                <li
+                  key={q.question_ref + idx}
+                  className={`px-3 py-1.5 text-[12px] flex items-center gap-2 ${!isLastRow ? 'border-b border-[#ECE4D3]' : ''} ${isRightCol ? '' : 'sm:border-r sm:border-[#ECE4D3]'}`}
+                >
+                  <span className="font-extrabold text-[#5A6488] min-w-[34px]">{q.question_ref}</span>
+                  <span
+                    className="font-extrabold text-[13px]"
+                    style={{
+                      color:
+                        q.status === 'correct' ? '#2E7D34'
+                        : q.status === 'wrong' ? '#A33A2A'
+                        : '#8A6800',
+                    }}
+                    aria-label={q.status}
+                  >
+                    {q.status === 'correct' ? '✓' : q.status === 'wrong' ? '✗' : '~'}
+                  </span>
+                  <span className="text-[#0F1F44] truncate">{q.topic}</span>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
+      )}
+
+      <div className="bg-[#FFFAEB] border border-dashed border-[#D4A847] rounded-lg px-3 py-2 text-[11px] text-[#5A4500] leading-snug flex items-start gap-2">
+        <span className="text-base leading-none shrink-0" aria-hidden>⚠️</span>
+        <div>
+          <strong>AI can read this wrong.</strong> Claude scored this from photos — handwriting + image quality can fool it, especially on math notation, decimals, and crossed-out edits. Please skim the actual paper before finalizing a mark, especially anything that feels off.
+        </div>
+      </div>
+    </div>
   );
 }
