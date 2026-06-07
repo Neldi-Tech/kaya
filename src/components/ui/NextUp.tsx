@@ -3,6 +3,15 @@
 // meeting → reward, etc.) so families read the modules as a path
 // instead of isolated rooms.
 //
+// 2026-06-07 layout fix (PR #1 of Sunday-Meeting v2 SDP):
+// Old layout stacked the "Next up" eyebrow above the label inside a
+// flex-1 column. On narrow phones the label wrapped to 2-3 lines and
+// the Go pill drifted mid-stack ("outsize"). New layout is a single
+// horizontal pill — inline "NEXT UP" tag + label (truncated) + Go —
+// matching the approved Kaya-Sunday-Meeting v2 design proposal. The
+// emoji shrinks on mobile so the label always has room, and a soft
+// shadow lifts it off the page background.
+//
 // Server-component-safe (no client state) — just markup + a Link.
 
 import Link from 'next/link';
@@ -58,26 +67,28 @@ export default function NextUp({ from }: { from: NextUpFrom }) {
   const target = NEXT_UP_MAP[from];
   return (
     <div
-      className="mt-6 rounded-kaya border border-brand-honey/35 px-4 py-3 sm:px-5 sm:py-3.5 flex items-center gap-3 sm:gap-4"
+      className="mt-6 rounded-kaya border border-brand-honey/35 px-3 py-2.5 sm:px-4 sm:py-3 flex items-center gap-2.5 sm:gap-3 shadow-sm"
       style={{
         background:
           'linear-gradient(90deg, var(--brand-cream-warm, #F8EED4) 0%, white 100%)',
       }}
     >
-      <span className="text-2xl shrink-0" aria-hidden>
+      <span className="text-xl sm:text-2xl shrink-0" aria-hidden>
         {target.emoji}
       </span>
-      <div className="flex-1 min-w-0">
-        <div className="text-[10.5px] font-extrabold text-brand-honey-dk uppercase tracking-[0.1em] leading-none">
+      {/* Inline row: NEXT UP tag · label. min-w-0 lets the label truncate
+          instead of pushing the Go pill out / wrapping the whole strip. */}
+      <div className="flex-1 min-w-0 flex items-center gap-2">
+        <span className="shrink-0 text-[9.5px] sm:text-[10px] font-extrabold text-brand-honey-dk uppercase tracking-[0.12em] bg-white/70 border border-brand-honey/30 px-2 py-0.5 rounded-full leading-none">
           Next up
-        </div>
-        <div className="text-[13.5px] sm:text-[14px] font-extrabold text-brand-navy mt-0.5 leading-snug">
+        </span>
+        <span className="min-w-0 truncate text-[13px] sm:text-[14px] font-extrabold text-brand-navy leading-tight">
           {target.label}
-        </div>
+        </span>
       </div>
       <Link
         href={target.href}
-        className="bg-brand-honey hover:bg-brand-honey-dk text-brand-navy text-[12px] font-extrabold px-3.5 py-2 rounded-full shrink-0 no-underline transition-colors whitespace-nowrap"
+        className="bg-brand-honey hover:bg-brand-honey-dk text-brand-navy text-[12px] font-extrabold px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-full shrink-0 no-underline transition-colors whitespace-nowrap"
       >
         Go →
       </Link>
