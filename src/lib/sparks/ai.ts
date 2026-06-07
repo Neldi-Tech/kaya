@@ -317,6 +317,73 @@ export interface ScoreRevisionArgs {
   /** 'answers' (default) = score the work · 'questions' = parse the page. */
   mode?: RevisionMode;
   focusSubjects?: string[];
+  /** Question paper / worksheet page URLs so the AI marks the answers
+   *  against the real questions (Scanning 2.0 · PR 5). */
+  questionPaperUrls?: string[];
+}
+
+/** Re-evaluate ALREADY-uploaded work (no re-capture): the server fetches the
+ *  existing answer images + question paper by URL and re-scores with the
+ *  kid/parent clarification. Powers the revision re-evaluation chat. */
+export interface ReEvaluateRevisionArgs {
+  imageUrls: string[];
+  kidName: string;
+  clarification: string;
+  questionPaperUrls?: string[];
+  focusSubjects?: string[];
+}
+
+/** Normalise a raw /revision-score response into a safe RevisionScore.
+ *  Shared by scoreRevision (fresh files) + reEvaluateRevision (URLs). */
+export function normalizeRevisionScore(data: unknown): RevisionScore {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const rawStructured = d.structured as Record<string, unknown> | undefined;
+  const cov = rawStructured?.coverage as Record<string, unknown> | undefined;
+  const structured: RevisionStructured | undefined = rawStructured && typeof rawStructured === 'object'
+    ? {
+        coverage: { read: Number(cov?.read ?? 0), total: Number(cov?.total ?? 0) },
+        strengths: Array.isArray(rawStructured.strengths)
+          ? (rawStructured.strengths as unknown[]).filter((s): s is string => typeof s === 'string')
+          : [],
+        areas: Array.isArray(rawStructured.areas)
+          ? (rawStructured.areas as unknown[])
+              .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+              .map((a) => ({
+                question_ref: typeof a.question_ref === 'string' ? a.question_ref : undefined,
+                topic: String(a.topic ?? ''),
+                what_happened: String(a.what_happened ?? ''),
+                tip: typeof a.tip === 'string' && a.tip.length > 0 ? a.tip : undefined,
+              }))
+              .filter((a) => a.topic.length > 0 && a.what_happened.length > 0)
+          : [],
+        qbq: Array.isArray(rawStructured.qbq)
+          ? (rawStructured.qbq as unknown[])
+              .filter((q): q is Record<string, unknown> => !!q && typeof q === 'object')
+              .map((q) => ({
+                question_ref: String(q.question_ref ?? ''),
+                topic: String(q.topic ?? ''),
+                status: (q.status === 'correct' || q.status === 'partial' || q.status === 'wrong')
+                  ? q.status as 'correct' | 'partial' | 'wrong'
+                  : 'partial',
+              }))
+              .filter((q) => q.question_ref.length > 0)
+          : [],
+      }
+    : undefined;
+  return {
+    mode: (d.mode === 'questions' ? 'questions' : 'answers') as RevisionMode,
+    subject: String(d.subject ?? 'Other'),
+    gradeLevel: String(d.gradeLevel ?? ''),
+    score: Number(d.score ?? 0),
+    breakdown: {
+      correct: Number((d.breakdown as Record<string, unknown>)?.correct ?? 0),
+      partial: Number((d.breakdown as Record<string, unknown>)?.partial ?? 0),
+      wrong: Number((d.breakdown as Record<string, unknown>)?.wrong ?? 0),
+    },
+    notes: String(d.notes ?? ''),
+    parsedQuestions: Array.isArray(d.parsedQuestions) ? (d.parsedQuestions as string[]) : [],
+    ...(structured ? { structured } : {}),
+  };
 }
 
 export async function scoreRevision(
@@ -342,64 +409,44 @@ export async function scoreRevision(
         kidName: args.kidName,
         mode: args.mode ?? 'answers',
         focusSubjects: args.focusSubjects,
+        questionPaperUrls: args.questionPaperUrls,
       }),
     });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const data = await res.json();
     if (data?.skipped) return { ok: false, skipped: true };
-    // Belt + braces — older responses might miss the parsedQuestions field.
-    const rawStructured = data?.structured;
-    const structured: RevisionStructured | undefined = rawStructured && typeof rawStructured === 'object'
-      ? {
-          coverage: {
-            read:  Number(rawStructured.coverage?.read  ?? 0),
-            total: Number(rawStructured.coverage?.total ?? 0),
-          },
-          strengths: Array.isArray(rawStructured.strengths)
-            ? rawStructured.strengths.filter((s: unknown): s is string => typeof s === 'string')
-            : [],
-          areas: Array.isArray(rawStructured.areas)
-            ? (rawStructured.areas as unknown[])
-                .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
-                .map((a) => ({
-                  question_ref:  typeof a.question_ref  === 'string' ? a.question_ref  : undefined,
-                  topic:         String(a.topic ?? ''),
-                  what_happened: String(a.what_happened ?? ''),
-                  tip:           typeof a.tip === 'string' && a.tip.length > 0 ? a.tip : undefined,
-                }))
-                .filter((a) => a.topic.length > 0 && a.what_happened.length > 0)
-            : [],
-          qbq: Array.isArray(rawStructured.qbq)
-            ? (rawStructured.qbq as unknown[])
-                .filter((q): q is Record<string, unknown> => !!q && typeof q === 'object')
-                .map((q) => ({
-                  question_ref: String(q.question_ref ?? ''),
-                  topic:        String(q.topic ?? ''),
-                  status: (q.status === 'correct' || q.status === 'partial' || q.status === 'wrong')
-                    ? q.status as 'correct' | 'partial' | 'wrong'
-                    : 'partial',
-                }))
-                .filter((q) => q.question_ref.length > 0)
-            : [],
-        }
-      : undefined;
-    const safe: RevisionScore = {
-      mode: (data?.mode === 'questions' ? 'questions' : 'answers') as RevisionMode,
-      subject: String(data?.subject ?? 'Other'),
-      gradeLevel: String(data?.gradeLevel ?? ''),
-      score: Number(data?.score ?? 0),
-      breakdown: {
-        correct: Number(data?.breakdown?.correct ?? 0),
-        partial: Number(data?.breakdown?.partial ?? 0),
-        wrong:   Number(data?.breakdown?.wrong   ?? 0),
-      },
-      notes: String(data?.notes ?? ''),
-      parsedQuestions: Array.isArray(data?.parsedQuestions) ? data.parsedQuestions : [],
-      ...(structured ? { structured } : {}),
-    };
-    return { ok: true, data: safe };
+    return { ok: true, data: normalizeRevisionScore(data) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'Revision score failed' };
+  }
+}
+
+/** Re-score already-uploaded work with a clarification — no re-capture. The
+ *  server fetches the existing answer + question-paper images by URL. */
+export async function reEvaluateRevision(
+  args: ReEvaluateRevisionArgs,
+): Promise<{ ok: true; data: RevisionScore } | { ok: false; skipped?: boolean; error?: string }> {
+  try {
+    const imageUrls = args.imageUrls.filter((u) => typeof u === 'string' && u);
+    if (imageUrls.length === 0) return { ok: false, error: 'No work to re-evaluate' };
+    const res = await fetch('/api/sparks/ai/revision-score', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrls,
+        questionPaperUrls: args.questionPaperUrls,
+        clarification: args.clarification,
+        kidName: args.kidName,
+        mode: 'answers',
+        focusSubjects: args.focusSubjects,
+      }),
+    });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    if (data?.skipped) return { ok: false, skipped: true };
+    return { ok: true, data: normalizeRevisionScore(data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Re-evaluation failed' };
   }
 }
 

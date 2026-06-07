@@ -29,12 +29,40 @@ const ALLOWED_MEDIA: ImgMedia[] = ['image/jpeg', 'image/png', 'image/webp', 'ima
 type Mode = 'answers' | 'questions';
 
 interface ScoreBody {
-  imageBase64s: string[];
+  imageBase64s?: string[];
+  /** Re-evaluation: the existing answer images by URL — the server fetches
+   *  them so the kid needn't re-upload. Combined with any imageBase64s. */
+  imageUrls?: string[];
+  /** Question paper / worksheet pages (URLs) so the AI marks against the
+   *  real questions. Server fetches + labels them after the answers. */
+  questionPaperUrls?: string[];
+  /** Re-evaluation: the kid/parent clarification ("you skipped Q4 — I did
+   *  it on the back page"). The AI reconsiders fairly, grounded in the work. */
+  clarification?: string;
   mediaType?: string;
   kidName: string;
   mode?: Mode;
   /** Optional hint — the focus subjects from sparks_profiles. */
   focusSubjects?: string[];
+}
+
+type ImgBlock = { type: 'image'; source: { type: 'base64'; media_type: ImgMedia; data: string } };
+
+/** Fetch an image URL → a Claude image block (server-side, so the Storage
+ *  bucket's missing CORS doesn't matter). Returns null on any failure so
+ *  one bad URL never kills the whole score. */
+async function urlToImageBlock(url: string): Promise<ImgBlock | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const ct = (res.headers.get('content-type') || '').split(';')[0].trim();
+    const media: ImgMedia = (ALLOWED_MEDIA as string[]).includes(ct) ? (ct as ImgMedia) : 'image/jpeg';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length === 0 || buf.length > 8 * 1024 * 1024) return null; // skip empty / >8MB
+    return { type: 'image', source: { type: 'base64', media_type: media, data: buf.toString('base64') } };
+  } catch {
+    return null;
+  }
 }
 
 const SYSTEM_ANSWERS = `You are the in-app AI tutor for Kaya Sparks Home Revisions. A child has just submitted 1-4 photos of COMPLETED homework. Identify the subject + grade level, then score the work AND produce a structured per-question breakdown.
@@ -185,23 +213,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const images = (body?.imageBase64s ?? []).filter((s) => typeof s === 'string' && s.length > 0).slice(0, 4);
   const mediaType: ImgMedia = (ALLOWED_MEDIA as string[]).includes(body?.mediaType || '')
     ? (body!.mediaType as ImgMedia)
     : 'image/jpeg';
   const kidName = (body?.kidName || '').trim().slice(0, 60) || 'the child';
   const focus = (body?.focusSubjects ?? []).slice(0, 8).join(', ');
   const mode: Mode = body?.mode === 'questions' ? 'questions' : 'answers';
+  const clarification = (body?.clarification || '').trim().slice(0, 1000);
 
-  if (images.length === 0) {
+  // Answer images: inline base64 first (fresh capture), then fetch any URLs
+  // (re-evaluation of already-uploaded work). Cap the combined set at 4.
+  const answerBlocks: ImgBlock[] = (body?.imageBase64s ?? [])
+    .filter((s) => typeof s === 'string' && s.length > 0)
+    .slice(0, 4)
+    .map((data) => ({ type: 'image', source: { type: 'base64', media_type: mediaType, data } }));
+  for (const u of (body?.imageUrls ?? []).filter((u) => typeof u === 'string' && u).slice(0, 4 - answerBlocks.length)) {
+    const b = await urlToImageBlock(u);
+    if (b) answerBlocks.push(b);
+  }
+
+  if (answerBlocks.length === 0) {
     return NextResponse.json({ error: 'No images provided' }, { status: 400 });
+  }
+
+  // Question paper pages (URLs) — fetched + labelled so the AI marks the
+  // answers against the real questions.
+  const questionBlocks: ImgBlock[] = [];
+  for (const u of (body?.questionPaperUrls ?? []).filter((u) => typeof u === 'string' && u).slice(0, 3)) {
+    const b = await urlToImageBlock(u);
+    if (b) questionBlocks.push(b);
   }
 
   const userContext = [
     `Kid: ${kidName}`,
     focus ? `Family is focusing on: ${focus}` : '',
-    `${images.length} photo(s) attached.`,
+    `${answerBlocks.length} answer photo(s) attached.`,
+    questionBlocks.length > 0
+      ? `${questionBlocks.length} QUESTION PAPER page(s) attached AFTER the answers — mark the answers against these exact questions.`
+      : '',
     `Upload mode: ${mode === 'questions' ? 'QUESTIONS (worksheet to practice from)' : 'ANSWERS (completed work)'}`,
+    clarification
+      ? `RE-EVALUATION — the child or parent clarified: "${clarification}". Reconsider fairly and change the score ONLY if the visible work (and question paper) support it. Never raise a score just because they asked; explain what changed — or why it didn't — in "notes".`
+      : '',
   ].filter(Boolean).join('\n');
 
   try {
@@ -220,10 +273,10 @@ export async function POST(req: NextRequest) {
         {
           role: 'user',
           content: [
-            ...images.map((data) => ({
-              type: 'image' as const,
-              source: { type: 'base64' as const, media_type: mediaType, data },
-            })),
+            ...answerBlocks,
+            ...(questionBlocks.length > 0
+              ? [{ type: 'text' as const, text: '--- QUESTION PAPER (the original questions) ---' }, ...questionBlocks]
+              : []),
             { type: 'text' as const, text: userContext },
           ],
         },

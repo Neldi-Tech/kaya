@@ -423,6 +423,7 @@ export default function RevisionsPage() {
           authorName={authProfile.displayName || (isParent ? 'Parent' : kid.name)}
           authorRole={authProfile.role === 'helper' ? 'helper' : (isParent ? 'parent' : 'kid')}
           kidName={kid.name}
+          maxKidReevals={profile?.revision_settings?.max_kid_reevals ?? DEFAULT_REVISION_SETTINGS.max_kid_reevals}
         />
       )}
 
