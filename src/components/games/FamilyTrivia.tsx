@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { updateSession, updateSessionFields, type GameSession } from '@/lib/gameSessions';
 import { readTriviaSeen, recordTriviaSeen, dedupeAgainst } from '@/lib/triviaSeen';
 import { countryByCode } from '@/lib/countries';
+import { recordCountryPlayed } from '@/lib/triviaPassport';
 
 // Multi-device Family Trivia v2 — pick a subject, then race: every question is
 // TIMED and auto-advances (no host button). Points scale with speed and the
@@ -194,6 +195,7 @@ export default function FamilyTriviaPlay({
       if (cancelled) return;
       const chosen = qs.slice(0, PER_GAME);
       const explored = await recordTriviaSeen(familyId, chosen.map((c) => c.q), seen, scope);
+      if (isLocal) void recordCountryPlayed(familyId, country); // 🛂 stamp the passport
       await updateSessionFields(familyId, session.id, {
         'state.questions': chosen,
         'state.qStartAt': Date.now(),
