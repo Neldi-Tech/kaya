@@ -430,26 +430,33 @@ export async function signInHelperWithCodes(
 // fresh UID). The new password is also written to the HelperLink doc so
 // the parent can re-view & re-share it from the Sign-in details card.
 //
-// Used for two cases:
+// Used for:
 //   (a) helpers created before passwords were stored — gives them a
 //       viewable password for the first time;
-//   (b) rotating after a suspected compromise.
+//   (b) rotating after a suspected compromise;
+//   (c) setting a parent-chosen custom password (pass `customPassword`)
+//       that's easy for the helper to remember.
 export async function resetHelperPassword(
   familyId: string,
   helperUid: string,
+  customPassword?: string,
 ): Promise<string> {
   const user = auth.currentUser;
   if (!user) {
     throw new Error('You need to be signed in as a parent to reset a password.');
   }
   const token = await user.getIdToken();
+  const reqBody: { familyId: string; helperUid: string; password?: string } =
+    { familyId, helperUid };
+  const trimmed = customPassword?.trim();
+  if (trimmed) reqBody.password = trimmed;
   const res = await fetch('/api/helpers/reset-password', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ familyId, helperUid }),
+    body: JSON.stringify(reqBody),
   });
   const data = await res.json().catch(() => ({} as { password?: string; error?: string }));
   if (!res.ok) {

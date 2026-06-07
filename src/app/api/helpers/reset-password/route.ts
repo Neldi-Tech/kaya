@@ -50,14 +50,20 @@ export async function POST(req: NextRequest) {
   try { callerUid = (await auth.verifyIdToken(token)).uid; }
   catch { return NextResponse.json({ error: 'invalid-token' }, { status: 401 }); }
 
-  // 2 · Parse + validate the body.
-  let body: { familyId?: string; helperUid?: string };
-  try { body = (await req.json()) as { familyId?: string; helperUid?: string }; }
+  // 2 · Parse + validate the body. `password` is optional — when present
+  //     it's a parent-chosen custom password (must be 6–64 chars, per
+  //     Firebase Auth's 6-char minimum); when absent we generate one.
+  let body: { familyId?: string; helperUid?: string; password?: string };
+  try { body = (await req.json()) as { familyId?: string; helperUid?: string; password?: string }; }
   catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
   const familyId = (body.familyId || '').trim();
   const helperUid = (body.helperUid || '').trim();
   if (!familyId || !helperUid) {
     return NextResponse.json({ error: 'missing-params' }, { status: 400 });
+  }
+  const custom = typeof body.password === 'string' ? body.password.trim() : '';
+  if (custom && (custom.length < 6 || custom.length > 64)) {
+    return NextResponse.json({ error: 'Password must be 6–64 characters.' }, { status: 400 });
   }
 
   // 3 · Authorise — the caller must be a PARENT of this family.
@@ -75,9 +81,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'helper-not-found' }, { status: 404 });
   }
 
-  // 5 · Set a fresh password on the existing auth user + mirror it onto
-  //     the doc so the parent can re-view it.
-  const password = generatePassword(6);
+  // 5 · Set the password on the existing auth user + mirror it onto the
+  //     doc so the parent can re-view it. Parent-chosen custom value when
+  //     supplied, otherwise a generated one.
+  const password = custom || generatePassword(6);
   try {
     await auth.updateUser(helperUid, { password });
   } catch (e) {
