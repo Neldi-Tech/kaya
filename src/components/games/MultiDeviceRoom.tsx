@@ -254,10 +254,20 @@ const LOBBY_SETTINGS: Record<string, { key: string; label: string; options: Lobb
     key: 'level', label: 'Difficulty',
     options: UNO_LEVELS.map((l) => ({ value: l.id, label: l.label, emoji: l.emoji, hint: `×${l.funMult}` })),
   }],
-  'family-trivia': [{
-    key: 'subject', label: 'Subject',
-    options: TRIVIA_SUBJECTS.map((s) => ({ value: s.id, label: s.label, emoji: s.icon })),
-  }],
+  'family-trivia': [
+    {
+      key: 'subject', label: 'Subject',
+      options: TRIVIA_SUBJECTS.map((s) => ({ value: s.id, label: s.label, emoji: s.icon })),
+    },
+    {
+      key: 'difficulty', label: 'Level · harder = more ✨',
+      options: [
+        { value: 'easy', label: 'Easy', emoji: '🟢', hint: '×1' },
+        { value: 'medium', label: 'Medium', emoji: '🟡', hint: '×1.5' },
+        { value: 'hard', label: 'Hard', emoji: '🔴', hint: '×2' },
+      ],
+    },
+  ],
 };
 
 /** Every required setting has been chosen → the host may start. */

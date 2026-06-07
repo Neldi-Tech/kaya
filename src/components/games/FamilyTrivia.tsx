@@ -10,11 +10,15 @@ import { updateSession, updateSessionFields, type GameSession } from '@/lib/game
 // their own answer. The host generates fresh AI questions per subject via
 // /api/games/trivia, with the hand-authored bank below as an instant fallback.
 
-export interface TriviaQ { q: string; choices: string[]; answer: number }
+export interface TriviaQ { q: string; choices: string[]; answer: number; context?: string; fact?: string }
 
 const QUESTION_SECS = 15;
-const REVEAL_SECS = 4;
-const PER_GAME = 6;
+const REVEAL_SECS = 5; // a touch longer so the "Did you know?" fact can be read
+const PER_GAME = 8;
+
+// Difficulty → Fun-Points multiplier (harder = learn more + more ✨) + a glyph.
+const FUN_MULT: Record<string, number> = { easy: 1, medium: 1.5, hard: 2 };
+const LEVEL_EMOJI: Record<string, string> = { easy: '🟢', medium: '🟡', hard: '🔴' };
 
 export const TRIVIA_SUBJECTS: { id: string; label: string; icon: string }[] = [
   { id: 'animals', label: 'Animals', icon: '🦁' },
@@ -95,12 +99,12 @@ export function pickQuestions(subject: string): TriviaQ[] {
 // Ask the server to generate FRESH AI questions for this subject. Returns []
 // on any failure / when the AI key isn't set, so the caller falls back to the
 // hand-authored bank above. Shape-guarded so a bad payload can't crash a game.
-async function fetchAiTrivia(subject: string, count: number): Promise<TriviaQ[]> {
+async function fetchAiTrivia(subject: string, difficulty: string, count: number): Promise<TriviaQ[]> {
   try {
     const res = await fetch('/api/games/trivia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, count }),
+      body: JSON.stringify({ subject, difficulty, count }),
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { questions?: TriviaQ[]; skipped?: boolean };
@@ -118,7 +122,7 @@ async function fetchAiTrivia(subject: string, count: number): Promise<TriviaQ[]>
 // Empty until the host picks a subject in-game (keeps the subject picker inside
 // this component, so the multi-device room needs no trivia-specific edits).
 export function triviaInitialState(): Record<string, unknown> {
-  return { subject: '', questions: [], qIndex: 0, qStartAt: 0, answers: {}, scores: {}, revealed: false };
+  return { subject: '', difficulty: 'medium', funMult: 1.5, questions: [], qIndex: 0, qStartAt: 0, answers: {}, scores: {}, revealed: false };
 }
 
 interface Ans { choice: number; at: number }
@@ -132,6 +136,7 @@ export default function FamilyTriviaPlay({
 }) {
   const st = session.state;
   const subject = (st.subject as string) || '';
+  const difficulty = (st.difficulty as string) || 'medium';
   const questions = (st.questions as TriviaQ[]) || [];
   const qIndex = (st.qIndex as number) || 0;
   const qStartAt = (st.qStartAt as number) || 0;
@@ -161,21 +166,23 @@ export default function FamilyTriviaPlay({
   const genRef = useRef('');
   useEffect(() => {
     if (!isHost || subject === '' || questions.length > 0) return;
-    if (genRef.current === subject) return;
-    genRef.current = subject;
+    const key = `${subject}|${difficulty}`;
+    if (genRef.current === key) return;
+    genRef.current = key;
     let cancelled = false;
     (async () => {
-      let qs = await fetchAiTrivia(subject, PER_GAME);
+      let qs = await fetchAiTrivia(subject, difficulty, PER_GAME);
       if (qs.length < 4) qs = pickQuestions(subject); // AI down/keyless → bank
       if (cancelled) return;
       await updateSessionFields(familyId, session.id, {
         'state.questions': qs.slice(0, PER_GAME),
         'state.qStartAt': Date.now(),
         'state.generating': false,
+        'state.funMult': FUN_MULT[difficulty] ?? 1.5,
       });
     })();
     return () => { cancelled = true; };
-  }, [isHost, subject, questions.length, familyId, session.id]);
+  }, [isHost, subject, difficulty, questions.length, familyId, session.id]);
 
   // Host writes the reveal once the timer runs out or everyone has answered.
   // Idempotent per question via revealedRef — safe to re-evaluate each tick.
@@ -248,7 +255,7 @@ export default function FamilyTriviaPlay({
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-games-ink-soft">🎯 Q{qIndex + 1}/{total}</span>
+        <span className="text-xs font-bold text-games-ink-soft">🎯 Q{qIndex + 1}/{total} · {LEVEL_EMOJI[difficulty] || '🟡'}</span>
         <span className={`text-sm font-display font-black ${remaining <= 5 && !revealed ? 'text-games-coral' : 'text-games-ink-soft'}`}>
           {revealed ? '✓ answer' : `⏱ ${remaining}s`}
         </span>
@@ -258,6 +265,7 @@ export default function FamilyTriviaPlay({
       </div>
 
       <div className="bg-games-card rounded-kaya-lg p-5 mb-4 text-center shadow-[0_8px_24px_rgba(26,18,64,0.08)]">
+        {q.context && <span className="inline-block bg-games-gold text-[#5b3d00] text-[10px] font-extrabold px-2.5 py-1 rounded-full mb-2 font-display">{q.context}</span>}
         <p className="font-display text-lg font-extrabold text-games-ink">{q.q}</p>
       </div>
 
@@ -284,6 +292,11 @@ export default function FamilyTriviaPlay({
           );
         })}
       </div>
+      {revealed && q.fact && (
+        <div className="bg-gradient-to-br from-[#FFF7E6] to-[#FFFBF0] border border-[#FFE6A8] rounded-kaya p-3 mb-3 text-left">
+          <p className="text-[13px] leading-snug text-games-ink"><b className="text-[#9a6a00]">💡 Did you know?</b> {q.fact}</p>
+        </div>
+      )}
       {myAnswer !== undefined && !revealed && (
         <p className="text-center text-xs text-games-ink-soft mb-3">Locked in! Fastest correct answers score the most ⚡</p>
       )}
