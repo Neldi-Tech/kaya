@@ -14,7 +14,7 @@
 // Belt® and Ladder® concepts by Diella.
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
@@ -54,6 +54,14 @@ const COUNTDOWN_TICK_MS = 900;
 
 export default function MeetingReviewPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Autopilot — when this reveal screen is opened from the presenter
+  // (`/meetings/review?from=present`), the Close button returns the
+  // family to the presenter with `?advance=1` so the meeting moves on
+  // to the next agenda step instead of dropping back to the hub.
+  // Sunday-Meeting v2 · 2026-06-07.
+  const fromPresent = searchParams?.get('from') === 'present';
+  const closeHref = fromPresent ? '/meetings/present?advance=1' : '/meetings';
   const { profile } = useAuth();
   const { family, children } = useFamily();
 
@@ -150,10 +158,11 @@ export default function MeetingReviewPage() {
           <div className="flex items-center gap-2 shrink-0">
             <FullscreenToggle />
             <button
-              onClick={() => router.push('/meetings')}
+              onClick={() => router.push(closeHref)}
               className="h-9 lg:h-10 px-3 lg:px-4 rounded-kaya-sm text-xs lg:text-sm font-semibold bg-white/10 hover:bg-white/15 transition-colors"
+              title={fromPresent ? 'Close & continue to the next meeting step' : 'Close'}
             >
-              ✕ Close
+              {fromPresent ? '✕ Done · continue →' : '✕ Close'}
             </button>
           </div>
         </div>

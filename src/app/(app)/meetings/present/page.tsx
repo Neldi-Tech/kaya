@@ -24,7 +24,8 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { toDisplayDate } from '@/lib/dates';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
@@ -36,7 +37,14 @@ import {
 // Canonical step catalog — the presenter renders the subset that the
 // parent enabled in /settings/meetings (via `family.meetingSetup
 // .agendaSteps`). When no setup exists, every step is on.
+//
+// The `open` step (Sunday-Meeting v2 · 2026-06-07) is the always-on
+// opening reveal — confirms today is the family's meeting day against
+// `meetingSetup.schedule` and warms the room up before Attendance. It
+// is not filterable from settings (it carries the date/time check) so
+// the filter logic below special-cases it.
 const STEPS = [
+  { id: 'open',          title: 'Meeting Opens',      emoji: '✨', sub: 'A moment to mark that we\'re here — and that today is our day.' },
   { id: 'attendance',    title: 'Attendance',         emoji: '👋', sub: 'Who is here tonight, and is anyone presenting?' },
   { id: 'gratitude',     title: 'Gratitude Circle',   emoji: '🙏', sub: 'What is each of us thankful for today?' },
   { id: 'celebrate',     title: 'Celebrate the Wins', emoji: '🎉', sub: 'Look back at the week — points, badges, moments worth a cheer.' },
@@ -69,9 +77,15 @@ export default function MeetingPresenterPage() {
   const activeSteps: StepDef[] = useMemo(() => {
     const enabled = family?.meetingSetup?.agendaSteps;
     const labels = family?.meetingSetup?.stepLabels || {};
-    const base = !enabled || enabled.length === 0
-      ? [...STEPS]
-      : STEPS.filter((s) => new Set(enabled).has(s.id));
+    // `open` (Sunday-Meeting v2) is the opening reveal — always first,
+    // never filtered out by saved settings. Everything else respects
+    // the parent's enabled-steps list.
+    const openStep = STEPS[0];
+    const rest = STEPS.slice(1);
+    const filteredRest = !enabled || enabled.length === 0
+      ? rest
+      : rest.filter((s) => new Set(enabled).has(s.id));
+    const base = [openStep, ...filteredRest];
     // Apply per-step display-name overrides. `title` falls back to the
     // canonical default when the parent hasn't customised it.
     return base.map((s) => {
@@ -95,6 +109,22 @@ export default function MeetingPresenterPage() {
     if (typeof window === 'undefined') return;
     window.sessionStorage.setItem('kaya:meeting-presenter:stepIdx', String(stepIdx));
   }, [stepIdx]);
+
+  // Autopilot — when a sibling reveal screen (e.g. /meetings/review)
+  // closes back into the presenter, it appends ?advance=1 to ask us
+  // to move forward instead of dropping the family back to the meeting
+  // hub. We bump the step once, then strip the param so a re-mount
+  // (HMR / browser back) doesn't double-advance. Sunday-Meeting v2.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const adv = searchParams?.get('advance');
+    if (adv && /^\d+$/.test(adv)) {
+      const bump = Math.max(1, Math.min(parseInt(adv, 10), 10));
+      setStepIdx((i) => i + bump);
+      router.replace('/meetings/present');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   // Clamp stepIdx if a setup change shrinks the agenda mid-render.
   const safeStepIdx = Math.min(stepIdx, Math.max(0, activeSteps.length - 1));
   const step = activeSteps[safeStepIdx];
@@ -384,18 +414,29 @@ export default function MeetingPresenterPage() {
             <FinishedSplash onClose={() => router.push('/meetings')} />
           ) : (
             <>
-              {/* Step heading */}
-              <div className="mb-6 lg:mb-10 text-center">
-                <div className="text-5xl lg:text-7xl mb-3" aria-hidden>{step.emoji}</div>
-                <h1 className="font-display font-black text-3xl lg:text-5xl tracking-tight">
-                  {step.title}
-                </h1>
-                <p className="mt-3 text-[14px] lg:text-base text-white/70 max-w-xl mx-auto leading-relaxed">
-                  {step.sub}
-                </p>
-              </div>
+              {/* Step heading — hidden on the opening reveal, which
+                  ships its own bigger typography in `OpenStep`. */}
+              {step.id !== 'open' && (
+                <div className="mb-6 lg:mb-10 text-center">
+                  <div className="text-5xl lg:text-7xl mb-3" aria-hidden>{step.emoji}</div>
+                  <h1 className="font-display font-black text-3xl lg:text-5xl tracking-tight">
+                    {step.title}
+                  </h1>
+                  <p className="mt-3 text-[14px] lg:text-base text-white/70 max-w-xl mx-auto leading-relaxed">
+                    {step.sub}
+                  </p>
+                </div>
+              )}
 
               {/* Step body */}
+              {step.id === 'open' && (
+                <OpenStep
+                  family={family}
+                  leaderName={profile?.displayName}
+                  onContinue={() => setStepIdx(safeStepIdx + 1)}
+                />
+              )}
+
               {step.id === 'attendance' && (
                 <AttendanceStep
                   childrenList={children}
@@ -548,6 +589,124 @@ export default function MeetingPresenterPage() {
 // Sub-components
 // ─────────────────────────────────────────────────────────────────────
 
+// ── Opening reveal ───────────────────────────────────────────────────
+// The first step of every meeting — a dark "Day Opens" stage matching
+// the Kaya-Sunday-Meeting v2 design proposal (b0). Confirms today is
+// the family's meeting day by reading `family.meetingSetup.schedule`,
+// then surfaces a green ✓ badge if it matches, or an amber "opening
+// anyway" badge if the parent is rallying off-schedule. Big typography,
+// gold underglow, single "Open the meeting →" CTA that auto-advances
+// to Attendance. PR #4 will populate the leader pill from the queue.
+
+const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'] as const;
+
+function OpenStep({
+  family,
+  leaderName,
+  onContinue,
+}: {
+  family: any; // Family doc; loose-typed here because the import chain
+               // is heavy and the only fields touched are meetingSetup +
+               // name (both optional with safe fallbacks).
+  leaderName?: string;
+  onContinue: () => void;
+}) {
+  const sch = family?.meetingSetup?.schedule;
+  const now = new Date();
+  const todayDow = now.getDay();
+  // YYYY-MM-DD in LOCAL time (helpers may be in different TZs) — per
+  // the project's date-format rule.
+  const isoLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const dateDisplay = toDisplayDate(isoLocal);
+  const todayDayName = DAY_NAMES[todayDow];
+
+  const scheduledDayName = sch && typeof sch.dayOfWeek === 'number'
+    ? DAY_NAMES[sch.dayOfWeek] : null;
+  const scheduledTime: string | null = sch?.time || null;
+  const matches = !!sch && sch.dayOfWeek === todayDow;
+  const hasSchedule = !!sch && scheduledDayName;
+
+  return (
+    <div
+      className="relative text-center mx-auto max-w-xl rounded-3xl px-6 py-10 lg:px-10 lg:py-14 overflow-hidden"
+      style={{
+        background:
+          'radial-gradient(circle at 50% 30%, rgba(61,36,26,0.9) 0%, rgba(30,18,11,1) 60%, rgba(10,6,4,1) 100%)',
+        boxShadow: 'inset 0 0 80px rgba(212,160,23,0.10)',
+      }}
+    >
+      {/* Soft underglow accents — pure CSS, no animation lib. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            'radial-gradient(circle at 20% 80%, rgba(212,160,23,0.15), transparent 40%), radial-gradient(circle at 80% 20%, rgba(212,160,23,0.12), transparent 35%)',
+        }}
+      />
+
+      <div className="relative">
+        <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.3em] font-extrabold text-kaya-gold-light/90">
+          ✨ {family?.meetingSetup?.title || 'Sunday Meeting'}
+        </p>
+
+        <h1
+          className="font-display font-black text-4xl lg:text-6xl mt-2 mb-2 leading-tight"
+          style={{ textShadow: '0 2px 16px rgba(212,160,23,0.35)' }}
+        >
+          It&apos;s time, family.
+        </h1>
+
+        <p className="text-kaya-gold-light text-base lg:text-lg font-extrabold tracking-[0.06em]">
+          {todayDayName} · {dateDisplay}
+        </p>
+
+        {scheduledTime && (
+          <div className="inline-flex items-center gap-2 bg-kaya-gold/20 border border-kaya-gold-light/40 rounded-full px-4 py-1.5 mt-4 text-kaya-gold-light text-sm font-extrabold">
+            🕖 Family meeting time · {scheduledTime}
+          </div>
+        )}
+
+        {hasSchedule && (
+          <div className="mt-3">
+            {matches ? (
+              <span className="inline-flex items-center gap-1.5 bg-emerald-500 text-white rounded-full px-3 py-1 text-[10px] lg:text-xs font-extrabold uppercase tracking-[0.12em]">
+                ✓ Matches your {scheduledDayName}{scheduledTime ? ` ${scheduledTime}` : ''} setting
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 bg-amber-500 text-white rounded-full px-3 py-1 text-[10px] lg:text-xs font-extrabold uppercase tracking-[0.12em]">
+                Set for {scheduledDayName}s — opening anyway
+              </span>
+            )}
+          </div>
+        )}
+
+        {leaderName && (
+          <div className="inline-flex items-center gap-2 bg-white text-kaya-chocolate rounded-full pl-1.5 pr-3.5 py-1 mt-5 font-display font-black text-sm shadow-[0_6px_18px_rgba(212,160,23,0.35)]">
+            <span className="w-6 h-6 rounded-full bg-kaya-gold-light flex items-center justify-center text-base" aria-hidden>
+              🎤
+            </span>
+            {leaderName} · opening
+          </div>
+        )}
+
+        <div className="mt-8 lg:mt-10">
+          <button
+            type="button"
+            onClick={onContinue}
+            className="bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-black text-base lg:text-lg px-7 lg:px-9 py-3 lg:py-3.5 rounded-full inline-flex items-center gap-2 shadow-[0_6px_14px_rgba(0,0,0,0.35)] transition-colors"
+          >
+            Open the meeting →
+          </button>
+          <p className="mt-3 text-[11px] text-white/45 leading-snug">
+            We&apos;ll move from step to step on autopilot — the leader can jump anywhere from the bars at the top.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PerKidTextInputs({
   childrenList,
   values,
@@ -613,14 +772,15 @@ function CelebrateStep() {
         Open it, walk through the week, then come back to continue.
       </p>
       <Link
-        href="/meetings/review"
+        href="/meetings/review?from=present"
         className="inline-flex items-center gap-2 h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors"
       >
         🎬 Open Points Review →
       </Link>
       <p className="text-[12px] text-white/50 mt-6">
-        Tip: the Points Review opens in the same window. Use the browser back
-        button (or your TV remote) to return here when done.
+        Tip: the Points Review opens in the same window. When you close it,
+        we&apos;ll bring you straight to the next step of the meeting — no need
+        to come back through the menu.
       </p>
     </div>
   );
