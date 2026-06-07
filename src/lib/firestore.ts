@@ -458,6 +458,11 @@ export interface Family {
       dayOfWeek: number;
       time: string;
     };
+    /** Sunday-Meeting v2 (b5): when a kid attaches a song link in the
+     *  Closing Reflection step, the family can require a parent to OK
+     *  it before it shows up as a playable button. Default = true (be
+     *  conservative — parents can flip it off in /settings/meetings). */
+    kidSongLinkRequiresApproval?: boolean;
   };
   // ── Sunday-Meeting v2: leader queue ─────────────────────────
   // The person queued to *run* the next meeting. Set by the current
@@ -1096,6 +1101,11 @@ export interface Meeting {
     modes?: ReflectionMode[];
     /** v2 per-mode content. Missing entries = mode picked but blank. */
     contents?: Partial<Record<ReflectionMode, string>>;
+    /** Sunday-Meeting v2 (b5): uid of the parent who approved a
+     *  kid-attached song link (only set when approval was required).
+     *  Empty / undefined = either no song link, or a parent typed it
+     *  themselves, or the family disabled the approval requirement. */
+    songLinkApprovedBy?: string;
   };
 }
 

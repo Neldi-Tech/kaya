@@ -180,6 +180,10 @@ export default function MeetingPresenterPage() {
   // is what we persist with the saved meeting — derived once from the
   // setup so the meeting record reflects what actually played.
   const [reflectionModes, setReflectionModes] = useState<ReflectionMode[]>([]);
+  // Sunday-Meeting v2 (b5): when a kid pastes a song URL and the family
+  // requires parent approval, this captures the uid of the parent who
+  // OK'd it. Persisted on handleFinish under reflection.songLinkApprovedBy.
+  const [songLinkApprovedBy, setSongLinkApprovedBy] = useState<string | null>(null);
   const [reflectionContents, setReflectionContents] =
     useState<Partial<Record<ReflectionMode, string>>>({});
   const [reflectionSeeded, setReflectionSeeded] = useState(false);
@@ -315,6 +319,7 @@ export default function MeetingPresenterPage() {
               .map((m) => [m, (reflectionContents[m] || '').trim()])
               .filter(([, v]) => v),
           ) as Partial<Record<ReflectionMode, string>>,
+          ...(songLinkApprovedBy ? { songLinkApprovedBy } : {}),
         }
       : undefined;
 
@@ -531,15 +536,25 @@ export default function MeetingPresenterPage() {
                 <ReflectionStep
                   enabledModes={enabledClosingModes}
                   contents={reflectionContents}
-                  onContentChange={(m, v) =>
-                    setReflectionContents({ ...reflectionContents, [m]: v })
-                  }
+                  onContentChange={(m, v) => {
+                    setReflectionContents({ ...reflectionContents, [m]: v });
+                    // If the songs content was *changed*, any prior
+                    // approval no longer applies — they might've pasted
+                    // a totally different link. Re-arm the gate.
+                    if (m === 'songs') setSongLinkApprovedBy(null);
+                  }}
                   onCelebratePrayer={() => {
                     // Snapshot the prayer text so on-stage typography
                     // doesn't reflow if the textarea changes mid-fall.
                     setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
                   }}
                   prayerLibraryCount={prayerLibrary.length}
+                  // Sunday-Meeting v2 (b5): kid-attached song approval
+                  viewerRole={profile?.role || 'parent'}
+                  viewerUid={profile?.uid || ''}
+                  kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
+                  songLinkApprovedBy={songLinkApprovedBy}
+                  onApproveSongLink={(uid) => setSongLinkApprovedBy(uid)}
                 />
               )}
             </>
@@ -1546,6 +1561,11 @@ function ReflectionStep({
   onContentChange,
   onCelebratePrayer,
   prayerLibraryCount,
+  viewerRole,
+  viewerUid,
+  kidSongLinkRequiresApproval,
+  songLinkApprovedBy,
+  onApproveSongLink,
 }: {
   /** Which of the 3 closings the parent enabled in /settings/meetings.
    *  Disabled modes simply don't render. */
@@ -1556,6 +1576,14 @@ function ReflectionStep({
   /** How many prayers live in the family's library — drives the
    *  "Library preloaded" hint on the Prayer input. */
   prayerLibraryCount: number;
+  /** Sunday-Meeting v2 (b5): kid-attached song approval. Defaults are
+   *  conservative — if any of these are missing or off, the play
+   *  button works as before with no gate. */
+  viewerRole?: 'parent' | 'kid' | 'helper';
+  viewerUid?: string;
+  kidSongLinkRequiresApproval?: boolean;
+  songLinkApprovedBy?: string | null;
+  onApproveSongLink?: (uid: string) => void;
 }) {
   const allChoices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
     { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story, a verse, or a link to read together.' },
@@ -1630,24 +1658,64 @@ function ReflectionStep({
               </button>
             )}
 
-            {(isSongs || isStory) && (
-              isLink ? (
-                <a
-                  href={content.trim()}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="mt-4 inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
-                >
-                  {ctaLabel}
-                </a>
-              ) : (
+            {(isSongs || isStory) && (() => {
+              // Song-link approval gate (Sunday-Meeting v2 b5). Applies
+              // only to Songs mode. Story mode is exempt — text/verse
+              // links are routinely shared by adults and don't have the
+              // same "kid pasted something we didn't vet" risk profile.
+              const needsApproval = isSongs
+                && isLink
+                && (kidSongLinkRequiresApproval ?? true)
+                && viewerRole === 'kid'
+                && !songLinkApprovedBy;
+              const playable = isLink && !needsApproval;
+              if (playable) {
+                return (
+                  <div className="mt-4 flex items-center gap-2 flex-wrap">
+                    <a
+                      href={content.trim()}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
+                    >
+                      {ctaLabel}
+                    </a>
+                    {isSongs && songLinkApprovedBy && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-[10.5px] font-extrabold uppercase tracking-wider">
+                        ✓ Parent OK
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+              if (needsApproval) {
+                return (
+                  <div className="mt-4 rounded-kaya bg-amber-500/10 border border-amber-400/40 p-3">
+                    <p className="text-[12.5px] text-amber-100 font-bold">
+                      🛡️ Awaiting a parent OK — the family asked Kaya to check kid-attached songs.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onApproveSongLink && viewerUid && onApproveSongLink(viewerUid)}
+                      disabled={!onApproveSongLink || !viewerUid}
+                      className="mt-2 inline-flex items-center gap-2 h-10 px-4 rounded-kaya-sm bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-bold text-[12.5px] transition-colors disabled:opacity-50"
+                    >
+                      ✓ I&apos;m a parent — approve
+                    </button>
+                    <p className="mt-2 text-[10.5px] text-white/50">
+                      Tap from a parent&apos;s phone, or hand the device over for one tap.
+                    </p>
+                  </div>
+                );
+              }
+              return (
                 <p className="mt-3 text-[11px] lg:text-[12px] text-white/40">
                   {isSongs
                     ? 'Paste a YouTube or Spotify URL to enable the play button.'
                     : 'Paste a link to open it in a new tab, or just read the text together.'}
                 </p>
-              )
-            )}
+              );
+            })()}
           </div>
         );
       })}
