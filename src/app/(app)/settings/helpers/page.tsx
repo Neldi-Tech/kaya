@@ -612,6 +612,14 @@ function AddHelperForm({
         disabled={busy || !name.trim() || !helperCode.trim() || password.trim().length < 6 || existingHelperCodes.includes(helperCode.toUpperCase())}
         onClick={async () => {
           setError(null);
+          // Defense-in-depth: never attempt to create with a sub-6-char
+          // password (Firebase Auth's minimum). The button is disabled
+          // below 6, but guard here too so the rule can't be bypassed —
+          // and trim so trailing/leading spaces can't be stored (the
+          // helper would never be able to type them on /h). The parent
+          // gets a clear message instead of a cryptic auth error.
+          const pw = password.trim();
+          if (pw.length < 6) { setError('Password must be at least 6 characters.'); return; }
           setBusy(true);
           try {
             const r = await createHelper({
@@ -619,7 +627,7 @@ function AddHelperForm({
               familyCode,
               helperCode,
               displayName: name.trim(),
-              password,
+              password: pw,
               preset,
               kidIds: selectedKidIds,
               // modules=[] lets createHelper derive from preset
