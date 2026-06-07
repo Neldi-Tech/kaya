@@ -33,6 +33,7 @@ import {
   CADENCE_LABEL, type Utility, subscribeToUtilities, paymentStatus,
 } from '@/lib/pantry';
 import { runUtilityBillGenerator } from '@/lib/utilityBills';
+import { runAutoTopupGenerator } from '@/lib/autoTopup';
 import { runUtilityTopupReminders } from '@/lib/utilityReminders';
 import { getFamilyMembers } from '@/lib/firestore';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
@@ -158,9 +159,14 @@ export default function UtilityHomePage() {
           currency,
           appUrl: typeof window !== 'undefined' ? window.location.origin : '',
         });
+        // Kaya Plus · auto top-up — below-threshold meters → pending request + alert.
+        await runAutoTopupGenerator(profile.familyId!, profile.uid!, {
+          currency,
+          appUrl: typeof window !== 'undefined' ? window.location.origin : '',
+        });
       } catch (e) {
         // eslint-disable-next-line no-console
-        console.error('[utility] bill generator failed:', e);
+        console.error('[utility] bill / auto-topup generator failed:', e);
       }
     })();
   }, [profile?.familyId, profile?.uid, role, isGuest, currency]);
