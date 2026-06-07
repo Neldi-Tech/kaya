@@ -46,10 +46,12 @@ async function run(req: NextRequest) {
   let autoResumed = 0;
   let scanned = 0;
 
+  // ── Pass 0: auto-resume held subs ──────────────────────────────────
+  // A sub put On hold with a chosen return date carries autoResumeOn. Once
+  // that date arrives, flip it back to active and clear the field. Isolated
+  // in its own try/catch so a not-yet-deployed composite index (status,
+  // autoResumeOn) can never break the overdue/reminder passes below.
   try {
-    // ── Pass 0: auto-resume held subs ────────────────────────────────
-    // A sub put On hold with a chosen return date carries autoResumeOn.
-    // Once that date arrives, flip it back to active and clear the field.
     const resumeSnap = await db.collectionGroup('subscriptions')
       .where('status', '==', 'paused')
       .where('autoResumeOn', '<=', now)
@@ -69,7 +71,12 @@ async function run(req: NextRequest) {
       }
       if (autoResumed > 0) await batch.commit();
     }
+  } catch (e) {
+    // Most likely the composite index isn't live yet — log and carry on.
+    console.error('[cron/cycle-advancer] auto-resume pass skipped:', e);
+  }
 
+  try {
     // ── Pass 1: promote overdue ──────────────────────────────────────
     const overdueSnap = await db.collectionGroup('cycles')
       .where('status', 'in', ['upcoming', 'due'])
