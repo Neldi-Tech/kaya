@@ -16,6 +16,7 @@ import {
 import { formatCash } from '@/components/hive/format';
 import { toDisplayDate } from '@/lib/dates';
 import BackButton from '@/components/ui/BackButton';
+import SaleReceiptSheet from '@/components/business/SaleReceiptSheet';
 
 const COST_LABEL: Record<string, string> = {
   supplies: 'Supplies', tools: 'Tools', help: 'Help', other: 'Other',
@@ -47,6 +48,7 @@ export default function BusinessHistoryPage() {
   const [business, setBusiness] = useState<Business | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<LedgerEntry | null>(null);
 
   useEffect(() => {
     if (!familyId || !businessId) return;
@@ -163,8 +165,12 @@ export default function BusinessHistoryPage() {
                   }
                   const t = timeOf(e.occurredAt);
                   if (t) bits.push(t);
+                  const pot = isSale
+                    ? (iou ? { t: 'to Pot when paid', c: 'bg-[#FBEBCF] text-hive-honey-dk' } : { t: '→ 🍯 Pot', c: 'bg-[#E1F3E8] text-[#2F7D32]' })
+                    : (e.fundedFromPot ? { t: 'from 🍯 Pot', c: 'bg-[#FBE2E2] text-[#B5403F]' } : { t: 'tracked', c: 'bg-hive-cream text-hive-muted' });
                   return (
-                    <div key={e.id} className={`flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0 ${e.voided ? 'opacity-50' : ''}`}>
+                    <button key={e.id} type="button" onClick={() => setSelected(e)}
+                      className={`w-full text-left flex items-center justify-between gap-2 py-2 border-b border-dashed border-hive-line last:border-0 ${e.voided ? 'opacity-50' : ''}`}>
                       <div className="min-w-0">
                         <div className={`text-[13px] truncate ${e.voided ? 'line-through' : ''}`}>
                           {isSale ? '💵' : '🧾'} {e.description}
@@ -176,10 +182,16 @@ export default function BusinessHistoryPage() {
                           <div className="text-[11px] text-hive-rose truncate">Voided — {e.voidReason}</div>
                         )}
                       </div>
-                      <span className={`font-nunito font-extrabold text-[13px] shrink-0 ${e.voided ? 'text-hive-muted' : isSale ? (iou ? 'text-hive-muted' : 'text-[#2F7D32]') : 'text-hive-rose'}`}>
-                        {isSale ? '+' : '−'}{formatCash(e.amountCents, currency)}
-                      </span>
-                    </div>
+                      <div className="shrink-0 flex items-center gap-1.5">
+                        <div className="text-right">
+                          <div className={`font-nunito font-extrabold text-[13px] ${e.voided ? 'text-hive-muted' : isSale ? (iou ? 'text-hive-muted' : 'text-[#2F7D32]') : 'text-hive-rose'}`}>
+                            {isSale ? '+' : '−'}{formatCash(e.amountCents, currency)}
+                          </div>
+                          {!e.voided && <span className={`inline-block text-[9.5px] font-nunito font-black rounded-full px-2 py-0.5 mt-0.5 ${pot.c}`}>{pot.t}</span>}
+                        </div>
+                        <span className="text-hive-muted font-black text-[15px] leading-none">›</span>
+                      </div>
+                    </button>
                   );
                 })}
               </div>
@@ -191,6 +203,17 @@ export default function BusinessHistoryPage() {
       <p className="mt-3 mb-2 text-center text-[11px] text-hive-muted">
         The full record stays here — sales, costs{business ? ` for ${business.name}` : ''}, and reinvestments.
       </p>
+
+      {selected && familyId && profile?.uid && (
+        <SaleReceiptSheet
+          familyId={familyId}
+          business={business}
+          entry={selected}
+          currency={currency}
+          profile={{ uid: profile.uid, displayName: profile.displayName, role: profile.role, childId: profile.childId, avatarPhoto: profile.avatarPhoto, photoURL: profile.photoURL }}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }
