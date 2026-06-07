@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Kaya · Subscriptions — Hold, Stop &amp; Status filter (rev 2)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0F1F44; --gold:#D4A847; --gold-dk:#B58A2F; --cream:#FBF7EE;
+    --bone:#FFFCF5; --coral:#E85C5C; --green:#2E7D34; --paper:#FFFFFF;
+    --line:rgba(15,31,68,.10); --muted:rgba(15,31,68,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy);-webkit-text-size-adjust:100%}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 18px 64px}
+  h1,h2,h3,h4{font-family:'Nunito',sans-serif;letter-spacing:-.01em;margin:0}
+  h1{font-size:29px;font-weight:900;line-height:1.12}
+  .eyebrow{text-transform:uppercase;letter-spacing:2.5px;font-size:11px;font-weight:800;color:var(--gold-dk)}
+  .lede{font-size:15px;color:var(--muted);line-height:1.55;margin:10px 0 0}
+  .rule{border:none;border-top:1px solid var(--line);margin:34px 0}
+  .revtag{display:inline-block;background:var(--navy);color:var(--cream);font-family:'Nunito';font-weight:800;font-size:11px;letter-spacing:.5px;padding:3px 10px;border-radius:999px;margin-bottom:10px}
+
+  .sec-head{display:flex;align-items:baseline;gap:10px;margin:0 0 4px}
+  .sec-num{font-family:'Nunito';font-weight:900;font-size:12px;color:var(--gold-dk);letter-spacing:2px}
+  .sec-title{font-family:'Nunito';font-weight:900;font-size:20px}
+  .sec-note{font-size:14px;color:var(--muted);line-height:1.55;margin:6px 0 18px}
+  .new-pill{display:inline-block;background:rgba(212,168,71,.18);color:var(--gold-dk);border:1px solid rgba(212,168,71,.5);font-family:'Nunito';font-weight:900;font-size:10px;letter-spacing:.5px;padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:middle}
+
+  .phone{background:#0B1530;border-radius:38px;padding:12px;box-shadow:0 26px 50px -18px rgba(11,21,48,.5);max-width:360px;margin:0 auto}
+  .screen{background:var(--cream);border-radius:28px;overflow:hidden;position:relative}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:120px;height:24px;background:#0B1530;border-radius:0 0 16px 16px;z-index:6}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:11px 20px 4px;font-family:'Nunito';font-weight:800;font-size:11px;color:var(--navy)}
+  .body{padding:8px 16px 18px}
+
+  .badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-family:'Nunito';font-size:10.5px;font-weight:800;letter-spacing:.4px;border:1.4px solid}
+  .b-green{background:rgba(46,125,52,.12);color:var(--green);border-color:rgba(46,125,52,.35)}
+  .b-gold{background:rgba(212,168,71,.16);color:var(--gold-dk);border-color:rgba(212,168,71,.45)}
+  .b-muted{background:rgba(15,31,68,.07);color:var(--muted);border-color:rgba(15,31,68,.15)}
+  .b-coral{background:rgba(232,92,92,.12);color:var(--coral);border-color:rgba(232,92,92,.4)}
+  .b-neutral{background:rgba(15,31,68,.06);color:var(--navy);border-color:rgba(15,31,68,.14)}
+
+  /* KPI hero */
+  .kpi{display:flex;gap:8px;margin-top:12px}
+  .kpi .c{flex:1;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:10px 8px;text-align:center}
+  .kpi .kl{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .kpi .kv{font-family:'Nunito';font-weight:900;font-size:16px;margin-top:3px}
+  .kpi .ks{font-size:8.5px;color:var(--muted);margin-top:1px}
+  .kpi-note{font-size:10.5px;color:var(--muted);text-align:center;margin-top:6px;font-style:italic}
+
+  /* status filter chips */
+  .chips{display:flex;gap:7px;margin-top:14px;overflow-x:auto;padding-bottom:2px}
+  .chip{flex:0 0 auto;border-radius:999px;border:1.4px solid var(--line);background:#fff;padding:6px 13px;font-family:'Nunito';font-weight:800;font-size:12px;color:var(--navy);white-space:nowrap}
+  .chip .n{color:var(--muted);margin-left:3px}
+  .chip.on{background:var(--navy);color:var(--cream);border-color:var(--navy)}
+  .chip.on .n{color:rgba(255,255,255,.6)}
+  .chips-label{font-size:9.5px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:14px 0 0}
+
+  /* list rows */
+  .lrow{display:flex;align-items:center;gap:11px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:11px 13px;margin-top:9px}
+  .lrow.dim{opacity:.6}
+  .lemoji{font-size:22px}
+  .lmain{flex:1;min-width:0}
+  .ltitle{font-family:'Nunito';font-weight:900;font-size:14px}
+  .lsub{font-size:11px;color:var(--muted);margin-top:1px}
+  .lright{text-align:right}
+  .lamt{font-family:'Nunito';font-weight:900;font-size:13.5px}
+  .lnext{font-size:10px;color:var(--muted);margin-top:1px}
+  .lbadges{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
+
+  .caption{text-align:center;font-size:12px;color:var(--muted);margin:12px 0 0;font-weight:700}
+  .grid2{display:grid;grid-template-columns:1fr;gap:34px}
+  @media(min-width:680px){.grid2{grid-template-columns:1fr 1fr;gap:26px}}
+
+  /* counting diagram */
+  .countcard{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:6px 4px;margin-top:8px}
+  .crow{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-top:1px solid var(--line)}
+  .crow:first-child{border-top:none}
+  .crow .cl{flex:0 0 96px}
+  .crow .cd{font-size:13px;line-height:1.5}
+  .crow .cd b{font-family:'Nunito';font-weight:900}
+  .pillrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .tag{font-family:'Nunito';font-weight:800;font-size:10.5px;padding:2px 9px;border-radius:999px;border:1.2px solid}
+  .t-count{background:rgba(46,125,52,.12);color:var(--green);border-color:rgba(46,125,52,.35)}
+  .t-drop{background:rgba(15,31,68,.06);color:var(--muted);border-color:var(--line)}
+
+  .key-tbl{width:100%;border-collapse:collapse;margin-top:6px}
+  .key-tbl td{padding:11px 8px;border-top:1px solid var(--line);font-size:13px;vertical-align:top;line-height:1.5}
+  .key-tbl td:first-child{font-family:'Nunito';font-weight:900;white-space:nowrap;width:104px}
+  .foot{margin-top:38px;padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:16px}
+  .foot h4{font-size:15px;margin-bottom:8px}
+  .foot ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.7}
+  .ok{color:var(--green);font-weight:800}
+  .ex{background:rgba(212,168,71,.10);border:1px solid rgba(212,168,71,.4);border-radius:12px;padding:13px 15px;margin-top:14px;font-size:13px;line-height:1.55}
+  .ex b{font-family:'Nunito';font-weight:900}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="revtag">REVISION 2 · adds filter + smarter cost counting</span>
+  <div class="eyebrow">Kaya · Household → Subscriptions</div>
+  <h1>Hold, Stop &amp; filter by status</h1>
+  <p class="lede">
+    Building on rev 1 (Hold / Stop actions), this revision adds the three things you asked for:
+    a <b>status filter</b> to view Active / On-hold / Stopped or everything, a <b>smarter way to count
+    stopped costs</b> (a prepaid annual stays counted; a monthly drops off), and <b>hero totals that always
+    show Active · Monthly · Annual</b> no matter what you're filtering.
+  </p>
+
+  <hr class="rule">
+
+  <!-- ===== 01 · STATUS FILTER + HERO ===== -->
+  <div class="sec-head"><span class="sec-num">01</span><span class="sec-title">Filter the list by status <span class="new-pill">NEW</span></span></div>
+  <p class="sec-note">
+    A new chip row — <b>All · Active · On&nbsp;hold · Stopped</b> — sits with your existing filters.
+    Default view is <b>Active</b>; tap <b>All</b> to see held &amp; stopped together. The three hero cards
+    on top <b>always</b> read your live commitment (Active count · Monthly · Annual) — the filter only
+    changes which rows show below.
+  </p>
+
+  <div class="grid2">
+
+    <!-- A) ALL filter -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="eyebrow" style="font-size:10px">Household</div>
+          <div class="ltitle" style="font-size:23px;margin-top:2px">Subscriptions</div>
+
+          <div class="kpi">
+            <div class="c"><div class="kl">Active</div><div class="kv">4 subs</div><div class="ks">counting now</div></div>
+            <div class="c"><div class="kl">Monthly</div><div class="kv">182k</div><div class="ks">equivalent</div></div>
+            <div class="c"><div class="kl">Annual</div><div class="kv">2.18M</div><div class="ks">committed</div></div>
+          </div>
+          <div class="kpi-note">Always live — ignores the filter below</div>
+
+          <div class="chips-label">View</div>
+          <div class="chips">
+            <div class="chip on">All <span class="n">6</span></div>
+            <div class="chip">Active <span class="n">4</span></div>
+            <div class="chip">On hold <span class="n">1</span></div>
+            <div class="chip">Stopped <span class="n">1</span></div>
+          </div>
+
+          <div class="lrow">
+            <span class="lemoji">📱</span>
+            <div class="lmain"><div class="ltitle">iCloud+ 200GB</div><div class="lsub">Cloud Storage</div>
+              <div class="lbadges"><span class="badge b-green">● Active</span></div></div>
+            <div class="lright"><div class="lamt">7.5k</div><div class="lnext">Next 20 Jun</div></div>
+          </div>
+          <div class="lrow dim">
+            <span class="lemoji">🎬</span>
+            <div class="lmain"><div class="ltitle">Netflix</div><div class="lsub">Streaming</div>
+              <div class="lbadges"><span class="badge b-muted">⏸ On hold</span></div></div>
+            <div class="lright"><div class="lamt">45k</div><div class="lnext">Paused</div></div>
+          </div>
+          <div class="lrow dim">
+            <span class="lemoji">🎫</span>
+            <div class="lmain"><div class="ltitle">City Gym</div><div class="lsub">Sports / Gym · monthly</div>
+              <div class="lbadges"><span class="badge b-coral">⏹ Stopped</span></div></div>
+            <div class="lright"><div class="lamt">60k</div><div class="lnext">Ended 2 Jun</div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">① “All” — see active, held &amp; stopped together</p>
+    </div>
+
+    <!-- B) STOPPED filter -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="eyebrow" style="font-size:10px">Household</div>
+          <div class="ltitle" style="font-size:23px;margin-top:2px">Subscriptions</div>
+
+          <div class="kpi">
+            <div class="c"><div class="kl">Active</div><div class="kv">4 subs</div><div class="ks">counting now</div></div>
+            <div class="c"><div class="kl">Monthly</div><div class="kv">182k</div><div class="ks">equivalent</div></div>
+            <div class="c"><div class="kl">Annual</div><div class="kv">2.18M</div><div class="ks">committed</div></div>
+          </div>
+          <div class="kpi-note">Same totals — filtering Stopped doesn't change them</div>
+
+          <div class="chips-label">View</div>
+          <div class="chips">
+            <div class="chip">All <span class="n">6</span></div>
+            <div class="chip">Active <span class="n">4</span></div>
+            <div class="chip">On hold <span class="n">1</span></div>
+            <div class="chip on">Stopped <span class="n">1</span></div>
+          </div>
+
+          <div class="lrow dim">
+            <span class="lemoji">🎫</span>
+            <div class="lmain"><div class="ltitle">City Gym</div><div class="lsub">Sports / Gym · monthly</div>
+              <div class="lbadges"><span class="badge b-coral">⏹ Stopped</span><span class="badge b-neutral">not counted</span></div></div>
+            <div class="lright"><div class="lamt">60k</div><div class="lnext">Ended 2 Jun</div></div>
+          </div>
+          <div class="lrow dim">
+            <span class="lemoji">📰</span>
+            <div class="lmain"><div class="ltitle">FT Digital</div><div class="lsub">News · annual (prepaid)</div>
+              <div class="lbadges"><span class="badge b-coral">⏹ Stopped</span><span class="badge b-gold">counts to Mar 2027</span></div></div>
+            <div class="lright"><div class="lamt">240k</div><div class="lnext">Paid to Mar</div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">② “Stopped” — the prepaid annual still flags as counting</p>
+    </div>
+
+  </div>
+
+  <hr class="rule">
+
+  <!-- ===== 02 · COUNTING RULES ===== -->
+  <div class="sec-head"><span class="sec-num">02</span><span class="sec-title">How a Stopped cost is counted <span class="new-pill">NEW</span></span></div>
+  <p class="sec-note">
+    Your point: stopping shouldn't always wipe the cost — if you <b>prepaid for the year</b>, that money's
+    already gone, so it should keep counting until the year you paid for runs out. If you were paying
+    <b>month-to-month</b>, stopping ends the charges, so it drops off straight away.
+  </p>
+
+  <div class="countcard">
+    <div class="crow">
+      <div class="cl"><span class="badge b-green">● Active / Trial</span></div>
+      <div class="cd"><b>Counts fully</b> — exactly as today. Sits in Active count, Monthly equivalent &amp; Annual.</div>
+    </div>
+    <div class="crow">
+      <div class="cl"><span class="badge b-muted">⏸ On hold</span></div>
+      <div class="cd"><b>Drops out while held</b> — you're not paying during a hold; reminders pause. Snaps back in when you Resume.</div>
+    </div>
+    <div class="crow">
+      <div class="cl"><span class="badge b-coral">⏹ Stopped · monthly</span></div>
+      <div class="cd"><b>Drops out immediately.</b> Monthly / weekly / daily billing = no more charges the moment you stop.
+        <div class="pillrow"><span class="tag t-drop">Monthly −</span><span class="tag t-drop">Annual −</span></div></div>
+    </div>
+    <div class="crow">
+      <div class="cl"><span class="badge b-coral">⏹ Stopped · prepaid</span></div>
+      <div class="cd"><b>Keeps counting until paid-through.</b> Annual / semi-annual / quarterly that's already paid stays in
+        Monthly equivalent &amp; Annual until its paid-through date passes — then it drops off automatically.
+        <div class="pillrow"><span class="tag t-count">Monthly ✓ till paid-through</span><span class="tag t-count">Annual ✓</span></div></div>
+    </div>
+  </div>
+
+  <div class="ex">
+    <b>Worked example.</b> You stop <b>FT Digital</b> (TZS 240k/yr, paid through Mar 2027) today, 7 Jun 2026.
+    Because it's prepaid, its <b>20k/mo</b> equivalent stays in your Monthly &amp; Annual figures until Mar 2027,
+    then auto-drops. Stop <b>City Gym</b> (60k/mo) and it leaves the totals immediately — next month is 60k lighter.
+  </div>
+
+  <hr class="rule">
+
+  <!-- ===== 03 · BEHAVIOUR KEY ===== -->
+  <div class="sec-head"><span class="sec-num">03</span><span class="sec-title">Exactly what changes</span></div>
+  <table class="key-tbl">
+    <tr><td>Status filter</td><td><b>All · Active · On&nbsp;hold · Stopped</b> chip row (with counts), beside the existing Paid-by &amp; Category filters. Default = Active. “All” shows everything in one list.</td></tr>
+    <tr><td>Hero totals</td><td>Always show <b>Active count · Monthly equivalent · Annual</b> at live commitment — never affected by which status filter is on.</td></tr>
+    <tr><td>Hold</td><td>Status → <b>paused</b>. Drops out of all totals; reminders &amp; post-due check pause; optional auto-resume date; one-tap Resume.</td></tr>
+    <tr><td>Stop · monthly</td><td>Status → <b>cancelled</b> + <i>endedOn</i> stamped. Leaves Monthly &amp; Annual immediately (pay-as-you-go ends).</td></tr>
+    <tr><td>Stop · prepaid</td><td>Status → <b>cancelled</b> but stays in Monthly &amp; Annual until the <i>paid-through</i> date (next renewal you already paid for), then auto-drops. Applies to quarterly / semi-annual / annual.</td></tr>
+    <tr><td>Kept safe</td><td>Cycles, payments &amp; receipts untouched — status only changes what's <i>counted</i> going forward (“history is sacred”).</td></tr>
+    <tr><td>Who</td><td>Parents only. Wealth-mirrored Property/Land subs still managed in Wealth. Delete stays for “created by mistake”.</td></tr>
+  </table>
+
+  <div class="foot">
+    <h4>What I'll build once you approve 👍</h4>
+    <ul>
+      <li><span class="ok">Status filter chips</span> (All / Active / On&nbsp;hold / Stopped) with live counts.</li>
+      <li><span class="ok">Hero KPIs locked to active commitment</span> — independent of the filter.</li>
+      <li><span class="ok">Paid-through cost logic</span> — prepaid stopped subs keep counting until their paid date; monthly ones drop instantly.</li>
+      <li>Hold / Resume / Stop / Reactivate actions + confirm sheets (from rev 1).</li>
+      <li>Greyed rows with <b>On&nbsp;hold</b> / <b>Stopped</b> badges; a tiny scheduled check to auto-drop lapsed prepaid stops &amp; auto-resume held subs.</li>
+    </ul>
+    <p class="lede" style="font-size:13.5px;margin-top:12px">
+      Reply <b>“approved”</b> and I'll ship it to a preview link to tap through before it goes live. 🚀
+      <br>One thing worth a quick confirm: default the list to <b>Active</b> (my plan) — happy to make it
+      <b>All</b> instead if you'd rather always see everything.
+    </p>
+  </div>
+
+</div>
+</body>
+</html>
