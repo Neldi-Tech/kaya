@@ -19,10 +19,12 @@ import {
   subscribeKidWorkplanItems, subscribeKidCompletion, completeKidTask,
   subscribeKidWorkplanProofs, submitKidWorkplanProof,
   setKidItemNote, setKidDayExcuse, EXCUSE_REASONS, excuseReasonMeta,
+  isPausedOn, pauseStatusLabel,
   kidItemsScheduledOn, partitionKidByTime,
   formatTimeLocal, categoryMeta, todayDateString, todayDayOfWeek,
 } from '@/lib/kidWorkplan';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { useLocale } from '@/lib/useLocale';
 import { uploadWorkplanProofMedia } from '@/lib/workplanProofUpload';
 import {
@@ -50,10 +52,18 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
 }) {
   const router = useRouter();
   const { profile } = useAuth();
+  const { family, children: famChildren } = useFamily();
   const uid = profile?.uid ?? '';
   const sw = useLocale() === 'sw';
   const dateStr = todayDateString(date);
   const isToday = dateStr === todayDateString();
+  // Whole-plan / all-kids pause (PR C): a holiday on this kid's plan or the
+  // whole family. A paused day shows a rest card instead of tasks — and is
+  // streak-safe (computeKidAccomplishment neutralises it on the parent side).
+  const childPause = famChildren.find((c) => c.id === childId)?.workplanPause;
+  const familyPause = family?.workplanPause;
+  const planPaused = isPausedOn(childPause, dateStr) || isPausedOn(familyPause, dateStr);
+  const pausedLabel = planPaused ? (pauseStatusLabel(childPause) || pauseStatusLabel(familyPause)) : '';
 
   const [items, setItems] = useState<KidWorkplanItem[] | null>(null);
   const [completion, setCompletion] = useState<KidWorkplanCompletion | null>(null);
@@ -166,6 +176,20 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   const allItems = useMemo(() => (items ? [...items, ...syntheticItems] : null), [items, syntheticItems]);
   const scheduled = useMemo(() => (allItems ? kidItemsScheduledOn(allItems, date) : []), [allItems, date]);
   const { timed, anytime } = useMemo(() => partitionKidByTime(scheduled), [scheduled]);
+
+  // Plan paused (holiday) — a friendly rest card instead of the task list.
+  if (planPaused) {
+    return (
+      <div className="rounded-2xl p-5 text-center border-2" style={{ background: '#EAF3FF', borderColor: '#BBD6F5' }}>
+        <div className="text-4xl mb-2" aria-hidden>🏖️</div>
+        <p className="font-black text-[15px]" style={{ color: '#1F3A5F' }}>{sw ? 'Plani imepumzishwa' : 'Plan paused'}</p>
+        {pausedLabel && <p className="text-[12px] font-bold mt-0.5" style={{ color: '#3E5A7A' }}>{pausedLabel}</p>}
+        <p className="text-[12px] font-bold mt-1" style={{ color: '#5C7CA0' }}>
+          {sw ? 'Pumzika — mfululizo wako uko salama 🔥' : 'Enjoy your break — your streak is safe 🔥'}
+        </p>
+      </div>
+    );
+  }
 
   if (items === null || pulseTasks === null) {
     return <div className="rounded-2xl bg-white/70 border-2 border-[#F0E8FF] p-6 text-center text-sm font-extrabold text-[#9B5DE5]">Loading your day…</div>;

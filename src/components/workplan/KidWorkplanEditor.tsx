@@ -8,13 +8,16 @@
 import { Fragment, useEffect, useState } from 'react';
 import type { DayOfWeek } from '@/lib/firestore';
 import {
-  type KidWorkplanItem, type KidTaskCategory, type KidTaskKind,
+  type KidWorkplanItem, type KidTaskCategory, type KidTaskKind, type PauseInput,
   subscribeKidWorkplanItems, listKidWorkplanItems, addKidWorkplanItem, updateKidWorkplanItem, deleteKidWorkplanItem,
-  replicateKidWorkplan,
+  replicateKidWorkplan, setChildWorkplanPause, setKidItemPause, pauseStatusLabel,
   KID_CATEGORIES, categoryMeta, KID_DAY_LABELS, KID_SCHOOL_STARTER,
   sortKidItemsByTime, formatTimeLocal, todayDateString,
 } from '@/lib/kidWorkplan';
-import { Trash2, Plus, Sparkles, Check, Copy } from 'lucide-react';
+import { Trash2, Plus, Sparkles, Check, Copy, PauseCircle } from 'lucide-react';
+import { useFamily } from '@/contexts/FamilyContext';
+import { useLocale } from '@/lib/useLocale';
+import PauseSheet from '@/components/workplan/PauseSheet';
 
 export interface ChildRef { id: string; name: string }
 
@@ -90,6 +93,29 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
   const [copyOpen, setCopyOpen] = useState(false);
   const [copyTargets, setCopyTargets] = useState<Set<string>>(new Set());
   useEffect(() => { setCopyOpen(false); setCopyTargets(new Set()); }, [childId]);
+
+  // Pause / holidays (PR C). Whole-plan pause lives on the Child doc; the
+  // live family subscription reflects it. Per-task pause lives on the item.
+  const { children: famChildren } = useFamily();
+  const sw = useLocale() === 'sw';
+  const childPause = (famChildren.find((c) => c.id === childId)?.workplanPause) ?? null;
+  const [childPauseOpen, setChildPauseOpen] = useState(false);
+  const [itemPauseFor, setItemPauseFor] = useState<KidWorkplanItem | null>(null);
+  const [pauseBusy, setPauseBusy] = useState(false);
+  useEffect(() => { setChildPauseOpen(false); setItemPauseFor(null); }, [childId]);
+
+  const saveChildPause = async (p: PauseInput | null) => {
+    setPauseBusy(true); setErr(null);
+    try { await setChildWorkplanPause(familyId, childId, p, parentUid); setChildPauseOpen(false); }
+    catch (e) { setErr(saveError(e)); }
+    finally { setPauseBusy(false); }
+  };
+  const saveItemPause = async (itemId: string, p: PauseInput | null) => {
+    setPauseBusy(true); setErr(null);
+    try { await setKidItemPause(familyId, childId, itemId, p, parentUid); setItemPauseFor(null); }
+    catch (e) { setErr(saveError(e)); }
+    finally { setPauseBusy(false); }
+  };
 
   useEffect(() => subscribeKidWorkplanItems(familyId, childId, setItems), [familyId, childId]);
   useEffect(() => { setApplyTo(new Set([childId])); setFlash(null); }, [childId]);
@@ -214,6 +240,27 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
       {err && (
         <div className="mb-2 rounded-hive bg-red-50 border border-red-300 text-red-800 text-[12px] font-extrabold px-3 py-2">⚠ {err}</div>
       )}
+
+      {/* Whole-plan pause / holidays for THIS kid (PR C) */}
+      {items && items.length > 0 && (
+        <div className="mb-3 rounded-hive-lg border border-hive-line bg-hive-paper p-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-wider text-hive-muted mb-0.5">⏸ {sw ? 'Likizo / Simamisha' : 'Holidays / pause'}</p>
+            {pauseStatusLabel(childPause) ? (
+              <p className="text-[12px] font-nunito font-extrabold truncate" style={{ color: NAVY }}>
+                {pauseStatusLabel(childPause)}{childPause?.note ? ` · ${childPause.note}` : ''}
+              </p>
+            ) : (
+              <p className="text-[12px] text-hive-muted">{sw ? `Plani ya ${childName.split(' ')[0]} inaendelea` : `${childName.split(' ')[0]}'s plan is running`}</p>
+            )}
+          </div>
+          <button type="button" onClick={() => setChildPauseOpen(true)}
+            className="flex-shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-hive-pill border-2 border-hive-line font-nunito font-extrabold text-[12px]" style={{ color: NAVY }}>
+            <PauseCircle size={14} /> {pauseStatusLabel(childPause) ? (sw ? 'Badilisha' : 'Manage') : (sw ? 'Simamisha plani' : 'Pause plan')}
+          </button>
+        </div>
+      )}
+
       {items === null ? (
         <p className="text-[13px] text-hive-muted">Loading…</p>
       ) : items.length === 0 && !adding ? (
@@ -248,6 +295,12 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
               return (
                 <div key={item.id} className="rounded-hive-lg border-2 border-hive-honey bg-hive-cream/40 p-3">
                   <DraftForm draft={editDraft} setDraft={setEditDraft} />
+                  <button type="button" onClick={() => setItemPauseFor(item)}
+                    className="mt-3 w-full inline-flex items-center justify-center gap-1.5 h-9 rounded-hive-pill border-2 border-hive-line font-nunito font-extrabold text-[12px]" style={{ color: NAVY }}>
+                    <PauseCircle size={14} /> {pauseStatusLabel(item.pause)
+                      ? `${sw ? 'Imesimamishwa' : 'Paused'} — ${pauseStatusLabel(item.pause)}`
+                      : (sw ? 'Simamisha kazi hii' : 'Pause this task')}
+                  </button>
                   <div className="mt-3 flex items-center justify-between gap-2">
                     <button onClick={() => remove(item.id)} disabled={busy}
                       className="inline-flex items-center gap-1 text-[12px] font-bold text-hive-rose disabled:opacity-50">
@@ -285,6 +338,7 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
                         ? `one-off ${item.scheduledDates?.[0] ?? ''}`
                         : daysSummary(item.daysOfWeek)}
                       {item.requiresProof ? <span className="text-hive-muted"> · 📸 proof</span> : ''}
+                      {pauseStatusLabel(item.pause) ? <span className="text-hive-muted"> · ⏸ {sw ? 'imesimamishwa' : 'paused'}</span> : ''}
                     </span>
                   </span>
                   {item.pointsValue ? (
@@ -364,6 +418,32 @@ export default function KidWorkplanEditor({ familyId, childId, childName, parent
             )
           )}
         </div>
+      )}
+
+      {/* Pause sheets (PR C) — whole-plan + per-task */}
+      {childPauseOpen && (
+        <PauseSheet
+          title={sw ? `Simamisha plani ya ${childName.split(' ')[0]}` : `Pause ${childName.split(' ')[0]}'s plan`}
+          scopeNote={sw ? `Kazi zote za ${childName.split(' ')[0]}` : `All of ${childName.split(' ')[0]}'s tasks`}
+          current={childPause}
+          sw={sw}
+          busy={pauseBusy}
+          onSave={saveChildPause}
+          onResume={() => saveChildPause(null)}
+          onClose={() => setChildPauseOpen(false)}
+        />
+      )}
+      {itemPauseFor && (
+        <PauseSheet
+          title={sw ? 'Simamisha kazi hii' : 'Pause this task'}
+          scopeNote={itemPauseFor.label}
+          current={itemPauseFor.pause}
+          sw={sw}
+          busy={pauseBusy}
+          onSave={(p) => saveItemPause(itemPauseFor.id, p)}
+          onResume={() => saveItemPause(itemPauseFor.id, null)}
+          onClose={() => setItemPauseFor(null)}
+        />
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import {
   listKidWorkplanItems, listKidCompletions, computeKidAccomplishment,
   excuseReasonMeta, todayDateString,
 } from '@/lib/kidWorkplan';
+import { useFamily } from '@/contexts/FamilyContext';
 import { toDisplayDate } from '@/lib/dates';
 import KidWorkplanToday from '@/components/workplan/KidWorkplanToday';
 import { X } from 'lucide-react';
@@ -35,9 +36,13 @@ export default function KidWorkplanAccomplishment({ familyId, childId, childName
   childId: string;
   childName: string;
 }) {
+  const { family, children } = useFamily();
   const [items, setItems] = useState<KidWorkplanItem[] | null>(null);
   const [completions, setCompletions] = useState<KidWorkplanCompletion[]>([]);
   const [openDate, setOpenDate] = useState<string | null>(null);
+  // Whole-plan + all-kids pauses → streak-safe neutral days (PR C).
+  const childPause = children.find((c) => c.id === childId)?.workplanPause;
+  const familyPause = family?.workplanPause;
 
   useEffect(() => {
     let cancelled = false;
@@ -54,8 +59,8 @@ export default function KidWorkplanAccomplishment({ familyId, childId, childName
   }, [familyId, childId]);
 
   const acc = useMemo(
-    () => (items ? computeKidAccomplishment(items, completions, 7) : null),
-    [items, completions],
+    () => (items ? computeKidAccomplishment(items, completions, 7, new Date(), [familyPause, childPause]) : null),
+    [items, completions, familyPause, childPause],
   );
 
   if (items === null) {
@@ -108,24 +113,26 @@ export default function KidWorkplanAccomplishment({ familyId, childId, childName
         {a.days.map((d) => {
           const isToday = d.date === todayStr;
           const open = d.date === openDate;
+          const paused = d.paused;
           const exc = d.excused ? excuseReasonMeta(d.excuseReason) : null;
+          const neutral = paused || !!exc;
           return (
             <button
               key={d.date}
               type="button"
               onClick={() => setOpenDate(open ? null : d.date)}
               className="flex flex-col items-center gap-1 flex-1"
-              title={`${toDisplayDate(d.date)} · ${exc ? `Excused — ${exc.label}` : d.isActive ? `${d.done}/${d.scheduled} · ${d.pct}%` : 'nothing planned'}`}
+              title={`${toDisplayDate(d.date)} · ${paused ? 'Paused (holiday)' : exc ? `Excused — ${exc.label}` : d.isActive ? `${d.done}/${d.scheduled} · ${d.pct}%` : 'nothing planned'}`}
             >
               <div
                 className="w-full max-w-[40px] aspect-square rounded-xl flex items-center justify-center text-[11px] font-black"
                 style={{
-                  background: exc ? '#EAF3FF' : pctColor(d.pct, d.isActive),
-                  color: exc ? '#1F3A5F' : d.isActive && d.pct >= 50 ? '#fff' : '#7a7264',
+                  background: neutral ? '#EAF3FF' : pctColor(d.pct, d.isActive),
+                  color: neutral ? '#1F3A5F' : d.isActive && d.pct >= 50 ? '#fff' : '#7a7264',
                   boxShadow: open ? `0 0 0 2px #fff, 0 0 0 4px ${JOY.ink}` : 'none',
                 }}
               >
-                {exc ? <span className="text-[13px]" aria-hidden>{exc.emoji}</span> : d.isActive ? `${d.pct}` : '—'}
+                {paused ? <span className="text-[13px]" aria-hidden>⏸</span> : exc ? <span className="text-[13px]" aria-hidden>{exc.emoji}</span> : d.isActive ? `${d.pct}` : '—'}
               </div>
               <span className={`text-[9px] font-bold uppercase ${isToday ? '' : 'text-kaya-sand'}`} style={isToday ? { color: JOY.purple } : {}}>
                 {d.dow}
