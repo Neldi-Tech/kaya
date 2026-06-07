@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { updateSession, updateSessionFields, type GameSession } from '@/lib/gameSessions';
+import { readTriviaSeen, recordTriviaSeen, dedupeAgainst } from '@/lib/triviaSeen';
 
 // Multi-device Family Trivia v2 — pick a subject, then race: every question is
 // TIMED and auto-advances (no host button). Points scale with speed and the
@@ -99,12 +100,12 @@ export function pickQuestions(subject: string): TriviaQ[] {
 // Ask the server to generate FRESH AI questions for this subject. Returns []
 // on any failure / when the AI key isn't set, so the caller falls back to the
 // hand-authored bank above. Shape-guarded so a bad payload can't crash a game.
-async function fetchAiTrivia(subject: string, difficulty: string, count: number): Promise<TriviaQ[]> {
+async function fetchAiTrivia(subject: string, difficulty: string, count: number, avoid: string[] = []): Promise<TriviaQ[]> {
   try {
     const res = await fetch('/api/games/trivia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, difficulty, count }),
+      body: JSON.stringify({ subject, difficulty, count, avoid }),
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { questions?: TriviaQ[]; skipped?: boolean };
@@ -144,6 +145,7 @@ export default function FamilyTriviaPlay({
   const scores = (st.scores as Record<string, number>) || {};
   const revealed = !!st.revealed;
   const generating = !!st.generating;
+  const explored = (st.explored as number) || 0;
   const isHost = session.hostUid === me;
   const players = session.players;
   const q = questions[qIndex];
@@ -171,14 +173,20 @@ export default function FamilyTriviaPlay({
     genRef.current = key;
     let cancelled = false;
     (async () => {
-      let qs = await fetchAiTrivia(subject, difficulty, PER_GAME);
+      // Never-repeats: over-fetch, tell the AI what we've recently asked, then
+      // drop any that still slipped through, and remember the fresh ones.
+      const seen = await readTriviaSeen(familyId);
+      let qs = dedupeAgainst(await fetchAiTrivia(subject, difficulty, PER_GAME + 8, seen.recent.slice(0, 50)), seen.recent);
       if (qs.length < 4) qs = pickQuestions(subject); // AI down/keyless → bank
       if (cancelled) return;
+      const chosen = qs.slice(0, PER_GAME);
+      const explored = await recordTriviaSeen(familyId, chosen.map((c) => c.q), seen);
       await updateSessionFields(familyId, session.id, {
-        'state.questions': qs.slice(0, PER_GAME),
+        'state.questions': chosen,
         'state.qStartAt': Date.now(),
         'state.generating': false,
         'state.funMult': FUN_MULT[difficulty] ?? 1.5,
+        'state.explored': explored,
       });
     })();
     return () => { cancelled = true; };
@@ -309,6 +317,9 @@ export default function FamilyTriviaPlay({
           </div>
         ))}
       </div>
+      {explored > 0 && (
+        <p className="text-center text-[10px] font-semibold text-games-ink-soft mt-2">🧠 {explored.toLocaleString()} questions explored — never repeated!</p>
+      )}
     </div>
   );
 }
