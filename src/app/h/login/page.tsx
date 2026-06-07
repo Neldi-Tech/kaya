@@ -101,10 +101,10 @@ function LoginForm() {
               inputMode="text"
               value={familyCode}
               onChange={(e) => setFamilyCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))}
-              placeholder="ABCD"
+              placeholder="7K2Q"
               className="mt-1 w-full px-3 py-3 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate font-mono text-lg tracking-widest"
             />
-            <p className="text-[11px] text-kaya-sand mt-1">The 4-letter code shared with all helpers of this family.</p>
+            <p className="text-[11px] text-kaya-sand mt-1">The 4-character code shared with all helpers of this family, e.g. <span className="font-mono">7K2Q</span>.</p>
           </label>
 
           <label className="block">
@@ -117,10 +117,10 @@ function LoginForm() {
               inputMode="text"
               value={helperCode}
               onChange={(e) => setHelperCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))}
-              placeholder="JANE"
+              placeholder="K4P2"
               className="mt-1 w-full px-3 py-3 bg-kaya-cream border border-kaya-warm-dark rounded-kaya focus:outline-none focus:border-kaya-chocolate font-mono text-lg tracking-widest"
             />
-            <p className="text-[11px] text-kaya-sand mt-1">Your personal code in this family (e.g. JANE).</p>
+            <p className="text-[11px] text-kaya-sand mt-1">Your personal sign-in code — letters &amp; numbers, e.g. <span className="font-mono">K4P2</span>. Not the family join code.</p>
           </label>
 
           <label className="block">
@@ -169,10 +169,13 @@ function LoginForm() {
               <span className="font-bold">Family code</span> — 4 letters / numbers (e.g. <span className="font-mono">7K2Q</span>). One per family. The parent shares this with every helper they add.
             </p>
             <p>
-              <span className="font-bold">Helper code</span> — your personal handle in this family (e.g. <span className="font-mono">JANE</span>). The parent chooses it when they create your account.
+              <span className="font-bold">Helper code</span> — your personal sign-in code (letters &amp; numbers, e.g. <span className="font-mono">K4P2</span>). The parent sets it when they add you, and can show it again any time in <span className="font-mono">Settings → Helpers</span>.
             </p>
             <p>
               <span className="font-bold">Password</span> — 6 characters, generated automatically. The parent sees it once and sends it to you (WhatsApp, in person, written down).
+            </p>
+            <p className="text-kaya-gold-dark">
+              <span className="font-bold">Tip:</span> these three come from the parent&apos;s <span className="font-bold">Sign-in details</span> card — <span className="font-bold">not</span> the one-time code used to first join the family.
             </p>
             <p className="pt-1 border-t border-kaya-warm-dark/30">
               <span className="font-bold">Don&apos;t have codes yet?</span> Ask the parent in your family to open <span className="font-mono">Settings → Helpers → Add helper</span> in their Kaya app. They&apos;ll send you all three.

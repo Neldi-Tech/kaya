@@ -58,15 +58,9 @@ export default function HelperPage() {
   // by `signInHelperWithCodes`. Helpers from before the stamp was
   // introduced just keep going (no stamp = no expiry) until their
   // next sign-in writes one.
-  useEffect(() => {
-    if (!profile || profile.role !== 'helper' || !family) return;
-    if (!isHelperSessionExpired(family.helperSessionDays)) return;
-    (async () => {
-      clearHelperSession();
-      try { await signOut(auth); } catch { /* noop */ }
-      router.replace('/h/login?expired=1');
-    })();
-  }, [profile, family, router]);
+  // (The expiry check runs below, AFTER the HelperLink loads, so a
+  // per-helper `sessionDaysOverride` can take precedence over the
+  // family default — see the effect just after the scope loader.)
 
   // Per-helper scope. If a HelperLink doc exists for this user we
   // filter the kid list down to its `kidIds` and show their assigned
@@ -94,6 +88,23 @@ export default function HelperPage() {
     })();
     return () => { cancelled = true; };
   }, [profile]);
+
+  // Session-length enforcement. Per-helper `sessionDaysOverride` wins;
+  // otherwise the family-wide `helperSessionDays` (default 30) applies.
+  // Compared against the localStorage stamp written at sign-in. Waits
+  // for the HelperLink load to settle (scopeLoaded) so the override is
+  // known; legacy helpers with no stamp simply never expire until their
+  // next sign-in writes one.
+  useEffect(() => {
+    if (!profile || profile.role !== 'helper' || !family || !scopeLoaded) return;
+    const days = link?.sessionDaysOverride ?? family.helperSessionDays;
+    if (!isHelperSessionExpired(days)) return;
+    (async () => {
+      clearHelperSession();
+      try { await signOut(auth); } catch { /* noop */ }
+      router.replace('/h/login?expired=1');
+    })();
+  }, [profile, family, router, link, scopeLoaded]);
 
   const visibleChildren = link
     ? children.filter((c) => link.kidIds.includes(c.id))

@@ -482,6 +482,13 @@ export interface HelperLink {
   canAward: boolean;                                         // kudos / improvement_note only; defaults false — legacy
   attribution: 'named' | 'generic' | 'hidden';               // for the future performance page
   authTier: 'A' | 'B' | 'C';
+  /** Tier A sign-in password, stored so a parent can re-view & re-share
+   *  it when a helper changes devices (Settings → Helpers → Sign-in
+   *  details). Readable ONLY by the family's parents or the helper
+   *  themselves per firestore.rules `/helpers/{uid}` — never by kids or
+   *  other helpers. Absent on helpers created before this shipped;
+   *  populated for them via the reset-password route. */
+  password?: string;
   status: 'active' | 'paused' | 'removed';
   // What the family expects this helper to fill in each day. Drives
   // the helper-side "Today" panel and (later) the performance %
@@ -492,6 +499,11 @@ export interface HelperLink {
   //   both     → both morning AND evening expected
   //   flexible → no specific cadence; helper fills when relevant
   expectedFrequency?: 'morning' | 'evening' | 'both' | 'flexible';
+  /** Per-helper override of how long they stay signed in before having
+   *  to re-enter their codes. When unset, the family-wide
+   *  `Family.helperSessionDays` (default 30) applies. Set from the
+   *  helper's "Stays signed in for" control in Settings → Helpers. */
+  sessionDaysOverride?: number | null;
   /** Automated payroll setup (2026-05-19). When present, the
    *  /pantry/payroll page auto-generates pending salary requests
    *  on the configured cadence. Optional — leave undefined for
