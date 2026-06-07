@@ -586,6 +586,14 @@ function RevisionSettingsCard({
           onChange={(v) => patch({ points_override_cap: v })}
           disabled={saving}
         />
+        <NumberKnob
+          label="Kid re-evaluations"
+          hint="Max times a kid can ask the AI to re-check one revision (you're unlimited)"
+          value={effective.max_kid_reevals}
+          min={0} max={10} step={1}
+          onChange={(v) => patch({ max_kid_reevals: v })}
+          disabled={saving}
+        />
       </div>
 
       <div className="space-y-2">

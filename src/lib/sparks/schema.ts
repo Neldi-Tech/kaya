@@ -314,6 +314,10 @@ export interface RevisionSettings {
    *  on every rate (no stepper, no nudging). Default true so existing
    *  Slice 7f behaviour is preserved. */
   allow_points_override?: boolean;
+  /** Max AI re-evaluations a KID may request per revision (the chat where
+   *  they clarify + ask the AI to re-score). Parents are never capped.
+   *  Default 3. Set 0 to disable kid-initiated re-evals. */
+  max_kid_reevals?: number;
 }
 
 export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_subjects'>> & { focus_subjects: string[] } = {
@@ -327,6 +331,7 @@ export const DEFAULT_REVISION_SETTINGS: Required<Omit<RevisionSettings, 'focus_s
   focus_subjects: [],
   points_override_cap: 5,
   allow_points_override: true,
+  max_kid_reevals: 3,
 };
 
 // ── Academic ───────────────────────────────────────────────────────────

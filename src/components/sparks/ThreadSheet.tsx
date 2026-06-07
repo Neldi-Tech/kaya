@@ -25,7 +25,7 @@ import {
   postThreadMessage, subscribeToThread,
 } from '@/lib/sparks/firestore';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
-import { scoreRevision } from '@/lib/sparks/ai';
+import { scoreRevision, reEvaluateRevision } from '@/lib/sparks/ai';
 import { clearDraft, draftKey, loadDraft, saveDraft } from '@/lib/sparks/draftStore';
 import { type SparksItem, type SparksThreadMessage } from '@/lib/sparks/schema';
 import PhotoLightbox from './PhotoLightbox';
@@ -44,10 +44,13 @@ interface Props {
    *  author's name when missing (good enough for the AI's grading
    *  voice). */
   kidName?: string;
+  /** Max AI re-evaluations a KID may request on this item (parents are
+   *  never capped). From RevisionSettings.max_kid_reevals; default 3. */
+  maxKidReevals?: number;
 }
 
 export default function ThreadSheet({
-  open, onClose, familyId, item, authorUid, authorName, authorRole, kidName,
+  open, onClose, familyId, item, authorUid, authorName, authorRole, kidName, maxKidReevals,
 }: Props) {
   const formId = useId();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -139,7 +142,19 @@ export default function ThreadSheet({
 
   const busy = posting || redoing;
   const canPost = !busy && (text.trim().length > 0 || photos.length > 0);
-  const canSendRedo = !busy && canRedo && photos.length > 0;
+  // Re-eval cap (PR 5): kids are capped per item; parents unlimited. A photo
+  // re-do AND a text re-evaluation each count (both re-score).
+  const reevalCap = typeof maxKidReevals === 'number' ? maxKidReevals : 3;
+  const kidReevalsUsed = useMemo(
+    () => messages.filter((m) => m.kind === 'redo' && m.authorRole === 'kid').length,
+    [messages],
+  );
+  const kidCapReached = authorRole === 'kid' && kidReevalsUsed >= reevalCap;
+  const reevalsLeft = Math.max(0, reevalCap - kidReevalsUsed);
+  const canSendRedo = !busy && canRedo && photos.length > 0 && !kidCapReached;
+  // Text re-evaluation: clarify (no new photos) → AI re-checks existing work.
+  const canReEvaluate = !busy && canRedo && photos.length === 0
+    && text.trim().length > 0 && !kidCapReached && (item.photo_urls?.length ?? 0) > 0;
 
   const onPost = async () => {
     if (!canPost) return;
@@ -175,11 +190,13 @@ export default function ThreadSheet({
     setRedoing(true);
     setError(null);
     try {
-      // 1. AI rescore the new photos under the same answers-mode prompt.
+      // 1. AI rescore the new photos under the same answers-mode prompt,
+      //    marked against the question paper when one is attached.
       const score = await scoreRevision({
         files: photos,
         kidName: kidName ?? authorName,
         mode: 'answers',
+        questionPaperUrls: item.question_paper_urls,
       });
 
       let redoScore: number | undefined;
@@ -220,6 +237,51 @@ export default function ThreadSheet({
       clearDraft(dKey);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Re-do failed. Try again?');
+    } finally {
+      setRedoing(false);
+    }
+  };
+
+  // Text re-evaluation (PR 5): the kid/parent clarifies, the AI re-checks the
+  // EXISTING work (+ question paper) and posts an updated score — no re-upload.
+  const onReEvaluate = async () => {
+    if (!canReEvaluate) return;
+    setRedoing(true);
+    setError(null);
+    try {
+      const result = await reEvaluateRevision({
+        imageUrls: item.photo_urls ?? [],
+        questionPaperUrls: item.question_paper_urls,
+        clarification: text.trim(),
+        kidName: kidName ?? authorName,
+      });
+      let redoScore: number | undefined;
+      let redoBreakdown: { correct: number; partial: number; wrong: number } | undefined;
+      let redoNotes: string | undefined;
+      if (result.ok) {
+        redoScore = result.data.score;
+        redoBreakdown = result.data.breakdown;
+        redoNotes = result.data.notes;
+      } else if (result.skipped) {
+        redoNotes = 'AI is off on this environment — your note was posted without a new score.';
+      } else {
+        redoNotes = `Couldn't re-evaluate: ${result.error ?? 'try again'}`;
+      }
+      await postThreadMessage(familyId, item.id, {
+        authorUid,
+        authorName,
+        authorRole,
+        text: text.trim(),
+        kind: 'redo',
+        redo_score: redoScore,
+        redo_breakdown: redoBreakdown,
+        redo_notes: redoNotes,
+        redo_round: nextRedoRound,
+      });
+      setText('');
+      clearDraft(dKey);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Re-evaluation failed. Try again?');
     } finally {
       setRedoing(false);
     }
@@ -364,6 +426,15 @@ export default function ThreadSheet({
             <div className="px-4 py-2 bg-[#FFE7E0] text-[#A33A2A] text-[12px] font-bold">{error}</div>
           )}
 
+          {/* Re-eval allowance (kids only — parents are unlimited). */}
+          {canRedo && authorRole === 'kid' && (
+            <div className="px-4 pt-1 text-[10.5px] font-bold text-[#5A6488]">
+              {kidCapReached
+                ? '🔁 Re-eval limit reached — ask a parent to continue.'
+                : `🔁 Re-evaluations left: ${reevalsLeft} of ${reevalCap}`}
+            </div>
+          )}
+
           {/* Composer */}
           <div className="px-3 py-3 bg-white border-t border-[#ECE4D3] flex items-center gap-1.5">
             <textarea
@@ -380,16 +451,31 @@ export default function ThreadSheet({
               maxLength={1500}
               className="flex-1 bg-[#FBF7EE] border border-[#ECE4D3] rounded-2xl px-3.5 py-2 text-[14px] text-[#0F1F44] focus:outline-none focus:border-[#5A3CB8] resize-none max-h-32"
             />
-            {canRedo && (
+            {/* Photos attached → Re-do (rescore new work). No photos + a note
+                → Re-evaluate (AI re-checks the existing work). Both count
+                toward the kid cap. */}
+            {canRedo && photos.length > 0 && (
               <button
                 type="button"
                 onClick={onRedo}
                 disabled={!canSendRedo}
-                title={photos.length === 0 ? 'Attach at least one photo to re-do' : `Rescore as redo #${nextRedoRound}`}
+                title={kidCapReached ? 'Re-eval limit reached — ask a parent' : `Rescore as redo #${nextRedoRound}`}
                 className="px-3 py-2 rounded-2xl text-[13px] font-extrabold disabled:opacity-40 text-white shrink-0"
                 style={{ background: '#5A3CB8' }}
               >
                 {redoing ? '🔁…' : `🔁 Re-do${priorScore !== null ? ` · prior ${priorScore}%` : ''}`}
+              </button>
+            )}
+            {canRedo && photos.length === 0 && (
+              <button
+                type="button"
+                onClick={onReEvaluate}
+                disabled={!canReEvaluate}
+                title={kidCapReached ? 'Re-eval limit reached — ask a parent to continue' : 'Type a note, then ask the AI to re-check your work'}
+                className="px-3 py-2 rounded-2xl text-[13px] font-extrabold disabled:opacity-40 shrink-0 border-2"
+                style={{ borderColor: '#5A3CB8', color: '#5A3CB8', background: '#fff' }}
+              >
+                {redoing ? '🔁…' : `🔁 Re-evaluate${priorScore !== null ? ` · ${priorScore}%` : ''}`}
               </button>
             )}
             <button
