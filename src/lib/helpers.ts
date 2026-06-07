@@ -371,6 +371,10 @@ export async function createHelper(input: CreateHelperInput): Promise<CreateHelp
       canAward: input.canAward ?? (input.preset === 'nanny' || input.preset === 'grandparent'),
       attribution: 'generic',
       authTier: 'A',
+      // Store the sign-in password so a parent can re-view & re-share it
+      // when the helper switches devices. Read-gated to parents + the
+      // helper themselves by firestore.rules.
+      password: input.password,
       status: 'active',
       expectedFrequency: input.expectedFrequency
         ?? (input.preset === 'nanny' ? 'both' : 'flexible'),
@@ -418,17 +422,38 @@ export async function signInHelperWithCodes(
   return { uid: cred.user.uid, familyId: family.id };
 }
 
-// ── Password rotation (Tier A) ────────────────────
-// "Regenerate password" from Settings. Firebase client SDK can't
-// arbitrarily reset another user's password — only the user themselves
-// can. So our approach is: delete + re-create the auth user with the
-// SAME synthetic email + a NEW password, then update the HelperLink to
-// note the rotation. The UID changes, so the helper effectively gets a
-// fresh account; their prior ratings/awards remain attributed to the
-// old UID (which is fine — audit trail intact).
+// ── Password reset (Tier A) ───────────────────────
+// Sets a NEW sign-in password on the helper's EXISTING Auth user via the
+// Admin SDK (server route /api/helpers/reset-password). The same UID is
+// kept, so all of the helper's history — ratings, awards, payroll —
+// stays intact (unlike the old "remove + re-add" dance, which minted a
+// fresh UID). The new password is also written to the HelperLink doc so
+// the parent can re-view & re-share it from the Sign-in details card.
 //
-// Implementation deferred to follow-up — for v0 a parent who needs to
-// rotate a password removes the helper and adds them again.
-export async function rotateHelperPasswordPlaceholder(): Promise<never> {
-  throw new Error('Password rotation is not wired up yet — remove + re-add the helper for now.');
+// Used for two cases:
+//   (a) helpers created before passwords were stored — gives them a
+//       viewable password for the first time;
+//   (b) rotating after a suspected compromise.
+export async function resetHelperPassword(
+  familyId: string,
+  helperUid: string,
+): Promise<string> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('You need to be signed in as a parent to reset a password.');
+  }
+  const token = await user.getIdToken();
+  const res = await fetch('/api/helpers/reset-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ familyId, helperUid }),
+  });
+  const data = await res.json().catch(() => ({} as { password?: string; error?: string }));
+  if (!res.ok) {
+    throw new Error(data?.error || 'Could not reset the password. Try again.');
+  }
+  return data.password as string;
 }

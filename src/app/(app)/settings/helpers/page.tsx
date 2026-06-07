@@ -12,6 +12,7 @@ import {
   createHelper,
   updateHelperLink,
   removeHelper,
+  resetHelperPassword,
   generateShortCode,
   generatePassword,
   DEFAULT_HELPER_SESSION_DAYS,
@@ -292,6 +293,8 @@ export default function HelpersSettingsPage() {
             key={h.uid}
             helper={h}
             familyId={family.id}
+            familyCode={familyCode ?? ''}
+            loginUrl={loginUrl}
             childOptions={children.map((c) => ({ id: c.id, name: c.name }))}
             familyModules={family?.kidModules ?? DEFAULT_KID_MODULES}
             busy={busyHelperUid === h.uid}
@@ -658,9 +661,11 @@ function CredRow({ label, value, id, copy, copied, mono }: {
   );
 }
 
-function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPauseToggle, onRemove, onUpdate }: {
+function HelperRow({ helper, familyId, familyCode, loginUrl, childOptions, familyModules, busy, onPauseToggle, onRemove, onUpdate }: {
   helper: HelperLink;
   familyId: string;
+  familyCode: string;
+  loginUrl: string;
   childOptions: { id: string; name: string }[];
   familyModules: string[];
   busy: boolean;
@@ -688,6 +693,48 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
     });
   const [nameDraft, setNameDraft] = useState(helper.displayName);
   useEffect(() => { setNameDraft(helper.displayName); }, [helper.displayName]);
+
+  // ── Sign-in details (copy + password reveal/reset) ───────────
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const copyVal = async (value: string, id: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(id);
+      setTimeout(() => setCopiedField((c) => (c === id ? null : c)), 1400);
+    } catch { /* clipboard blocked — non-fatal */ }
+  };
+  // A freshly-reset password is shown immediately (the server already
+  // wrote it to the doc; this avoids waiting for a reload). Falls back
+  // to the stored value for helpers created after passwords were saved.
+  const [freshPw, setFreshPw] = useState<string | null>(null);
+  const shownPassword = freshPw ?? helper.password ?? null;
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const doResetPassword = async () => {
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      const np = await resetHelperPassword(familyId, helper.uid);
+      setFreshPw(np);
+    } catch (e: any) {
+      setPwError(e?.message || 'Could not set the password. Try again.');
+    } finally {
+      setPwBusy(false);
+    }
+  };
+  // WhatsApp-ready bundle of everything the helper types to sign in —
+  // same shape as the Add-helper credentials card's "Copy all".
+  const copyAll = () => {
+    const pwLine = shownPassword
+      ? `Password: ${shownPassword}`
+      : `Password: (tap "Set password" in Kaya to create one)`;
+    const block =
+      `Kaya helper sign-in:\n${loginUrl}\n\n` +
+      `Family code: ${familyCode}\n` +
+      `Helper code: ${helper.helperCode}\n` +
+      pwLine;
+    copyVal(block, 'all');
+  };
 
   // Persistent save-state indicator at the top of the expanded panel.
   //   'idle'   → "All changes saved" with check (default after load)
@@ -923,6 +970,127 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
             )}
           </div>
 
+          {/* ── Sign-in details ──────────────────────────────────
+              Everything this helper types to log in, in one place and
+              in the same order as the /h sign-in screen. Family code is
+              mirrored here (it also lives on the page header). The
+              password is stored so it can be re-shared on a device
+              change; legacy helpers (no stored password) get a one-tap
+              "Set password". Read-gated to parents + the helper by
+              firestore.rules. */}
+          <div className="rounded-kaya border-[1.5px] border-kaya-gold bg-kaya-gold-light/20 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-kaya-gold-dark inline-flex items-center gap-1.5">
+                  <KeyRound size={13} /> Sign-in details
+                </p>
+                <p className="text-xs text-kaya-sand mt-1">
+                  Everything {helper.displayName} types to log in — on any phone or computer.
+                </p>
+              </div>
+              <button
+                onClick={copyAll}
+                className="px-3 py-2 text-xs font-bold bg-kaya-chocolate text-white rounded-kaya-sm hover:bg-kaya-chocolate-light inline-flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
+              >
+                {copiedField === 'all' ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy all</>}
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <CredRow label="Login URL"   value={loginUrl}          id="su-url" copy={copyVal} copied={copiedField === 'su-url'} mono />
+              <CredRow label="Family code" value={familyCode}        id="su-fc"  copy={copyVal} copied={copiedField === 'su-fc'}  mono />
+              <CredRow label="Helper code" value={helper.helperCode} id="su-hc"  copy={copyVal} copied={copiedField === 'su-hc'}  mono />
+
+              {/* Password — stored value (always-viewable) or a Set/Reset
+                  action for legacy helpers / compromise rotation. */}
+              <div className="flex items-center gap-3 bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2">
+                <span className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold w-20 flex-shrink-0">Password</span>
+                {shownPassword ? (
+                  <>
+                    <span className="flex-1 font-mono text-sm font-bold">{shownPassword}</span>
+                    <button
+                      onClick={() => copyVal(shownPassword, 'su-pw')}
+                      className="text-kaya-sand hover:text-kaya-chocolate"
+                      aria-label="Copy password"
+                    >
+                      {copiedField === 'su-pw' ? <Check size={14} /> : <Copy size={14} />}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm text-kaya-sand">Not saved yet</span>
+                    <button
+                      onClick={doResetPassword}
+                      disabled={pwBusy}
+                      className="px-2.5 py-1.5 text-xs font-bold bg-kaya-gold-light text-kaya-gold-dark border border-kaya-gold rounded-kaya-sm hover:brightness-95 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                    >
+                      <KeyRound size={12} /> {pwBusy ? 'Setting…' : 'Set password'}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {pwError && <p className="text-[11px] text-red-600 mt-2">{pwError}</p>}
+
+            {shownPassword ? (
+              <p className="text-[11px] text-kaya-sand mt-2.5 leading-relaxed">
+                Re-share these any time {helper.displayName} changes phones. Forgotten or compromised?{' '}
+                <button
+                  onClick={doResetPassword}
+                  disabled={pwBusy}
+                  className="underline font-medium hover:text-kaya-chocolate disabled:opacity-50"
+                >
+                  {pwBusy ? 'Resetting…' : 'Reset password'}
+                </button>{' '}
+                — issues a new one without removing the helper.
+              </p>
+            ) : (
+              <p className="text-[11px] text-kaya-sand mt-2.5 leading-relaxed">
+                This helper was added before passwords were saved, so the old one can&apos;t be shown. Tap <span className="font-bold">Set password</span> to create a fresh one — it keeps all their history.
+              </p>
+            )}
+          </div>
+
+          {/* ── Stays signed in for (per-helper session length) ───
+              Overrides the family-wide default set on the page header.
+              "Use family default" clears the override (null → falls back
+              to Family.helperSessionDays). */}
+          <div className="rounded-kaya border border-kaya-warm-dark bg-white p-4">
+            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-kaya-sand inline-flex items-center gap-1.5">
+              <Clock size={12} /> Stays signed in for
+            </p>
+            <p className="text-xs text-kaya-sand mt-1 leading-relaxed">
+              How long {helper.displayName} stays logged in before re-entering codes. Leave on the family default, or set a specific length for this helper.
+            </p>
+            <div className="flex flex-wrap gap-2 mt-3">
+              {([
+                { label: 'Use family default', days: null as number | null },
+                { label: '7d', days: 7 as number | null },
+                { label: '30d', days: 30 as number | null },
+                { label: '90d', days: 90 as number | null },
+                { label: '1yr', days: 365 as number | null },
+              ]).map((c) => {
+                const ov = helper.sessionDaysOverride;
+                const usingDefault = ov === null || ov === undefined;
+                const on = c.days === null ? usingDefault : ov === c.days;
+                return (
+                  <button
+                    key={c.label}
+                    type="button"
+                    onClick={() => { if (!on) save({ sessionDaysOverride: c.days }); }}
+                    className={`px-3 py-2 text-xs font-bold rounded-kaya-sm border ${on
+                      ? 'bg-kaya-chocolate text-white border-kaya-chocolate'
+                      : 'bg-kaya-cream border-kaya-warm-dark text-kaya-chocolate hover:border-kaya-chocolate'
+                    } ${c.days === null ? 'flex-1 min-w-[150px]' : ''}`}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Display name — auto-saves on blur. No explicit Save button
               (it was a disabled gray nub that visually contradicted the
               "everything auto-saves" status pill above). Tab-out or
@@ -1154,12 +1322,14 @@ function HelperRow({ helper, familyId, childOptions, familyModules, busy, onPaus
             helper={helper}
           />
 
-          {/* Login code + tier footer */}
+          {/* Tier + security footer. The login code & password now live
+              in the Sign-in details card above; this is just provenance +
+              the instant-lockout pointer. */}
           <div className="text-[11px] text-kaya-sand pt-2 border-t border-kaya-warm-dark/30">
-            Login code: <span className="font-mono font-bold text-kaya-chocolate">{helper.helperCode}</span>
-            {' '}· Created via Tier {helper.authTier}
+            Created via Tier {helper.authTier} · Helper code{' '}
+            <span className="font-mono font-bold text-kaya-chocolate">{helper.helperCode}</span>
             <span className="block mt-1 text-[10px]">
-              To rotate password or change the helper code, <button className="underline" onClick={onRemove}>remove</button> this helper and add them again. Suspect compromise? Use <span className="font-bold">Pause</span> for instant lockout.
+              Suspect compromise? Use <span className="font-bold">Pause</span> for an instant lockout, or <span className="font-bold">Reset password</span> in the Sign-in details card to issue fresh credentials.
             </span>
           </div>
         </div>

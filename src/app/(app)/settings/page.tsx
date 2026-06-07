@@ -1993,7 +1993,7 @@ export default function SettingsPage() {
 
               {([
                 { key: 'kid' as const,    title: 'Kids',    emoji: '🧒', hint: 'For your children. Lets them rate their routines and see their points.' },
-                { key: 'helper' as const, title: 'Helpers', emoji: '🤝', hint: 'For nannies / helpers who rate routines for the kids each day.' },
+                { key: 'helper' as const, title: 'Helpers', emoji: '🤝', hint: 'One-time code for a NEW helper to join. Their day-to-day sign-in codes live per helper in Settings → Helpers.' },
                 { key: 'guest' as const,  title: 'Guests',  emoji: '👀', hint: 'View-only. Great for grandparents and godparents.' },
               ]).map(({ key, title, emoji, hint }) => {
                 const entry = inviteCodes?.[key];
