@@ -459,6 +459,21 @@ export interface Family {
       time: string;
     };
   };
+  // ── Sunday-Meeting v2: leader queue ─────────────────────────
+  // The person queued to *run* the next meeting. Set by the current
+  // leader at the start of the meeting (Attendance step), either by
+  // tapping a chip or spinning the wheel. Displayed on the OpenStep
+  // reveal + on the chosen person's My Day from the moment it's set.
+  // `id` is uid (parents/helpers) or childId (kids); the snapshot
+  // fields let cards render without a join.
+  nextMeetingLeader?: {
+    id: string;             // uid or childId
+    name: string;
+    emoji: string;
+    kind: 'parent' | 'kid' | 'helper';
+    pickedBy: string;       // uid of the user who picked
+    pickedAt: number;       // epoch millis
+  } | null;
   createdAt: Timestamp;
 }
 

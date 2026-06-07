@@ -30,6 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   createMeeting, updateMeeting, getMeetings, getFamilyMembers,
+  updateFamily,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
 
@@ -432,9 +433,26 @@ export default function MeetingPresenterPage() {
               {step.id === 'open' && (
                 <OpenStep
                   family={family}
-                  leaderName={profile?.displayName}
+                  // Prefer the queued leader (set last meeting); fall back
+                  // to whoever's driving the device right now so a
+                  // first-ever meeting isn't blank.
+                  leaderName={family?.nextMeetingLeader?.name || profile?.displayName}
+                  leaderEmoji={family?.nextMeetingLeader?.emoji}
                   onContinue={() => setStepIdx(safeStepIdx + 1)}
                 />
+              )}
+
+              {step.id === 'attendance' && profile?.familyId && (
+                <>
+                  <LeaderPicker
+                    familyId={profile.familyId}
+                    queued={family?.nextMeetingLeader || null}
+                    parents={householdParents}
+                    childrenList={children}
+                    currentUserUid={profile.uid}
+                  />
+                  <div className="my-5 lg:my-7 h-px bg-white/10" aria-hidden />
+                </>
               )}
 
               {step.id === 'attendance' && (
@@ -603,12 +621,14 @@ const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','
 function OpenStep({
   family,
   leaderName,
+  leaderEmoji,
   onContinue,
 }: {
   family: any; // Family doc; loose-typed here because the import chain
                // is heavy and the only fields touched are meetingSetup +
                // name (both optional with safe fallbacks).
   leaderName?: string;
+  leaderEmoji?: string;
   onContinue: () => void;
 }) {
   const sch = family?.meetingSetup?.schedule;
@@ -684,9 +704,9 @@ function OpenStep({
         {leaderName && (
           <div className="inline-flex items-center gap-2 bg-white text-kaya-chocolate rounded-full pl-1.5 pr-3.5 py-1 mt-5 font-display font-black text-sm shadow-[0_6px_18px_rgba(212,160,23,0.35)]">
             <span className="w-6 h-6 rounded-full bg-kaya-gold-light flex items-center justify-center text-base" aria-hidden>
-              🎤
+              {leaderEmoji || '🎤'}
             </span>
-            {leaderName} · opening
+            {leaderName} · leading
           </div>
         )}
 
@@ -702,6 +722,325 @@ function OpenStep({
             We&apos;ll move from step to step on autopilot — the leader can jump anywhere from the bars at the top.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Leader queue + Spinning Wheel ────────────────────────────────────
+// Sunday-Meeting v2 (b1). Lives inside the Attendance step. Lets the
+// current leader queue *who runs the next meeting* — either by tapping
+// a member chip or spinning the 🎡 wheel for a fair random pick.
+//
+// Pool = parents + kids only by default (per Elia's tweak). Helpers,
+// grandparents, and guests can be added later via a parent-approval
+// flow (out of scope for PR 4; the data shape already supports it).
+//
+// Persistence: `Family.nextMeetingLeader` (top-level on the Family doc,
+// not nested under meetingSetup — it changes weekly while meetingSetup
+// is configuration). Saved via `updateFamily`, no rules change needed:
+// existing rules already allow parents to write the Family doc.
+
+type LeaderPoolMember = {
+  id: string;
+  name: string;
+  emoji: string;
+  kind: 'parent' | 'kid' | 'helper';
+};
+
+function LeaderPicker({
+  familyId, queued, parents, childrenList, currentUserUid,
+}: {
+  familyId: string;
+  queued: { id: string; name: string; emoji: string; kind: 'parent' | 'kid' | 'helper' } | null;
+  parents: Array<{ uid: string; name: string; avatarEmoji?: string }>;
+  childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  currentUserUid: string;
+}) {
+  const [wheelOpen, setWheelOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pool: LeaderPoolMember[] = useMemo(() => [
+    ...parents.map((p) => ({
+      id: p.uid,
+      name: p.name,
+      emoji: p.avatarEmoji || '👤',
+      kind: 'parent' as const,
+    })),
+    ...childrenList.map((c) => ({
+      id: c.id,
+      name: c.name,
+      emoji: c.avatarEmoji || '🧒',
+      kind: 'kid' as const,
+    })),
+  ], [parents, childrenList]);
+
+  const handlePick = async (member: LeaderPoolMember) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateFamily(familyId, {
+        nextMeetingLeader: {
+          id: member.id,
+          name: member.name,
+          emoji: member.emoji,
+          kind: member.kind,
+          pickedBy: currentUserUid,
+          pickedAt: Date.now(),
+        },
+      });
+    } catch (e: any) {
+      setError(e?.message || 'Could not save the pick.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-kaya-lg border border-white/15 bg-gradient-to-br from-kaya-gold/10 via-transparent to-transparent p-4 lg:p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xl" aria-hidden>🎤</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.18em] font-extrabold text-kaya-gold-light">
+            Next meeting leader
+          </p>
+          <p className="text-[13px] text-white/75">
+            {queued ? (
+              <>
+                <span className="font-bold text-white">{queued.emoji} {queued.name}</span>
+                <span className="text-white/55"> is queued to lead next.</span>
+              </>
+            ) : (
+              <>Tap someone — or <span className="font-bold text-kaya-gold-light">spin the wheel</span> for a fair pick.</>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {pool.length === 0 ? (
+        <p className="text-xs text-white/55 italic">No family members in the pool yet.</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-1.5 lg:gap-2 mb-3">
+            {pool.map((m) => {
+              const isPicked = queued?.id === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => handlePick(m)}
+                  disabled={saving}
+                  className={`inline-flex items-center gap-1.5 h-9 lg:h-10 px-3 rounded-full text-xs lg:text-sm font-bold transition-colors disabled:opacity-50 ${
+                    isPicked
+                      ? 'bg-kaya-gold text-kaya-chocolate border-2 border-kaya-gold-light'
+                      : 'bg-white/10 hover:bg-white/15 text-white border-2 border-transparent'
+                  }`}
+                >
+                  <span aria-hidden>{m.emoji}</span>
+                  <span>{m.name}</span>
+                  {isPicked && <span aria-hidden>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setWheelOpen(true)}
+            disabled={saving}
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/40 text-xs lg:text-sm font-bold transition-colors disabled:opacity-50"
+          >
+            🎡 <span>Spin the Wheel</span>
+          </button>
+
+          <p className="mt-2 text-[10.5px] text-white/45">
+            Pool: parents + kids. Helpers and grandparents can be added later (parent-approved).
+          </p>
+
+          {error && (
+            <p className="mt-2 text-[11px] text-rose-300">⚠️ {error}</p>
+          )}
+        </>
+      )}
+
+      {wheelOpen && (
+        <LeaderWheel
+          pool={pool}
+          onClose={() => setWheelOpen(false)}
+          onLand={async (m) => {
+            await handlePick(m);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── LeaderWheel — CSS-only roulette ──────────────────────────────────
+// Surprise touch from the v2 design proposal. A 1.6s deterministic spin
+// (rotation calculated so the chosen sector lands under the pointer),
+// then a confetti-light "🎉 {name}!" reveal. No canvas, no animation
+// library — single conic-gradient + transform on a transition.
+
+function LeaderWheel({
+  pool, onLand, onClose,
+}: {
+  pool: LeaderPoolMember[];
+  onLand: (m: LeaderPoolMember) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const SECTOR_COLOURS = ['#D4A017','#3FAF6C','#E36F6F','#9B5DE5','#3FAFD0','#B8860B','#FF6B6B','#0F1F44'];
+  const sectorDeg = 360 / Math.max(1, pool.length);
+  const conic = useMemo(() => {
+    if (pool.length === 0) return SECTOR_COLOURS[0];
+    const stops: string[] = [];
+    for (let i = 0; i < pool.length; i++) {
+      const colour = SECTOR_COLOURS[i % SECTOR_COLOURS.length];
+      const from = (i * sectorDeg).toFixed(3);
+      const to   = ((i + 1) * sectorDeg).toFixed(3);
+      stops.push(`${colour} ${from}deg ${to}deg`);
+    }
+    return `conic-gradient(${stops.join(',')})`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool.length]);
+
+  const [rotation, setRotation] = useState(0);
+  const [phase, setPhase] = useState<'idle' | 'spinning' | 'landed'>('idle');
+  const [winnerIdx, setWinnerIdx] = useState<number | null>(null);
+
+  const handleSpin = () => {
+    if (phase !== 'idle' || pool.length === 0) return;
+    const idx = Math.floor(Math.random() * pool.length);
+    // Pointer sits at the top (12 o'clock = 0°/360°). Sector i's
+    // *centre* sits at `i * sectorDeg + sectorDeg/2` (measured
+    // clockwise from 0°). To land it under the pointer we rotate the
+    // wheel so that centre ends up at 0° (mod 360). With a CSS
+    // `transform: rotate(R)` (positive = clockwise), the visible
+    // angle of sector i becomes `(i*sectorDeg + sectorDeg/2 + R) mod 360`.
+    // We want that === 0 → R ≡ -(i*sectorDeg + sectorDeg/2). Add
+    // multiple full spins so it actually *spins*.
+    const fullSpins = 5;
+    const targetDelta = - (idx * sectorDeg + sectorDeg / 2);
+    const newRotation = rotation + fullSpins * 360 + ((targetDelta % 360) - (rotation % 360) + 720) % 360;
+    setRotation(newRotation);
+    setWinnerIdx(idx);
+    setPhase('spinning');
+    setTimeout(async () => {
+      setPhase('landed');
+      await onLand(pool[idx]);
+    }, 1700);
+  };
+
+  const winner = winnerIdx !== null ? pool[winnerIdx] : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Spin the Leader Wheel"
+      onClick={(e) => { if (e.target === e.currentTarget && phase !== 'spinning') onClose(); }}
+    >
+      <div className="relative w-full max-w-sm bg-kaya-chocolate text-white rounded-3xl border border-white/15 shadow-2xl p-6 text-center">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={phase === 'spinning'}
+          aria-label="Close wheel"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-base flex items-center justify-center disabled:opacity-50"
+        >
+          ✕
+        </button>
+
+        <p className="text-[10px] uppercase tracking-[0.24em] font-extrabold text-kaya-gold-light/90">
+          🎡 Leader Wheel
+        </p>
+        <h3 className="font-display text-2xl font-black mt-1 mb-4">
+          {phase === 'landed' && winner ? `🎉 ${winner.name}!` : 'Spin for a fair pick'}
+        </h3>
+
+        {/* Wheel */}
+        <div className="relative mx-auto" style={{ width: 220, height: 220 }}>
+          {/* Pointer */}
+          <div
+            aria-hidden
+            className="absolute z-10"
+            style={{
+              top: -4,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: 0,
+              height: 0,
+              borderLeft: '12px solid transparent',
+              borderRight: '12px solid transparent',
+              borderTop: '20px solid #1E120B',
+              filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))',
+            }}
+          />
+          <div
+            className="w-full h-full rounded-full"
+            style={{
+              background: conic,
+              boxShadow: '0 12px 28px rgba(0,0,0,0.45), inset 0 0 0 6px white',
+              transition: phase === 'spinning' ? 'transform 1.6s cubic-bezier(0.17, 0.67, 0.21, 1.0)' : 'none',
+              transform: `rotate(${rotation}deg)`,
+            }}
+          />
+          {/* Hub */}
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            aria-hidden
+          >
+            <div
+              className="w-14 h-14 rounded-full bg-white text-2xl flex items-center justify-center"
+              style={{ boxShadow: 'inset 0 0 0 3px #D4A017' }}
+            >
+              {phase === 'landed' && winner ? winner.emoji : '🎤'}
+            </div>
+          </div>
+        </div>
+
+        {/* Pool legend */}
+        <div className="grid grid-cols-3 gap-1.5 mt-4 text-[10.5px] font-bold text-white/55">
+          {pool.map((m, i) => (
+            <div
+              key={m.id}
+              className={`${winnerIdx === i && phase === 'landed' ? 'text-kaya-gold' : ''} truncate`}
+              title={m.name}
+            >
+              {m.emoji} {m.name}
+            </div>
+          ))}
+        </div>
+
+        {phase === 'idle' && (
+          <button
+            type="button"
+            onClick={handleSpin}
+            className="mt-5 inline-flex items-center gap-2 h-11 px-6 rounded-full bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-black text-sm transition-colors"
+          >
+            🎡 Spin!
+          </button>
+        )}
+        {phase === 'spinning' && (
+          <p className="mt-5 text-sm text-white/70 italic">Spinning…</p>
+        )}
+        {phase === 'landed' && winner && (
+          <div className="mt-5">
+            <p className="text-sm text-white/80">
+              {winner.name} is leading next meeting!
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-3 inline-flex items-center gap-2 h-11 px-6 rounded-full bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-black text-sm transition-colors"
+            >
+              Done →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

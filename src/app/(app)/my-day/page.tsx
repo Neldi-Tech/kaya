@@ -21,6 +21,36 @@ import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
 const JOY = { purple: '#9B5DE5', green: '#6BCB77', coral: '#FF6B6B', yellow: '#FFD93D', ink: '#2D1B5E', border: '#F0E8FF' };
 
+// Sunday-Meeting v2 (b1): when the current user is the queued
+// `family.nextMeetingLeader`, surface a warm "you're leading next!"
+// card on top of My Day. Self-contained — reads family from context so
+// the role-specific variants (MyDayKid / MyDayParent / MyDayHelper)
+// can drop it in with a single line.
+function LeadingNextCard({ meId }: { meId: string | null }) {
+  const { family } = useFamily();
+  const leader = family?.nextMeetingLeader;
+  if (!leader || !meId || leader.id !== meId) return null;
+  return (
+    <div
+      className="rounded-2xl p-3.5 mb-4 border-2"
+      style={{ background: 'linear-gradient(135deg, #FFF7E5, #FFE9C4)', borderColor: '#D4A017' }}
+      role="status"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="text-2xl" aria-hidden>🎤</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] font-black uppercase tracking-[1.5px]" style={{ color: '#B8860B' }}>
+            You&apos;re leading next!
+          </p>
+          <p className="text-[13px] font-extrabold leading-snug" style={{ color: '#1E120B' }}>
+            You&apos;re queued to run the next family meeting — pick a song or a thought to share ✨
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const PERIOD_LABEL: Record<MyDayPeriod, string> = {
   morning: '☀️ Morning',
   anytime: '⏰ Anytime',
@@ -129,6 +159,10 @@ function MyDayKid({ familyId, childId, userUid, name }: {
   return (
     <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+
+      {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1).
+          Renders only when this kid is queued. */}
+      <LeadingNextCard meId={childId} />
 
       {/* Hero */}
       <div className="rounded-2xl p-4 mb-4 text-white" style={{ background: `linear-gradient(135deg, ${JOY.purple}, ${JOY.coral})` }}>
@@ -391,6 +425,11 @@ function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; n
   return (
     <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+
+      {/* Forward-compatible: helpers aren't in the default wheel pool,
+          but if a parent later approves one in, the card already works. */}
+      <LeadingNextCard meId={uid} />
+
       <div className="rounded-hive-lg p-4 mb-4 text-white" style={{ background: `linear-gradient(135deg, ${NAVY}, #1c3566)` }}>
         <p className="text-[10px] font-black uppercase tracking-[2px]" style={{ color: GOLD }}>My Day</p>
         <p className="font-nunito font-black text-[18px] leading-tight mt-0.5">Habari, {name}</p>
@@ -479,6 +518,9 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+
+      {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1). */}
+      <LeadingNextCard meId={parentUid} />
 
       {/* Hero */}
       <div className="rounded-hive-lg p-4 mb-4 text-white" style={{ background: `linear-gradient(135deg, ${NAVY}, #1c3566)` }}>
