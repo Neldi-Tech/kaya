@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import type { GameDef } from '@/lib/gamesCatalog';
 import type { GameOutcome } from './types';
 import FamilyTriviaPlay, { triviaInitialState, TRIVIA_SUBJECTS } from './FamilyTrivia';
 import { UNO_LEVELS } from '@/lib/uno';
+import { COUNTRIES, LOCAL_DISCIPLINES, countryByCode } from '@/lib/countries';
 import {
   createSession, findSessionByCode, joinSession, subscribeSession, updateSession, updateSessionFields,
   type GameSession,
@@ -48,6 +50,8 @@ export default function MultiDeviceRoom({
   guestIdentity?: { uid: string; name: string; familyId: string; sessionId: string };
 }) {
   const { profile } = useAuth();
+  const { family } = useFamily();
+  const homeCode = countryByCode(family?.location?.country)?.code || '';
   const me = guestIdentity?.uid || profile?.uid || '';
   const myName = guestIdentity?.name || (profile?.displayName || 'Player').split(' ')[0];
   const familyId = guestIdentity?.familyId || profile?.familyId || '';
@@ -86,6 +90,7 @@ export default function MultiDeviceRoom({
     try {
       const initial = game.id === 'story-builder' ? { sentences: [], turn: 0 }
         : game.id === 'family-trivia' ? triviaInitialState()
+        : game.id === 'local-trivia' ? { ...triviaInitialState(), country: homeCode, discipline: 'mixed' }
         : game.id === 'tic-tac-toe' ? { board: Array(9).fill(null), turn: 0 }
         : game.id === 'connect-4' ? { board: Array(C4_ROWS * C4_COLS).fill(0), turn: 0 }
         : game.id === 'snakes-ladders' ? { pos: [0, 0], turn: 0, die: null }
@@ -97,7 +102,7 @@ export default function MultiDeviceRoom({
       const { id } = await createSession(familyId, me, myName, game.id, initial);
       setSessionId(id); setMode('in');
     } catch (e) { setErr(friendlyErr(e)); setMode('error'); }
-  }, [familyId, me, myName, game.id]);
+  }, [familyId, me, myName, game.id, homeCode]);
 
   useEffect(() => {
     if (joinCode && familyId && me) void doJoin(joinCode);
@@ -249,24 +254,24 @@ function WinnerView({ session, game, me }: { session: GameSession; game: GameDef
 // sees them. Maze Quest has its own richer RaceConfig; these are the simple
 // pick-one settings. A game absent here just shows the plain Start button.
 type LobbyOption = { value: string; label: string; emoji?: string; hint?: string };
+const LEVEL_OPTS: LobbyOption[] = [
+  { value: 'easy', label: 'Easy', emoji: '🟢', hint: '×1' },
+  { value: 'medium', label: 'Medium', emoji: '🟡', hint: '×1.5' },
+  { value: 'hard', label: 'Hard', emoji: '🔴', hint: '×2' },
+];
 const LOBBY_SETTINGS: Record<string, { key: string; label: string; options: LobbyOption[] }[]> = {
   uno: [{
     key: 'level', label: 'Difficulty',
     options: UNO_LEVELS.map((l) => ({ value: l.id, label: l.label, emoji: l.emoji, hint: `×${l.funMult}` })),
   }],
   'family-trivia': [
-    {
-      key: 'subject', label: 'Subject',
-      options: TRIVIA_SUBJECTS.map((s) => ({ value: s.id, label: s.label, emoji: s.icon })),
-    },
-    {
-      key: 'difficulty', label: 'Level · harder = more ✨',
-      options: [
-        { value: 'easy', label: 'Easy', emoji: '🟢', hint: '×1' },
-        { value: 'medium', label: 'Medium', emoji: '🟡', hint: '×1.5' },
-        { value: 'hard', label: 'Hard', emoji: '🔴', hint: '×2' },
-      ],
-    },
+    { key: 'subject', label: 'Subject', options: TRIVIA_SUBJECTS.map((s) => ({ value: s.id, label: s.label, emoji: s.icon })) },
+    { key: 'difficulty', label: 'Level · harder = more ✨', options: LEVEL_OPTS },
+  ],
+  'local-trivia': [
+    { key: 'country', label: 'Country 🌍 · pick anywhere', options: COUNTRIES.map((c) => ({ value: c.code, label: c.name, emoji: c.flag })) },
+    { key: 'discipline', label: 'Topic', options: LOCAL_DISCIPLINES.map((d) => ({ value: d.id, label: d.label, emoji: d.icon })) },
+    { key: 'difficulty', label: 'Level · harder = more ✨', options: LEVEL_OPTS },
   ],
 };
 
@@ -430,7 +435,7 @@ function Lobby({ session, me, familyId }: { session: GameSession; me: string; fa
 
 function Play({ game, session, me, familyId }: { game: GameDef; session: GameSession; me: string; familyId: string }) {
   if (game.id === 'story-builder') return <StoryBuilderPlay session={session} me={me} familyId={familyId} />;
-  if (game.id === 'family-trivia') return <FamilyTriviaPlay session={session} me={me} familyId={familyId} />;
+  if (game.id === 'family-trivia' || game.id === 'local-trivia') return <FamilyTriviaPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'tic-tac-toe') return <TicTacToeMultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'connect-4') return <Connect4MultiPlay session={session} me={me} familyId={familyId} />;
   if (game.id === 'snakes-ladders') return <SnakesLaddersMultiPlay session={session} me={me} familyId={familyId} />;

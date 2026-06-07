@@ -61,6 +61,7 @@ export const GAMES: GameDef[] = [
 
   // ── 🎪 Family Time (6 · multiplayer) ───────────────────────────────
   { id: 'family-trivia',  name: 'Family Trivia',   world: 'family', icon: '🎯', tone: 'violet', minAge: 0, minutes: 15, points: 50, device: 'multi', players: '2–8', built: true, note: 'Buzz in on your phone' },
+  { id: 'local-trivia',   name: 'Local Trivia',    world: 'family', icon: '🌍', tone: 'sky',    minAge: 5, minutes: 15, points: 50, device: 'multi', players: '2–8', built: true, note: 'Your country · pick a flag' },
   { id: 'charades',       name: 'Charades',        world: 'family', icon: '🎭', tone: 'coral',  minAge: 0, minutes: 10, points: 40, device: 'same',  players: '3+',  built: true, note: 'Pass-and-play' },
   { id: 'pictionary',     name: 'Pictionary',      world: 'family', icon: '✏️', tone: 'gold',   minAge: 0, minutes: 10, points: 40, device: 'same',  players: '3+',  built: true, note: 'Pass-and-play' },
   { id: 'connect-4',      name: 'Connect 4',       world: 'family', icon: '🔵', tone: 'sky',    minAge: 0, minutes: 5,  points: 25, device: 'both',  players: '2',  built: true, note: 'Same device or two phones' },
