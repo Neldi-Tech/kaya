@@ -235,9 +235,21 @@ export default function RevisionsPage() {
                           </span>
                         )}
                         {(() => {
+                          // Bug fix: status used to read only `points_awarded`,
+                          // so a rated revision where the parent chose NOT to
+                          // award points stayed stuck on "Awaiting your review".
+                          // The truth is `latestRating` — once a rating doc
+                          // exists for this item, the parent has reviewed,
+                          // regardless of whether points were released.
+                          if (latestRating) {
+                            return (
+                              <span className="text-[10.5px] font-extrabold rounded-full px-2 py-0.5 bg-[#DDF5DF] text-[#2E7D34]">
+                                ✓ Reviewed
+                              </span>
+                            );
+                          }
                           const settings = { ...DEFAULT_REVISION_SETTINGS, ...(profile?.revision_settings ?? {}) };
-                          const pending = !d?.points_awarded
-                            && score !== null
+                          const pending = score !== null
                             && score >= settings.qualifying_score
                             && settings.parent_approval_required;
                           if (!pending) return null;
