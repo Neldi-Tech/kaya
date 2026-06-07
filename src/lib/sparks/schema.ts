@@ -7,6 +7,7 @@
 // item / academic / task / rating writes start in Slice 2.
 
 import type { Timestamp } from 'firebase/firestore';
+import type { DayOfWeek } from '../firestore';
 
 /** The six areas surfaced on /sparks. `academic` is its OWN collection
  *  (`sparks_academic`) — every other area lives in `sparks_items` keyed
@@ -19,12 +20,14 @@ export type SparksArea =
   | 'achievement'
   | 'sports_subscription'
   | 'academic'
-  | 'revision';
+  | 'revision'
+  | 'reflection';
 
 /** Areas that map to a row in `sparks_items`. Academic records have
  *  their own collection, so they're absent here. Revisions ride the
- *  same `sparks_items` row but carry a richer `revision_data` payload. */
-export type SparksItemArea = Exclude<SparksArea, 'academic'>;
+ *  same `sparks_items` row but carry a richer `revision_data` payload.
+ *  Reflection has its own daily collection too (see reflection.ts). */
+export type SparksItemArea = Exclude<SparksArea, 'academic' | 'reflection'>;
 
 /** Order + presentation metadata for the 5 area cards on the kid's
  *  Sparks home. The dashboard + setup pages also import this so labels
@@ -36,7 +39,7 @@ export const SPARKS_AREA_META: Record<SparksArea, {
   emoji: string;
   description: string;
   /** Sub-path under `/sparks/[kidId]/` for the area's list page. */
-  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions';
+  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection';
 }> = {
   school_project: {
     key: 'school_project',
@@ -86,6 +89,14 @@ export const SPARKS_AREA_META: Record<SparksArea, {
     description: 'Practice loop · AI reads + scores + suggests next questions · earn Kaya Points.',
     path: 'revisions',
   },
+  reflection: {
+    key: 'reflection',
+    label: 'Daily Reflection',
+    shortLabel: 'Reflect',
+    emoji: '🪞',
+    description: 'Write by hand + scan how your day went · AI gives warm, structured feedback · build a daily streak.',
+    path: 'reflection',
+  },
 };
 
 /** Canonical area order used everywhere a tile grid renders. */
@@ -93,6 +104,7 @@ export const SPARKS_AREA_ORDER: SparksArea[] = [
   'school_project',
   'home_project',
   'revision',
+  'reflection',
   'achievement',
   'academic',
   'sports_subscription',
@@ -130,9 +142,33 @@ export interface SparksProfile {
    *  qualifying bars + point values differ by age. Defaults in
    *  DEFAULT_REVISION_SETTINGS apply when this is absent. */
   revision_settings?: RevisionSettings;
+  /** Daily Reflection knobs (2026-06-07). Scan (handwriting) is always
+   *  on; parents opt-in typing and pick which weekdays typing is allowed.
+   *  Defaults in DEFAULT_REFLECTION_SETTINGS apply when absent. */
+  reflection_settings?: ReflectionSettings;
   updatedAt?: Timestamp;
   updatedBy?: string; // uid
 }
+
+// ── Daily Reflection settings (parent-controlled, per kid) ──────────────
+//
+// Scan-first by design: a kid writes their reflection BY HAND and scans it
+// (AI reads the handwriting). Typing is a secondary path the parent gates —
+// off by default, and when on, allowed only on the weekdays they pick (e.g.
+// scan-only on school days to build the handwriting habit; typing on
+// weekends). See reflection.ts for the daily entry + streak model.
+export interface ReflectionSettings {
+  /** Master switch for the typed-entry option. false = scan-only. */
+  typing_allowed: boolean;
+  /** When typing_allowed, the weekdays typing is offered. Empty = none.
+   *  Days not listed show scan-only even when typing_allowed is true. */
+  typing_days: DayOfWeek[];
+}
+
+export const DEFAULT_REFLECTION_SETTINGS: ReflectionSettings = {
+  typing_allowed: false,
+  typing_days: [],
+};
 
 // ── Item ───────────────────────────────────────────────────────────────
 //
