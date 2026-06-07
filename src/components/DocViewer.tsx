@@ -18,6 +18,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import PdfCanvas from '@/components/PdfCanvas';
+import ZoomableImage from '@/components/ZoomableImage';
 
 export interface DocViewerProps {
   open: boolean;
@@ -207,9 +208,8 @@ export default function DocViewer({ open, doc, onClose, onDownload, viewerUrl }:
           )
         )}
         {kind === 'image' && (
-          <div className="absolute inset-0 grid place-items-center p-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={viewerUrl || doc.url} alt={safeName} className="max-w-full max-h-full object-contain" />
+          <div className="absolute inset-0 p-2">
+            <ZoomableImage src={viewerUrl || doc.url} alt={safeName} />
           </div>
         )}
         {kind === 'docx' && (
