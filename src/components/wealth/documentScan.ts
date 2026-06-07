@@ -6,8 +6,15 @@
 // Pure canvas — fast and reliable, NO external CV libraries. (The earlier
 // build lazy-loaded OpenCV.js + jscanify from CDN for auto edge-crop +
 // perspective flatten, but that load could hang the scan for many seconds and
-// made it feel broken. Reliable enhancement matters more than auto-crop, which
-// can come back later as an opt-in once it's robust.)
+// made it feel broken.)
+//
+// Scanning 2.0 (2026-06-07): auto edge-crop + perspective flatten is BACK —
+// but via AI (detectDocumentCorners) + a pure-canvas warp, so there's no
+// wasm to hang on. We warp the page flat FIRST, then run the existing
+// de-shadow + contrast + sharpen. Falls back to plain downscale + enhance
+// when no clear page is found.
+
+import { detectDocumentCorners, warpToDocument } from '@/lib/photoEnhance';
 
 const MAX_EDGE = 1500;
 const JPEG_Q = 0.9;
@@ -133,15 +140,34 @@ function enhance(src: HTMLCanvasElement): HTMLCanvasElement {
   return src;
 }
 
-/** File → enhanced JPEG scan. Fast, never hangs. */
+/** File → enhanced JPEG scan. Fast, never hangs. Auto-frames the page with
+ *  AI when one is clearly detected; otherwise downscales the whole photo.
+ *  Either way the existing de-shadow + contrast + sharpen runs after. */
 export async function scanDocument(file: File, opts?: { autoCrop?: boolean; onStage?: (s: string) => void }): Promise<ScanResult> {
   const onStage = opts?.onStage ?? (() => {});
   onStage('Reading photo…');
   const img = await loadImage(file);
-  const canvas = downscale(img, MAX_EDGE);
+
+  // Scanning 2.0 — AI auto-frame first (unless the caller opted out).
+  let canvas: HTMLCanvasElement | null = null;
+  let autoCropped = false;
+  if (opts?.autoCrop !== false) {
+    try {
+      onStage('Finding the page…');
+      const corners = await detectDocumentCorners(file);
+      if (corners) {
+        const warped = warpToDocument(img, corners, MAX_EDGE);
+        if (warped) { canvas = warped; autoCropped = true; }
+      }
+    } catch {
+      // fall back to the plain downscale below
+    }
+  }
+  if (!canvas) canvas = downscale(img, MAX_EDGE);
+
   onStage('Enhancing…');
   const enhanced = enhance(canvas);
   const blob = await canvasToBlob(enhanced, JPEG_Q);
   const dataUrl = enhanced.toDataURL('image/jpeg', JPEG_Q);
-  return { blob, dataUrl, autoCropped: false };
+  return { blob, dataUrl, autoCropped };
 }
