@@ -25,10 +25,11 @@ import {
 } from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import type { DayOfWeek } from './firestore';
+import type { DayOfWeek, WorkplanPause, WorkplanPauseMode } from './firestore';
 import { todayDayOfWeek, todayDateString } from './workplan';
 
 export { todayDayOfWeek, todayDateString };
+export type { WorkplanPause, WorkplanPauseMode };
 
 // ── Types ─────────────────────────────────────────
 export type KidTaskKind = 'recurring' | 'adhoc';
@@ -55,6 +56,10 @@ export interface KidWorkplanItem {
   kind?: KidTaskKind;            // absent = recurring
   scheduledDates?: string[];     // adhoc only: YYYY-MM-DD list
   note?: string;
+  /** Per-task pause (holidays/pause). On covered days this task is simply
+   *  not scheduled — never a miss — and auto-resumes after. Set via
+   *  setKidItemPause. */
+  pause?: WorkplanPause;
   createdAt: Timestamp;
   createdBy: string;             // parent uid
 }
@@ -79,6 +84,43 @@ export const EXCUSE_REASONS: ReadonlyArray<{
 /** Look up an excuse reason's display meta (emoji + EN/SW label). */
 export function excuseReasonMeta(reason: ExcuseReason | undefined | null) {
   return EXCUSE_REASONS.find((r) => r.value === reason) ?? EXCUSE_REASONS[3];
+}
+
+// ── Pause / holidays (PR C) ─────────────────────────────────────────
+// One WorkplanPause shape, three scopes (per-task / whole-plan / all-kids).
+// A day is paused when from <= day <= (to ?? ∞). Pauses auto-resume after
+// `to`; nothing is ever deleted from the plan.
+
+/** Is `dateKey` (YYYY-MM-DD) within this pause window? */
+export function isPausedOn(pause: WorkplanPause | null | undefined, dateKey: string): boolean {
+  if (!pause || !pause.from) return false;
+  if (dateKey < pause.from) return false;       // before it starts
+  if (pause.to && dateKey > pause.to) return false; // after it ends (auto-resumed)
+  return true;
+}
+
+/** True if ANY of the given pauses cover the day (used to OR together the
+ *  all-kids + whole-plan scopes for the day-level neutral). */
+export function anyPauseOn(pauses: Array<WorkplanPause | null | undefined>, dateKey: string): boolean {
+  return pauses.some((p) => isPausedOn(p, dateKey));
+}
+
+/** Short, parent-facing status for a pause as of `today`. Returns '' when
+ *  there's no pause OR it has already auto-resumed. Dates use DD-Mmm. */
+export function pauseStatusLabel(
+  pause: WorkplanPause | null | undefined,
+  today: string = todayDateString(),
+): string {
+  if (!pause || !pause.from) return '';
+  if (pause.to && today > pause.to) return '';   // already resumed
+  const d = (key: string) => {
+    const [y, m, day] = key.split('-').map(Number);
+    const mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][(m || 1) - 1];
+    return `${String(day).padStart(2, '0')}-${mon}`;
+  };
+  if (pause.mode === 'indefinite' || !pause.to) return 'Paused — no end date';
+  if (pause.mode === 'range') return `Holiday ${d(pause.from)} → ${d(pause.to)}`;
+  return `Paused until ${d(pause.to)}`;
 }
 
 export interface KidWorkplanCompletion {
@@ -255,6 +297,8 @@ export function kidItemsScheduledOn(items: KidWorkplanItem[], date: Date = new D
   const dateStr = todayDateString(date);
   return items.filter((i) => {
     if (!i.active) return false;
+    // Per-task pause: not scheduled on covered days (never a miss; auto-resumes).
+    if (isPausedOn(i.pause, dateStr)) return false;
     if ((i.kind ?? 'recurring') === 'adhoc') return (i.scheduledDates ?? []).includes(dateStr);
     return i.daysOfWeek.includes(dow);
   });
@@ -311,9 +355,10 @@ export interface KidDayResult {
   done: number;
   pct: number;
   points: number;      // points earned that day (from completed items)
-  isActive: boolean;   // had ≥1 scheduled task AND not excused
-  excused: boolean;    // parent/kid marked "couldn't do it today" (streak-safe)
+  isActive: boolean;   // had ≥1 scheduled task AND not excused/paused
+  excused: boolean;    // kid marked "couldn't do it today" (streak-safe)
   excuseReason?: ExcuseReason;  // why (for the parent strip), when excused
+  paused: boolean;     // whole-plan / all-kids pause covered this day (streak-safe)
 }
 
 export interface KidAccomplishment {
@@ -342,6 +387,10 @@ export function computeKidAccomplishment(
   completions: KidWorkplanCompletion[],
   days = 7,
   ref: Date = new Date(),
+  /** Whole-plan + all-kids pauses (Child.workplanPause, Family.workplanPause).
+   *  A day any of these cover is neutral — streak-safe. Per-task pauses are
+   *  already handled inside kidItemsScheduledOn. */
+  planPauses: Array<WorkplanPause | null | undefined> = [],
 ): KidAccomplishment {
   const byDate = new Map(completions.map((c) => [c.date, c]));
   const out: KidDayResult[] = [];
@@ -351,6 +400,7 @@ export function computeKidAccomplishment(
     const scheduled = kidItemsScheduledOn(items, d);
     const comp = byDate.get(dateStr) ?? null;
     const excused = !!comp?.excused;
+    const paused = anyPauseOn(planPauses, dateStr);
     const doneIds = new Set(comp?.completedItemIds ?? []);
     const doneItems = scheduled.filter((it) => doneIds.has(it.id));
     const pct = scheduled.length ? Math.round((doneItems.length / scheduled.length) * 100) : 100;
@@ -361,11 +411,12 @@ export function computeKidAccomplishment(
       done: doneItems.length,
       pct,
       points: doneItems.reduce((s, it) => s + (it.pointsValue ?? 0), 0),
-      // An excused day is neutral — like a no-tasks day, it neither counts
-      // toward nor breaks the streak/percentage (the kid couldn't do it).
-      isActive: scheduled.length > 0 && !excused,
+      // An excused OR paused day is neutral — like a no-tasks day, it neither
+      // counts toward nor breaks the streak/percentage.
+      isActive: scheduled.length > 0 && !excused && !paused,
       excused,
       excuseReason: comp?.excuseReason,
+      paused,
     });
   }
 
@@ -528,6 +579,56 @@ export async function setKidDayExcuse(
     if (note) fresh.excuseNote = note;
     await setDoc(ref, fresh);
   }
+}
+
+// ── Pause writes (PR C) ─────────────────────────────────────────────
+// Parent-only in practice (gated by the calling UI + Firestore rules on
+// the item/child/family docs). Each stamps setBy + setAt; passing null
+// clears the pause (auto-resume / cancel). No deleting of tasks ever.
+
+/** What the UI supplies for a pause — the helper stamps setBy + setAt. */
+export type PauseInput = Pick<WorkplanPause, 'mode' | 'from' | 'to' | 'note'>;
+
+function buildPauseDoc(input: PauseInput, by: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    mode: input.mode,
+    from: input.from,
+    setBy: by,
+    setAt: serverTimestamp(),
+  };
+  if (input.to) out.to = input.to;
+  if (input.note?.trim()) out.note = input.note.trim();
+  return out;
+}
+
+/** Per-task pause (or clear with null). */
+export async function setKidItemPause(
+  familyId: string, childId: string, itemId: string, pause: PauseInput | null, by: string,
+): Promise<void> {
+  await updateDoc(
+    doc(itemsCol(familyId, childId), itemId),
+    pause ? { pause: buildPauseDoc(pause, by) } : { pause: deleteField() },
+  );
+}
+
+/** Whole-plan pause for one kid (or clear). */
+export async function setChildWorkplanPause(
+  familyId: string, childId: string, pause: PauseInput | null, by: string,
+): Promise<void> {
+  await updateDoc(
+    doc(db, 'families', familyId, 'children', childId),
+    pause ? { workplanPause: buildPauseDoc(pause, by) } : { workplanPause: deleteField() },
+  );
+}
+
+/** All-kids pause for the whole family (or clear). */
+export async function setFamilyWorkplanPause(
+  familyId: string, pause: PauseInput | null, by: string,
+): Promise<void> {
+  await updateDoc(
+    doc(db, 'families', familyId),
+    pause ? { workplanPause: buildPauseDoc(pause, by) } : { workplanPause: deleteField() },
+  );
 }
 
 // ── Proof for points: read + submit/review helpers ─

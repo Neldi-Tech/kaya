@@ -102,6 +102,24 @@ export interface UserProfile {
   createdAt: Timestamp;
 }
 
+/** A parent-set pause on a kid's tasks (Kids' Workplan · holidays/pause).
+ *  One shape reused at three scopes: per-task (KidWorkplanItem.pause),
+ *  whole-plan-per-kid (Child.workplanPause), all-kids (Family.workplanPause).
+ *  A day is paused when `from <= day <= (to ?? ∞)`:
+ *   • 'range'      — parent picks both from + to (e.g. 14–21 Aug holiday).
+ *   • 'until'      — from = the day it was set, to = chosen end date.
+ *   • 'indefinite' — from = the day it was set, no `to` (until cleared).
+ *  Pauses auto-resume after `to`; nothing is ever deleted from the plan. */
+export type WorkplanPauseMode = 'range' | 'until' | 'indefinite';
+export interface WorkplanPause {
+  mode: WorkplanPauseMode;
+  from: string;          // YYYY-MM-DD inclusive — first paused day
+  to?: string;           // YYYY-MM-DD inclusive — last paused day; absent = indefinite
+  note?: string;         // optional parent reason (e.g. "Eid holidays")
+  setBy: string;         // parent uid
+  setAt: Timestamp;
+}
+
 export interface Family {
   id: string;
   name: string;
@@ -396,6 +414,9 @@ export interface Family {
    *     reject claws them back).
    *  Read via `readWorkplanProofMode(family)`; set via `updateFamily`. */
   workplanProofMode?: 'instant' | 'approve';
+  /** All-kids workplan pause (holidays). Applies to every child's plan on
+   *  covered days — streak-safe. Set via setFamilyWorkplanPause. */
+  workplanPause?: WorkplanPause;
   // ── Meeting setup ────────────────────────────────────────────
   // Parent-controlled configuration the presenter reads on meeting
   // night. Optional — absent = sensible defaults (every step in the
@@ -799,6 +820,10 @@ export interface Child {
   // mirrors CelebrationSettings in lib/celebrate.ts (inlined to avoid a
   // circular import). Absent → age-based default.
   celebration?: { style: 'celebration' | 'inspiring' | 'surprise'; intensity: 'calm' | 'normal' | 'big'; sound: boolean };
+  /** Whole-plan pause for THIS kid (holidays/pause). Applies to all their
+   *  workplan tasks on covered days — streak-safe. Set via
+   *  setChildWorkplanPause. Auto-resumes after `to`; nothing is deleted. */
+  workplanPause?: WorkplanPause;
   // Running counters for 0-point award kinds. When either hits its family-
   // configured threshold, `giveAward` auto-fires a derived bonus/deduction
   // award and decrements the counter by the threshold (modulo, not reset —

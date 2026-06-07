@@ -19,10 +19,14 @@ import KidAvatar from '@/components/ui/KidAvatar';
 import KidWorkplanToday from '@/components/workplan/KidWorkplanToday';
 import KidWorkplanEditor from '@/components/workplan/KidWorkplanEditor';
 import {
-  type KidWorkplanProof,
+  type KidWorkplanProof, type PauseInput,
   subscribeKidWorkplanProofs, reviewKidWorkplanProof,
+  setFamilyWorkplanPause, pauseStatusLabel,
 } from '@/lib/kidWorkplan';
 import { updateFamily, readWorkplanProofMode } from '@/lib/firestore';
+import { useLocale } from '@/lib/useLocale';
+import PauseSheet from '@/components/workplan/PauseSheet';
+import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
   const router = useRouter();
@@ -142,6 +146,8 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
         <>
           {/* Proof for points — A/B mode + review feed */}
           <ProofModeToggle familyId={familyId} family={family} />
+          {/* All-kids holidays / pause (PR C) */}
+          <FamilyPauseCard familyId={familyId} family={family} parentUid={parentUid} />
           <ProofsToReview familyId={familyId} parentUid={parentUid} children={childRefs} />
 
           {/* Child picker */}
@@ -207,6 +213,54 @@ function ProofModeToggle({ familyId, family }: { familyId: string; family: impor
         <Btn value="approve" label="Approve first" hint="Points wait until you approve the proof." />
         <Btn value="instant" label="Instant + revoke" hint="Points land on submit; reject to claw back." />
       </div>
+    </div>
+  );
+}
+
+// ── All-kids holidays / pause (PR C) ──────────────────────────────
+// Family-level pause: applies to EVERY child's plan on covered days,
+// streak-safe. Writes Family.workplanPause; the live family sub reflects it.
+function FamilyPauseCard({ familyId, family, parentUid }: {
+  familyId: string;
+  family: import('@/lib/firestore').Family | null;
+  parentUid: string;
+}) {
+  const sw = useLocale() === 'sw';
+  const pause = family?.workplanPause ?? null;
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const save = async (p: PauseInput | null) => {
+    setBusy(true);
+    try { await setFamilyWorkplanPause(familyId, p, parentUid); setOpen(false); }
+    finally { setBusy(false); }
+  };
+  const label = pauseStatusLabel(pause);
+  return (
+    <div className="rounded-hive-lg border border-hive-line bg-hive-paper p-3 mb-4 flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-[9px] font-black uppercase tracking-wider text-hive-muted mb-0.5">🏖️ {sw ? 'Likizo za watoto wote' : 'All-kids holidays'}</p>
+        {label ? (
+          <p className="text-[12px] font-nunito font-extrabold truncate" style={{ color: '#0F1F44' }}>{label}{pause?.note ? ` · ${pause.note}` : ''}</p>
+        ) : (
+          <p className="text-[12px] text-hive-muted">{sw ? 'Hakuna likizo iliyowekwa' : 'No family pause set'}</p>
+        )}
+      </div>
+      <button type="button" onClick={() => setOpen(true)}
+        className="flex-shrink-0 inline-flex items-center gap-1.5 h-9 px-3 rounded-hive-pill border-2 border-hive-line font-nunito font-extrabold text-[12px]" style={{ color: '#0F1F44' }}>
+        <PauseCircle size={14} /> {label ? (sw ? 'Badilisha' : 'Manage') : (sw ? 'Simamisha wote' : 'Pause all')}
+      </button>
+      {open && (
+        <PauseSheet
+          title={sw ? 'Simamisha watoto wote' : "Pause all kids' plans"}
+          scopeNote={sw ? 'Inahusu kila mtoto' : 'Applies to every child'}
+          current={pause}
+          sw={sw}
+          busy={busy}
+          onSave={save}
+          onResume={() => save(null)}
+          onClose={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 }
