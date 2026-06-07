@@ -214,6 +214,25 @@ export interface SparksItem {
      *  true so we don't double-award points on re-rate. Server-side
      *  gate when the awards collection write happens. */
     points_awarded?: boolean;
+    /** Slice 7i · structured per-question breakdown returned by
+     *  /api/sparks/ai/revision-score. Renders as Strengths / Areas to
+     *  revisit / full Q-by-Q grid on the revisions list. Legacy
+     *  `ai_notes` string stays as a fallback summary for older rows. */
+    ai_breakdown_structured?: {
+      coverage: { read: number; total: number };
+      strengths: string[];
+      areas: Array<{
+        question_ref?: string;
+        topic: string;
+        what_happened: string;
+        tip?: string;
+      }>;
+      qbq: Array<{
+        question_ref: string;
+        topic: string;
+        status: 'correct' | 'partial' | 'wrong';
+      }>;
+    };
   };
   created_at: Timestamp;
   updated_at: Timestamp;

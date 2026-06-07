@@ -222,6 +222,10 @@ export default function RevisionFlow({
           ...(mode === 'answers' ? {
             ai_score: score.score,
             ai_breakdown: score.breakdown,
+            // Slice 7i · persist structured breakdown so the revisions
+            // list can render Strengths / Areas / Q-by-Q without
+            // re-calling the AI on every page open.
+            ...(score.structured ? { ai_breakdown_structured: score.structured } : {}),
           } : {}),
           ai_notes: score.notes || undefined,
           parsed_questions: mode === 'questions' && score.parsedQuestions.length > 0

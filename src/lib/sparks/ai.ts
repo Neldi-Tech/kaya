@@ -278,6 +278,25 @@ export async function describeMaterial(args: DescribeMaterialArgs): Promise<Desc
 
 export type RevisionMode = 'answers' | 'questions';
 
+/** Slice 7i · structured per-question breakdown returned alongside the
+ *  scalar score. UI renders this as Strengths / Areas to revisit /
+ *  full Q-by-Q coverage. Legacy `notes` is kept as a fallback summary. */
+export interface RevisionStructured {
+  coverage: { read: number; total: number };
+  strengths: string[];
+  areas: Array<{
+    question_ref?: string;
+    topic: string;
+    what_happened: string;
+    tip?: string;
+  }>;
+  qbq: Array<{
+    question_ref: string;
+    topic: string;
+    status: 'correct' | 'partial' | 'wrong';
+  }>;
+}
+
 export interface RevisionScore {
   mode: RevisionMode;
   subject: string;
@@ -288,6 +307,8 @@ export interface RevisionScore {
   notes: string;
   /** Populated in questions mode — verbatim questions Claude read off the page. */
   parsedQuestions: string[];
+  /** Slice 7i · structured per-question breakdown (answers mode only). */
+  structured?: RevisionStructured;
 }
 
 export interface ScoreRevisionArgs {
@@ -327,6 +348,41 @@ export async function scoreRevision(
     const data = await res.json();
     if (data?.skipped) return { ok: false, skipped: true };
     // Belt + braces — older responses might miss the parsedQuestions field.
+    const rawStructured = data?.structured;
+    const structured: RevisionStructured | undefined = rawStructured && typeof rawStructured === 'object'
+      ? {
+          coverage: {
+            read:  Number(rawStructured.coverage?.read  ?? 0),
+            total: Number(rawStructured.coverage?.total ?? 0),
+          },
+          strengths: Array.isArray(rawStructured.strengths)
+            ? rawStructured.strengths.filter((s: unknown): s is string => typeof s === 'string')
+            : [],
+          areas: Array.isArray(rawStructured.areas)
+            ? (rawStructured.areas as unknown[])
+                .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+                .map((a) => ({
+                  question_ref:  typeof a.question_ref  === 'string' ? a.question_ref  : undefined,
+                  topic:         String(a.topic ?? ''),
+                  what_happened: String(a.what_happened ?? ''),
+                  tip:           typeof a.tip === 'string' && a.tip.length > 0 ? a.tip : undefined,
+                }))
+                .filter((a) => a.topic.length > 0 && a.what_happened.length > 0)
+            : [],
+          qbq: Array.isArray(rawStructured.qbq)
+            ? (rawStructured.qbq as unknown[])
+                .filter((q): q is Record<string, unknown> => !!q && typeof q === 'object')
+                .map((q) => ({
+                  question_ref: String(q.question_ref ?? ''),
+                  topic:        String(q.topic ?? ''),
+                  status: (q.status === 'correct' || q.status === 'partial' || q.status === 'wrong')
+                    ? q.status as 'correct' | 'partial' | 'wrong'
+                    : 'partial',
+                }))
+                .filter((q) => q.question_ref.length > 0)
+            : [],
+        }
+      : undefined;
     const safe: RevisionScore = {
       mode: (data?.mode === 'questions' ? 'questions' : 'answers') as RevisionMode,
       subject: String(data?.subject ?? 'Other'),
@@ -339,6 +395,7 @@ export async function scoreRevision(
       },
       notes: String(data?.notes ?? ''),
       parsedQuestions: Array.isArray(data?.parsedQuestions) ? data.parsedQuestions : [],
+      ...(structured ? { structured } : {}),
     };
     return { ok: true, data: safe };
   } catch (e) {
