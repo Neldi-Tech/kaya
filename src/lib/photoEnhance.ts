@@ -163,3 +163,235 @@ export async function enhanceScan(source: File, options: EnhanceOptions = {}): P
   const previewUrl = canvas.toDataURL('image/jpeg', options.quality ?? 0.92);
   return { file, previewUrl, width: canvas.width, height: canvas.height };
 }
+
+// ── Scanning 2.0 — AI auto-frame (detect → reshape → zoom) ──────────
+//
+// The old enhanceScan only *cleans*. These functions add the missing
+// geometric step: an AI vision pass (/api/scan/frame) returns the page's
+// four corners, then we perspective-warp the page flat + crop the
+// background out, and only then clean it. The OCR pass downstream now
+// sees a square, tight document → far better reads of the questions.
+//
+// Everything degrades safely: if no clear page is found (or the AI call is
+// unavailable), autoFrameScan falls back to enhanceScan — never worse than
+// before.
+
+export interface NormPoint { x: number; y: number }
+export interface DocCorners {
+  topLeft: NormPoint; topRight: NormPoint; bottomRight: NormPoint; bottomLeft: NormPoint;
+}
+
+const MIN_FRAME_CONFIDENCE = 0.45;
+const MIN_FRAME_AREA = 0.12; // reject quads smaller than 12% of the image
+
+/** Downscale a File to a small JPEG + return raw base64 (no data: prefix)
+ *  for the corner-detection call — small = fast + cheap; corners are
+ *  resolution-independent fractions so quality isn't lost. */
+async function fileToDownscaledBase64(file: File, maxLongSide = 1100): Promise<{ base64: string; mediaType: 'image/jpeg' }> {
+  const img = await loadImage(file);
+  const { canvas } = drawToCanvas(img, maxLongSide);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  return { base64: dataUrl.split(',')[1] ?? '', mediaType: 'image/jpeg' };
+}
+
+function clampPoint(p: unknown): NormPoint | null {
+  const o = p as { x?: unknown; y?: unknown } | null;
+  const x = typeof o?.x === 'number' && isFinite(o.x) ? o.x : null;
+  const y = typeof o?.y === 'number' && isFinite(o.y) ? o.y : null;
+  if (x === null || y === null) return null;
+  return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+}
+
+function clampCorners(c: unknown): DocCorners | null {
+  const o = c as Record<string, unknown> | null;
+  if (!o) return null;
+  const tl = clampPoint(o.topLeft), tr = clampPoint(o.topRight);
+  const br = clampPoint(o.bottomRight), bl = clampPoint(o.bottomLeft);
+  if (!tl || !tr || !br || !bl) return null;
+  return { topLeft: tl, topRight: tr, bottomRight: br, bottomLeft: bl };
+}
+
+/** Fraction (0..1) of the image area covered by the quad (shoelace). */
+function quadAreaFraction(c: DocCorners): number {
+  const p = [c.topLeft, c.topRight, c.bottomRight, c.bottomLeft];
+  let a = 0;
+  for (let i = 0; i < 4; i++) { const j = (i + 1) % 4; a += p[i].x * p[j].y - p[j].x * p[i].y; }
+  return Math.abs(a) / 2;
+}
+
+/** Ask the AI where the page is. Returns validated corners, or null when
+ *  there's no clear/large-enough page (caller falls back to clean-only). */
+export async function detectDocumentCorners(
+  file: File,
+  opts: { minConfidence?: number; signal?: AbortSignal } = {},
+): Promise<DocCorners | null> {
+  try {
+    const { base64, mediaType } = await fileToDownscaledBase64(file);
+    const res = await fetch('/api/scan/frame', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64, mediaType }),
+      signal: opts.signal,
+    });
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json || json.skipped || !json.isDocument) return null;
+    const conf = typeof json.confidence === 'number' ? json.confidence : 0;
+    if (conf < (opts.minConfidence ?? MIN_FRAME_CONFIDENCE)) return null;
+    const corners = clampCorners(json.corners);
+    if (!corners) return null;
+    if (quadAreaFraction(corners) < MIN_FRAME_AREA) return null;
+    return corners;
+  } catch {
+    return null;
+  }
+}
+
+// ── Perspective warp (pure canvas, no wasm) ────────────────────────
+
+/** Solve a square linear system A·x = b by Gaussian elimination with
+ *  partial pivoting. Returns null if singular. */
+function solveLinear(A: number[][], b: number[]): number[] | null {
+  const n = b.length;
+  const M = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < n; col++) {
+    let piv = col;
+    for (let r = col + 1; r < n; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-9) return null;
+    [M[col], M[piv]] = [M[piv], M[col]];
+    for (let r = 0; r < n; r++) {
+      if (r === col) continue;
+      const f = M[r][col] / M[col][col];
+      if (f === 0) continue;
+      for (let k = col; k <= n; k++) M[r][k] -= f * M[col][k];
+    }
+  }
+  const x = new Array<number>(n);
+  for (let i = 0; i < n; i++) x[i] = M[i][n] / M[i][i];
+  return x;
+}
+
+type Pt = { x: number; y: number };
+
+/** Homography (row-major 3×3, length 9) mapping from[i] → to[i] for the
+ *  four corner pairs (TL, TR, BR, BL). */
+function computeHomography(from: Pt[], to: Pt[]): number[] | null {
+  const A: number[][] = [];
+  const b: number[] = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = from[i];
+    const { x: X, y: Y } = to[i];
+    A.push([x, y, 1, 0, 0, 0, -x * X, -y * X]); b.push(X);
+    A.push([0, 0, 0, x, y, 1, -x * Y, -y * Y]); b.push(Y);
+  }
+  const h = solveLinear(A, b);
+  if (!h) return null;
+  return [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+}
+
+/** Warp the page bounded by `corners` (normalised) to a flat, cropped
+ *  rectangle. Output dimensions follow the detected edge lengths so the
+ *  page keeps its aspect. Returns null on a degenerate quad. */
+export function warpToDocument(
+  img: HTMLImageElement, corners: DocCorners, maxLongSide = 1700,
+): HTMLCanvasElement | null {
+  const { canvas: srcCanvas, ctx: srcCtx } = drawToCanvas(img, 2600);
+  const sw = srcCanvas.width, sh = srcCanvas.height;
+  const s = {
+    tl: { x: corners.topLeft.x * sw, y: corners.topLeft.y * sh },
+    tr: { x: corners.topRight.x * sw, y: corners.topRight.y * sh },
+    br: { x: corners.bottomRight.x * sw, y: corners.bottomRight.y * sh },
+    bl: { x: corners.bottomLeft.x * sw, y: corners.bottomLeft.y * sh },
+  };
+  const dist = (a: Pt, b: Pt) => Math.hypot(a.x - b.x, a.y - b.y);
+  let W = Math.round(Math.max(dist(s.tl, s.tr), dist(s.bl, s.br)));
+  let H = Math.round(Math.max(dist(s.tl, s.bl), dist(s.tr, s.br)));
+  if (W < 16 || H < 16) return null;
+  const long = Math.max(W, H);
+  if (long > maxLongSide) { const k = maxLongSide / long; W = Math.round(W * k); H = Math.round(H * k); }
+
+  // Map dest rect → src quad so each dest pixel samples from the source.
+  const Hm = computeHomography(
+    [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: W, y: H }, { x: 0, y: H }],
+    [s.tl, s.tr, s.br, s.bl],
+  );
+  if (!Hm) return null;
+
+  const sdata = srcCtx.getImageData(0, 0, sw, sh).data;
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const octx = out.getContext('2d', { willReadFrequently: true });
+  if (!octx) return null;
+  const odata = octx.createImageData(W, H);
+  const od = odata.data;
+  const h0 = Hm[0], h1 = Hm[1], h2 = Hm[2], h3 = Hm[3], h4 = Hm[4], h5 = Hm[5], h6 = Hm[6], h7 = Hm[7], h8 = Hm[8];
+
+  for (let v = 0; v < H; v++) {
+    for (let u = 0; u < W; u++) {
+      const ux = u + 0.5, vy = v + 0.5;
+      const d = h6 * ux + h7 * vy + h8;
+      const sx = (h0 * ux + h1 * vy + h2) / d;
+      const sy = (h3 * ux + h4 * vy + h5) / d;
+      const o = (v * W + u) * 4;
+      if (sx < 0 || sy < 0 || sx >= sw - 1 || sy >= sh - 1) {
+        od[o] = 255; od[o + 1] = 255; od[o + 2] = 255; od[o + 3] = 255; // outside the page → white
+        continue;
+      }
+      const x0 = sx | 0, y0 = sy | 0;
+      const fx = sx - x0, fy = sy - y0;
+      const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4;
+      for (let k = 0; k < 3; k++) {
+        const top = sdata[i00 + k] * (1 - fx) + sdata[i10 + k] * fx;
+        const bot = sdata[i01 + k] * (1 - fx) + sdata[i11 + k] * fx;
+        od[o + k] = (top * (1 - fy) + bot * fy) | 0;
+      }
+      od[o + 3] = 255;
+    }
+  }
+  octx.putImageData(odata, 0, 0);
+  return out;
+}
+
+export interface AutoFrameResult {
+  file: File;
+  previewUrl: string;
+  width: number;
+  height: number;
+  /** true when a page was detected + reshaped; false = clean-only fallback. */
+  framed: boolean;
+}
+
+/** Scanning 2.0 entry point: detect the page → warp flat + crop → clean.
+ *  Falls back to enhanceScan (clean-only) when no clear page is found or
+ *  the AI framing is unavailable. Drop-in replacement for enhanceScan
+ *  (same output shape + a `framed` flag). */
+export async function autoFrameScan(
+  source: File,
+  options: EnhanceOptions & { minConfidence?: number; signal?: AbortSignal } = {},
+): Promise<AutoFrameResult> {
+  try {
+    const corners = await detectDocumentCorners(source, {
+      minConfidence: options.minConfidence, signal: options.signal,
+    });
+    if (corners) {
+      const img = await loadImage(source);
+      const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
+      if (warped) {
+        const ctx = warped.getContext('2d', { willReadFrequently: true });
+        if (ctx) {
+          const data = ctx.getImageData(0, 0, warped.width, warped.height);
+          autoLevels(data, 1.5, 98.5);
+          ctx.putImageData(data, 0, 0);
+          lightSharpen(warped, ctx, 0.6);
+          const file = await canvasToFile(warped, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+          const previewUrl = warped.toDataURL('image/jpeg', options.quality ?? 0.92);
+          return { file, previewUrl, width: warped.width, height: warped.height, framed: true };
+        }
+      }
+    }
+  } catch {
+    // fall through to clean-only
+  }
+  const cleaned = await enhanceScan(source, options);
+  return { ...cleaned, framed: false };
+}
