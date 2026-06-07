@@ -8,13 +8,16 @@
 //
 // Uses the native camera via <input type="file" accept="image/*"
 // capture="environment"> so it works on every Kaya target (iOS Safari,
-// Android Chrome, desktop). Edge detection + perspective correction
-// (jscanify) is deferred to a follow-up — v1 leans on the existing
-// photoEnhance pipeline (auto-levels + sharpen) which already makes most
-// kid-phone scans noticeably crisper.
+// Android Chrome, desktop).
+//
+// Scanning 2.0 (2026-06-07): scan mode now runs autoFrameScan — an AI
+// vision pass finds the page's corners, the browser warps it flat + crops
+// the background, then cleans it. Falls back to clean-only when no clear
+// page is found, so a scan is never worse than before. Photo mode keeps the
+// quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto, enhanceScan } from '@/lib/photoEnhance';
+import { enhancePhoto, autoFrameScan } from '@/lib/photoEnhance';
 
 type Page = {
   id: string;
@@ -23,6 +26,8 @@ type Page = {
   enhancedUrl: string;
   originalUrl: string;
   useEnhanced: boolean;
+  /** scan mode: true when the page was auto-framed (vs clean-only fallback). */
+  framed: boolean;
 };
 
 export default function CameraCaptureSheet({
@@ -69,14 +74,22 @@ export default function CameraCaptureSheet({
     if (!file) return;
     setBusy(true); setError('');
     try {
-      const result = mode === 'scan' ? await enhanceScan(file) : await enhancePhoto(file);
+      let enhancedFile: File, previewUrl: string, framed = false;
+      if (mode === 'scan') {
+        const r = await autoFrameScan(file);
+        enhancedFile = r.file; previewUrl = r.previewUrl; framed = r.framed;
+      } else {
+        const r = await enhancePhoto(file);
+        enhancedFile = r.file; previewUrl = r.previewUrl;
+      }
       const page: Page = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         original: file,
-        enhanced: result.file,
-        enhancedUrl: result.previewUrl,
+        enhanced: enhancedFile,
+        enhancedUrl: previewUrl,
         originalUrl: URL.createObjectURL(file),
         useEnhanced: true,                                     // AI on by default
+        framed,
       };
       setPages((prev) => [...prev, page]);
     } catch (err) {
@@ -115,7 +128,7 @@ export default function CameraCaptureSheet({
 
   const title = mode === 'scan' ? '📄 Scan document' : '📷 Take photo';
   const subtitle = mode === 'scan'
-    ? 'Snap each page — we sharpen them for easy reading.'
+    ? 'Snap each page — AI finds it, straightens it, and sharpens it.'
     : 'AI brightens + sharpens for a clean send.';
   const sendLabel = pages.length === 0
     ? 'Send →'
@@ -164,7 +177,7 @@ export default function CameraCaptureSheet({
                   className={`relative aspect-[3/4] rounded-kaya overflow-hidden border-2 ${p.useEnhanced ? 'border-kaya-chocolate' : 'border-transparent'}`}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={p.enhancedUrl} alt="Enhanced" className="w-full h-full object-cover" />
-                  <span className="absolute bottom-1 left-1 text-[9px] font-black bg-kaya-chocolate text-white px-1.5 py-0.5 rounded">AI ✨</span>
+                  <span className="absolute bottom-1 left-1 text-[9px] font-black bg-kaya-chocolate text-white px-1.5 py-0.5 rounded">{p.framed ? 'Framed ✨' : 'AI ✨'}</span>
                 </button>
               </div>
               <p className="text-[10px] text-kaya-sand">Tap to choose which one we'll send.</p>
