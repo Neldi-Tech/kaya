@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { updateSession, updateSessionFields, type GameSession } from '@/lib/gameSessions';
 import { readTriviaSeen, recordTriviaSeen, dedupeAgainst } from '@/lib/triviaSeen';
+import { countryByCode } from '@/lib/countries';
 
 // Multi-device Family Trivia v2 — pick a subject, then race: every question is
 // TIMED and auto-advances (no host button). Points scale with speed and the
@@ -100,12 +101,13 @@ export function pickQuestions(subject: string): TriviaQ[] {
 // Ask the server to generate FRESH AI questions for this subject. Returns []
 // on any failure / when the AI key isn't set, so the caller falls back to the
 // hand-authored bank above. Shape-guarded so a bad payload can't crash a game.
-async function fetchAiTrivia(subject: string, difficulty: string, count: number, avoid: string[] = []): Promise<TriviaQ[]> {
+interface GenOpts { subject?: string; country?: string; discipline?: string; difficulty: string; count: number; avoid?: string[] }
+async function fetchAiTrivia(opts: GenOpts): Promise<TriviaQ[]> {
   try {
     const res = await fetch('/api/games/trivia', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, difficulty, count, avoid }),
+      body: JSON.stringify(opts),
     });
     if (!res.ok) return [];
     const data = (await res.json()) as { questions?: TriviaQ[]; skipped?: boolean };
@@ -138,6 +140,9 @@ export default function FamilyTriviaPlay({
   const st = session.state;
   const subject = (st.subject as string) || '';
   const difficulty = (st.difficulty as string) || 'medium';
+  const country = (st.country as string) || '';        // Local Trivia (ISO code)
+  const discipline = (st.discipline as string) || 'mixed';
+  const isLocal = country !== '';
   const questions = (st.questions as TriviaQ[]) || [];
   const qIndex = (st.qIndex as number) || 0;
   const qStartAt = (st.qStartAt as number) || 0;
@@ -167,20 +172,28 @@ export default function FamilyTriviaPlay({
   // so every device gets the same questions. Fires once per subject (genRef).
   const genRef = useRef('');
   useEffect(() => {
-    if (!isHost || subject === '' || questions.length > 0) return;
-    const key = `${subject}|${difficulty}`;
+    if (!isHost || (subject === '' && country === '') || questions.length > 0) return;
+    const key = `${subject}|${country}|${discipline}|${difficulty}`;
     if (genRef.current === key) return;
     genRef.current = key;
     let cancelled = false;
     (async () => {
       // Never-repeats: over-fetch, tell the AI what we've recently asked, then
       // drop any that still slipped through, and remember the fresh ones.
-      const seen = await readTriviaSeen(familyId);
-      let qs = dedupeAgainst(await fetchAiTrivia(subject, difficulty, PER_GAME + 8, seen.recent.slice(0, 50)), seen.recent);
-      if (qs.length < 4) qs = pickQuestions(subject); // AI down/keyless → bank
+      // Scoped per mode (general vs each country) so pools stay separate.
+      const scope = isLocal ? `local_${country}` : 'general';
+      const seen = await readTriviaSeen(familyId, scope);
+      const cname = countryByCode(country)?.name || country;
+      let qs = dedupeAgainst(await fetchAiTrivia({
+        subject: isLocal ? undefined : subject,
+        country: isLocal ? cname : undefined,
+        discipline: isLocal ? discipline : undefined,
+        difficulty, count: PER_GAME + 8, avoid: seen.recent.slice(0, 50),
+      }), seen.recent);
+      if (qs.length < 4) qs = pickQuestions(subject || 'mixed'); // AI down/keyless → bank
       if (cancelled) return;
       const chosen = qs.slice(0, PER_GAME);
-      const explored = await recordTriviaSeen(familyId, chosen.map((c) => c.q), seen);
+      const explored = await recordTriviaSeen(familyId, chosen.map((c) => c.q), seen, scope);
       await updateSessionFields(familyId, session.id, {
         'state.questions': chosen,
         'state.qStartAt': Date.now(),
@@ -190,7 +203,7 @@ export default function FamilyTriviaPlay({
       });
     })();
     return () => { cancelled = true; };
-  }, [isHost, subject, difficulty, questions.length, familyId, session.id]);
+  }, [isHost, subject, country, discipline, difficulty, questions.length, familyId, session.id, isLocal]);
 
   // Host writes the reveal once the timer runs out or everyone has answered.
   // Idempotent per question via revealedRef — safe to re-evaluate each tick.
@@ -229,8 +242,8 @@ export default function FamilyTriviaPlay({
     void updateSessionFields(familyId, session.id, { [`state.answers.${me}`]: { choice: c, at: Number(elapsed.toFixed(2)) } });
   };
 
-  // ── Subject picker (host) ──────────────────────────────────────────────────
-  if (subject === '') {
+  // ── Subject picker (host) — family mode only; Local Trivia is set in lobby ──
+  if (subject === '' && !isLocal) {
     if (!isHost) return <p className="text-center text-sm text-games-ink-soft py-12">The host is choosing a subject…</p>;
     return (
       <div className="mx-auto" style={{ maxWidth: 340 }}>
@@ -263,7 +276,7 @@ export default function FamilyTriviaPlay({
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-games-ink-soft">🎯 Q{qIndex + 1}/{total} · {LEVEL_EMOJI[difficulty] || '🟡'}</span>
+        <span className="text-xs font-bold text-games-ink-soft">{isLocal ? (countryByCode(country)?.flag || '🌍') : '🎯'} Q{qIndex + 1}/{total} · {LEVEL_EMOJI[difficulty] || '🟡'}</span>
         <span className={`text-sm font-display font-black ${remaining <= 5 && !revealed ? 'text-games-coral' : 'text-games-ink-soft'}`}>
           {revealed ? '✓ answer' : `⏱ ${remaining}s`}
         </span>

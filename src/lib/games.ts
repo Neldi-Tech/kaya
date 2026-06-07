@@ -72,7 +72,7 @@ export const POINTS_PER_GAME_STEP = 5;
  *  toward paying mind-activating games more. Tag is advisory only. */
 export const MIND_GAME_IDS = new Set<string>([
   'memory-match', 'word-sprint', 'math-dash', '2048', 'sliding-puzzle',
-  'sudoku-lite', 'family-trivia', 'story-builder',
+  'sudoku-lite', 'family-trivia', 'local-trivia', 'story-builder',
 ]);
 export const isMindGame = (gameId: string): boolean => MIND_GAME_IDS.has(gameId);
 
