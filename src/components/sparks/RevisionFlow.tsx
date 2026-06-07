@@ -28,6 +28,9 @@ import {
   type SparksProfile, type RevisionSettings,
 } from '@/lib/sparks/schema';
 import { giveAward, type AwardKind } from '@/lib/firestore';
+import {
+  captureDraftKey, clearCaptureDraft, loadCaptureDraft, saveCaptureDraft,
+} from '@/lib/sparks/captureDraftStore';
 import CelebrationBurst from './CelebrationBurst';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 
@@ -82,6 +85,14 @@ export default function RevisionFlow({
   // In-app camera mode for the capture phase — Scan (multi-page +
   // auto-clean for text) or Photo (single-shot auto-enhance). Null = closed.
   const [cameraMode, setCameraMode] = useState<'scan' | 'photo' | null>(null);
+  // Slice 7j · capture-draft persistence. A pending draft (IDB) shows
+  // a Resume / Start fresh banner above the capture tiles. Resolved on
+  // open. `null` = no draft to resume. `saving` is debounced.
+  const [pendingDraft, setPendingDraft] = useState<{ photoCount: number; savedAt: number; mode: 'answers' | 'questions' } | null>(null);
+  const dKey = useMemo(
+    () => captureDraftKey({ familyId, kidId, surface: 'revision' }),
+    [familyId, kidId],
+  );
 
   // Reset on open/close so a previous run doesn't leak in.
   useEffect(() => {
@@ -99,7 +110,52 @@ export default function RevisionFlow({
     setEditingSubject(false);
     setDraftSubject('');
     setCameraMode(null);
+    setPendingDraft(null);
   }, [open]);
+
+  // Slice 7j · check IDB for an unsent draft when the sheet opens. If
+  // one exists we surface the Resume / Start fresh banner; the kid
+  // decides before we load any photos into state. Failures fall back
+  // to today's blank flow — never blocks.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void loadCaptureDraft(dKey).then((draft) => {
+      if (cancelled || !draft || draft.photos.length === 0) return;
+      setPendingDraft({
+        photoCount: draft.photos.length,
+        savedAt: draft.savedAt,
+        mode: (draft.meta.mode === 'questions' ? 'questions' : 'answers'),
+      });
+    });
+    return () => { cancelled = true; };
+  }, [open, dKey]);
+
+  // Slice 7j · persist the in-progress batch to IDB on every photo
+  // change. Cheap (no network); resilient to back-nav / refresh.
+  // Skipped in scoring/review/submitting phases — by then the draft
+  // is locked-in input, not editable.
+  useEffect(() => {
+    if (!open || phase !== 'capture' || pendingDraft) return;
+    if (photos.length === 0) return;
+    void saveCaptureDraft(dKey, photos, { mode });
+  }, [open, phase, pendingDraft, photos, mode, dKey]);
+
+  /** Hydrate the draft into local state. Called from the Resume button. */
+  const resumeDraft = async () => {
+    const draft = await loadCaptureDraft(dKey);
+    if (!draft) { setPendingDraft(null); return; }
+    setPhotos(draft.photos);
+    setMode(draft.meta.mode === 'questions' ? 'questions' : 'answers');
+    setPendingDraft(null);
+  };
+
+  /** Drop the draft + reset; equivalent to "Start fresh". */
+  const startFresh = async () => {
+    await clearCaptureDraft(dKey);
+    setPhotos([]);
+    setPendingDraft(null);
+  };
 
   /** Camera confirm handler — append cleaned files to the photos array. */
   const onCameraConfirm = (files: File[]) => {
@@ -270,6 +326,9 @@ export default function RevisionFlow({
         setCelebrate(true);
       }
 
+      // Slice 7j · revision shipped — drop the IDB draft.
+      void clearCaptureDraft(dKey);
+
       onSaved?.(itemId);
       setPhase('done');
     } catch (e) {
@@ -318,6 +377,43 @@ export default function RevisionFlow({
             {/* Phase: CAPTURE — mode toggle + multi-photo picker */}
             {phase === 'capture' && (
               <>
+                {/* Slice 7j · Resume / Start fresh banner when an unsent
+                    capture draft is found in IDB. Shows above all
+                    capture controls so the kid sees it first; gates
+                    the rest of the flow until they choose. */}
+                {pendingDraft && (
+                  <div className="rounded-2xl bg-[#FFF1C9] border-2 border-[#D4A847] px-4 py-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xl" aria-hidden>📂</span>
+                      <div className="font-display font-extrabold text-[14px] text-[#5A4500]">
+                        Welcome back, {kidName.split(' ')[0]}.
+                      </div>
+                    </div>
+                    <div className="text-[12.5px] text-[#5A4500] leading-snug">
+                      You have a draft from {new Date(pendingDraft.savedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} with{' '}
+                      <strong>{pendingDraft.photoCount} page{pendingDraft.photoCount === 1 ? '' : 's'}</strong>{' '}
+                      ({pendingDraft.mode === 'questions' ? 'questions' : 'answers'}). Pick up where you left off?
+                    </div>
+                    <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => void resumeDraft()}
+                        className="px-3.5 py-1.5 rounded-xl text-[12.5px] font-extrabold text-white"
+                        style={{ background: '#5A3CB8' }}
+                      >
+                        ▶ Resume draft
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void startFresh()}
+                        className="px-3.5 py-1.5 rounded-xl text-[12.5px] font-extrabold bg-white border-2 border-[#D4A847] text-[#5A4500]"
+                      >
+                        🗑 Start fresh
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Mode toggle — what are you uploading? */}
                 <div>
                   <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
@@ -423,6 +519,17 @@ export default function RevisionFlow({
                     onChange={addPhotos}
                     className="hidden"
                   />
+
+                  {/* Slice 7j · live draft indicator. Renders once the
+                      first page lands, so the kid knows leaving won't
+                      wipe the batch. Hidden while the Resume banner is
+                      showing (different state). */}
+                  {photos.length > 0 && !pendingDraft && (
+                    <div className="mt-2 inline-flex items-center gap-1.5 text-[10.5px] font-bold text-[#2E7D34] bg-[#DDF5DF] border border-[#2E7D34]/15 rounded-full px-2.5 py-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#2E7D34]" aria-hidden></span>
+                      💾 Draft auto-saved · {photos.length} page{photos.length === 1 ? '' : 's'} kept if you leave
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-[#E5D6FF] border-l-2 border-[#5A3CB8] rounded-[10px] px-3 py-2 text-[11.5px] text-[#1B1547]">
