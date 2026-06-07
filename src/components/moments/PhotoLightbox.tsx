@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import type { AlbumPhoto } from '@/lib/albums';
 import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
+import ZoomableImage from '@/components/ZoomableImage';
 
 interface Props {
   photos: AlbumPhoto[];
@@ -66,14 +67,9 @@ export default function PhotoLightbox({ photos, index, onPrev, onNext, onClose }
         {index + 1} / {photos.length}
       </div>
 
-      {/* Image */}
-      <div className="relative max-w-full max-h-full px-4 py-12 lg:px-16">
-        <img
-          src={photo.feedUrl}
-          alt=""
-          className="max-w-full max-h-[85vh] object-contain"
-          style={{ aspectRatio: `${photo.width} / ${photo.height}` }}
-        />
+      {/* Image — pinch / double-tap / drag to zoom (full-res source) */}
+      <div className="relative w-full h-[82vh] flex items-center justify-center px-2 lg:px-16" onClick={(e) => e.stopPropagation()}>
+        <ZoomableImage src={photo.fullUrl} alt="" />
       </div>
 
       {/* Prev */}
