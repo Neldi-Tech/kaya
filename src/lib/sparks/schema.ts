@@ -186,6 +186,11 @@ export interface SparksItem {
    *  one is required when the area is school_project / home_project /
    *  achievement. sports_subscription rows usually have 0–1. */
   photo_urls: string[];
+  /** Optional question paper / worksheet pages, kept SEPARATE from the
+   *  answer photo_urls so the AI can mark against the real questions.
+   *  Attachable ANYTIME by a parent OR the kid — before, with, or after the
+   *  answers (Scanning 2.0 · 2026-06-07). */
+  question_paper_urls?: string[];
   /** Calendar date this item belongs to (the project / certificate /
    *  subscription start). Stored as DD-MMM-YYYY-friendly YYYY-MM-DD
    *  per the project's date-format rule (`toDisplayDate`). */

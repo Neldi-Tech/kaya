@@ -16,8 +16,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   ratingsByItemId, subscribeToAreaItems, subscribeToKidRatings,
-  subscribeToSparksProfile,
+  subscribeToSparksProfile, updateSparksItem,
 } from '@/lib/sparks/firestore';
+import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import {
   DEFAULT_REVISION_SETTINGS,
   type SparksItem, type SparksProfile, type SparksRating,
@@ -50,6 +52,23 @@ export default function RevisionsPage() {
   const [threadItem, setThreadItem] = useState<SparksItem | null>(null);
   const [lightbox, setLightbox] = useState<{ photos: string[]; index: number; caption: string; sub: string } | null>(null);
   const isParent = authProfile?.role === 'parent';
+  // Question paper (PR4) — the worksheet/exam, kept separate from answers.
+  // Attachable anytime by a parent OR the kid (auto-framed via the scanner).
+  const canAddQp = isParent || authProfile?.role === 'kid';
+  const [qpFor, setQpFor] = useState<SparksItem | null>(null);
+  const [qpBusy, setQpBusy] = useState(false);
+  const addQuestionPaper = async (item: SparksItem, files: File[]) => {
+    if (!familyId || files.length === 0) return;
+    setQpBusy(true);
+    try {
+      const uploaded = await uploadSparksPhotos(familyId, item.id, files);
+      const merged = [...(item.question_paper_urls ?? []), ...uploaded.map((u) => u.feedUrl)];
+      await updateSparksItem(familyId, item.id, { question_paper_urls: merged });
+    } finally {
+      setQpBusy(false);
+      setQpFor(null);
+    }
+  };
 
   // Tab state — Revisions feed vs. Materials reference docs.
   const [tab, setTab] = useState<'revisions' | 'materials'>('revisions');
@@ -295,6 +314,37 @@ export default function RevisionsPage() {
                       )}
                     </div>
                   </div>
+                  {/* Question paper (PR4) — separate worksheet/exam, addable
+                      anytime by a parent or the kid, auto-framed on capture. */}
+                  {(it.question_paper_urls?.length || canAddQp) ? (
+                    <div className="mt-2 flex items-center gap-2 flex-wrap pl-[68px]">
+                      {it.question_paper_urls?.length ? (
+                        <button
+                          type="button"
+                          onClick={() => setLightbox({
+                            photos: it.question_paper_urls!,
+                            index: 0,
+                            caption: `${subject} · Question paper`,
+                            sub: toDisplayDate(it.date),
+                          })}
+                          className="inline-flex items-center gap-1 bg-[#EAF3FF] border border-[#CFE2FB] text-[#1F3A5F] rounded-full px-2.5 py-1 text-[11px] font-extrabold"
+                          title="View the question paper"
+                        >
+                          📄 Question paper{it.question_paper_urls.length > 1 ? ` (${it.question_paper_urls.length})` : ''}
+                        </button>
+                      ) : null}
+                      {canAddQp ? (
+                        <button
+                          type="button"
+                          onClick={() => setQpFor(it)}
+                          className="inline-flex items-center gap-1 bg-[#FBF7EE] border border-[#ECE4D3] text-[#5A6488] hover:text-[#1F3A5F] rounded-full px-2.5 py-1 text-[11px] font-extrabold transition-colors"
+                          title="Attach the question paper / worksheet"
+                        >
+                          {it.question_paper_urls?.length ? '＋ Add page' : '📄 Add question paper'}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {/* Slice 7i · Structured feedback when present, legacy
                       blob fallback otherwise. The disclaimer renders only
                       below the structured layout — old rows already have
@@ -375,6 +425,14 @@ export default function RevisionsPage() {
           kidName={kid.name}
         />
       )}
+
+      {/* Question paper capture (PR4) — scan mode = auto-framed. */}
+      <CameraCaptureSheet
+        open={!!qpFor}
+        mode="scan"
+        onClose={() => { if (!qpBusy) setQpFor(null); }}
+        onConfirm={(files) => (qpFor ? addQuestionPaper(qpFor, files) : undefined)}
+      />
 
       {lightbox && (
         <PhotoLightbox
