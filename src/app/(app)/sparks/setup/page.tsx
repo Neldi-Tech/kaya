@@ -21,10 +21,11 @@ import {
 } from '@/lib/sparks/firestore';
 import KidAvatar from '@/components/ui/KidAvatar';
 import {
-  DEFAULT_REVISION_SETTINGS, SPARKS_AREA_META, type RevisionSettings,
+  DEFAULT_REVISION_SETTINGS, DEFAULT_REFLECTION_SETTINGS, SPARKS_AREA_META,
+  type RevisionSettings, type ReflectionSettings,
   type SparksItemArea, type SparksProfile, type SparksSiblingVisibility,
 } from '@/lib/sparks/schema';
-import type { Child } from '@/lib/firestore';
+import type { Child, DayOfWeek } from '@/lib/firestore';
 
 const VISIBILITY_OPTIONS: Array<{
   id: SparksSiblingVisibility;
@@ -118,6 +119,11 @@ export default function SparksSetupPage() {
                   kid={activeKid}
                   uid={profile.uid}
                   siblings={children.filter((c) => c.id !== activeKid.id)}
+                />
+                <ReflectionSettingsCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
                 />
               </div>
             )}
@@ -350,6 +356,116 @@ function SubjectsCard({
 }
 
 // ── Home Revisions settings card (Slice 7 · 2026-05-28) ────────────
+
+// Daily Reflection setup (2026-06-07). Scan (handwriting) is ALWAYS on —
+// the point of the module. The parent opts in typing, and picks which
+// weekdays typing is offered (e.g. scan-only on school days, typing on
+// weekends). Per-kid, persisted as reflection_settings on the profile.
+const REFLECTION_DAYS: { id: DayOfWeek; label: string }[] = [
+  { id: 'mon', label: 'M' }, { id: 'tue', label: 'T' }, { id: 'wed', label: 'W' },
+  { id: 'thu', label: 'Th' }, { id: 'fri', label: 'F' }, { id: 'sat', label: 'Sa' }, { id: 'sun', label: 'Su' },
+];
+
+function ReflectionSettingsCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  const effective: ReflectionSettings = {
+    ...DEFAULT_REFLECTION_SETTINGS,
+    ...(profile?.reflection_settings ?? {}),
+  };
+  const hasSaved = !!profile?.reflection_settings;
+
+  const patch = async (next: Partial<ReflectionSettings>) => {
+    setSaving(true);
+    try {
+      await upsertSparksProfile(
+        familyId, kid.id,
+        { reflection_settings: { ...effective, ...next } },
+        uid,
+      );
+    } finally { setSaving(false); }
+  };
+
+  const toggleDay = (d: DayOfWeek) => {
+    const set = new Set(effective.typing_days);
+    if (set.has(d)) set.delete(d); else set.add(d);
+    patch({ typing_days: REFLECTION_DAYS.map((x) => x.id).filter((x) => set.has(x)) });
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <span className="text-xl" aria-hidden>🪞</span>
+        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+          Daily Reflection · {kid.name}
+        </div>
+        <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${hasSaved ? 'bg-[#DDF5DF] text-[#2E7D34]' : 'bg-[#FFF1C9] text-[#8A6800]'}`}>
+          {hasSaved ? '✓ Saved' : 'Defaults'}
+        </span>
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
+        Scanning handwriting is always on — it’s how {kid.name} reflects. You decide whether typing is allowed, and on which days.
+      </p>
+
+      {/* Scan — always on (informational) */}
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5 mb-2">
+        <div>
+          <div className="font-nunito font-extrabold text-[13px] text-[#0F1F44]">📷 Scan handwriting</div>
+          <div className="text-[11px] text-[#5A6488]">Always on — the main way to reflect</div>
+        </div>
+        <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#DCEEFB] text-[#3F6FA0]">On</span>
+      </div>
+
+      {/* Typing master toggle */}
+      <button
+        type="button"
+        onClick={() => patch({ typing_allowed: !effective.typing_allowed })}
+        disabled={saving}
+        className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-white px-3 py-2.5 disabled:opacity-50"
+        aria-pressed={effective.typing_allowed}
+      >
+        <span className="text-left">
+          <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">✍️ Allow typing</span>
+          <span className="block text-[11px] text-[#5A6488]">Let {kid.name} type instead of scanning</span>
+        </span>
+        <span className={`w-[42px] h-[24px] rounded-full relative shrink-0 transition-colors ${effective.typing_allowed ? 'bg-[#5A3CB8]' : 'bg-[#cfd3e0]'}`}>
+          <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${effective.typing_allowed ? 'right-[3px]' : 'left-[3px]'}`} />
+        </span>
+      </button>
+
+      {/* Day picker — only when typing is allowed */}
+      {effective.typing_allowed && (
+        <div className="mt-3">
+          <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488] mb-1.5">Typing allowed on…</div>
+          <div className="flex gap-1.5">
+            {REFLECTION_DAYS.map((d) => {
+              const on = effective.typing_days.includes(d.id);
+              return (
+                <button key={d.id} type="button" onClick={() => toggleDay(d.id)} disabled={saving}
+                  className={`w-9 h-9 rounded-lg grid place-items-center font-nunito font-extrabold text-[12px] border-[1.5px] transition disabled:opacity-50 ${
+                    on ? 'bg-[#E5D6FF] border-[#5A3CB8] text-[#5A3CB8]' : 'bg-white border-[#ECE4D3] text-[#5A6488]'
+                  }`}>
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-[#5A6488] mt-2">
+            On unticked days {kid.name} only sees “Scan” — builds the handwriting habit on school days.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function RevisionSettingsCard({
   familyId, kid, uid, siblings,
