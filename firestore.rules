@@ -375,6 +375,14 @@ service cloud.firestore {
         allow write: if false;
       }
 
+      // ── Kaya Games · per-family game memory (gameMeta) ─────────────
+      // Small family-owned docs (e.g. triviaSeen_* — the recent-question
+      // memory + explored counter that keeps Trivia from ever repeating).
+      // Any family member reads + writes; not sensitive.
+      match /gameMeta/{metaId} {
+        allow read, write: if belongsToFamily(familyId);
+      }
+
       // ── Kaya Games · saved Story Builder keepsakes (stories) ───────
       // One doc per saved collaborative story. Written ONLY by the Admin
       // /api/games/story/save route (which also AI-scores it), so a kid
