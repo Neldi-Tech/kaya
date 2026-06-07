@@ -25,8 +25,8 @@ import {
 } from '@/lib/firestore';
 import {
   computeReview, computeWindowRange, computeDayScores, topDays,
-  computeLadderRows, extractComments, recentMonths,
-  WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry,
+  computeLadderRows, extractComments, recentMonths, beltChampions,
+  WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry, BeltChampion,
 } from '@/lib/meetingReview';
 import { fmt } from '@/lib/format';
 
@@ -41,12 +41,23 @@ const WINDOW_QUICK_PICKS: { key: WindowKey; label: string; matches: (w: WindowKe
   { key: { kind: 'mtd' },      label: 'This month',    matches: (w) => w.kind === 'mtd' },
 ];
 
-type TabKey = 'points' | 'behaviour' | 'ladder' | 'belt';
+// Sunday-Meeting v2 (2026-06-07) splits the old "Belt" tab in two:
+//   • belt (NEW) — Excellent Belt® = perfect-day champion (every rated
+//                 routine on that day was Excellent). Most weeks no one
+//                 earns it — that's the point.
+//   • star      — Excellent Star of the Day = the legacy "most-Excellents-
+//                 in-a-day" celebration. Lighter daily recognition so the
+//                 kid who scored 18/20 isn't invisible behind a perfect-day
+//                 winner. Default bonus drops from 5 → 1 pt.
+// The TabKey 'belt' is reused for the new (more prestigious) Belt; the
+// historic logic moves under the new 'star' key.
+type TabKey = 'points' | 'behaviour' | 'ladder' | 'belt' | 'star';
 const TABS: { key: TabKey; label: string; icon: string }[] = [
-  { key: 'points',    label: 'Points',    icon: '⭐' },
+  { key: 'points',    label: 'Points',    icon: '💎' },
   { key: 'behaviour', label: 'Behaviour', icon: '📋' },
   { key: 'ladder',    label: 'Ladder',    icon: '🪜' },
   { key: 'belt',      label: 'Belt',      icon: '🏆' },
+  { key: 'star',      label: 'Star',      icon: '⭐' },
 ];
 
 const COUNTDOWN_START = 5;
@@ -71,6 +82,9 @@ export default function MeetingReviewPage() {
   const [customFrom, setCustomFrom] = useState<string>(todayString());
   const [customTo, setCustomTo] = useState<string>(todayString());
   const [tab, setTab] = useState<TabKey>('points');
+  // "?" guide — explains Belt vs Star vs Ladder so a parent picking up
+  // the meeting cold can read the rules in one screen.
+  const [guideOpen, setGuideOpen] = useState(false);
   const [ratings, setRatings] = useState<DailyRating[] | null>(null);
   const [awards, setAwards] = useState<Award[] | null>(null);
 
@@ -179,7 +193,7 @@ export default function MeetingReviewPage() {
         />
 
         {/* ── Tabs ─────────────────────────────────────────────────── */}
-        <div className="flex gap-1 lg:gap-2 mb-6 lg:mb-8 border-b border-white/10 overflow-x-auto -mx-2 px-2">
+        <div className="flex items-end gap-1 lg:gap-2 mb-6 lg:mb-8 border-b border-white/10 overflow-x-auto -mx-2 px-2">
           {TABS.map((t) => {
             const active = tab === t.key;
             return (
@@ -197,6 +211,17 @@ export default function MeetingReviewPage() {
               </button>
             );
           })}
+          {/* Right-aligned "?" — opens the Belt/Star/Ladder explainer. */}
+          <div className="flex-1" />
+          <button
+            type="button"
+            onClick={() => setGuideOpen(true)}
+            aria-label="How Belt, Star and Ladder work"
+            title="How Belt, Star and Ladder work"
+            className="shrink-0 self-center mb-1 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white/80 text-sm font-extrabold flex items-center justify-center transition-colors"
+          >
+            ?
+          </button>
         </div>
 
         {/* ── Tab content ──────────────────────────────────────────── */}
@@ -228,6 +253,17 @@ export default function MeetingReviewPage() {
         )}
 
         {!loading && tab === 'belt' && (
+          <BeltChampionTab
+            dayScores={dayScores!}
+            children={children}
+            childById={childById}
+            pointSystem={pointSystem}
+            onAwardBonus={awardBonus}
+            rangeLabel={range.label}
+          />
+        )}
+
+        {!loading && tab === 'star' && (
           <BeltTab
             dayScores={dayScores!}
             routines={routines}
@@ -239,8 +275,104 @@ export default function MeetingReviewPage() {
         )}
 
         <p className="text-center text-[11px] lg:text-xs text-white/45 mt-8 lg:mt-10">
-          Excellent Belt&reg; and Excellent Ladder&reg; · <span className="text-kaya-gold-light/80 font-display font-extrabold tracking-wider">Designed by Diella ✨</span>
+          Excellent Belt&reg; · Excellent Star&reg; · Excellent Ladder&reg;{' '}
+          · <span className="text-kaya-gold-light/80 font-display font-extrabold tracking-wider">Designed by Diella ✨</span>
         </p>
+      </div>
+
+      {guideOpen && <ReviewGuide onClose={() => setGuideOpen(false)} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// REVIEW GUIDE — one-screen explainer for the Belt / Star / Ladder
+// (and the colour rule on the Ladder bars). Designed to be readable by
+// a parent who just walked into the meeting. Sunday-Meeting v2.
+// ─────────────────────────────────────────────────────────────────────────
+
+function ReviewGuide({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end lg:items-center justify-center bg-black/60 backdrop-blur-sm p-3 lg:p-6"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="How Belt, Star and Ladder work"
+    >
+      <div
+        className="relative w-full max-w-md lg:max-w-lg max-h-[88vh] overflow-y-auto bg-kaya-chocolate text-white rounded-3xl border border-white/15 shadow-2xl p-5 lg:p-7"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close guide"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-base flex items-center justify-center transition-colors"
+        >
+          ✕
+        </button>
+
+        <p className="text-[10px] uppercase tracking-[0.24em] font-extrabold text-kaya-gold-light/90">
+          How this works
+        </p>
+        <h2 className="font-display text-2xl lg:text-3xl font-black mt-1 mb-5">
+          Belt, Star, &amp; Ladder
+        </h2>
+
+        <div className="space-y-4 text-sm lg:text-[15px] leading-relaxed">
+          <div className="rounded-2xl border border-kaya-gold/40 bg-kaya-gold/10 p-4">
+            <p className="font-display text-lg font-black flex items-center gap-2">🏆 Excellent Belt</p>
+            <p className="text-white/85 mt-1">
+              <b>A perfect day.</b> Every rated routine that day was Excellent — no Goods, no Bads.
+              The <b>Belt Champion</b> is whoever earned the most perfect days in the window.
+              Most weeks no one wins it — that&apos;s the point. It&apos;s an honour.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-4">
+            <p className="font-display text-lg font-black flex items-center gap-2">⭐ Excellent Star of the Day</p>
+            <p className="text-white/85 mt-1">
+              <b>Whoever had the most Excellents that day</b> — even without a perfect sweep.
+              A lighter daily &ldquo;well done&rdquo; (default <b>1 pt</b>) so the kid who scored 18/20 isn&apos;t invisible
+              behind a perfect-day winner.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/[0.07] p-4">
+            <p className="font-display text-lg font-black flex items-center gap-2">🪜 Excellent Ladder</p>
+            <p className="text-white/85 mt-1">
+              Per-kid trophy grid: only the routines where <b>every rated day</b> in the window was Excellent.
+              Each cell shows that day&apos;s actual rating colour:
+            </p>
+            <p className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] font-bold">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/80 text-emerald-50">Excellent</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-kaya-gold text-kaya-chocolate">Good</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/85 text-rose-50">Bad</span>
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-white/55">Skip / unrated</span>
+            </p>
+            <p className="text-white/85 mt-2">
+              An <span className="text-emerald-200 font-extrabold">★ All-Excellent</span> badge appears when every
+              rated day in the window is green — that&apos;s a ladder rung won.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/25 p-4">
+            <p className="text-[11px] uppercase tracking-wider font-bold text-white/55 mb-1">Ties &amp; bonuses</p>
+            <p className="text-white/75 text-[13.5px]">
+              Belt ties = multiple champions; you choose whether to split the bonus.
+              Star ties = use &ldquo;Reveal Next&rdquo; to honour each day in turn.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-6 w-full h-12 rounded-full bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm transition-colors"
+        >
+          Got it
+        </button>
       </div>
     </div>
   );
@@ -880,7 +1012,7 @@ function LadderCard({ row, lastDate }: { row: LadderRow; lastDate: string }) {
 
   return (
     <div className={`rounded-kaya-sm border p-3 ${
-      fullStreak ? 'bg-gradient-to-br from-kaya-gold/15 via-emerald-500/10 to-transparent border-kaya-gold/50' : 'bg-black/25 border-white/10'
+      fullStreak ? 'bg-gradient-to-br from-emerald-500/15 via-emerald-500/5 to-transparent border-emerald-400/50' : 'bg-black/25 border-white/10'
     }`}>
       <div className="text-center mb-2">
         <p className="text-xs lg:text-sm font-bold flex items-center justify-center gap-1.5">
@@ -889,27 +1021,34 @@ function LadderCard({ row, lastDate }: { row: LadderRow; lastDate: string }) {
         </p>
         <p className="text-[10px] uppercase tracking-wider text-white/40 font-semibold">
           {row.period === 'morning' ? '☀️ Morning' : '🌙 Evening'}
-          {fullStreak && (
-            <span className="ml-2 text-kaya-gold">· {visible.length}-day streak</span>
-          )}
         </p>
+        {fullStreak && (
+          <p className="mt-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-[0.12em] bg-emerald-500/20 text-emerald-200 border border-emerald-400/40">
+              ★ All-Excellent · {visible.length} {visible.length === 1 ? 'day' : 'days'}
+            </span>
+          </p>
+        )}
       </div>
       <div className="space-y-1">
         {visible.map((d) => {
-          const isExcellent = d.status === 'excellent';
-          // Full-streak rows paint EVERY excellent day in gold so the
-          // whole streak reads as one continuous celebration instead
-          // of just the last cell being yellow.
+          // Sunday-Meeting v2 (b3): one colour per rating, every bar, every
+          // kid. Replaces the older "fullStreak-conditional gold-or-emerald"
+          // rule that surfaced different colours for the same Excellent
+          // depending on the streak state — readers couldn't tell whether
+          // "gold" meant Good or "extra-Excellent". Now: Excellent=green,
+          // Good=gold, Bad=red, Skip/Unrated=grey. Streak earns the badge
+          // above, not a re-paint of the cells.
+          const cls =
+            d.status === 'excellent' ? 'bg-emerald-500/85 text-emerald-50' :
+            d.status === 'good'      ? 'bg-kaya-gold text-kaya-chocolate' :
+            d.status === 'bad'       ? 'bg-rose-500/85 text-rose-50' :
+                                       'bg-white/5 text-white/40 line-through';
           return (
             <div
               key={d.date}
-              className={`text-center text-[11px] font-bold py-1 px-2 rounded-full ${
-                fullStreak && isExcellent
-                  ? 'bg-kaya-gold text-kaya-chocolate'
-                  : isExcellent
-                  ? 'bg-emerald-500/80 text-emerald-50'
-                  : 'bg-white/5 text-white/40 line-through'
-              }`}
+              className={`text-center text-[11px] font-bold py-1 px-2 rounded-full ${cls}`}
+              title={`${formatShort(d.date)} · ${d.status}`}
             >
               {formatShort(d.date)}{d.hasComment ? ' 📝' : ''}
             </div>
@@ -931,7 +1070,11 @@ function LadderCard({ row, lastDate }: { row: LadderRow; lastDate: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// BELT TAB — most Excellents in a single day, with Excellent/Bad toggle
+// STAR-OF-THE-DAY TAB — most Excellents in a single day (the lighter,
+// daily recognition introduced in Sunday-Meeting v2). The component is
+// still named BeltTab for git-history reasons, but the rendered copy +
+// default bonus are tuned for the Star (1 pt) rather than the Belt.
+// The perfect-day Belt now lives in BeltChampionTab below.
 // ─────────────────────────────────────────────────────────────────────────
 
 function BeltTab({
@@ -944,12 +1087,10 @@ function BeltTab({
   onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
   rangeLabel: string;
 }) {
-  // Belt is purely about excellence now. The "Bad days" view that used
-  // to live as a toggle on this tab was redundant once the Behaviour
-  // tab gained per-kid + tone filters — that's where the family talks
-  // about tough days. Belt stays a pure celebration.
+  // Star is purely about excellence. Default bonus is 1 pt — a "well
+  // done" sticker — much lighter than the Belt's Diamond-tier reward.
   const [index, setIndex] = useState(0);
-  const [bonus, setBonus] = useState(5);
+  const [bonus, setBonus] = useState(1);
   const [awardedKeys, setAwardedKeys] = useState<Set<string>>(new Set());
   const [awardingKey, setAwardingKey] = useState<string | null>(null);
 
@@ -977,15 +1118,15 @@ function BeltTab({
       {/* Title + by-line */}
       <div className="text-center">
         <h2 className="font-display text-2xl lg:text-3xl font-black flex items-center justify-center gap-2">
-          <span aria-hidden>🏆</span> Excellent Belt
+          <span aria-hidden>⭐</span> Excellent Star of the Day
         </h2>
         <p className="text-xs lg:text-sm text-white/60 mt-1">
-          Most <span className="font-semibold text-white">&ldquo;Excellent&rdquo;</span> in a day wins
-          {' · '}<span className="italic">by Diella ✨</span>
+          Whoever logged the most <span className="font-semibold text-white">&ldquo;Excellent&rdquo;</span> on a day
+          {' · '}<span className="italic">a lighter daily &ldquo;well done&rdquo;</span>
         </p>
       </div>
 
-      <Reveal dataKey={rankKey} hiddenLabel="Tap to reveal the Belt champion">
+      <Reveal dataKey={rankKey} hiddenLabel="Tap to reveal the Star of the Day">
         {ranked.length === 0 ? (
           <EmptyState>No Excellent ratings recorded this window.</EmptyState>
         ) : champion ? (
@@ -999,6 +1140,8 @@ function BeltTab({
             rank={index + 1}
             totalRanked={ranked.length}
             kind="excellent"
+            championLabel="Star of the Day"
+            championEmoji="⭐"
             bonus={bonus}
             onBonusChange={setBonus}
             awarded={awardedKeys.has(`${champion.childId}|${champion.date}`)}
@@ -1009,7 +1152,7 @@ function BeltTab({
               const key = `${champion.childId}|${champion.date}`;
               setAwardingKey(key);
               try {
-                await onAwardBonus(child, bonus, `Excellent Belt — ${formatShort(champion.date)} · ${rangeLabel}`);
+                await onAwardBonus(child, bonus, `Excellent Star — ${formatShort(champion.date)} · ${rangeLabel}`);
                 setAwardedKeys((prev) => new Set(prev).add(key));
               } finally {
                 setAwardingKey(null);
@@ -1037,9 +1180,195 @@ function BeltTab({
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// BELT CHAMPION TAB — perfect-day champion(s) for the window. Sunday-
+// Meeting v2. A perfect day = every rated routine on that day was
+// Excellent. Most weeks no one earns it — the empty state ("no Belt
+// this week — aim for a perfect day!") IS the design.
+// ─────────────────────────────────────────────────────────────────────────
+
+function BeltChampionTab({
+  dayScores, children, childById, pointSystem, onAwardBonus, rangeLabel,
+}: {
+  dayScores: DayScore[];
+  children: Child[];
+  childById: Map<string, Child>;
+  pointSystem: PointSystemConfig;
+  onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
+  rangeLabel: string;
+}) {
+  void children; // currently unused — surfaced for future "everyone got 0" UX
+  // Belt-bonus default is the family's Diamond floor (typically 5 pts)
+  // because a perfect day is a Diamond-tier honour, not a "well done".
+  const [bonus, setBonus] = useState(Math.max(5, pointSystem.diamondMinPoints));
+  const [awardedKeys, setAwardedKeys] = useState<Set<string>>(new Set());
+  const [awardingKey, setAwardingKey] = useState<string | null>(null);
+
+  const champions = useMemo(() => beltChampions(dayScores), [dayScores]);
+  const winners = useMemo(() => champions.filter((c) => c.isChampion), [champions]);
+  const runners = useMemo(() => champions.filter((c) => !c.isChampion), [champions]);
+
+  const dataKey = useMemo(
+    () => champions.map((c) => `${c.childId}:${c.count}`).join(',') || 'empty',
+    [champions],
+  );
+
+  return (
+    <div className="space-y-4 lg:space-y-5">
+      <div className="text-center">
+        <h2 className="font-display text-2xl lg:text-3xl font-black flex items-center justify-center gap-2">
+          <span aria-hidden>🏆</span> Excellent Belt
+        </h2>
+        <p className="text-xs lg:text-sm text-white/60 mt-1">
+          A <span className="font-semibold text-white">perfect day</span> — every rated routine was Excellent
+          {' · '}<span className="italic">by Diella ✨</span>
+        </p>
+      </div>
+
+      <Reveal dataKey={dataKey} hiddenLabel="Tap to reveal the Belt Champion">
+        {winners.length === 0 ? (
+          <EmptyState>
+            <p className="font-display font-black text-xl lg:text-2xl text-white/85 mb-1">No Belt this week 🏆</p>
+            <p className="text-white/55">Nobody had a perfect day yet — every rated routine has to be Excellent.</p>
+            <p className="text-white/55 mt-1">Aim for one this week!</p>
+          </EmptyState>
+        ) : (
+          <div className="space-y-4">
+            {winners.map((w) => {
+              const child = childById.get(w.childId);
+              if (!child) return null;
+              const key = `${w.childId}|belt|${w.count}`;
+              return (
+                <BeltChampionCard
+                  key={w.childId}
+                  champion={w}
+                  child={child}
+                  rangeLabel={rangeLabel}
+                  bonus={bonus}
+                  onBonusChange={setBonus}
+                  awarded={awardedKeys.has(key)}
+                  awarding={awardingKey === key}
+                  diamondMinPoints={pointSystem.diamondMinPoints}
+                  onAward={async () => {
+                    setAwardingKey(key);
+                    try {
+                      await onAwardBonus(child, bonus, `Excellent Belt — ${w.count} perfect day${w.count === 1 ? '' : 's'} · ${rangeLabel}`);
+                      setAwardedKeys((prev) => new Set(prev).add(key));
+                    } finally {
+                      setAwardingKey(null);
+                    }
+                  }}
+                />
+              );
+            })}
+
+            {runners.length > 0 && (
+              <div className="rounded-kaya-lg bg-white/[0.04] border border-white/10 p-4 lg:p-5">
+                <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-white/50 mb-3">Runners-up</p>
+                <ul className="space-y-1.5">
+                  {runners.map((r) => {
+                    const child = childById.get(r.childId);
+                    if (!child) return null;
+                    return (
+                      <li key={r.childId} className="flex items-center gap-2 text-sm">
+                        <span aria-hidden className="text-base">{child.avatarEmoji}</span>
+                        <span className="font-bold text-white/85">{child.name}</span>
+                        <span className="text-white/55">— {r.count} perfect day{r.count === 1 ? '' : 's'}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </Reveal>
+    </div>
+  );
+}
+
+function BeltChampionCard({
+  champion, child, rangeLabel, bonus, onBonusChange, awarded, awarding, onAward, diamondMinPoints,
+}: {
+  champion: BeltChampion;
+  child: Child;
+  rangeLabel: string;
+  bonus: number;
+  onBonusChange: (n: number) => void;
+  awarded: boolean;
+  awarding: boolean;
+  onAward: () => Promise<void> | void;
+  diamondMinPoints: number;
+}) {
+  const days = champion.days;
+  const recent = days.slice(0, 3);
+  return (
+    <div className="rounded-kaya-lg bg-gradient-to-br from-kaya-gold/15 via-amber-500/5 to-transparent border border-kaya-gold/60 p-5 lg:p-8">
+      <div className="text-center">
+        <div className="text-5xl lg:text-6xl mb-2">🏆</div>
+        <p className="text-[11px] lg:text-xs uppercase tracking-[0.22em] font-bold text-kaya-gold-light mb-2">
+          Belt Champion · {rangeLabel}
+        </p>
+        <p className="font-display text-2xl lg:text-4xl font-black flex items-center justify-center gap-2">
+          <span aria-hidden>{child.avatarEmoji}</span>
+          <span>{child.name}</span>
+        </p>
+        <p className="font-display text-xl lg:text-2xl font-black mt-1 text-kaya-gold-light">
+          {champion.count} perfect day{champion.count === 1 ? '' : 's'}
+        </p>
+
+        {recent.length > 0 && (
+          <div className="flex flex-wrap justify-center gap-1.5 mt-4">
+            {recent.map((d) => (
+              <span
+                key={d.date}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] lg:text-xs font-semibold border border-kaya-gold/40 bg-kaya-gold/15 text-kaya-gold-light"
+              >
+                ✓ {formatShort(d.date)}
+              </span>
+            ))}
+            {days.length > recent.length && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold text-white/55">
+                + {days.length - recent.length} more
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="mt-5 pt-4 border-t border-white/10">
+          <p className="text-[10px] uppercase tracking-wider text-white/50 font-bold mb-2">Reward</p>
+          <div className="flex items-center justify-center gap-2 flex-wrap">
+            <label className="text-xs text-white/60">Bonus</label>
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={bonus}
+              onChange={(e) => onBonusChange(Math.max(1, Math.min(50, Number(e.target.value) || 0)))}
+              className="w-16 h-9 px-2 rounded-kaya-sm bg-white/10 border border-white/15 text-white text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+            />
+            <span className="text-xs text-white/60">pts</span>
+            <span className="text-[10px] text-white/40 ml-1">
+              {bonus >= diamondMinPoints ? '· Diamond' : '· Regular'}
+            </span>
+          </div>
+          <button
+            onClick={onAward}
+            disabled={awarded || awarding}
+            className="mt-3 inline-flex items-center gap-2 h-11 px-6 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark disabled:opacity-50 disabled:cursor-not-allowed text-kaya-chocolate font-display font-extrabold text-sm transition-colors"
+          >
+            {awarded ? '✓ Awarded' : awarding ? 'Awarding…' : '🏆 Give the Belt bonus'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChampionCard({
   score, scoreLabel, child, date, routineIds, routineById, rank, totalRanked,
-  kind, bonus, onBonusChange, awarded, awarding, onAward, allowBonus, diamondMinPoints,
+  kind, championLabel, championEmoji,
+  bonus, onBonusChange, awarded, awarding, onAward, allowBonus, diamondMinPoints,
 }: {
   score: number;
   scoreLabel: string;
@@ -1050,6 +1379,10 @@ function ChampionCard({
   rank: number;
   totalRanked: number;
   kind: 'excellent' | 'bad';
+  /** Sunday-Meeting v2: lets the same card render under different
+   *  scope labels — "Star of the Day", "Belt Champion", etc. */
+  championLabel?: string;
+  championEmoji?: string;
   bonus: number;
   onBonusChange: (n: number) => void;
   awarded: boolean;
@@ -1066,9 +1399,11 @@ function ChampionCard({
   return (
     <div className={`rounded-kaya-lg bg-black/25 border ${accent} p-5 lg:p-8`}>
       <div className="text-center">
-        <div className="text-5xl lg:text-6xl mb-2">{kind === 'excellent' ? '🥇' : '⚠️'}</div>
+        <div className="text-5xl lg:text-6xl mb-2">
+          {championEmoji ?? (kind === 'excellent' ? '🥇' : '⚠️')}
+        </div>
         <p className="text-[11px] lg:text-xs uppercase tracking-[0.22em] font-bold text-kaya-gold/80 mb-2">
-          {kind === 'excellent' ? 'Belt Champion' : 'Toughest Day'}
+          {championLabel ?? (kind === 'excellent' ? 'Belt Champion' : 'Toughest Day')}
         </p>
         <p className="font-display text-2xl lg:text-4xl font-black flex items-center justify-center gap-2">
           <span>{child.avatarEmoji}</span>

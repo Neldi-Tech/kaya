@@ -329,6 +329,63 @@ export function topDays(scores: DayScore[], kind: 'excellent' | 'bad'): DayScore
     });
 }
 
+// ── Sunday-Meeting v2: Excellent Belt (perfect day) helpers ────────────
+//
+// New honour, separate from the existing "most-Excellents-in-a-day"
+// recognition (which becomes Excellent Star of the Day in the UI).
+//
+//   • isPerfectDay  — a (kid, day) where every rated routine was Excellent,
+//                     i.e. excellentCount === totalRated && totalRated > 0.
+//                     This is the gate for the Belt.
+//   • perfectDays   — filter helper for downstream lists.
+//   • beltChampions — kids ranked by perfect-day count in the window. Used
+//                     to call out the Belt Champion(s) at the meeting and
+//                     to drive the per-kid bonus award row. Ties surface
+//                     as multiple champions; the caller decides whether
+//                     to split the bonus.
+
+export function isPerfectDay(s: DayScore): boolean {
+  return s.totalRated > 0 && s.excellentCount === s.totalRated;
+}
+
+export function perfectDays(scores: DayScore[]): DayScore[] {
+  return scores.filter(isPerfectDay);
+}
+
+export interface BeltChampion {
+  childId: string;
+  count: number;        // # perfect days in the window
+  days: DayScore[];     // the perfect days themselves (sorted newest first)
+  isChampion: boolean;  // true for everyone tied at the max
+}
+
+export function beltChampions(scores: DayScore[]): BeltChampion[] {
+  const perfect = perfectDays(scores);
+  const byKid = new Map<string, DayScore[]>();
+  for (const s of perfect) {
+    const bucket = byKid.get(s.childId) ?? [];
+    bucket.push(s);
+    byKid.set(s.childId, bucket);
+  }
+  // Build rows (count desc, then most-recent perfect-day desc).
+  const rows: BeltChampion[] = [];
+  for (const [childId, days] of byKid.entries()) {
+    const sortedDays = [...days].sort((a, b) => (a.date < b.date ? 1 : -1));
+    rows.push({ childId, count: sortedDays.length, days: sortedDays, isChampion: false });
+  }
+  rows.sort((a, b) => {
+    const diff = b.count - a.count;
+    if (diff !== 0) return diff;
+    // Tiebreak: most recent perfect day surfaces first so a kid who was
+    // perfect *yesterday* outranks one who was perfect three weeks ago.
+    const aRecent = a.days[0]?.date ?? '';
+    const bRecent = b.days[0]?.date ?? '';
+    return aRecent < bRecent ? 1 : -1;
+  });
+  const maxCount = rows[0]?.count ?? 0;
+  return rows.map((r) => ({ ...r, isChampion: maxCount > 0 && r.count === maxCount }));
+}
+
 // ── Ladder v2 ───────────────────────────────────────────────────────────
 //
 // Per-kid trophy grid: only the routines a kid completed (Excellent every
