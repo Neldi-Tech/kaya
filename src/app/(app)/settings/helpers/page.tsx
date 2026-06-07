@@ -722,6 +722,30 @@ function HelperRow({ helper, familyId, familyCode, loginUrl, childOptions, famil
       setPwBusy(false);
     }
   };
+  // Inline custom-password editor — lets a parent set a memorable
+  // password instead of the generated one (🎲 suggests a random value).
+  const [pwEditing, setPwEditing] = useState(false);
+  const [pwDraft, setPwDraft] = useState('');
+  const openPwEditor = () => {
+    setPwDraft(shownPassword ?? generatePassword(6));
+    setPwError(null);
+    setPwEditing(true);
+  };
+  const doSavePassword = async () => {
+    const val = pwDraft.trim();
+    if (val.length < 6) { setPwError('Password must be at least 6 characters.'); return; }
+    setPwBusy(true);
+    setPwError(null);
+    try {
+      const np = await resetHelperPassword(familyId, helper.uid, val);
+      setFreshPw(np);
+      setPwEditing(false);
+    } catch (e: any) {
+      setPwError(e?.message || 'Could not save the password. Try again.');
+    } finally {
+      setPwBusy(false);
+    }
+  };
   // WhatsApp-ready bundle of everything the helper types to sign in —
   // same shape as the Add-helper credentials card's "Copy all".
   const copyAll = () => {
@@ -1001,53 +1025,107 @@ function HelperRow({ helper, familyId, familyCode, loginUrl, childOptions, famil
               <CredRow label="Family code" value={familyCode}        id="su-fc"  copy={copyVal} copied={copiedField === 'su-fc'}  mono />
               <CredRow label="Helper code" value={helper.helperCode} id="su-hc"  copy={copyVal} copied={copiedField === 'su-hc'}  mono />
 
-              {/* Password — stored value (always-viewable) or a Set/Reset
-                  action for legacy helpers / compromise rotation. */}
-              <div className="flex items-center gap-3 bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2">
-                <span className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold w-20 flex-shrink-0">Password</span>
-                {shownPassword ? (
-                  <>
-                    <span className="flex-1 font-mono text-sm font-bold">{shownPassword}</span>
+              {/* Password — stored value (always-viewable), inline custom
+                  editor, or a Set action for legacy helpers. The same route
+                  handles custom + random; rules gate the doc to parent+self. */}
+              {pwEditing ? (
+                <div className="bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold w-20 flex-shrink-0">Password</span>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={pwDraft}
+                      onChange={(e) => setPwDraft(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') doSavePassword(); if (e.key === 'Escape') { setPwEditing(false); setPwError(null); } }}
+                      placeholder="6+ characters"
+                      className="flex-1 min-w-0 font-mono text-sm font-bold bg-kaya-cream border border-kaya-warm-dark rounded-kaya-sm px-2 py-1.5 focus:outline-none focus:border-kaya-chocolate"
+                    />
                     <button
-                      onClick={() => copyVal(shownPassword, 'su-pw')}
-                      className="text-kaya-sand hover:text-kaya-chocolate"
-                      aria-label="Copy password"
+                      type="button"
+                      onClick={() => setPwDraft(generatePassword(6))}
+                      title="Suggest a random one"
+                      aria-label="Suggest a random password"
+                      className="text-base leading-none flex-shrink-0 hover:opacity-70"
                     >
-                      {copiedField === 'su-pw' ? <Check size={14} /> : <Copy size={14} />}
+                      🎲
                     </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex-1 text-sm text-kaya-sand">Not saved yet</span>
-                    <button
-                      onClick={doResetPassword}
-                      disabled={pwBusy}
-                      className="px-2.5 py-1.5 text-xs font-bold bg-kaya-gold-light text-kaya-gold-dark border border-kaya-gold rounded-kaya-sm hover:brightness-95 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <KeyRound size={12} /> {pwBusy ? 'Setting…' : 'Set password'}
-                    </button>
-                  </>
-                )}
-              </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-2">
+                    <span className="text-[10px] text-kaya-sand">The helper types this exactly (case-sensitive).</span>
+                    <div className="flex gap-1.5 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => { setPwEditing(false); setPwError(null); }}
+                        className="px-2.5 py-1 text-xs font-medium text-kaya-sand hover:text-kaya-chocolate"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={doSavePassword}
+                        disabled={pwBusy || pwDraft.trim().length < 6}
+                        className="px-3 py-1 text-xs font-bold bg-kaya-chocolate text-white rounded-kaya-sm hover:bg-kaya-chocolate-light disabled:opacity-50"
+                      >
+                        {pwBusy ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2">
+                  <span className="text-[10px] uppercase tracking-wider text-kaya-sand font-bold w-20 flex-shrink-0">Password</span>
+                  {shownPassword ? (
+                    <>
+                      <span className="flex-1 font-mono text-sm font-bold">{shownPassword}</span>
+                      <button
+                        onClick={() => copyVal(shownPassword, 'su-pw')}
+                        className="text-kaya-sand hover:text-kaya-chocolate"
+                        aria-label="Copy password"
+                      >
+                        {copiedField === 'su-pw' ? <Check size={14} /> : <Copy size={14} />}
+                      </button>
+                      <button
+                        onClick={openPwEditor}
+                        className="text-kaya-sand hover:text-kaya-chocolate"
+                        aria-label="Edit password"
+                        title="Edit password"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm text-kaya-sand">Not saved yet</span>
+                      <button
+                        onClick={openPwEditor}
+                        disabled={pwBusy}
+                        className="px-2.5 py-1.5 text-xs font-bold bg-kaya-gold-light text-kaya-gold-dark border border-kaya-gold rounded-kaya-sm hover:brightness-95 disabled:opacity-50 inline-flex items-center gap-1.5 whitespace-nowrap"
+                      >
+                        <KeyRound size={12} /> Set password
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
             {pwError && <p className="text-[11px] text-red-600 mt-2">{pwError}</p>}
 
             {shownPassword ? (
               <p className="text-[11px] text-kaya-sand mt-2.5 leading-relaxed">
-                Re-share these any time {helper.displayName} changes phones. Forgotten or compromised?{' '}
+                Re-share these any time {helper.displayName} changes phones. Tap the <Pencil size={11} className="inline align-[-1px]" /> to set a custom password that&apos;s easy for them, or{' '}
                 <button
                   onClick={doResetPassword}
                   disabled={pwBusy}
                   className="underline font-medium hover:text-kaya-chocolate disabled:opacity-50"
                 >
-                  {pwBusy ? 'Resetting…' : 'Reset password'}
-                </button>{' '}
-                — issues a new one without removing the helper.
+                  {pwBusy ? 'Resetting…' : 'reset to a random one'}
+                </button>.
               </p>
             ) : (
               <p className="text-[11px] text-kaya-sand mt-2.5 leading-relaxed">
-                This helper was added before passwords were saved, so the old one can&apos;t be shown. Tap <span className="font-bold">Set password</span> to create a fresh one — it keeps all their history.
+                This helper was added before passwords were saved, so the old one can&apos;t be shown. Tap <span className="font-bold">Set password</span> to choose one (or keep the suggested random) — it keeps all their history.
               </p>
             )}
           </div>
