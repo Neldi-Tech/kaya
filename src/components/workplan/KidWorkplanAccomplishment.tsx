@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   type KidWorkplanItem, type KidWorkplanCompletion,
   listKidWorkplanItems, listKidCompletions, computeKidAccomplishment,
-  todayDateString,
+  excuseReasonMeta, todayDateString,
 } from '@/lib/kidWorkplan';
 import { toDisplayDate } from '@/lib/dates';
 import KidWorkplanToday from '@/components/workplan/KidWorkplanToday';
@@ -108,23 +108,24 @@ export default function KidWorkplanAccomplishment({ familyId, childId, childName
         {a.days.map((d) => {
           const isToday = d.date === todayStr;
           const open = d.date === openDate;
+          const exc = d.excused ? excuseReasonMeta(d.excuseReason) : null;
           return (
             <button
               key={d.date}
               type="button"
               onClick={() => setOpenDate(open ? null : d.date)}
               className="flex flex-col items-center gap-1 flex-1"
-              title={`${toDisplayDate(d.date)} · ${d.isActive ? `${d.done}/${d.scheduled} · ${d.pct}%` : 'nothing planned'}`}
+              title={`${toDisplayDate(d.date)} · ${exc ? `Excused — ${exc.label}` : d.isActive ? `${d.done}/${d.scheduled} · ${d.pct}%` : 'nothing planned'}`}
             >
               <div
                 className="w-full max-w-[40px] aspect-square rounded-xl flex items-center justify-center text-[11px] font-black"
                 style={{
-                  background: pctColor(d.pct, d.isActive),
-                  color: d.isActive && d.pct >= 50 ? '#fff' : '#7a7264',
+                  background: exc ? '#EAF3FF' : pctColor(d.pct, d.isActive),
+                  color: exc ? '#1F3A5F' : d.isActive && d.pct >= 50 ? '#fff' : '#7a7264',
                   boxShadow: open ? `0 0 0 2px #fff, 0 0 0 4px ${JOY.ink}` : 'none',
                 }}
               >
-                {d.isActive ? `${d.pct}` : '—'}
+                {exc ? <span className="text-[13px]" aria-hidden>{exc.emoji}</span> : d.isActive ? `${d.pct}` : '—'}
               </div>
               <span className={`text-[9px] font-bold uppercase ${isToday ? '' : 'text-kaya-sand'}`} style={isToday ? { color: JOY.purple } : {}}>
                 {d.dow}

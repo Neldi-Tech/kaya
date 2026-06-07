@@ -21,7 +21,7 @@
 
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, setDoc,
-  onSnapshot, serverTimestamp, query, orderBy,
+  onSnapshot, serverTimestamp, query, orderBy, deleteField,
 } from 'firebase/firestore';
 import type { Timestamp } from 'firebase/firestore';
 import { db } from './firebase';
@@ -59,6 +59,28 @@ export interface KidWorkplanItem {
   createdBy: string;             // parent uid
 }
 
+/** Why a kid couldn't do their tasks on a given day. A day-level,
+ *  parent-visible reason that makes the day "excused" (streak-safe) —
+ *  never a silent skip. */
+export type ExcuseReason = 'sick' | 'school_trip' | 'public_holiday' | 'other';
+
+/** The fixed set of excuse reasons, with kid-friendly emoji + EN/SW
+ *  labels. Single source of truth for the kid picker AND the parent
+ *  read-only view, so both render the same wording. */
+export const EXCUSE_REASONS: ReadonlyArray<{
+  value: ExcuseReason; emoji: string; label: string; labelSw: string;
+}> = [
+  { value: 'sick',           emoji: '🤒', label: 'Sick',           labelSw: 'Mgonjwa' },
+  { value: 'school_trip',    emoji: '🧳', label: 'School trip',    labelSw: 'Safari ya shule' },
+  { value: 'public_holiday', emoji: '🎉', label: 'Public holiday', labelSw: 'Sikukuu' },
+  { value: 'other',          emoji: '✏️', label: 'Other',          labelSw: 'Nyingine' },
+];
+
+/** Look up an excuse reason's display meta (emoji + EN/SW label). */
+export function excuseReasonMeta(reason: ExcuseReason | undefined | null) {
+  return EXCUSE_REASONS.find((r) => r.value === reason) ?? EXCUSE_REASONS[3];
+}
+
 export interface KidWorkplanCompletion {
   date: string;                  // YYYY-MM-DD (doc id)
   completedItemIds: string[];
@@ -66,6 +88,14 @@ export interface KidWorkplanCompletion {
    *  prevents double-award on re-tick. */
   awardedItemIds?: string[];
   eodNote?: string;
+  /** Kid's free-text comment per task, captured when they tick it
+   *  (itemId → note). Parent-visible; never touches points. */
+  itemNotes?: Record<string, string>;
+  /** "Couldn't do it today" — a day-level, parent-visible excuse. When
+   *  true the day is streak-safe (counted as not-scheduled). */
+  excused?: boolean;
+  excuseReason?: ExcuseReason;
+  excuseNote?: string;           // optional free text (esp. for 'other')
   updatedAt: Timestamp;
   updatedBy: string;
 }
@@ -281,7 +311,9 @@ export interface KidDayResult {
   done: number;
   pct: number;
   points: number;      // points earned that day (from completed items)
-  isActive: boolean;   // had ≥1 scheduled task
+  isActive: boolean;   // had ≥1 scheduled task AND not excused
+  excused: boolean;    // parent/kid marked "couldn't do it today" (streak-safe)
+  excuseReason?: ExcuseReason;  // why (for the parent strip), when excused
 }
 
 export interface KidAccomplishment {
@@ -318,6 +350,7 @@ export function computeKidAccomplishment(
     const dateStr = todayDateString(d);
     const scheduled = kidItemsScheduledOn(items, d);
     const comp = byDate.get(dateStr) ?? null;
+    const excused = !!comp?.excused;
     const doneIds = new Set(comp?.completedItemIds ?? []);
     const doneItems = scheduled.filter((it) => doneIds.has(it.id));
     const pct = scheduled.length ? Math.round((doneItems.length / scheduled.length) * 100) : 100;
@@ -328,7 +361,11 @@ export function computeKidAccomplishment(
       done: doneItems.length,
       pct,
       points: doneItems.reduce((s, it) => s + (it.pointsValue ?? 0), 0),
-      isActive: scheduled.length > 0,
+      // An excused day is neutral — like a no-tasks day, it neither counts
+      // toward nor breaks the streak/percentage (the kid couldn't do it).
+      isActive: scheduled.length > 0 && !excused,
+      excused,
+      excuseReason: comp?.excuseReason,
     });
   }
 
@@ -423,6 +460,73 @@ export async function setKidEodNote(
     await updateDoc(ref, { eodNote: note, updatedAt: serverTimestamp(), updatedBy: by });
   } else {
     await setDoc(ref, { completedItemIds: [], eodNote: note, updatedAt: serverTimestamp(), updatedBy: by });
+  }
+}
+
+/** Save (or clear) the kid's per-task comment, captured when they tick a
+ *  task. Writes client-side to a nested `itemNotes.<itemId>` field so it
+ *  never collides with the server's points write on the same doc (both
+ *  field-merge). An empty note removes the entry. */
+export async function setKidItemNote(
+  familyId: string, childId: string, itemId: string, note: string, by: string,
+  date: string = todayDateString(),
+): Promise<void> {
+  const ref = doc(completionsCol(familyId, childId), date);
+  const snap = await getDoc(ref);
+  const trimmed = note.trim();
+  if (snap.exists()) {
+    await updateDoc(ref, {
+      [`itemNotes.${itemId}`]: trimmed ? trimmed : deleteField(),
+      updatedAt: serverTimestamp(), updatedBy: by,
+    });
+  } else if (trimmed) {
+    await setDoc(ref, {
+      completedItemIds: [], itemNotes: { [itemId]: trimmed },
+      updatedAt: serverTimestamp(), updatedBy: by,
+    });
+  }
+}
+
+/** Mark (or clear) a day as "couldn't do it today" with a reason. An
+ *  excused day is streak-safe (treated as not-scheduled). Pass `null` to
+ *  un-excuse. Client-side write to the kid's own completion doc. */
+export async function setKidDayExcuse(
+  familyId: string, childId: string,
+  excuse: { reason: ExcuseReason; note?: string } | null,
+  by: string, date: string = todayDateString(),
+): Promise<void> {
+  const ref = doc(completionsCol(familyId, childId), date);
+  const snap = await getDoc(ref);
+  if (excuse === null) {
+    if (snap.exists()) {
+      await updateDoc(ref, {
+        excused: deleteField(), excuseReason: deleteField(), excuseNote: deleteField(),
+        updatedAt: serverTimestamp(), updatedBy: by,
+      });
+    }
+    return;
+  }
+  const note = excuse.note?.trim();
+  if (snap.exists()) {
+    // update — deleteField() is valid here to clear a stale note.
+    await updateDoc(ref, {
+      excused: true,
+      excuseReason: excuse.reason,
+      excuseNote: note ? note : deleteField(),
+      updatedAt: serverTimestamp(),
+      updatedBy: by,
+    });
+  } else {
+    // create — build a clean doc (no deleteField sentinels in a plain set).
+    const fresh: Record<string, unknown> = {
+      completedItemIds: [],
+      excused: true,
+      excuseReason: excuse.reason,
+      updatedAt: serverTimestamp(),
+      updatedBy: by,
+    };
+    if (note) fresh.excuseNote = note;
+    await setDoc(ref, fresh);
   }
 }
 

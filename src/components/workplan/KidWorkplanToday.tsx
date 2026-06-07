@@ -15,11 +15,15 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   type KidWorkplanItem, type KidWorkplanCompletion, type KidWorkplanProof,
+  type ExcuseReason,
   subscribeKidWorkplanItems, subscribeKidCompletion, completeKidTask,
   subscribeKidWorkplanProofs, submitKidWorkplanProof,
+  setKidItemNote, setKidDayExcuse, EXCUSE_REASONS, excuseReasonMeta,
   kidItemsScheduledOn, partitionKidByTime,
   formatTimeLocal, categoryMeta, todayDateString, todayDayOfWeek,
 } from '@/lib/kidWorkplan';
+import { useAuth } from '@/contexts/AuthContext';
+import { useLocale } from '@/lib/useLocale';
 import { uploadWorkplanProofMedia } from '@/lib/workplanProofUpload';
 import {
   type Business,
@@ -45,6 +49,9 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   readOnly?: boolean;
 }) {
   const router = useRouter();
+  const { profile } = useAuth();
+  const uid = profile?.uid ?? '';
+  const sw = useLocale() === 'sw';
   const dateStr = todayDateString(date);
   const isToday = dateStr === todayDateString();
 
@@ -52,6 +59,10 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   const [completion, setCompletion] = useState<KidWorkplanCompletion | null>(null);
   const [optimistic, setOptimistic] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  // Kid-voice sheets (PR B): per-task note + day-level "couldn't today".
+  const [noteFor, setNoteFor] = useState<KidWorkplanItem | null>(null);
+  const [excuseOpen, setExcuseOpen] = useState(false);
+  const [excuseBusy, setExcuseBusy] = useState(false);
   // Proof docs for THIS child (read-only; written server-side). Keyed by
   // itemId for the current day so each proof task shows its status.
   const [proofs, setProofs] = useState<KidWorkplanProof[]>([]);
@@ -161,6 +172,9 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
   }
 
   const doneSet = new Set(completion?.completedItemIds ?? []);
+  const itemNotes = completion?.itemNotes ?? {};
+  const excused = !!completion?.excused;
+  const excuseMeta = excused ? excuseReasonMeta(completion?.excuseReason) : null;
   const isDone = (id: string) => {
     // Synthetic stock-take rows: a stockTake doc landing for today = done.
     if (isSyntheticStockTake(id)) return !!stockTakeDoneToday[businessIdFromSynthetic(id)];
@@ -225,7 +239,16 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
     const done = item.requiresProof ? proofDone : isDone(item.id);
     const pts = item.pointsValue ?? 0;
     const approved = proof?.status === 'approved';
+    // Per-task kid comment (plain tasks only — proof tasks carry their note
+    // in the proof itself; synthetic stock-take rows live outside the
+    // completion doc). Show an existing note always; offer add/edit on the
+    // kid's own today view once the task is ticked.
+    const notable = !item.requiresProof && !isSyntheticStockTake(item.id);
+    const noteText = notable ? (itemNotes[item.id] ?? '') : '';
+    const canNote = !readOnly && isToday && notable;
+    const showNoteRow = !!noteText || (canNote && done);
     return (
+      <div>
       <button
         type="button"
         disabled={readOnly || !isToday || busy === item.id}
@@ -274,11 +297,61 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
           </span>
         )}
       </button>
+      {showNoteRow && (
+        <div className="mt-1 pl-10 pr-1">
+          {noteText && (
+            <p className="text-[11px] font-semibold italic leading-snug" style={{ color: '#5C6975' }}>
+              💬 “{noteText}”
+            </p>
+          )}
+          {canNote && (
+            <button
+              type="button"
+              onClick={() => setNoteFor(item)}
+              className="mt-0.5 text-[10px] font-black hover:underline"
+              style={{ color: JOY.purple }}
+            >
+              {noteText ? (sw ? '✏️ Hariri maelezo' : '✏️ Edit note') : (sw ? '💬 Ongeza maelezo' : '💬 Add a note')}
+            </button>
+          )}
+        </div>
+      )}
+      </div>
     );
   };
 
   return (
     <div>
+      {/* "Couldn't do it today" — excused-day banner (streak-safe). Shown to
+          the kid AND the parent (read-only reuse). Never a silent skip. */}
+      {excused && excuseMeta && (
+        <div className="rounded-2xl p-3 mb-3 flex items-start gap-2.5 border-2" style={{ background: '#EAF3FF', borderColor: '#BBD6F5' }}>
+          <span className="text-2xl flex-shrink-0" aria-hidden>{excuseMeta.emoji}</span>
+          <div className="min-w-0 flex-1">
+            <p className="font-black text-[13px] leading-tight" style={{ color: '#1F3A5F' }}>
+              {sw ? 'Imeruhusiwa leo' : 'Excused today'} · {sw ? excuseMeta.labelSw : excuseMeta.label}
+            </p>
+            {completion?.excuseNote && (
+              <p className="text-[11px] font-semibold italic mt-0.5" style={{ color: '#3E5A7A' }}>“{completion.excuseNote}”</p>
+            )}
+            <p className="text-[10px] font-bold mt-0.5" style={{ color: '#5C7CA0' }}>
+              {sw ? 'Haitakatiza mfululizo wako 🔥' : "This won't break your streak 🔥"}
+            </p>
+          </div>
+          {!readOnly && isToday && (
+            <button
+              type="button"
+              disabled={excuseBusy}
+              onClick={async () => { setExcuseBusy(true); try { await setKidDayExcuse(familyId, childId, null, uid, dateStr); } finally { setExcuseBusy(false); } }}
+              className="flex-shrink-0 text-[11px] font-black px-2.5 py-1 rounded-lg border-2 disabled:opacity-50"
+              style={{ color: '#1F3A5F', borderColor: '#BBD6F5', background: '#fff' }}
+            >
+              {sw ? 'Tendua' : 'Undo'}
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Progress hero */}
       <div className="rounded-2xl p-4 mb-3 text-white" style={{ background: `linear-gradient(135deg, ${JOY.purple}, ${JOY.coral})` }}>
         <div className="flex items-center justify-between gap-3">
@@ -383,6 +456,20 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
         </div>
       )}
 
+      {/* "Couldn't do it today?" — opens the reason picker (excused day). */}
+      {isToday && !readOnly && !excused && (total > 0 || pulseForDay.length > 0) && (
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => setExcuseOpen(true)}
+            className="w-full rounded-2xl border-2 border-dashed p-3 text-[12px] font-black transition-all hover:shadow-sm active:scale-[0.99]"
+            style={{ borderColor: '#CBB6F0', color: JOY.purple, background: '#FBF8FF' }}
+          >
+            😕 {sw ? 'Hukuweza kufanya kazi leo?' : "Couldn't do tasks today?"}
+          </button>
+        </div>
+      )}
+
       {/* "Show your work" capture modal (proof tasks only) */}
       {proofFor && (
         <ProofModal
@@ -391,6 +478,32 @@ export default function KidWorkplanToday({ familyId, childId, childName, date, r
           date={dateStr}
           item={proofFor}
           onClose={() => setProofFor(null)}
+        />
+      )}
+
+      {/* Per-task note sheet (plain tasks) */}
+      {noteFor && (
+        <NoteSheet
+          familyId={familyId}
+          childId={childId}
+          date={dateStr}
+          uid={uid}
+          item={noteFor}
+          initial={itemNotes[noteFor.id] ?? ''}
+          sw={sw}
+          onClose={() => setNoteFor(null)}
+        />
+      )}
+
+      {/* "Couldn't do it today" reason sheet */}
+      {excuseOpen && (
+        <ExcuseSheet
+          familyId={familyId}
+          childId={childId}
+          date={dateStr}
+          uid={uid}
+          sw={sw}
+          onClose={() => setExcuseOpen(false)}
         />
       )}
     </div>
@@ -500,6 +613,141 @@ function ProofModal({ familyId, childId, date, item, onClose }: {
             className="px-5 h-10 rounded-full text-[13px] font-black text-white disabled:opacity-50"
             style={{ background: `linear-gradient(135deg, ${JOY.purple}, ${JOY.coral})` }}>
             {busy ? 'Sending…' : 'Submit proof'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Per-task note sheet (PR B) ─────────────────────
+// A short, optional comment the kid attaches to a ticked task ("note on
+// submit"). Written client-side to the completion doc; the parent sees it
+// in the read-only day view. Empty text clears the note.
+function NoteSheet({ familyId, childId, date, uid, item, initial, sw, onClose }: {
+  familyId: string; childId: string; date: string; uid: string;
+  item: KidWorkplanItem; initial: string; sw: boolean; onClose: () => void;
+}) {
+  const [text, setText] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try { await setKidItemNote(familyId, childId, item.id, text, uid, date); onClose(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-3xl bg-white border-2 p-4"
+        style={{ borderColor: JOY.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-2xl" aria-hidden>{item.icon || categoryMeta(item.category).icon}</span>
+          <p className="font-black text-[16px]" style={{ color: JOY.ink }}>{sw ? 'Andika maelezo 💬' : 'Add a note 💬'}</p>
+        </div>
+        <p className="text-[12px] font-bold text-[#5C6975] mb-3">{item.label}</p>
+
+        <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: JOY.purple }}>
+          {sw ? 'Ungependa kusema nini?' : 'Anything you want to say?'}
+        </label>
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          rows={3}
+          maxLength={500}
+          autoFocus
+          placeholder={sw ? 'Nilimaliza kazi yangu na nikajisikia vizuri!' : 'I finished it and I felt great!'}
+          className="w-full rounded-2xl border-2 p-3 text-[13px] font-bold focus:outline-none mb-3"
+          style={{ borderColor: JOY.border, color: JOY.ink }}
+        />
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy}
+            className="px-4 h-10 rounded-full text-[13px] font-black text-[#5C6975]">{sw ? 'Ghairi' : 'Cancel'}</button>
+          <button type="button" onClick={save} disabled={busy}
+            className="px-5 h-10 rounded-full text-[13px] font-black text-white disabled:opacity-50"
+            style={{ background: `linear-gradient(135deg, ${JOY.purple}, ${JOY.coral})` }}>
+            {busy ? (sw ? 'Inahifadhi…' : 'Saving…') : (sw ? 'Hifadhi' : 'Save note')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── "Couldn't do it today" reason sheet (PR B) ─────
+// A day-level, parent-visible excuse. Picking a reason marks the day
+// excused — streak-safe — and never a silent skip.
+function ExcuseSheet({ familyId, childId, date, uid, sw, onClose }: {
+  familyId: string; childId: string; date: string; uid: string; sw: boolean; onClose: () => void;
+}) {
+  const [reason, setReason] = useState<ExcuseReason | null>(null);
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (!reason) return;
+    setBusy(true);
+    try { await setKidDayExcuse(familyId, childId, { reason, note }, uid, date); onClose(); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-3" onClick={onClose}>
+      <div
+        className="w-full max-w-md rounded-3xl bg-white border-2 p-4 max-h-[90vh] overflow-y-auto"
+        style={{ borderColor: JOY.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="font-black text-[16px] mb-1" style={{ color: JOY.ink }}>
+          {sw ? 'Hukuweza kufanya leo? 💙' : "Couldn't do it today? 💙"}
+        </p>
+        <p className="text-[12px] font-bold text-[#5C6975] mb-3">
+          {sw
+            ? 'Sawa kabisa — chagua sababu. Siku hii itarukwa na haitakatiza mfululizo wako.'
+            : "That's okay — pick a reason. We'll excuse today and keep your streak safe."}
+        </p>
+
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          {EXCUSE_REASONS.map((r) => {
+            const active = reason === r.value;
+            return (
+              <button
+                key={r.value}
+                type="button"
+                onClick={() => setReason(r.value)}
+                className="flex items-center gap-2 rounded-2xl border-2 p-3 text-left transition-all active:scale-[0.99]"
+                style={{
+                  borderColor: active ? JOY.purple : JOY.border,
+                  background: active ? '#F6F0FF' : '#fff',
+                }}
+              >
+                <span className="text-xl" aria-hidden>{r.emoji}</span>
+                <span className="font-black text-[12px]" style={{ color: JOY.ink }}>{sw ? r.labelSw : r.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <label className="block text-[10px] font-black uppercase tracking-wider mb-1" style={{ color: JOY.purple }}>
+          {sw ? 'Maelezo zaidi (si lazima)' : 'Anything to add? (optional)'}
+        </label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          rows={2}
+          maxLength={300}
+          placeholder={sw ? 'mf. nilikuwa na homa' : 'e.g. I had a fever'}
+          className="w-full rounded-2xl border-2 p-3 text-[13px] font-bold focus:outline-none mb-3"
+          style={{ borderColor: JOY.border, color: JOY.ink }}
+        />
+
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy}
+            className="px-4 h-10 rounded-full text-[13px] font-black text-[#5C6975]">{sw ? 'Ghairi' : 'Cancel'}</button>
+          <button type="button" onClick={save} disabled={!reason || busy}
+            className="px-5 h-10 rounded-full text-[13px] font-black text-white disabled:opacity-50"
+            style={{ background: `linear-gradient(135deg, ${JOY.purple}, ${JOY.coral})` }}>
+            {busy ? (sw ? 'Inahifadhi…' : 'Saving…') : (sw ? 'Ruhusu siku hii' : 'Mark excused')}
           </button>
         </div>
       </div>
