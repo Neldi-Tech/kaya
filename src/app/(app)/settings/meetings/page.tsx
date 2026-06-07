@@ -61,6 +61,10 @@ export default function MeetingSetupPage() {
   // ── Local state, seeded from family doc once family loads ────────
   const [agendaSteps, setAgendaSteps] = useState<string[]>(AGENDA_STEPS.map((s) => s.id));
   const [closingEnabled, setClosingEnabled] = useState<ReflectionMode[]>(['story', 'songs', 'prayer']);
+  // Sunday-Meeting v2 (b5): when ON, a kid-attached song link in the
+  // closing reflection needs a parent OK before the play button works.
+  // Default ON (conservative).
+  const [kidSongLinkRequiresApproval, setKidSongLinkRequiresApproval] = useState<boolean>(true);
   const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
   // Per-step display-name override. Empty / missing entry = use the
   // canonical default title from AGENDA_STEPS.
@@ -86,6 +90,7 @@ export default function MeetingSetupPage() {
     const s = family.meetingSetup;
     if (s?.agendaSteps && s.agendaSteps.length > 0) setAgendaSteps(s.agendaSteps);
     if (s?.closingModesEnabled && s.closingModesEnabled.length > 0) setClosingEnabled(s.closingModesEnabled);
+    if (typeof s?.kidSongLinkRequiresApproval === 'boolean') setKidSongLinkRequiresApproval(s.kidSongLinkRequiresApproval);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
     if (s?.stepLabels) setStepLabels(s.stepLabels);
     if (s?.schedule) {
@@ -181,6 +186,7 @@ export default function MeetingSetupPage() {
         prayers,
         stepLabels: cleanedLabels,
         schedule,
+        kidSongLinkRequiresApproval,
       },
     });
     setSaving(false);
@@ -303,6 +309,28 @@ export default function MeetingSetupPage() {
               </button>
             );
           })}
+        </div>
+
+        {/* Sunday-Meeting v2 (b5) — kid song approval toggle */}
+        <div className="mt-5 rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={kidSongLinkRequiresApproval}
+              onChange={(e) => setKidSongLinkRequiresApproval(e.target.checked)}
+              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-sm text-kaya-chocolate">
+                🛡️ Kid-attached songs need a parent OK
+              </p>
+              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">
+                When a kid pastes a YouTube/Spotify link in the closing reflection,
+                Kaya asks a parent to tap &ldquo;approve&rdquo; before the play button works.
+                Parent-pasted links are always cleared. Default: on.
+              </p>
+            </div>
+          </label>
         </div>
       </section>
 
