@@ -690,9 +690,13 @@ service cloud.firestore {
       match /threads/{threadId} {
         allow read: if isSignedIn()
           && ((request.auth.uid in resource.data.memberUids) || isParentInFamily(familyId));
-        // Creator must be a family member and include themselves.
+        // Creator must be a family member and include themselves — OR a parent
+        // (parents create a kids' group thread when APPROVING a create_group_chat
+        //  request, so the new thread's members are the kids, not the parent;
+        //  parents already read every thread via oversight below). 2026-06-07.
         allow create: if belongsToFamily(familyId)
-          && (request.auth.uid in request.resource.data.memberUids);
+          && ((request.auth.uid in request.resource.data.memberUids)
+              || isParentInFamily(familyId));
         // Members update on send (lastAt/reads) + re-merge membership;
         // a parent may also update (oversight mark-read).
         allow update: if isSignedIn()

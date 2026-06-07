@@ -93,6 +93,19 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
       const note = decision === 'rejected' ? reason : undefined;
       if (req.module === 'business') {
         await resolveBusinessRequest(profile.familyId, req.id, decision, profile.uid, note);
+      } else if (req.type === 'create_group_chat') {
+        // Resolve server-side (Admin SDK): the parent creating the kids' thread
+        // is blocked by the client `threads` create rule, so this can't run in
+        // the browser. The route authorises the parent + bypasses rules.
+        const res = await fetch('/api/hive/group-chat/resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ familyId: profile.familyId, requestId: req.id, decision, approverUid: profile.uid, note }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d?.error ? `Couldn’t resolve (${d.error}).` : 'Failed to resolve.');
+        }
       } else {
         await resolveApprovalRequest(profile.familyId, req.id, decision, profile.uid, note);
       }
