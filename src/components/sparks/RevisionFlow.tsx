@@ -111,6 +111,7 @@ export default function RevisionFlow({
     setDraftSubject('');
     setCameraMode(null);
     setPendingDraft(null);
+    setReplaceIndex(null);
   }, [open]);
 
   // Slice 7j · check IDB for an unsent draft when the sheet opens. If
@@ -157,10 +158,27 @@ export default function RevisionFlow({
     setPendingDraft(null);
   };
 
-  /** Camera confirm handler — append cleaned files to the photos array. */
+  /** Camera confirm handler. Slice 7k · if replaceIndex is set we
+   *  splice the FIRST captured file into that slot (replace flow) and
+   *  ignore any extras — single-page replace. Otherwise the legacy
+   *  append flow runs (multi-page scan / single-shot photo). */
   const onCameraConfirm = (files: File[]) => {
-    if (files.length === 0) return;
-    setPhotos((prev) => [...prev, ...files]);
+    if (files.length === 0) {
+      setCameraMode(null);
+      setReplaceIndex(null);
+      return;
+    }
+    if (replaceIndex !== null) {
+      setPhotos((prev) => {
+        if (replaceIndex < 0 || replaceIndex >= prev.length) return prev;
+        const copy = prev.slice();
+        copy[replaceIndex] = files[0];
+        return copy;
+      });
+      setReplaceIndex(null);
+    } else {
+      setPhotos((prev) => [...prev, ...files]);
+    }
     setCameraMode(null);
   };
 
@@ -174,6 +192,22 @@ export default function RevisionFlow({
     if (fileRef.current) fileRef.current.value = '';
   };
   const removePhoto = (idx: number) => setPhotos((prev) => prev.filter((_, i) => i !== idx));
+  // Slice 7k · move ONE page up or down in the batch (used by the
+  // arrow controls on each tile). Clamped to array bounds.
+  const movePhoto = (idx: number, direction: -1 | 1) => {
+    setPhotos((prev) => {
+      const next = idx + direction;
+      if (next < 0 || next >= prev.length) return prev;
+      const copy = prev.slice();
+      const [moved] = copy.splice(idx, 1);
+      copy.splice(next, 0, moved);
+      return copy;
+    });
+  };
+  // Slice 7k · in-flight slot for the "Replace this page" flow. When
+  // set, the next CameraCaptureSheet confirm splices into THIS index
+  // instead of appending. Null = camera will append (default flow).
+  const [replaceIndex, setReplaceIndex] = useState<number | null>(null);
 
   const runScore = async () => {
     if (photos.length === 0) return;
@@ -491,23 +525,82 @@ export default function RevisionFlow({
                     </button>
                   </div>
 
-                  {/* Thumbnails grid — shown once at least one photo is attached */}
+                  {/* Slice 7k · per-page edit. Each tile carries a page
+                      number badge, remove (×), replace (🔄), and arrow
+                      controls (↑↓) so the kid can fix or reorder one
+                      page without wiping the rest of the batch. */}
                   {photos.length > 0 && (
                     <div className="mt-2.5 grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {previewUrls.map((url, idx) => (
-                        <div key={url} className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                          <button
-                            type="button"
-                            onClick={() => removePhoto(idx)}
-                            aria-label={`Remove photo ${idx + 1}`}
-                            className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 text-[#E85C5C] font-bold text-[12px] grid place-items-center shadow"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
+                      {previewUrls.map((url, idx) => {
+                        const isFirst = idx === 0;
+                        const isLast  = idx === photos.length - 1;
+                        return (
+                          <div key={url} className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3] group">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={url} alt={`Page ${idx + 1}`} className="w-full h-full object-cover" />
+
+                            {/* Page-number badge — top-left */}
+                            <span className="absolute top-1 left-1 bg-[#5A3CB8] text-white text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                              {idx + 1}
+                            </span>
+
+                            {/* Remove — top-right */}
+                            <button
+                              type="button"
+                              onClick={() => removePhoto(idx)}
+                              aria-label={`Remove page ${idx + 1}`}
+                              title={`Remove page ${idx + 1}`}
+                              className="absolute top-1 right-1 w-5 h-5 rounded-full bg-white/95 text-[#E85C5C] font-bold text-[12px] grid place-items-center shadow"
+                            >
+                              ×
+                            </button>
+
+                            {/* Reorder arrows — bottom-left vertical stack */}
+                            <div className="absolute left-1 bottom-1 flex flex-col gap-0.5">
+                              <button
+                                type="button"
+                                onClick={() => movePhoto(idx, -1)}
+                                disabled={isFirst}
+                                aria-label={`Move page ${idx + 1} up`}
+                                title="Move up"
+                                className="w-5 h-5 rounded bg-white/95 text-[#5A3CB8] font-extrabold text-[10px] grid place-items-center shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => movePhoto(idx, 1)}
+                                disabled={isLast}
+                                aria-label={`Move page ${idx + 1} down`}
+                                title="Move down"
+                                className="w-5 h-5 rounded bg-white/95 text-[#5A3CB8] font-extrabold text-[10px] grid place-items-center shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                ↓
+                              </button>
+                            </div>
+
+                            {/* Replace — full-width strip on the bottom */}
+                            <button
+                              type="button"
+                              onClick={() => { setReplaceIndex(idx); setCameraMode('scan'); }}
+                              aria-label={`Replace page ${idx + 1}`}
+                              title="Replace this page — keeps the others"
+                              className="absolute left-7 right-1 bottom-1 h-5 rounded bg-[#0F1F44]/85 hover:bg-[#0F1F44] text-white text-[10px] font-extrabold grid place-items-center"
+                            >
+                              🔄 Replace
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Replace-in-flight banner — visible while the camera
+                      is open for a specific slot. Tells the kid pages 1
+                      + 3 stay safe. */}
+                  {replaceIndex !== null && (
+                    <div className="mt-2 rounded-xl bg-[#FFF1C9] border border-[#D4A847] px-3 py-2 text-[11.5px] font-bold text-[#5A4500]">
+                      ✏️ Replacing page {replaceIndex + 1} · other pages stay safe.
                     </div>
                   )}
 
