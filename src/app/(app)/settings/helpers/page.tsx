@@ -516,6 +516,11 @@ function AddHelperForm({
               ↻
             </button>
           </div>
+          <p className={`text-[10px] mt-1 ${password.trim().length > 0 && password.trim().length < 6 ? 'text-red-600 font-medium' : 'text-kaya-sand'}`}>
+            {password.trim().length > 0 && password.trim().length < 6
+              ? `At least 6 characters — that's only ${password.trim().length}.`
+              : 'At least 6 characters · the helper types this exactly.'}
+          </p>
         </label>
       </div>
 
@@ -604,7 +609,7 @@ function AddHelperForm({
         // Kids are no longer required — driver / gardener / security helpers
         // can ship with no kids attached. Only the truly required fields
         // (name, codes, password) gate the button now.
-        disabled={busy || !name.trim() || !helperCode.trim() || !password.trim() || existingHelperCodes.includes(helperCode.toUpperCase())}
+        disabled={busy || !name.trim() || !helperCode.trim() || password.trim().length < 6 || existingHelperCodes.includes(helperCode.toUpperCase())}
         onClick={async () => {
           setError(null);
           setBusy(true);
@@ -1052,7 +1057,11 @@ function HelperRow({ helper, familyId, familyCode, loginUrl, childOptions, famil
                     </button>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-2">
-                    <span className="text-[10px] text-kaya-sand">The helper types this exactly (case-sensitive).</span>
+                    <span className={`text-[10px] ${pwDraft.trim().length > 0 && pwDraft.trim().length < 6 ? 'text-red-600 font-medium' : 'text-kaya-sand'}`}>
+                      {pwDraft.trim().length > 0 && pwDraft.trim().length < 6
+                        ? `At least 6 characters — that's only ${pwDraft.trim().length}.`
+                        : 'At least 6 characters · the helper types this exactly (case-sensitive).'}
+                    </span>
                     <div className="flex gap-1.5 flex-shrink-0">
                       <button
                         type="button"
