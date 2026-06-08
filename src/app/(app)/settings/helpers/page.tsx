@@ -1530,6 +1530,7 @@ function PayrollConfigSection({
   // Parent authority — default ON: auto-approve the salary straight to budget.
   const [autoApprove, setAutoApprove] = useState<boolean>(existing?.autoApproveToBudget ?? true);
   const [markPaidReminder, setMarkPaidReminder] = useState<boolean>(existing?.markPaidReminder ?? false);
+  const [arrears, setArrears] = useState<boolean>(existing?.salaryCoversPreviousMonth ?? false);
   const [allowances, setAllowances] = useState<PayrollAllowance[]>(existing?.allowances ?? []);
   const [allowanceLabel, setAllowanceLabel] = useState('');
   const [allowanceAmt, setAllowanceAmt] = useState<number>(0);
@@ -1573,6 +1574,7 @@ function PayrollConfigSection({
         allowances: allowances.length > 0 ? allowances : undefined,
         autoApproveToBudget: autoApprove,
         markPaidReminder,
+        salaryCoversPreviousMonth: arrears,
       };
       await setPayrollConfig(familyId, helperUid, patch);
       setSavedFlash(true);
@@ -1799,6 +1801,21 @@ function PayrollConfigSection({
 
           {/* Budget routing — parent authority (2026-06-08) */}
           <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setArrears((v) => !v)}
+              className="w-full flex items-center justify-between gap-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2.5 text-left"
+            >
+              <span className="text-[12px] font-bold text-kaya-chocolate">
+                Salary covers the previous month
+                <span className="block text-[10px] font-normal text-kaya-sand mt-0.5">
+                  On: pay made on the 1st–5th counts in the month <em>just worked</em> (e.g. May&apos;s pay → May&apos;s budget). Off: counts in the pay date&apos;s month.
+                </span>
+              </span>
+              <span className={`flex-shrink-0 w-11 h-6 rounded-full relative transition-colors ${arrears ? 'bg-pantry-leaf-dk' : 'bg-kaya-warm-dark'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${arrears ? 'right-0.5' : 'left-0.5'}`} />
+              </span>
+            </button>
             <button
               type="button"
               onClick={() => setAutoApprove((v) => !v)}

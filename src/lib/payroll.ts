@@ -131,10 +131,12 @@ export function periodForPayDate(
 ): { periodStart: Date; periodEnd: Date } {
   const startBoundary = parseIso(config.startDate);
   if (config.frequency === 'monthly') {
-    // Full calendar month of the pay date. The pay anchor (e.g. "5th") is
-    // just the payment day; the salary covers the whole month.
+    // Full calendar month the salary covers. By default that's the month of
+    // the pay date. In ARREARS mode (salaryCoversPreviousMonth) it's the
+    // month BEFORE the pay date — so a salary paid on 1–5 June covers MAY and
+    // lands in May's budget (2026-06-08, Elia: "May's pay → May's budget").
     const y = payDate.getFullYear();
-    const m = payDate.getMonth();
+    const m = payDate.getMonth() - (config.salaryCoversPreviousMonth ? 1 : 0);
     const periodStart = startOfDay(new Date(y, m, 1));
     const periodEnd = startOfDay(new Date(y, m + 1, 0));
     // First cycle still respects startDate so check-ins from before the

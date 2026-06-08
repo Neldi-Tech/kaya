@@ -678,6 +678,10 @@ export interface HelperPayrollConfig {
   /** When true, Kaya reminds the parent to mark the salary paid once the
    *  pay window opens (1st of the following month). Default off. */
   markPaidReminder?: boolean;
+  /** Pay-in-arrears (2026-06-08): when true, a monthly salary covers the
+   *  month BEFORE the pay date — so pay made on 1–5 June covers MAY and is
+   *  booked to May's budget. Default false = covers the pay date's month. */
+  salaryCoversPreviousMonth?: boolean;
 }
 
 // ── Pay check-ins (hourly/daily helpers only) ────────────────────
