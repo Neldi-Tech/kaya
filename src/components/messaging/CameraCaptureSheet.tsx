@@ -17,7 +17,7 @@
 // quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview } from '@/lib/photoEnhance';
+import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview, applyColorMode, type ScanColorMode } from '@/lib/photoEnhance';
 import { detectCornersBest } from '@/lib/scan/cvDetect';
 import DocumentCropEditor from '@/components/scan/DocumentCropEditor';
 
@@ -30,7 +30,15 @@ type Page = {
   useEnhanced: boolean;
   /** scan mode: true when the page was cropped + flattened via the editor. */
   framed: boolean;
+  /** Output mode + the cleaned COLOR result it's derived from (so toggling
+   *  Color/Grayscale/B&W re-derives without re-warping). */
+  mode: ScanColorMode;
+  colorBase: File;
 };
+
+const MODES: { id: ScanColorMode; label: string }[] = [
+  { id: 'color', label: 'Color' }, { id: 'grayscale', label: 'Gray' }, { id: 'bw', label: 'B&W' },
+];
 
 export default function CameraCaptureSheet({
   open, mode, onClose, onConfirm,
@@ -101,6 +109,8 @@ export default function CameraCaptureSheet({
         originalUrl: URL.createObjectURL(file),
         useEnhanced: true,
         framed,
+        mode: 'color',
+        colorBase: enhancedFile,
       };
       setPages((prev) => [...prev, page]);
     } catch (err) {
@@ -120,12 +130,12 @@ export default function CameraCaptureSheet({
         return prev.map((p) => {
           if (p.id !== recropId) return p;
           URL.revokeObjectURL(p.originalUrl);
-          return { ...p, original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true };
+          return { ...p, original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true, mode: 'color', colorBase: result.file };
         });
       }
       return [...prev, {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true,
+        original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true, mode: 'color', colorBase: result.file,
       }];
     });
     setCropFile(null);
@@ -140,12 +150,33 @@ export default function CameraCaptureSheet({
     if (!page) return;
     setBusy(true); setError('');
     try {
-      const r = await rotateFile90WithPreview(page.useEnhanced ? page.enhanced : page.original);
+      // Rotate the COLOR base, then re-apply the current mode → the chosen
+      // Color/Gray/B&W stays consistent after a rotate.
+      const rotated = await rotateFile90WithPreview(page.colorBase);
+      let enhanced = rotated.file, previewUrl = rotated.previewUrl;
+      if (page.mode !== 'color') {
+        const m = await applyColorMode(rotated.file, page.mode);
+        enhanced = m.file; previewUrl = m.previewUrl;
+      }
       setPages((prev) => prev.map((p) => (p.id === id
-        ? { ...p, enhanced: r.file, enhancedUrl: r.previewUrl, useEnhanced: true }
+        ? { ...p, colorBase: rotated.file, enhanced, enhancedUrl: previewUrl, useEnhanced: true }
         : p)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not rotate.');
+    } finally { setBusy(false); }
+  };
+
+  const setPageMode = async (id: string, mode: ScanColorMode) => {
+    const page = pages.find((p) => p.id === id);
+    if (!page || page.mode === mode) return;
+    setBusy(true); setError('');
+    try {
+      const r = await applyColorMode(page.colorBase, mode);
+      setPages((prev) => prev.map((p) => (p.id === id
+        ? { ...p, mode, enhanced: r.file, enhancedUrl: r.previewUrl, useEnhanced: true }
+        : p)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change mode.');
     } finally { setBusy(false); }
   };
 
@@ -233,12 +264,22 @@ export default function CameraCaptureSheet({
               </div>
               <p className="text-[10px] text-kaya-sand">Tap a thumbnail to choose which we&apos;ll send.</p>
               {mode === 'scan' && (
-                <div className="mt-2 flex items-center gap-2">
-                  <button type="button" onClick={() => reCrop(p)} disabled={busy}
-                    className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">✂️ Adjust crop</button>
-                  <button type="button" onClick={() => rotatePage(p.id)} disabled={busy}
-                    className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">⟲ Rotate</button>
-                </div>
+                <>
+                  <div className="mt-2 flex items-center gap-1.5">
+                    {MODES.map((m) => (
+                      <button key={m.id} type="button" onClick={() => setPageMode(p.id, m.id)} disabled={busy}
+                        className={`flex-1 h-8 rounded-kaya text-[11px] font-bold border disabled:opacity-40 ${p.mode === m.id ? 'border-kaya-chocolate bg-kaya-chocolate/10 text-kaya-chocolate' : 'border-kaya-warm-dark text-kaya-sand'}`}>
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button type="button" onClick={() => reCrop(p)} disabled={busy}
+                      className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">✂️ Adjust crop</button>
+                    <button type="button" onClick={() => rotatePage(p.id)} disabled={busy}
+                      className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">⟲ Rotate</button>
+                  </div>
+                </>
               )}
             </div>
           ))}
