@@ -118,3 +118,56 @@ export async function deleteUnfiledDoc(familyId: string, entry: WealthDocEntry):
   await setDoc(docsRef(familyId), { docs: arrayRemove(entry) }, { merge: true });
   try { await deleteObject(storageRef(storage, entry.storagePath)); } catch { /* best-effort */ }
 }
+
+// ── Re-scan / replace (PR 6e) — fix a bad scan anytime. Uploads the new
+//    file, swaps the array entry (keeps the label), best-effort deletes the
+//    old blob. arrayRemove then arrayUnion (same field can't combine in one). ──
+
+/** Replace an unfiled doc's file with a fresh scan. */
+export async function replaceUnfiledDoc(
+  familyId: string, oldEntry: WealthDocEntry, file: Blob, author: WealthAuthor,
+): Promise<WealthDocEntry | null> {
+  if (isGuestActive()) return null;
+  const id = newId();
+  const path = `families/${familyId}/wealth/${UNFILED_ASSET}/${id}.jpg`;
+  const sref = storageRef(storage, path);
+  await uploadBytes(sref, file, { contentType: 'image/jpeg' });
+  const url = await getDownloadURL(sref);
+  const entry: WealthDocEntry = {
+    ...oldEntry, id, storagePath: path, url, uploadedAt: Timestamp.now(),
+    authorId: author.uid, authorName: author.name,
+  };
+  await setDoc(docsRef(familyId), { docs: arrayRemove(oldEntry) }, { merge: true });
+  await setDoc(docsRef(familyId), { docs: arrayUnion(entry) }, { merge: true });
+  try { await deleteObject(storageRef(storage, oldEntry.storagePath)); } catch { /* best-effort */ }
+  return entry;
+}
+
+/** Replace an asset-attached document's file with a fresh scan. Keeps the
+ *  audit trail (document_replaced edit-log entry). */
+export async function replaceAssetDocument(
+  familyId: string, assetId: string, oldMedia: WealthMedia, file: Blob, author: WealthAuthor,
+): Promise<WealthMedia | null> {
+  if (isGuestActive()) return null;
+  const id = newId();
+  const path = `families/${familyId}/wealth/${assetId}/${id}.jpg`;
+  const sref = storageRef(storage, path);
+  await uploadBytes(sref, file, { contentType: 'image/jpeg' });
+  const url = await getDownloadURL(sref);
+  const media: WealthMedia = { ...oldMedia, id, storagePath: path, url, uploadedAt: Timestamp.now() };
+  const assetRef = doc(db, 'families', familyId, 'wealth_assets', assetId);
+  const logRef = doc(collection(assetRef, 'editLog'));
+  // arrayRemove then arrayUnion — the same field can't do both in one update.
+  const b1 = writeBatch(db);
+  b1.update(assetRef, { media: arrayRemove(oldMedia), updatedAt: serverTimestamp() });
+  await b1.commit();
+  const b2 = writeBatch(db);
+  b2.update(assetRef, { media: arrayUnion(media), updatedAt: serverTimestamp() });
+  b2.set(logRef, {
+    ts: serverTimestamp(), authorId: author.uid, authorName: author.name,
+    action: 'document_replaced', summary: `Document re-scanned — ${media.label}`,
+  });
+  await b2.commit();
+  try { await deleteObject(storageRef(storage, oldMedia.storagePath)); } catch { /* best-effort */ }
+  return media;
+}
