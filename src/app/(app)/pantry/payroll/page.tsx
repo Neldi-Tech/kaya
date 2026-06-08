@@ -71,6 +71,28 @@ export default function PayrollHomePage() {
       console.error('[payroll] markSalaryPaid failed:', e);
     }
   };
+  // Remove a salary from the list (cleanup). A closed/Processing salary is
+  // posted to budget, so deleting it also takes it off the budget — the
+  // confirm says so. Used to clear mis-raised / manual rows.
+  const handleRemoveSalary = async (req: PurchaseRequest) => {
+    if (!profile?.familyId || isGuest) return;
+    const posted = req.status === 'closed';
+    const ok = await confirmAction({
+      title: `Remove "${req.name || 'this salary'}"?`,
+      message: posted
+        ? 'This salary is posted to the budget — removing it takes it off the budget too. Use this to clear a wrong / duplicate entry. Can’t be undone.'
+        : 'Removes this entry. Can’t be undone.',
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await deleteRequest(profile.familyId, req.id);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[payroll] removeSalary failed:', e);
+    }
+  };
   const handleDeleteDraft = async (req: PurchaseRequest) => {
     if (!profile?.familyId) return;
     const ok = await confirmAction({
@@ -345,6 +367,7 @@ export default function PayrollHomePage() {
               showHelper={role === 'parent'}
               dimmed
               onMarkPaid={role === 'parent' ? () => handleMarkPaid(r) : undefined}
+              onDelete={role === 'parent' ? () => handleRemoveSalary(r) : undefined}
             />
           ))}
           {recent.length > RECENT_DEFAULT_LIMIT && (
