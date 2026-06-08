@@ -496,9 +496,10 @@ export async function runPayrollGenerator(
         continue;
       }
       // Dedupe: a salary for this helper + month already exists (e.g. a manual
-      // entry). Skip raising another, and stamp the guard so we don't re-check.
+      // entry). Skip raising another — but do NOT stamp lastGeneratedCycle, so
+      // if the parent deletes that entry the proper cycle can still be raised
+      // on the next run. The re-check is one cheap query per run.
       if (existingCycles.has(`${helper.uid}|${cycle.cycleKey}`)) {
-        await setPayrollConfig(familyId, helper.uid, { lastGeneratedCycle: cycle.cycleKey }).catch(() => {});
         run.skipped.push({ helperUid: helper.uid, helperName: helper.displayName, reason: 'Already raised for this cycle' });
         continue;
       }
