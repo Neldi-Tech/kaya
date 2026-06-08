@@ -1530,7 +1530,11 @@ function PayrollConfigSection({
   // Parent authority — default ON: auto-approve the salary straight to budget.
   const [autoApprove, setAutoApprove] = useState<boolean>(existing?.autoApproveToBudget ?? true);
   const [markPaidReminder, setMarkPaidReminder] = useState<boolean>(existing?.markPaidReminder ?? false);
-  const [arrears, setArrears] = useState<boolean>(existing?.salaryCoversPreviousMonth ?? false);
+  // Cycle model — raise N days before the month ends; pay window separate.
+  const [raiseDays, setRaiseDays] = useState<number>(existing?.raiseDaysBeforeCycleEnd ?? 7);
+  const [payWindow, setPayWindow] = useState<'next_month' | 'same_month'>(
+    existing?.payWindow ?? (existing?.salaryCoversPreviousMonth === false ? 'same_month' : 'next_month'),
+  );
   const [allowances, setAllowances] = useState<PayrollAllowance[]>(existing?.allowances ?? []);
   const [allowanceLabel, setAllowanceLabel] = useState('');
   const [allowanceAmt, setAllowanceAmt] = useState<number>(0);
@@ -1574,7 +1578,8 @@ function PayrollConfigSection({
         allowances: allowances.length > 0 ? allowances : undefined,
         autoApproveToBudget: autoApprove,
         markPaidReminder,
-        salaryCoversPreviousMonth: arrears,
+        raiseDaysBeforeCycleEnd: Math.max(0, Math.min(28, Math.round(raiseDays || 0))),
+        payWindow,
       };
       await setPayrollConfig(familyId, helperUid, patch);
       setSavedFlash(true);
@@ -1799,23 +1804,40 @@ function PayrollConfigSection({
             <p className="text-[10px] text-kaya-sand mt-1">Sets the helper&apos;s expectation. The pay still triggers on the anchor day — this is the polite upper bound.</p>
           </div>
 
-          {/* Budget routing — parent authority (2026-06-08) */}
+          {/* Cycle model — raise before month-end + pay window (2026-06-08) */}
           <div className="space-y-2">
-            <button
-              type="button"
-              onClick={() => setArrears((v) => !v)}
-              className="w-full flex items-center justify-between gap-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2.5 text-left"
-            >
-              <span className="text-[12px] font-bold text-kaya-chocolate">
-                Salary covers the previous month
+            <div className="bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[12px] font-bold text-kaya-chocolate">
+                  Raise salary before the month ends
+                  <span className="block text-[10px] font-normal text-kaya-sand mt-0.5">
+                    Kaya raises &amp; books it to the month&apos;s budget this many days early (covers the whole month).
+                  </span>
+                </span>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  <button type="button" onClick={() => setRaiseDays((d) => Math.max(0, d - 1))}
+                    className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark bg-white font-black text-kaya-chocolate">–</button>
+                  <span className="w-14 text-center font-nunito font-black text-sm text-kaya-chocolate">{raiseDays}d</span>
+                  <button type="button" onClick={() => setRaiseDays((d) => Math.min(28, d + 1))}
+                    className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark bg-white font-black text-kaya-chocolate">+</button>
+                </div>
+              </div>
+            </div>
+            <div className="bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2.5">
+              <span className="text-[12px] font-bold text-kaya-chocolate">Pay window
                 <span className="block text-[10px] font-normal text-kaya-sand mt-0.5">
-                  On: pay made on the 1st–5th counts in the month <em>just worked</em> (e.g. May&apos;s pay → May&apos;s budget). Off: counts in the pay date&apos;s month.
+                  When you actually pay — separate from the month worked. Only sets when “Mark paid” shows.
                 </span>
               </span>
-              <span className={`flex-shrink-0 w-11 h-6 rounded-full relative transition-colors ${arrears ? 'bg-pantry-leaf-dk' : 'bg-kaya-warm-dark'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${arrears ? 'right-0.5' : 'left-0.5'}`} />
-              </span>
-            </button>
+              <div className="flex gap-1.5 mt-2">
+                {([['next_month', 'Next month 1–5'], ['same_month', 'Same month']] as const).map(([v, label]) => (
+                  <button key={v} type="button" onClick={() => setPayWindow(v)}
+                    className={`flex-1 h-9 rounded-kaya-sm text-[12px] font-nunito font-extrabold border ${
+                      payWindow === v ? 'bg-kaya-chocolate text-white border-kaya-chocolate' : 'bg-white border-kaya-warm-dark text-kaya-chocolate'
+                    }`}>{label}</button>
+                ))}
+              </div>
+            </div>
             <button
               type="button"
               onClick={() => setAutoApprove((v) => !v)}

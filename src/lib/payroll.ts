@@ -55,20 +55,22 @@ export async function setPayrollConfig(
   // because nullish-coalescing fell back to current.endDate. Firestore's
   // ignoreUndefinedProperties drops the field on write, so omitting it
   // from `next` is enough to clear it on disk.
+  // Carry ALL existing fields through, then apply the patch — so optional
+  // fields (autoApproveToBudget, payWindow, raiseDaysBeforeCycleEnd,
+  // lastGeneratedCycle, …) persist instead of being dropped by a whitelist.
   const next: HelperPayrollConfig = {
+    ...current,
+    ...patch,
     basis:      patch.basis      ?? current.basis      ?? 'monthly',
     rateCents:  patch.rateCents  ?? current.rateCents  ?? 0,
     frequency:  patch.frequency  ?? current.frequency  ?? 'monthly',
     payAnchor:  patch.payAnchor  ?? current.payAnchor  ?? 1,
     startDate:  patch.startDate  ?? current.startDate  ?? todayDateString(),
+    // endDate uses `'endDate' in patch` so a caller can clear it (undefined).
     endDate:    ('endDate' in patch) ? (patch.endDate || undefined) : current.endDate,
     payAnchorBufferDays: ('payAnchorBufferDays' in patch)
       ? Math.max(0, Math.min(7, Math.round(patch.payAnchorBufferDays ?? 0)))
       : current.payAnchorBufferDays,
-    allowances: patch.allowances ?? current.allowances,
-    deductions: patch.deductions ?? current.deductions,
-    lastGeneratedDate: patch.lastGeneratedDate ?? current.lastGeneratedDate,
-    cyclesRemaining:   patch.cyclesRemaining   ?? current.cyclesRemaining,
   };
   await updateDoc(ref, { payrollConfig: next });
 }
@@ -157,6 +159,79 @@ export function periodForPayDate(
     return { periodStart: startBoundary, periodEnd };
   }
   return { periodStart, periodEnd };
+}
+
+// ── Cycle model (2026-06-08) ─────────────────────────────────────
+// A monthly salary covers a WORK CYCLE (the whole month) and is RAISED a
+// few days before the cycle ends — so May is raised ~24 May, not on the pay
+// day. The PAY WINDOW (when you actually pay) is separate and only governs
+// when "Mark paid" shows. Weekly/biweekly are unchanged (they stay
+// window-based off the pay date — see nextDuePayDate / periodForPayDate).
+
+export interface DueCycle {
+  cycleStart: Date;        // 1st of the work month
+  cycleEnd: Date;          // last day of the work month
+  cycleKey: string;        // 'YYYY-MM' — the budget month
+  raiseDate: Date;         // cycleEnd − raiseDaysBeforeCycleEnd
+  payWindowStart: Date;
+  payWindowEnd: Date;
+}
+
+function monthKeyOf(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** When the salary for a given work cycle is actually paid. */
+export function payWindowFor(
+  config: HelperPayrollConfig,
+  cycleStart: Date,
+): { payWindowStart: Date; payWindowEnd: Date } {
+  const mode = config.payWindow ?? 'next_month';
+  if (mode === 'same_month') {
+    const day = Math.min(28, Math.max(1, config.payAnchor || 28));
+    const d = startOfDay(new Date(cycleStart.getFullYear(), cycleStart.getMonth(), day));
+    return { payWindowStart: d, payWindowEnd: d };
+  }
+  // next_month → 1st–5th of the month after the cycle.
+  const s = startOfDay(new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, 1));
+  const e = startOfDay(new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, 5));
+  return { payWindowStart: s, payWindowEnd: e };
+}
+
+/** Monthly cycle model: the work cycle due to be RAISED now — today is on or
+ *  after (cycleEnd − raiseDays) and the cycle hasn't been raised yet. Returns
+ *  null when nothing is due (future, ended, or already raised). Does NOT
+ *  back-fill cycles older than ~a month, so flipping the model on never
+ *  retro-raises a year of salaries. Monthly only. */
+export function nextDueCycle(
+  config: HelperPayrollConfig,
+  now: Date = new Date(),
+): DueCycle | null {
+  if (config.frequency !== 'monthly') return null;
+  const today = startOfDay(now);
+  const start = parseIso(config.startDate);
+  const raiseDays = Math.min(28, Math.max(0, Math.round(config.raiseDaysBeforeCycleEnd ?? 7)));
+  const endBoundary = config.endDate ? parseIso(config.endDate) : null;
+  const lastCycle = config.lastGeneratedCycle ?? '';
+  // Don't back-fill cycles whose raise date is more than ~5 weeks ago.
+  const oldestRaise = startOfDay(new Date(today));
+  oldestRaise.setDate(oldestRaise.getDate() - 35);
+
+  const firstMonth = new Date(start.getFullYear(), start.getMonth(), 1);
+  for (let i = 0; i < 240; i++) {
+    const cycleStart = startOfDay(new Date(firstMonth.getFullYear(), firstMonth.getMonth() + i, 1));
+    const cycleEnd = startOfDay(new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, 0));
+    const raiseDate = startOfDay(new Date(cycleEnd));
+    raiseDate.setDate(raiseDate.getDate() - raiseDays);
+    if (raiseDate > today) return null;                 // reached future cycles
+    const cycleKey = monthKeyOf(cycleStart);
+    if (cycleKey <= lastCycle) continue;                // already raised
+    if (raiseDate < oldestRaise) continue;              // too old — don't back-fill
+    if (endBoundary && cycleStart > endBoundary) return null;
+    const { payWindowStart, payWindowEnd } = payWindowFor(config, cycleStart);
+    return { cycleStart, cycleEnd, cycleKey, raiseDate, payWindowStart, payWindowEnd };
+  }
+  return null;
 }
 
 // ── Internal cycle helpers ───────────────────────────────────────
@@ -409,6 +484,26 @@ export async function runPayrollGenerator(
       run.skipped.push({ helperUid: helper.uid, helperName: helper.displayName, reason: 'No payroll config' });
       continue;
     }
+    // Monthly → cycle model (raise before month-end); weekly/biweekly → the
+    // pay-date window model.
+    if (config.frequency === 'monthly') {
+      const cycle = nextDueCycle(config, today);
+      if (!cycle) {
+        run.skipped.push({ helperUid: helper.uid, helperName: helper.displayName, reason: 'Not due yet' });
+        continue;
+      }
+      try {
+        await generateOneRequest(familyId, helper, { cycle }, byUid);
+        run.generated.push({ helperUid: helper.uid, helperName: helper.displayName, payDate: cycle.cycleKey });
+      } catch (e) {
+        run.skipped.push({
+          helperUid: helper.uid, helperName: helper.displayName,
+          reason: `Generation failed: ${String(e)}`,
+        });
+      }
+      continue;
+    }
+
     const payDate = nextDuePayDate(config, today);
     if (!payDate) {
       run.skipped.push({ helperUid: helper.uid, helperName: helper.displayName, reason: 'Not due yet' });
@@ -421,7 +516,7 @@ export async function runPayrollGenerator(
       continue;
     }
     try {
-      await generateOneRequest(familyId, helper, payDate, byUid);
+      await generateOneRequest(familyId, helper, { payDate }, byUid);
       run.generated.push({ helperUid: helper.uid, helperName: helper.displayName, payDate: payDateIso });
     } catch (e) {
       run.skipped.push({
@@ -476,13 +571,25 @@ export async function runPayrollGenerator(
 async function generateOneRequest(
   familyId: string,
   helper: HelperLink,
-  payDate: Date,
+  when: { cycle: DueCycle } | { payDate: Date },
   byUid: string,
 ): Promise<void> {
   const config = helper.payrollConfig!;
-  const { periodStart, periodEnd } = periodForPayDate(config, payDate);
+  // Monthly salaries use the CYCLE model (full work month + pay window);
+  // weekly/biweekly keep the pay-date window model.
+  const cycle = 'cycle' in when ? when.cycle : null;
+  const { periodStart, periodEnd } = 'cycle' in when
+    ? { periodStart: when.cycle.cycleStart, periodEnd: when.cycle.cycleEnd }
+    : periodForPayDate(config, when.payDate);
   const periodStartIso = isoOf(periodStart);
   const periodEndIso = isoOf(periodEnd);
+  const payWindowStartIso = cycle ? isoOf(cycle.payWindowStart) : undefined;
+  const payWindowEndIso = cycle ? isoOf(cycle.payWindowEnd) : undefined;
+  // Cycle salaries read as the month ("Salary · Catherine · May 2026");
+  // weekly/biweekly keep the date-range name.
+  const cycleName = cycle
+    ? new Date(cycle.cycleStart).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : null;
 
   // ── Basic pay ──
   let basicCents = 0;
@@ -588,7 +695,9 @@ async function generateOneRequest(
 
   // ── Create request ──
   const requestId = await createDraftRequest(familyId, {
-    name: `Salary · ${helper.displayName} · ${toDisplayDate(periodStartIso)} → ${toDisplayDate(periodEndIso)}`,
+    name: cycleName
+      ? `Salary · ${helper.displayName} · ${cycleName}`
+      : `Salary · ${helper.displayName} · ${toDisplayDate(periodStartIso)} → ${toDisplayDate(periodEndIso)}`,
     module: 'payroll',
     helperUid: helper.uid,
     createdBy: byUid,
@@ -596,8 +705,8 @@ async function generateOneRequest(
     items,
     initialStatus: 'pending_approval',
     generatedBy: 'system',
-    // Budget month = the WORK month (period start), so May's pay counts in
-    // May even though it's approved/paid in early June.
+    // Budget month = the WORK CYCLE month, so May's pay counts in May even
+    // though it's paid in early June.
     budgetMonth: periodStartIso.slice(0, 7),
     payrollCycle: {
       basis: config.basis,
@@ -609,6 +718,8 @@ async function generateOneRequest(
       netCents,
       periodStart: periodStartIso,
       periodEnd: periodEndIso,
+      ...(payWindowStartIso ? { payWindowStart: payWindowStartIso } : {}),
+      ...(payWindowEndIso ? { payWindowEnd: payWindowEndIso } : {}),
       deductionRefs,
     },
   });
@@ -627,9 +738,13 @@ async function generateOneRequest(
     }
   }
 
-  // ── Stamp lastGeneratedDate ──
+  // ── Stamp the idempotency guard ──
+  // Monthly cycle salaries track the work-cycle key; weekly/biweekly keep
+  // stamping the pay date.
   await setPayrollConfig(familyId, helper.uid, {
-    lastGeneratedDate: isoOf(payDate),
+    ...(cycle
+      ? { lastGeneratedCycle: cycle.cycleKey }
+      : { lastGeneratedDate: isoOf((when as { payDate: Date }).payDate) }),
     ...(typeof config.cyclesRemaining === 'number'
       ? { cyclesRemaining: Math.max(0, config.cyclesRemaining - 1) }
       : {}),
