@@ -34,6 +34,7 @@ import {
   submitForCloseReview, approveCloseAndPost, kickBackToReconcile,
   readPurchaseConfig, bandPctFor, priceBandRange, priceWithinBand,
   resolvePriceException, hasUnresolvedPriceException,
+  setRequestBudgetMonth, budgetMonthKeyFor,
 } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
@@ -1072,6 +1073,13 @@ export default function PurchaseDetailPage() {
           scrolling into the line items. */}
       {req.generatedBy === 'system' && req.payrollCycle && (
         <PayrollPaystubBanner cycle={req.payrollCycle} currency={currency} />
+      )}
+
+      {/* Budget month — parent correction for a salary stamped to the wrong
+          month (e.g. May's pay paid on the 1st–5th of June). Sets budgetMonth
+          so the cost reads in the month worked. Parent + payroll only. */}
+      {req.module === 'payroll' && role === 'parent' && profile?.familyId && (
+        <PayrollBudgetMonthCard familyId={profile.familyId} req={req} />
       )}
 
       {/* Module budget banner — kept lightweight (single Family read).
@@ -3140,6 +3148,83 @@ function ChoiceRow({
 // request: period + basis (with hours/days breakdown) + basic +
 // allowances − deductions = net. Sits above the item list which
 // has the per-line detail.
+// ── Budget month corrector (2026-06-08) ─────────────────────────────
+// Parent-only control to re-attribute a salary to the right budget month.
+// Use when a payment made on the 1st–5th of a month belongs to the month
+// just worked (e.g. May's pay paid early June should read in May).
+function monthLabel(mk: string): string {
+  const [y, m] = mk.split('-').map(Number);
+  if (!y || !m) return mk;
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+function prevMonthKey(mk: string): string {
+  const [y, m] = mk.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function PayrollBudgetMonthCard({ familyId, req }: { familyId: string; req: PurchaseRequest }) {
+  const current = budgetMonthKeyFor(req) ?? '';
+  const [month, setMonth] = useState(current);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  // Quick "previous month" relative to the work-period start (the common fix).
+  const periodStartMk = req.payrollCycle?.periodStart?.slice(0, 7) || current;
+  const prevMk = periodStartMk ? prevMonthKey(periodStartMk) : '';
+
+  const save = async (mk: string) => {
+    if (!mk) return;
+    setSaving(true); setSaved(false);
+    try {
+      await setRequestBudgetMonth(familyId, req.id, mk);
+      setMonth(mk);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1600);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="rounded-kaya bg-[#F4EFFB] border border-[#C9B8E5] px-4 py-3 mb-3">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-[10px] uppercase tracking-wider font-bold text-[#6B4FA0]">Budget month</p>
+        {saved && <span className="text-[10px] font-bold text-pantry-leaf-dk">✓ Saved</span>}
+      </div>
+      <p className="font-nunito font-black text-[17px] text-hive-navy mt-0.5">
+        Counts in {current ? monthLabel(current) : '—'}
+      </p>
+      <p className="text-[11px] text-hive-muted mt-1 leading-relaxed">
+        Paid on the 1st–5th for the month just worked? Set this to the month worked
+        (e.g. May&apos;s pay paid in June should read in <b>May</b>). History isn&apos;t changed —
+        only which month the cost lands in.
+      </p>
+      <div className="flex flex-wrap items-center gap-2 mt-2.5">
+        {prevMk && prevMk !== current && (
+          <button
+            type="button" disabled={saving}
+            onClick={() => save(prevMk)}
+            className="rounded-kaya-sm bg-white border border-[#C9B8E5] px-3 h-9 text-[12.5px] font-nunito font-extrabold text-[#6B4FA0] hover:bg-[#6B4FA0]/5 disabled:opacity-50"
+          >
+            ← {monthLabel(prevMk)}
+          </button>
+        )}
+        <input
+          type="month"
+          value={month}
+          onChange={(e) => setMonth(e.target.value)}
+          className="h-9 px-2 bg-white border border-[#C9B8E5] rounded-kaya-sm text-[12.5px] font-bold text-hive-navy focus:outline-none focus:border-[#6B4FA0]"
+        />
+        <button
+          type="button" disabled={saving || !month || month === current}
+          onClick={() => save(month)}
+          className="rounded-kaya-sm bg-[#6B4FA0] text-white px-4 h-9 text-[12.5px] font-nunito font-extrabold disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : 'Set month'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PayrollPaystubBanner({
   cycle, currency,
 }: {
