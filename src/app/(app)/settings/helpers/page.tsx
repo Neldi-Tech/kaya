@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -1550,6 +1550,10 @@ function PayrollConfigSection({
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Auto-save (2026-06-08): every control persists on change so a parent never
+  // loses an edit by forgetting to tap Update. 'saving' | 'saved' chip.
+  const [autoStatus, setAutoStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const firstRun = useRef(true);
 
   // Reset payAnchor sanely when frequency switches (different domains).
   useEffect(() => {
@@ -1561,33 +1565,52 @@ function PayrollConfigSection({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frequency]);
 
-  const save = async () => {
+  const buildPatch = useCallback((): Partial<HelperPayrollConfig> => ({
+    basis,
+    rateCents: Math.round(rateMajor * 100),
+    frequency,
+    payAnchor,
+    payAnchorBufferDays: Math.max(0, Math.min(7, Math.round(payBuffer || 0))),
+    startDate,
+    endDate: endDate || undefined,
+    allowances: allowances.length > 0 ? allowances : undefined,
+    autoApproveToBudget: autoApprove,
+    markPaidReminder,
+    raiseDaysBeforeCycleEnd: Math.max(0, Math.min(28, Math.round(raiseDays || 0))),
+    payWindow,
+  }), [basis, rateMajor, frequency, payAnchor, payBuffer, startDate, endDate,
+       allowances, autoApprove, markPaidReminder, raiseDays, payWindow]);
+
+  /** Persist the config. `silent` (auto-save) skips validation errors + the
+   *  Update spinner — it just doesn't save an invalid state. The manual
+   *  Update button surfaces validation. */
+  const persist = useCallback(async (opts?: { silent?: boolean }) => {
+    if (rateMajor <= 0) { if (!opts?.silent) setError('Rate must be greater than zero.'); return; }
+    if (!startDate) { if (!opts?.silent) setError('Pick a start date.'); return; }
     setError(null);
-    if (rateMajor <= 0) { setError('Rate must be greater than zero.'); return; }
-    if (!startDate) { setError('Pick a start date.'); return; }
-    setSaving(true);
+    if (!opts?.silent) setSaving(true);
+    setAutoStatus('saving');
     try {
-      const patch: Partial<HelperPayrollConfig> = {
-        basis,
-        rateCents: Math.round(rateMajor * 100),
-        frequency,
-        payAnchor,
-        payAnchorBufferDays: Math.max(0, Math.min(7, Math.round(payBuffer || 0))),
-        startDate,
-        endDate: endDate || undefined,
-        allowances: allowances.length > 0 ? allowances : undefined,
-        autoApproveToBudget: autoApprove,
-        markPaidReminder,
-        raiseDaysBeforeCycleEnd: Math.max(0, Math.min(28, Math.round(raiseDays || 0))),
-        payWindow,
-      };
-      await setPayrollConfig(familyId, helperUid, patch);
-      setSavedFlash(true);
-      setTimeout(() => setSavedFlash(false), 1500);
+      await setPayrollConfig(familyId, helperUid, buildPatch());
+      setAutoStatus('saved');
+      setTimeout(() => setAutoStatus('idle'), 1600);
+      if (!opts?.silent) { setSavedFlash(true); setTimeout(() => setSavedFlash(false), 1500); }
     } catch (e: unknown) {
+      setAutoStatus('idle');
       setError(e instanceof Error ? e.message : 'Save failed');
-    } finally { setSaving(false); }
-  };
+    } finally { if (!opts?.silent) setSaving(false); }
+  }, [familyId, helperUid, buildPatch, rateMajor, startDate]);
+
+  const save = () => persist();
+
+  // Debounced auto-save — fires ~0.6s after the last change (skips the initial
+  // mount + the collapsed state).
+  useEffect(() => {
+    if (firstRun.current) { firstRun.current = false; return; }
+    if (!expanded) return;
+    const t = setTimeout(() => { void persist({ silent: true }); }, 600);
+    return () => clearTimeout(t);
+  }, [persist, expanded]);
 
   const remove = async () => {
     const ok = await confirmAction({
@@ -2031,7 +2054,8 @@ function PayrollConfigSection({
             )}
             <div className="flex-1" />
             {error && <span className="text-[11px] text-red-600 font-bold">{error}</span>}
-            {savedFlash && <span className="text-[11px] text-pantry-leaf-dk font-bold">✓ Saved</span>}
+            {!error && autoStatus === 'saving' && <span className="text-[11px] text-kaya-sand font-bold">⟳ Saving…</span>}
+            {!error && (autoStatus === 'saved' || savedFlash) && <span className="text-[11px] text-pantry-leaf-dk font-bold">✓ Saved</span>}
             <button
               type="button"
               onClick={save}
