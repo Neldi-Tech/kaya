@@ -15,6 +15,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { PurchaseModule, PurchaseRequest } from './purchase';
+import { budgetMonthKeyFor } from './purchase';
 import { roundUpDisplay } from '@/components/pantry/format';
 
 // ── Types ──────────────────────────────────────────────────────
@@ -576,12 +577,14 @@ export function recentMonthlyAverage(
   const buckets: Partial<Record<PurchaseModule, Record<string, number>>> = {};
   const cutoff = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1).getTime();
 
+  const cutoffKey = monthKey(new Date(cutoff));
   for (const r of recentClosed) {
     if (r.status !== 'closed') continue;
-    const at = r.closedAt?.toDate?.();
-    if (!at) continue;
-    if (at.getTime() < cutoff) continue;
-    const mk = monthKey(at);
+    // Budget month respects a salary's work period, not its close date,
+    // so May's pay averages into May even when paid in early June.
+    const mk = budgetMonthKeyFor(r);
+    if (!mk) continue;
+    if (mk < cutoffKey) continue;
     if (mk === currentKey) continue;             // skip partial month
     const m = (r.module ?? 'pantry') as PurchaseModule;
     const cents = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;

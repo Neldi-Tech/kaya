@@ -594,6 +594,9 @@ async function generateOneRequest(
     items,
     initialStatus: 'pending_approval',
     generatedBy: 'system',
+    // Budget month = the WORK month (period start), so May's pay counts in
+    // May even though it's approved/paid in early June.
+    budgetMonth: periodStartIso.slice(0, 7),
     payrollCycle: {
       basis: config.basis,
       hours,

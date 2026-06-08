@@ -522,6 +522,19 @@ export interface PurchaseRequest {
    *  spend in one step. Helpers always go through the full flow.
    *  Audit-only flag — the detail page badges it as "Posted by parent". */
   postedDirect?: boolean;
+
+  /** Explicit budget month 'YYYY-MM' (2026-06-08). When set, budget
+   *  surfaces count this request in this month regardless of when it
+   *  closed. Salaries set it to their WORK month so May's pay (paid
+   *  early June) lands in May's budget. `budgetMonthKeyFor()` falls
+   *  back to the payroll work-period, then closedAt, when unset. */
+  budgetMonth?: string;
+
+  /** Salary payment confirmation (2026-06-08). A salary is booked to
+   *  budget as "Processing" (closed, paidAt unset); the parent taps
+   *  "Mark paid" in the pay window, which stamps paidAt = the payment
+   *  day. Status stays `closed`; the budget month never moves. */
+  paidAt?: Timestamp;
 }
 
 /** Reusable basket template (2026-05-18). Auto-saved on every
@@ -870,6 +883,8 @@ export async function createDraftRequest(
     /** Payroll cycle breakdown — set together with `module: 'payroll'`
      *  + generatedBy. The detail page renders it as a paystub. */
     payrollCycle?: PurchaseRequest['payrollCycle'];
+    /** Explicit budget month 'YYYY-MM' (salaries → their work month). */
+    budgetMonth?: string;
   },
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
@@ -904,6 +919,7 @@ export async function createDraftRequest(
   if (args.vehicleId) payload.vehicleId = args.vehicleId;
   if (args.generatedBy) payload.generatedBy = args.generatedBy;
   if (args.payrollCycle) payload.payrollCycle = args.payrollCycle;
+  if (args.budgetMonth) payload.budgetMonth = args.budgetMonth;
   if (args.initialStatus === 'pending_approval') payload.sentAt = serverTimestamp();
   const ref = await addDoc(requestCol(familyId), payload);
   return ref.id;
@@ -1001,6 +1017,40 @@ export async function postDraftToBudget(
     actualTotalCents: Math.max(0, Math.round(actualTotalCents)),
     postedDirect: true,
     updatedAt: now,
+  });
+}
+
+/** YYYY-MM key for a request's BUDGET month. Priority:
+ *   1. explicit `budgetMonth` (set on salaries + parent direct posts)
+ *   2. payroll work period (`payrollCycle.periodStart`) — so a May salary
+ *      paid/closed in early June still counts in MAY, and any salary
+ *      mis-booked into the wrong month auto-corrects at read time
+ *   3. `closedAt` — the default for ordinary helper purchases
+ *  Returns null when none apply (e.g. an open request). */
+export function budgetMonthKeyFor(
+  r: Pick<PurchaseRequest, 'budgetMonth' | 'module' | 'payrollCycle' | 'closedAt'>,
+): string | null {
+  if (r.budgetMonth) return r.budgetMonth;
+  if (r.module === 'payroll' && r.payrollCycle?.periodStart) {
+    return r.payrollCycle.periodStart.slice(0, 7);   // 'YYYY-MM-DD' → 'YYYY-MM'
+  }
+  const at = r.closedAt?.toDate?.();
+  return at ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}` : null;
+}
+
+/** Mark a salary (or any closed payroll request) as paid. Stamps `paidAt`
+ *  to the chosen payment day — a status-only change that captures WHEN it
+ *  was paid without ever moving the budget month. Parent-only; used by the
+ *  one-tap "Mark paid" in the pay window (1st–5th). */
+export async function markSalaryPaid(
+  familyId: string,
+  requestId: string,
+  paidOn?: Date,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(requestDoc(familyId, requestId), {
+    paidAt: paidOn ? Timestamp.fromDate(paidOn) : serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 }
 
