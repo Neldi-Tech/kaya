@@ -20,16 +20,17 @@ const ALLOWED_MEDIA: ImgMedia[] = ['image/jpeg', 'image/png', 'image/webp', 'ima
 
 interface OrientBody { imageBase64: string; mediaType?: string }
 
-const SYSTEM = `You are given a photo of a document/page (certificate, worksheet, report, receipt). Tell the software how to rotate it so the TEXT reads upright, left-to-right.
+const SYSTEM = `You decide how to rotate a scanned document/page (certificate, worksheet, report, receipt) so its TEXT reads upright, left-to-right.
 
-Return JSON: { "rotate": 0 | 90 | 180 | 270 }
+Method: find the largest heading/title (and body lines), and determine which way the letters actually face. Base the answer on the TEXT direction — not the page shape.
 
-- "rotate" is the number of degrees CLOCKWISE to apply so the writing is the right way up.
-- 0   = already upright.
-- 90  = the page is currently rotated 90° counter-clockwise (text runs bottom-to-top) → rotate 90° clockwise to fix.
-- 180 = upside down.
-- 270 = the page is currently rotated 90° clockwise (text runs top-to-bottom) → rotate 270° clockwise to fix.
-- Judge by the printed/handwritten text direction (and logos/headings). If unsure, return 0.`;
+Return JSON: { "rotate": 0 | 90 | 180 | 270 } — the degrees CLOCKWISE to apply so the writing is the right way up.
+- 0   = text already reads normally, left-to-right.
+- 90  = text currently runs BOTTOM-TO-TOP (you'd tilt your head left to read) → rotate 90° clockwise.
+- 180 = text is upside-down.
+- 270 = text currently runs TOP-TO-BOTTOM (you'd tilt your head right to read) → rotate 270° clockwise.
+
+Important: a landscape certificate photographed in a portrait frame is almost always sideways — do NOT default to 0. Only answer 0 when the text genuinely reads normally. Decide confidently from the letter orientation.`;
 
 const SCHEMA = {
   type: 'object',
