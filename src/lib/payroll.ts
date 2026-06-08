@@ -29,7 +29,7 @@ import {
   type PayrollDeduction, type PayrollAllowance,
 } from './firestore';
 import { listHelpers } from './helpers';
-import { createDraftRequest } from './purchase';
+import { createDraftRequest, approveRequest } from './purchase';
 import { listApprovedCheckIns, sumApprovedHours, countApprovedDays } from './payCheckIns';
 import { toDisplayDate } from './dates';
 
@@ -131,10 +131,12 @@ export function periodForPayDate(
 ): { periodStart: Date; periodEnd: Date } {
   const startBoundary = parseIso(config.startDate);
   if (config.frequency === 'monthly') {
-    // Full calendar month of the pay date. The pay anchor (e.g. "5th") is
-    // just the payment day; the salary covers the whole month.
+    // Full calendar month the salary covers. By default that's the month of
+    // the pay date. In ARREARS mode (salaryCoversPreviousMonth) it's the
+    // month BEFORE the pay date — so a salary paid on 1–5 June covers MAY and
+    // lands in May's budget (2026-06-08, Elia: "May's pay → May's budget").
     const y = payDate.getFullYear();
-    const m = payDate.getMonth();
+    const m = payDate.getMonth() - (config.salaryCoversPreviousMonth ? 1 : 0);
     const periodStart = startOfDay(new Date(y, m, 1));
     const periodEnd = startOfDay(new Date(y, m + 1, 0));
     // First cycle still respects startDate so check-ins from before the
@@ -585,7 +587,7 @@ async function generateOneRequest(
   }
 
   // ── Create request ──
-  await createDraftRequest(familyId, {
+  const requestId = await createDraftRequest(familyId, {
     name: `Salary · ${helper.displayName} · ${toDisplayDate(periodStartIso)} → ${toDisplayDate(periodEndIso)}`,
     module: 'payroll',
     helperUid: helper.uid,
@@ -594,6 +596,9 @@ async function generateOneRequest(
     items,
     initialStatus: 'pending_approval',
     generatedBy: 'system',
+    // Budget month = the WORK month (period start), so May's pay counts in
+    // May even though it's approved/paid in early June.
+    budgetMonth: periodStartIso.slice(0, 7),
     payrollCycle: {
       basis: config.basis,
       hours,
@@ -607,6 +612,20 @@ async function generateOneRequest(
       deductionRefs,
     },
   });
+
+  // Parent authority (2026-06-08): unless the parent opted out, auto-approve
+  // the salary straight to the budget. createdByRole is 'parent', so
+  // approveRequest posts it directly to budget as "Processing" (no reconcile,
+  // no manual approve tap) — the parent just confirms payment in the window.
+  if (config.autoApproveToBudget !== false) {
+    try {
+      await approveRequest(familyId, requestId, byUid, 'either');
+    } catch (e) {
+      // Non-fatal: the salary stays as pending_approval for a manual nod.
+      // eslint-disable-next-line no-console
+      console.error('[payroll] auto-approve to budget failed:', e);
+    }
+  }
 
   // ── Stamp lastGeneratedDate ──
   await setPayrollConfig(familyId, helper.uid, {

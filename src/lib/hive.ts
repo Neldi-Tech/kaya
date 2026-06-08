@@ -620,6 +620,29 @@ export function subscribeToPendingApprovals(
   });
 }
 
+/** Subscribe to RESOLVED Hive approvals (approved + rejected) newest-first
+ *  — feeds the parent Requests History tab. Uses the existing
+ *  approvalRequests(status, createdAt DESC) index. `max` caps the read. */
+export function subscribeToResolvedApprovals(
+  familyId: string,
+  cb: (requests: ApprovalRequest[]) => void,
+  max = 100,
+): () => void {
+  if (isGuestActive()) {
+    cb([]);
+    return () => {};
+  }
+  const q = query(
+    requestCol(familyId),
+    where('status', 'in', ['approved', 'rejected']),
+    orderBy('createdAt', 'desc'),
+    limit(max),
+  );
+  return onSnapshot(q, (s) => {
+    cb(s.docs.map((d) => ({ id: d.id, ...d.data() } as ApprovalRequest)));
+  });
+}
+
 /** Just one kid's requests — used for the kid's "your pending" surface. */
 export function subscribeToKidRequests(
   familyId: string,

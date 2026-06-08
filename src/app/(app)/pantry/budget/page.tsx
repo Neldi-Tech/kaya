@@ -20,6 +20,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule, subscribeToRecentRequests,
+  budgetMonthKeyFor,
 } from '@/lib/purchase';
 import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
@@ -163,8 +164,7 @@ export default function BudgetPage() {
   const closedThisMonth = useMemo(
     () => recent.filter((r) => {
       if (r.status !== 'closed') return false;
-      const at = r.closedAt?.toDate?.();
-      return at && monthKey(at) === thisMonth;
+      return budgetMonthKeyFor(r) === thisMonth;
     }),
     [recent, thisMonth],
   );

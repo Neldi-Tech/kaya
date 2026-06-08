@@ -15,7 +15,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule,
-  subscribeToRecentRequests,
+  subscribeToRecentRequests, budgetMonthKeyFor,
   MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
@@ -108,8 +108,7 @@ export default function FinancesPage() {
   const closedThisMonth = useMemo(
     () => recent.filter((r) => {
       if (r.status !== 'closed') return false;
-      const at = r.closedAt?.toDate?.();
-      return at && monthKey(at) === thisMonth;
+      return budgetMonthKeyFor(r) === thisMonth;
     }),
     [recent, thisMonth],
   );

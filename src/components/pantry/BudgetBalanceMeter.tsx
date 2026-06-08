@@ -16,6 +16,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule, MODULE_LABEL, subscribeToRecentRequests,
+  budgetMonthKeyFor,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
 
@@ -54,7 +55,7 @@ export default function BudgetBalanceMeter({
   const thisMonth = monthKeyOf();
   const spentCents = useMemo(() => recent
     .filter((r) => r.module === module && r.status === 'closed' && r.id !== excludeRequestId)
-    .filter((r) => { const at = r.closedAt?.toDate?.(); return !!at && monthKeyOf(at) === thisMonth; })
+    .filter((r) => budgetMonthKeyFor(r) === thisMonth)
     .reduce((a, r) => a + (r.actualTotalCents ?? r.estimatedTotalCents ?? 0), 0),
     [recent, module, excludeRequestId, thisMonth]);
 
