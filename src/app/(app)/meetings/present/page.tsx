@@ -37,6 +37,7 @@ import {
   getMeetingSubmissions, clearMeetingSubmissions,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
+import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
 
 // ── Agenda definition ──────────────────────────────────────────────
 // Canonical step catalog — the presenter renders the subset that the
@@ -366,6 +367,25 @@ export default function MeetingPresenterPage() {
     // with empty prompts. Tolerated to fail silently — submissions are
     // a soft state, the meeting itself is saved.
     clearMeetingSubmissions(profile.familyId).catch(() => { /* non-fatal */ });
+
+    // Sunday-Meeting v2 (b6): email the Meeting Recap Book to parents +
+    // Family contacts when the family has it switched on (default ON).
+    // Fire-and-forget — recap is a perk, not a barrier to finishing.
+    const recapEnabled = family?.meetingSetup?.recapBookEmailEnabled ?? true;
+    if (recapEnabled) {
+      sendMeetingRecapEmail({
+        family,
+        payload,
+        submissions,
+        householdParents,
+        children,
+        songLinkApprovedBy,
+      }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[meeting-recap] send failed (non-fatal):', e);
+      });
+    }
+
     setSaving(false);
     setDone(true);
     // Clear the persisted step so next week's meeting starts at step 1.

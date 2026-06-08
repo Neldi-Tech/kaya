@@ -463,6 +463,14 @@ export interface Family {
      *  it before it shows up as a playable button. Default = true (be
      *  conservative — parents can flip it off in /settings/meetings). */
     kidSongLinkRequiresApproval?: boolean;
+    /** Sunday-Meeting v2 (b6): after a meeting is submitted, email a
+     *  one-page "Meeting Recap Book" to parents + family contacts.
+     *  Default = true. Toggle in /settings/meetings. */
+    recapBookEmailEnabled?: boolean;
+    /** Whether the recap email includes the closing song link.
+     *  Default = true; flips off independently of recapBookEmailEnabled
+     *  so parents can keep the recap but drop the song. */
+    recapBookIncludeSong?: boolean;
   };
   // ── Sunday-Meeting v2: leader queue ─────────────────────────
   // The person queued to *run* the next meeting. Set by the current
