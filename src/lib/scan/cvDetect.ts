@@ -121,6 +121,14 @@ export async function detectCornersCV(file: File, timeoutMs = DEFAULT_TIMEOUT): 
     // image border when it finds nothing useful).
     const area = quadAreaFraction(corners);
     if (area < 0.12 || area > 0.999) return null;
+    // Reject a near-full-frame grab — all 4 corners pinned to the photo edge
+    // means the detector hugged the background/table, not the paper. Let it
+    // fall to the AI detect / manual editor instead of returning a bad crop.
+    const atBorder = (p: { x: number; y: number }) =>
+      (p.x <= 0.025 || p.x >= 0.975) && (p.y <= 0.025 || p.y >= 0.975);
+    if ([corners.topLeft, corners.topRight, corners.bottomRight, corners.bottomLeft].every(atBorder)) {
+      return null;
+    }
     return corners;
   } catch {
     return null;
