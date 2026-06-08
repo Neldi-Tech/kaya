@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
+import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
 import { useKidMyDay, useParentMyDay, useReminders, actOnApproval, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
 import { addKidWorkplanItem } from '@/lib/kidWorkplan';
 import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
@@ -355,6 +356,9 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
           Renders only when this kid is queued. */}
       <LeadingNextCard meId={childId} />
 
+      {/* 🌟 Question of the Day — one shared daily question for the whole family. */}
+      <QuestionOfDayCard meId={userUid} />
+
       {/* Pre-meeting prep card — Sunday-Meeting v2 (b2). */}
       <MeetingPrepCard
         meId={userUid}
@@ -630,6 +634,9 @@ function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; n
           but if a parent later approves one in, the card already works. */}
       <LeadingNextCard meId={uid} />
 
+      {/* 🌟 Question of the Day — daily question for the whole family. */}
+      <QuestionOfDayCard meId={uid} />
+
       <div className="rounded-hive-lg p-4 mb-4 text-white" style={{ background: `linear-gradient(135deg, ${NAVY}, #1c3566)` }}>
         <p className="text-[10px] font-black uppercase tracking-[2px]" style={{ color: GOLD }}>My Day</p>
         <p className="font-nunito font-black text-[18px] leading-tight mt-0.5">Habari, {name}</p>
@@ -721,6 +728,9 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1). */}
       <LeadingNextCard meId={parentUid} />
+
+      {/* 🌟 Question of the Day — daily question for the whole family. */}
+      <QuestionOfDayCard meId={parentUid} />
 
       {/* Pre-meeting prep card — Sunday-Meeting v2 (b2). */}
       <MeetingPrepCard meId={parentUid} role="parent" name={name} />
