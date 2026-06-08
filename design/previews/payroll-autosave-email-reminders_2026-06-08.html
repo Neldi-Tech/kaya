@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaya · Payroll auto-save + Email reminders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#1F2D3D; --cream:#FFF8EC; --paper:#FFFFFF; --muted:#5C6975; --line:#E8DEC9;
+    --purple:#6B4FA0; --purple-soft:#F4EFFB; --purple-line:#C9B8E5;
+    --green:#3FAF6C; --honey:#F39C2F; --honey-dk:#D17F1A; --honey-bg:#FFF3D9; --rose:#E36F6F;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy)}
+  .wrap{max-width:1060px;margin:0 auto;padding:30px 22px 70px}
+  h1{font-family:'Nunito',sans-serif;font-size:29px;font-weight:900;line-height:1.12;margin:0;letter-spacing:-.01em}
+  .eyebrow{text-transform:uppercase;letter-spacing:2.5px;font-size:11px;font-weight:800;color:var(--honey-dk)}
+  .lede{font-size:15.5px;color:var(--muted);line-height:1.55;margin:10px 0 0;max-width:820px}
+  .rule{border:none;border-top:1px solid var(--line);margin:30px 0}
+  .revtag{display:inline-block;background:var(--honey-dk);color:#fff;font-family:'Nunito';font-weight:800;font-size:11px;letter-spacing:.5px;padding:3px 11px;border-radius:999px;margin-bottom:10px}
+  .sec{display:flex;align-items:baseline;gap:10px;margin:0 0 4px}
+  .sec .n{font-family:'Nunito';font-weight:900;font-size:12px;color:#fff;background:var(--honey-dk);border-radius:7px;padding:2px 9px}
+  .sec h2{font-family:'Nunito';font-weight:900;font-size:20px;margin:0}
+  .note{font-size:14px;color:var(--muted);line-height:1.55;margin:7px 0 16px;max-width:820px}
+
+  .panel{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px 18px;max-width:560px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+  .row:first-child{border-top:none}
+  .row .l{font-size:13.5px;font-weight:700}
+  .row .l small{display:block;color:var(--muted);font-weight:600;font-size:11px;margin-top:2px}
+  .toggle{width:42px;height:24px;border-radius:999px;background:var(--green);position:relative;flex:0 0 auto}
+  .toggle:after{content:'';position:absolute;right:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#fff}
+  .toggle.off{background:#C9CDD2}.toggle.off:after{left:3px;right:auto}
+  .save-pill{display:inline-flex;align-items:center;gap:6px;font-family:'Nunito';font-weight:800;font-size:12px;color:var(--green);background:rgba(63,175,108,.1);border:1px solid rgba(63,175,108,.35);border-radius:999px;padding:3px 11px}
+  .save-pill.saving{color:var(--muted);background:#f3f1ec;border-color:var(--line)}
+  .chip{display:inline-block;border-radius:999px;border:1.2px solid var(--line);background:#fff;padding:3px 10px;font-family:'Nunito';font-weight:800;font-size:11px;margin-right:5px}
+  .chip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .em{display:flex;align-items:center;gap:8px;background:var(--cream);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-top:7px;font-size:12.5px;font-weight:700}
+  .em .x{margin-left:auto;color:var(--rose);font-weight:900}
+  .addbtn{display:inline-block;margin-top:8px;border:1.4px dashed var(--purple-line);color:var(--purple);border-radius:10px;padding:7px 12px;font-family:'Nunito';font-weight:800;font-size:12px;background:var(--purple-soft)}
+
+  /* email preview */
+  .mail{max-width:380px;background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:0 18px 40px -22px rgba(0,0,0,.3)}
+  .mail .top{background:var(--purple);color:#fff;padding:14px 16px;font-family:'Nunito';font-weight:900;font-size:15px}
+  .mail .b{padding:14px 16px;font-size:13px;line-height:1.6}
+  .mail .b b{font-family:'Nunito';font-weight:900}
+  .mail .cta{display:inline-block;margin-top:10px;background:var(--honey);color:#231;font-family:'Nunito';font-weight:900;font-size:12.5px;border-radius:8px;padding:8px 14px}
+  .mail .meta{font-size:10.5px;color:var(--muted);margin-top:10px}
+
+  .two{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .grow{flex:1;min-width:300px}
+  .caption{font-size:12px;color:var(--muted);margin:9px 0 0;font-weight:700}
+  .key-tbl{width:100%;border-collapse:collapse;margin-top:6px}
+  .key-tbl td{padding:11px 8px;border-top:1px solid var(--line);font-size:13.5px;vertical-align:top;line-height:1.55}
+  .key-tbl td:first-child{font-family:'Nunito';font-weight:900;white-space:nowrap;width:160px}
+  .flag{background:var(--honey-bg);border:1px solid #F0D9A0;border-radius:12px;padding:12px 15px;margin-top:14px;font-size:13px;line-height:1.55}
+  .foot{margin-top:30px;padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:16px}
+  .foot h4{font-size:15px;margin-bottom:8px;font-family:'Nunito'}
+  .foot ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.7}
+  .ok{color:var(--green);font-weight:800}
+  .star{color:var(--purple);font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="revtag">IDEAS · for your approval</span>
+  <div class="eyebrow">Kaya · Helpers · Payroll · Notifications</div>
+  <h1>Auto-save + email reminders (up to 2 inboxes)</h1>
+  <p class="lede">
+    Four things you asked for, plus a couple of extras. Email is already wired in Kaya (Resend), so the
+    reminders are a small add. The setup not saving is because it only saves on the <b>Update</b> tap —
+    auto-save fixes that.
+  </p>
+
+  <hr class="rule">
+
+  <!-- 1 · AUTO-SAVE -->
+  <div class="sec"><span class="n">1</span><h2>Auto-save the payroll setup</h2></div>
+  <p class="note">Every control saves the moment you change it (debounced ~½ s) with a live “Saving… / ✓ Saved” chip. No more remembering to tap <b>Update</b> — that's why changes were getting lost. Invalid fields (e.g. rate = 0) show inline and just don't save that one field.</p>
+  <div class="panel">
+    <div class="row"><div class="l">Raise salary before the month ends<small>Auto-saves on change</small></div><span class="save-pill">✓ Saved</span></div>
+    <div class="row"><div class="l">Pay window<small>Next month 1–5</small></div><span class="save-pill saving">⟳ Saving…</span></div>
+    <div class="row"><div class="l">Auto-approve salary to budget</div><div class="toggle"></div></div>
+    <div class="row"><div class="l">Remind me to mark paid</div><div class="toggle off"></div></div>
+  </div>
+  <p class="caption">The “Update” button stays as a manual fallback, but you won't need it.</p>
+
+  <hr class="rule">
+
+  <!-- 2 · NOTIFICATIONS SETTINGS -->
+  <div class="sec"><span class="n">2</span><h2>Settings → Notifications</h2></div>
+  <p class="note">A new place to (a) add up to <b>2 extra emails</b> beyond your login email, and (b) choose <b>per event</b> what reaches email — for maximum visibility. Each event can be In-app and/or Email.</p>
+  <div class="two">
+    <div class="grow">
+      <div class="panel">
+        <div style="font-family:'Nunito';font-weight:900;font-size:14px">📧 Notification emails</div>
+        <div class="em">📩 elia@eafoods.com <span style="color:var(--muted);font-weight:600">· login</span></div>
+        <div class="em">📩 accounts@eafoods.com <span class="x">✕</span></div>
+        <div class="addbtn">＋ Add another email (1 of 2 left)</div>
+        <p class="caption" style="margin-top:10px">A quick “Send test email” confirms delivery to each.</p>
+      </div>
+    </div>
+    <div class="grow">
+      <div class="panel">
+        <div style="font-family:'Nunito';font-weight:900;font-size:14px;margin-bottom:4px">🔔 What emails you</div>
+        <div class="row"><div class="l">💰 Salary raised (7 days before month-end)<small>both emails</small></div><div><span class="chip on">In-app</span><span class="chip on">Email</span></div></div>
+        <div class="row"><div class="l">⏰ Time to mark salary paid (pay window opens)<small>login only</small></div><div><span class="chip on">In-app</span><span class="chip on">Email</span></div></div>
+        <div class="row"><div class="l">✅ Approvals waiting</div><div><span class="chip on">In-app</span><span class="chip">Email</span></div></div>
+        <div class="row"><div class="l">🧾 Salary marked paid (receipt)<small>accounts@ only</small></div><div><span class="chip">In-app</span><span class="chip on">Email</span></div></div>
+      </div>
+      <p class="caption">Per-event toggles + which of your emails each goes to.</p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <!-- 3 · THE EMAIL -->
+  <div class="sec"><span class="n">3</span><h2>The 7-days-before email</h2></div>
+  <p class="note">When Kaya raises the month's salaries (~7 days before month-end), it emails your chosen inboxes — so you're told even if you don't open the app.</p>
+  <div class="two">
+    <div class="mail">
+      <div class="top">💰 May salaries are ready</div>
+      <div class="b">
+        Hi Elia,<br><br>
+        Kaya raised <b>3 salaries</b> for <b>May 2026</b> and booked them to May's budget as <b>Processing</b>:
+        <br>• Catherine — TZS 100,000<br>• Seif — TZS 322,000<br>• Donald — TZS 572,000<br><br>
+        <b>Total: TZS 994,000.</b> Pay window: <b>1–5 June</b>. Tap below to review &amp; mark paid.
+        <div class="cta">Open Payroll →</div>
+        <div class="meta">Sent to elia@eafoods.com, accounts@eafoods.com · manage in Settings → Notifications</div>
+      </div>
+    </div>
+    <div class="grow" style="min-width:280px">
+      <div class="flag">
+        ⚙️ <b>What makes this automatic:</b> a tiny daily server job (cron) checks who's due ~7 days before
+        month-end, raises the salaries, and sends this email. Today the raise only happens when you open the
+        Payroll page — the cron makes it truly hands-off. (Email no-ops safely until the Resend key is set.)
+      </div>
+      <div class="flag" style="background:var(--purple-soft);border-color:var(--purple-line)">
+        <span class="star">✨ Extras I'd add:</span> a <b>“Mark paid” reminder email</b> on the 1st of the pay
+        window, a one-tap <b>“Send test email”</b>, and an optional <b>monthly payroll digest</b> (everything
+        paid + upcoming) to accounts@.
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec"><span class="n">★</span><h2>What I'd build</h2></div>
+  <table class="key-tbl">
+    <tr><td>Auto-save</td><td>Payroll setup saves each field on change (debounced) with a Saving/Saved chip; fixes the “didn't save” (was Update-only). Validation stays.</td></tr>
+    <tr><td>Up to 2 emails</td><td>Settings → Notifications: add/remove up to 2 extra emails + a “Send test”. Stored on the family/parent profile.</td></tr>
+    <tr><td>Per-event prefs</td><td>Each event (salary raised · mark-paid due · approvals · paid receipt) toggles In-app and/or Email, and which email(s) it goes to.</td></tr>
+    <tr><td>7-day email + cron</td><td>Daily server cron raises due salaries ~7 days before month-end and emails the chosen inboxes (via the existing Resend route). Truly hands-off.</td></tr>
+    <tr><td>Extras</td><td>Mark-paid reminder email · Send-test button · optional monthly payroll digest.</td></tr>
+  </table>
+
+  <div class="flag">
+    🔑 <b>One operator step for live email:</b> the <code>RESEND_API_KEY</code> env must be set (the email route
+    no-ops safely without it — in-app reminders still work). I'll flag this at go-live; everything else ships regardless.
+  </div>
+
+  <div class="foot">
+    <h4>Tell me which to build 👍</h4>
+    <ul>
+      <li><span class="ok">A · Auto-save</span> the payroll setup (small, immediate win).</li>
+      <li><span class="ok">B · Notifications settings</span> — 2 emails + per-event prefs.</li>
+      <li><span class="ok">C · 7-day email + cron</span> (hands-off raise + reminder).</li>
+      <li><span class="star">D · Extras</span> — test email, mark-paid email, monthly digest.</li>
+    </ul>
+    <p class="lede" style="font-size:13.5px;margin-top:10px">Approve all, or pick the ones you want and I'll ship them under ASDP (A first — it's the quick fix).</p>
+  </div>
+
+</div>
+</body>
+</html>
