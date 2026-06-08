@@ -16,7 +16,7 @@
 // so a parent can review + promote it from Settings → Catalogue later.
 
 import {
-  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc,
+  collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, where, orderBy, Timestamp, serverTimestamp,
   onSnapshot, writeBatch, increment, runTransaction, deleteField,
 } from 'firebase/firestore';
@@ -1057,6 +1057,28 @@ export async function markSalaryPaid(
     paidAt: paidOn ? Timestamp.fromDate(paidOn) : serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+/** Set of `${helperUid}|${cycleKey}` for every live (non-rejected) payroll
+ *  request — the cycles a helper already has a salary for. The generator uses
+ *  this to avoid raising a second salary for a month that already has one
+ *  (e.g. a manual entry), preventing a double-pay. One-shot read. */
+export async function listPayrollCycleKeys(familyId: string): Promise<Set<string>> {
+  const keys = new Set<string>();
+  if (isGuestActive()) return keys;
+  const q = query(
+    requestCol(familyId),
+    where('module', '==', 'payroll'),
+    where('status', 'in', ['draft', 'pending_approval', 'approved', 'reconciling', 'pending_close', 'closed']),
+  );
+  const snap = await getDocs(q);
+  for (const d of snap.docs) {
+    const r = { id: d.id, ...d.data() } as PurchaseRequest;
+    if (!r.helperUid) continue;
+    const ck = budgetMonthKeyFor(r);
+    if (ck) keys.add(`${r.helperUid}|${ck}`);
+  }
+  return keys;
 }
 
 /** Re-attribute a request to a specific budget month 'YYYY-MM'. Parent

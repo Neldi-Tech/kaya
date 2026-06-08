@@ -29,7 +29,7 @@ import {
   type PayrollDeduction, type PayrollAllowance,
 } from './firestore';
 import { listHelpers } from './helpers';
-import { createDraftRequest, approveRequest } from './purchase';
+import { createDraftRequest, approveRequest, listPayrollCycleKeys } from './purchase';
 import { listApprovedCheckIns, sumApprovedHours, countApprovedDays } from './payCheckIns';
 import { toDisplayDate } from './dates';
 
@@ -477,6 +477,9 @@ export async function runPayrollGenerator(
 
   const helpers = await listHelpers(familyId);
   const today = new Date();
+  // Cycles a helper already has a salary for (incl. manual entries) — never
+  // raise a second salary for the same month. Prevents double-pay.
+  const existingCycles = await listPayrollCycleKeys(familyId).catch(() => new Set<string>());
   for (const helper of helpers) {
     if (helper.status === 'removed') continue;
     const config = helper.payrollConfig;
@@ -490,6 +493,13 @@ export async function runPayrollGenerator(
       const cycle = nextDueCycle(config, today);
       if (!cycle) {
         run.skipped.push({ helperUid: helper.uid, helperName: helper.displayName, reason: 'Not due yet' });
+        continue;
+      }
+      // Dedupe: a salary for this helper + month already exists (e.g. a manual
+      // entry). Skip raising another, and stamp the guard so we don't re-check.
+      if (existingCycles.has(`${helper.uid}|${cycle.cycleKey}`)) {
+        await setPayrollConfig(familyId, helper.uid, { lastGeneratedCycle: cycle.cycleKey }).catch(() => {});
+        run.skipped.push({ helperUid: helper.uid, helperName: helper.displayName, reason: 'Already raised for this cycle' });
         continue;
       }
       try {
