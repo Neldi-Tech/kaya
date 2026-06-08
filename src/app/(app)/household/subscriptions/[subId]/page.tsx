@@ -23,11 +23,13 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   Subscription, SubscriptionCycle, getSubscription, subscribeToCycles,
   SUBSCRIPTION_CATEGORIES, subCategoryEmoji, subCategoryLabel,
+  SUBSCRIPTION_PLATFORMS, platformLabel,
   updateSubscription, deleteSubscription, SUBSCRIPTION_SUBCATEGORIES,
   subMonthlyEquivalentCents,
   holdSubscription, resumeSubscription, stopSubscription, reactivateSubscription,
   isPrepaidFrequency,
   type SubscriptionCategory, type SubscriptionStatus, type SubscriptionFrequency,
+  type SubscriptionPlatform,
 } from '@/lib/subscriptions';
 import { Timestamp } from 'firebase/firestore';
 import PaidByPicker, { type PaidByValue } from '@/components/household/PaidByPicker';
@@ -159,7 +161,7 @@ export default function SubscriptionDetailPage() {
           </StatusBadge>
           {fromWealth && <StatusBadge tone="muted">From Wealth · read-only</StatusBadge>}
           {sub.isProfessionalExpense && <StatusBadge tone="neutral">Pro expense</StatusBadge>}
-          {sub.platform && <StatusBadge tone="neutral">{sub.platform}</StatusBadge>}
+          <StatusBadge tone="neutral">{SUBSCRIPTION_PLATFORMS.find((p) => p.id === (sub.platform ?? 'other'))?.emoji} {platformLabel(sub.platform)}</StatusBadge>
         </div>
       </header>
 
@@ -670,6 +672,7 @@ function SubscriptionEditSheet({
   const [frequency, setFrequency] = useState<SubscriptionFrequency>(sub.frequency);
   const [customMonths, setCustomMonths] = useState<number | null>(sub.customMonths ?? null);
   const [status, setStatus] = useState<SubscriptionStatus>(sub.status);
+  const [platform, setPlatform] = useState<SubscriptionPlatform>(sub.platform ?? 'other');
   const [nextBillingIso, setNextBillingIso] = useState(tsToIso(sub.nextBillingDate));
   const [reminderDays, setReminderDays] = useState<number[]>(sub.reminderDaysBefore ?? []);
   const [paidByUid, setPaidByUid] = useState<PaidByValue>(sub.paidByUid ?? null);
@@ -712,6 +715,7 @@ function SubscriptionEditSheet({
         frequency,
         customMonths: effectiveCustomMonths,
         status,
+        platform,
         nextBillingDate: ymdToTs(nextBillingIso),
         reminderDaysBefore: [...reminderDays].sort((a, b) => b - a),
         paidByUid,
@@ -778,6 +782,22 @@ function SubscriptionEditSheet({
             </select>
           </Field>
         </div>
+
+        <Field label="Paid via">
+          <div className="flex flex-wrap gap-1.5">
+            {SUBSCRIPTION_PLATFORMS.map((p) => {
+              const on = platform === p.id;
+              return (
+                <button key={p.id} type="button" onClick={() => setPlatform(p.id)}
+                  className={`rounded-full px-3 py-1.5 text-[11.5px] font-extrabold border-[1.5px] transition ${on ? 'border-pulse-gold bg-pulse-gold/15 text-pulse-navy' : 'border-pulse-navy/15 bg-white text-pulse-navy/65'}`}
+                  aria-pressed={on}
+                >
+                  {p.emoji} {p.label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
 
         <Field label="Remind me before billing">
           <div className="flex flex-wrap gap-1.5">
