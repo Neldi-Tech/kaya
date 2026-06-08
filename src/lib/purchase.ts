@@ -501,6 +501,11 @@ export interface PurchaseRequest {
     /** Inclusive ISO range covered by this cycle. */
     periodStart: string;
     periodEnd: string;
+    /** Pay window (cycle model · 2026-06-08) — when the salary is paid,
+     *  separate from the work cycle. ISO dates; display + "Mark paid"
+     *  expectation only. Absent on legacy/weekly entries. */
+    payWindowStart?: string;
+    payWindowEnd?: string;
     /** Which deduction sources contributed — used to decrement
      *  their balances on close-reconcile. */
     deductionRefs: string[];

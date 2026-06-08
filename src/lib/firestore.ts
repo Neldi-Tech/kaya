@@ -693,8 +693,23 @@ export interface HelperPayrollConfig {
   markPaidReminder?: boolean;
   /** Pay-in-arrears (2026-06-08): when true, a monthly salary covers the
    *  month BEFORE the pay date — so pay made on 1–5 June covers MAY and is
-   *  booked to May's budget. Default false = covers the pay date's month. */
+   *  booked to May's budget. Default false = covers the pay date's month.
+   *  Legacy — superseded by `payWindow` in the cycle model below. */
   salaryCoversPreviousMonth?: boolean;
+  /** Cycle model (2026-06-08). A monthly salary covers a WORK CYCLE (the
+   *  whole month) and is RAISED this many days before the cycle ends —
+   *  so May is raised ~24 May, not on the pay day. Parent-set, default 7,
+   *  cap 0..28. Monthly only; weekly/biweekly keep their window cadence. */
+  raiseDaysBeforeCycleEnd?: number;
+  /** When the salary is actually PAID — separate from the work cycle.
+   *  'next_month' = 1st–5th of the month after the cycle (e.g. May's pay
+   *  paid 1–5 Jun); 'same_month' = by the payAnchor day of the cycle month.
+   *  Controls only when "Mark paid" shows; never moves the budget month.
+   *  Default 'next_month'. */
+  payWindow?: 'next_month' | 'same_month';
+  /** Last work-cycle (YYYY-MM) the monthly generator raised. Idempotency
+   *  guard for the cycle model, parallel to `lastGeneratedDate`. */
+  lastGeneratedCycle?: string;
 }
 
 // ── Pay check-ins (hourly/daily helpers only) ────────────────────

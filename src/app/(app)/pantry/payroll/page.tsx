@@ -278,7 +278,14 @@ export default function PayrollHomePage() {
 
       {role === 'parent' && pending.length > 0 && (
         <Section title="Awaiting your nod" tone="amber" count={pending.length}>
-          {pending.map((r) => <RequestRow key={r.id} req={r} currency={currency} showHelper />)}
+          {/* Parents can clear a mis-raised pending salary in one tap (e.g.
+              old June entries from before the cycle model). */}
+          {pending.map((r) => (
+            <RequestRow
+              key={r.id} req={r} currency={currency} showHelper
+              onDelete={r.status === 'pending_approval' ? () => handleDeleteDraft(r) : undefined}
+            />
+          ))}
         </Section>
       )}
 
@@ -399,6 +406,24 @@ function Section({
   );
 }
 
+// "1–5 Jun" / "28 May" from the cycle's pay window (ISO dates). null when
+// the entry has no pay window (legacy / weekly).
+function payWindowLabel(cycle: PurchaseRequest['payrollCycle']): string | null {
+  const s = cycle?.payWindowStart;
+  const e = cycle?.payWindowEnd;
+  if (!s) return null;
+  const fmtDay = (iso: string) => { const [, , d] = iso.split('-'); return String(Number(d)); };
+  const fmtMon = (iso: string) => {
+    const [y, m] = iso.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short' });
+  };
+  if (!e || e === s) return `${fmtDay(s)} ${fmtMon(s)}`;
+  // Same month → "1–5 Jun"; spanning months → "28 May–2 Jun".
+  return fmtMon(s) === fmtMon(e)
+    ? `${fmtDay(s)}–${fmtDay(e)} ${fmtMon(s)}`
+    : `${fmtDay(s)} ${fmtMon(s)}–${fmtDay(e)} ${fmtMon(e)}`;
+}
+
 function RequestRow({
   req, currency, dimmed, showHelper, onDelete, onMarkPaid,
 }: {
@@ -439,6 +464,11 @@ function RequestRow({
               paidOn
                 ? <span className="rounded-full bg-hive-green/12 text-hive-green border border-hive-green/40 px-2 py-0.5 text-[9.5px] font-nunito font-extrabold">✓ Paid {paidOn.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
                 : <span className="rounded-full bg-hive-blue/12 text-hive-blue border border-hive-blue/40 px-2 py-0.5 text-[9.5px] font-nunito font-extrabold">Processing</span>
+            )}
+            {isSalary && !paidOn && payWindowLabel(req.payrollCycle) && (
+              <span className="rounded-full bg-[#F4EFFB] text-[#6B4FA0] border border-[#C9B8E5] px-2 py-0.5 text-[9.5px] font-nunito font-extrabold">
+                Pay {payWindowLabel(req.payrollCycle)}
+              </span>
             )}
           </div>
         </div>
