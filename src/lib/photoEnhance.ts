@@ -395,3 +395,44 @@ export async function autoFrameScan(
   const cleaned = await enhanceScan(source, options);
   return { ...cleaned, framed: false };
 }
+
+/** Rotate a File 90° clockwise → a new JPEG File. Lets the crop editor fix
+ *  a sideways capture (common when a landscape page is shot in portrait). */
+export async function rotateFile90(file: File): Promise<File> {
+  const img = await loadImage(file);
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = h; canvas.height = w; // dimensions swap on a 90° turn
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return file;
+  ctx.translate(h / 2, w / 2);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(img, -w / 2, -h / 2);
+  return new Promise((resolve) => {
+    canvas.toBlob(
+      (b) => resolve(b ? new File([b], file.name || 'rotated.jpg', { type: 'image/jpeg' }) : file),
+      'image/jpeg', 0.95,
+    );
+  });
+}
+
+/** Warp an image to EXACTLY the given corners, then clean it — the confirm
+ *  step of the manual crop editor. Corners are whatever the user dragged
+ *  (seeded by auto-detect). Returns null on a degenerate quad. */
+export async function cropCleanScan(
+  img: HTMLImageElement,
+  corners: DocCorners,
+  options: EnhanceOptions = {},
+): Promise<{ file: File; previewUrl: string; width: number; height: number } | null> {
+  const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
+  if (!warped) return null;
+  const ctx = warped.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  const data = ctx.getImageData(0, 0, warped.width, warped.height);
+  autoLevels(data, 1.5, 98.5);
+  ctx.putImageData(data, 0, 0);
+  lightSharpen(warped, ctx, 0.6);
+  const file = await canvasToFile(warped, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+  const previewUrl = warped.toDataURL('image/jpeg', options.quality ?? 0.92);
+  return { file, previewUrl, width: warped.width, height: warped.height };
+}
