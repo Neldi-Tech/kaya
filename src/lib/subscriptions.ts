@@ -82,6 +82,10 @@ export interface Subscription {
   nextBillingDate: Timestamp;
   startedOn: Timestamp;
   endedOn: Timestamp | null;
+  // When a sub is put On hold with a chosen return date, the cron flips it
+  // back to 'active' on/after this date. null = "hold until I resume". Optional
+  // so legacy docs (written before this field existed) read as undefined→null.
+  autoResumeOn?: Timestamp | null;
 
   // people
   accountHolderUid: string;
@@ -235,6 +239,23 @@ export function subCategoryLabel(cat: SubscriptionCategory): string {
   return SUBSCRIPTION_CATEGORIES.find((c) => c.id === cat)?.label ?? 'Other';
 }
 
+// ── Platform (iOS / Android / Web / Other) ───────────────────────────
+// Every subscription already records a `platform`; it's most meaningful for
+// the Mobile Apps & Software category, where the list surfaces a platform
+// filter + a "by platform" breakdown so a parent can see which phone (or the
+// web) is carrying the most software subscriptions.
+
+export const SUBSCRIPTION_PLATFORMS: { id: SubscriptionPlatform; emoji: string; label: string }[] = [
+  { id: 'ios',     emoji: '📱', label: 'iOS' },
+  { id: 'android', emoji: '🤖', label: 'Android' },
+  { id: 'web',     emoji: '🌐', label: 'Web/SaaS' },
+  { id: 'other',   emoji: '📦', label: 'Other' },
+];
+
+export function platformLabel(p: SubscriptionPlatform | null | undefined): string {
+  return SUBSCRIPTION_PLATFORMS.find((x) => x.id === p)?.label ?? 'Other';
+}
+
 // ── Frequency → monthly equivalent (spec §2) ─────────────────────────
 
 export function subMonthlyEquivalentCents(
@@ -257,12 +278,61 @@ export function subMonthlyEquivalentCents(
   }
 }
 
+// ── Spend-counting rule (Hold / Stop · 2026-06-07) ───────────────────
+//
+// What still weighs on the household's monthly/annual spend right now?
+//   active / trial   → yes, in full (the live commitment).
+//   paused (On hold) → no — you're not paying while it's held; it snaps
+//                      back in when resumed.
+//   cancelled (Stop) → only if it was PREPAID for a multi-month period you
+//                      haven't used up yet. A monthly/weekly/daily sub stops
+//                      charging the moment you stop, so it drops immediately.
+//                      An annual/semi-annual/quarterly that's already paid
+//                      keeps counting until its paid-through date (the next
+//                      renewal you already paid for) — that money is sunk —
+//                      then drops automatically once `now` passes it.
+
+/** Is this a prepaid, multi-month billing period (where stopping mid-term
+ *  still leaves a sunk cost)? Custom counts as prepaid only when it spans
+ *  ≥ 2 months. */
+export function isPrepaidFrequency(
+  frequency: SubscriptionFrequency,
+  customMonths?: number | null,
+): boolean {
+  switch (frequency) {
+    case 'quarterly':
+    case 'semi_annual':
+    case 'annual':
+      return true;
+    case 'custom':
+      return (customMonths ?? 0) >= 2;
+    default:                 // daily / weekly / monthly / one_off
+      return false;
+  }
+}
+
+/** Does this sub's cost still count toward monthly/annual totals right now?
+ *  See the rule block above. */
+export function subCountsTowardSpend(s: Subscription, now: Date = new Date()): boolean {
+  if (s.status === 'active' || s.status === 'trial') return true;
+  if (s.status === 'paused') return false;
+  if (s.status === 'cancelled') {
+    if (!isPrepaidFrequency(s.frequency, s.customMonths)) return false;
+    const paidThrough = s.nextBillingDate?.toMillis?.() ?? 0;
+    return paidThrough > now.getTime();
+  }
+  return false;
+}
+
 // ── KPI roll-up (client-side, from subscriptions list) ───────────────
 //
-// "This month due" — sum amountHousehold of subs whose nextBillingDate
-//   falls in this calendar month and status === 'active'.
-// "Monthly equivalent" — sum monthlyEquivalent for all active subs.
+// "This month due" — sum amountHousehold of active/trial subs whose
+//   nextBillingDate falls in this calendar month (a stopped sub has nothing
+//   due — it's already paid or no longer charging).
+// "Monthly equivalent" — sum monthlyEquivalent for every sub that still
+//   counts (active/trial + prepaid-stopped within its paid-through window).
 // "Annualized commitment" — monthly equivalent × 12.
+// "Active count" — active/trial subscriptions only (what's live).
 
 export interface SubscriptionKpis {
   thisMonthDueCents: number;
@@ -285,10 +355,15 @@ export function computeSubscriptionKpis(
   const byCategory = new Map<SubscriptionCategory, number>();
 
   for (const s of subs) {
-    if (s.status !== 'active' && s.status !== 'trial') continue;
+    const live = s.status === 'active' || s.status === 'trial';
+    // Monthly / annual smoothing includes prepaid-stopped subs until their
+    // paid-through date — that committed money still weighs on the budget.
+    if (subCountsTowardSpend(s, now)) {
+      monthlyEq += s.monthlyEquivalent || 0;
+    }
+    if (!live) continue;
     activeCount += 1;
     byCategory.set(s.category, (byCategory.get(s.category) ?? 0) + 1);
-    monthlyEq += s.monthlyEquivalent || 0;
     const nextMs = s.nextBillingDate?.toMillis?.() ?? 0;
     if (nextMs >= monthStart && nextMs < monthEnd) {
       dueThisMonth += s.amountHousehold || 0;
@@ -302,6 +377,39 @@ export function computeSubscriptionKpis(
     activeCount,
     byCategory,
   };
+}
+
+// ── Platform breakdown (Mobile Apps & Software) ──────────────────────
+//
+// Count + monthly-equivalent spend per platform across the supplied subs
+// (the list passes the category-scoped, live subs). Drives the "By platform"
+// card and the platform filter chips. Only subs that still count toward
+// spend contribute to the monthly figure; the count is all non-stopped subs
+// so the chips reflect what you can actually browse.
+
+export interface PlatformBucket {
+  platform: SubscriptionPlatform;
+  count: number;
+  monthlyCents: number;
+}
+
+export function computePlatformBreakdown(
+  subs: Subscription[],
+  now: Date = new Date(),
+): PlatformBucket[] {
+  const map = new Map<SubscriptionPlatform, PlatformBucket>();
+  for (const s of subs) {
+    const p = (s.platform ?? 'other') as SubscriptionPlatform;
+    const bucket = map.get(p) ?? { platform: p, count: 0, monthlyCents: 0 };
+    bucket.count += 1;
+    if (subCountsTowardSpend(s, now)) bucket.monthlyCents += s.monthlyEquivalent || 0;
+    map.set(p, bucket);
+  }
+  // Stable order matching SUBSCRIPTION_PLATFORMS, biggest spend first within.
+  return SUBSCRIPTION_PLATFORMS
+    .map((p) => map.get(p.id))
+    .filter((b): b is PlatformBucket => b != null)
+    .sort((a, b) => b.monthlyCents - a.monthlyCents || b.count - a.count);
 }
 
 // ── Create (server route writes entry + seeds first cycle) ───────────
@@ -431,7 +539,7 @@ export type SubscriptionEditableFields = Partial<Pick<
   | 'accountHolderUid' | 'beneficiaryUids' | 'paymentMethodId' | 'paidByUid'
   | 'vendorSupplierId' | 'isProfessionalExpense'
   | 'reminderDaysBefore' | 'postDueCheckEnabled' | 'utilisationCheckDays'
-  | 'archivedAt'
+  | 'platform' | 'autoResumeOn' | 'archivedAt'
 >>;
 
 /** Patch fields on a subscription. `updatedAt` is set server-side.
@@ -447,6 +555,59 @@ export async function updateSubscription(
   await updateDoc(doc(db, 'families', familyId, 'subscriptions', subId), {
     ...patch,
     updatedAt: serverTimestamp(),
+  });
+}
+
+// ── Hold / Stop / Resume / Reactivate (2026-06-07) ───────────────────
+//
+// Thin, intent-named wrappers over updateSubscription so the detail page
+// reads clearly and every status transition sets the right companion fields
+// in one write. History (cycles + ledger) is never touched — these only
+// change what's counted going forward.
+
+/** Put a subscription On hold (temporary). Optionally schedule an automatic
+ *  return to active on `resumeOn` (the cron flips it back). Pass null/omit to
+ *  hold until the parent resumes manually. */
+export async function holdSubscription(
+  familyId: string,
+  subId: string,
+  resumeOn?: Timestamp | null,
+): Promise<void> {
+  return updateSubscription(familyId, subId, {
+    status: 'paused',
+    autoResumeOn: resumeOn ?? null,
+  });
+}
+
+/** Resume a held subscription → active, clearing any auto-resume date. */
+export async function resumeSubscription(familyId: string, subId: string): Promise<void> {
+  return updateSubscription(familyId, subId, {
+    status: 'active',
+    autoResumeOn: null,
+  });
+}
+
+/** Stop (deactivate) a subscription. Stamps `endedOn` (defaults to now) and
+ *  clears any auto-resume. Counting then follows the paid-through rule:
+ *  prepaid subs keep counting until nextBillingDate, monthly drop at once. */
+export async function stopSubscription(
+  familyId: string,
+  subId: string,
+  endedOn?: Timestamp | null,
+): Promise<void> {
+  return updateSubscription(familyId, subId, {
+    status: 'cancelled',
+    endedOn: endedOn ?? Timestamp.now(),
+    autoResumeOn: null,
+  });
+}
+
+/** Reactivate a stopped subscription → active, clearing the end date. */
+export async function reactivateSubscription(familyId: string, subId: string): Promise<void> {
+  return updateSubscription(familyId, subId, {
+    status: 'active',
+    endedOn: null,
+    autoResumeOn: null,
   });
 }
 

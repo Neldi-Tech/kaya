@@ -34,10 +34,10 @@ import { CurrencyAmountInput, type CurrencyAmountValue } from '@/components/hous
 import { FrequencyPicker, SUB_FREQUENCY_OPTIONS } from '@/components/household/FrequencyPicker';
 
 const PLATFORMS: { id: SubscriptionPlatform; label: string }[] = [
-  { id: 'ios',     label: 'iOS' },
-  { id: 'android', label: 'Android' },
-  { id: 'web',     label: 'Web / SaaS' },
-  { id: 'other',   label: 'Other' },
+  { id: 'ios',     label: '📱 iOS' },
+  { id: 'android', label: '🤖 Android' },
+  { id: 'web',     label: '🌐 Web / SaaS' },
+  { id: 'other',   label: '📦 Other' },
 ];
 
 function todayIso(): string {
@@ -170,8 +170,6 @@ export default function NewSubscriptionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [category]);
 
-  const showPlatformField = category === 'mobile_apps';
-
   // ── Submit ──
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,7 +216,7 @@ export default function NewSubscriptionPage() {
         catalogueRef: catId ?? null,
         category,
         subCategory,
-        platform: showPlatformField ? platform : null,
+        platform: platform ?? 'other',
         billingMode,
         status: 'active',
         amountOriginalCents: amount.amountCents,
@@ -355,10 +353,10 @@ export default function NewSubscriptionPage() {
           </div>
         </div>
 
-        {/* Platform (mobile apps only) */}
-        {showPlatformField && (
+        {/* Paid via — captured for every subscription (primary split). */}
+        {(
           <div className="space-y-1">
-            <label className="block text-xs font-bold uppercase tracking-wide text-pulse-navy/65">Platform</label>
+            <label className="block text-xs font-bold uppercase tracking-wide text-pulse-navy/65">Paid via</label>
             <div className="flex flex-wrap gap-2">
               {PLATFORMS.map((p) => (
                 <button

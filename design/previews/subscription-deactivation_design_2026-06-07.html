@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Kaya · Subscriptions — Hold &amp; Stop (Deactivate)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0F1F44; --gold:#D4A847; --gold-dk:#B58A2F; --cream:#FBF7EE;
+    --bone:#FFFCF5; --coral:#E85C5C; --green:#2E7D34; --paper:#FFFFFF;
+    --line:rgba(15,31,68,.10); --muted:rgba(15,31,68,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy);-webkit-text-size-adjust:100%}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 18px 64px}
+  h1,h2,h3,h4{font-family:'Nunito',sans-serif;letter-spacing:-.01em;margin:0}
+  h1{font-size:30px;font-weight:900;line-height:1.1}
+  .eyebrow{text-transform:uppercase;letter-spacing:2.5px;font-size:11px;font-weight:800;color:var(--gold-dk)}
+  .lede{font-size:15.5px;color:var(--muted);line-height:1.55;margin:10px 0 0}
+  .rule{border:none;border-top:1px solid var(--line);margin:36px 0}
+
+  .sec-head{display:flex;align-items:baseline;gap:10px;margin:0 0 4px}
+  .sec-num{font-family:'Nunito';font-weight:900;font-size:12px;color:var(--gold-dk);letter-spacing:2px}
+  .sec-title{font-family:'Nunito';font-weight:900;font-size:21px}
+  .sec-note{font-size:14px;color:var(--muted);line-height:1.55;margin:6px 0 20px}
+
+  /* phone */
+  .phone{background:#0B1530;border-radius:38px;padding:12px;box-shadow:0 26px 50px -18px rgba(11,21,48,.5);max-width:360px;margin:0 auto}
+  .screen{background:var(--cream);border-radius:28px;overflow:hidden;position:relative}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:120px;height:24px;background:#0B1530;border-radius:0 0 16px 16px;z-index:6}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:11px 20px 4px;font-family:'Nunito';font-weight:800;font-size:11px;color:var(--navy)}
+  .body{padding:8px 16px 18px}
+
+  .back{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+  .head-row{display:flex;align-items:center;gap:10px;margin-top:8px}
+  .emoji{font-size:30px}
+  .title{font-family:'Nunito';font-weight:900;font-size:21px;line-height:1.05}
+  .subt{font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-top:2px}
+
+  .badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+  .badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-family:'Nunito';font-size:10.5px;font-weight:800;letter-spacing:.4px;border:1.4px solid}
+  .b-green{background:rgba(46,125,52,.12);color:var(--green);border-color:rgba(46,125,52,.35)}
+  .b-gold{background:rgba(212,168,71,.16);color:var(--gold-dk);border-color:rgba(212,168,71,.45)}
+  .b-muted{background:rgba(15,31,68,.07);color:var(--muted);border-color:rgba(15,31,68,.15)}
+  .b-coral{background:rgba(232,92,92,.12);color:var(--coral);border-color:rgba(232,92,92,.4)}
+  .b-neutral{background:rgba(15,31,68,.06);color:var(--navy);border-color:rgba(15,31,68,.14)}
+
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:16px;margin-top:14px}
+  .amt{font-family:'Nunito';font-weight:900;font-size:26px;color:var(--navy)}
+  .amt small{font-size:13px;font-weight:800;color:var(--muted)}
+  .drow{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-size:12.5px;padding:5px 0}
+  .drow .k{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .drow .v{font-weight:700}
+  .hr-soft{border:none;border-top:1px solid var(--line);margin:8px 0}
+
+  /* action row — the NEW bit */
+  .actions{display:flex;gap:8px;margin-top:16px}
+  .btn{flex:1;border:none;border-radius:14px;padding:12px 8px;font-family:'Nunito';font-weight:900;font-size:13px;text-align:center;cursor:default}
+  .btn-edit{background:rgba(212,168,71,.16);border:1px solid rgba(212,168,71,.35);color:var(--navy)}
+  .btn-hold{background:rgba(15,31,68,.05);border:1px solid var(--line);color:var(--navy)}
+  .btn-stop{background:rgba(232,92,92,.10);border:1px solid rgba(232,92,92,.38);color:var(--coral)}
+  .btn-resume{background:var(--green);color:#fff;border:1px solid var(--green)}
+  .btn-reactivate{background:rgba(46,125,52,.12);border:1px solid rgba(46,125,52,.4);color:var(--green)}
+  .btn-wide{flex:1}
+
+  /* banner */
+  .banner{display:flex;gap:10px;align-items:flex-start;border-radius:14px;padding:12px 14px;margin-top:14px;font-size:12.5px;line-height:1.5}
+  .banner .ic{font-size:18px;line-height:1}
+  .ban-hold{background:rgba(15,31,68,.05);border:1px solid var(--line)}
+  .ban-stop{background:rgba(232,92,92,.08);border:1px solid rgba(232,92,92,.3)}
+  .banner b{font-family:'Nunito';font-weight:900}
+
+  /* bottom sheet */
+  .sheet-frame{position:relative}
+  .scrim{position:absolute;inset:0;background:rgba(11,21,48,.42);border-radius:28px;z-index:8}
+  .sheet{position:absolute;left:0;right:0;bottom:0;background:#fff;border-radius:24px 24px 28px 28px;padding:18px 18px 22px;z-index:9;box-shadow:0 -10px 30px rgba(11,21,48,.18)}
+  .grab{width:38px;height:4px;border-radius:99px;background:rgba(15,31,68,.18);margin:0 auto 14px}
+  .sheet h4{font-family:'Nunito';font-weight:900;font-size:18px;display:flex;align-items:center;gap:8px}
+  .sheet p{font-size:13px;color:var(--muted);line-height:1.55;margin:8px 0 0}
+  .opt{border:1.5px solid var(--line);border-radius:12px;padding:11px 12px;margin-top:10px;display:flex;gap:10px;align-items:flex-start}
+  .opt.sel{border-color:var(--gold);background:rgba(212,168,71,.08)}
+  .opt .dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--gold);flex:0 0 auto;margin-top:2px;position:relative}
+  .opt.sel .dot:after{content:'';position:absolute;inset:2px;border-radius:50%;background:var(--gold)}
+  .opt .ol{font-family:'Nunito';font-weight:900;font-size:13.5px}
+  .opt .od{font-size:11.5px;color:var(--muted);line-height:1.45;margin-top:2px}
+  .date-field{margin-top:12px}
+  .date-field label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+  .date-field .inp{margin-top:5px;border:1.5px solid var(--line);border-radius:10px;padding:9px 12px;font-family:'Nunito';font-weight:800;font-size:13.5px;color:var(--navy);background:var(--bone)}
+  .sheet-actions{display:flex;gap:8px;margin-top:16px}
+  .sa-cancel{flex:0 0 auto;padding:12px 18px;border-radius:12px;font-family:'Nunito';font-weight:800;font-size:13px;color:var(--muted);background:transparent;border:none}
+  .sa-go{flex:1;border-radius:12px;padding:12px;font-family:'Nunito';font-weight:900;font-size:14px;border:none;color:#fff}
+  .sa-hold{background:var(--navy)}
+  .sa-stop{background:var(--coral)}
+
+  /* list rows */
+  .lrow{display:flex;align-items:center;gap:11px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:11px 13px;margin-top:9px}
+  .lrow.dim{opacity:.62}
+  .lemoji{font-size:22px}
+  .lmain{flex:1;min-width:0}
+  .ltitle{font-family:'Nunito';font-weight:900;font-size:14px}
+  .lsub{font-size:11px;color:var(--muted);margin-top:1px}
+  .lright{text-align:right}
+  .lamt{font-family:'Nunito';font-weight:900;font-size:13.5px}
+  .lnext{font-size:10px;color:var(--muted);margin-top:1px}
+  .lbadges{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
+
+  .caption{text-align:center;font-size:12px;color:var(--muted);margin:12px 0 0;font-weight:700}
+  .grid2{display:grid;grid-template-columns:1fr;gap:34px}
+  @media(min-width:680px){.grid2{grid-template-columns:1fr 1fr;gap:26px}}
+
+  .legend{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:18px 18px 6px;margin-top:8px}
+  .legend .li{display:flex;gap:12px;align-items:flex-start;padding:0 0 16px}
+  .legend .chip{flex:0 0 auto;width:74px;text-align:center}
+  .legend .ld{font-size:13px;line-height:1.5}
+  .legend .ld b{font-family:'Nunito';font-weight:900}
+  .key-tbl{width:100%;border-collapse:collapse;margin-top:6px}
+  .key-tbl td{padding:10px 8px;border-top:1px solid var(--line);font-size:13px;vertical-align:top}
+  .key-tbl td:first-child{font-family:'Nunito';font-weight:900;white-space:nowrap;width:96px}
+  .foot{margin-top:40px;padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:16px}
+  .foot h4{font-size:15px;margin-bottom:8px}
+  .foot ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.7}
+  .ok{color:var(--green);font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Kaya · Household → Subscriptions</div>
+  <h1>Hold &amp; Stop a subscription</h1>
+  <p class="lede">
+    You asked for a way to <b>pause (hold)</b> or <b>stop (deactivate)</b> a subscription so it stops
+    counting — instead of having to delete it. Good news: the data already supports both states; today
+    they're hidden inside the Edit screen's status dropdown. This design pulls them out into two clear,
+    one-tap actions on the subscription page — with an easy <b>Resume</b> to bring a held one back.
+  </p>
+
+  <hr class="rule">
+
+  <!-- ============ THE TWO STATES, EXPLAINED ============ -->
+  <div class="sec-head"><span class="sec-num">01</span><span class="sec-title">Hold vs Stop — what each does</span></div>
+  <p class="sec-note">Two distinct actions so you're never guessing. Nothing is ever deleted — history and receipts stay.</p>
+
+  <div class="legend">
+    <div class="li">
+      <div class="chip"><span class="badge b-muted">⏸ On hold</span></div>
+      <div class="ld">
+        <b>Hold (pause)</b> — a temporary stop. Reminders and the "did you pay?" check go quiet, and it
+        drops out of your <b>This-month-due</b> and <b>Monthly&nbsp;equivalent</b> totals. It stays in the
+        list, greyed, with a one-tap <b>Resume</b>. Optionally set an auto-resume date.
+      </div>
+    </div>
+    <div class="li">
+      <div class="chip"><span class="badge b-coral">⏹ Stopped</span></div>
+      <div class="ld">
+        <b>Stop (deactivate)</b> — you've ended this subscription for good. We stamp the end date, it leaves
+        every spend total, and it's filed under <b>Stopped</b>. History &amp; receipts are preserved; you can
+        still <b>Reactivate</b> it later, or delete it outright if it was a mistake.
+      </div>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <!-- ============ MOCKUPS ============ -->
+  <div class="sec-head"><span class="sec-num">02</span><span class="sec-title">On the subscription page</span></div>
+  <p class="sec-note">The action row gains <b>Hold</b> and <b>Stop</b> next to Edit. Tap either → a confirm sheet slides up.</p>
+
+  <div class="grid2">
+
+    <!-- 1. ACTIVE — new action row -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="back">← Subscriptions</div>
+          <div class="head-row">
+            <span class="emoji">🎬</span>
+            <div>
+              <div class="title">Netflix Premium</div>
+              <div class="subt">Media &amp; Entertainment · Streaming</div>
+            </div>
+          </div>
+          <div class="badges">
+            <span class="badge b-green">● Active</span>
+            <span class="badge b-neutral">Auto</span>
+          </div>
+          <div class="card">
+            <div class="amt">TZS 45,000 <small>/ monthly</small></div>
+            <hr class="hr-soft">
+            <div class="drow"><span class="k">Monthly equiv</span><span class="v">TZS 45,000</span></div>
+            <div class="drow"><span class="k">Next billing</span><span class="v">15 Jun 2026</span></div>
+          </div>
+          <div class="actions">
+            <div class="btn btn-edit">✏️ Edit</div>
+            <div class="btn btn-hold">⏸ Hold</div>
+            <div class="btn btn-stop">⏹ Stop</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">① Active — Hold &amp; Stop sit beside Edit</p>
+    </div>
+
+    <!-- 2. HOLD confirm sheet -->
+    <div>
+      <div class="phone"><div class="screen sheet-frame">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body" style="filter:blur(.4px)">
+          <div class="back">← Subscriptions</div>
+          <div class="head-row">
+            <span class="emoji">🎬</span>
+            <div><div class="title">Netflix Premium</div><div class="subt">Media · Streaming</div></div>
+          </div>
+          <div class="badges"><span class="badge b-green">● Active</span><span class="badge b-neutral">Auto</span></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h4>⏸ Hold this subscription?</h4>
+          <p>It stops counting toward your monthly totals and reminders pause. You can resume any time.</p>
+          <div class="opt sel">
+            <div class="dot"></div>
+            <div><div class="ol">Hold until I resume</div><div class="od">Stays on hold until you tap Resume.</div></div>
+          </div>
+          <div class="opt">
+            <div class="dot"></div>
+            <div><div class="ol">Auto-resume on a date</div><div class="od">Kaya flips it back to active for you.</div></div>
+          </div>
+          <div class="date-field">
+            <label>Resume on (optional)</label>
+            <div class="inp">📅 01 Sep 2026</div>
+          </div>
+          <div class="sheet-actions">
+            <div class="sa-cancel">Cancel</div>
+            <div class="sa-go sa-hold">Hold subscription</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">② Hold — confirm sheet (optional auto-resume)</p>
+    </div>
+
+    <!-- 3. HELD state -->
+    <div>
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="back">← Subscriptions</div>
+          <div class="head-row">
+            <span class="emoji">🎬</span>
+            <div><div class="title">Netflix Premium</div><div class="subt">Media &amp; Entertainment · Streaming</div></div>
+          </div>
+          <div class="badges">
+            <span class="badge b-muted">⏸ On hold</span>
+            <span class="badge b-neutral">Auto</span>
+          </div>
+          <div class="banner ban-hold">
+            <span class="ic">⏸</span>
+            <div><b>On hold since 7 Jun.</b> Not counted in your totals, reminders paused. Auto-resumes 1 Sep 2026.</div>
+          </div>
+          <div class="card">
+            <div class="amt" style="color:var(--muted)">TZS 45,000 <small>/ monthly</small></div>
+            <hr class="hr-soft">
+            <div class="drow"><span class="k">Status</span><span class="v">On hold</span></div>
+            <div class="drow"><span class="k">Resumes</span><span class="v">1 Sep 2026</span></div>
+          </div>
+          <div class="actions">
+            <div class="btn btn-resume btn-wide">▶ Resume now</div>
+            <div class="btn btn-stop">⏹ Stop</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">③ Held — greyed, with Resume now</p>
+    </div>
+
+    <!-- 4. STOP confirm + stopped + list -->
+    <div>
+      <div class="phone"><div class="screen sheet-frame">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body" style="filter:blur(.4px)">
+          <div class="back">← Subscriptions</div>
+          <div class="head-row">
+            <span class="emoji">🎬</span>
+            <div><div class="title">Netflix Premium</div><div class="subt">Media · Streaming</div></div>
+          </div>
+          <div class="badges"><span class="badge b-green">● Active</span><span class="badge b-neutral">Auto</span></div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grab"></div>
+          <h4>⏹ Stop this subscription?</h4>
+          <p>We'll mark it ended today and remove it from your spend totals. Your payment history and receipts
+             are kept, and you can reactivate it later.</p>
+          <div class="date-field">
+            <label>Ended on</label>
+            <div class="inp">📅 7 Jun 2026</div>
+          </div>
+          <div class="sheet-actions">
+            <div class="sa-cancel">Cancel</div>
+            <div class="sa-go sa-stop">Stop subscription</div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">④ Stop — confirm sheet (records end date)</p>
+    </div>
+
+  </div>
+
+  <hr class="rule">
+
+  <!-- ============ LIST VIEW ============ -->
+  <div class="sec-head"><span class="sec-num">03</span><span class="sec-title">Back in the list</span></div>
+  <p class="sec-note">Held &amp; stopped subscriptions stay visible but greyed, clearly badged, and excluded from the totals at the top.</p>
+
+  <div class="phone"><div class="screen">
+    <div class="notch"></div>
+    <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+    <div class="body">
+      <div class="eyebrow" style="font-size:10px">Household</div>
+      <div class="title" style="font-size:24px;margin-top:2px">Subscriptions</div>
+
+      <div class="card" style="display:flex;justify-content:space-between;text-align:center;padding:12px 10px">
+        <div><div class="lnext">This month</div><div class="lamt" style="font-size:15px">TZS 120k</div></div>
+        <div><div class="lnext">Monthly equiv</div><div class="lamt" style="font-size:15px">TZS 180k</div></div>
+        <div><div class="lnext">Active</div><div class="lamt" style="font-size:15px">4 subs</div></div>
+      </div>
+
+      <div class="lrow">
+        <span class="lemoji">📱</span>
+        <div class="lmain"><div class="ltitle">iCloud+ 200GB</div><div class="lsub">Mobile Apps · Cloud Storage</div>
+          <div class="lbadges"><span class="badge b-green">● Active</span></div></div>
+        <div class="lright"><div class="lamt">TZS 7.5k</div><div class="lnext">Next 20 Jun</div></div>
+      </div>
+
+      <div class="lrow dim">
+        <span class="lemoji">🎬</span>
+        <div class="lmain"><div class="ltitle">Netflix Premium</div><div class="lsub">Media · Streaming</div>
+          <div class="lbadges"><span class="badge b-muted">⏸ On hold</span></div></div>
+        <div class="lright"><div class="lamt">TZS 45k</div><div class="lnext">Paused</div></div>
+      </div>
+
+      <div class="lrow dim">
+        <span class="lemoji">🎫</span>
+        <div class="lmain"><div class="ltitle">City Gym</div><div class="lsub">Memberships · Sports / Gym</div>
+          <div class="lbadges"><span class="badge b-coral">⏹ Stopped</span></div></div>
+        <div class="lright"><div class="lamt">TZS 60k</div><div class="lnext">Ended 2 Jun</div></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="caption">Totals count only the active ones · held &amp; stopped stay for the record</p>
+
+  <hr class="rule">
+
+  <!-- ============ BEHAVIOUR KEY ============ -->
+  <div class="sec-head"><span class="sec-num">04</span><span class="sec-title">Exactly what changes</span></div>
+  <table class="key-tbl">
+    <tr><td>Hold</td><td>Sets status to <b>paused</b>. Drops out of <i>This-month-due</i>, <i>Monthly equivalent</i> &amp; the active count. Reminders + post-due "did you pay?" checks pause. Optional auto-resume date. One tap to <b>Resume</b>.</td></tr>
+    <tr><td>Stop</td><td>Sets status to <b>cancelled</b> and stamps <i>endedOn</i>. Removed from every spend total. Filed under <b>Stopped</b>. <b>Reactivate</b> brings it back to active.</td></tr>
+    <tr><td>Kept safe</td><td>Cycles, payment history &amp; receipts are never touched — held/stopped only changes what's <i>counted</i> going forward, exactly like the spec's "history is sacred" rule.</td></tr>
+    <tr><td>Who can</td><td>Parents only (matches today's Edit/Delete). Property &amp; Land subs mirrored from Wealth are managed there, as now.</td></tr>
+    <tr><td>Delete</td><td>Still there for "created by mistake" — but Hold/Stop is now the obvious choice for "I just want it to quit counting."</td></tr>
+  </table>
+
+  <div class="foot">
+    <h4>What I'll build once you approve 👍</h4>
+    <ul>
+      <li><span class="ok">Hold / Resume / Stop / Reactivate</span> action buttons on the subscription page (replacing the buried status dropdown).</li>
+      <li>The two confirm sheets above, incl. the optional <b>auto-resume date</b> and <b>ended-on</b> date.</li>
+      <li>Greyed rows + <b>On hold</b> / <b>Stopped</b> badges in the list; totals already exclude them.</li>
+      <li>A tiny scheduled check to auto-resume held subs on their chosen date.</li>
+    </ul>
+    <p class="lede" style="font-size:13.5px;margin-top:12px">
+      Reply <b>“approved”</b> and I'll ship it to a preview link for you to tap through before it goes live. 🚀
+    </p>
+  </div>
+
+</div>
+</body>
+</html>
