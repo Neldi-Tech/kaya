@@ -34,7 +34,11 @@ type NotifyType =
   | 'moment-new'
   | 'utility-bill-due'
   | 'perf-digest'
-  | 'meeting-recap';
+  | 'meeting-recap'
+  | 'payroll-test'
+  | 'payroll-raised'
+  | 'mark-paid-due'
+  | 'salary-paid';
 
 /** One helper's line in the daily performance digest email. */
 interface DigestHelper {
@@ -115,6 +119,11 @@ interface NotifyData {
   digestHelpers?: DigestHelper[];
   // Meeting recap book (b6)
   recap?: MeetingRecapData;
+  // Payroll notifications (2026-06-08)
+  monthLabel?: string;
+  payWindowLabel?: string;
+  totalFormatted?: string;
+  salaries?: { name: string; amount: string }[];
 }
 
 interface NotifyBody {
@@ -233,6 +242,40 @@ export async function POST(req: NextRequest) {
     html = renderEmail({
       preheader: `${r.leaderName ? r.leaderName + ' led · ' : ''}gratitudes, appreciations, goals & this week's points`,
       body: meetingRecapBody(r),
+    });
+  } else if (type === 'payroll-test') {
+    subject = `✅ Kaya payroll email — test`;
+    html = renderEmail({
+      preheader: 'This confirms Kaya can email this inbox for payroll updates.',
+      body: `<p style="margin:0 0 12px">This is a <b>test email</b> from Kaya.</p>
+        <p style="margin:0;color:#5C6975">If you received this, payroll reminders will reach this inbox. Manage them in Settings → Notifications.</p>`,
+    });
+  } else if (type === 'payroll-raised' || type === 'mark-paid-due') {
+    const list = (data.salaries ?? [])
+      .map((s) => `<tr><td style="padding:3px 0">${esc(s.name)}</td><td style="padding:3px 0;text-align:right;font-weight:700">${esc(s.amount)}</td></tr>`)
+      .join('');
+    const isRaise = type === 'payroll-raised';
+    subject = isRaise
+      ? `💰 ${data.monthLabel ?? 'This month'} salaries are ready`
+      : `⏰ Time to mark ${data.monthLabel ?? 'this month'} salaries paid`;
+    html = renderEmail({
+      preheader: isRaise
+        ? `Kaya booked ${data.monthLabel ?? 'the month'}'s salaries to budget — total ${data.totalFormatted ?? ''}.`
+        : `The pay window is open${data.payWindowLabel ? ` (${data.payWindowLabel})` : ''} — mark salaries paid.`,
+      body: `<p style="margin:0 0 10px">${isRaise
+          ? `Kaya raised <b>${data.monthLabel ?? "the month"}</b>'s salaries and booked them to budget as <b>Processing</b>:`
+          : `The pay window${data.payWindowLabel ? ` (<b>${esc(data.payWindowLabel)}</b>)` : ''} is open. Mark these salaries paid:`}</p>
+        <table style="width:100%;border-collapse:collapse;margin:6px 0 12px">${list}</table>
+        ${data.totalFormatted ? `<p style="margin:0 0 12px"><b>Total: ${esc(data.totalFormatted)}</b>${data.payWindowLabel ? ` · Pay window ${esc(data.payWindowLabel)}` : ''}</p>` : ''}
+        <p style="margin:0"><a href="${APP_URL}/pantry/payroll" style="display:inline-block;background:#F39C2F;color:#231;font-weight:800;border-radius:8px;padding:9px 16px;text-decoration:none">Open Payroll →</a></p>`,
+    });
+  } else if (type === 'salary-paid') {
+    subject = `🧾 Salary marked paid — ${data.monthLabel ?? ''}`.trim();
+    html = renderEmail({
+      preheader: `A salary was marked paid${data.totalFormatted ? ` (${data.totalFormatted})` : ''}.`,
+      body: `<p style="margin:0 0 10px">A salary was marked <b>paid</b>${data.monthLabel ? ` for <b>${esc(data.monthLabel)}</b>` : ''}.</p>
+        <table style="width:100%;border-collapse:collapse;margin:6px 0 12px">${(data.salaries ?? []).map((s) => `<tr><td style="padding:3px 0">${esc(s.name)}</td><td style="padding:3px 0;text-align:right;font-weight:700">${esc(s.amount)}</td></tr>`).join('')}</table>
+        <p style="margin:0;color:#5C6975">Recorded in the payroll history.</p>`,
     });
   } else {
     return NextResponse.json({ error: 'Unknown notification type' }, { status: 400 });

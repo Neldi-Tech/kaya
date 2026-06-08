@@ -382,6 +382,18 @@ export interface Family {
     subscriptions?: number;
     contributions?: number;
   };
+  /** Payroll email notifications (2026-06-08). Up to 2 extra inboxes that
+   *  get payroll emails (beyond the parents' login emails), plus a per-event
+   *  on/off. Managed in Settings → Notifications. */
+  payrollNotify?: {
+    extraEmails?: string[];           // max 2
+    events?: {
+      salaryRaised?: boolean;         // ~7 days before month-end
+      markPaidDue?: boolean;          // pay window opens
+      approvals?: boolean;            // a request needs a nod
+      salaryPaid?: boolean;           // marked-paid receipt
+    };
+  };
   /** Structured budget breakdowns — line items in their natural
    *  cadence (day/week/month/year), normalized to monthly on save.
    *  See `src/lib/budgetComposer.ts` for shape + helpers. (2026-05-19) */

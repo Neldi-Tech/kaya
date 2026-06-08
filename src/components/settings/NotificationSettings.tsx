@@ -13,6 +13,7 @@
 import { useEffect, useState } from 'react';
 import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { db } from '@/lib/firebase';
 import {
   pushSupported, getPermissionStatus, enablePush, disablePush, onForegroundMessage,
@@ -66,6 +67,73 @@ export default function NotificationSettings() {
       setDigestBusy(false);
     }
   }
+
+  // ── Payroll email notifications (2026-06-08) ──────────────────────
+  // Up to 2 extra inboxes + per-event on/off, stored on the family doc.
+  const { family } = useFamily();
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const [extraEmails, setExtraEmails] = useState<string[]>([]);
+  const [newEmail, setNewEmail] = useState('');
+  const [pnEvents, setPnEvents] = useState({ salaryRaised: true, markPaidDue: true, approvals: false, salaryPaid: false });
+  const [pnLoaded, setPnLoaded] = useState(false);
+  const [testMsg, setTestMsg] = useState<string | null>(null);
+  // Load once when the family arrives (don't clobber in-progress edits).
+  useEffect(() => {
+    if (!family?.id || pnLoaded) return;
+    const pn = family.payrollNotify;
+    if (pn) {
+      setExtraEmails(pn.extraEmails ?? []);
+      setPnEvents({
+        salaryRaised: pn.events?.salaryRaised ?? true,
+        markPaidDue: pn.events?.markPaidDue ?? true,
+        approvals: pn.events?.approvals ?? false,
+        salaryPaid: pn.events?.salaryPaid ?? false,
+      });
+    }
+    setPnLoaded(true);
+  }, [family?.id, family?.payrollNotify, pnLoaded]);
+
+  const savePayrollNotify = async (next: { extraEmails?: string[]; events?: typeof pnEvents }) => {
+    if (!family?.id) return;
+    const emails = next.extraEmails ?? extraEmails;
+    const events = next.events ?? pnEvents;
+    try {
+      await updateDoc(doc(db, 'families', family.id), { payrollNotify: { extraEmails: emails, events } });
+    } catch { /* best-effort; UI already optimistic */ }
+  };
+  const addEmail = () => {
+    const e = newEmail.trim().toLowerCase();
+    if (!EMAIL_RE.test(e)) { setTestMsg('Enter a valid email.'); return; }
+    if (extraEmails.includes(e)) { setNewEmail(''); return; }
+    if (extraEmails.length >= 2) { setTestMsg('Up to 2 extra emails.'); return; }
+    const next = [...extraEmails, e];
+    setExtraEmails(next); setNewEmail(''); setTestMsg(null);
+    void savePayrollNotify({ extraEmails: next });
+  };
+  const removeEmail = (e: string) => {
+    const next = extraEmails.filter((x) => x !== e);
+    setExtraEmails(next);
+    void savePayrollNotify({ extraEmails: next });
+  };
+  const toggleEvent = (k: keyof typeof pnEvents) => {
+    const next = { ...pnEvents, [k]: !pnEvents[k] };
+    setPnEvents(next);
+    void savePayrollNotify({ events: next });
+  };
+  const sendTest = async () => {
+    const to = Array.from(new Set([user?.email, profile?.email, ...extraEmails].filter(Boolean))) as string[];
+    if (to.length === 0) { setTestMsg('No email on file.'); return; }
+    setTestMsg('Sending…');
+    try {
+      const res = await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type: 'payroll-test', to, data: { familyName: family?.name } }),
+      });
+      const j = await res.json().catch(() => ({}));
+      setTestMsg(j?.skipped ? 'Email isn’t switched on yet (operator sets the key) — saved your settings though.' : `Test sent to ${to.length} inbox${to.length === 1 ? '' : 'es'}.`);
+    } catch { setTestMsg('Could not send — try again.'); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -251,6 +319,61 @@ export default function NotificationSettings() {
               </span>
             </span>
           </button>
+        </div>
+      )}
+
+      {/* Payroll emails — up to 2 extra inboxes + per-event prefs (2026-06-08). */}
+      {isParent && family?.id && (
+        <div className="mt-4 pt-4 border-t border-kaya-warm-dark/40">
+          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-2">📧 Payroll emails</p>
+
+          {/* Extra inboxes */}
+          <p className="text-[11px] text-kaya-sand leading-relaxed mb-1.5">
+            Emails go to your login email{extraEmails.length > 0 ? '' : ' — add up to 2 more inboxes for visibility'}.
+          </p>
+          <div className="space-y-1.5">
+            {extraEmails.map((e) => (
+              <div key={e} className="flex items-center gap-2 p-2 rounded-kaya-sm bg-kaya-cream">
+                <span className="text-[11px] font-semibold flex-1 min-w-0 truncate">📩 {e}</span>
+                <button onClick={() => removeEmail(e)} className="text-[10px] font-bold text-red-500 px-2">Remove</button>
+              </div>
+            ))}
+          </div>
+          {extraEmails.length < 2 && (
+            <div className="flex items-center gap-2 mt-2">
+              <input
+                type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addEmail(); }}
+                placeholder="another@email.com"
+                className="flex-1 h-9 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-[12px] font-semibold focus:outline-none focus:border-kaya-chocolate"
+              />
+              <button onClick={addEmail} className="h-9 px-3 bg-kaya-chocolate text-white rounded-kaya-sm text-[11px] font-black">＋ Add</button>
+            </div>
+          )}
+
+          {/* Per-event toggles */}
+          <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mt-3 mb-1.5">What emails you</p>
+          <div className="space-y-1">
+            {([
+              ['salaryRaised', '💰 Salary raised (≈7 days before month-end)'],
+              ['markPaidDue', '⏰ Time to mark salary paid (pay window opens)'],
+              ['approvals', '✅ Approvals waiting'],
+              ['salaryPaid', '🧾 Salary marked paid (receipt)'],
+            ] as [keyof typeof pnEvents, string][]).map(([k, label]) => (
+              <button key={k} type="button" onClick={() => toggleEvent(k)} className="w-full flex items-center justify-between gap-3 py-1.5 text-left">
+                <span className="text-[12px] font-semibold text-kaya-chocolate min-w-0">{label}</span>
+                <span className={`relative inline-flex h-6 w-11 flex-shrink-0 rounded-full transition-colors ${pnEvents[k] ? 'bg-kaya-gold' : 'bg-kaya-warm-dark'}`}>
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${pnEvents[k] ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3 mt-3">
+            <button onClick={sendTest} className="h-9 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-[11px] font-black text-kaya-chocolate">✉️ Send test email</button>
+            {testMsg && <span className="text-[10.5px] text-kaya-sand font-semibold">{testMsg}</span>}
+          </div>
+          <p className="text-[10px] text-kaya-sand-light leading-relaxed mt-2">Changes save automatically.</p>
         </div>
       )}
     </div>
