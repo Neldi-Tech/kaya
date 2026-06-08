@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest,
@@ -40,6 +41,7 @@ import { listHelpers } from '@/lib/helpers';
 export default function PayrollHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
+  const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
@@ -66,10 +68,42 @@ export default function PayrollHomePage() {
     if (!ok) return;
     try {
       await markSalaryPaid(profile.familyId, req.id, new Date());
+      // Receipt email (D) — fire-and-forget when the parent opted in.
+      void sendPaidReceipt(req);
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[payroll] markSalaryPaid failed:', e);
     }
+  };
+  // Email a "salary marked paid" receipt to the parent's inboxes when the
+  // family opted into the salaryPaid event. Best-effort; never blocks the tap.
+  const sendPaidReceipt = async (req: PurchaseRequest) => {
+    const pn = family?.payrollNotify;
+    if (!pn?.events?.salaryPaid) return;
+    const to = Array.from(new Set([profile?.email, ...(pn.extraEmails ?? [])].filter(Boolean))) as string[];
+    if (to.length === 0) return;
+    const cents = req.actualTotalCents ?? req.estimatedTotalCents ?? 0;
+    const monthLabel = (() => {
+      const mk = req.budgetMonth || req.payrollCycle?.periodStart?.slice(0, 7);
+      if (!mk) return undefined;
+      const [y, m] = mk.split('-').map(Number);
+      return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    })();
+    try {
+      await fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          type: 'salary-paid',
+          to,
+          data: {
+            monthLabel,
+            totalFormatted: `${currency} ${Math.round(cents / 100).toLocaleString('en-US')}`,
+            salaries: [{ name: req.name || 'Salary', amount: `${currency} ${Math.round(cents / 100).toLocaleString('en-US')}` }],
+          },
+        }),
+      });
+    } catch { /* best-effort */ }
   };
   // Remove a salary from the list (cleanup). A closed/Processing salary is
   // posted to budget, so deleting it also takes it off the budget — the
