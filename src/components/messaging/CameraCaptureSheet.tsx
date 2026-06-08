@@ -17,7 +17,7 @@
 // quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto, autoScanWithDetector } from '@/lib/photoEnhance';
+import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview } from '@/lib/photoEnhance';
 import { detectCornersBest } from '@/lib/scan/cvDetect';
 import DocumentCropEditor from '@/components/scan/DocumentCropEditor';
 
@@ -133,6 +133,21 @@ export default function CameraCaptureSheet({
   };
   const onCropCancel = () => { setCropFile(null); setRecropId(null); };
   const reCrop = (p: Page) => { setRecropId(p.id); setCropFile(p.original); };
+  // One-tap manual rotate of a page result (the reliable backstop when
+  // auto-rotate doesn't land — e.g. a landscape certificate shot in portrait).
+  const rotatePage = async (id: string) => {
+    const page = pages.find((p) => p.id === id);
+    if (!page) return;
+    setBusy(true); setError('');
+    try {
+      const r = await rotateFile90WithPreview(page.useEnhanced ? page.enhanced : page.original);
+      setPages((prev) => prev.map((p) => (p.id === id
+        ? { ...p, enhanced: r.file, enhancedUrl: r.previewUrl, useEnhanced: true }
+        : p)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not rotate.');
+    } finally { setBusy(false); }
+  };
 
   const toggleVariant = (id: string) => {
     setPages((prev) => prev.map((p) => (p.id === id ? { ...p, useEnhanced: !p.useEnhanced } : p)));
@@ -171,7 +186,7 @@ export default function CameraCaptureSheet({
 
   return (
     <>
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] bg-black/60 flex items-end sm:items-center justify-center p-3" onClick={onClose}>
       <div className="w-full sm:max-w-md bg-kaya-cream rounded-t-3xl sm:rounded-3xl p-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-baseline justify-between mb-1">
           <h3 className="font-display font-extrabold text-[16px] text-kaya-chocolate">{title}</h3>
@@ -216,13 +231,15 @@ export default function CameraCaptureSheet({
                   <span className="absolute bottom-1 left-1 text-[9px] font-black bg-kaya-chocolate text-white px-1.5 py-0.5 rounded">{p.framed ? 'Framed ✨' : 'AI ✨'}</span>
                 </button>
               </div>
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[10px] text-kaya-sand">Tap to choose which one we&apos;ll send.</p>
-                {mode === 'scan' && (
-                  <button type="button" onClick={() => reCrop(p)}
-                    className="text-[11px] font-bold text-kaya-chocolate hover:underline shrink-0">✂️ Adjust crop</button>
-                )}
-              </div>
+              <p className="text-[10px] text-kaya-sand">Tap a thumbnail to choose which we&apos;ll send.</p>
+              {mode === 'scan' && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button type="button" onClick={() => reCrop(p)} disabled={busy}
+                    className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">✂️ Adjust crop</button>
+                  <button type="button" onClick={() => rotatePage(p.id)} disabled={busy}
+                    className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">⟲ Rotate</button>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -493,6 +493,18 @@ export function documentClean(canvas: HTMLCanvasElement): void {
   } catch { /* blur filter unsupported — de-shadow + contrast already applied */ }
 }
 
+/** Rotate a File 90° CW → { file, previewUrl } for a one-tap manual rotate
+ *  on a scan result (keeps the same data-URL preview shape the UI expects). */
+export async function rotateFile90WithPreview(
+  file: File, options: EnhanceOptions = {},
+): Promise<{ file: File; previewUrl: string }> {
+  const img = await loadImage(file);
+  const { canvas } = drawToCanvas(img, options.maxLongSide ?? 1700);
+  const rotated = rotateCanvasDegrees(canvas, 90);
+  const out = await canvasToFile(rotated, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+  return { file: out, previewUrl: rotated.toDataURL('image/jpeg', options.quality ?? 0.92) };
+}
+
 /** Rotate a canvas 0/90/180/270° clockwise → a NEW canvas. */
 export function rotateCanvasDegrees(src: HTMLCanvasElement, deg: 0 | 90 | 180 | 270): HTMLCanvasElement {
   if (deg === 0) return src;
