@@ -11,10 +11,16 @@ import type { DocCorners } from '@/lib/photoEnhance';
 import { loadImage, detectDocumentCorners } from '@/lib/photoEnhance';
 
 // Pinned versions — the official global-`cv` build + jscanify UMD.
-const OPENCV_URL = 'https://docs.opencv.org/4.10.0/opencv.js';
-const JSCANIFY_URL = 'https://cdn.jsdelivr.net/npm/jscanify@1.3.0/dist/jscanify.min.js';
+// NOTE: both URLs are verified to resolve. The earlier paths 404'd, so the
+// detector never loaded on-device and silently fell back to the manual box —
+// the real cause of "auto-crop didn't work". opencv 4.9.0 is the canonical
+// global-`cv` build; jscanify 1.4.2 ships as a UMD that sets window.jscanify.
+const OPENCV_URL = 'https://docs.opencv.org/4.9.0/opencv.js';
+const JSCANIFY_URL = 'https://cdn.jsdelivr.net/npm/jscanify@1.4.2/src/jscanify.js';
 
-const DEFAULT_TIMEOUT = 9000;
+// Generous: opencv.js is ~8 MB; a phone on cellular needs headroom (it's
+// cached after the first scan). Falls back gracefully if it still times out.
+const DEFAULT_TIMEOUT = 20000;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Win = Window & { cv?: any; jscanify?: any };
