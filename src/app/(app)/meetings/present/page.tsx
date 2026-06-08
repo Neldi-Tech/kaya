@@ -549,8 +549,10 @@ export default function MeetingPresenterPage() {
                     setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
                   }}
                   prayerLibraryCount={prayerLibrary.length}
-                  // Sunday-Meeting v2 (b5): kid-attached song approval
-                  viewerRole={profile?.role || 'parent'}
+                  // Sunday-Meeting v2 (b5): kid-attached song approval.
+                  // 'guest' carries no meeting role — pass undefined so the
+                  // kid-song-approval gate never treats a guest as a kid.
+                  viewerRole={profile?.role === 'guest' ? undefined : (profile?.role || 'parent')}
                   viewerUid={profile?.uid || ''}
                   kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
                   songLinkApprovedBy={songLinkApprovedBy}
