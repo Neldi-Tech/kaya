@@ -17,7 +17,8 @@
 // quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto, autoFrameScan } from '@/lib/photoEnhance';
+import { enhancePhoto } from '@/lib/photoEnhance';
+import DocumentCropEditor from '@/components/scan/DocumentCropEditor';
 
 type Page = {
   id: string;
@@ -26,7 +27,7 @@ type Page = {
   enhancedUrl: string;
   originalUrl: string;
   useEnhanced: boolean;
-  /** scan mode: true when the page was auto-framed (vs clean-only fallback). */
+  /** scan mode: true when the page was cropped + flattened via the editor. */
   framed: boolean;
 };
 
@@ -44,6 +45,10 @@ export default function CameraCaptureSheet({
   const [pages, setPages] = useState<Page[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Crop editor (scan mode): the just-captured file awaiting crop, and the
+  // page being re-cropped (null = a new page).
+  const [cropFile, setCropFile] = useState<File | null>(null);
+  const [recropId, setRecropId] = useState<string | null>(null);
   // Trigger the camera the first time the sheet opens so the kid lands
   // straight in capture instead of staring at an empty modal.
   const triggered = useRef(false);
@@ -65,6 +70,8 @@ export default function CameraCaptureSheet({
         return [];
       });
       setError('');
+      setCropFile(null);
+      setRecropId(null);
     }
   }, [open]);
 
@@ -72,24 +79,25 @@ export default function CameraCaptureSheet({
     const file = e.target.files?.[0];
     e.target.value = '';                                       // allow re-capturing
     if (!file) return;
+    // Scan mode → open the crop editor (auto-detect seeds the corners; the
+    // user confirms/adjusts → flatten + clean). Photo mode → quick clean.
+    if (mode === 'scan') {
+      setError('');
+      setRecropId(null);
+      setCropFile(file);
+      return;
+    }
     setBusy(true); setError('');
     try {
-      let enhancedFile: File, previewUrl: string, framed = false;
-      if (mode === 'scan') {
-        const r = await autoFrameScan(file);
-        enhancedFile = r.file; previewUrl = r.previewUrl; framed = r.framed;
-      } else {
-        const r = await enhancePhoto(file);
-        enhancedFile = r.file; previewUrl = r.previewUrl;
-      }
+      const r = await enhancePhoto(file);
       const page: Page = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         original: file,
-        enhanced: enhancedFile,
-        enhancedUrl: previewUrl,
+        enhanced: r.file,
+        enhancedUrl: r.previewUrl,
         originalUrl: URL.createObjectURL(file),
-        useEnhanced: true,                                     // AI on by default
-        framed,
+        useEnhanced: true,
+        framed: false,
       };
       setPages((prev) => [...prev, page]);
     } catch (err) {
@@ -98,6 +106,30 @@ export default function CameraCaptureSheet({
       setBusy(false);
     }
   };
+
+  // Crop editor confirmed → add a new page (or replace the re-cropped one).
+  const onCropConfirm = (result: { file: File; previewUrl: string }) => {
+    const raw = cropFile;
+    if (!raw) return;
+    const originalUrl = URL.createObjectURL(raw);
+    setPages((prev) => {
+      if (recropId) {
+        return prev.map((p) => {
+          if (p.id !== recropId) return p;
+          URL.revokeObjectURL(p.originalUrl);
+          return { ...p, original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true };
+        });
+      }
+      return [...prev, {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true,
+      }];
+    });
+    setCropFile(null);
+    setRecropId(null);
+  };
+  const onCropCancel = () => { setCropFile(null); setRecropId(null); };
+  const reCrop = (p: Page) => { setRecropId(p.id); setCropFile(p.original); };
 
   const toggleVariant = (id: string) => {
     setPages((prev) => prev.map((p) => (p.id === id ? { ...p, useEnhanced: !p.useEnhanced } : p)));
@@ -135,6 +167,7 @@ export default function CameraCaptureSheet({
     : `Send ${pages.length} ${mode === 'scan' ? (pages.length === 1 ? 'page' : 'pages') : (pages.length === 1 ? 'photo' : 'photos')} →`;
 
   return (
+    <>
     <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center p-3" onClick={onClose}>
       <div className="w-full sm:max-w-md bg-kaya-cream rounded-t-3xl sm:rounded-3xl p-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-baseline justify-between mb-1">
@@ -180,7 +213,13 @@ export default function CameraCaptureSheet({
                   <span className="absolute bottom-1 left-1 text-[9px] font-black bg-kaya-chocolate text-white px-1.5 py-0.5 rounded">{p.framed ? 'Framed ✨' : 'AI ✨'}</span>
                 </button>
               </div>
-              <p className="text-[10px] text-kaya-sand">Tap to choose which one we'll send.</p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] text-kaya-sand">Tap to choose which one we&apos;ll send.</p>
+                {mode === 'scan' && (
+                  <button type="button" onClick={() => reCrop(p)}
+                    className="text-[11px] font-bold text-kaya-chocolate hover:underline shrink-0">✂️ Re-crop</button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -209,9 +248,18 @@ export default function CameraCaptureSheet({
           <p className="text-[10px] text-kaya-sand mt-2 text-center">One photo per send — tap Retake to swap.</p>
         )}
         {mode === 'scan' && (
-          <p className="text-[10px] text-kaya-sand mt-2 text-center">{pages.length}/10 pages · each goes as its own image (PDF in a follow-up).</p>
+          <p className="text-[10px] text-kaya-sand mt-2 text-center">{pages.length}/10 pages · crop each page, then send.</p>
         )}
       </div>
     </div>
+    {cropFile && (
+      <DocumentCropEditor
+        file={cropFile}
+        title={mode === 'scan' ? 'Crop the page' : 'Crop'}
+        onConfirm={onCropConfirm}
+        onCancel={onCropCancel}
+      />
+    )}
+    </>
   );
 }

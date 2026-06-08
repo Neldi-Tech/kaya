@@ -258,6 +258,7 @@ const LEVEL_OPTS: LobbyOption[] = [
   { value: 'easy', label: 'Easy', emoji: '🟢', hint: '×1' },
   { value: 'medium', label: 'Medium', emoji: '🟡', hint: '×1.5' },
   { value: 'hard', label: 'Hard', emoji: '🔴', hint: '×2' },
+  { value: 'auto', label: 'Auto', emoji: '🎚️', hint: 'grows' },
 ];
 const LOBBY_SETTINGS: Record<string, { key: string; label: string; options: LobbyOption[] }[]> = {
   uno: [{

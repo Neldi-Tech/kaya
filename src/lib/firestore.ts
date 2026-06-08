@@ -458,7 +458,40 @@ export interface Family {
       dayOfWeek: number;
       time: string;
     };
+    /** Sunday-Meeting v2 (b5): when a kid attaches a song link in the
+     *  Closing Reflection step, the family can require a parent to OK
+     *  it before it shows up as a playable button. Default = true (be
+     *  conservative — parents can flip it off in /settings/meetings). */
+    kidSongLinkRequiresApproval?: boolean;
+    /** Sunday-Meeting v2 (b6): after a meeting is submitted, email a
+     *  one-page "Meeting Recap Book" to parents + family contacts.
+     *  Default = true. Toggle in /settings/meetings. */
+    recapBookEmailEnabled?: boolean;
+    /** Whether the recap email includes the closing song link.
+     *  Default = true; flips off independently of recapBookEmailEnabled
+     *  so parents can keep the recap but drop the song. */
+    recapBookIncludeSong?: boolean;
+    /** Sunday-Meeting v2 (b7): how far ahead a Time Capsule note
+     *  stays sealed. Allowed: 0.5 (6 months), 1 (1 year), 3 (3 years).
+     *  Default = 1 year. The capsule's openOn lands on the nearest
+     *  scheduled meeting day within ±3 days of that anniversary. */
+    timeCapsuleLockYears?: 0.5 | 1 | 3;
   };
+  // ── Sunday-Meeting v2: leader queue ─────────────────────────
+  // The person queued to *run* the next meeting. Set by the current
+  // leader at the start of the meeting (Attendance step), either by
+  // tapping a chip or spinning the wheel. Displayed on the OpenStep
+  // reveal + on the chosen person's My Day from the moment it's set.
+  // `id` is uid (parents/helpers) or childId (kids); the snapshot
+  // fields let cards render without a join.
+  nextMeetingLeader?: {
+    id: string;             // uid or childId
+    name: string;
+    emoji: string;
+    kind: 'parent' | 'kid' | 'helper';
+    pickedBy: string;       // uid of the user who picked
+    pickedAt: number;       // epoch millis
+  } | null;
   createdAt: Timestamp;
 }
 
@@ -1081,6 +1114,11 @@ export interface Meeting {
     modes?: ReflectionMode[];
     /** v2 per-mode content. Missing entries = mode picked but blank. */
     contents?: Partial<Record<ReflectionMode, string>>;
+    /** Sunday-Meeting v2 (b5): uid of the parent who approved a
+     *  kid-attached song link (only set when approval was required).
+     *  Empty / undefined = either no song link, or a parent typed it
+     *  themselves, or the family disabled the approval requirement. */
+    songLinkApprovedBy?: string;
   };
 }
 

@@ -41,6 +41,9 @@ export interface GamesConfig {
   /** Days a saved Story Builder keepsake stays readable in the gallery.
    *  0 = keep forever. Stories past this age are hidden (and later pruned). */
   storyRetentionDays: number;
+  /** Question of the Day — pay a Fun-Points streak bonus every this-many days
+   *  in a row a player answers the daily question. Default 3 (Games Controls). */
+  qotdStreakTarget: number;
 }
 
 // Defaults are deliberately permissive: Games is being switched ON for
@@ -59,6 +62,7 @@ export const DEFAULT_GAMES_CONFIG: GamesConfig = {
   youngMaxAge: 6,
   gamePoints: {},
   storyRetentionDays: 30,
+  qotdStreakTarget: 3,
 };
 
 /** Min/max/step for the per-game points editor + the caps. Points carry

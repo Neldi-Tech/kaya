@@ -30,8 +30,20 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   createMeeting, updateMeeting, getMeetings, getFamilyMembers,
+  updateFamily,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
+import {
+  getMeetingSubmissions, clearMeetingSubmissions,
+  type MeetingSubmission,
+} from '@/lib/meetingSubmissions';
+import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
+import {
+  listFamilyCapsules, dueCapsules, sealCapsule,
+  reflectOnCapsule,
+  computeOpenOn,
+  type FamilyCapsule,
+} from '@/lib/familyCapsules';
 
 // ── Agenda definition ──────────────────────────────────────────────
 // Canonical step catalog — the presenter renders the subset that the
@@ -179,6 +191,10 @@ export default function MeetingPresenterPage() {
   // is what we persist with the saved meeting — derived once from the
   // setup so the meeting record reflects what actually played.
   const [reflectionModes, setReflectionModes] = useState<ReflectionMode[]>([]);
+  // Sunday-Meeting v2 (b5): when a kid pastes a song URL and the family
+  // requires parent approval, this captures the uid of the parent who
+  // OK'd it. Persisted on handleFinish under reflection.songLinkApprovedBy.
+  const [songLinkApprovedBy, setSongLinkApprovedBy] = useState<string | null>(null);
   const [reflectionContents, setReflectionContents] =
     useState<Partial<Record<ReflectionMode, string>>>({});
   const [reflectionSeeded, setReflectionSeeded] = useState(false);
@@ -250,6 +266,42 @@ export default function MeetingPresenterPage() {
     return () => { cancelled = true; };
   }, [profile?.familyId, profile]);
 
+  // Async pre-fill submissions — fetched once on mount. Presenter
+  // displays them as read-only "what they wrote" rows above the live
+  // editable per-kid inputs on Gratitude / Appreciations / Goals.
+  // Sunday-Meeting v2 (b2).
+  const [submissions, setSubmissions] = useState<MeetingSubmission[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    let cancelled = false;
+    getMeetingSubmissions(profile.familyId).then((rows) => {
+      if (!cancelled) setSubmissions(rows);
+    }).catch(() => { /* tolerate offline / empty */ });
+    return () => { cancelled = true; };
+  }, [profile?.familyId]);
+
+  // Family Time Capsule — Sunday-Meeting v2 (b7). Sealed notes from
+  // ~1 year ago surface as the first reveal of the meeting if today
+  // falls in their ±3-day window. Sealed locally and re-fetched after
+  // a seal so the closing step reflects the new entry.
+  const [capsules, setCapsules] = useState<FamilyCapsule[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    let cancelled = false;
+    listFamilyCapsules(profile.familyId).then((rows) => {
+      if (!cancelled) setCapsules(rows);
+    }).catch(() => { /* tolerate offline */ });
+    return () => { cancelled = true; };
+  }, [profile?.familyId]);
+  const todayIsoLocal = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+  const dueCapsulesList = useMemo(
+    () => dueCapsules(capsules, todayIsoLocal, 3),
+    [capsules, todayIsoLocal],
+  );
+
   // Default attendance to "everyone in the household present" once
   // the kid + parent lists arrive. Only runs once so a manual
   // deselection isn't overwritten if a list refreshes.
@@ -314,6 +366,7 @@ export default function MeetingPresenterPage() {
               .map((m) => [m, (reflectionContents[m] || '').trim()])
               .filter(([, v]) => v),
           ) as Partial<Record<ReflectionMode, string>>,
+          ...(songLinkApprovedBy ? { songLinkApprovedBy } : {}),
         }
       : undefined;
 
@@ -338,6 +391,29 @@ export default function MeetingPresenterPage() {
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+    // Clear async pre-fill submissions so next week's meeting starts
+    // with empty prompts. Tolerated to fail silently — submissions are
+    // a soft state, the meeting itself is saved.
+    clearMeetingSubmissions(profile.familyId).catch(() => { /* non-fatal */ });
+
+    // Sunday-Meeting v2 (b6): email the Meeting Recap Book to parents +
+    // Family contacts when the family has it switched on (default ON).
+    // Fire-and-forget — recap is a perk, not a barrier to finishing.
+    const recapEnabled = family?.meetingSetup?.recapBookEmailEnabled ?? true;
+    if (recapEnabled) {
+      sendMeetingRecapEmail({
+        family,
+        payload,
+        submissions,
+        householdParents,
+        children,
+        songLinkApprovedBy,
+      }).catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn('[meeting-recap] send failed (non-fatal):', e);
+      });
+    }
+
     setSaving(false);
     setDone(true);
     // Clear the persisted step so next week's meeting starts at step 1.
@@ -430,11 +506,42 @@ export default function MeetingPresenterPage() {
 
               {/* Step body */}
               {step.id === 'open' && (
-                <OpenStep
-                  family={family}
-                  leaderName={profile?.displayName}
-                  onContinue={() => setStepIdx(safeStepIdx + 1)}
-                />
+                <>
+                  {dueCapsulesList.length > 0 && (
+                    <CapsuleReveal
+                      capsules={dueCapsulesList}
+                      onReflect={async (id, cameTrue) => {
+                        if (!profile?.familyId) return;
+                        await reflectOnCapsule(profile.familyId, id, cameTrue);
+                        setCapsules((prev) => prev.map((c) =>
+                          c.id === id ? { ...c, status: 'reflected', cameTrue } : c
+                        ));
+                      }}
+                    />
+                  )}
+                  <OpenStep
+                    family={family}
+                    // Prefer the queued leader (set last meeting); fall back
+                    // to whoever's driving the device right now so a
+                    // first-ever meeting isn't blank.
+                    leaderName={family?.nextMeetingLeader?.name || profile?.displayName}
+                    leaderEmoji={family?.nextMeetingLeader?.emoji}
+                    onContinue={() => setStepIdx(safeStepIdx + 1)}
+                  />
+                </>
+              )}
+
+              {step.id === 'attendance' && profile?.familyId && (
+                <>
+                  <LeaderPicker
+                    familyId={profile.familyId}
+                    queued={family?.nextMeetingLeader || null}
+                    parents={householdParents}
+                    childrenList={children}
+                    currentUserUid={profile.uid}
+                  />
+                  <div className="my-5 lg:my-7 h-px bg-white/10" aria-hidden />
+                </>
               )}
 
               {step.id === 'attendance' && (
@@ -476,12 +583,15 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'gratitude' && (
-                <PerKidTextInputs
-                  childrenList={children}
-                  values={gratitude}
-                  onChange={setGratitude}
-                  placeholder="I'm thankful for…"
-                />
+                <>
+                  <SubmittedList kind="gratitudes" submissions={submissions} />
+                  <PerKidTextInputs
+                    childrenList={children}
+                    values={gratitude}
+                    onChange={setGratitude}
+                    placeholder="I'm thankful for…"
+                  />
+                </>
               )}
 
               {step.id === 'celebrate' && (
@@ -489,40 +599,71 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'appreciations' && (
-                <PerKidTextInputs
-                  childrenList={children}
-                  values={appreciations}
-                  onChange={setAppreciations}
-                  placeholder="I appreciated when…"
-                  multiline
-                />
+                <>
+                  <SubmittedList kind="appreciations" submissions={submissions} />
+                  <PerKidTextInputs
+                    childrenList={children}
+                    values={appreciations}
+                    onChange={setAppreciations}
+                    placeholder="I appreciate @name for…"
+                    multiline
+                  />
+                </>
               )}
 
               {step.id === 'goals' && (
-                <GoalsStep
-                  childrenList={children}
-                  recentMeetings={recentMeetings}
-                  reviewedGoalsDone={reviewedGoalsDone}
-                  onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
-                  goals={goals}
-                  onChangeGoals={setGoals}
-                />
+                <>
+                  <SubmittedList kind="goals" submissions={submissions} />
+                  <GoalsStep
+                    childrenList={children}
+                    recentMeetings={recentMeetings}
+                    reviewedGoalsDone={reviewedGoalsDone}
+                    onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
+                    goals={goals}
+                    onChangeGoals={setGoals}
+                  />
+                </>
               )}
 
               {step.id === 'reflection' && (
-                <ReflectionStep
-                  enabledModes={enabledClosingModes}
-                  contents={reflectionContents}
-                  onContentChange={(m, v) =>
-                    setReflectionContents({ ...reflectionContents, [m]: v })
-                  }
-                  onCelebratePrayer={() => {
-                    // Snapshot the prayer text so on-stage typography
-                    // doesn't reflow if the textarea changes mid-fall.
-                    setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
-                  }}
-                  prayerLibraryCount={prayerLibrary.length}
-                />
+                <>
+                  <ReflectionStep
+                    enabledModes={enabledClosingModes}
+                    contents={reflectionContents}
+                    onContentChange={(m, v) => {
+                      setReflectionContents({ ...reflectionContents, [m]: v });
+                      // If the songs content was *changed*, any prior
+                      // approval no longer applies — they might've pasted
+                      // a totally different link. Re-arm the gate.
+                      if (m === 'songs') setSongLinkApprovedBy(null);
+                    }}
+                    onCelebratePrayer={() => {
+                      // Snapshot the prayer text so on-stage typography
+                      // doesn't reflow if the textarea changes mid-fall.
+                      setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
+                    }}
+                    prayerLibraryCount={prayerLibrary.length}
+                    // Sunday-Meeting v2 (b5): kid-attached song approval.
+                    // 'guest' carries no meeting role — pass undefined so the
+                    // kid-song-approval gate never treats a guest as a kid.
+                    viewerRole={profile?.role === 'guest' ? undefined : (profile?.role || 'parent')}
+                    viewerUid={profile?.uid || ''}
+                    kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
+                    songLinkApprovedBy={songLinkApprovedBy}
+                    onApproveSongLink={(uid) => setSongLinkApprovedBy(uid)}
+                  />
+                  {/* Time Capsule sealer — last beat of the meeting. */}
+                  {profile?.familyId && profile?.uid && (
+                    <CapsuleSealer
+                      familyId={profile.familyId}
+                      uid={profile.uid}
+                      displayName={profile.displayName || 'Family'}
+                      lockYears={family?.meetingSetup?.timeCapsuleLockYears ?? 1}
+                      scheduleDayOfWeek={family?.meetingSetup?.schedule?.dayOfWeek}
+                      onSealed={(c) => setCapsules((prev) => [...prev, c])}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
@@ -603,12 +744,14 @@ const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','
 function OpenStep({
   family,
   leaderName,
+  leaderEmoji,
   onContinue,
 }: {
   family: any; // Family doc; loose-typed here because the import chain
                // is heavy and the only fields touched are meetingSetup +
                // name (both optional with safe fallbacks).
   leaderName?: string;
+  leaderEmoji?: string;
   onContinue: () => void;
 }) {
   const sch = family?.meetingSetup?.schedule;
@@ -684,9 +827,9 @@ function OpenStep({
         {leaderName && (
           <div className="inline-flex items-center gap-2 bg-white text-kaya-chocolate rounded-full pl-1.5 pr-3.5 py-1 mt-5 font-display font-black text-sm shadow-[0_6px_18px_rgba(212,160,23,0.35)]">
             <span className="w-6 h-6 rounded-full bg-kaya-gold-light flex items-center justify-center text-base" aria-hidden>
-              🎤
+              {leaderEmoji || '🎤'}
             </span>
-            {leaderName} · opening
+            {leaderName} · leading
           </div>
         )}
 
@@ -702,6 +845,569 @@ function OpenStep({
             We&apos;ll move from step to step on autopilot — the leader can jump anywhere from the bars at the top.
           </p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Family Time Capsule (Sunday-Meeting v2 · b7) ─────────────────────
+// Two components:
+//   • CapsuleReveal — on the Open step, surface any sealed notes whose
+//     openOn lands within ±3 days of today. Same warm gold motif as
+//     the rest of the opener so it feels like part of the ceremony.
+//   • CapsuleSealer — on the Closing step, let one person leave a
+//     single-line note that gets sealed for the family's lock window
+//     (default 1 year). The openOn is snapped to the nearest scheduled
+//     meeting within ±3 days of the anniversary.
+
+function CapsuleReveal({
+  capsules, onReflect,
+}: {
+  capsules: FamilyCapsule[];
+  onReflect: (id: string, cameTrue: boolean) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  return (
+    <div className="mb-6 lg:mb-8 space-y-3">
+      {capsules.map((c) => {
+        const ageYears = (Date.now() - c.writtenAt) / (365.25 * 24 * 60 * 60 * 1000);
+        const ageLabel = ageYears >= 0.9 && ageYears <= 1.1 ? 'A year ago'
+          : ageYears >= 2.8 ? `${Math.round(ageYears)} years ago`
+          : `${Math.round(ageYears * 12)} months ago`;
+        const reflected = c.status === 'reflected';
+        return (
+          <div
+            key={c.id}
+            className="rounded-3xl border border-kaya-gold/60 p-5 lg:p-6 text-center"
+            style={{ background: 'linear-gradient(180deg, rgba(212,160,23,0.10), rgba(212,160,23,0.04))' }}
+          >
+            <div className="text-4xl lg:text-5xl mb-2">🎁</div>
+            <p className="text-[10px] uppercase tracking-[0.24em] font-extrabold text-kaya-gold-light/85">
+              💌 {ageLabel}, your family wrote…
+            </p>
+            <p className="font-display text-lg lg:text-xl font-extrabold italic text-white mt-3 leading-snug">
+              &ldquo;{c.text}&rdquo;
+            </p>
+            <p className="text-[11px] text-white/55 mt-2">
+              — {c.writtenByEmoji || '✍️'} {c.writtenByName}
+            </p>
+            {!reflected ? (
+              <div className="mt-5 flex items-center justify-center gap-2 flex-wrap">
+                <span className="text-[12px] text-white/70">Did it come true?</span>
+                <button
+                  type="button"
+                  onClick={async () => { setBusy(c.id); try { await onReflect(c.id, true); } finally { setBusy(null); } }}
+                  disabled={busy === c.id}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-emerald-500 hover:bg-emerald-400 text-emerald-950 text-[12px] font-extrabold transition-colors disabled:opacity-50"
+                >
+                  ✓ Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => { setBusy(c.id); try { await onReflect(c.id, false); } finally { setBusy(null); } }}
+                  disabled={busy === c.id}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-white/10 hover:bg-white/15 text-white/85 text-[12px] font-extrabold transition-colors disabled:opacity-50"
+                >
+                  Not yet
+                </button>
+              </div>
+            ) : (
+              <p className="mt-4 text-[12px] font-extrabold text-emerald-300">
+                ✓ {c.cameTrue ? 'Came true 🎉' : 'Carried forward 💛'}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CapsuleSealer({
+  familyId, uid, displayName, lockYears, scheduleDayOfWeek, onSealed,
+}: {
+  familyId: string;
+  uid: string;
+  displayName: string;
+  lockYears: number;
+  scheduleDayOfWeek?: number;
+  onSealed: (capsule: FamilyCapsule) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [sealed, setSealed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const openOnPreview = useMemo(
+    () => computeOpenOn({ from: new Date(), lockYears, scheduleDayOfWeek }),
+    [lockYears, scheduleDayOfWeek],
+  );
+
+  const lockLabel = lockYears === 0.5 ? '6 months' : lockYears === 3 ? '3 years' : '1 year';
+
+  const handleSeal = async () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setSaving(true); setError(null);
+    try {
+      const id = await sealCapsule(familyId, {
+        text: trimmed,
+        writtenByUid: uid,
+        writtenByName: displayName,
+        openOn: openOnPreview,
+        lockYears,
+      });
+      const c: FamilyCapsule = {
+        id,
+        text: trimmed,
+        writtenByUid: uid,
+        writtenByName: displayName,
+        writtenAt: Date.now(),
+        openOn: openOnPreview,
+        lockYears,
+        status: 'sealed',
+      };
+      onSealed(c);
+      setSealed(true);
+    } catch (e: any) {
+      setError(e?.message || 'Could not seal — try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 lg:mt-8 rounded-kaya-lg border border-purple-400/40 bg-purple-500/[0.07] p-5 lg:p-6">
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full text-left"
+        >
+          <p className="text-[10px] uppercase tracking-[0.2em] font-extrabold text-purple-200/85">
+            💌 Family Time Capsule · optional
+          </p>
+          <p className="font-display font-extrabold text-base lg:text-lg text-white mt-1">
+            Leave a one-line note to your future family
+          </p>
+          <p className="text-[12px] text-white/55 mt-1">
+            We&apos;ll seal it for {lockLabel} and surface it on the closest meeting to that date.
+          </p>
+        </button>
+      ) : sealed ? (
+        <div className="text-center">
+          <div className="text-3xl mb-1">🔒</div>
+          <p className="font-display font-extrabold text-white text-base">Sealed for {lockLabel}!</p>
+          <p className="text-[12px] text-white/60 mt-1">
+            Opens around <b className="text-purple-200">{openOnPreview}</b>.
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] uppercase tracking-[0.2em] font-extrabold text-purple-200/85 mb-2">
+            💌 Family Time Capsule
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={180}
+            placeholder="A hope, a quote, a tiny prediction…"
+            rows={3}
+            className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/60 resize-none leading-relaxed"
+          />
+          <p className="mt-2 text-[11px] text-white/55">
+            Sealed for <b className="text-purple-200">{lockLabel}</b> · opens around <b className="text-purple-200">{openOnPreview}</b>{scheduleDayOfWeek !== undefined ? ' (snapped to your meeting day · ±3 days)' : ''}.
+          </p>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSeal}
+              disabled={saving || text.trim().length === 0}
+              className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-purple-500 hover:bg-purple-400 text-white font-display font-extrabold text-[13px] transition-colors disabled:opacity-50"
+            >
+              🔒 Seal for {lockLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="inline-flex items-center h-11 px-4 rounded-full bg-white/10 hover:bg-white/15 text-white/80 text-[12px] font-bold transition-colors"
+            >
+              Cancel
+            </button>
+            {error && <span className="text-[11px] text-rose-300 font-bold">⚠️ {error}</span>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Async pre-fill display ───────────────────────────────────────────
+// Sunday-Meeting v2 (b2). Reads everyone's pre-meeting submissions and
+// surfaces them as a stack of read-only rows above the live per-kid
+// inputs. The presenter / leader can still type in the live inputs to
+// add or refine on the night — submissions are the *starting point*,
+// not the only point.
+function SubmittedList({
+  kind, submissions,
+}: {
+  kind: 'gratitudes' | 'appreciations' | 'goals';
+  submissions: MeetingSubmission[];
+}) {
+  // Filter out anyone who didn't fill *this* section. Order by name so
+  // the screen reads consistently across steps.
+  const rows = submissions
+    .map((s) => ({ submitter: s, lines: s[kind] || [] }))
+    .filter((r) => r.lines.length > 0)
+    .sort((a, b) => a.submitter.name.localeCompare(b.submitter.name));
+
+  if (rows.length === 0) return null;
+
+  const sectionLabel = kind === 'gratitudes' ? 'Filled in advance · Gratitudes'
+    : kind === 'appreciations' ? 'Filled in advance · Appreciations'
+    : 'Filled in advance · Goals';
+
+  return (
+    <div className="mb-5 lg:mb-7 rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
+      <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
+        📨 {sectionLabel}
+      </p>
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <li key={r.submitter.uid} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
+            <span className="text-base lg:text-lg" aria-hidden>
+              {r.submitter.emoji || (r.submitter.role === 'kid' ? '🧒' : '👤')}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-white">{r.submitter.name}</p>
+              <ul className="text-white/80 leading-snug">
+                {r.lines.map((line, i) => (
+                  <li key={i} className="italic">&ldquo;{line}&rdquo;</li>
+                ))}
+              </ul>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// ── Leader queue + Spinning Wheel ────────────────────────────────────
+// Sunday-Meeting v2 (b1). Lives inside the Attendance step. Lets the
+// current leader queue *who runs the next meeting* — either by tapping
+// a member chip or spinning the 🎡 wheel for a fair random pick.
+//
+// Pool = parents + kids only by default (per Elia's tweak). Helpers,
+// grandparents, and guests can be added later via a parent-approval
+// flow (out of scope for PR 4; the data shape already supports it).
+//
+// Persistence: `Family.nextMeetingLeader` (top-level on the Family doc,
+// not nested under meetingSetup — it changes weekly while meetingSetup
+// is configuration). Saved via `updateFamily`, no rules change needed:
+// existing rules already allow parents to write the Family doc.
+
+type LeaderPoolMember = {
+  id: string;
+  name: string;
+  emoji: string;
+  kind: 'parent' | 'kid' | 'helper';
+};
+
+function LeaderPicker({
+  familyId, queued, parents, childrenList, currentUserUid,
+}: {
+  familyId: string;
+  queued: { id: string; name: string; emoji: string; kind: 'parent' | 'kid' | 'helper' } | null;
+  parents: Array<{ uid: string; name: string; avatarEmoji?: string }>;
+  childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  currentUserUid: string;
+}) {
+  const [wheelOpen, setWheelOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const pool: LeaderPoolMember[] = useMemo(() => [
+    ...parents.map((p) => ({
+      id: p.uid,
+      name: p.name,
+      emoji: p.avatarEmoji || '👤',
+      kind: 'parent' as const,
+    })),
+    ...childrenList.map((c) => ({
+      id: c.id,
+      name: c.name,
+      emoji: c.avatarEmoji || '🧒',
+      kind: 'kid' as const,
+    })),
+  ], [parents, childrenList]);
+
+  const handlePick = async (member: LeaderPoolMember) => {
+    if (saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await updateFamily(familyId, {
+        nextMeetingLeader: {
+          id: member.id,
+          name: member.name,
+          emoji: member.emoji,
+          kind: member.kind,
+          pickedBy: currentUserUid,
+          pickedAt: Date.now(),
+        },
+      });
+    } catch (e: any) {
+      setError(e?.message || 'Could not save the pick.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-kaya-lg border border-white/15 bg-gradient-to-br from-kaya-gold/10 via-transparent to-transparent p-4 lg:p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-xl" aria-hidden>🎤</span>
+        <div className="flex-1 min-w-0">
+          <p className="text-[10px] uppercase tracking-[0.18em] font-extrabold text-kaya-gold-light">
+            Next meeting leader
+          </p>
+          <p className="text-[13px] text-white/75">
+            {queued ? (
+              <>
+                <span className="font-bold text-white">{queued.emoji} {queued.name}</span>
+                <span className="text-white/55"> is queued to lead next.</span>
+              </>
+            ) : (
+              <>Tap someone — or <span className="font-bold text-kaya-gold-light">spin the wheel</span> for a fair pick.</>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {pool.length === 0 ? (
+        <p className="text-xs text-white/55 italic">No family members in the pool yet.</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-1.5 lg:gap-2 mb-3">
+            {pool.map((m) => {
+              const isPicked = queued?.id === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => handlePick(m)}
+                  disabled={saving}
+                  className={`inline-flex items-center gap-1.5 h-9 lg:h-10 px-3 rounded-full text-xs lg:text-sm font-bold transition-colors disabled:opacity-50 ${
+                    isPicked
+                      ? 'bg-kaya-gold text-kaya-chocolate border-2 border-kaya-gold-light'
+                      : 'bg-white/10 hover:bg-white/15 text-white border-2 border-transparent'
+                  }`}
+                >
+                  <span aria-hidden>{m.emoji}</span>
+                  <span>{m.name}</span>
+                  {isPicked && <span aria-hidden>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setWheelOpen(true)}
+            disabled={saving}
+            className="inline-flex items-center gap-2 h-10 px-4 rounded-full bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/40 text-xs lg:text-sm font-bold transition-colors disabled:opacity-50"
+          >
+            🎡 <span>Spin the Wheel</span>
+          </button>
+
+          <p className="mt-2 text-[10.5px] text-white/45">
+            Pool: parents + kids. Helpers and grandparents can be added later (parent-approved).
+          </p>
+
+          {error && (
+            <p className="mt-2 text-[11px] text-rose-300">⚠️ {error}</p>
+          )}
+        </>
+      )}
+
+      {wheelOpen && (
+        <LeaderWheel
+          pool={pool}
+          onClose={() => setWheelOpen(false)}
+          onLand={async (m) => {
+            await handlePick(m);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── LeaderWheel — CSS-only roulette ──────────────────────────────────
+// Surprise touch from the v2 design proposal. A 1.6s deterministic spin
+// (rotation calculated so the chosen sector lands under the pointer),
+// then a confetti-light "🎉 {name}!" reveal. No canvas, no animation
+// library — single conic-gradient + transform on a transition.
+
+function LeaderWheel({
+  pool, onLand, onClose,
+}: {
+  pool: LeaderPoolMember[];
+  onLand: (m: LeaderPoolMember) => Promise<void> | void;
+  onClose: () => void;
+}) {
+  const SECTOR_COLOURS = ['#D4A017','#3FAF6C','#E36F6F','#9B5DE5','#3FAFD0','#B8860B','#FF6B6B','#0F1F44'];
+  const sectorDeg = 360 / Math.max(1, pool.length);
+  const conic = useMemo(() => {
+    if (pool.length === 0) return SECTOR_COLOURS[0];
+    const stops: string[] = [];
+    for (let i = 0; i < pool.length; i++) {
+      const colour = SECTOR_COLOURS[i % SECTOR_COLOURS.length];
+      const from = (i * sectorDeg).toFixed(3);
+      const to   = ((i + 1) * sectorDeg).toFixed(3);
+      stops.push(`${colour} ${from}deg ${to}deg`);
+    }
+    return `conic-gradient(${stops.join(',')})`;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pool.length]);
+
+  const [rotation, setRotation] = useState(0);
+  const [phase, setPhase] = useState<'idle' | 'spinning' | 'landed'>('idle');
+  const [winnerIdx, setWinnerIdx] = useState<number | null>(null);
+
+  const handleSpin = () => {
+    if (phase !== 'idle' || pool.length === 0) return;
+    const idx = Math.floor(Math.random() * pool.length);
+    // Pointer sits at the top (12 o'clock = 0°/360°). Sector i's
+    // *centre* sits at `i * sectorDeg + sectorDeg/2` (measured
+    // clockwise from 0°). To land it under the pointer we rotate the
+    // wheel so that centre ends up at 0° (mod 360). With a CSS
+    // `transform: rotate(R)` (positive = clockwise), the visible
+    // angle of sector i becomes `(i*sectorDeg + sectorDeg/2 + R) mod 360`.
+    // We want that === 0 → R ≡ -(i*sectorDeg + sectorDeg/2). Add
+    // multiple full spins so it actually *spins*.
+    const fullSpins = 5;
+    const targetDelta = - (idx * sectorDeg + sectorDeg / 2);
+    const newRotation = rotation + fullSpins * 360 + ((targetDelta % 360) - (rotation % 360) + 720) % 360;
+    setRotation(newRotation);
+    setWinnerIdx(idx);
+    setPhase('spinning');
+    setTimeout(async () => {
+      setPhase('landed');
+      await onLand(pool[idx]);
+    }, 1700);
+  };
+
+  const winner = winnerIdx !== null ? pool[winnerIdx] : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Spin the Leader Wheel"
+      onClick={(e) => { if (e.target === e.currentTarget && phase !== 'spinning') onClose(); }}
+    >
+      <div className="relative w-full max-w-sm bg-kaya-chocolate text-white rounded-3xl border border-white/15 shadow-2xl p-6 text-center">
+        <button
+          type="button"
+          onClick={onClose}
+          disabled={phase === 'spinning'}
+          aria-label="Close wheel"
+          className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-base flex items-center justify-center disabled:opacity-50"
+        >
+          ✕
+        </button>
+
+        <p className="text-[10px] uppercase tracking-[0.24em] font-extrabold text-kaya-gold-light/90">
+          🎡 Leader Wheel
+        </p>
+        <h3 className="font-display text-2xl font-black mt-1 mb-4">
+          {phase === 'landed' && winner ? `🎉 ${winner.name}!` : 'Spin for a fair pick'}
+        </h3>
+
+        {/* Wheel */}
+        <div className="relative mx-auto" style={{ width: 220, height: 220 }}>
+          {/* Pointer */}
+          <div
+            aria-hidden
+            className="absolute z-10"
+            style={{
+              top: -4,
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: 0,
+              height: 0,
+              borderLeft: '12px solid transparent',
+              borderRight: '12px solid transparent',
+              borderTop: '20px solid #1E120B',
+              filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.4))',
+            }}
+          />
+          <div
+            className="w-full h-full rounded-full"
+            style={{
+              background: conic,
+              boxShadow: '0 12px 28px rgba(0,0,0,0.45), inset 0 0 0 6px white',
+              transition: phase === 'spinning' ? 'transform 1.6s cubic-bezier(0.17, 0.67, 0.21, 1.0)' : 'none',
+              transform: `rotate(${rotation}deg)`,
+            }}
+          />
+          {/* Hub */}
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            aria-hidden
+          >
+            <div
+              className="w-14 h-14 rounded-full bg-white text-2xl flex items-center justify-center"
+              style={{ boxShadow: 'inset 0 0 0 3px #D4A017' }}
+            >
+              {phase === 'landed' && winner ? winner.emoji : '🎤'}
+            </div>
+          </div>
+        </div>
+
+        {/* Pool legend */}
+        <div className="grid grid-cols-3 gap-1.5 mt-4 text-[10.5px] font-bold text-white/55">
+          {pool.map((m, i) => (
+            <div
+              key={m.id}
+              className={`${winnerIdx === i && phase === 'landed' ? 'text-kaya-gold' : ''} truncate`}
+              title={m.name}
+            >
+              {m.emoji} {m.name}
+            </div>
+          ))}
+        </div>
+
+        {phase === 'idle' && (
+          <button
+            type="button"
+            onClick={handleSpin}
+            className="mt-5 inline-flex items-center gap-2 h-11 px-6 rounded-full bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-black text-sm transition-colors"
+          >
+            🎡 Spin!
+          </button>
+        )}
+        {phase === 'spinning' && (
+          <p className="mt-5 text-sm text-white/70 italic">Spinning…</p>
+        )}
+        {phase === 'landed' && winner && (
+          <div className="mt-5">
+            <p className="text-sm text-white/80">
+              {winner.name} is leading next meeting!
+            </p>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-3 inline-flex items-center gap-2 h-11 px-6 rounded-full bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-black text-sm transition-colors"
+            >
+              Done →
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1207,6 +1913,11 @@ function ReflectionStep({
   onContentChange,
   onCelebratePrayer,
   prayerLibraryCount,
+  viewerRole,
+  viewerUid,
+  kidSongLinkRequiresApproval,
+  songLinkApprovedBy,
+  onApproveSongLink,
 }: {
   /** Which of the 3 closings the parent enabled in /settings/meetings.
    *  Disabled modes simply don't render. */
@@ -1217,6 +1928,14 @@ function ReflectionStep({
   /** How many prayers live in the family's library — drives the
    *  "Library preloaded" hint on the Prayer input. */
   prayerLibraryCount: number;
+  /** Sunday-Meeting v2 (b5): kid-attached song approval. Defaults are
+   *  conservative — if any of these are missing or off, the play
+   *  button works as before with no gate. */
+  viewerRole?: 'parent' | 'kid' | 'helper';
+  viewerUid?: string;
+  kidSongLinkRequiresApproval?: boolean;
+  songLinkApprovedBy?: string | null;
+  onApproveSongLink?: (uid: string) => void;
 }) {
   const allChoices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
     { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story, a verse, or a link to read together.' },
@@ -1291,24 +2010,64 @@ function ReflectionStep({
               </button>
             )}
 
-            {(isSongs || isStory) && (
-              isLink ? (
-                <a
-                  href={content.trim()}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="mt-4 inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
-                >
-                  {ctaLabel}
-                </a>
-              ) : (
+            {(isSongs || isStory) && (() => {
+              // Song-link approval gate (Sunday-Meeting v2 b5). Applies
+              // only to Songs mode. Story mode is exempt — text/verse
+              // links are routinely shared by adults and don't have the
+              // same "kid pasted something we didn't vet" risk profile.
+              const needsApproval = isSongs
+                && isLink
+                && (kidSongLinkRequiresApproval ?? true)
+                && viewerRole === 'kid'
+                && !songLinkApprovedBy;
+              const playable = isLink && !needsApproval;
+              if (playable) {
+                return (
+                  <div className="mt-4 flex items-center gap-2 flex-wrap">
+                    <a
+                      href={content.trim()}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex items-center gap-2 h-11 lg:h-12 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors"
+                    >
+                      {ctaLabel}
+                    </a>
+                    {isSongs && songLinkApprovedBy && (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-[10.5px] font-extrabold uppercase tracking-wider">
+                        ✓ Parent OK
+                      </span>
+                    )}
+                  </div>
+                );
+              }
+              if (needsApproval) {
+                return (
+                  <div className="mt-4 rounded-kaya bg-amber-500/10 border border-amber-400/40 p-3">
+                    <p className="text-[12.5px] text-amber-100 font-bold">
+                      🛡️ Awaiting a parent OK — the family asked Kaya to check kid-attached songs.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => onApproveSongLink && viewerUid && onApproveSongLink(viewerUid)}
+                      disabled={!onApproveSongLink || !viewerUid}
+                      className="mt-2 inline-flex items-center gap-2 h-10 px-4 rounded-kaya-sm bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-bold text-[12.5px] transition-colors disabled:opacity-50"
+                    >
+                      ✓ I&apos;m a parent — approve
+                    </button>
+                    <p className="mt-2 text-[10.5px] text-white/50">
+                      Tap from a parent&apos;s phone, or hand the device over for one tap.
+                    </p>
+                  </div>
+                );
+              }
+              return (
                 <p className="mt-3 text-[11px] lg:text-[12px] text-white/40">
                   {isSongs
                     ? 'Paste a YouTube or Spotify URL to enable the play button.'
                     : 'Paste a link to open it in a new tab, or just read the text together.'}
                 </p>
-              )
-            )}
+              );
+            })()}
           </div>
         );
       })}

@@ -126,6 +126,12 @@ export default function CaptureSheet({
   const [aiNote, setAiNote] = useState<string | null>(null); // small "AI is off" / "from template" hint
   // Active in-app camera mode — null means closed.
   const [cameraMode, setCameraMode] = useState<'scan' | 'photo' | null>(null);
+  // Object-URL previews for the edit-mode re-scan staging (PR 6c).
+  const editPhotoPreviews = useMemo(
+    () => (isEdit ? photos.map((f) => URL.createObjectURL(f)) : []),
+    [isEdit, photos],
+  );
+  useEffect(() => () => { editPhotoPreviews.forEach((u) => URL.revokeObjectURL(u)); }, [editPhotoPreviews]);
   // Most recent AI suggestion per field. Drives the "✨ AI" badge (when
   // the field still equals the suggestion) and the "Restore" link (when
   // the kid has edited away from it).
@@ -397,15 +403,13 @@ export default function CaptureSheet({
   const onCameraConfirm = async (files: File[]) => {
     if (files.length === 0) return;
     const wasScan = cameraMode === 'scan';
-    setPhotos((prev) => [...prev, ...files]);
+    // Edit mode: a re-scan REPLACES the staged photo; create mode appends pages.
+    setPhotos((prev) => (isEdit ? files : [...prev, ...files]));
     setCameraMode(null);
-    if (wasScan) {
-      // Only auto-extract when this scan is the first photo on the
-      // form — otherwise the kid is just adding more pages.
-      const isFirstPhoto = photos.length === 0;
-      if (isFirstPhoto) {
-        await autoExtractFromScan(files[0]);
-      }
+    // Auto-extract only when CREATING from the first scanned page — never on
+    // an edit re-scan, which must not overwrite the existing title/details.
+    if (wasScan && !isEdit && photos.length === 0) {
+      await autoExtractFromScan(files[0]);
     }
   };
 
@@ -429,6 +433,12 @@ export default function CaptureSheet({
         if (area === 'sports_subscription') {
           patch.club_name = clubName.trim() || undefined;
           patch.source = source || undefined;
+        }
+        // Re-scan / replace (PR 6c): if a new scan was staged, upload it and
+        // swap the item's photos — so a bad scan can be fixed anytime.
+        if (photos.length > 0) {
+          const urls = await uploadSparksPhotos(familyId, existing.id, photos);
+          patch.photo_urls = urls.map((u) => u.feedUrl);
         }
         await updateSparksItem(familyId, existing.id, patch);
         onSaved?.(existing.id);
@@ -531,23 +541,33 @@ export default function CaptureSheet({
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Edit-mode preview — show the existing photos read-only,
-              skipping the full capture UI. Photo swaps + adds happen
-              by deleting the row and creating a new one in v1. */}
-          {isEdit && (existing?.photo_urls?.length ?? 0) > 0 && (
+          {/* Edit-mode photos — re-scan/replace anytime (PR 6c). A new scan
+              runs through the crop editor + replaces the photo on Save. */}
+          {isEdit && (
             <div>
               <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
-                Photos · {existing!.photo_urls.length}
+                Photos {photos.length > 0 ? '· replacing' : `· ${existing?.photo_urls?.length ?? 0}`}
               </label>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                {existing!.photo_urls.map((u, idx) => (
-                  <div key={u} className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={u} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
-                  </div>
-                ))}
-              </div>
-              <div className="text-[10.5px] text-[#5A6488] mt-1">Photo edits not yet supported — delete the row and re-add to swap.</div>
+              {(photos.length > 0 || (existing?.photo_urls?.length ?? 0) > 0) && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                  {(photos.length > 0 ? editPhotoPreviews : (existing?.photo_urls ?? [])).map((u, idx) => (
+                    <div key={`${u}-${idx}`} className="relative aspect-square rounded-xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={u} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setCameraMode('scan')}
+                className="mt-2 inline-flex items-center gap-1.5 rounded-full border-2 border-[#E5D6FF] bg-[#F6EFFF] text-[#5A3CB8] px-3 py-1.5 text-[12px] font-extrabold hover:border-[#5A3CB8] transition-colors"
+              >
+                📷 {photos.length > 0 ? 'Re-scan again' : 'Re-scan / replace'}
+              </button>
+              {photos.length > 0 && (
+                <span className="text-[10.5px] text-[#5A6488] ml-2">New scan replaces the photo when you Save.</span>
+              )}
             </div>
           )}
 

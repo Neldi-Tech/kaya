@@ -5,6 +5,7 @@ import { updateSession, updateSessionFields, type GameSession } from '@/lib/game
 import { readTriviaSeen, recordTriviaSeen, dedupeAgainst } from '@/lib/triviaSeen';
 import { countryByCode } from '@/lib/countries';
 import { recordCountryPlayed } from '@/lib/triviaPassport';
+import { recordExplorerXp, autoDifficulty } from '@/lib/triviaExplorers';
 
 // Multi-device Family Trivia v2 — pick a subject, then race: every question is
 // TIMED and auto-advances (no host button). Points scale with speed and the
@@ -21,7 +22,7 @@ const PER_GAME = 8;
 
 // Difficulty → Fun-Points multiplier (harder = learn more + more ✨) + a glyph.
 const FUN_MULT: Record<string, number> = { easy: 1, medium: 1.5, hard: 2 };
-const LEVEL_EMOJI: Record<string, string> = { easy: '🟢', medium: '🟡', hard: '🔴' };
+const LEVEL_EMOJI: Record<string, string> = { easy: '🟢', medium: '🟡', hard: '🔴', auto: '🎚️' };
 
 export const TRIVIA_SUBJECTS: { id: string; label: string; icon: string }[] = [
   { id: 'animals', label: 'Animals', icon: '🦁' },
@@ -144,6 +145,7 @@ export default function FamilyTriviaPlay({
   const country = (st.country as string) || '';        // Local Trivia (ISO code)
   const discipline = (st.discipline as string) || 'mixed';
   const isLocal = country !== '';
+  const resolvedDifficulty = (st.resolvedDifficulty as string) || difficulty;
   const questions = (st.questions as TriviaQ[]) || [];
   const qIndex = (st.qIndex as number) || 0;
   const qStartAt = (st.qStartAt as number) || 0;
@@ -164,6 +166,8 @@ export default function FamilyTriviaPlay({
     const iv = window.setInterval(() => setNowMs(Date.now()), 200);
     return () => window.clearInterval(iv);
   }, []);
+  const [more, setMore] = useState<{ q: number; text: string } | null>(null);
+  const [moreLoading, setMoreLoading] = useState(false);
   const elapsed = qStartAt ? Math.max(0, (nowMs - qStartAt) / 1000) : 0;
   const remaining = Math.max(0, Math.ceil(QUESTION_SECS - elapsed));
   const allAnswered = players.length > 0 && players.every((p) => answers[p.uid] !== undefined);
@@ -185,11 +189,13 @@ export default function FamilyTriviaPlay({
       const scope = isLocal ? `local_${country}` : 'general';
       const seen = await readTriviaSeen(familyId, scope);
       const cname = countryByCode(country)?.name || country;
+      // "Auto" grows with how much the family has explored.
+      const eff = difficulty === 'auto' ? autoDifficulty(seen.count) : difficulty;
       let qs = dedupeAgainst(await fetchAiTrivia({
         subject: isLocal ? undefined : subject,
         country: isLocal ? cname : undefined,
         discipline: isLocal ? discipline : undefined,
-        difficulty, count: PER_GAME + 8, avoid: seen.recent.slice(0, 50),
+        difficulty: eff, count: PER_GAME + 8, avoid: seen.recent.slice(0, 50),
       }), seen.recent);
       if (qs.length < 4) qs = pickQuestions(subject || 'mixed'); // AI down/keyless → bank
       if (cancelled) return;
@@ -200,7 +206,8 @@ export default function FamilyTriviaPlay({
         'state.questions': chosen,
         'state.qStartAt': Date.now(),
         'state.generating': false,
-        'state.funMult': FUN_MULT[difficulty] ?? 1.5,
+        'state.funMult': FUN_MULT[eff] ?? 1.5,
+        'state.resolvedDifficulty': eff,
         'state.explored': explored,
       });
     })();
@@ -228,11 +235,21 @@ export default function FamilyTriviaPlay({
 
   // Host advances (or ends) a beat after the reveal. NOT tied to the clock
   // tick, so the timeout isn't cleared on every render.
+  const xpRef = useRef(false);
   useEffect(() => {
     if (!isHost || !revealed) return;
     const t = window.setTimeout(() => {
-      if (qIndex + 1 >= total) void updateSession(familyId, session.id, { status: 'done' });
-      else void updateSessionFields(familyId, session.id, {
+      if (qIndex + 1 >= total) {
+        if (!xpRef.current) {
+          xpRef.current = true;
+          // Explorer XP — everyone who scored earns a little; their level climbs.
+          const awards = players
+            .filter((p) => (scores[p.uid] || 0) > 0)
+            .map((p) => ({ uid: p.uid, name: p.name, xp: Math.max(1, Math.round((scores[p.uid] || 0) / 30)) }));
+          void recordExplorerXp(familyId, awards);
+        }
+        void updateSession(familyId, session.id, { status: 'done' });
+      } else void updateSessionFields(familyId, session.id, {
         'state.qIndex': qIndex + 1, 'state.qStartAt': Date.now(), 'state.answers': {}, 'state.revealed': false,
       });
     }, REVEAL_SECS * 1000);
@@ -242,6 +259,20 @@ export default function FamilyTriviaPlay({
   const pick = (c: number) => {
     if (revealed || myAnswer !== undefined || elapsed >= QUESTION_SECS) return;
     void updateSessionFields(familyId, session.id, { [`state.answers.${me}`]: { choice: c, at: Number(elapsed.toFixed(2)) } });
+  };
+
+  // 🔎 Tell me more — AI expands the fun fact into a mini-lesson (per device).
+  const tellMore = async () => {
+    if (!q || moreLoading) return;
+    setMoreLoading(true);
+    try {
+      const res = await fetch('/api/games/trivia/more', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ q: q.q, fact: q.fact }),
+      });
+      const data = await res.json();
+      if (data?.text) setMore({ q: qIndex, text: data.text });
+    } catch { /* leave the fact as-is */ } finally { setMoreLoading(false); }
   };
 
   // ── Subject picker (host) — family mode only; Local Trivia is set in lobby ──
@@ -278,7 +309,7 @@ export default function FamilyTriviaPlay({
   return (
     <div className="mx-auto" style={{ maxWidth: 340 }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-bold text-games-ink-soft">{isLocal ? (countryByCode(country)?.flag || '🌍') : '🎯'} Q{qIndex + 1}/{total} · {LEVEL_EMOJI[difficulty] || '🟡'}</span>
+        <span className="text-xs font-bold text-games-ink-soft">{isLocal ? (countryByCode(country)?.flag || '🌍') : '🎯'} Q{qIndex + 1}/{total} · {LEVEL_EMOJI[resolvedDifficulty] || '🟡'}{difficulty === 'auto' ? '🎚️' : ''}</span>
         <span className={`text-sm font-display font-black ${remaining <= 5 && !revealed ? 'text-games-coral' : 'text-games-ink-soft'}`}>
           {revealed ? '✓ answer' : `⏱ ${remaining}s`}
         </span>
@@ -318,6 +349,11 @@ export default function FamilyTriviaPlay({
       {revealed && q.fact && (
         <div className="bg-gradient-to-br from-[#FFF7E6] to-[#FFFBF0] border border-[#FFE6A8] rounded-kaya p-3 mb-3 text-left">
           <p className="text-[13px] leading-snug text-games-ink"><b className="text-[#9a6a00]">💡 Did you know?</b> {q.fact}</p>
+          {more?.q === qIndex ? (
+            <p className="text-[12px] leading-snug text-games-ink-soft mt-2 border-t border-[#FFE6A8] pt-2">{more.text}</p>
+          ) : (
+            <button type="button" disabled={moreLoading} onClick={tellMore} className="text-[11px] font-extrabold text-games-violet mt-1.5 disabled:opacity-60">{moreLoading ? '🔎 Thinking…' : '🔎 Tell me more →'}</button>
+          )}
         </div>
       )}
       {myAnswer !== undefined && !revealed && (
