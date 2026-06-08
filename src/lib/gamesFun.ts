@@ -20,6 +20,15 @@ export const FUN_WIN_MULT = 2;
 /** Difficulty multipliers (applied where a game reports a level). */
 export const FUN_DIFFICULTY: Record<'easy' | 'medium' | 'hard', number> = { easy: 1, medium: 1.5, hard: 2 };
 
+/** Question of the Day — Fun-Points. Answering pays QOTD_DAILY (right OR wrong,
+ *  so it stays a friendly daily habit for parents and young kids alike); a
+ *  correct answer adds QOTD_CORRECT; and each time the personal streak lands on
+ *  a multiple of the family's target (default 3 days) it pays QOTD_MILESTONE ×
+ *  target as a celebratory burst. Server-credited in /api/games/qotd/answer. */
+export const QOTD_DAILY_FUN = 40;
+export const QOTD_CORRECT_FUN = 20;
+export const QOTD_MILESTONE_FUN = 30;
+
 /** Arcade scale on the catalog's inherent value, so Fun-Points read as big,
  *  satisfying gaming numbers (distinct from the small, valuable HP). Tunable. */
 const FUN_SCALE = 5;

@@ -273,6 +273,14 @@ export default function GamesControlsPage() {
               </Row>
             </div>
 
+            {/* Question of the Day — how often a kept-up streak pays a bonus. */}
+            <div className="bg-games-card rounded-kaya p-4 mb-4">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-games-ink-soft mb-1">🌟 Question of the Day</p>
+              <Row label="Streak reward" hint="A bonus ✨ Fun-Points burst each time a player answers this many days in a row">
+                <ManualStepper value={cfg.qotdStreakTarget} onChange={(v) => patch({ qotdStreakTarget: v })} min={1} max={30} step={1} suffix="days" width="w-14" />
+              </Row>
+            </div>
+
             {/* Per-game points — the heart of the request. */}
             <div className="bg-games-card rounded-kaya p-4 mb-4">
               <div className="flex items-center justify-between gap-2 mb-1">
