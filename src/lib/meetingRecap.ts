@@ -118,7 +118,7 @@ export async function sendMeetingRecapEmail({
       attendees.push({ name: p.name, emoji: p.avatarEmoji || '👤' });
     }
   }
-  for (const g of payload.guests || []) {
+  for (const g of payload.guestAttendees || []) {
     attendees.push({ name: g.name, emoji: '🫂', isGuest: true });
   }
 
