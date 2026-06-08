@@ -33,6 +33,10 @@ import {
   updateFamily,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
+import {
+  getMeetingSubmissions, clearMeetingSubmissions,
+  type MeetingSubmission,
+} from '@/lib/meetingSubmissions';
 
 // ── Agenda definition ──────────────────────────────────────────────
 // Canonical step catalog — the presenter renders the subset that the
@@ -255,6 +259,20 @@ export default function MeetingPresenterPage() {
     return () => { cancelled = true; };
   }, [profile?.familyId, profile]);
 
+  // Async pre-fill submissions — fetched once on mount. Presenter
+  // displays them as read-only "what they wrote" rows above the live
+  // editable per-kid inputs on Gratitude / Appreciations / Goals.
+  // Sunday-Meeting v2 (b2).
+  const [submissions, setSubmissions] = useState<MeetingSubmission[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    let cancelled = false;
+    getMeetingSubmissions(profile.familyId).then((rows) => {
+      if (!cancelled) setSubmissions(rows);
+    }).catch(() => { /* tolerate offline / empty */ });
+    return () => { cancelled = true; };
+  }, [profile?.familyId]);
+
   // Default attendance to "everyone in the household present" once
   // the kid + parent lists arrive. Only runs once so a manual
   // deselection isn't overwritten if a list refreshes.
@@ -344,6 +362,10 @@ export default function MeetingPresenterPage() {
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+    // Clear async pre-fill submissions so next week's meeting starts
+    // with empty prompts. Tolerated to fail silently — submissions are
+    // a soft state, the meeting itself is saved.
+    clearMeetingSubmissions(profile.familyId).catch(() => { /* non-fatal */ });
     setSaving(false);
     setDone(true);
     // Clear the persisted step so next week's meeting starts at step 1.
@@ -499,12 +521,15 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'gratitude' && (
-                <PerKidTextInputs
-                  childrenList={children}
-                  values={gratitude}
-                  onChange={setGratitude}
-                  placeholder="I'm thankful for…"
-                />
+                <>
+                  <SubmittedList kind="gratitudes" submissions={submissions} />
+                  <PerKidTextInputs
+                    childrenList={children}
+                    values={gratitude}
+                    onChange={setGratitude}
+                    placeholder="I'm thankful for…"
+                  />
+                </>
               )}
 
               {step.id === 'celebrate' && (
@@ -512,24 +537,30 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'appreciations' && (
-                <PerKidTextInputs
-                  childrenList={children}
-                  values={appreciations}
-                  onChange={setAppreciations}
-                  placeholder="I appreciated when…"
-                  multiline
-                />
+                <>
+                  <SubmittedList kind="appreciations" submissions={submissions} />
+                  <PerKidTextInputs
+                    childrenList={children}
+                    values={appreciations}
+                    onChange={setAppreciations}
+                    placeholder="I appreciate @name for…"
+                    multiline
+                  />
+                </>
               )}
 
               {step.id === 'goals' && (
-                <GoalsStep
-                  childrenList={children}
-                  recentMeetings={recentMeetings}
-                  reviewedGoalsDone={reviewedGoalsDone}
-                  onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
-                  goals={goals}
-                  onChangeGoals={setGoals}
-                />
+                <>
+                  <SubmittedList kind="goals" submissions={submissions} />
+                  <GoalsStep
+                    childrenList={children}
+                    recentMeetings={recentMeetings}
+                    reviewedGoalsDone={reviewedGoalsDone}
+                    onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
+                    goals={goals}
+                    onChangeGoals={setGoals}
+                  />
+                </>
               )}
 
               {step.id === 'reflection' && (
@@ -740,6 +771,57 @@ function OpenStep({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Async pre-fill display ───────────────────────────────────────────
+// Sunday-Meeting v2 (b2). Reads everyone's pre-meeting submissions and
+// surfaces them as a stack of read-only rows above the live per-kid
+// inputs. The presenter / leader can still type in the live inputs to
+// add or refine on the night — submissions are the *starting point*,
+// not the only point.
+function SubmittedList({
+  kind, submissions,
+}: {
+  kind: 'gratitudes' | 'appreciations' | 'goals';
+  submissions: MeetingSubmission[];
+}) {
+  // Filter out anyone who didn't fill *this* section. Order by name so
+  // the screen reads consistently across steps.
+  const rows = submissions
+    .map((s) => ({ submitter: s, lines: s[kind] || [] }))
+    .filter((r) => r.lines.length > 0)
+    .sort((a, b) => a.submitter.name.localeCompare(b.submitter.name));
+
+  if (rows.length === 0) return null;
+
+  const sectionLabel = kind === 'gratitudes' ? 'Filled in advance · Gratitudes'
+    : kind === 'appreciations' ? 'Filled in advance · Appreciations'
+    : 'Filled in advance · Goals';
+
+  return (
+    <div className="mb-5 lg:mb-7 rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
+      <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
+        📨 {sectionLabel}
+      </p>
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <li key={r.submitter.uid} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
+            <span className="text-base lg:text-lg" aria-hidden>
+              {r.submitter.emoji || (r.submitter.role === 'kid' ? '🧒' : '👤')}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-white">{r.submitter.name}</p>
+              <ul className="text-white/80 leading-snug">
+                {r.lines.map((line, i) => (
+                  <li key={i} className="italic">&ldquo;{line}&rdquo;</li>
+                ))}
+              </ul>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

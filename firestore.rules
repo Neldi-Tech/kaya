@@ -243,6 +243,20 @@ service cloud.firestore {
       // Allow reading family by invite code (for joining)
       allow list: if isSignedIn();
 
+      // ── Sunday-Meeting v2 (b2) · Async pre-fill submissions ──
+      // Each family member fills Gratitude / Appreciations / Goals
+      // ahead of the meeting from their own My Day. One doc per user
+      // (id = uid). Parents/helpers can see everyone's; everyone else
+      // sees only their own. Only the owning user writes (delete is
+      // parents-only for clearing on meeting submit).
+      match /upcomingMeetingSubmissions/{submissionUid} {
+        allow read: if isParentOrHelper(familyId)
+          || (belongsToFamily(familyId) && request.auth.uid == submissionUid);
+        allow create, update: if belongsToFamily(familyId)
+          && request.auth.uid == submissionUid;
+        allow delete: if isParentInFamily(familyId);
+      }
+
       // ── Kaya Guide help-chat logs (2026-05-28) ───────────────
       // The app-wide help bubble logs each conversation here so a
       // parent can later review what was asked. Every conversation
