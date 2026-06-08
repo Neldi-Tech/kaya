@@ -11,6 +11,9 @@ export interface KpiItem {
   value: ReactNode;
   /** Small line under the value — context, share, or sparkline placeholder. */
   sub?: ReactNode;
+  /** Gold edge — set when the figure is a narrowed slice (a filtered scope)
+   *  rather than the whole picture. */
+  highlight?: boolean;
 }
 
 export function KpiStrip({ items }: { items: KpiItem[] }) {
@@ -19,7 +22,11 @@ export function KpiStrip({ items }: { items: KpiItem[] }) {
       {items.map((it, i) => (
         <div
           key={i}
-          className="rounded-kaya bg-pulse-cream border border-pulse-navy/10 px-5 py-4"
+          className={`rounded-kaya px-5 py-4 border ${
+            it.highlight
+              ? 'bg-[#FFFDF6] border-pulse-gold/60'
+              : 'bg-pulse-cream border-pulse-navy/10'
+          }`}
         >
           <div className="text-[11px] font-bold tracking-wide uppercase text-pulse-navy/55">
             {it.label}
