@@ -23,6 +23,51 @@ const DEFAULT_CORNERS: DocCorners = {
   bottomRight: { x: 0.92, y: 0.92 }, bottomLeft: { x: 0.08, y: 0.92 },
 };
 
+type Pt = { x: number; y: number };
+type GradMap = { data: Float32Array; w: number; h: number };
+
+/** Downscaled Sobel edge-magnitude map of the image — used to snap a dragged
+ *  corner onto the real paper edge. Built once when the image loads. */
+function buildGradientMap(img: HTMLImageElement, maxSide = 640): GradMap | null {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  if (!iw || !ih) return null;
+  const scale = Math.min(1, maxSide / Math.max(iw, ih));
+  const w = Math.max(3, Math.round(iw * scale)), h = Math.max(3, Math.round(ih * scale));
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(img, 0, 0, w, h);
+  const d = ctx.getImageData(0, 0, w, h).data;
+  const gray = new Float32Array(w * h);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) gray[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+  const out = new Float32Array(w * h);
+  for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+    const gx = -gray[(y - 1) * w + x - 1] - 2 * gray[y * w + x - 1] - gray[(y + 1) * w + x - 1]
+             + gray[(y - 1) * w + x + 1] + 2 * gray[y * w + x + 1] + gray[(y + 1) * w + x + 1];
+    const gy = -gray[(y - 1) * w + x - 1] - 2 * gray[(y - 1) * w + x] - gray[(y - 1) * w + x + 1]
+             + gray[(y + 1) * w + x - 1] + 2 * gray[(y + 1) * w + x] + gray[(y + 1) * w + x + 1];
+    out[y * w + x] = Math.abs(gx) + Math.abs(gy);
+  }
+  return { data: out, w, h };
+}
+
+/** Snap a normalised point to the strongest edge in a small window around it
+ *  (biased toward the cursor so it grabs a NEARBY edge, not a far one). */
+function snapToEdge(g: GradMap | null, p: Pt, radiusFrac = 0.05): Pt {
+  if (!g) return p;
+  const cx = Math.round(p.x * (g.w - 1)), cy = Math.round(p.y * (g.h - 1));
+  const r = Math.max(4, Math.round(radiusFrac * Math.max(g.w, g.h)));
+  let bestX = cx, bestY = cy, best = -1;
+  for (let y = Math.max(1, cy - r); y <= Math.min(g.h - 2, cy + r); y++) {
+    for (let x = Math.max(1, cx - r); x <= Math.min(g.w - 2, cx + r); x++) {
+      const score = g.data[y * g.w + x] - Math.hypot(x - cx, y - cy) * 6;
+      if (score > best) { best = score; bestX = x; bestY = y; }
+    }
+  }
+  if (g.data[bestY * g.w + bestX] < 60) return p; // no real edge nearby — keep the finger position
+  return { x: bestX / (g.w - 1), y: bestY / (g.h - 1) };
+}
+
 export default function DocumentCropEditor({
   file, onConfirm, onCancel, detectCorners, title = 'Crop the page', sw = false,
 }: {
@@ -36,6 +81,7 @@ export default function DocumentCropEditor({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const imgElRef = useRef<HTMLImageElement | null>(null);
+  const gradRef = useRef<GradMap | null>(null);
   const [workingFile, setWorkingFile] = useState<File>(file);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [corners, setCorners] = useState<DocCorners>(DEFAULT_CORNERS);
@@ -57,7 +103,7 @@ export default function DocumentCropEditor({
     (async () => {
       try {
         const img = await loadImage(workingFile);
-        if (!cancelled) imgElRef.current = img;
+        if (!cancelled) { imgElRef.current = img; gradRef.current = buildGradientMap(img); }
       } catch { /* ignore — confirm guards on a loaded image */ }
       try {
         const detect = detectCorners ?? detectCornersBest;
@@ -80,7 +126,12 @@ export default function DocumentCropEditor({
   useEffect(() => {
     if (!dragKey) return;
     const move = (e: PointerEvent) => { e.preventDefault(); updateCorner(e.clientX, e.clientY, dragKey); };
-    const up = () => setDragKey(null);
+    // On release, magnetically snap the corner to the nearest strong paper
+    // edge — so a loose drop lands tight without pixel-perfect aiming.
+    const up = () => {
+      setCorners((prev) => ({ ...prev, [dragKey]: snapToEdge(gradRef.current, prev[dragKey]) }));
+      setDragKey(null);
+    };
     window.addEventListener('pointermove', move, { passive: false });
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
