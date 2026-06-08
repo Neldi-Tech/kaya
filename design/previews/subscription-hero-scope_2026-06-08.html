@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaya · Subscriptions — Hero follows the filter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0F1F44; --gold:#D4A847; --gold-dk:#B58A2F; --cream:#FBF7EE;
+    --bone:#FFFCF5; --coral:#E85C5C; --green:#2E7D34; --paper:#FFFFFF; --steel:#7B9DB7;
+    --line:rgba(15,31,68,.10); --muted:rgba(15,31,68,.55);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy)}
+  .wrap{max-width:1080px;margin:0 auto;padding:30px 22px 70px}
+  h1{font-family:'Nunito',sans-serif;font-size:30px;font-weight:900;line-height:1.12;margin:0;letter-spacing:-.01em}
+  .eyebrow{text-transform:uppercase;letter-spacing:2.5px;font-size:11px;font-weight:800;color:var(--gold-dk)}
+  .lede{font-size:15.5px;color:var(--muted);line-height:1.55;margin:10px 0 0;max-width:780px}
+  .rule{border:none;border-top:1px solid var(--line);margin:32px 0}
+  .revtag{display:inline-block;background:var(--navy);color:var(--cream);font-family:'Nunito';font-weight:800;font-size:11px;letter-spacing:.5px;padding:3px 11px;border-radius:999px;margin-bottom:10px}
+
+  .stage{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;justify-content:center}
+  .col{flex:1;min-width:300px;max-width:340px}
+  .phone{background:#0B1530;border-radius:38px;padding:11px;box-shadow:0 26px 50px -18px rgba(11,21,48,.5)}
+  .screen{background:var(--cream);border-radius:28px;overflow:hidden;position:relative}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:120px;height:24px;background:#0B1530;border-radius:0 0 16px 16px;z-index:6}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:11px 20px 4px;font-family:'Nunito';font-weight:800;font-size:11px}
+  .body{padding:8px 14px 16px}
+  .h-eyebrow{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--gold-dk)}
+  .h-title{font-family:'Nunito';font-weight:900;font-size:22px;margin-top:1px}
+
+  /* scope chip */
+  .scope{display:inline-flex;align-items:center;gap:6px;margin-top:12px;background:var(--navy);color:var(--cream);border-radius:999px;padding:5px 11px;font-family:'Nunito';font-weight:800;font-size:11.5px}
+  .scope.all{background:rgba(15,31,68,.08);color:var(--navy)}
+  .scope .x{opacity:.6;font-weight:900}
+
+  /* hero cards */
+  .hero{display:flex;gap:7px;margin-top:9px}
+  .card{flex:1;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:9px 8px;text-align:center}
+  .card.live{border-color:var(--gold);background:#FFFDF6}
+  .kl{font-size:8.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);line-height:1.2}
+  .kv{font-family:'Nunito';font-weight:900;font-size:15px;margin-top:3px}
+  .ks{font-size:8px;color:var(--muted);margin-top:1px}
+  .delta{font-size:8px;font-weight:800;margin-top:1px}
+  .down{color:var(--coral)} .up{color:var(--green)}
+
+  /* filter chips */
+  .flabel{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:12px 0 4px}
+  .chips{display:flex;gap:5px;overflow-x:auto;padding-bottom:2px}
+  .chip{flex:0 0 auto;border-radius:999px;border:1.3px solid var(--line);background:var(--paper);padding:5px 11px;font-family:'Nunito';font-weight:800;font-size:11px;white-space:nowrap}
+  .chip.on{background:var(--navy);color:var(--cream);border-color:var(--navy)}
+  .chip.plat.on{background:var(--gold);color:var(--navy);border-color:var(--gold)}
+  .chip .n{opacity:.55;margin-left:3px}
+
+  /* row */
+  .row{display:flex;align-items:center;gap:9px;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin-top:7px}
+  .row.dim{opacity:.6}
+  .emoji{font-size:18px}
+  .main{flex:1;min-width:0}
+  .title{font-family:'Nunito';font-weight:900;font-size:12.5px}
+  .sub{font-size:10px;color:var(--muted);margin-top:1px}
+  .amt{font-family:'Nunito';font-weight:900;font-size:12px;text-align:right}
+  .st{display:inline-block;border-radius:999px;padding:1px 6px;font-family:'Nunito';font-weight:800;font-size:8.5px;border:1.1px solid;margin-top:2px}
+  .st-active{background:rgba(46,125,52,.12);color:var(--green);border-color:rgba(46,125,52,.4)}
+  .st-hold{background:rgba(15,31,68,.06);color:var(--muted);border-color:var(--line)}
+
+  .caption{text-align:center;font-size:12px;color:var(--muted);margin:11px 0 0;font-weight:700}
+  .key-tbl{width:100%;border-collapse:collapse;margin-top:6px}
+  .key-tbl td{padding:11px 8px;border-top:1px solid var(--line);font-size:13.5px;vertical-align:top;line-height:1.55}
+  .key-tbl td:first-child{font-family:'Nunito';font-weight:900;white-space:nowrap;width:150px}
+  .sec-title{font-family:'Nunito';font-weight:900;font-size:20px}
+  .foot{margin-top:34px;padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:16px}
+  .foot h4{font-size:15px;margin-bottom:8px;font-family:'Nunito'}
+  .foot ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.7}
+  .ok{color:var(--green);font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="revtag">SUBSCRIPTIONS · refinement</span>
+  <div class="eyebrow">Kaya · Household → Subscriptions</div>
+  <h1>The hero cards follow your filter</h1>
+  <p class="lede">
+    Right now the three hero cards always show the whole picture. You asked: when you filter, let the
+    numbers <b>recompute for what you're looking at</b> — so each view answers its own question. A small
+    <b>scope chip</b> always says exactly which subscriptions the numbers cover, so it's never ambiguous.
+  </p>
+
+  <hr class="rule">
+
+  <div class="stage">
+
+    <!-- A) ALL (default) -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="h-eyebrow">Household</div>
+          <div class="h-title">Subscriptions</div>
+          <div class="scope all">👪 Everyone · All</div>
+          <div class="hero">
+            <div class="card"><div class="kl">This month due</div><div class="kv">120k</div><div class="ks">9 active</div></div>
+            <div class="card"><div class="kl">Monthly equiv</div><div class="kv">182k</div><div class="ks">smoothed</div></div>
+            <div class="card"><div class="kl">Annualized</div><div class="kv">2.18M</div><div class="ks">committed</div></div>
+          </div>
+          <div class="flabel">Paid via</div>
+          <div class="chips">
+            <div class="chip plat on">All</div><div class="chip plat">📱 iOS <span class="n">6</span></div>
+            <div class="chip plat">🤖 Android <span class="n">2</span></div><div class="chip plat">🌐 Web <span class="n">3</span></div>
+          </div>
+          <div class="flabel">Status</div>
+          <div class="chips">
+            <div class="chip on">All</div><div class="chip">Active <span class="n">9</span></div>
+            <div class="chip">On hold <span class="n">2</span></div><div class="chip">Stopped <span class="n">1</span></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">① Default — whole picture (as today)</p>
+    </div>
+
+    <!-- B) iOS filter -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="h-eyebrow">Household</div>
+          <div class="h-title">Subscriptions</div>
+          <div class="scope">📱 iOS · Active <span class="x">✕</span></div>
+          <div class="hero">
+            <div class="card live"><div class="kl">This month due</div><div class="kv">58k</div><div class="ks">6 active</div></div>
+            <div class="card live"><div class="kl">Monthly equiv</div><div class="kv">88k</div><div class="delta down">▼ of 182k</div></div>
+            <div class="card live"><div class="kl">Annualized</div><div class="kv">1.06M</div><div class="delta down">48% of total</div></div>
+          </div>
+          <div class="flabel">Paid via</div>
+          <div class="chips">
+            <div class="chip plat">All</div><div class="chip plat on">📱 iOS <span class="n">6</span></div>
+            <div class="chip plat">🤖 Android <span class="n">2</span></div><div class="chip plat">🌐 Web <span class="n">3</span></div>
+          </div>
+          <div class="row"><span class="emoji">🎬</span><div class="main"><div class="title">Netflix</div><div class="sub">📱 iOS · Streaming</div></div><div><div class="amt">45k</div><span class="st st-active">● Active</span></div></div>
+          <div class="row"><span class="emoji">☁️</span><div class="main"><div class="title">iCloud+ 200GB</div><div class="sub">📱 iOS · Cloud</div></div><div><div class="amt">7.5k</div><span class="st st-active">● Active</span></div></div>
+        </div>
+      </div></div>
+      <p class="caption">② iOS — “what's on my Apple bill?” 88k/mo</p>
+    </div>
+
+    <!-- C) On hold filter -->
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="h-eyebrow">Household</div>
+          <div class="h-title">Subscriptions</div>
+          <div class="scope">⏸ On hold · Everyone <span class="x">✕</span></div>
+          <div class="hero">
+            <div class="card live"><div class="kl">On hold</div><div class="kv">2 subs</div><div class="ks">paused</div></div>
+            <div class="card live"><div class="kl">Paused / mo</div><div class="kv">51k</div><div class="ks">if resumed</div></div>
+            <div class="card live"><div class="kl">Per year</div><div class="kv">612k</div><div class="ks">held back</div></div>
+          </div>
+          <div class="flabel">Status</div>
+          <div class="chips">
+            <div class="chip">All</div><div class="chip">Active <span class="n">9</span></div>
+            <div class="chip on">On hold <span class="n">2</span></div><div class="chip">Stopped <span class="n">1</span></div>
+          </div>
+          <div class="row dim"><span class="emoji">🎵</span><div class="main"><div class="title">Spotify</div><div class="sub">🤖 Android · Music</div></div><div><div class="amt">12k</div><span class="st st-hold">⏸ On hold</span></div></div>
+          <div class="row dim"><span class="emoji">🏋️</span><div class="main"><div class="title">City Gym</div><div class="sub">📦 Other · Membership</div></div><div><div class="amt">39k</div><span class="st st-hold">⏸ On hold</span></div></div>
+        </div>
+      </div></div>
+      <p class="caption">③ On hold — labels adapt: “51k/mo if resumed”</p>
+    </div>
+
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec-title">How the numbers compute</div>
+  <table class="key-tbl">
+    <tr><td>Follows the filter</td><td>The three hero cards recompute over <b>exactly what's in view</b> — the active Paid-via + Status (+ category) filters. Tap iOS → iOS totals; tap Android → Android totals.</td></tr>
+    <tr><td>Scope chip</td><td>A chip right above the cards always names the scope (“📱 iOS · Active”, “⏸ On hold · Everyone”) with a one-tap ✕ to clear back to All — so the numbers are never ambiguous.</td></tr>
+    <tr><td>Labels adapt</td><td>For <b>Active</b>: This-month-due · Monthly equiv · Annualized (as today). For <b>On hold</b>: count · “Paused /mo (if resumed)” · per-year. For <b>Stopped</b>: count · what dropped off · prepaid still-counting. So each view reads naturally.</td></tr>
+    <tr><td>Default unchanged</td><td>On “All”, the cards show the whole picture exactly like today — the gold highlight + delta (“48% of total”) only appear once you've narrowed.</td></tr>
+    <tr><td>Gold highlight</td><td>When filtered, the cards get a subtle gold edge + a “of 182k / 48% of total” delta so you instantly see this slice vs the whole.</td></tr>
+  </table>
+
+  <div class="foot">
+    <h4>What I'll build once you approve 👍</h4>
+    <ul>
+      <li><span class="ok">Hero KPIs recompute</span> over the filtered set (Paid-via + Status + category).</li>
+      <li><span class="ok">Scope chip</span> above the cards with a one-tap clear, so it's always clear what you're seeing.</li>
+      <li><span class="ok">Adaptive labels + a “slice vs whole” delta</span> when narrowed (On hold / Stopped read naturally).</li>
+    </ul>
+    <p class="lede" style="font-size:13.5px;margin-top:12px">Approve and I'll ship it to the preview, then merge. 🚀</p>
+  </div>
+
+</div>
+</body>
+</html>
