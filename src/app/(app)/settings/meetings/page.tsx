@@ -69,6 +69,8 @@ export default function MeetingSetupPage() {
   // parents + Family contacts after the meeting submits. Defaults ON.
   const [recapBookEmailEnabled, setRecapBookEmailEnabled] = useState<boolean>(true);
   const [recapBookIncludeSong, setRecapBookIncludeSong] = useState<boolean>(true);
+  // Sunday-Meeting v2 (b7): how long a Time Capsule stays sealed.
+  const [timeCapsuleLockYears, setTimeCapsuleLockYears] = useState<0.5 | 1 | 3>(1);
   const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
   // Per-step display-name override. Empty / missing entry = use the
   // canonical default title from AGENDA_STEPS.
@@ -97,6 +99,9 @@ export default function MeetingSetupPage() {
     if (typeof s?.kidSongLinkRequiresApproval === 'boolean') setKidSongLinkRequiresApproval(s.kidSongLinkRequiresApproval);
     if (typeof s?.recapBookEmailEnabled === 'boolean') setRecapBookEmailEnabled(s.recapBookEmailEnabled);
     if (typeof s?.recapBookIncludeSong === 'boolean') setRecapBookIncludeSong(s.recapBookIncludeSong);
+    if (s?.timeCapsuleLockYears === 0.5 || s?.timeCapsuleLockYears === 1 || s?.timeCapsuleLockYears === 3) {
+      setTimeCapsuleLockYears(s.timeCapsuleLockYears);
+    }
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
     if (s?.stepLabels) setStepLabels(s.stepLabels);
     if (s?.schedule) {
@@ -195,6 +200,7 @@ export default function MeetingSetupPage() {
         kidSongLinkRequiresApproval,
         recapBookEmailEnabled,
         recapBookIncludeSong,
+        timeCapsuleLockYears,
       },
     });
     setSaving(false);
@@ -394,6 +400,41 @@ export default function MeetingSetupPage() {
             already covers the rest of the design).
           </div>
         </div>
+      </section>
+
+      {/* ── Family Time Capsule (Sunday-Meeting v2 · b7) ──────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">💌 Family Time Capsule</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {timeCapsuleLockYears === 0.5 ? '6 months' : timeCapsuleLockYears === 3 ? '3 years' : '1 year'}
+          </span>
+        </div>
+        <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
+          At the end of each meeting one person can leave a single line — a hope, a quote,
+          a tiny prediction. Kaya seals it for the lock window and surfaces it on the meeting
+          closest to that anniversary (snapped to your scheduled meeting day · ±3 days).
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          {[0.5, 1, 3].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setTimeCapsuleLockYears(n as 0.5 | 1 | 3)}
+              className={`inline-flex items-center gap-1.5 h-10 px-4 rounded-full text-sm font-extrabold transition-colors ${
+                timeCapsuleLockYears === n
+                  ? 'bg-kaya-gold text-kaya-chocolate border-2 border-kaya-gold-dark'
+                  : 'bg-kaya-cream text-kaya-chocolate border-2 border-kaya-warm-dark/40 hover:bg-kaya-warm'
+              }`}
+            >
+              {n === 0.5 ? '6 months' : n === 3 ? '3 years' : '1 year'}
+            </button>
+          ))}
+        </div>
+        <p className="mt-3 text-[11.5px] text-kaya-chocolate/55 italic">
+          The sealer field is always optional — if nobody writes anything, no capsule is created.
+          Sealed notes can never be edited or deleted (a sealed note is a sealed note).
+        </p>
       </section>
 
       {/* ── Schedule ─────────────────────────────────────────────── */}
