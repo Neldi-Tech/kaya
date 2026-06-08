@@ -493,6 +493,44 @@ export function documentClean(canvas: HTMLCanvasElement): void {
   } catch { /* blur filter unsupported — de-shadow + contrast already applied */ }
 }
 
+export type ScanColorMode = 'color' | 'grayscale' | 'bw';
+
+/** Re-render an already-cleaned scan in a different output mode — Color
+ *  (as-is), Grayscale (luma), or B&W (adaptive threshold via local mean).
+ *  Powers the result-card mode toggle. */
+export async function applyColorMode(
+  file: File, mode: ScanColorMode, options: EnhanceOptions = {},
+): Promise<{ file: File; previewUrl: string }> {
+  const img = await loadImage(file);
+  const { canvas, ctx } = drawToCanvas(img, options.maxLongSide ?? 1700);
+  if (mode !== 'color') {
+    const w = canvas.width, h = canvas.height;
+    const image = ctx.getImageData(0, 0, w, h);
+    const d = image.data;
+    if (mode === 'grayscale') {
+      for (let i = 0; i < d.length; i += 4) {
+        const l = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0;
+        d[i] = d[i + 1] = d[i + 2] = l;
+      }
+    } else {
+      // B&W — adaptive threshold: a pixel is ink if it's darker than its
+      // local mean (handles uneven lighting better than a global cutoff).
+      const gray = new Float32Array(w * h);
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) gray[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      const r = Math.max(4, Math.round(0.015 * Math.max(w, h)));
+      const mean = boxBlur1D(gray, w, h, r);
+      const C = 10;
+      for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+        const v = gray[p] > mean[p] - C ? 255 : 0;
+        d[i] = d[i + 1] = d[i + 2] = v;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  }
+  const out = await canvasToFile(canvas, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+  return { file: out, previewUrl: canvas.toDataURL('image/jpeg', options.quality ?? 0.92) };
+}
+
 /** Rotate a File 90° CW → { file, previewUrl } for a one-tap manual rotate
  *  on a scan result (keeps the same data-URL preview shape the UI expects). */
 export async function rotateFile90WithPreview(
