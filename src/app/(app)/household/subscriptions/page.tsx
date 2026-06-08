@@ -217,6 +217,79 @@ export default function SubscriptionsListPage() {
     return groups;
   }, [filtered]);
 
+  // Scope-aware hero (2026-06-08): the three cards recompute over the
+  // CURRENTLY FILTERED set, and the labels adapt to the status scope so each
+  // view answers its own question. A delta ("X% of total") appears once you
+  // narrow by Paid-via / category. Held + stopped scopes relabel because
+  // their monthly-equivalent means "if resumed" / "was", not live spend.
+  const hero = useMemo(() => {
+    const fmt = (c: number) => formatCents(c, householdCurrency);
+    const count = filtered.length;
+    const sumMonthly = filtered.reduce((a, s) => a + (s.monthlyEquivalent || 0), 0);
+    // The "whole" = live monthly across the paid-by scope, for the delta.
+    const totalMonthly = computeSubscriptionKpis(paidByScopedSubs).monthlyEquivalentCents;
+    const pct = totalMonthly > 0 ? Math.round((sumMonthly / totalMonthly) * 100) : 0;
+
+    if (statusFilter === 'paused') {
+      return {
+        narrowed: true,
+        items: [
+          { label: 'On hold', value: `${count}`, sub: count === 1 ? 'subscription' : 'subscriptions', highlight: true },
+          { label: 'Paused / mo', value: fmt(sumMonthly), sub: 'if resumed', highlight: true },
+          { label: 'Per year', value: fmt(sumMonthly * 12), sub: 'held back', highlight: true },
+        ],
+      };
+    }
+    if (statusFilter === 'cancelled') {
+      const stillCounting = filtered.reduce((a, s) => a + (subCountsTowardSpend(s) ? (s.monthlyEquivalent || 0) : 0), 0);
+      return {
+        narrowed: true,
+        items: [
+          { label: 'Stopped', value: `${count}`, sub: count === 1 ? 'subscription' : 'subscriptions', highlight: true },
+          { label: 'Was / mo', value: fmt(sumMonthly), sub: 'before stopping', highlight: true },
+          { label: 'Still counting', value: fmt(stillCounting), sub: 'prepaid · to paid-through', highlight: true },
+        ],
+      };
+    }
+    // active / all → live-commitment KPIs over the shown set
+    const k = computeSubscriptionKpis(filtered);
+    const narrowed = platformFilter != null || activeCategory != null;
+    return {
+      narrowed,
+      items: [
+        { label: 'This month due', value: fmt(k.thisMonthDueCents), sub: `${k.activeCount} active`, highlight: narrowed },
+        {
+          label: 'Monthly equivalent',
+          value: fmt(k.monthlyEquivalentCents),
+          sub: narrowed && totalMonthly > 0 ? `${pct}% of ${fmt(totalMonthly)}` : 'Annualised smoothing',
+          highlight: narrowed,
+        },
+        { label: 'Annualized', value: fmt(k.annualizedCents), sub: 'Locked-in commitment', highlight: narrowed },
+      ],
+    };
+  }, [filtered, statusFilter, platformFilter, activeCategory, paidByScopedSubs, householdCurrency]);
+
+  // Compact label for the active view scope (status + Paid-via + category),
+  // shown as a chip above the hero with a one-tap clear.
+  const viewScopeBits = useMemo(() => {
+    const bits: string[] = [];
+    if (statusFilter === 'paused') bits.push('⏸ On hold');
+    else if (statusFilter === 'cancelled') bits.push('⏹ Stopped');
+    else if (statusFilter === 'active') bits.push('● Active');
+    if (platformFilter) {
+      const p = SUBSCRIPTION_PLATFORMS.find((x) => x.id === platformFilter);
+      bits.push(`${p?.emoji ?? ''} ${platformLabel(platformFilter)}`.trim());
+    }
+    if (activeCategory) bits.push(subCategoryLabel(activeCategory));
+    return bits;
+  }, [statusFilter, platformFilter, activeCategory]);
+  const viewNarrowed = platformFilter != null || activeCategory != null || statusFilter !== 'active';
+  const clearViewScope = () => {
+    setPlatformFilter(null);
+    setActiveCategory(null);
+    setStatusFilter('active');
+  };
+
   // Label + tone for the hero so it's obvious whose numbers these are.
   const scopeMeta = useMemo(() => {
     if (paidByFilter === 'all') return { label: 'Everyone', tone: 'all' as const };
@@ -394,26 +467,19 @@ export default function SubscriptionsListPage() {
               Show everyone
             </button>
           )}
+          {/* View-scope chip — the hero numbers below follow the active
+              Paid-via / Status / category filters; this names that slice
+              with a one-tap clear so the figures are never ambiguous. */}
+          {viewNarrowed && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-pulse-navy px-3 py-1 text-[11px] font-extrabold text-pulse-cream">
+              {viewScopeBits.join(' · ')}
+              <button onClick={clearViewScope} aria-label="Clear filters" className="text-pulse-cream/70 hover:text-pulse-cream font-black">
+                ✕
+              </button>
+            </span>
+          )}
         </div>
-        <KpiStrip
-          items={[
-            {
-              label: 'This month due',
-              value: formatCents(kpis.thisMonthDueCents, householdCurrency),
-              sub: `${kpis.activeCount} active subscription${kpis.activeCount === 1 ? '' : 's'}`,
-            },
-            {
-              label: 'Monthly equivalent',
-              value: formatCents(kpis.monthlyEquivalentCents, householdCurrency),
-              sub: scopeMeta.tone === 'all' ? 'Annualised smoothing' : `${scopeMeta.label} · smoothed`,
-            },
-            {
-              label: 'Annualized',
-              value: formatCents(kpis.annualizedCents, householdCurrency),
-              sub: 'Locked-in commitment',
-            },
-          ]}
-        />
+        <KpiStrip items={hero.items} />
       </section>
 
       {/* Filter by who's paying — sits above category chips so parents
