@@ -25,6 +25,7 @@ import {
   subscribeToPayrollForHelper,
   createDraftRequest,
   deleteRequest,
+  markSalaryPaid,
 } from '@/lib/purchase';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { toDisplayDate } from '@/lib/dates';
@@ -53,6 +54,23 @@ export default function PayrollHomePage() {
   const RECENT_DEFAULT_LIMIT = 3;
 
   const confirmAction = useConfirm();
+  // One-tap "Mark paid" — captures today as the payment day. Status-only;
+  // never moves the budget month (the salary stays in its work month).
+  const handleMarkPaid = async (req: PurchaseRequest) => {
+    if (!profile?.familyId || isGuest) return;
+    const ok = await confirmAction({
+      title: `Mark "${req.name || 'this salary'}" paid?`,
+      message: 'Records today as the payment day. The budget month stays unchanged.',
+      confirmLabel: 'Mark paid',
+    });
+    if (!ok) return;
+    try {
+      await markSalaryPaid(profile.familyId, req.id, new Date());
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[payroll] markSalaryPaid failed:', e);
+    }
+  };
   const handleDeleteDraft = async (req: PurchaseRequest) => {
     if (!profile?.familyId) return;
     const ok = await confirmAction({
@@ -313,7 +331,14 @@ export default function PayrollHomePage() {
       {recent.length > 0 && (
         <Section title="Recent" tone="neutral" count={recent.length}>
           {(showAllRecent ? recent : recent.slice(0, RECENT_DEFAULT_LIMIT)).map((r) => (
-            <RequestRow key={r.id} req={r} currency={currency} showHelper={role === 'parent'} dimmed />
+            <RequestRow
+              key={r.id}
+              req={r}
+              currency={currency}
+              showHelper={role === 'parent'}
+              dimmed
+              onMarkPaid={role === 'parent' ? () => handleMarkPaid(r) : undefined}
+            />
           ))}
           {recent.length > RECENT_DEFAULT_LIMIT && (
             <button
@@ -375,7 +400,7 @@ function Section({
 }
 
 function RequestRow({
-  req, currency, dimmed, showHelper, onDelete,
+  req, currency, dimmed, showHelper, onDelete, onMarkPaid,
 }: {
   req: PurchaseRequest;
   currency: string;
@@ -384,9 +409,16 @@ function RequestRow({
   /** Render an inline × delete button at the end of the row when set.
    *  Only passed for draft rows so non-drafts stay click-through-only. */
   onDelete?: () => void | Promise<void>;
+  /** Parent-only: one-tap "Mark paid" for a closed-but-unpaid salary. */
+  onMarkPaid?: () => void | Promise<void>;
 }) {
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
+  // A closed salary is "Processing" (booked to budget, not yet paid) until the
+  // parent marks it paid in the pay window — then "Paid {date}".
+  const isSalary = req.module === 'payroll' && req.status === 'closed';
+  const paidOn = req.paidAt?.toDate?.();
+  const canMarkPaid = !!onMarkPaid && isSalary && !paidOn;
   return (
     <div className={`flex items-stretch gap-1.5 ${dimmed ? 'opacity-70' : ''}`}>
       <Link
@@ -400,9 +432,14 @@ function RequestRow({
           <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">
             {req.name || 'Untitled request'}
           </div>
-          <div className="text-[11px] text-hive-muted font-bold mt-0.5 flex items-center gap-1.5">
+          <div className="text-[11px] text-hive-muted font-bold mt-0.5 flex items-center gap-1.5 flex-wrap">
             <span>{STATUS_LABEL[req.status]}{showHelper && req.helperUid ? ` · uid ${req.helperUid.slice(0, 6)}…` : ''}</span>
             {req.status === 'approved' && <ReconcileTimerChip approvedAt={req.approvedAt} />}
+            {isSalary && (
+              paidOn
+                ? <span className="rounded-full bg-hive-green/12 text-hive-green border border-hive-green/40 px-2 py-0.5 text-[9.5px] font-nunito font-extrabold">✓ Paid {paidOn.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</span>
+                : <span className="rounded-full bg-hive-blue/12 text-hive-blue border border-hive-blue/40 px-2 py-0.5 text-[9.5px] font-nunito font-extrabold">Processing</span>
+            )}
           </div>
         </div>
         <div className="text-right flex-shrink-0">
@@ -416,6 +453,17 @@ function RequestRow({
           </div>
         </div>
       </Link>
+      {canMarkPaid && (
+        <button
+          type="button"
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); void onMarkPaid!(); }}
+          className="flex-shrink-0 bg-hive-navy text-hive-cream rounded-hive px-3 font-nunito font-black text-[11px] hover:opacity-90"
+          aria-label="Mark this salary paid"
+          title="Mark paid — captures today as the payment day"
+        >
+          Mark&nbsp;paid
+        </button>
+      )}
       {onDelete && (
         <button
           type="button"

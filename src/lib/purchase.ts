@@ -1287,13 +1287,38 @@ export async function approveRequest(
   const meetsThreshold = mode === 'either'
     ? approvers.length >= 1
     : approvers.length >= 2;
-  const nextStatus: PurchaseRequestStatus = meetsThreshold ? 'approved' : 'pending_approval';
+
+  // Budget routing (2026-06-08): a fully-approved request that a helper did
+  // NOT initiate — salaries + auto top-ups (generatedBy 'system') and the
+  // parent's own uploads (createdByRole 'parent') — posts STRAIGHT to budget,
+  // skipping the reconcile + close-review chain. There's nothing for a helper
+  // to reconcile on a fixed salary or a parent's own expense. Helper-initiated
+  // requests keep the full approve → shop → reconcile → close flow.
+  const directToBudget = meetsThreshold && data.createdByRole !== 'helper';
+  const nextStatus: PurchaseRequestStatus = directToBudget
+    ? 'closed'
+    : meetsThreshold ? 'approved' : 'pending_approval';
+
   const patch: Record<string, unknown> = {
     approvedBy: approvers,
     status: nextStatus,
     updatedAt: serverTimestamp(),
   };
   if (meetsThreshold) patch.approvedAt = serverTimestamp();
+  if (directToBudget) {
+    // Mirror each item's estimate into its actuals so the closed request
+    // reads "actual = amount posted" (matches postDraftToBudget).
+    const items = (data.items ?? []).map((it) => ({
+      ...it,
+      actualCents: it.estimatedCents ?? 0,
+      actualQty: it.qty,
+    }));
+    patch.items = items;
+    patch.actualTotalCents = Math.max(0, data.estimatedTotalCents ?? sumEstimated(data.items ?? []));
+    patch.reconciledAt = serverTimestamp();
+    patch.closedAt = serverTimestamp();
+    patch.postedDirect = true;
+  }
   await updateDoc(requestDoc(familyId, requestId), patch);
   // 2026-05-18 — every full approval auto-saves the basket as a
   // reusable template (upserted by name + module). Fire-and-forget;
