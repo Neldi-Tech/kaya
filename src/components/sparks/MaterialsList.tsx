@@ -11,7 +11,8 @@ import {
   countsBySubject, materialIcon, mergeSubjects, prettyBytes, subjectMeta,
   visibleToKid, type SparksMaterial,
 } from '@/lib/sparks/materials';
-import { deleteMaterial } from '@/lib/sparks/materialsFirestore';
+import { deleteMaterial, uploadMaterialFile, updateMaterial } from '@/lib/sparks/materialsFirestore';
+import ReScanButton from '@/components/scan/ReScanButton';
 import { materialInlineUrl, materialDownloadUrl } from '@/lib/sparks/materialFileUrl';
 import DocActionSheet from '@/components/DocActionSheet';
 import DocViewer from '@/components/DocViewer';
@@ -225,6 +226,22 @@ export default function MaterialsList({
                   </button>
                   {canEdit && (
                     <div className="flex items-center gap-0.5">
+                      {m.kind === 'file' && (
+                        <ReScanButton
+                          label=""
+                          title="Re-scan / replace this file"
+                          className="text-[12px] text-[#5A3CB8] hover:bg-[#FBF7EE] rounded px-1 disabled:opacity-40"
+                          onReplace={async (files) => {
+                            const up = await uploadMaterialFile(familyId, m.id, files[0]);
+                            await updateMaterial(familyId, m.id, {
+                              file_url: up.url,
+                              file_name: up.storedName,
+                              file_size_bytes: up.sizeBytes,
+                              file_mime: up.mime,
+                            });
+                          }}
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onEdit?.(m); }}

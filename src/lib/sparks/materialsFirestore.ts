@@ -92,6 +92,11 @@ export interface UpdateMaterialInput {
   subject?: string;
   description?: string;
   shared_with?: 'all_kids' | string[];
+  // Re-scan / replace the stored file (PR 6d) — swap a bad scan anytime.
+  file_url?: string;
+  file_name?: string;
+  file_size_bytes?: number;
+  file_mime?: string;
 }
 
 export async function updateMaterial(
@@ -102,6 +107,10 @@ export async function updateMaterial(
   if (input.subject  !== undefined) patch.subject     = input.subject;
   if (input.description !== undefined) patch.description = input.description;
   if (input.shared_with !== undefined) patch.shared_with = input.shared_with;
+  if (input.file_url !== undefined) patch.file_url = input.file_url;
+  if (input.file_name !== undefined) patch.file_name = input.file_name;
+  if (typeof input.file_size_bytes === 'number') patch.file_size_bytes = input.file_size_bytes;
+  if (input.file_mime !== undefined) patch.file_mime = input.file_mime;
   await updateDoc(doc(db, 'families', familyId, 'sparks_materials', materialId), patch);
 }
 
