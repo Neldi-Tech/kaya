@@ -33,7 +33,8 @@ type NotifyType =
   | 'moment-mention'
   | 'moment-new'
   | 'utility-bill-due'
-  | 'perf-digest';
+  | 'perf-digest'
+  | 'meeting-recap';
 
 /** One helper's line in the daily performance digest email. */
 interface DigestHelper {
@@ -43,6 +44,38 @@ interface DigestHelper {
   faceLabel: string;
   /** One-line summary, e.g. "Workplan 88% · Ratings 12/14 · on budget". */
   line: string;
+}
+
+// ── Sunday-Meeting v2 (b6): Meeting Recap Book ────────────────────────
+// One-page emailed recap that lands in parents' + family contacts'
+// inboxes after a meeting is submitted. The client composes the payload
+// from the meeting + family + the active submissions; we render an
+// inline-styled HTML "book" with sections for attendance, gratitudes,
+// appreciations, points, goals, and closing.
+
+interface RecapAttendee { name: string; emoji: string; isGuest?: boolean }
+interface RecapEntry { name: string; emoji: string; lines: string[] }
+interface RecapClosing { prayer?: string; story?: string; songUrl?: string; songApprovedBy?: string }
+interface MeetingRecapData {
+  familyName: string;
+  /** Formatted display date (DD-Mmm-YYYY). */
+  dateLabel: string;
+  /** Leader display name + emoji. Optional if no queued leader. */
+  leaderName?: string;
+  leaderEmoji?: string;
+  attendees: RecapAttendee[];
+  gratitudes: RecapEntry[];
+  appreciations: RecapEntry[];
+  goals: RecapEntry[];
+  /** Points-this-week summary. Strings so the server doesn't re-derive. */
+  beltChampion?: { name: string; emoji: string; perfectDays: number };
+  starSummary?: string;             // e.g. "Diella ×3 · Earlnathan ×2"
+  hpThisWeek?: Array<{ name: string; emoji: string; pts: number }>;
+  closing?: RecapClosing;
+  /** Where "Open in Kaya" should land. */
+  openUrl: string;
+  /** Caller-controlled toggles — match the family's settings card. */
+  includeSong?: boolean;
 }
 
 interface NotifyData {
@@ -80,6 +113,8 @@ interface NotifyData {
   parentName?: string;
   dateLabel?: string;
   digestHelpers?: DigestHelper[];
+  // Meeting recap book (b6)
+  recap?: MeetingRecapData;
 }
 
 interface NotifyBody {
@@ -188,6 +223,16 @@ export async function POST(req: NextRequest) {
         ? 'Your daily helper performance summary'
         : `${n} helper${n === 1 ? '' : 's'} · how today went`,
       body: perfDigestBody(data),
+    });
+  } else if (type === 'meeting-recap') {
+    if (!data.recap) {
+      return NextResponse.json({ error: 'recap data missing' }, { status: 400 });
+    }
+    const r = data.recap;
+    subject = `📖 ${r.familyName} · meeting recap · ${r.dateLabel}`;
+    html = renderEmail({
+      preheader: `${r.leaderName ? r.leaderName + ' led · ' : ''}gratitudes, appreciations, goals & this week's points`,
+      body: meetingRecapBody(r),
     });
   } else {
     return NextResponse.json({ error: 'Unknown notification type' }, { status: 400 });
@@ -457,5 +502,111 @@ function utilityBillDueBody(d: NotifyData): string {
     </div>
     ${openLink ? `<p style="margin:20px 0 0;text-align:center;">${openLink}</p>` : ''}
     <p style="margin:16px 0 0;font-size:11px;color:#C4B89A;text-align:center;">Sent to parents · you'll get one per bill, per due date.</p>
+  `;
+}
+
+// ── Meeting Recap Book renderer (Sunday-Meeting v2 · b6) ─────────────
+// A one-page "book" emailed to parents + family contacts after the
+// meeting submits. Inline styles only — most clients still strip <style>
+// blocks. Layout matches the v2 design mockup (cover, attendance,
+// gratitudes, appreciations, points/belt/stars/HP, goals, closing,
+// footer "From your Kaya family ❤️"). Moments thumbnails + PDF
+// attachment are deferred to a follow-up.
+
+function recapSection(title: string, kicker: string, body: string, opts?: { tint?: 'cream' | 'lilac' | 'amber' }): string {
+  const tint = opts?.tint || 'cream';
+  const bg = tint === 'lilac' ? '#FAF5FF'
+    : tint === 'amber' ? '#FFF7E5'
+    : '#FDFBF7';
+  const border = tint === 'lilac' ? '#9B5DE5'
+    : tint === 'amber' ? '#D4A017'
+    : '#E8E0D4';
+  return `
+    <div style="margin:0 0 14px 0;background:${bg};border:1px solid ${border}55;border-radius:12px;padding:12px 14px;">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;font-weight:800;color:${border};margin-bottom:6px;">${esc(kicker)}</div>
+      <div style="font-size:12.5px;color:#3D241A;line-height:1.55;">
+        ${body}
+      </div>
+      ${title ? '' : ''}
+    </div>
+  `;
+}
+
+function meetingRecapBody(r: MeetingRecapData): string {
+  const attendance = r.attendees.length === 0 ? ''
+    : recapSection('attendance', 'Who was there',
+        r.attendees.map((a) =>
+          `<span style="white-space:nowrap;">${esc(a.emoji)} ${esc(a.name)}${a.isGuest ? ' <span style="color:#9B8A72;">(guest)</span>' : ''}</span>`
+        ).join(' &nbsp;·&nbsp; '),
+      );
+
+  const gratitudes = r.gratitudes.length === 0 ? ''
+    : recapSection('gratitudes', '🙏 Gratitudes',
+        r.gratitudes.map((e) =>
+          e.lines.map((line) =>
+            `<div style="font-style:italic;">&ldquo;${esc(line)}&rdquo; <span style="color:#9B8A72;font-style:normal;font-weight:600;">— ${esc(e.name)}</span></div>`
+          ).join(''),
+        ).join(''),
+      );
+
+  const appreciations = r.appreciations.length === 0 ? ''
+    : recapSection('appreciations', '💛 Appreciations',
+        r.appreciations.map((e) =>
+          e.lines.map((line) =>
+            `<div><b>${esc(e.name)}</b> → ${esc(line)}</div>`
+          ).join(''),
+        ).join(''),
+        { tint: 'lilac' },
+      );
+
+  const pointsBits: string[] = [];
+  if (r.beltChampion && r.beltChampion.perfectDays > 0) {
+    pointsBits.push(`🏆 <b>Belt Champion</b> — ${esc(r.beltChampion.emoji)} <b>${esc(r.beltChampion.name)}</b> · ${r.beltChampion.perfectDays} perfect day${r.beltChampion.perfectDays === 1 ? '' : 's'}`);
+  }
+  if (r.starSummary) {
+    pointsBits.push(`⭐ <b>Stars of the Day</b> — ${esc(r.starSummary)}`);
+  }
+  if (r.hpThisWeek && r.hpThisWeek.length > 0) {
+    pointsBits.push(`📈 <b>House Points earned</b> — ${r.hpThisWeek.map((h) => `${esc(h.emoji)} ${esc(h.name)} ${h.pts} HP`).join(' · ')}`);
+  }
+  const points = pointsBits.length === 0 ? ''
+    : recapSection('points', '📊 Points this week', pointsBits.join('<br>'));
+
+  const goals = r.goals.length === 0 ? ''
+    : recapSection('goals', '🎯 Goals for the week',
+        r.goals.map((e) =>
+          e.lines.map((line) =>
+            `<div>${esc(e.emoji)} <b>${esc(e.name)}</b> — ${esc(line)}</div>`
+          ).join(''),
+        ).join(''),
+      );
+
+  const closingBits: string[] = [];
+  if (r.closing?.prayer) closingBits.push(`Prayer: <span style="font-style:italic;">${esc(r.closing.prayer.slice(0, 140))}${r.closing.prayer.length > 140 ? '…' : ''}</span>`);
+  if (r.closing?.story) closingBits.push(`Story: <span style="font-style:italic;">${esc(r.closing.story.slice(0, 140))}${r.closing.story.length > 140 ? '…' : ''}</span>`);
+  if (r.closing?.songUrl && r.includeSong !== false) {
+    closingBits.push(`🎵 Closing song — <a href="${esc(r.closing.songUrl)}" style="color:#B8860B;font-weight:700;">▶ Open in new tab</a>${r.closing.songApprovedBy ? ' <span style="color:#3FAF6C;font-weight:700;">· parent OK ✓</span>' : ''}`);
+  }
+  const closing = closingBits.length === 0 ? ''
+    : recapSection('closing', '🌙 Closing', closingBits.join('<br>'), { tint: 'amber' });
+
+  return `
+    <!-- cover -->
+    <div style="text-align:center;border-bottom:2px solid #D4A017;padding-bottom:14px;margin-bottom:14px;">
+      <div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:10px;text-transform:uppercase;letter-spacing:3px;font-weight:800;color:#B8860B;">Family Meeting · Recap</div>
+      <div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:22px;font-weight:900;color:#1E120B;margin-top:4px;">${esc(r.familyName)}</div>
+      <div style="font-size:12px;color:#9B8A72;margin-top:2px;">
+        ${esc(r.dateLabel)}${r.leaderName ? ` · led by ${esc(r.leaderEmoji || '')} ${esc(r.leaderName)} ✨` : ''}
+      </div>
+    </div>
+    ${attendance}
+    ${gratitudes}
+    ${appreciations}
+    ${points}
+    ${goals}
+    ${closing}
+    <div style="text-align:center;font-size:11px;color:#9B8A72;margin-top:18px;border-top:1px solid #E8E0D4;padding-top:10px;">
+      From your <b>Kaya</b> family ❤️ &nbsp;·&nbsp; <a href="${esc(r.openUrl)}" style="color:#B8860B;font-weight:700;text-decoration:none;">Open in Kaya →</a>
+    </div>
   `;
 }
