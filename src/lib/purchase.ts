@@ -1054,6 +1054,23 @@ export async function markSalaryPaid(
   });
 }
 
+/** Re-attribute a request to a specific budget month 'YYYY-MM'. Parent
+ *  correction for a salary that was stamped with the wrong work-period —
+ *  e.g. a payment made on the 1st–5th of June that belongs to MAY. Sets
+ *  `budgetMonth`, which `budgetMonthKeyFor()` honours above everything, so
+ *  the cost moves to the right month without touching history. */
+export async function setRequestBudgetMonth(
+  familyId: string,
+  requestId: string,
+  budgetMonth: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(requestDoc(familyId, requestId), {
+    budgetMonth,
+    updatedAt: serverTimestamp(),
+  });
+}
+
 // ── Templates ────────────────────────────────────────────────────
 
 /** Snapshot a resolved request into the family's template library so
