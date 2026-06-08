@@ -31,6 +31,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import AutoFileSheet from '@/components/sparks/AutoFileSheet';
 import { useSparksFeatures } from '@/lib/sparks/gating';
 import {
   SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea, type SparksItem,
@@ -103,6 +105,9 @@ export default function KidSparksHomePage() {
   // Daily Reflection isn't a sparks_item — the card's chip shows the
   // current streak (🔥) instead of a row count. (2026-06-07)
   const [reflectionStreak, setReflectionStreak] = useState<number | null>(null);
+  // AI Auto-File (Scanning 3.0): scan a doc → Kaya classifies + files it.
+  const [autofileOpen, setAutofileOpen] = useState(false);
+  const [autofileFiles, setAutofileFiles] = useState<File[] | null>(null);
   useEffect(() => {
     if (!familyId || !kidId) return;
     return subscribeToAllKidItems(familyId, kidId, setItems);
@@ -214,6 +219,18 @@ export default function KidSparksHomePage() {
           <div className="text-[13px] lg:text-[15px] opacity-90 mt-1">
             {kid.houseName ? `${kid.houseName} House` : 'Kaya family'}
           </div>
+
+          {/* 🪄 Scan & file (Scanning 3.0 · AI Auto-File) — snap a doc and
+              Kaya sorts it into the right area for this kid. */}
+          {(isParent || isSelf) && (
+            <button
+              type="button"
+              onClick={() => setAutofileOpen(true)}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white/90 text-[#5A3CB8] px-3.5 py-2 text-[13px] font-black shadow-sm active:scale-95 transition-transform"
+            >
+              🪄 Scan &amp; file
+            </button>
+          )}
 
           {/* Kid switcher pills */}
           {switcherKids.length > 0 && (
@@ -351,6 +368,26 @@ export default function KidSparksHomePage() {
           </div>
         )}
       </div>
+
+      {/* 🪄 Scan & file flow: capture (auto-framed) → AI classifies → confirm */}
+      {autofileOpen && (
+        <CameraCaptureSheet
+          open={autofileOpen}
+          mode="scan"
+          onClose={() => setAutofileOpen(false)}
+          onConfirm={(files) => { setAutofileOpen(false); if (files.length) setAutofileFiles(files); }}
+        />
+      )}
+      {autofileFiles && familyId && (
+        <AutoFileSheet
+          familyId={familyId}
+          kidId={kid.id}
+          kidName={kid.name}
+          files={autofileFiles}
+          createdBy={profile?.uid || ''}
+          onClose={() => setAutofileFiles(null)}
+        />
+      )}
     </div>
   );
 }

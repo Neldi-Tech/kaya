@@ -450,6 +450,46 @@ export async function reEvaluateRevision(
   }
 }
 
+// ── AI Auto-File ─────────────────────────────────────────────────────
+export interface AutoFileSuggestion {
+  area: SparksItemArea;
+  title: string;
+  description: string;
+  subject: string;
+  date: string; // YYYY-MM-DD or ''
+  confidence: number;
+}
+
+const AUTOFILE_AREAS: SparksItemArea[] = ['achievement', 'school_project', 'home_project', 'sports_subscription', 'revision'];
+
+/** Classify a scanned document into the right Sparks area + pull its details,
+ *  so a scan can "file itself". Returns null when AI is off / on failure —
+ *  the caller then shows the picker with empty defaults. */
+export async function autoFileScan(file: File, kidName?: string): Promise<AutoFileSuggestion | null> {
+  try {
+    const { base64, mediaType } = await fileToAiBase64(file);
+    const res = await fetch('/api/sparks/ai/autofile', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64, mediaType, kidName }),
+    });
+    if (!res.ok) return null;
+    const d = await res.json();
+    if (d?.skipped) return null;
+    const area: SparksItemArea = AUTOFILE_AREAS.includes(d?.area) ? d.area : 'achievement';
+    return {
+      area,
+      title: String(d?.title ?? '').slice(0, 120),
+      description: String(d?.description ?? '').slice(0, 300),
+      subject: String(d?.subject ?? '').slice(0, 40),
+      date: /^\d{4}-\d{2}-\d{2}$/.test(d?.date ?? '') ? d.date : '',
+      confidence: Number(d?.confidence ?? 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export interface SuggestNextArgs {
   kidName: string;
   subject: string;
