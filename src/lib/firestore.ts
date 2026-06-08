@@ -670,6 +670,14 @@ export interface HelperPayrollConfig {
    *  Null/undefined = open-ended. Decremented as requests are
    *  generated. */
   cyclesRemaining?: number | null;
+  /** Parent authority (2026-06-08): when true (the default), a generated
+   *  salary is auto-approved straight to the budget as "Processing" — no
+   *  manual approve tap. The parent just confirms payment in the pay window.
+   *  Set false to keep the old "review &amp; approve each cycle" behaviour. */
+  autoApproveToBudget?: boolean;
+  /** When true, Kaya reminds the parent to mark the salary paid once the
+   *  pay window opens (1st of the following month). Default off. */
+  markPaidReminder?: boolean;
 }
 
 // ── Pay check-ins (hourly/daily helpers only) ────────────────────

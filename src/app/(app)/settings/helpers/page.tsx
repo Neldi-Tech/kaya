@@ -1527,6 +1527,9 @@ function PayrollConfigSection({
   const [startDate, setStartDate] = useState<string>(existing?.startDate ?? new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState<string>(existing?.endDate ?? '');
   const [payBuffer, setPayBuffer] = useState<number>(existing?.payAnchorBufferDays ?? 0);
+  // Parent authority — default ON: auto-approve the salary straight to budget.
+  const [autoApprove, setAutoApprove] = useState<boolean>(existing?.autoApproveToBudget ?? true);
+  const [markPaidReminder, setMarkPaidReminder] = useState<boolean>(existing?.markPaidReminder ?? false);
   const [allowances, setAllowances] = useState<PayrollAllowance[]>(existing?.allowances ?? []);
   const [allowanceLabel, setAllowanceLabel] = useState('');
   const [allowanceAmt, setAllowanceAmt] = useState<number>(0);
@@ -1568,6 +1571,8 @@ function PayrollConfigSection({
         startDate,
         endDate: endDate || undefined,
         allowances: allowances.length > 0 ? allowances : undefined,
+        autoApproveToBudget: autoApprove,
+        markPaidReminder,
       };
       await setPayrollConfig(familyId, helperUid, patch);
       setSavedFlash(true);
@@ -1790,6 +1795,40 @@ function PayrollConfigSection({
               />
             </div>
             <p className="text-[10px] text-kaya-sand mt-1">Sets the helper&apos;s expectation. The pay still triggers on the anchor day — this is the polite upper bound.</p>
+          </div>
+
+          {/* Budget routing — parent authority (2026-06-08) */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setAutoApprove((v) => !v)}
+              className="w-full flex items-center justify-between gap-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2.5 text-left"
+            >
+              <span className="text-[12px] font-bold text-kaya-chocolate">
+                Auto-approve salary to budget
+                <span className="block text-[10px] font-normal text-kaya-sand mt-0.5">
+                  On: posts straight to budget as “Processing”, then you mark it paid. Off: review &amp; approve each cycle.
+                </span>
+              </span>
+              <span className={`flex-shrink-0 w-11 h-6 rounded-full relative transition-colors ${autoApprove ? 'bg-pantry-leaf-dk' : 'bg-kaya-warm-dark'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${autoApprove ? 'right-0.5' : 'left-0.5'}`} />
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setMarkPaidReminder((v) => !v)}
+              className="w-full flex items-center justify-between gap-3 bg-kaya-cream/40 border border-kaya-warm-dark rounded-kaya-sm px-3 py-2.5 text-left"
+            >
+              <span className="text-[12px] font-bold text-kaya-chocolate">
+                Remind me to mark paid
+                <span className="block text-[10px] font-normal text-kaya-sand mt-0.5">
+                  A nudge when the pay window opens (1st of the next month).
+                </span>
+              </span>
+              <span className={`flex-shrink-0 w-11 h-6 rounded-full relative transition-colors ${markPaidReminder ? 'bg-pantry-leaf-dk' : 'bg-kaya-warm-dark'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${markPaidReminder ? 'right-0.5' : 'left-0.5'}`} />
+              </span>
+            </button>
           </div>
 
           {/* Dates */}

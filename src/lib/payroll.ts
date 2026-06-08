@@ -29,7 +29,7 @@ import {
   type PayrollDeduction, type PayrollAllowance,
 } from './firestore';
 import { listHelpers } from './helpers';
-import { createDraftRequest } from './purchase';
+import { createDraftRequest, approveRequest } from './purchase';
 import { listApprovedCheckIns, sumApprovedHours, countApprovedDays } from './payCheckIns';
 import { toDisplayDate } from './dates';
 
@@ -585,7 +585,7 @@ async function generateOneRequest(
   }
 
   // ── Create request ──
-  await createDraftRequest(familyId, {
+  const requestId = await createDraftRequest(familyId, {
     name: `Salary · ${helper.displayName} · ${toDisplayDate(periodStartIso)} → ${toDisplayDate(periodEndIso)}`,
     module: 'payroll',
     helperUid: helper.uid,
@@ -610,6 +610,20 @@ async function generateOneRequest(
       deductionRefs,
     },
   });
+
+  // Parent authority (2026-06-08): unless the parent opted out, auto-approve
+  // the salary straight to the budget. createdByRole is 'parent', so
+  // approveRequest posts it directly to budget as "Processing" (no reconcile,
+  // no manual approve tap) — the parent just confirms payment in the window.
+  if (config.autoApproveToBudget !== false) {
+    try {
+      await approveRequest(familyId, requestId, byUid, 'either');
+    } catch (e) {
+      // Non-fatal: the salary stays as pending_approval for a manual nod.
+      // eslint-disable-next-line no-console
+      console.error('[payroll] auto-approve to budget failed:', e);
+    }
+  }
 
   // ── Stamp lastGeneratedDate ──
   await setPayrollConfig(familyId, helper.uid, {
