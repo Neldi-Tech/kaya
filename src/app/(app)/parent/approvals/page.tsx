@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import ApprovalRequestCard from '@/components/hive/ApprovalRequestCard';
 import GameApprovalCard from '@/components/games/GameApprovalCard';
 import BackButton from '@/components/ui/BackButton';
+import RequestsHistory from '@/components/parent/RequestsHistory';
 import { subscribeToPendingGameApprovals } from '@/lib/gamesApprovals';
 import type { GamePlay } from '@/lib/games';
 
@@ -22,6 +23,7 @@ export default function ParentApprovalsPage() {
   const familyId = profile?.familyId;
   const isParent = profile?.role === 'parent';
 
+  const [tab, setTab] = useState<'waiting' | 'history'>('waiting');
   const [gamePlays, setGamePlays] = useState<GamePlay[]>([]);
   useEffect(() => {
     if (!familyId || !isParent) return;
@@ -29,7 +31,8 @@ export default function ParentApprovalsPage() {
     return () => unsub();
   }, [familyId, isParent]);
 
-  const nothing = pendingApprovals.length === 0 && gamePlays.length === 0;
+  const waitingCount = pendingApprovals.length + gamePlays.length;
+  const nothing = waitingCount === 0;
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8">
@@ -44,7 +47,31 @@ export default function ParentApprovalsPage() {
         </Link>
       </div>
 
-      {nothing ? (
+      {/* Waiting / History tabs */}
+      <div className="flex gap-1 bg-[#FFF3D9] rounded-full p-1 mb-5">
+        <button
+          type="button"
+          onClick={() => setTab('waiting')}
+          className={`flex-1 rounded-full py-2 text-[12.5px] font-nunito font-extrabold transition-colors ${
+            tab === 'waiting' ? 'bg-hive-paper text-hive-navy shadow-sm' : 'text-hive-honey-dk'
+          }`}
+        >
+          Waiting{waitingCount > 0 ? ` · ${waitingCount}` : ''}
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('history')}
+          className={`flex-1 rounded-full py-2 text-[12.5px] font-nunito font-extrabold transition-colors ${
+            tab === 'history' ? 'bg-hive-paper text-hive-navy shadow-sm' : 'text-hive-honey-dk'
+          }`}
+        >
+          History
+        </button>
+      </div>
+
+      {tab === 'history' ? (
+        <RequestsHistory />
+      ) : nothing ? (
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-10 text-center">
           <div className="text-5xl mb-3">📭</div>
           <p className="font-nunito font-extrabold text-[15px]">Inbox zero</p>
