@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kaya · Payroll — Work cycle vs Pay window</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Lato:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#1F2D3D; --cream:#FFF8EC; --paper:#FFFFFF; --muted:#5C6975; --line:#E8DEC9;
+    --purple:#6B4FA0; --purple-soft:#F4EFFB; --purple-line:#C9B8E5;
+    --green:#3FAF6C; --blue:#3F7AAF; --honey-dk:#D17F1A; --honey-bg:#FFF3D9;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--cream);font-family:'Lato',sans-serif;color:var(--navy)}
+  .wrap{max-width:1060px;margin:0 auto;padding:30px 22px 70px}
+  h1{font-family:'Nunito',sans-serif;font-size:30px;font-weight:900;line-height:1.12;margin:0;letter-spacing:-.01em}
+  .eyebrow{text-transform:uppercase;letter-spacing:2.5px;font-size:11px;font-weight:800;color:var(--purple)}
+  .lede{font-size:15.5px;color:var(--muted);line-height:1.55;margin:10px 0 0;max-width:800px}
+  .rule{border:none;border-top:1px solid var(--line);margin:32px 0}
+  .revtag{display:inline-block;background:var(--purple);color:#fff;font-family:'Nunito';font-weight:800;font-size:11px;letter-spacing:.5px;padding:3px 11px;border-radius:999px;margin-bottom:10px}
+  .sec-title{font-family:'Nunito';font-weight:900;font-size:20px}
+  .sec-note{font-size:14px;color:var(--muted);line-height:1.55;margin:7px 0 18px;max-width:820px}
+
+  /* two-concept diagram */
+  .concepts{display:grid;grid-template-columns:1fr;gap:14px;margin-top:8px}
+  @media(min-width:680px){.concepts{grid-template-columns:1fr 1fr}}
+  .concept{border-radius:18px;padding:18px 20px;border:1px solid}
+  .c-cycle{background:rgba(63,175,108,.08);border-color:rgba(63,175,108,.4)}
+  .c-window{background:var(--purple-soft);border-color:var(--purple-line)}
+  .concept h3{font-family:'Nunito';font-weight:900;font-size:17px;display:flex;align-items:center;gap:8px;margin:0}
+  .concept .tag{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;margin-top:2px}
+  .c-cycle .tag{color:var(--green)} .c-window .tag{color:var(--purple)}
+  .concept p{font-size:13px;color:var(--navy);line-height:1.55;margin:9px 0 0}
+  .concept b{font-family:'Nunito';font-weight:900}
+
+  .stage{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start;justify-content:center;margin-top:8px}
+  .col{flex:1;min-width:300px;max-width:350px}
+  .phone{background:#0B1119;border-radius:38px;padding:11px;box-shadow:0 24px 46px -18px rgba(11,17,25,.5)}
+  .screen{background:var(--cream);border-radius:28px;overflow:hidden;position:relative}
+  .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:120px;height:24px;background:#0B1119;border-radius:0 0 16px 16px;z-index:6}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:11px 20px 4px;font-family:'Nunito';font-weight:800;font-size:11px}
+  .body{padding:8px 15px 16px}
+  .h-eyebrow{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--honey-dk)}
+  .h-title{font-family:'Nunito';font-weight:900;font-size:21px;margin-top:1px}
+  .sect{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin:14px 0 6px;display:flex;align-items:center;gap:6px}
+  .sect .pill{background:var(--paper);border:1px solid var(--line);border-radius:999px;padding:0 7px;font-size:9px}
+
+  /* payroll row */
+  .prow{display:flex;align-items:center;gap:10px;background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:11px 12px;margin-top:8px}
+  .pic{width:34px;height:34px;border-radius:10px;background:rgba(63,175,108,.14);display:flex;align-items:center;justify-content:center;font-size:17px;flex:0 0 auto}
+  .pmain{flex:1;min-width:0}
+  .ptitle{font-family:'Nunito';font-weight:900;font-size:13.5px}
+  .pmeta{font-size:10.5px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .pamt{font-family:'Nunito';font-weight:900;font-size:13px;text-align:right}
+  .badge{display:inline-block;border-radius:999px;padding:1px 7px;font-family:'Nunito';font-weight:800;font-size:9px;border:1.1px solid}
+  .b-proc{background:rgba(63,122,175,.12);color:var(--blue);border-color:rgba(63,122,175,.4)}
+  .b-cycle{background:rgba(63,175,108,.12);color:var(--green);border-color:rgba(63,175,108,.4)}
+  .b-win{background:var(--purple-soft);color:var(--purple);border-color:var(--purple-line)}
+  .b-paid{background:rgba(63,175,108,.16);color:var(--green);border-color:rgba(63,175,108,.5)}
+  .markpaid{flex:0 0 auto;background:var(--navy);color:var(--cream);border-radius:12px;padding:8px 12px;font-family:'Nunito';font-weight:900;font-size:11px}
+  .markpaid.off{background:#C9CDD2;color:#fff}
+
+  /* timeline */
+  .tl{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:6px 4px;margin-top:8px}
+  .trow{display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-top:1px dashed var(--line)}
+  .trow:first-child{border-top:none}
+  .twhen{flex:0 0 76px;font-family:'Nunito';font-weight:900;font-size:12px;color:var(--purple)}
+  .twhat{font-size:13px;line-height:1.5}
+  .twhat b{font-family:'Nunito';font-weight:900}
+
+  /* setup */
+  .setrow{display:flex;justify-content:space-between;align-items:center;gap:10px;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-top:8px}
+  .setrow .l{font-size:12.5px;font-weight:700}
+  .setrow .l small{display:block;color:var(--muted);font-weight:600;font-size:10.5px;margin-top:2px}
+  .stepper{display:inline-flex;align-items:center;border:1.4px solid var(--line);border-radius:10px;overflow:hidden;font-family:'Nunito';font-weight:900}
+  .stepper span{padding:6px 10px;font-size:13px}.stepper .v{background:var(--purple-soft);min-width:54px;text-align:center;color:var(--purple)}
+  .seg{display:inline-flex;border:1.4px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg span{padding:6px 11px;font-family:'Nunito';font-weight:800;font-size:11.5px}
+  .seg .on{background:var(--purple);color:#fff}
+
+  .caption{text-align:center;font-size:12px;color:var(--muted);margin:11px 0 0;font-weight:700}
+  .key-tbl{width:100%;border-collapse:collapse;margin-top:6px}
+  .key-tbl td{padding:11px 8px;border-top:1px solid var(--line);font-size:13.5px;vertical-align:top;line-height:1.55}
+  .key-tbl td:first-child{font-family:'Nunito';font-weight:900;white-space:nowrap;width:150px}
+  .foot{margin-top:34px;padding:18px;background:var(--paper);border:1px solid var(--line);border-radius:16px}
+  .foot h4{font-size:15px;margin-bottom:8px;font-family:'Nunito'}
+  .foot ul{margin:0;padding-left:18px;font-size:13.5px;line-height:1.7}
+  .ok{color:var(--green);font-weight:800}
+  .warn{background:var(--honey-bg);border:1px solid #F0D9A0;border-radius:12px;padding:12px 15px;margin-top:16px;font-size:13px;line-height:1.55}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <span class="revtag">PAYROLL · cadence fix</span>
+  <div class="eyebrow">Kaya · Household → Payroll</div>
+  <h1>Two clean ideas: the cycle worked, and when it's paid</h1>
+  <p class="lede">
+    You're right on both counts. The fix is to stop mixing two different things. A salary now has a
+    <b>work cycle</b> (the whole month worked) and a separate <b>pay window</b> (when you actually pay it).
+    And Kaya raises it for you a few days <b>before the cycle ends</b> — not on the pay day.
+  </p>
+
+  <div class="concepts">
+    <div class="concept c-cycle">
+      <div class="tag">Budget follows this</div>
+      <h3>🗓️ Work cycle</h3>
+      <p>The <b>whole month worked</b> — e.g. <b>May 2026</b> (1–31 May). This is what the salary covers and
+        which month's budget it lands in. Shown as the month, never a 5-day sliver.</p>
+    </div>
+    <div class="concept c-window">
+      <div class="tag">Just when you pay</div>
+      <h3>💸 Pay window</h3>
+      <p>When you actually hand over the money — <b>1–5 June</b> (or, for parents who pay in-month, e.g.
+        <b>by the 28th</b>). Separate from the cycle; it only sets when “Mark paid” shows. It never moves
+        the budget month.</p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <!-- ===== 01 — corrected display ===== -->
+  <div class="sec-title">① The entry reads cleanly now</div>
+  <p class="sec-note">No more “2026-05-01 → 2026-05-05”. The cycle is the month; the pay window is its own line; the badge tells you where it is.</p>
+
+  <div class="stage">
+    <div class="col">
+      <div class="phone"><div class="screen">
+        <div class="notch"></div>
+        <div class="statusbar"><span>9:41</span><span>● ● ●</span></div>
+        <div class="body">
+          <div class="h-eyebrow">Household · Payroll</div>
+          <div class="h-title">Payroll requests</div>
+
+          <div class="sect">In budget · awaiting payment <span class="pill">3</span></div>
+          <div class="prow">
+            <div class="pic">🤝</div>
+            <div class="pmain"><div class="ptitle">Salary · Catherine</div>
+              <div class="pmeta"><span class="badge b-cycle">May 2026 cycle</span><span class="badge b-win">Pay 1–5 Jun</span><span class="badge b-proc">Processing</span></div></div>
+            <div><div class="pamt">100,000</div></div>
+          </div>
+          <div class="prow">
+            <div class="pic">🤝</div>
+            <div class="pmain"><div class="ptitle">Salary · Seif</div>
+              <div class="pmeta"><span class="badge b-cycle">May 2026 cycle</span><span class="badge b-win">Pay 1–5 Jun</span><span class="badge b-proc">Processing</span></div></div>
+            <div><div class="pamt">322,000</div></div>
+          </div>
+
+          <div class="sect">Paid <span class="pill">·</span></div>
+          <div class="prow" style="opacity:.7">
+            <div class="pic">🤝</div>
+            <div class="pmain"><div class="ptitle">Salary · Donald</div>
+              <div class="pmeta"><span class="badge b-cycle">Apr 2026 cycle</span><span class="badge b-paid">✓ Paid 3 May</span></div></div>
+            <div><div class="pamt">572,000</div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="caption">Cycle = the month · Pay window = its own badge</p>
+    </div>
+
+    <div class="col">
+      <div class="tl">
+        <div class="trow"><div class="twhen">24 May</div><div class="twhat"><b>Kaya raises May's salaries</b> — 7 days before the cycle ends (you set this). Auto-approved &amp; <b>posted to May's budget</b> as <span class="badge b-proc">Processing</span>. No June approval spam.</div></div>
+        <div class="trow"><div class="twhen">31 May</div><div class="twhat">May closes — the salary is already counted in <b>May</b>.</div></div>
+        <div class="trow"><div class="twhen">1–5 Jun</div><div class="twhat"><b>Pay window opens.</b> One tap <span class="markpaid" style="padding:3px 8px">Mark paid</span> captures the day. Budget month does <b>not</b> move.</div></div>
+        <div class="trow"><div class="twhen">3 Jun</div><div class="twhat">Status → <span class="badge b-paid">✓ Paid 3 Jun</span> · still in May's budget.</div></div>
+      </div>
+      <p class="caption">② Raised before month-end, paid early next month</p>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <!-- ===== 03 — setup ===== -->
+  <div class="sec-title">③ Set it once per helper</div>
+  <p class="sec-note">Two small additions to the salary setup so the timing + pay window match how you actually pay.</p>
+
+  <div style="max-width:360px">
+    <div class="setrow"><div class="l">Raise salary before cycle ends<small>Kaya books it to budget this many days early</small></div>
+      <div class="stepper"><span>–</span><span class="v">7 days</span><span>+</span></div></div>
+    <div class="setrow"><div class="l">Pay window<small>When you actually pay</small></div>
+      <div class="seg"><span class="on">Next month 1–5</span><span>Same month</span></div></div>
+    <div class="setrow"><div class="l">Auto-approve to budget<small>Off = it waits for your tap, still pre-month-end</small></div>
+      <div class="seg"><span class="on">On</span><span>Off</span></div></div>
+  </div>
+
+  <div class="warn">
+    🧹 <b>Cleanup:</b> the current <b>June “awaiting”</b> rows (raised on the wrong day) and the manual
+    <b>May 1–5</b> rows can be removed once this lands — I'll add a one-tap “this was raised wrong, remove”
+    on those, or you can delete them. The new model won't recreate them.
+  </div>
+
+  <hr class="rule">
+
+  <div class="sec-title">What changes — exactly</div>
+  <table class="key-tbl">
+    <tr><td>Work cycle</td><td>A salary covers the <b>full month</b> (May 1–31), shown as “May 2026 cycle”. Budget month follows the cycle. No more 5-day slivers.</td></tr>
+    <tr><td>Raise date</td><td>Generated + auto-approved + posted to budget <b>N days before the cycle ends</b> (parent-set, default 7) — so May is raised ~24 May, not on 8 June.</td></tr>
+    <tr><td>Pay window</td><td>Separate setting: <b>Next month 1–5</b> or <b>Same month by the Nth</b>. Only controls when “Mark paid” shows; never moves the budget month.</td></tr>
+    <tr><td>Processing → Paid</td><td>Sits as <b>Processing</b> (in budget) until you tap <b>Mark paid</b> in the window, which captures the pay day.</td></tr>
+    <tr><td>No approval spam</td><td>With auto-approve on, salaries don't pile in “Awaiting your nod” — they're pre-approved to budget. (Turn off to keep a manual nod, still pre-month-end.)</td></tr>
+    <tr><td>Cleanup</td><td>Stale/mis-raised rows get a one-tap remove; the new cadence won't regenerate them.</td></tr>
+  </table>
+
+  <div class="foot">
+    <h4>What I'll build once you approve 👍</h4>
+    <ul>
+      <li><span class="ok">Cycle = month, raised N days before month-end</span> (the timing fix for point 2).</li>
+      <li><span class="ok">Pay window as its own setting + badge</span>, separate from the cycle (point 1).</li>
+      <li>Clean entry display (“May 2026 cycle · Pay 1–5 Jun · Processing”) + one-tap cleanup for mis-raised rows.</li>
+    </ul>
+    <p class="lede" style="font-size:13.5px;margin-top:12px">Approve and I'll ship it under ASDP, watching the parallel work. 🚀</p>
+  </div>
+
+</div>
+</body>
+</html>
