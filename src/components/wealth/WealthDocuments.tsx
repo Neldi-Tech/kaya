@@ -9,7 +9,8 @@
 
 import { useEffect, useState } from 'react';
 import DocumentScanner from './DocumentScanner';
-import { subscribeUnfiledDocs, type WealthDocEntry } from './wealthDocs';
+import { subscribeUnfiledDocs, replaceUnfiledDoc, replaceAssetDocument, type WealthDocEntry } from './wealthDocs';
+import ReScanButton from '@/components/scan/ReScanButton';
 import { assetInView, type WealthVisibility } from '@/lib/wealth';
 import type { WealthData } from './useWealthData';
 
@@ -50,21 +51,41 @@ export default function WealthDocuments({ data, view }: {
             {unfiled.map((d) => (
               <div className="thumb docfile enh" key={d.id} role="button"
                 title={`${d.label} · general vault`}
+                style={{ position: 'relative' }}
                 onClick={() => window.open(d.url, '_blank', 'noopener')}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={d.url} alt={d.label} />
                 <span className="lbl">{d.label}</span>
                 {d.enhanced && <span className="badge2">Enhanced</span>}
+                {isParent && familyId && (
+                  <span onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 4, left: 4, zIndex: 2 }}>
+                    <ReScanButton
+                      label="" title="Re-scan / replace this document"
+                      className="text-[11px] font-extrabold bg-white/90 text-[#0F1F44] rounded-full px-1.5 py-0.5 shadow disabled:opacity-50"
+                      onReplace={async (files) => { await replaceUnfiledDoc(familyId, d, files[0], author); }}
+                    />
+                  </span>
+                )}
               </div>
             ))}
             {assetDocs.map(({ m, asset }) => (
               <div className="thumb docfile enh" key={m.id} role="button"
                 title={`${m.label} · ${asset.name}`}
+                style={{ position: 'relative' }}
                 onClick={() => window.open(m.url, '_blank', 'noopener')}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={m.url} alt={m.label} />
                 <span className="lbl">{m.label}</span>
                 {m.enhanced && <span className="badge2">Enhanced</span>}
+                {isParent && familyId && (
+                  <span onClick={(e) => e.stopPropagation()} style={{ position: 'absolute', top: 4, left: 4, zIndex: 2 }}>
+                    <ReScanButton
+                      label="" title="Re-scan / replace this document"
+                      className="text-[11px] font-extrabold bg-white/90 text-[#0F1F44] rounded-full px-1.5 py-0.5 shadow disabled:opacity-50"
+                      onReplace={async (files) => { await replaceAssetDocument(familyId, asset.id, m, files[0], author); }}
+                    />
+                  </span>
+                )}
               </div>
             ))}
             {canScan && (

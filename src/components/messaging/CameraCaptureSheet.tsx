@@ -17,7 +17,8 @@
 // quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto } from '@/lib/photoEnhance';
+import { enhancePhoto, autoScanWithDetector } from '@/lib/photoEnhance';
+import { detectCornersBest } from '@/lib/scan/cvDetect';
 import DocumentCropEditor from '@/components/scan/DocumentCropEditor';
 
 type Page = {
@@ -79,25 +80,27 @@ export default function CameraCaptureSheet({
     const file = e.target.files?.[0];
     e.target.value = '';                                       // allow re-capturing
     if (!file) return;
-    // Scan mode → open the crop editor (auto-detect seeds the corners; the
-    // user confirms/adjusts → flatten + clean). Photo mode → quick clean.
-    if (mode === 'scan') {
-      setError('');
-      setRecropId(null);
-      setCropFile(file);
-      return;
-    }
     setBusy(true); setError('');
     try {
-      const r = await enhancePhoto(file);
+      // Scan → AUTO: detect the page (on-device CV → AI) → warp flat + crop →
+      // auto-rotate upright → clean. No prompt (fast for bulk); the page gets
+      // an "✂️ Adjust crop" for the rare miss. Photo → quick clean only.
+      let enhancedFile: File, previewUrl: string, framed = false;
+      if (mode === 'scan') {
+        const r = await autoScanWithDetector(file, detectCornersBest);
+        enhancedFile = r.file; previewUrl = r.previewUrl; framed = r.framed;
+      } else {
+        const r = await enhancePhoto(file);
+        enhancedFile = r.file; previewUrl = r.previewUrl;
+      }
       const page: Page = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         original: file,
-        enhanced: r.file,
-        enhancedUrl: r.previewUrl,
+        enhanced: enhancedFile,
+        enhancedUrl: previewUrl,
         originalUrl: URL.createObjectURL(file),
         useEnhanced: true,
-        framed: false,
+        framed,
       };
       setPages((prev) => [...prev, page]);
     } catch (err) {
@@ -217,7 +220,7 @@ export default function CameraCaptureSheet({
                 <p className="text-[10px] text-kaya-sand">Tap to choose which one we&apos;ll send.</p>
                 {mode === 'scan' && (
                   <button type="button" onClick={() => reCrop(p)}
-                    className="text-[11px] font-bold text-kaya-chocolate hover:underline shrink-0">✂️ Re-crop</button>
+                    className="text-[11px] font-bold text-kaya-chocolate hover:underline shrink-0">✂️ Adjust crop</button>
                 )}
               </div>
             </div>
