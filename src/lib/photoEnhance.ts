@@ -416,9 +416,131 @@ export async function rotateFile90(file: File): Promise<File> {
   });
 }
 
+// ── Stronger document clean (CS-Scanner-style) ─────────────────────
+// De-shadow (local paper-white normalisation) + contrast + unsharp, so a
+// glare-y, shadowed phone photo comes out crisp + evenly white — not "just
+// a photo". Keeps colour (so logos/diagrams survive).
+
+const clamp255 = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
+
+function boxBlur1D(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h), win = r * 2 + 1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let s = 0; for (let k = -r; k <= r; k++) s += src[y * w + Math.min(w - 1, Math.max(0, x + k))];
+    tmp[y * w + x] = s / win;
+  }
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    let s = 0; for (let k = -r; k <= r; k++) s += tmp[Math.min(h - 1, Math.max(0, y + k)) * w + x];
+    out[y * w + x] = s / win;
+  }
+  return out;
+}
+
+/** In-place CS-Scanner-style clean of a canvas (de-shadow + contrast + unsharp). */
+export function documentClean(canvas: HTMLCanvasElement): void {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return;
+  const w = canvas.width, h = canvas.height;
+  const image = ctx.getImageData(0, 0, w, h);
+  const d = image.data;
+  // 1. De-shadow: brightest sample per coarse cell ≈ local paper white.
+  const gw = Math.max(2, Math.round(w / 24)), gh = Math.max(2, Math.round(h / 24));
+  const cellW = w / gw, cellH = h / gh;
+  const grid = new Float32Array(gw * gh);
+  for (let by = 0; by < gh; by++) for (let bx = 0; bx < gw; bx++) {
+    const x0 = Math.floor(bx * cellW), x1 = Math.floor((bx + 1) * cellW);
+    const y0 = Math.floor(by * cellH), y1 = Math.floor((by + 1) * cellH);
+    const sx = Math.max(1, Math.floor((x1 - x0) / 5)), sy = Math.max(1, Math.floor((y1 - y0) / 5));
+    let maxL = 1;
+    for (let y = y0; y < y1; y += sy) for (let x = x0; x < x1; x += sx) {
+      const i = (y * w + x) * 4; const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      if (l > maxL) maxL = l;
+    }
+    grid[by * gw + bx] = maxL;
+  }
+  const bg = boxBlur1D(grid, gw, gh, 2);
+  const TARGET = 245, C = 1.22;
+  for (let y = 0; y < h; y++) {
+    const gy = Math.min(gh - 1, Math.floor(y / cellH));
+    for (let x = 0; x < w; x++) {
+      const gx = Math.min(gw - 1, Math.floor(x / cellW));
+      const scale = TARGET / (bg[gy * gw + gx] || 1);
+      const i = (y * w + x) * 4;
+      d[i]     = clamp255((clamp255(d[i]     * scale) - 128) * C + 128);
+      d[i + 1] = clamp255((clamp255(d[i + 1] * scale) - 128) * C + 128);
+      d[i + 2] = clamp255((clamp255(d[i + 2] * scale) - 128) * C + 128);
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  // 2. Unsharp via a single GPU blur (fast on large images).
+  try {
+    const blurC = document.createElement('canvas');
+    blurC.width = w; blurC.height = h;
+    const bctx = blurC.getContext('2d');
+    if (bctx) {
+      bctx.filter = 'blur(1.1px)';
+      bctx.drawImage(canvas, 0, 0);
+      const blur = bctx.getImageData(0, 0, w, h).data;
+      const sharp = ctx.getImageData(0, 0, w, h);
+      const s = sharp.data; const amt = 0.7;
+      for (let i = 0; i < s.length; i += 4) {
+        s[i]     = clamp255(s[i]     + amt * (s[i]     - blur[i]));
+        s[i + 1] = clamp255(s[i + 1] + amt * (s[i + 1] - blur[i + 1]));
+        s[i + 2] = clamp255(s[i + 2] + amt * (s[i + 2] - blur[i + 2]));
+      }
+      ctx.putImageData(sharp, 0, 0);
+    }
+  } catch { /* blur filter unsupported — de-shadow + contrast already applied */ }
+}
+
+/** Rotate a canvas 0/90/180/270° clockwise → a NEW canvas. */
+export function rotateCanvasDegrees(src: HTMLCanvasElement, deg: 0 | 90 | 180 | 270): HTMLCanvasElement {
+  if (deg === 0) return src;
+  const w = src.width, h = src.height;
+  const out = document.createElement('canvas');
+  const ctx = out.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return src;
+  if (deg === 180) { out.width = w; out.height = h; ctx.translate(w, h); ctx.rotate(Math.PI); }
+  else {
+    out.width = h; out.height = w;
+    if (deg === 90) { ctx.translate(h, 0); ctx.rotate(Math.PI / 2); }
+    else { ctx.translate(0, w); ctx.rotate(-Math.PI / 2); }
+  }
+  ctx.drawImage(src, 0, 0);
+  return out;
+}
+
+/** Ask the AI which way is up (post-crop). Returns the clockwise degrees to
+ *  make the text upright; 0 on any failure (best-effort). */
+export async function detectUprightRotation(
+  canvas: HTMLCanvasElement, opts: { signal?: AbortSignal } = {},
+): Promise<0 | 90 | 180 | 270> {
+  try {
+    const long = Math.max(canvas.width, canvas.height);
+    const scale = long > 1000 ? 1000 / long : 1;
+    let src: HTMLCanvasElement = canvas;
+    if (scale < 1) {
+      const c = document.createElement('canvas');
+      c.width = Math.round(canvas.width * scale); c.height = Math.round(canvas.height * scale);
+      const cc = c.getContext('2d'); if (!cc) return 0;
+      cc.drawImage(canvas, 0, 0, c.width, c.height); src = c;
+    }
+    const dataUrl = src.toDataURL('image/jpeg', 0.8);
+    const res = await fetch('/api/scan/orient', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: dataUrl.split(',')[1] ?? '', mediaType: 'image/jpeg' }),
+      signal: opts.signal,
+    });
+    if (!res.ok) return 0;
+    const json = await res.json();
+    const r = json?.rotate;
+    return (r === 90 || r === 180 || r === 270) ? r : 0;
+  } catch { return 0; }
+}
+
 /** Warp an image to EXACTLY the given corners, then clean it — the confirm
- *  step of the manual crop editor. Corners are whatever the user dragged
- *  (seeded by auto-detect). Returns null on a degenerate quad. */
+ *  step of the manual crop editor (the user has already set orientation via
+ *  the editor's Rotate, so this does NOT auto-rotate). Null on a bad quad. */
 export async function cropCleanScan(
   img: HTMLImageElement,
   corners: DocCorners,
@@ -426,13 +548,39 @@ export async function cropCleanScan(
 ): Promise<{ file: File; previewUrl: string; width: number; height: number } | null> {
   const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
   if (!warped) return null;
-  const ctx = warped.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return null;
-  const data = ctx.getImageData(0, 0, warped.width, warped.height);
-  autoLevels(data, 1.5, 98.5);
-  ctx.putImageData(data, 0, 0);
-  lightSharpen(warped, ctx, 0.6);
+  documentClean(warped);
   const file = await canvasToFile(warped, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
   const previewUrl = warped.toDataURL('image/jpeg', options.quality ?? 0.92);
   return { file, previewUrl, width: warped.width, height: warped.height };
+}
+
+/** Auto scan (no prompt): detect the page with the supplied detector (CV →
+ *  AI), warp it flat + crop, auto-rotate upright, then clean — the bulk
+ *  flow. Falls back to clean-only when no clear page is found. The detector
+ *  is injected so this module needn't import the CV layer (avoids a cycle). */
+export async function autoScanWithDetector(
+  source: File,
+  detect: (f: File) => Promise<DocCorners | null>,
+  options: EnhanceOptions & { autoRotate?: boolean } = {},
+): Promise<AutoFrameResult> {
+  try {
+    const corners = await detect(source);
+    if (corners) {
+      const img = await loadImage(source);
+      const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
+      if (warped) {
+        let out = warped;
+        if (options.autoRotate !== false) {
+          const rot = await detectUprightRotation(warped);
+          out = rotateCanvasDegrees(warped, rot);
+        }
+        documentClean(out);
+        const file = await canvasToFile(out, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+        const previewUrl = out.toDataURL('image/jpeg', options.quality ?? 0.92);
+        return { file, previewUrl, width: out.width, height: out.height, framed: true };
+      }
+    }
+  } catch { /* fall through to clean-only */ }
+  const cleaned = await enhanceScan(source, options);
+  return { ...cleaned, framed: false };
 }
