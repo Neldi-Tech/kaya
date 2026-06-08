@@ -11,9 +11,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  loadImage, cropCleanScan, detectDocumentCorners, rotateFile90,
+  loadImage, cropCleanScan, rotateFile90,
   type DocCorners,
 } from '@/lib/photoEnhance';
+import { detectCornersBest } from '@/lib/scan/cvDetect';
 
 type CornerKey = 'topLeft' | 'topRight' | 'bottomRight' | 'bottomLeft';
 const ORDER: CornerKey[] = ['topLeft', 'topRight', 'bottomRight', 'bottomLeft'];
@@ -59,7 +60,7 @@ export default function DocumentCropEditor({
         if (!cancelled) imgElRef.current = img;
       } catch { /* ignore — confirm guards on a loaded image */ }
       try {
-        const detect = detectCorners ?? ((f: File) => detectDocumentCorners(f));
+        const detect = detectCorners ?? detectCornersBest;
         const found = await detect(workingFile);
         if (!cancelled && found) setCorners(found);
       } catch { /* keep the default box */ }
@@ -94,7 +95,7 @@ export default function DocumentCropEditor({
     setDetecting(true);
     setErr(null);
     try {
-      const detect = detectCorners ?? ((f: File) => detectDocumentCorners(f));
+      const detect = detectCorners ?? detectCornersBest;
       const found = await detect(workingFile);
       if (found) setCorners(found);
       else setErr(sw ? 'Sikuona ukurasa — buruta pembe.' : 'Couldn’t find the page — drag the corners to the edges.');
