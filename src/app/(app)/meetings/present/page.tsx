@@ -38,6 +38,12 @@ import {
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
+import {
+  listFamilyCapsules, dueCapsules, sealCapsule,
+  reflectOnCapsule,
+  computeOpenOn,
+  type FamilyCapsule,
+} from '@/lib/familyCapsules';
 
 // ── Agenda definition ──────────────────────────────────────────────
 // Canonical step catalog — the presenter renders the subset that the
@@ -274,6 +280,28 @@ export default function MeetingPresenterPage() {
     return () => { cancelled = true; };
   }, [profile?.familyId]);
 
+  // Family Time Capsule — Sunday-Meeting v2 (b7). Sealed notes from
+  // ~1 year ago surface as the first reveal of the meeting if today
+  // falls in their ±3-day window. Sealed locally and re-fetched after
+  // a seal so the closing step reflects the new entry.
+  const [capsules, setCapsules] = useState<FamilyCapsule[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    let cancelled = false;
+    listFamilyCapsules(profile.familyId).then((rows) => {
+      if (!cancelled) setCapsules(rows);
+    }).catch(() => { /* tolerate offline */ });
+    return () => { cancelled = true; };
+  }, [profile?.familyId]);
+  const todayIsoLocal = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, []);
+  const dueCapsulesList = useMemo(
+    () => dueCapsules(capsules, todayIsoLocal, 3),
+    [capsules, todayIsoLocal],
+  );
+
   // Default attendance to "everyone in the household present" once
   // the kid + parent lists arrive. Only runs once so a manual
   // deselection isn't overwritten if a list refreshes.
@@ -478,15 +506,29 @@ export default function MeetingPresenterPage() {
 
               {/* Step body */}
               {step.id === 'open' && (
-                <OpenStep
-                  family={family}
-                  // Prefer the queued leader (set last meeting); fall back
-                  // to whoever's driving the device right now so a
-                  // first-ever meeting isn't blank.
-                  leaderName={family?.nextMeetingLeader?.name || profile?.displayName}
-                  leaderEmoji={family?.nextMeetingLeader?.emoji}
-                  onContinue={() => setStepIdx(safeStepIdx + 1)}
-                />
+                <>
+                  {dueCapsulesList.length > 0 && (
+                    <CapsuleReveal
+                      capsules={dueCapsulesList}
+                      onReflect={async (id, cameTrue) => {
+                        if (!profile?.familyId) return;
+                        await reflectOnCapsule(profile.familyId, id, cameTrue);
+                        setCapsules((prev) => prev.map((c) =>
+                          c.id === id ? { ...c, status: 'reflected', cameTrue } : c
+                        ));
+                      }}
+                    />
+                  )}
+                  <OpenStep
+                    family={family}
+                    // Prefer the queued leader (set last meeting); fall back
+                    // to whoever's driving the device right now so a
+                    // first-ever meeting isn't blank.
+                    leaderName={family?.nextMeetingLeader?.name || profile?.displayName}
+                    leaderEmoji={family?.nextMeetingLeader?.emoji}
+                    onContinue={() => setStepIdx(safeStepIdx + 1)}
+                  />
+                </>
               )}
 
               {step.id === 'attendance' && profile?.familyId && (
@@ -584,31 +626,44 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'reflection' && (
-                <ReflectionStep
-                  enabledModes={enabledClosingModes}
-                  contents={reflectionContents}
-                  onContentChange={(m, v) => {
-                    setReflectionContents({ ...reflectionContents, [m]: v });
-                    // If the songs content was *changed*, any prior
-                    // approval no longer applies — they might've pasted
-                    // a totally different link. Re-arm the gate.
-                    if (m === 'songs') setSongLinkApprovedBy(null);
-                  }}
-                  onCelebratePrayer={() => {
-                    // Snapshot the prayer text so on-stage typography
-                    // doesn't reflow if the textarea changes mid-fall.
-                    setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
-                  }}
-                  prayerLibraryCount={prayerLibrary.length}
-                  // Sunday-Meeting v2 (b5): kid-attached song approval.
-                  // 'guest' carries no meeting role — pass undefined so the
-                  // kid-song-approval gate never treats a guest as a kid.
-                  viewerRole={profile?.role === 'guest' ? undefined : (profile?.role || 'parent')}
-                  viewerUid={profile?.uid || ''}
-                  kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
-                  songLinkApprovedBy={songLinkApprovedBy}
-                  onApproveSongLink={(uid) => setSongLinkApprovedBy(uid)}
-                />
+                <>
+                  <ReflectionStep
+                    enabledModes={enabledClosingModes}
+                    contents={reflectionContents}
+                    onContentChange={(m, v) => {
+                      setReflectionContents({ ...reflectionContents, [m]: v });
+                      // If the songs content was *changed*, any prior
+                      // approval no longer applies — they might've pasted
+                      // a totally different link. Re-arm the gate.
+                      if (m === 'songs') setSongLinkApprovedBy(null);
+                    }}
+                    onCelebratePrayer={() => {
+                      // Snapshot the prayer text so on-stage typography
+                      // doesn't reflow if the textarea changes mid-fall.
+                      setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
+                    }}
+                    prayerLibraryCount={prayerLibrary.length}
+                    // Sunday-Meeting v2 (b5): kid-attached song approval.
+                    // 'guest' carries no meeting role — pass undefined so the
+                    // kid-song-approval gate never treats a guest as a kid.
+                    viewerRole={profile?.role === 'guest' ? undefined : (profile?.role || 'parent')}
+                    viewerUid={profile?.uid || ''}
+                    kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
+                    songLinkApprovedBy={songLinkApprovedBy}
+                    onApproveSongLink={(uid) => setSongLinkApprovedBy(uid)}
+                  />
+                  {/* Time Capsule sealer — last beat of the meeting. */}
+                  {profile?.familyId && profile?.uid && (
+                    <CapsuleSealer
+                      familyId={profile.familyId}
+                      uid={profile.uid}
+                      displayName={profile.displayName || 'Family'}
+                      lockYears={family?.meetingSetup?.timeCapsuleLockYears ?? 1}
+                      scheduleDayOfWeek={family?.meetingSetup?.schedule?.dayOfWeek}
+                      onSealed={(c) => setCapsules((prev) => [...prev, c])}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
@@ -791,6 +846,199 @@ function OpenStep({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Family Time Capsule (Sunday-Meeting v2 · b7) ─────────────────────
+// Two components:
+//   • CapsuleReveal — on the Open step, surface any sealed notes whose
+//     openOn lands within ±3 days of today. Same warm gold motif as
+//     the rest of the opener so it feels like part of the ceremony.
+//   • CapsuleSealer — on the Closing step, let one person leave a
+//     single-line note that gets sealed for the family's lock window
+//     (default 1 year). The openOn is snapped to the nearest scheduled
+//     meeting within ±3 days of the anniversary.
+
+function CapsuleReveal({
+  capsules, onReflect,
+}: {
+  capsules: FamilyCapsule[];
+  onReflect: (id: string, cameTrue: boolean) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  return (
+    <div className="mb-6 lg:mb-8 space-y-3">
+      {capsules.map((c) => {
+        const ageYears = (Date.now() - c.writtenAt) / (365.25 * 24 * 60 * 60 * 1000);
+        const ageLabel = ageYears >= 0.9 && ageYears <= 1.1 ? 'A year ago'
+          : ageYears >= 2.8 ? `${Math.round(ageYears)} years ago`
+          : `${Math.round(ageYears * 12)} months ago`;
+        const reflected = c.status === 'reflected';
+        return (
+          <div
+            key={c.id}
+            className="rounded-3xl border border-kaya-gold/60 p-5 lg:p-6 text-center"
+            style={{ background: 'linear-gradient(180deg, rgba(212,160,23,0.10), rgba(212,160,23,0.04))' }}
+          >
+            <div className="text-4xl lg:text-5xl mb-2">🎁</div>
+            <p className="text-[10px] uppercase tracking-[0.24em] font-extrabold text-kaya-gold-light/85">
+              💌 {ageLabel}, your family wrote…
+            </p>
+            <p className="font-display text-lg lg:text-xl font-extrabold italic text-white mt-3 leading-snug">
+              &ldquo;{c.text}&rdquo;
+            </p>
+            <p className="text-[11px] text-white/55 mt-2">
+              — {c.writtenByEmoji || '✍️'} {c.writtenByName}
+            </p>
+            {!reflected ? (
+              <div className="mt-5 flex items-center justify-center gap-2 flex-wrap">
+                <span className="text-[12px] text-white/70">Did it come true?</span>
+                <button
+                  type="button"
+                  onClick={async () => { setBusy(c.id); try { await onReflect(c.id, true); } finally { setBusy(null); } }}
+                  disabled={busy === c.id}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-emerald-500 hover:bg-emerald-400 text-emerald-950 text-[12px] font-extrabold transition-colors disabled:opacity-50"
+                >
+                  ✓ Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => { setBusy(c.id); try { await onReflect(c.id, false); } finally { setBusy(null); } }}
+                  disabled={busy === c.id}
+                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-white/10 hover:bg-white/15 text-white/85 text-[12px] font-extrabold transition-colors disabled:opacity-50"
+                >
+                  Not yet
+                </button>
+              </div>
+            ) : (
+              <p className="mt-4 text-[12px] font-extrabold text-emerald-300">
+                ✓ {c.cameTrue ? 'Came true 🎉' : 'Carried forward 💛'}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CapsuleSealer({
+  familyId, uid, displayName, lockYears, scheduleDayOfWeek, onSealed,
+}: {
+  familyId: string;
+  uid: string;
+  displayName: string;
+  lockYears: number;
+  scheduleDayOfWeek?: number;
+  onSealed: (capsule: FamilyCapsule) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [sealed, setSealed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const openOnPreview = useMemo(
+    () => computeOpenOn({ from: new Date(), lockYears, scheduleDayOfWeek }),
+    [lockYears, scheduleDayOfWeek],
+  );
+
+  const lockLabel = lockYears === 0.5 ? '6 months' : lockYears === 3 ? '3 years' : '1 year';
+
+  const handleSeal = async () => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    setSaving(true); setError(null);
+    try {
+      const id = await sealCapsule(familyId, {
+        text: trimmed,
+        writtenByUid: uid,
+        writtenByName: displayName,
+        openOn: openOnPreview,
+        lockYears,
+      });
+      const c: FamilyCapsule = {
+        id,
+        text: trimmed,
+        writtenByUid: uid,
+        writtenByName: displayName,
+        writtenAt: Date.now(),
+        openOn: openOnPreview,
+        lockYears,
+        status: 'sealed',
+      };
+      onSealed(c);
+      setSealed(true);
+    } catch (e: any) {
+      setError(e?.message || 'Could not seal — try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-6 lg:mt-8 rounded-kaya-lg border border-purple-400/40 bg-purple-500/[0.07] p-5 lg:p-6">
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="w-full text-left"
+        >
+          <p className="text-[10px] uppercase tracking-[0.2em] font-extrabold text-purple-200/85">
+            💌 Family Time Capsule · optional
+          </p>
+          <p className="font-display font-extrabold text-base lg:text-lg text-white mt-1">
+            Leave a one-line note to your future family
+          </p>
+          <p className="text-[12px] text-white/55 mt-1">
+            We&apos;ll seal it for {lockLabel} and surface it on the closest meeting to that date.
+          </p>
+        </button>
+      ) : sealed ? (
+        <div className="text-center">
+          <div className="text-3xl mb-1">🔒</div>
+          <p className="font-display font-extrabold text-white text-base">Sealed for {lockLabel}!</p>
+          <p className="text-[12px] text-white/60 mt-1">
+            Opens around <b className="text-purple-200">{openOnPreview}</b>.
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-[10px] uppercase tracking-[0.2em] font-extrabold text-purple-200/85 mb-2">
+            💌 Family Time Capsule
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={180}
+            placeholder="A hope, a quote, a tiny prediction…"
+            rows={3}
+            className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-purple-400/60 resize-none leading-relaxed"
+          />
+          <p className="mt-2 text-[11px] text-white/55">
+            Sealed for <b className="text-purple-200">{lockLabel}</b> · opens around <b className="text-purple-200">{openOnPreview}</b>{scheduleDayOfWeek !== undefined ? ' (snapped to your meeting day · ±3 days)' : ''}.
+          </p>
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={handleSeal}
+              disabled={saving || text.trim().length === 0}
+              className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-purple-500 hover:bg-purple-400 text-white font-display font-extrabold text-[13px] transition-colors disabled:opacity-50"
+            >
+              🔒 Seal for {lockLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="inline-flex items-center h-11 px-4 rounded-full bg-white/10 hover:bg-white/15 text-white/80 text-[12px] font-bold transition-colors"
+            >
+              Cancel
+            </button>
+            {error && <span className="text-[11px] text-rose-300 font-bold">⚠️ {error}</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }

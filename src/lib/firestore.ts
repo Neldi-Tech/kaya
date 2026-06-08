@@ -471,6 +471,11 @@ export interface Family {
      *  Default = true; flips off independently of recapBookEmailEnabled
      *  so parents can keep the recap but drop the song. */
     recapBookIncludeSong?: boolean;
+    /** Sunday-Meeting v2 (b7): how far ahead a Time Capsule note
+     *  stays sealed. Allowed: 0.5 (6 months), 1 (1 year), 3 (3 years).
+     *  Default = 1 year. The capsule's openOn lands on the nearest
+     *  scheduled meeting day within ±3 days of that anniversary. */
+    timeCapsuleLockYears?: 0.5 | 1 | 3;
   };
   // ── Sunday-Meeting v2: leader queue ─────────────────────────
   // The person queued to *run* the next meeting. Set by the current

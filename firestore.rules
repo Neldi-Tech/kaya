@@ -257,6 +257,24 @@ service cloud.firestore {
         allow delete: if isParentInFamily(familyId);
       }
 
+      // ── Sunday-Meeting v2 (b7) · Family Time Capsule ─────────
+      // Sealed one-line notes that surface on a meeting ~1 year later
+      // (or at the family's chosen lock window). Family members read
+      // everyone's; anyone in the family may seal (the kid leading
+      // the meeting writes one too); status flips (open/reflect) are
+      // parents-only so a kid can't pre-open a capsule. No deletes —
+      // a sealed note is a sealed note.
+      match /familyCapsules/{capsuleId} {
+        allow read: if belongsToFamily(familyId);
+        allow create: if belongsToFamily(familyId)
+          && request.resource.data.writtenByUid == request.auth.uid
+          && request.resource.data.status == 'sealed';
+        allow update: if isParentInFamily(familyId)
+          && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['status', 'cameTrue']);
+        allow delete: if false;
+      }
+
       // ── Kaya Guide help-chat logs (2026-05-28) ───────────────
       // The app-wide help bubble logs each conversation here so a
       // parent can later review what was asked. Every conversation
