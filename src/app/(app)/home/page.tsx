@@ -9,6 +9,7 @@ import { daysToNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
+import BirthdayHero from '@/components/birthdays/BirthdayHero';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -106,6 +107,11 @@ export default function DashboardPage() {
           <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{today}</p>
           <h1 className="font-display text-2xl font-black mt-0.5">Hello, {firstName} 👋</h1>
         </div>
+
+        {/* 🎂 Birthday hero — renders only on someone's day (B1). */}
+        {profile && family && (
+          <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
+        )}
 
         {/* v4-final §02 Step 9 — aggregator banner across all 5
             household purchase modules + Hive. Renders nothing if
@@ -254,6 +260,11 @@ export default function DashboardPage() {
           </h1>
           <p className="text-sm text-kaya-sand mt-1">Here’s how the family is tracking this week.</p>
         </div>
+
+        {/* 🎂 Birthday hero — renders only on someone's day (B1). */}
+        {profile && family && (
+          <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
+        )}
 
         {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
