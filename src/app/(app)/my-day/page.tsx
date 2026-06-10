@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
+import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
 import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
 import { useKidMyDay, useParentMyDay, useReminders, actOnApproval, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
 import { addKidWorkplanItem } from '@/lib/kidWorkplan';
@@ -256,28 +257,42 @@ export default function MyDayPage() {
 
   if (!family || !profile) return null;
 
+  // 🎂 Birthday wish card — every role sees it on the day (B1). Renders
+  // nothing (no spacing) when nobody's celebrating.
+  const wishCard = (
+    <BirthdayWishCard
+      familyId={family.id}
+      viewerUid={profile.uid}
+      viewerChildId={profile.childId}
+      wrapClassName="mx-auto max-w-md w-full px-4 pt-4 -mb-6"
+    />
+  );
+
   if (role === 'kid') {
     if (!profile.childId) return null;
     const me = children.find((c) => c.id === profile.childId);
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
-    return <MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} />;
+    return <>{wishCard}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
   if (role === 'helper') {
     const first = (profile.displayName ?? 'there').split(' ')[0];
-    return <MyDayHelper familyId={family.id} uid={profile.uid} name={first} />;
+    return <>{wishCard}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
   }
 
   // Parent
   const first = (profile.displayName ?? 'there').split(' ')[0];
   return (
-    <MyDayParent
-      familyId={family.id}
-      parentUid={profile.uid}
-      name={first}
-      kids={children.map((c) => ({ id: c.id, name: c.name }))}
-      currency={family.hiveConfig?.currency ?? 'TZS'}
-    />
+    <>
+      {wishCard}
+      <MyDayParent
+        familyId={family.id}
+        parentUid={profile.uid}
+        name={first}
+        kids={children.map((c) => ({ id: c.id, name: c.name }))}
+        currency={family.hiveConfig?.currency ?? 'TZS'}
+      />
+    </>
   );
 }
 
