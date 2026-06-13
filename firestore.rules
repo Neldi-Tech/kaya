@@ -875,6 +875,15 @@ service cloud.firestore {
         allow create, update, delete: if belongsToFamily(familyId);
       }
 
+      // ── Gift Brain (Kaya Reminders R2) ───────────────────────────
+      // Per-person gift-idea stash. PARENTS-ONLY — gift ideas must never
+      // spoil the surprise for the kid. Served via the /api/reminders/gifts
+      // Admin route (verified ID token, role-gated); this block is the
+      // documented defense-in-depth (undeployed until rules deploy).
+      match /giftIdeas/{giftId} {
+        allow read, create, update, delete: if isParentInFamily(familyId);
+      }
+
       // ── Vehicles (Household → Drivers) ─────────────────────────
       // The family's vehicles (sedan / SUV / pickup / motorbike /
       // tuk-tuk / etc.) — one doc per vehicle. Each Drivers
