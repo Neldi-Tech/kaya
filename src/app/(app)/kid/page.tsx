@@ -10,6 +10,7 @@ import {
 } from '@/lib/firestore';
 import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
+import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 
 // Quick-pick reason chips for the appreciation form. Plain English so a
 // 6-year-old can tap without typing — they can still type a custom note.
@@ -195,6 +196,20 @@ export default function KidPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-5xl px-4 lg:px-8 pt-4 lg:pt-8">
+      {/* Sunday-Meeting v2 (b2) prep card — kids' "Home" page, the surface
+          they land on after sign-in. Same component renders on /workplan
+          and /my-day; whichever surface a family enables, the card finds
+          them. */}
+      {profile?.uid && profile.role === 'kid' && (
+        <MeetingPrepCard
+          meId={profile.uid}
+          role="kid"
+          name={(myChild.name || '').split(' ')[0]}
+          childId={myChild.id}
+          avatarEmoji={myChild.avatarEmoji}
+        />
+      )}
+
       {/* Hero card */}
       <div
         className="rounded-kaya-lg p-6 lg:p-10 mb-5 lg:mb-6 text-center text-white shadow-lg lg:shadow-xl relative overflow-hidden"
