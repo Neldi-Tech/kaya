@@ -22,6 +22,7 @@ import {
   reflectionDayKey, readReflectionSettings, typingAllowedOn,
   subscribeToReflection, subscribeToReflections,
   saveReflection, saveReflectionFeedback, computeReflectionStreak,
+  maybeAwardStreakMilestone, type StreakAwardResult,
 } from '@/lib/sparks/reflection';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
@@ -65,6 +66,9 @@ export default function ReflectionPage() {
   const [saving, setSaving] = useState(false);
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [err, setErr] = useState('');
+  /** Slice 7n · streak awards fired by this submit; surfaced as a
+   *  celebratory chip so the kid sees the reward immediately. */
+  const [streakAwards, setStreakAwards] = useState<StreakAwardResult[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -122,6 +126,30 @@ export default function ReflectionPage() {
         kidId, date: today, text: draft.trim(), source, scanUrl, by: authProfile.uid,
       });
       setMode('idle');
+
+      // Slice 7n · fire streak-milestone awards if any landed today.
+      // Computed against the entries currently in `recent` plus the row
+      // we just wrote (recent will refresh from the subscription, but
+      // this gives instant feedback to the kid).
+      try {
+        const next = recent.some((r) => r.date === today)
+          ? recent
+          : [
+              ({ kidId, date: today, text: draft.trim(), source } as unknown as ReflectionEntry),
+              ...recent,
+            ];
+        const liveStreak = computeReflectionStreak(next);
+        const fired = await maybeAwardStreakMilestone({
+          familyId,
+          kidId,
+          date: today,
+          streakCurrent: liveStreak.current,
+          rewards: profile?.reflection_streak,
+          awardedBy: authProfile.uid,
+          awardedByName: authProfile.displayName || kidName,
+        });
+        if (fired.length > 0) setStreakAwards(fired);
+      } catch { /* best-effort */ }
       // Best-effort structured feedback (degrades silently if AI off).
       setFeedbackBusy(true);
       try {
@@ -151,6 +179,35 @@ export default function ReflectionPage() {
 
   return (
     <AreaScreen kidId={kidId} kidName={kidName} area="reflection" subtitle={heroSub}>
+      {/* Slice 7n · streak milestone reward chip — sits at the top of
+          the page when this submit just unlocked one or more milestones. */}
+      {streakAwards.length > 0 && (
+        <div className="rounded-2xl border-2 border-[#D4A847] bg-gradient-to-br from-[#FFF1C9] to-[#FFFAEB] px-4 py-3 mb-3">
+          <div className="text-[13px] font-display font-extrabold text-[#8A6800] flex items-center gap-2 flex-wrap">
+            <span className="text-xl">🎉</span>
+            <span>
+              {streakAwards.length === 1
+                ? `${streakAwards[0].label} unlocked!`
+                : `${streakAwards.length} streak rewards unlocked!`}
+            </span>
+          </div>
+          <div className="text-[12px] text-[#5A4500] mt-1 leading-snug">
+            {streakAwards.map((a) => (
+              <span key={a.days} className="inline-block bg-white border border-[#D4A847] rounded-full px-2.5 py-0.5 mr-1.5 mb-1 font-bold">
+                🔥 {a.days}-day · +{a.points} pts
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setStreakAwards([])}
+            className="mt-1 text-[11px] font-bold text-[#8A6800] hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Already logged today → show the entry + Kaya's feedback. */}
       {todayEntry && mode === 'idle' ? (
         <div className="space-y-3">

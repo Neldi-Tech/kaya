@@ -150,6 +150,9 @@ export interface SparksProfile {
    *  hourly /api/cron/sparks-reflection-reminders sweep. Defaults in
    *  DEFAULT_REFLECTION_REMINDERS apply when absent. */
   reflection_reminders?: ReflectionReminderSettings;
+  /** Slice 7n · reflection streak rewards (Kaya Points on milestones).
+   *  Defaults in DEFAULT_REFLECTION_STREAK_REWARDS apply when absent. */
+  reflection_streak?: ReflectionStreakRewards;
   updatedAt?: Timestamp;
   updatedBy?: string; // uid
 }
@@ -199,6 +202,47 @@ export interface ReflectionReminderSettings {
    *  Default 3. Active days outside the mask never count as misses. */
   parent_alert_after_n_days: number;
 }
+
+// ── Slice 7n · Daily Reflection streak rewards ──────────────────────
+//
+// Parent-set milestones that award Kaya Points when the kid hits a
+// streak length. Re-earnable per cycle: if the streak breaks and the
+// kid re-hits the same milestone, they earn the points again (idempotent
+// against same calendar day only — award_history prevents double-fire
+// when the streak holds and the page re-renders).
+
+export interface ReflectionStreakMilestone {
+  /** Number of consecutive active days needed. */
+  days: number;
+  /** Kaya Points granted on hit. */
+  points: number;
+  /** Short label shown in the award message + setup card. */
+  label: string;
+}
+
+export interface ReflectionStreakAward {
+  /** Which milestone (days) was awarded. */
+  days: number;
+  /** Local-day key the milestone fired (YYYY-MM-DD). */
+  awarded_on: string;
+}
+
+export interface ReflectionStreakRewards {
+  enabled: boolean;
+  milestones: ReflectionStreakMilestone[];
+  award_history: ReflectionStreakAward[];
+}
+
+export const DEFAULT_REFLECTION_STREAK_REWARDS: ReflectionStreakRewards = {
+  enabled: true,
+  milestones: [
+    { days: 3,  points: 5,  label: 'Spark streak' },
+    { days: 7,  points: 15, label: 'Week strong' },
+    { days: 14, points: 30, label: 'Two-week climber' },
+    { days: 30, points: 75, label: 'Month of mirrors' },
+  ],
+  award_history: [],
+};
 
 export const DEFAULT_REFLECTION_REMINDERS: ReflectionReminderSettings = {
   kid_reminders_enabled: false,
