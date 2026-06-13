@@ -150,6 +150,11 @@ export function resolveKidModules(kidModules: string[] | undefined): Set<string>
   // never a gated feature. Granting it here just lets its nav row render; the
   // deep links inside still respect each module's own kid route guard.
   set.add('universe');
+  // Reminders — the calendar/reminders space is for EVERY user (approved v3
+  // FINAL 2026-06-13), so it's always granted like Home, never a toggle. Its
+  // route (/reminders) isn't in KID_MODULES, so moduleIdForPath returns
+  // undefined → the kid route guard never bounces it.
+  set.add('reminders');
   // Sub-ids look like "household:meals" — promote each to its parent
   // so the parent's nav row renders and the parent route resolves.
   for (const id of Array.from(set)) {

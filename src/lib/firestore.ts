@@ -1407,7 +1407,10 @@ export interface Notification {
     // Kaya Pulse — a reading task is due today (links to Quick Entry) or was
     // missed (links to Today). Sent to the assigned reader (kid or helper).
     | 'pulse-reading-due'
-    | 'pulse-missed';
+    | 'pulse-missed'
+    // Kaya Reminders — a reminder's lead-time fired (in-app channel), or a
+    // kid's shared-event needs/cleared a parent nod. Links to /reminders.
+    | 'reminder';
   title: string;
   message: string;
   read: boolean;

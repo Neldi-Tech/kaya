@@ -24,6 +24,7 @@ const TYPE_ICONS: Record<string, string> = {
   'purchase-approved':           '✅',
   'purchase-rejected':           '⚠️',
   'purchase-reconciled':         '💰',
+  reminder:                      '📅',
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -41,6 +42,7 @@ const TYPE_LABELS: Record<string, string> = {
   'purchase-approved':           'Approved',
   'purchase-rejected':           'Rejected',
   'purchase-reconciled':         'Reconciled',
+  reminder:                      'Reminder',
 };
 
 export default function NotificationsPage() {

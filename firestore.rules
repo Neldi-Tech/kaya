@@ -857,6 +857,24 @@ service cloud.firestore {
           || isLegacyHelperWithoutLink(familyId);
       }
 
+      // ── Reminders (Kaya Reminders, approved v3 FINAL 2026-06-13) ──
+      // The calendar/reminders space under the Kaya nav group. Every
+      // family member (parent · kid · helper) can keep events — 🔒
+      // private or 👨‍👩‍👧 shared — that remind via in-app + email.
+      // NOTE: the LIVE read/write path is the /api/reminders/* Admin-SDK
+      // routes (verified ID token), because the Firebase CLI auth is
+      // currently expired and this block hasn't been deployed yet. This
+      // rule is documented defense-in-depth so that once rules deploy,
+      // direct client reads/subscriptions also work. Family-scoped:
+      // members read all (the route does per-event visibility filtering)
+      // and members manage events (the route enforces owner/parent +
+      // the kid-shared parent-nod). Safe because the collection is
+      // strictly family-scoped.
+      match /reminders/{reminderId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update, delete: if belongsToFamily(familyId);
+      }
+
       // ── Vehicles (Household → Drivers) ─────────────────────────
       // The family's vehicles (sedan / SUV / pickup / motorbike /
       // tuk-tuk / etc.) — one doc per vehicle. Each Drivers
