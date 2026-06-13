@@ -23,7 +23,9 @@ import {
   subscribeToReflection, subscribeToReflections,
   saveReflection, saveReflectionFeedback, computeReflectionStreak,
   maybeAwardStreakMilestone, type StreakAwardResult,
+  subscribeToWeeklyReviews,
 } from '@/lib/sparks/reflection';
+import type { ReflectionWeekReview } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
 
@@ -71,12 +73,16 @@ export default function ReflectionPage() {
   const [streakAwards, setStreakAwards] = useState<StreakAwardResult[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Slice 7o · live weekly reviews subscription (latest 8 weeks).
+  const [weeklyReviews, setWeeklyReviews] = useState<ReflectionWeekReview[]>([]);
+
   useEffect(() => {
     if (!familyId || !kidId) return;
     const u1 = subscribeToSparksProfile(familyId, kidId, setProfile);
     const u2 = subscribeToReflection(familyId, kidId, today, setTodayEntry);
     const u3 = subscribeToReflections(familyId, kidId, setRecent);
-    return () => { u1(); u2(); u3(); };
+    const u4 = subscribeToWeeklyReviews(familyId, kidId, setWeeklyReviews);
+    return () => { u1(); u2(); u3(); u4(); };
   }, [familyId, kidId, today]);
 
   const settings = readReflectionSettings(profile);
@@ -179,6 +185,13 @@ export default function ReflectionPage() {
 
   return (
     <AreaScreen kidId={kidId} kidName={kidName} area="reflection" subtitle={heroSub}>
+      {/* Slice 7o · Weekly review card — only when the Sunday cron has
+          generated at least one review for the kid. Renders the most
+          recent week at the top of the page. */}
+      {weeklyReviews.length > 0 && (
+        <WeeklyReviewCard review={weeklyReviews[0]} kidFirstName={kidName.split(' ')[0]} />
+      )}
+
       {/* Slice 7n · streak milestone reward chip — sits at the top of
           the page when this submit just unlocked one or more milestones. */}
       {streakAwards.length > 0 && (
@@ -383,6 +396,90 @@ function WeekStrip({ byDate, sw }: { byDate: Record<string, boolean>; sw: boolea
       </div>
       <div className="text-[11px] text-[#5A6488] mt-2">
         {sw ? `Umeandika siku ${logged} wiki hii — endelea!` : `${logged} ${logged === 1 ? 'day' : 'days'} logged this week — keep it going!`}
+      </div>
+    </div>
+  );
+}
+
+// ─── Slice 7o · Weekly review card ─────────────────────────────────
+//
+// Renders the latest review the Sunday cron generated. Themes, mood
+// arc, verbatim highlights, Kaya's tip for next week, and a quiet
+// AI-can-be-wrong disclaimer at the bottom.
+
+function WeeklyReviewCard({ review, kidFirstName }: { review: ReflectionWeekReview; kidFirstName: string }) {
+  const themes = Array.isArray(review.themes) ? review.themes.slice(0, 4) : [];
+  const highlights = Array.isArray(review.highlights) ? review.highlights.slice(0, 3) : [];
+  const moods = Array.isArray(review.mood_by_day) ? review.mood_by_day : [];
+
+  return (
+    <div className="mb-3 rounded-2xl overflow-hidden border border-[#ECE4D3] bg-white">
+      <div className="px-4 py-3 text-white" style={{ background: 'linear-gradient(135deg,#FFB627,#FFD93D)', color: '#5A4500' }}>
+        <div className="text-[11px] font-bold opacity-85">📅 Week of {toDisplayDate(review.weekStart)} – {toDisplayDate(review.weekEnd)} · {kidFirstName}</div>
+        <div className="font-display font-extrabold text-[18px] mt-0.5">Your week in reflection</div>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
+          <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1">🔥 Streak</div>
+          <div className="text-[13px] font-extrabold text-[#0F1F44]">
+            {review.loggedDays} of 7 days logged this week
+          </div>
+        </div>
+
+        {themes.length > 0 && (
+          <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1.5">📊 Themes Kaya read</div>
+            <div className="flex flex-wrap gap-1.5">
+              {themes.map((t, idx) => (
+                <span key={idx} className="inline-flex items-center gap-1 bg-[#E5D6FF] text-[#5A3CB8] text-[12px] font-extrabold rounded-full px-2.5 py-1">
+                  <span>{t.emoji}</span>
+                  <span>{t.label}</span>
+                  <span className="opacity-70">· {t.count}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {highlights.length > 0 && (
+          <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1.5">🌟 Highlights · your own words</div>
+            <ul className="m-0 p-0 list-none space-y-1.5">
+              {highlights.map((h, idx) => (
+                <li key={idx} className="bg-white border-l-[3px] border-[#D4A847] rounded-r px-2.5 py-1.5 text-[12.5px] italic text-[#0F1F44] leading-snug">
+                  &ldquo;{h.quote}&rdquo;
+                  <span className="not-italic text-[#5A6488] text-[10.5px] font-bold block mt-0.5">{toDisplayDate(h.date)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {moods.length > 0 && (
+          <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1.5">📈 Mood arc</div>
+            <div className="flex flex-wrap gap-2 mb-1">
+              {moods.map((m, idx) => (
+                <span key={idx} className="text-[20px]" title={m.date}>{m.emoji}</span>
+              ))}
+            </div>
+            {review.mood_summary && (
+              <div className="text-[11.5px] text-[#5A6488] leading-snug">{review.mood_summary}</div>
+            )}
+          </div>
+        )}
+
+        {review.tip && (
+          <div className="bg-[#E5D6FF] rounded-xl px-3 py-2.5">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A3CB8] mb-1">💡 Kaya&apos;s tip for next week</div>
+            <div className="text-[12.5px] text-[#1B1547] leading-snug">{review.tip}</div>
+          </div>
+        )}
+
+        <div className="bg-[#FFFAEB] border border-dashed border-[#D4A847] rounded-lg px-3 py-2 text-[10.5px] text-[#5A4500] leading-snug">
+          ⚠️ <strong>AI can read this wrong.</strong> Kaya summarised this week from {kidFirstName}&apos;s entries — give the originals a look if anything feels off.
+        </div>
       </div>
     </div>
   );

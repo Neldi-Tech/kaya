@@ -233,6 +233,39 @@ export interface ReflectionStreakRewards {
   award_history: ReflectionStreakAward[];
 }
 
+// ── Slice 7o · Daily Reflection · weekly review ─────────────────────
+//
+// Sunday cron generates one summary per kid from the past 7 days of
+// reflections. Persisted at
+//   /families/{f}/sparks_reflection_weeks/{kidId}_{YYYY-WW}
+// Shape matches the JSON Schema in /api/sparks/ai/reflection-week.
+
+export interface ReflectionWeekTheme  { label: string; emoji: string; count: number }
+export interface ReflectionWeekHighlight { date: string; quote: string }
+export interface ReflectionWeekMood   { date: string; emoji: string }
+
+export interface ReflectionWeekReview {
+  kidId: string;
+  /** YYYY-WW (ISO-week-ish, computed in TZ-local time). */
+  weekKey: string;
+  /** First + last day in the week (YYYY-MM-DD), inclusive. */
+  weekStart: string;
+  weekEnd: string;
+  /** Number of days the kid actually logged in the window. */
+  loggedDays: number;
+  /** Streak count at the moment the cron generated this review. */
+  streakAtGen: number;
+  themes: ReflectionWeekTheme[];
+  highlights: ReflectionWeekHighlight[];
+  mood_by_day: ReflectionWeekMood[];
+  mood_summary: string;
+  tip: string;
+  /** Short headline a parent sees first in their email digest. */
+  highlight_for_parent: string;
+  /** Server timestamp written by the cron. */
+  generatedAt: Timestamp;
+}
+
 export const DEFAULT_REFLECTION_STREAK_REWARDS: ReflectionStreakRewards = {
   enabled: true,
   milestones: [
