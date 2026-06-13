@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useState, ReactNode } from "react";
 import type { Gender, WellnessProfile } from "./calc";
+import type { ChildGates, GateConfig } from "./gating";
 
 export interface Goal {
   wish: string; tiny: string; pill: string; pcol: string;
@@ -20,6 +21,10 @@ interface WellnessState {
   setGoals: (g: Goal[] | ((prev: Goal[]) => Goal[])) => void;
   programStarted: boolean;
   startProgram: () => void;
+  // Parent-set per-child section gates (local until the persistence PR).
+  gatesByChild: Record<string, ChildGates>;
+  gatesFor: (childId: string) => ChildGates;
+  setGate: (childId: string, sectionId: string, cfg: GateConfig) => void;
 }
 
 const Ctx = createContext<WellnessState | null>(null);
@@ -38,6 +43,14 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
   const [ritualStreak, setRitualStreak] = useState(0);
   const [goals, setGoals] = useState<Goal[]>(STARTER_GOALS);
   const [programStarted, setProgramStarted] = useState(false);
+  const [gatesByChild, setGatesByChild] = useState<Record<string, ChildGates>>({});
+
+  const gatesFor = (childId: string) => gatesByChild[childId] ?? {};
+  const setGate = (childId: string, sectionId: string, cfg: GateConfig) =>
+    setGatesByChild((prev) => ({
+      ...prev,
+      [childId]: { ...(prev[childId] ?? {}), [sectionId]: cfg },
+    }));
 
   const logWeight = (w: number) => {
     setWeights((prev) => [...prev, w].slice(-30));
@@ -53,6 +66,7 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
       ritualStreak, bumpRitualStreak: () => setRitualStreak((s) => s + 1),
       goals, setGoals,
       programStarted, startProgram: () => setProgramStarted(true),
+      gatesByChild, gatesFor, setGate,
     }}>
       {children}
     </Ctx.Provider>
