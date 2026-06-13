@@ -13,6 +13,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
+import RemindersInline from '@/components/reminders/RemindersInline';
 import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
 import { useKidMyDay, useParentMyDay, useReminders, actOnApproval, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
 import { addKidWorkplanItem } from '@/lib/kidWorkplan';
@@ -268,16 +269,22 @@ export default function MyDayPage() {
     />
   );
 
+  // 🔔 Reminders surface on My Day for every role: today's reminders inline +
+  // a "Coming up" block (Kaya Reminders R1). Renders nothing when empty.
+  const remindersStrip = (
+    <RemindersInline wrapClassName="mx-auto max-w-md w-full px-4 pt-4" />
+  );
+
   if (role === 'kid') {
     if (!profile.childId) return null;
     const me = children.find((c) => c.id === profile.childId);
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
-    return <>{wishCard}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
+    return <>{wishCard}{remindersStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
   if (role === 'helper') {
     const first = (profile.displayName ?? 'there').split(' ')[0];
-    return <>{wishCard}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
+    return <>{wishCard}{remindersStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
   }
 
   // Parent
@@ -285,6 +292,7 @@ export default function MyDayPage() {
   return (
     <>
       {wishCard}
+      {remindersStrip}
       <MyDayParent
         familyId={family.id}
         parentUid={profile.uid}

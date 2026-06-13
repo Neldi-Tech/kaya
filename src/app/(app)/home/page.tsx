@@ -10,6 +10,7 @@ import KidAvatar from '@/components/ui/KidAvatar';
 import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import BirthdayHero from '@/components/birthdays/BirthdayHero';
+import RemindersChip from '@/components/reminders/RemindersChip';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -112,6 +113,9 @@ export default function DashboardPage() {
         {profile && family && (
           <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
         )}
+
+        {/* 📅 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
+        <RemindersChip className="mb-5" />
 
         {/* v4-final §02 Step 9 — aggregator banner across all 5
             household purchase modules + Hive. Renders nothing if
@@ -265,6 +269,9 @@ export default function DashboardPage() {
         {profile && family && (
           <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
         )}
+
+        {/* 📅 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
+        <RemindersChip className="mb-5" />
 
         {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
