@@ -545,3 +545,89 @@ export async function decideReminder(
 ): Promise<{ ok: boolean }> {
   return authedPost('/api/reminders/save', token, { action: decision, id });
 }
+
+// ── 🎁 Gift Brain (R2) ─────────────────────────────────────────────────────
+// A year-round, per-person gift-idea stash, surfaced ~2 weeks before someone's
+// birthday/anniversary — tied to a kid's interests/aspirations. PARENTS-ONLY:
+// gift ideas must never spoil the surprise for the kid, so the gifts route and
+// the UI section are gated to parents. Ideas link to a family kid (childId) or
+// carry a free-typed name (a friend, grandparent).
+
+export interface GiftIdea {
+  id: string;
+  familyId: string;
+  personName: string;
+  /** Set when the idea is for a family kid — lets prompts match precisely. */
+  linkedChildId?: string;
+  text: string;
+  done?: boolean;
+  createdByUid?: string;
+  createdByName?: string;
+  createdAt?: number;
+}
+
+/** How many days ahead Gift Brain starts nudging. */
+export const GIFT_LEAD_DAYS = 14;
+
+function normName(s: string): string {
+  return (s || '').trim().toLowerCase();
+}
+
+/** Strip "'s birthday"/"'s anniversary" etc. to recover the person's name. */
+export function personFromTitle(title: string): string {
+  return (title || '').replace(/['’]s\s+(birthday|anniversary|big day).*$/i, '').trim() || title;
+}
+
+export interface GiftPrompt {
+  occurrence: ReminderOccurrence;
+  personName: string;
+  linkedChildId?: string;
+  ideas: GiftIdea[];
+  interests: string[];
+}
+
+/** Build the ~2-weeks-before gift nudges: upcoming birthdays/anniversaries
+ *  within GIFT_LEAD_DAYS, each with its saved ideas + the kid's interests. */
+export function giftPromptsFor(
+  occurrences: ReminderOccurrence[],
+  ideas: GiftIdea[],
+  interestsByChildId: Record<string, string[]>,
+): GiftPrompt[] {
+  const out: GiftPrompt[] = [];
+  const seen = new Set<string>();
+  for (const o of occurrences) {
+    if (o.daysAway < 0 || o.daysAway > GIFT_LEAD_DAYS) continue;
+    if (o.event.type !== 'birthday' && o.event.type !== 'anniversary') continue;
+    const childId = o.event.id.startsWith('auto:bday:') ? o.event.id.slice('auto:bday:'.length) : undefined;
+    const personName = childId ? o.event.title.replace(/['’]s\s+birthday$/i, '') : personFromTitle(o.event.title);
+    const key = childId ? `c:${childId}` : `n:${normName(personName)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const matched = ideas.filter((g) => (childId && g.linkedChildId === childId)
+      || (!g.done && normName(g.personName) === normName(personName)));
+    out.push({
+      occurrence: o,
+      personName,
+      linkedChildId: childId,
+      ideas: matched.filter((g) => !g.done),
+      interests: childId ? (interestsByChildId[childId] || []) : [],
+    });
+  }
+  return out.sort((a, b) => a.occurrence.daysAway - b.occurrence.daysAway);
+}
+
+export async function fetchGiftIdeas(token: string): Promise<GiftIdea[]> {
+  const out = await authedPost<{ ideas?: GiftIdea[] }>('/api/reminders/gifts', token, { action: 'list' });
+  return out.ideas || [];
+}
+
+export async function saveGiftIdea(
+  token: string,
+  payload: { id?: string; personName: string; linkedChildId?: string; text: string; done?: boolean },
+): Promise<{ idea: GiftIdea }> {
+  return authedPost('/api/reminders/gifts', token, { action: 'save', idea: payload });
+}
+
+export async function deleteGiftIdea(token: string, id: string): Promise<{ ok: boolean }> {
+  return authedPost('/api/reminders/gifts', token, { action: 'delete', id });
+}
