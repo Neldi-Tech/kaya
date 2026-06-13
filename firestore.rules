@@ -1378,6 +1378,27 @@ service cloud.firestore {
         allow delete: if isParentInFamily(familyId);
       }
 
+      // sparks_reflection_weeks · weekly review summaries (Slice 7o).
+      // Doc id = `${kidId}_${weekKey}`. Written ONLY by the Sunday cron
+      // (admin SDK · bypasses rules). Read: parents always; the owning
+      // kid themselves; siblings when visibility is open.
+      match /sparks_reflection_weeks/{docId} {
+        function _vis(kidId) {
+          return exists(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId))
+            ? get(/databases/$(database)/documents/families/$(familyId)/sparks_profiles/$(kidId)).data.sibling_visibility
+            : 'open';
+        }
+        allow read: if isParentInFamily(familyId)
+          || isThisKid(familyId, resource.data.kidId)
+          || (
+              getUserProfile().role == 'kid'
+              && belongsToFamily(familyId)
+              && _vis(resource.data.kidId) == 'open'
+            );
+        allow create, update: if isParentInFamily(familyId);
+        allow delete: if isParentInFamily(familyId);
+      }
+
       // sparks_tasks · workplan-wired tasks. Mirrors workplanItems —
       // parents author + edit; the kid can flip only the submission
       // fields when they upload proof; helpers READ-ONLY.

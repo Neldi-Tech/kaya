@@ -238,6 +238,41 @@ export function computeReflectionStreak(
   return { current, loggedThisWeek, total: entries.length, byDate };
 }
 
+// ── Slice 7o · weekly review reader ─────────────────────────────────
+//
+// The Sunday cron writes one doc per kid per ISO week at
+//   /families/{f}/sparks_reflection_weeks/{kidId}_{weekKey}
+// The reflection page subscribes to the kid's row stream and picks the
+// latest doc to render "Your week in reflection".
+
+const weekReviewsCol = (familyId: string) =>
+  collection(db, 'families', familyId, 'sparks_reflection_weeks');
+
+/** Live subscription to a kid's weekly reviews, newest first. We pull
+ *  the latest 8 weeks for the UI; client picks `[0]`. */
+export function subscribeToWeeklyReviews(
+  familyId: string, kidId: string,
+  cb: (reviews: import('./schema').ReflectionWeekReview[]) => void,
+  max = 8,
+): () => void {
+  if (isGuestActive()) { cb([]); return () => {}; }
+  const q = query(
+    weekReviewsCol(familyId),
+    where('kidId', '==', kidId),
+  );
+  return onSnapshot(
+    q,
+    (s) => {
+      const rows = s.docs
+        .map((d) => d.data() as import('./schema').ReflectionWeekReview)
+        .filter((r) => typeof r.weekKey === 'string');
+      rows.sort((a, b) => (a.weekKey < b.weekKey ? 1 : a.weekKey > b.weekKey ? -1 : 0));
+      cb(rows.slice(0, max));
+    },
+    (err) => { console.error('[reflection-week] subscribe failed:', err); cb([]); },
+  );
+}
+
 // ── Slice 7n · streak-points award helper ──────────────────────────
 //
 // Call AFTER saveReflection lands. Walks the kid's streak rewards
