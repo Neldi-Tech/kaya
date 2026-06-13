@@ -631,3 +631,58 @@ export async function saveGiftIdea(
 export async function deleteGiftIdea(token: string, id: string): Promise<{ ok: boolean }> {
   return authedPost('/api/reminders/gifts', token, { action: 'delete', id });
 }
+
+// ── 📮 Time Capsule (R3) ────────────────────────────────────────────────────
+// Schedule a message (+ photo; voice is a seam) to auto-deliver on a future
+// date — a birthday wish, "open on your 18th", a note that resurfaces next
+// anniversary. Delivered by the daily reminders cron: 'family' capsules post
+// to the family chat; 'self'/'member' capsules deliver privately (in-app +
+// email). Anyone can create one.
+
+export type CapsuleAudience = 'self' | 'member' | 'family';
+
+export interface TimeCapsule {
+  id: string;
+  familyId: string;
+  createdByUid: string;
+  createdByName?: string;
+  audience: CapsuleAudience;
+  toUid?: string;     // 'self' (creator) or 'member'
+  toName?: string;
+  deliverOn: string;  // YYYY-MM-DD
+  message: string;
+  photoUrl?: string;
+  voiceUrl?: string;  // reserved for the voice fast-follow
+  delivered?: boolean;
+  deliveredAt?: number;
+  createdAt?: number;
+}
+
+/** "Delivered" / "Opens today" / "Opens tomorrow" / "Opens in N days" / date. */
+export function capsuleStatus(c: TimeCapsule, today: string = todayKey()): string {
+  if (c.delivered) return 'Delivered ✓';
+  const days = diffDaysKey(today, c.deliverOn);
+  if (days <= 0) return 'Opening…';
+  if (days === 1) return 'Opens tomorrow';
+  if (days <= 30) return `Opens in ${days} days`;
+  return `Opens ${toDisplayDate(c.deliverOn)}`;
+}
+
+export async function fetchTimeCapsules(token: string): Promise<TimeCapsule[]> {
+  const out = await authedPost<{ capsules?: TimeCapsule[] }>('/api/reminders/capsules', token, { action: 'list' });
+  return out.capsules || [];
+}
+
+export async function saveTimeCapsule(
+  token: string,
+  payload: {
+    id?: string; audience: CapsuleAudience; toUid?: string; toName?: string;
+    deliverOn: string; message: string; photoUrl?: string;
+  },
+): Promise<{ capsule: TimeCapsule }> {
+  return authedPost('/api/reminders/capsules', token, { action: 'save', capsule: payload });
+}
+
+export async function deleteTimeCapsule(token: string, id: string): Promise<{ ok: boolean }> {
+  return authedPost('/api/reminders/capsules', token, { action: 'delete', id });
+}

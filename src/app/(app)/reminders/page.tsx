@@ -22,6 +22,7 @@ import {
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
 } from '@/lib/reminders';
 import GiftBrain from '@/components/reminders/GiftBrain';
+import TimeCapsule from '@/components/reminders/TimeCapsule';
 
 // Reminders accent (the approved indigo from the v3 mock). Scoped to this
 // module via arbitrary values so it never touches the kaya-* palette.
@@ -258,6 +259,9 @@ export default function RemindersPage() {
 
       {/* 🎁 Gift Brain — parents only (never spoil the surprise). */}
       {role === 'parent' && <GiftBrain occurrences={occurrences} children={children} />}
+
+      {/* 📮 Time Capsule — everyone can seal a future message. */}
+      {profile?.familyId && <TimeCapsule members={members} ownUid={uid} familyId={profile.familyId} />}
 
       {loading ? (
         <div className="text-center text-kaya-sand py-16 text-sm">Loading your reminders…</div>

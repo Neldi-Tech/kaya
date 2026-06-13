@@ -16,7 +16,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import { dayKeyInTZ } from '@/lib/dates';
 import {
-  leadFiringsForToday, firedKeyFor, type ReminderEvent,
+  leadFiringsForToday, firedKeyFor, type ReminderEvent, type TimeCapsule,
 } from '@/lib/reminders';
 import { renderReminderEmail } from '@/lib/reminderEmail';
 
@@ -44,7 +44,7 @@ async function handle(req: NextRequest) {
   if (!db) return NextResponse.json({ skipped: true, reason: 'admin-unavailable' });
 
   const today = dayKeyInTZ(new Date(), TZ);
-  let scanned = 0, fired = 0, emailed = 0, families = 0;
+  let scanned = 0, fired = 0, emailed = 0, families = 0, capsules = 0;
 
   const famSnap = await db.collection('families').get();
   for (const famDoc of famSnap.docs) {
@@ -52,7 +52,6 @@ async function handle(req: NextRequest) {
     const familyId = famDoc.id;
     try {
       const remSnap = await famDoc.ref.collection('reminders').get();
-      if (remSnap.empty) continue;
 
       for (const d of remSnap.docs) {
         const ev = { id: d.id, ...(d.data() as Record<string, unknown>) } as ReminderEvent;
@@ -107,13 +106,95 @@ async function handle(req: NextRequest) {
           await d.ref.update({ firedKeys: FieldValue.arrayUnion(...newKeys) }).catch(() => {});
         }
       }
+
+      // 📮 Time Capsule delivery — due today (deliverOn <= today), not yet
+      // delivered. 'family' posts to the family chat; 'self'/'member' deliver
+      // privately (in-app + email). Mark delivered to stay idempotent.
+      const capSnap = await famDoc.ref.collection('timeCapsules').where('delivered', '==', false).get();
+      for (const cd of capSnap.docs) {
+        const cap = { id: cd.id, ...(cd.data() as Record<string, unknown>) } as TimeCapsule;
+        if (!cap.deliverOn || cap.deliverOn > today) continue;
+        const fromName = cap.createdByName || 'Someone';
+        const photo = cap.photoUrl ? [{ kind: 'photo', url: cap.photoUrl }] : [];
+
+        if (cap.audience === 'family') {
+          const text = `📮 A time capsule from ${fromName}${cap.message ? `: ${cap.message}` : ''}`;
+          const threadRef = famDoc.ref.collection('threads').doc('group');
+          if ((await threadRef.get()).exists) {
+            await threadRef.collection('messages').add({
+              senderUid: 'kaya', senderName: 'Kaya 📮', text,
+              ...(photo.length ? { attachments: photo } : {}),
+              createdAt: FieldValue.serverTimestamp(),
+            }).catch(() => {});
+            await threadRef.update({
+              lastText: cap.message || '📷 A photo from the past', lastSenderUid: 'kaya',
+              lastKind: cap.message ? 'text' : 'photo',
+              lastAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+            }).catch(() => {});
+          }
+          const us = await db.collection('users').where('familyId', '==', familyId).get();
+          for (const u of us.docs) {
+            await famDoc.ref.collection('notifications').add({
+              type: 'reminder', title: '📮 A family time capsule opened!',
+              message: (cap.message || 'A memory from the past').slice(0, 120),
+              read: false, forUserId: u.id, link: '/reminders', createdAt: FieldValue.serverTimestamp(),
+            }).catch(() => {});
+          }
+        } else if (cap.toUid) {
+          await famDoc.ref.collection('notifications').add({
+            type: 'reminder', title: '📮 Your time capsule has arrived',
+            message: (cap.message || 'A memory you saved for today').slice(0, 120),
+            read: false, forUserId: cap.toUid, link: '/reminders', createdAt: FieldValue.serverTimestamp(),
+          }).catch(() => {});
+          if (resend) {
+            const email = (await db.collection('users').doc(cap.toUid).get()).data()?.email as string | undefined;
+            if (email) {
+              await resend.emails.send({
+                from: FROM, to: [email],
+                subject: '📮 A time capsule just opened for you',
+                html: capsuleEmailHtml(cap, fromName, APP_URL),
+              }).catch(() => {});
+              emailed++;
+            }
+          }
+        }
+        await cd.ref.update({ delivered: true, deliveredAt: Date.now() }).catch(() => {});
+        capsules++;
+      }
     } catch {
       // Skip a broken family, keep sweeping the rest.
       continue;
     }
   }
 
-  return NextResponse.json({ ok: true, today, families, scanned, fired, emailed });
+  return NextResponse.json({ ok: true, today, families, scanned, fired, emailed, capsules });
+}
+
+function esc(s: string | undefined | null): string {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function capsuleEmailHtml(cap: TimeCapsule, fromName: string, appUrl: string): string {
+  const photo = cap.photoUrl
+    ? `<img src="${esc(cap.photoUrl)}" alt="" style="max-width:100%;border-radius:12px;margin-top:14px" />`
+    : '';
+  return `
+  <div style="font-family:Nunito,Arial,sans-serif;max-width:480px;margin:0 auto;padding:18px">
+    <div style="border-radius:16px;padding:26px 18px;text-align:center;color:#fff;background:linear-gradient(135deg,#10142E,#3FAF9E 150%)">
+      <div style="font-size:11px;font-weight:900;letter-spacing:2px;opacity:.85">🏠 KAYA · TIME CAPSULE</div>
+      <div style="font-size:30px;margin-top:8px">📮</div>
+      <div style="font-size:18px;font-weight:900;margin-top:6px">A message from the past has arrived</div>
+      <div style="font-size:12.5px;opacity:.9;margin-top:3px">Sealed by ${esc(fromName)}</div>
+    </div>
+    <div style="background:#fff;border:1px solid #E8DEC9;border-radius:14px;padding:18px;margin-top:14px;color:#1F2D3D;font-size:14px;line-height:1.6">
+      ${esc(cap.message).replace(/\n/g, '<br>')}
+      ${photo}
+    </div>
+    <div style="text-align:center;margin-top:16px">
+      <a href="${appUrl}/reminders" style="display:inline-block;background:#D4A847;color:#3D2E08;font-weight:900;font-size:14px;border-radius:999px;padding:11px 28px;text-decoration:none">Open in Kaya →</a>
+    </div>
+  </div>`;
 }
 
 function emojiFor(type: string): string {
