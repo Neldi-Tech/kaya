@@ -7,11 +7,13 @@
 // delete affordances; kids only see "open" + the visible card.
 
 import { useMemo, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   countsBySubject, materialIcon, mergeSubjects, prettyBytes, subjectMeta,
   visibleToKid, type SparksMaterial,
 } from '@/lib/sparks/materials';
 import { deleteMaterial, uploadMaterialFile, updateMaterial } from '@/lib/sparks/materialsFirestore';
+import MaterialRatingSheet from './MaterialRatingSheet';
 import ReScanButton from '@/components/scan/ReScanButton';
 import { materialInlineUrl, materialDownloadUrl } from '@/lib/sparks/materialFileUrl';
 import DocActionSheet from '@/components/DocActionSheet';
@@ -55,6 +57,9 @@ export default function MaterialsList({
   // Doc-open menu (Open with Kaya / Download) + inline viewer.
   const [docMenu, setDocMenu] = useState<SparksMaterial | null>(null);
   const [docView, setDocView] = useState<SparksMaterial | null>(null);
+  // Parent rating sheet (⭐ + feedback) — the open material, or null.
+  const [ratingFor, setRatingFor] = useState<SparksMaterial | null>(null);
+  const { profile } = useAuth();
 
   // Apply the per-kid visibility filter first (kid view); parents see
   // every material in the family.
@@ -213,6 +218,17 @@ export default function MaterialsList({
                     {m.description && (
                       <span className="text-[11.5px] text-[#0F1F44] mt-1 leading-snug block">{m.description}</span>
                     )}
+                    {/* Parent rating + feedback — the kid reads this (mirrors Projects). */}
+                    {m.rating && (
+                      <span className="flex items-start gap-1.5 mt-1.5 rounded-lg bg-[#FBF7EE] border border-[#ECE4D3] px-2 py-1">
+                        <span className="text-[11px] leading-none shrink-0" aria-label={`${m.rating.stars} stars`}>
+                          {'⭐'.repeat(Math.max(1, Math.min(5, m.rating.stars)))}
+                        </span>
+                        {m.rating.note && (
+                          <span className="text-[11px] text-[#5A6488] italic leading-snug">“{m.rating.note}”</span>
+                        )}
+                      </span>
+                    )}
                   </span>
                 </button>
                 <div className="flex flex-col items-end gap-1 shrink-0">
@@ -226,6 +242,15 @@ export default function MaterialsList({
                   </button>
                   {canEdit && (
                     <div className="flex items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setRatingFor(m); }}
+                        className="text-[12px] hover:bg-[#FBF7EE] rounded px-1"
+                        title={m.rating ? `Rated ${m.rating.stars}★ — tap to update` : 'Rate this material'}
+                        aria-label="Rate material"
+                      >
+                        {m.rating ? '⭐' : '☆'}
+                      </button>
                       {m.kind === 'file' && (
                         <ReScanButton
                           label=""
@@ -309,6 +334,16 @@ export default function MaterialsList({
           if (!docView || !docView.file_url) return;
           triggerDownload(materialDownloadUrl(docView.file_url, docView.file_name || docView.title || 'material'));
         }}
+      />
+
+      {/* Parent rates a material → ⭐ + feedback the kid reads (like Projects). */}
+      <MaterialRatingSheet
+        open={ratingFor !== null}
+        onClose={() => setRatingFor(null)}
+        familyId={familyId}
+        material={ratingFor}
+        raterUid={profile?.uid || ''}
+        raterName={profile?.displayName || 'Parent'}
       />
     </div>
   );
