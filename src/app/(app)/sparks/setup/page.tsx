@@ -22,9 +22,10 @@ import {
 import KidAvatar from '@/components/ui/KidAvatar';
 import {
   DEFAULT_REVISION_SETTINGS, DEFAULT_REFLECTION_SETTINGS,
-  DEFAULT_REFLECTION_REMINDERS, SPARKS_AREA_META,
+  DEFAULT_REFLECTION_REMINDERS, DEFAULT_REFLECTION_STREAK_REWARDS, SPARKS_AREA_META,
   type RevisionSettings, type ReflectionSettings,
-  type ReflectionReminderSettings,
+  type ReflectionReminderSettings, type ReflectionStreakRewards,
+  type ReflectionStreakMilestone,
   type SparksItemArea, type SparksProfile, type SparksSiblingVisibility,
 } from '@/lib/sparks/schema';
 import type { Child, DayOfWeek } from '@/lib/firestore';
@@ -128,6 +129,11 @@ export default function SparksSetupPage() {
                   uid={profile.uid}
                 />
                 <ReflectionRemindersCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
+                />
+                <ReflectionStreakRewardsCard
                   familyId={familyId}
                   kid={activeKid}
                   uid={profile.uid}
@@ -626,6 +632,160 @@ function ReflectionRemindersCard({
             ))}
           </select>
         </label>
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Slice 7n · Daily Reflection streak rewards.
+// Parent sets the milestones; kid earns the points when each is hit.
+// Re-earnable per cycle. Idempotent on same calendar day via the
+// award_history on the kid's profile.
+
+function ReflectionStreakRewardsCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  const effective: ReflectionStreakRewards = {
+    ...DEFAULT_REFLECTION_STREAK_REWARDS,
+    ...(profile?.reflection_streak ?? {}),
+    milestones: (profile?.reflection_streak?.milestones?.length
+      ? profile.reflection_streak.milestones
+      : DEFAULT_REFLECTION_STREAK_REWARDS.milestones
+    ),
+    award_history: Array.isArray(profile?.reflection_streak?.award_history)
+      ? profile!.reflection_streak!.award_history
+      : [],
+  };
+  const hasSaved = !!profile?.reflection_streak;
+
+  const patch = async (next: Partial<ReflectionStreakRewards>) => {
+    setSaving(true);
+    try {
+      await upsertSparksProfile(
+        familyId, kid.id,
+        { reflection_streak: { ...effective, ...next } },
+        uid,
+      );
+    } finally { setSaving(false); }
+  };
+
+  const updateMilestone = (idx: number, patchVal: Partial<ReflectionStreakMilestone>) => {
+    const next = effective.milestones.map((m, i) =>
+      i === idx ? { ...m, ...patchVal } : m,
+    );
+    void patch({ milestones: next });
+  };
+  const removeMilestone = (idx: number) => {
+    void patch({ milestones: effective.milestones.filter((_, i) => i !== idx) });
+  };
+  const addMilestone = () => {
+    const last = effective.milestones[effective.milestones.length - 1];
+    const nextDays = (last?.days ?? 7) * 2;
+    void patch({
+      milestones: [
+        ...effective.milestones,
+        { days: nextDays, points: (last?.points ?? 15) * 2, label: `${nextDays}-day milestone` },
+      ],
+    });
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <span className="text-xl" aria-hidden>🏅</span>
+        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+          Streak rewards · {kid.name}
+        </div>
+        <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${hasSaved ? 'bg-[#DDF5DF] text-[#2E7D34]' : 'bg-[#FFF1C9] text-[#8A6800]'}`}>
+          {hasSaved ? '✓ Saved' : 'Defaults'}
+        </span>
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
+        Kaya Points fire the day {kid.name.split(' ')[0]} hits each milestone. Streak breaks reset the cycle; the next time she re-hits a milestone, she earns again.
+      </p>
+
+      <button
+        type="button"
+        onClick={() => patch({ enabled: !effective.enabled })}
+        disabled={saving}
+        className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-white px-3 py-2.5 disabled:opacity-50 mb-3"
+        aria-pressed={effective.enabled}
+      >
+        <span className="text-left">
+          <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">🎁 Reward streaks with Kaya Points</span>
+          <span className="block text-[11px] text-[#5A6488]">Turn off to keep streak counters but skip the points</span>
+        </span>
+        <span className={`w-[42px] h-[24px] rounded-full relative shrink-0 transition-colors ${effective.enabled ? 'bg-[#5A3CB8]' : 'bg-[#cfd3e0]'}`}>
+          <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${effective.enabled ? 'right-[3px]' : 'left-[3px]'}`} />
+        </span>
+      </button>
+
+      {effective.enabled && (
+        <div className="space-y-2">
+          {effective.milestones.map((m, idx) => (
+            <div key={idx} className="grid grid-cols-[60px,1fr,80px,32px] gap-2 items-center bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-2.5 py-2">
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={m.days}
+                onChange={(e) => updateMilestone(idx, { days: Math.max(1, Math.min(365, Number(e.target.value) || 1)) })}
+                disabled={saving}
+                aria-label="Days"
+                className="bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-center text-[#5A3CB8]"
+              />
+              <input
+                type="text"
+                value={m.label}
+                onChange={(e) => updateMilestone(idx, { label: e.target.value.slice(0, 60) })}
+                disabled={saving}
+                aria-label="Label"
+                className="bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[12.5px] font-bold text-[#0F1F44]"
+              />
+              <input
+                type="number"
+                min={0}
+                max={500}
+                value={m.points}
+                onChange={(e) => updateMilestone(idx, { points: Math.max(0, Math.min(500, Number(e.target.value) || 0)) })}
+                disabled={saving}
+                aria-label="Points"
+                className="bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-center text-[#8A6800]"
+              />
+              <button
+                type="button"
+                onClick={() => removeMilestone(idx)}
+                disabled={saving || effective.milestones.length <= 1}
+                aria-label="Remove milestone"
+                className="w-7 h-7 rounded-full bg-white border border-[#ECE4D3] text-[#E85C5C] font-bold text-[14px] grid place-items-center disabled:opacity-30"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <div className="text-[10.5px] text-[#5A6488]">
+              Columns: <strong>Days</strong> · <strong>Label</strong> · <strong>+ Points</strong>
+            </div>
+            <button
+              type="button"
+              onClick={addMilestone}
+              disabled={saving || effective.milestones.length >= 8}
+              className="px-3 py-1.5 rounded-xl text-[12px] font-extrabold border-2 border-[#5A3CB8] text-[#5A3CB8] bg-white disabled:opacity-40"
+            >
+              + Add milestone
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

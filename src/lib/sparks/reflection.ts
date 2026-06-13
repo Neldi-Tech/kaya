@@ -15,13 +15,16 @@
 
 import {
   collection, doc, getDoc, setDoc, onSnapshot, query, where, orderBy, limit as qlimit,
-  serverTimestamp, Timestamp,
+  serverTimestamp, Timestamp, updateDoc, arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { isGuestActive } from '../mockFamily';
 import {
   type ReflectionSettings, DEFAULT_REFLECTION_SETTINGS,
+  type ReflectionStreakRewards, type ReflectionStreakMilestone,
+  DEFAULT_REFLECTION_STREAK_REWARDS,
 } from './schema';
+import { giveAward } from '../firestore';
 import type { DayOfWeek } from '../firestore';
 
 /** How the kid captured today's reflection. */
@@ -233,4 +236,86 @@ export function computeReflectionStreak(
   }
 
   return { current, loggedThisWeek, total: entries.length, byDate };
+}
+
+// ── Slice 7n · streak-points award helper ──────────────────────────
+//
+// Call AFTER saveReflection lands. Walks the kid's streak rewards
+// config, finds every milestone the post-save streak hits, and fires
+// giveAward for any that haven't been awarded today.
+//
+// Idempotency: the kid's profile stores an `award_history` of
+// { days, awarded_on } records. We only fire a milestone when there's
+// no entry for (days, today). Saving the same reflection twice the
+// same day → no double-fire. Streak breaks + re-hits → fires again on
+// the new day.
+//
+// Failure-safe: if giveAward errors (rules block, network), the call
+// resolves with an empty array — the reflection still saved. We don't
+// surface the failure to the UI; awards are best-effort.
+
+export interface StreakAwardResult {
+  days: number;
+  points: number;
+  label: string;
+}
+
+export async function maybeAwardStreakMilestone(args: {
+  familyId: string;
+  kidId: string;
+  /** Local-day key the kid just saved (defaults to today). */
+  date?: string;
+  /** Post-save streak count from computeReflectionStreak. */
+  streakCurrent: number;
+  /** Per-kid rewards config; defaults applied when absent. */
+  rewards: ReflectionStreakRewards | null | undefined;
+  /** UID firing the award (kid or parent). */
+  awardedBy: string;
+  /** Display name attached to the award. */
+  awardedByName: string;
+}): Promise<StreakAwardResult[]> {
+  if (isGuestActive()) return [];
+  const cfg: ReflectionStreakRewards = args.rewards ?? DEFAULT_REFLECTION_STREAK_REWARDS;
+  if (!cfg.enabled || !Array.isArray(cfg.milestones) || cfg.milestones.length === 0) return [];
+
+  const today = args.date ?? reflectionDayKey();
+  const history = Array.isArray(cfg.award_history) ? cfg.award_history : [];
+  const fired: StreakAwardResult[] = [];
+
+  // Resolve which milestones the streak has just hit and haven't been
+  // awarded today. Walk in ascending-days order so larger milestones
+  // fire AFTER smaller ones in the award log.
+  const sortedMilestones: ReflectionStreakMilestone[] = [...cfg.milestones]
+    .filter((m) => Number.isFinite(m.days) && m.days > 0 && Number.isFinite(m.points))
+    .sort((a, b) => a.days - b.days);
+
+  const profileRef = doc(db, 'families', args.familyId, 'sparks_profiles', args.kidId);
+
+  for (const m of sortedMilestones) {
+    if (args.streakCurrent < m.days) continue;
+    const alreadyToday = history.some((h) => h.days === m.days && h.awarded_on === today);
+    if (alreadyToday) continue;
+    try {
+      await giveAward(args.familyId, {
+        childId: args.kidId,
+        kind: 'regular',
+        points: m.points,
+        reason: `${m.label} · ${m.days}-day reflection streak`,
+        category: 'sparks-reflection-streak',
+        awardedBy: args.awardedBy,
+        awardedByName: args.awardedByName || 'Kaya',
+        senderRole: 'parent',
+      });
+      await updateDoc(profileRef, {
+        'reflection_streak.award_history': arrayUnion({ days: m.days, awarded_on: today }),
+        'reflection_streak.enabled': cfg.enabled,
+        'reflection_streak.milestones': cfg.milestones,
+        updatedAt: serverTimestamp(),
+      });
+      fired.push({ days: m.days, points: m.points, label: m.label });
+    } catch {
+      // Best-effort — reflection already saved; skip this milestone silently.
+    }
+  }
+  return fired;
 }
