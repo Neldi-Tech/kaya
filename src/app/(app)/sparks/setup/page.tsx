@@ -21,8 +21,10 @@ import {
 } from '@/lib/sparks/firestore';
 import KidAvatar from '@/components/ui/KidAvatar';
 import {
-  DEFAULT_REVISION_SETTINGS, DEFAULT_REFLECTION_SETTINGS, SPARKS_AREA_META,
+  DEFAULT_REVISION_SETTINGS, DEFAULT_REFLECTION_SETTINGS,
+  DEFAULT_REFLECTION_REMINDERS, SPARKS_AREA_META,
   type RevisionSettings, type ReflectionSettings,
+  type ReflectionReminderSettings,
   type SparksItemArea, type SparksProfile, type SparksSiblingVisibility,
 } from '@/lib/sparks/schema';
 import type { Child, DayOfWeek } from '@/lib/firestore';
@@ -121,6 +123,11 @@ export default function SparksSetupPage() {
                   siblings={children.filter((c) => c.id !== activeKid.id)}
                 />
                 <ReflectionSettingsCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
+                />
+                <ReflectionRemindersCard
                   familyId={familyId}
                   kid={activeKid}
                   uid={profile.uid}
@@ -462,6 +469,163 @@ function ReflectionSettingsCard({
             On unticked days {kid.name} only sees “Scan” — builds the handwriting habit on school days.
           </p>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Slice 7m · Daily Reflection reminders + parent miss alert.
+// Per-kid · drives the hourly cron at /api/cron/sparks-reflection-reminders.
+
+function ReflectionRemindersCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  const effective: ReflectionReminderSettings = {
+    ...DEFAULT_REFLECTION_REMINDERS,
+    ...(profile?.reflection_reminders ?? {}),
+  };
+  const hasSaved = !!profile?.reflection_reminders;
+
+  const patch = async (next: Partial<ReflectionReminderSettings>) => {
+    setSaving(true);
+    try {
+      await upsertSparksProfile(
+        familyId, kid.id,
+        { reflection_reminders: { ...effective, ...next } },
+        uid,
+      );
+    } finally { setSaving(false); }
+  };
+
+  const toggleActive = (d: DayOfWeek) => {
+    const set = new Set(effective.active_days);
+    if (set.has(d)) set.delete(d); else set.add(d);
+    patch({ active_days: REFLECTION_DAYS.map((x) => x.id).filter((x) => set.has(x)) });
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <span className="text-xl" aria-hidden>🔔</span>
+        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+          Reflection reminders · {kid.name}
+        </div>
+        <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${hasSaved ? 'bg-[#DDF5DF] text-[#2E7D34]' : 'bg-[#FFF1C9] text-[#8A6800]'}`}>
+          {hasSaved ? '✓ Saved' : 'Defaults'}
+        </span>
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
+        Push {kid.name.split(' ')[0]} when the day’s reflection is still missing — and tell you if she misses several days in a row.
+      </p>
+
+      {/* Kid reminder toggle */}
+      <button
+        type="button"
+        onClick={() => patch({ kid_reminders_enabled: !effective.kid_reminders_enabled })}
+        disabled={saving}
+        className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-white px-3 py-2.5 disabled:opacity-50"
+        aria-pressed={effective.kid_reminders_enabled}
+      >
+        <span className="text-left">
+          <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">📔 Remind {kid.name.split(' ')[0]} daily</span>
+          <span className="block text-[11px] text-[#5A6488]">Push + in-app at the picked time when today’s entry is still missing</span>
+        </span>
+        <span className={`w-[42px] h-[24px] rounded-full relative shrink-0 transition-colors ${effective.kid_reminders_enabled ? 'bg-[#5A3CB8]' : 'bg-[#cfd3e0]'}`}>
+          <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${effective.kid_reminders_enabled ? 'right-[3px]' : 'left-[3px]'}`} />
+        </span>
+      </button>
+
+      {effective.kid_reminders_enabled && (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+            <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Reminder hour</div>
+            <select
+              value={effective.kid_reminder_hour}
+              onChange={(e) => patch({ kid_reminder_hour: Math.max(0, Math.min(23, Number(e.target.value))) })}
+              disabled={saving}
+              className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+            >
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={h}>{`${String(h).padStart(2,'0')}:00`}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+            <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Minute</div>
+            <select
+              value={effective.kid_reminder_minute}
+              onChange={(e) => patch({ kid_reminder_minute: (Number(e.target.value) === 30 ? 30 : 0) as 0 | 30 })}
+              disabled={saving}
+              className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+            >
+              <option value={0}>00</option>
+              <option value={30}>30</option>
+            </select>
+          </label>
+        </div>
+      )}
+
+      {/* Active-days picker */}
+      <div className="mt-3">
+        <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488] mb-1.5">Active days</div>
+        <div className="flex gap-1.5">
+          {REFLECTION_DAYS.map((d) => {
+            const on = effective.active_days.includes(d.id);
+            return (
+              <button key={d.id} type="button" onClick={() => toggleActive(d.id)} disabled={saving}
+                className={`w-9 h-9 rounded-lg grid place-items-center font-nunito font-extrabold text-[12px] border-[1.5px] transition disabled:opacity-50 ${
+                  on ? 'bg-[#E5D6FF] border-[#5A3CB8] text-[#5A3CB8]' : 'bg-white border-[#ECE4D3] text-[#5A6488]'
+                }`}>
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-[#5A6488] mt-2">
+          Only counted in the streak + miss-alert math. Reminders never fire outside this mask.
+        </p>
+      </div>
+
+      {/* Parent alert toggle */}
+      <button
+        type="button"
+        onClick={() => patch({ parent_alert_enabled: !effective.parent_alert_enabled })}
+        disabled={saving}
+        className="mt-3 w-full flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-white px-3 py-2.5 disabled:opacity-50"
+        aria-pressed={effective.parent_alert_enabled}
+      >
+        <span className="text-left">
+          <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">🟡 Alert me if she misses</span>
+          <span className="block text-[11px] text-[#5A6488]">Push + email after N consecutive missed active days</span>
+        </span>
+        <span className={`w-[42px] h-[24px] rounded-full relative shrink-0 transition-colors ${effective.parent_alert_enabled ? 'bg-[#5A3CB8]' : 'bg-[#cfd3e0]'}`}>
+          <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${effective.parent_alert_enabled ? 'right-[3px]' : 'left-[3px]'}`} />
+        </span>
+      </button>
+
+      {effective.parent_alert_enabled && (
+        <label className="mt-2 block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">After how many missed days?</div>
+          <select
+            value={effective.parent_alert_after_n_days}
+            onChange={(e) => patch({ parent_alert_after_n_days: Math.max(1, Math.min(14, Number(e.target.value))) })}
+            disabled={saving}
+            className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+          >
+            {[1,2,3,4,5,7,10,14].map((n) => (
+              <option key={n} value={n}>{n} day{n === 1 ? '' : 's'}</option>
+            ))}
+          </select>
+        </label>
       )}
     </div>
   );

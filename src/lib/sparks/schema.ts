@@ -146,6 +146,10 @@ export interface SparksProfile {
    *  on; parents opt-in typing and pick which weekdays typing is allowed.
    *  Defaults in DEFAULT_REFLECTION_SETTINGS apply when absent. */
   reflection_settings?: ReflectionSettings;
+  /** Slice 7m · per-kid reminder + parent-miss-alert knobs. Drives the
+   *  hourly /api/cron/sparks-reflection-reminders sweep. Defaults in
+   *  DEFAULT_REFLECTION_REMINDERS apply when absent. */
+  reflection_reminders?: ReflectionReminderSettings;
   updatedAt?: Timestamp;
   updatedBy?: string; // uid
 }
@@ -168,6 +172,41 @@ export interface ReflectionSettings {
 export const DEFAULT_REFLECTION_SETTINGS: ReflectionSettings = {
   typing_allowed: false,
   typing_days: [],
+};
+
+// ── Slice 7m · Daily Reflection reminders + parent miss alert ───────
+//
+// Per-kid knobs that drive the hourly cron sweep:
+//   - kid_reminders_enabled · push + in-app at the picked hour, only on
+//     active days, only when today's reflection is still missing.
+//   - parent_alert_enabled · push + email to the parents after N
+//     consecutive missed (active) days.
+//   - active_days · which weekdays count (default school days · Mon-Fri).
+//
+// Defaults: kid reminders OFF, parent alerts OFF. Opt-in by the parent.
+export interface ReflectionReminderSettings {
+  kid_reminders_enabled: boolean;
+  /** Local-day hour (0–23) the kid reminder fires when today's reflection
+   *  hasn't landed yet. Default 19 (7pm school-evening). */
+  kid_reminder_hour: number;
+  /** Local-day minute the kid reminder fires (0 or 30 in the picker). */
+  kid_reminder_minute: 0 | 30;
+  /** Weekdays the reminders + miss-counter are active. Empty = inactive
+   *  but kept in the doc. Default = Mon–Fri (school days). */
+  active_days: DayOfWeek[];
+  parent_alert_enabled: boolean;
+  /** Consecutive missed ACTIVE days that trigger the parent alert.
+   *  Default 3. Active days outside the mask never count as misses. */
+  parent_alert_after_n_days: number;
+}
+
+export const DEFAULT_REFLECTION_REMINDERS: ReflectionReminderSettings = {
+  kid_reminders_enabled: false,
+  kid_reminder_hour: 19,
+  kid_reminder_minute: 0,
+  active_days: ['mon', 'tue', 'wed', 'thu', 'fri'],
+  parent_alert_enabled: false,
+  parent_alert_after_n_days: 3,
 };
 
 // ── Item ───────────────────────────────────────────────────────────────
