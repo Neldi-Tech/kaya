@@ -26,6 +26,7 @@ import {
 import { updateFamily, readWorkplanProofMode } from '@/lib/firestore';
 import { useLocale } from '@/lib/useLocale';
 import PauseSheet from '@/components/workplan/PauseSheet';
+import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
@@ -65,7 +66,15 @@ export default function WorkplanPage() {
     }
     const me = children.find((c) => c.id === resolvedChildId);
     const name = me?.name ?? profile.displayName ?? 'friend';
-    return <KidWorkplanView familyId={family.id} childId={resolvedChildId} name={name} />;
+    return (
+      <KidWorkplanView
+        familyId={family.id}
+        childId={resolvedChildId}
+        name={name}
+        userUid={profile.uid}
+        avatarEmoji={me?.avatarEmoji}
+      />
+    );
   }
 
   // ── Parent view ───────────────────────────────
@@ -76,7 +85,13 @@ export default function WorkplanPage() {
 // scroll back/forward to see what's planned on other days (a parent may
 // have assigned tasks for tomorrow). Ticking stays enabled only on today
 // — KidWorkplanToday gates it via isToday; other days are view-only.
-function KidWorkplanView({ familyId, childId, name }: { familyId: string; childId: string; name: string }) {
+function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
+  familyId: string;
+  childId: string;
+  name: string;
+  userUid: string;
+  avatarEmoji?: string;
+}) {
   const [offset, setOffset] = useState(0);
   const date = useMemo(() => {
     const d = new Date();
@@ -91,6 +106,18 @@ function KidWorkplanView({ familyId, childId, name }: { familyId: string; childI
   return (
     <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+
+      {/* Sunday-Meeting v2 (b2) prep card — surfaces here too because
+          many families hide /my-day in kidModules. This is the kid
+          surface they actually use. */}
+      <MeetingPrepCard
+        meId={userUid}
+        role="kid"
+        name={name.split(' ')[0]}
+        childId={childId}
+        avatarEmoji={avatarEmoji}
+      />
+
       <p className="text-[11px] font-black uppercase tracking-[3px] mb-2" style={{ color: PURPLE }}>My Workplan</p>
 
       {/* Day navigator — default today, scroll back/forward */}
