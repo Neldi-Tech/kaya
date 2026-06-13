@@ -13,11 +13,15 @@
 // Kid + parents read; the kid (or a parent) writes their own. Mirrors
 // the access shape of sparks_items.
 
+// Weekly-reviews subscription + the streak-award helper still use the client
+// SDK (sparks_reflection_weeks / sparks_profiles / awards are deployed). The
+// reflection read/write itself routes through the Admin SDK (gateway below),
+// so `auth` is here for the ID token.
 import {
-  collection, doc, getDoc, setDoc, onSnapshot, query, where, orderBy, limit as qlimit,
+  collection, doc, query, where, onSnapshot,
   serverTimestamp, Timestamp, updateDoc, arrayUnion,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase';
 import { isGuestActive } from '../mockFamily';
 import {
   type ReflectionSettings, DEFAULT_REFLECTION_SETTINGS,
@@ -107,53 +111,103 @@ export function typingAllowedOn(
   return settings.typing_days.includes(dowOf(dateKey));
 }
 
-const reflectionsCol = (familyId: string) =>
-  collection(db, 'families', familyId, 'sparks_reflections');
+// ── Admin-route gateway + refresh bus ──────────────────────────────────
+// The sparks_reflections rules block isn't deployed to prod yet (Firebase
+// CLI auth expired), so a direct client read/write throws "Missing or
+// insufficient permissions" for kids. We route reflection reads + writes
+// through the Admin-SDK endpoint /api/sparks/reflection (verified ID token)
+// instead — no rules deploy needed. To preserve the live-ish UX with ZERO
+// page changes, subscribeToReflection(s) fetch once + register on a tiny
+// in-module bus; every write (save / AI-read / feedback) pings the bus so
+// subscribers re-fetch — mimicking the onSnapshot refresh the page expects.
 
-const reflectionDoc = (familyId: string, kidId: string, date: string) =>
-  doc(db, 'families', familyId, 'sparks_reflections', `${kidId}_${date}`);
-
-/** Today's (or a given day's) reflection for a kid, or null. */
-export async function getReflection(
-  familyId: string, kidId: string, date: string,
-): Promise<ReflectionEntry | null> {
-  if (isGuestActive()) return null;
-  const snap = await getDoc(reflectionDoc(familyId, kidId, date));
-  return snap.exists() ? (snap.data() as ReflectionEntry) : null;
+async function idToken(): Promise<string | null> {
+  const u = auth.currentUser;
+  if (!u) return null;
+  try { return await u.getIdToken(); } catch { return null; }
 }
 
-/** Live subscription to one day's reflection (the entry screen). */
+async function reflectionApi<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+  const token = await idToken();
+  if (!token) throw new Error('not-signed-in');
+  const res = await fetch('/api/sparks/reflection', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error((e as { error?: string }).error || `reflection-${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+// Refresh bus — subscribers keyed by `${familyId}:${kidId}`.
+const reflectionListeners = new Map<string, Set<() => void>>();
+function busKey(familyId: string, kidId: string): string { return `${familyId}:${kidId}`; }
+function pingReflection(familyId: string, kidId: string): void {
+  reflectionListeners.get(busKey(familyId, kidId))?.forEach((fn) => { try { fn(); } catch { /* noop */ } });
+}
+function onReflectionChange(familyId: string, kidId: string, fn: () => void): () => void {
+  const k = busKey(familyId, kidId);
+  if (!reflectionListeners.has(k)) reflectionListeners.set(k, new Set());
+  reflectionListeners.get(k)!.add(fn);
+  return () => { reflectionListeners.get(k)?.delete(fn); };
+}
+
+/** Today's (or a given day's) reflection for a kid, or null (admin route). */
+export async function getReflection(
+  _familyId: string, kidId: string, date: string,
+): Promise<ReflectionEntry | null> {
+  if (isGuestActive()) return null;
+  const { entry } = await reflectionApi<{ entry: ReflectionEntry | null }>('get', { kidId, date });
+  return entry || null;
+}
+
+/** Recent reflections for a kid, newest first (one-shot via the route). */
+export async function listReflections(
+  _familyId: string, kidId: string, max = 60,
+): Promise<ReflectionEntry[]> {
+  if (isGuestActive()) return [];
+  const { entries } = await reflectionApi<{ entries: ReflectionEntry[] }>('list', { kidId, max });
+  return entries || [];
+}
+
+/** One day's reflection — fetches now (admin route) + refreshes whenever a
+ *  write pings the bus. Same signature as the old onSnapshot subscription,
+ *  so the entry screen needs no changes. */
 export function subscribeToReflection(
   familyId: string, kidId: string, date: string,
   cb: (entry: ReflectionEntry | null) => void,
 ): () => void {
   if (isGuestActive()) { cb(null); return () => {}; }
-  return onSnapshot(
-    reflectionDoc(familyId, kidId, date),
-    (s) => cb(s.exists() ? (s.data() as ReflectionEntry) : null),
-    (err) => { console.error('[reflection] subscribe failed:', err); cb(null); },
-  );
+  let cancelled = false;
+  const refetch = () => {
+    getReflection(familyId, kidId, date)
+      .then((e) => { if (!cancelled) cb(e); })
+      .catch((err) => { console.error('[reflection] get failed:', err); if (!cancelled) cb(null); });
+  };
+  refetch();
+  const off = onReflectionChange(familyId, kidId, refetch);
+  return () => { cancelled = true; off(); };
 }
 
-/** Recent reflections for a kid, newest first — powers the streak +
- *  the week strip + the dashboard tile. Client-sorted (no composite
- *  index): a single equality filter on kidId, sorted in memory. */
+/** A kid's recent reflections — fetches now + refreshes on any write. */
 export function subscribeToReflections(
   familyId: string, kidId: string,
   cb: (entries: ReflectionEntry[]) => void,
   max = 60,
 ): () => void {
   if (isGuestActive()) { cb([]); return () => {}; }
-  const q = query(reflectionsCol(familyId), where('kidId', '==', kidId));
-  return onSnapshot(
-    q,
-    (s) => {
-      const rows = s.docs.map((d) => d.data() as ReflectionEntry);
-      rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-      cb(rows.slice(0, max));
-    },
-    (err) => { console.error('[reflection] list subscribe failed:', err); cb([]); },
-  );
+  let cancelled = false;
+  const refetch = () => {
+    listReflections(familyId, kidId, max)
+      .then((rows) => { if (!cancelled) cb(rows); })
+      .catch((err) => { console.error('[reflection] list failed:', err); if (!cancelled) cb([]); });
+  };
+  refetch();
+  const off = onReflectionChange(familyId, kidId, refetch);
+  return () => { cancelled = true; off(); };
 }
 
 /** Save (or overwrite) today's reflection. Idempotent per kid+day —
@@ -172,20 +226,11 @@ export async function saveReflection(
 ): Promise<void> {
   if (isGuestActive()) return;
   const date = args.date ?? reflectionDayKey();
-  const ref = reflectionDoc(familyId, args.kidId, date);
-  const existing = await getDoc(ref);
-  const now = serverTimestamp();
-  const data: Record<string, unknown> = {
-    kidId: args.kidId,
-    date,
-    text: args.text.trim(),
-    source: args.source,
-    updatedAt: now,
-    createdBy: existing.exists() ? (existing.data() as ReflectionEntry).createdBy : args.by,
-    createdAt: existing.exists() ? (existing.data() as ReflectionEntry).createdAt : now,
-  };
-  if (args.scanUrl) data.scanUrl = args.scanUrl;
-  await setDoc(ref, data, { merge: true });
+  await reflectionApi('save', {
+    kidId: args.kidId, date, text: args.text, source: args.source,
+    ...(args.scanUrl ? { scanUrl: args.scanUrl } : {}),
+  });
+  pingReflection(familyId, args.kidId);
 }
 
 /** Slice 7p · Attach Kaya's post-scan AI read to a saved reflection. */
@@ -193,11 +238,8 @@ export async function saveReflectionAIRead(
   familyId: string, kidId: string, date: string, ai_read: ReflectionAIRead,
 ): Promise<void> {
   if (isGuestActive()) return;
-  await setDoc(
-    reflectionDoc(familyId, kidId, date),
-    { ai_read, updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  await reflectionApi('airead', { kidId, date, ai_read });
+  pingReflection(familyId, kidId);
 }
 
 /** Attach Kaya's structured feedback to a saved reflection. */
@@ -205,11 +247,8 @@ export async function saveReflectionFeedback(
   familyId: string, kidId: string, date: string, feedback: ReflectionFeedback,
 ): Promise<void> {
   if (isGuestActive()) return;
-  await setDoc(
-    reflectionDoc(familyId, kidId, date),
-    { feedback, updatedAt: serverTimestamp() },
-    { merge: true },
-  );
+  await reflectionApi('feedback', { kidId, date, feedback });
+  pingReflection(familyId, kidId);
 }
 
 // ── Streak (school-day-aware) ───────────────────────────────────────
