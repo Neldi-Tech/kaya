@@ -28,7 +28,7 @@ export default function RemindersChip({ className = '' }: { className?: string }
       className={`flex items-center gap-3 rounded-kaya border bg-white px-4 py-3 ${className}`}
       style={{ borderColor: CAL }}
     >
-      <span className="w-10 h-10 rounded-kaya-sm flex items-center justify-center text-xl shrink-0" style={{ background: CAL_SOFT }}>📅</span>
+      <span className="w-10 h-10 rounded-kaya-sm flex items-center justify-center text-xl shrink-0" style={{ background: CAL_SOFT }}>🔔</span>
       <div className="flex-1 min-w-0">
         <div className="text-[11px] font-extrabold uppercase tracking-wide" style={{ color: CAL_DK }}>
           Reminders · {total} coming up

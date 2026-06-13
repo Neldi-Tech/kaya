@@ -114,7 +114,7 @@ export default function DashboardPage() {
           <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
         )}
 
-        {/* 📅 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
+        {/* 🔔 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
         <RemindersChip className="mb-5" />
 
         {/* v4-final §02 Step 9 — aggregator banner across all 5
@@ -270,7 +270,7 @@ export default function DashboardPage() {
           <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
         )}
 
-        {/* 📅 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
+        {/* 🔔 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
         <RemindersChip className="mb-5" />
 
         {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
