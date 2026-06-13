@@ -166,6 +166,25 @@ export default function ReflectionPage() {
         if (fired.length > 0 || addedFreshDay) setCelebrate(true);
       } catch { /* best-effort */ }
 
+      // Slice 7q · fire parent email/digest alerts (best-effort).
+      void (async () => {
+        try {
+          await fetch('/api/sparks/notify-submission', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              familyId,
+              kidId,
+              kidName,
+              area: 'reflection',
+              title: toDisplayDate(today),
+              summary: draft.trim().slice(0, 280),
+              link: `/sparks/${kidId}/reflection`,
+            }),
+          });
+        } catch { /* best-effort */ }
+      })();
+
       // Slice 7p · post-scan AI read (mood + theme + Kaya response).
       // Best-effort — silently skipped if the AI key is absent or
       // the call fails. Fires in parallel with the feedback below.

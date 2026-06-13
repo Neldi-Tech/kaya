@@ -153,6 +153,10 @@ export interface SparksProfile {
   /** Slice 7n · reflection streak rewards (Kaya Points on milestones).
    *  Defaults in DEFAULT_REFLECTION_STREAK_REWARDS apply when absent. */
   reflection_streak?: ReflectionStreakRewards;
+  /** Slice 7q · per-parent email-alert preferences for this kid's
+   *  submissions. Keyed by parentUid; absent parent → no emails.
+   *  Defaults in DEFAULT_EMAIL_ALERTS apply when absent. */
+  email_alerts?: Record<string, EmailAlertSettings>;
   updatedAt?: Timestamp;
   updatedBy?: string; // uid
 }
@@ -235,6 +239,46 @@ export interface ReflectionStreakRewards {
 
 // ── Slice 7o · Daily Reflection · weekly review ─────────────────────
 //
+// ── Slice 7q · Parent email alerts (per-parent, per-area) ──────────
+//
+// Each parent picks instant / daily-digest / off for each Sparks area
+// independently of the other parent. Quiet hours queue instant emails
+// to the next allowed slot — never silenced.
+
+export type EmailAlertFrequency = 'off' | 'instant' | 'digest';
+
+/** All Sparks surfaces that can fire a parent alert. */
+export type EmailAlertArea =
+  | 'reflection'
+  | 'revision'
+  | 'school_project'
+  | 'home_project'
+  | 'achievement';
+
+export interface EmailAlertSettings {
+  areas: Record<EmailAlertArea, EmailAlertFrequency>;
+  /** Hour-of-day the daily digest fires (local TZ). Default 6 (= 06:30 with minute=30). */
+  digest_hour: number;
+  digest_minute: 0 | 30;
+  /** Quiet-hours window. Instant emails queue until quiet_end. */
+  quiet_start: number; // hour 0-23 · default 22
+  quiet_end:   number; // hour 0-23 · default 6
+}
+
+export const DEFAULT_EMAIL_ALERTS: EmailAlertSettings = {
+  areas: {
+    reflection: 'off',
+    revision: 'off',
+    school_project: 'off',
+    home_project: 'off',
+    achievement: 'off',
+  },
+  digest_hour: 6,
+  digest_minute: 30,
+  quiet_start: 22,
+  quiet_end: 6,
+};
+
 // Sunday cron generates one summary per kid from the past 7 days of
 // reflections. Persisted at
 //   /families/{f}/sparks_reflection_weeks/{kidId}_{YYYY-WW}
