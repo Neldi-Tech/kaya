@@ -9,7 +9,7 @@
 // (/api/sparks/ai/reflect). Typing is a secondary path the parent gates
 // per-kid + per-weekday. A school-day-aware streak proves consistency.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -29,6 +29,7 @@ import {
 import type { ReflectionWeekReview } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
 
 const VIOLET = '#5A3CB8';
@@ -76,7 +77,7 @@ export default function ReflectionPage() {
   /** Slice 7p · one-shot confetti burst when this submit adds a new
    *  day to the streak (or hits a milestone). */
   const [celebrate, setCelebrate] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [scanOpen, setScanOpen] = useState(false);
 
   // Slice 7o · live weekly reviews subscription (latest 8 weeks).
   const [weeklyReviews, setWeeklyReviews] = useState<ReflectionWeekReview[]>([]);
@@ -97,9 +98,9 @@ export default function ReflectionPage() {
   const canWrite = !isParent || authProfile?.role === 'parent'; // kid (own) or parent
 
   // ── Scan flow ──
-  const onScanPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
+  // Fed by CameraCaptureSheet (scan mode → AI auto-frame/crop/enhance gives a
+  // clean page). Uploads the enhanced page, then OCRs it for the draft text.
+  const processScanFile = async (file: File) => {
     if (!file || !familyId) return;
     setErr(''); setMode('scanning');
     try {
@@ -307,7 +308,7 @@ export default function ReflectionPage() {
           {err && <p className="text-[12px] font-bold text-[#E36F6F]">{err}</p>}
           <div className="flex items-center gap-2">
             {source === 'scan' && (
-              <button type="button" onClick={() => fileRef.current?.click()}
+              <button type="button" onClick={() => setScanOpen(true)}
                 className="px-3.5 py-2 rounded-xl bg-white border border-[#ECE4D3] text-[#5A6488] font-nunito font-extrabold text-[12px]">
                 ↻ {sw ? 'Changanua tena' : 'Re-scan'}
               </button>
@@ -335,7 +336,7 @@ export default function ReflectionPage() {
           </div>
           <button
             type="button"
-            onClick={() => fileRef.current?.click()}
+            onClick={() => setScanOpen(true)}
             disabled={mode === 'scanning'}
             className="w-full rounded-2xl border-2 border-dashed p-6 text-center transition disabled:opacity-60"
             style={{ borderColor: '#8E7BE0', background: '#EFE7FF', color: VIOLET }}
@@ -362,7 +363,15 @@ export default function ReflectionPage() {
         </div>
       )}
 
-      <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onScanPicked} />
+      {/* Scan camera — AI auto-frame · crop · enhance · multi-page (the same
+          imaging Sparks captures + Business Projects use). Confirmed page is
+          enhanced; OCR + draft happen in processScanFile. */}
+      <CameraCaptureSheet
+        open={scanOpen}
+        mode="scan"
+        onClose={() => setScanOpen(false)}
+        onConfirm={(files) => { if (files[0]) return processScanFile(files[0]); }}
+      />
 
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
