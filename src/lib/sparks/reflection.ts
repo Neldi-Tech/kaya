@@ -41,6 +41,16 @@ export interface ReflectionFeedback {
   cheer: string;
 }
 
+/** Slice 7p · Post-scan AI read. Mood + theme + warm 1-line Kaya
+ *  response shown the moment the kid saves a reflection. */
+export interface ReflectionAIRead {
+  mood_emoji:    string;
+  mood_word:     string;
+  theme_emoji:   string;
+  theme_label:   string;
+  kaya_response: string;
+}
+
 export interface ReflectionEntry {
   /** Doc id = `${kidId}_${date}`; these mirror it. */
   kidId: string;
@@ -52,6 +62,8 @@ export interface ReflectionEntry {
   scanUrl?: string;
   /** Kaya's structured feedback (absent until the AI replies / if AI off). */
   feedback?: ReflectionFeedback;
+  /** Slice 7p · post-scan AI read (mood + theme + Kaya response). */
+  ai_read?: ReflectionAIRead;
   createdAt: Timestamp;
   createdBy: string;            // uid (kid or parent)
   updatedAt: Timestamp;
@@ -174,6 +186,18 @@ export async function saveReflection(
   };
   if (args.scanUrl) data.scanUrl = args.scanUrl;
   await setDoc(ref, data, { merge: true });
+}
+
+/** Slice 7p · Attach Kaya's post-scan AI read to a saved reflection. */
+export async function saveReflectionAIRead(
+  familyId: string, kidId: string, date: string, ai_read: ReflectionAIRead,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await setDoc(
+    reflectionDoc(familyId, kidId, date),
+    { ai_read, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }
 
 /** Attach Kaya's structured feedback to a saved reflection. */

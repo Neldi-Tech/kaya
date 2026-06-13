@@ -18,16 +18,18 @@ import { subscribeToSparksProfile } from '@/lib/sparks/firestore';
 import { uploadSparksPhoto } from '@/lib/sparks/uploadPhoto';
 import type { SparksProfile } from '@/lib/sparks/schema';
 import {
-  type ReflectionEntry, type ReflectionFeedback,
+  type ReflectionEntry, type ReflectionFeedback, type ReflectionAIRead,
   reflectionDayKey, readReflectionSettings, typingAllowedOn,
   subscribeToReflection, subscribeToReflections,
-  saveReflection, saveReflectionFeedback, computeReflectionStreak,
+  saveReflection, saveReflectionFeedback, saveReflectionAIRead,
+  computeReflectionStreak,
   maybeAwardStreakMilestone, type StreakAwardResult,
   subscribeToWeeklyReviews,
 } from '@/lib/sparks/reflection';
 import type { ReflectionWeekReview } from '@/lib/sparks/schema';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
+import CelebrationBurst from '@/components/sparks/CelebrationBurst';
 
 const VIOLET = '#5A3CB8';
 
@@ -71,6 +73,9 @@ export default function ReflectionPage() {
   /** Slice 7n · streak awards fired by this submit; surfaced as a
    *  celebratory chip so the kid sees the reward immediately. */
   const [streakAwards, setStreakAwards] = useState<StreakAwardResult[]>([]);
+  /** Slice 7p · one-shot confetti burst when this submit adds a new
+   *  day to the streak (or hits a milestone). */
+  const [celebrate, setCelebrate] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Slice 7o · live weekly reviews subscription (latest 8 weeks).
@@ -155,7 +160,29 @@ export default function ReflectionPage() {
           awardedByName: authProfile.displayName || kidName,
         });
         if (fired.length > 0) setStreakAwards(fired);
+        // Slice 7p · fire confetti on milestone hits AND when today
+        // simply added a fresh day to the streak (≥ 2 consecutive).
+        const addedFreshDay = !recent.some((r) => r.date === today) && (liveStreak.current >= 2);
+        if (fired.length > 0 || addedFreshDay) setCelebrate(true);
       } catch { /* best-effort */ }
+
+      // Slice 7p · post-scan AI read (mood + theme + Kaya response).
+      // Best-effort — silently skipped if the AI key is absent or
+      // the call fails. Fires in parallel with the feedback below.
+      void (async () => {
+        try {
+          const res = await fetch('/api/sparks/ai/reflection-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: draft.trim(), firstName: kidName.split(' ')[0] }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data && !data.skipped && !data.error && data.mood_emoji) {
+            await saveReflectionAIRead(familyId, kidId, today, data as ReflectionAIRead);
+          }
+        } catch { /* best-effort */ }
+      })();
+
       // Best-effort structured feedback (degrades silently if AI off).
       setFeedbackBusy(true);
       try {
@@ -185,6 +212,10 @@ export default function ReflectionPage() {
 
   return (
     <AreaScreen kidId={kidId} kidName={kidName} area="reflection" subtitle={heroSub}>
+      {/* Slice 7p · streak fire confetti — fires once when the kid
+          adds a new day to the streak or hits a milestone. */}
+      {celebrate && <CelebrationBurst onDone={() => setCelebrate(false)} />}
+
       {/* Slice 7o · Weekly review card — only when the Sunday cron has
           generated at least one review for the kid. Renders the most
           recent week at the top of the page. */}
@@ -238,6 +269,13 @@ export default function ReflectionPage() {
               <span className="ml-2 text-[10px] font-extrabold uppercase tracking-[1px] text-[#5A6488]">📷 {sw ? 'imechanganuliwa' : 'scanned'}</span>
             )}
           </div>
+
+          {/* Slice 7p · AI-read card with mood + theme + Kaya response
+              + 🔊 read aloud. Renders only after the post-save AI read
+              has landed. */}
+          {todayEntry.ai_read && (
+            <AIReadCard read={todayEntry.ai_read} text={todayEntry.text} />
+          )}
 
           <ReflectionFeedbackCard feedback={todayEntry.feedback} busy={feedbackBusy} sw={sw} />
 
@@ -480,6 +518,74 @@ function WeeklyReviewCard({ review, kidFirstName }: { review: ReflectionWeekRevi
         <div className="bg-[#FFFAEB] border border-dashed border-[#D4A847] rounded-lg px-3 py-2 text-[10.5px] text-[#5A4500] leading-snug">
           ⚠️ <strong>AI can read this wrong.</strong> Kaya summarised this week from {kidFirstName}&apos;s entries — give the originals a look if anything feels off.
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Slice 7p · AI-read card + Read aloud ──────────────────────────
+//
+// Sits between the kid's typed/scanned text and the wentWell/tip/cheer
+// feedback card. Shows the mood + theme Kaya read, a 1-2 sentence warm
+// response, and a 🔊 Read aloud button that uses the browser's built-in
+// SpeechSynthesis API (no extra service, free, works on iOS Safari).
+
+function AIReadCard({ read, text }: { read: ReflectionAIRead; text: string }) {
+  const [speaking, setSpeaking] = useState(false);
+  const supportsSpeech = typeof window !== 'undefined' && 'speechSynthesis' in window;
+
+  const speak = () => {
+    if (!supportsSpeech) return;
+    const synth = window.speechSynthesis;
+    synth.cancel();
+    if (speaking) { setSpeaking(false); return; }
+    const utter = new SpeechSynthesisUtterance(`${text}\n${read.kaya_response}`);
+    utter.rate = 1; utter.pitch = 1;
+    utter.onend = () => setSpeaking(false);
+    utter.onerror = () => setSpeaking(false);
+    synth.speak(utter);
+    setSpeaking(true);
+  };
+
+  return (
+    <div className="rounded-2xl border-2 border-[#5A3CB8] bg-[#F6EFFF] px-4 py-3 text-[#1B1547]">
+      <div className="flex items-center gap-2 font-display font-extrabold text-[14px]">
+        <span aria-hidden>✨</span>
+        <span>Kaya read your reflection</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 mt-2.5">
+        <div className="bg-white rounded-xl px-3 py-2.5 border border-[#E5D6FF]">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A3CB8]">Mood</div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-2xl leading-none">{read.mood_emoji}</span>
+            <span className="text-[13px] font-bold text-[#0F1F44]">{read.mood_word}</span>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl px-3 py-2.5 border border-[#E5D6FF]">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A3CB8]">Theme</div>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-2xl leading-none">{read.theme_emoji}</span>
+            <span className="text-[13px] font-bold text-[#0F1F44]">{read.theme_label}</span>
+          </div>
+        </div>
+      </div>
+      <div className="bg-white rounded-xl px-3 py-2.5 mt-2 border border-[#E5D6FF] text-[13px] leading-snug text-[#0F1F44]">
+        <strong className="text-[#5A3CB8]">Kaya:</strong> {read.kaya_response}
+      </div>
+      <div className="mt-2 flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={speak}
+          disabled={!supportsSpeech}
+          className="px-3 py-1.5 rounded-full text-[12px] font-extrabold text-white disabled:opacity-40"
+          style={{ background: '#5A3CB8' }}
+          title={supportsSpeech ? 'Hear your reflection + Kaya read aloud' : 'Read aloud not supported on this device'}
+        >
+          {speaking ? '⏹ Stop' : '🔊 Read aloud'}
+        </button>
+      </div>
+      <div className="mt-2 text-[10.5px] text-[#5A6488] leading-snug">
+        ⚠️ Kaya&apos;s mood read is a guess — your own words are the truth.
       </div>
     </div>
   );
