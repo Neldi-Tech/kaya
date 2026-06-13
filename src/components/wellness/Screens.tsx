@@ -6,7 +6,8 @@ import { useWellness, Goal } from "./state";
 
 export type View =
   | "home" | "weight" | "weight-settings" | "goals" | "program" | "circle" | "more"
-  | "onboard" | "plan" | "library" | "gyms" | "spark" | "achievements" | "impact" | "reminders" | "juniors";
+  | "onboard" | "plan" | "library" | "gyms" | "spark" | "achievements" | "impact" | "reminders" | "juniors"
+  | "kidsaccess";
 
 const SPARK_QUOTE = "You don't have to be extreme. Just consistent.";
 
@@ -394,6 +395,7 @@ const MORE_ITEMS: { v: View; e: string; n: string }[] = [
   { v: "library", e: "📚", n: "Exercise library" }, { v: "gyms", e: "🏋️", n: "My gyms" },
   { v: "spark", e: "✨", n: "Daily spark" }, { v: "achievements", e: "🏅", n: "Achievements" },
   { v: "impact", e: "🌍", n: "Move for good" }, { v: "reminders", e: "🔔", n: "Reminders" },
+  { v: "kidsaccess", e: "🧒", n: "Kids' access" },
 ];
 export function More({ go }: { go: (v: View) => void }) {
   return (
