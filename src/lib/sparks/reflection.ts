@@ -55,6 +55,17 @@ export interface ReflectionAIRead {
   kaya_response: string;
 }
 
+/** Slice 7r · Parent rating + written feedback on a reflection. Mirrors
+ *  the Home Project review pattern: stars (1-5) + free-text notes the
+ *  kid sees. Re-rating overwrites the prior values. */
+export interface ReflectionParentRating {
+  stars?: number;          // 1-5
+  notes?: string;          // free-text feedback for the kid
+  ratedBy: string;         // uid
+  ratedByName: string;     // display name
+  ratedAt: Timestamp;
+}
+
 export interface ReflectionEntry {
   /** Doc id = `${kidId}_${date}`; these mirror it. */
   kidId: string;
@@ -66,6 +77,8 @@ export interface ReflectionEntry {
   scanUrl?: string;
   /** Kaya's structured feedback (absent until the AI replies / if AI off). */
   feedback?: ReflectionFeedback;
+  /** Slice 7r · parent rating + written feedback (parent-only writer). */
+  parent_rating?: ReflectionParentRating;
   /** Slice 7p · post-scan AI read (mood + theme + Kaya response). */
   ai_read?: ReflectionAIRead;
   createdAt: Timestamp;
@@ -248,6 +261,17 @@ export async function saveReflectionFeedback(
 ): Promise<void> {
   if (isGuestActive()) return;
   await reflectionApi('feedback', { kidId, date, feedback });
+  pingReflection(familyId, kidId);
+}
+
+/** Slice 7r · Parent rating + written feedback. Parents only — the API
+ *  enforces the role check. ratedAt is stamped server-side. */
+export async function saveReflectionParentRating(
+  familyId: string, kidId: string, date: string,
+  rating: { stars?: number; notes?: string; ratedByName: string },
+): Promise<void> {
+  if (isGuestActive()) return;
+  await reflectionApi('rating', { kidId, date, rating });
   pingReflection(familyId, kidId);
 }
 

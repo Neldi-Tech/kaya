@@ -22,6 +22,7 @@ import {
   reflectionDayKey, readReflectionSettings, typingAllowedOn,
   subscribeToReflection, subscribeToReflections,
   saveReflection, saveReflectionFeedback, saveReflectionAIRead,
+  saveReflectionParentRating,
   computeReflectionStreak,
   maybeAwardStreakMilestone, type StreakAwardResult,
   subscribeToWeeklyReviews,
@@ -31,6 +32,7 @@ import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
+import PhotoLightbox from '@/components/sparks/PhotoLightbox';
 
 const VIOLET = '#5A3CB8';
 
@@ -78,6 +80,10 @@ export default function ReflectionPage() {
    *  day to the streak (or hits a milestone). */
   const [celebrate, setCelebrate] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  /** Slice 7r · parent rate + feedback sheet open state. */
+  const [rateOpen, setRateOpen] = useState(false);
+  /** Slice 7r · "view scanned page" lightbox open state. */
+  const [scanViewOpen, setScanViewOpen] = useState(false);
 
   // Slice 7o · live weekly reviews subscription (latest 8 weeks).
   const [weeklyReviews, setWeeklyReviews] = useState<ReflectionWeekReview[]>([]);
@@ -283,12 +289,83 @@ export default function ReflectionPage() {
               {sw ? `🔥 siku ${streak.current}` : `🔥 ${streak.current}-day`}
             </span>
           </div>
+          {/* Slice 7r · Scanned page thumbnail (parents + kid alike).
+              Tap to open the original scan in a lightbox so the parent
+              can verify what was actually uploaded vs the transcript. */}
+          {todayEntry.source === 'scan' && todayEntry.scanUrl && (
+            <button
+              type="button"
+              onClick={() => setScanViewOpen(true)}
+              className="block w-full rounded-2xl overflow-hidden border border-[#ECE4D3] bg-[#FBF7EE] p-0 cursor-zoom-in"
+              aria-label={sw ? 'Fungua ukurasa uliochanganuliwa' : 'Open scanned page'}
+              title={sw ? 'Bonyeza kuona ukurasa' : 'Tap to view the scanned page'}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={todayEntry.scanUrl} alt="" className="w-full max-h-72 object-contain bg-white" />
+              <div className="text-[10px] font-extrabold uppercase tracking-[1px] text-[#5A6488] px-3 py-1.5 bg-[#FBF7EE] flex items-center justify-between">
+                <span>📷 {sw ? 'Imechanganuliwa' : 'Scanned page'}</span>
+                <span className="text-[#5A3CB8]">🔍 {sw ? 'Bonyeza kuona' : 'Tap to view'}</span>
+              </div>
+            </button>
+          )}
           <div className="rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">
             {todayEntry.text}
             {todayEntry.source === 'scan' && (
               <span className="ml-2 text-[10px] font-extrabold uppercase tracking-[1px] text-[#5A6488]">📷 {sw ? 'imechanganuliwa' : 'scanned'}</span>
             )}
           </div>
+
+          {/* Slice 7r · Parent rating + feedback display.
+              When a parent has rated, both parent + kid see this chip
+              with the stars and the parent's written feedback. Parent
+              re-tap opens the sheet to edit. */}
+          {todayEntry.parent_rating && (
+            <div className="rounded-2xl border border-[#D4A847] bg-[#FFFAEB] px-4 py-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#8A6800]">
+                  👤 {todayEntry.parent_rating.ratedByName} {sw ? 'amekupa' : 'reviewed'}
+                </span>
+                {typeof todayEntry.parent_rating.stars === 'number' && (
+                  <span className="text-[12px] font-extrabold rounded-full px-2 py-0.5 bg-[#FFF1C9] text-[#8A6800]">
+                    {'⭐'.repeat(todayEntry.parent_rating.stars)}
+                  </span>
+                )}
+              </div>
+              {todayEntry.parent_rating.notes && (
+                <div className="mt-2 text-[13px] text-[#0F1F44] leading-snug whitespace-pre-wrap">
+                  {todayEntry.parent_rating.notes}
+                </div>
+              )}
+              {isParent && (
+                <button
+                  type="button"
+                  onClick={() => setRateOpen(true)}
+                  className="mt-2 text-[11px] font-extrabold text-[#5A3CB8] underline underline-offset-2"
+                >
+                  ✏️ {sw ? 'Hariri ukaguzi' : 'Edit review'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Slice 7r · Parent-only "Rate + send feedback" button when
+              no rating exists yet. Mirrors the Home Project + Revision
+              rate flow. */}
+          {isParent && !todayEntry.parent_rating && (
+            <button
+              type="button"
+              onClick={() => setRateOpen(true)}
+              className="w-full rounded-2xl border-2 border-dashed border-[#D4A847] bg-[#FFFAEB] hover:bg-[#FFF1C9] transition-colors py-3 px-4 text-center"
+            >
+              <div className="text-[18px]" aria-hidden>⭐</div>
+              <div className="font-display font-extrabold text-[13.5px] text-[#8A6800]">
+                {sw ? 'Toa nyota + andika maoni' : 'Rate + send feedback'}
+              </div>
+              <div className="text-[11px] text-[#5A4500] mt-0.5">
+                {sw ? `${kidName.split(' ')[0]} ataona maoni yako` : `${kidName.split(' ')[0]} sees what you write`}
+              </div>
+            </button>
+          )}
 
           {/* Slice 7p · AI-read card with mood + theme + Kaya response
               + 🔊 read aloud. Renders only after the post-save AI read
@@ -394,6 +471,40 @@ export default function ReflectionPage() {
 
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
+
+      {/* Slice 7r · scanned-page lightbox. Shows the original handwriting
+          full-screen so the parent can verify what was uploaded vs the
+          transcript. Only mounts when there's a scan to show. */}
+      {scanViewOpen && todayEntry?.scanUrl && (
+        <PhotoLightbox
+          photos={[todayEntry.scanUrl]}
+          index={0}
+          onIndexChange={() => {}}
+          onClose={() => setScanViewOpen(false)}
+          caption={sw ? 'Tafakari ya leo' : "Today's reflection"}
+          subCaption={toDisplayDate(today)}
+        />
+      )}
+
+      {/* Slice 7r · Parent rate + feedback sheet. */}
+      {rateOpen && todayEntry && (
+        <ReflectionRatingSheet
+          open={rateOpen}
+          onClose={() => setRateOpen(false)}
+          entry={todayEntry}
+          kidName={kidName}
+          authorName={authProfile?.displayName || 'Parent'}
+          onSave={async ({ stars, notes }) => {
+            if (!familyId || !authProfile?.uid) return;
+            await saveReflectionParentRating(familyId, kidId, today, {
+              stars,
+              notes,
+              ratedByName: authProfile.displayName || 'Parent',
+            });
+            setRateOpen(false);
+          }}
+        />
+      )}
     </AreaScreen>
   );
 }
@@ -614,6 +725,160 @@ function AIReadCard({ read, text }: { read: ReflectionAIRead; text: string }) {
       </div>
       <div className="mt-2 text-[10.5px] text-[#5A6488] leading-snug">
         ⚠️ Kaya&apos;s mood read is a guess — your own words are the truth.
+      </div>
+    </div>
+  );
+}
+
+// ─── Slice 7r · Parent rating + feedback sheet ─────────────────────
+//
+// Bottom sheet (matches the revision RatingSheet pattern). Shows the
+// scanned page + transcript at the top, then a 1-5 star picker + a
+// free-text notes field. Save writes parent_rating on the reflection
+// doc via /api/sparks/reflection action=rating (parent-only).
+
+function ReflectionRatingSheet({
+  open, onClose, entry, kidName, authorName, onSave,
+}: {
+  open: boolean;
+  onClose: () => void;
+  entry: ReflectionEntry;
+  kidName: string;
+  authorName: string;
+  onSave: (args: { stars?: number; notes?: string }) => Promise<void>;
+}) {
+  const [stars, setStars] = useState<number | null>(entry.parent_rating?.stars ?? null);
+  const [notes, setNotes] = useState<string>(entry.parent_rating?.notes ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setStars(entry.parent_rating?.stars ?? null);
+    setNotes(entry.parent_rating?.notes ?? '');
+    setSaving(false);
+    setError(null);
+  }, [open, entry.parent_rating?.stars, entry.parent_rating?.notes]);
+
+  if (!open) return null;
+
+  const canSave = !saving && (stars !== null || notes.trim().length > 0);
+
+  const submit = async () => {
+    if (!canSave) return;
+    setSaving(true); setError(null);
+    try {
+      await onSave({
+        stars: stars ?? undefined,
+        notes: notes.trim() || undefined,
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40"
+      />
+      <div
+        role="dialog"
+        aria-label={`Rate ${kidName}'s reflection`}
+        className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
+      >
+        <div className="px-5 pt-5 pb-4 text-white" style={{ background: 'linear-gradient(135deg,#1B1547 0%,#5A3CB8 100%)' }}>
+          <div className="text-[12px] opacity-85">📔 Daily Reflection</div>
+          <h2 className="font-display font-extrabold text-[18px] m-0 mt-0.5">
+            Rate · {kidName}
+          </h2>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {entry.scanUrl && (
+            <div className="rounded-2xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={entry.scanUrl} alt="" className="w-full max-h-48 object-contain bg-white" />
+            </div>
+          )}
+
+          <div className="rounded-xl bg-[#FBF7EE] border border-[#ECE4D3] p-3 text-[12.5px] text-[#0F1F44] leading-snug whitespace-pre-wrap max-h-32 overflow-y-auto">
+            {entry.text}
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-2">
+              Stars · self-reflection quality
+            </label>
+            <div className="flex items-center gap-1.5">
+              {[1, 2, 3, 4, 5].map((n) => {
+                const active = stars !== null && n <= stars;
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setStars(n === stars ? null : n)}
+                    aria-label={`${n} star${n === 1 ? '' : 's'}`}
+                    className="text-3xl leading-none transition-transform hover:scale-110 active:scale-95"
+                    style={{ filter: active ? 'none' : 'grayscale(1) opacity(0.3)' }}
+                  >
+                    ⭐
+                  </button>
+                );
+              })}
+              {stars !== null && (
+                <span className="text-[12px] font-extrabold text-[#8A6800] bg-[#FFF1C9] rounded-full px-2.5 py-1 ml-2">
+                  {stars}.0
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="refl-notes" className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-1.5">
+              Notes · what {kidName.split(' ')[0]} sees
+            </label>
+            <textarea
+              id="refl-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Write something specific you noticed in their reflection…"
+              rows={4}
+              maxLength={800}
+              className="w-full bg-white border border-[#ECE4D3] rounded-xl px-3.5 py-2.5 text-[14px] text-[#0F1F44] focus:outline-none focus:border-[#D4A847] resize-none"
+            />
+            <div className="text-[10.5px] text-[#5A6488] mt-1">From: {authorName}</div>
+          </div>
+
+          {error && (
+            <div className="bg-[#FFE7E0] border border-[#E85C5C]/40 text-[#A33A2A] rounded-xl px-3.5 py-2.5 text-[12.5px]">
+              {error}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-[13px] font-bold text-[#5A6488] hover:bg-[#FBF7EE]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSave}
+              className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold disabled:opacity-40"
+              style={{ background: '#D4A847', color: '#0F1F44' }}
+            >
+              {saving ? 'Saving…' : 'Save rating'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

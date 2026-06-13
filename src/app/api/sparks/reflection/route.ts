@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
 // (matches Kaya Pulse's daily generators). Reflections are day-granular.
 const TZ = 'Africa/Dar_es_Salaam';
 
-type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback';
+type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating';
 
 /** Whole-day difference between two YYYY-MM-DD keys (a - b). */
 function dayDiff(a: string, b: string): number {
@@ -70,9 +70,10 @@ export async function POST(req: NextRequest) {
   let body: {
     action?: Action; kidId?: string; date?: string; text?: string;
     source?: string; scanUrl?: string; feedback?: unknown; ai_read?: unknown; max?: number;
+    rating?: { stars?: number; notes?: string; ratedByName?: string };
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const action: Action = (['get', 'list', 'save', 'airead', 'feedback'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
+  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
   const kidId = typeof body.kidId === 'string' ? body.kidId : '';
   if (!kidId) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
 
@@ -101,9 +102,13 @@ export async function POST(req: NextRequest) {
 
   const col = db.collection('families').doc(familyId).collection('sparks_reflections');
 
-  // ── Writes (parent or owner kid) ──────────────────────────────────────
-  if (action === 'save' || action === 'airead' || action === 'feedback') {
-    if (!isParent && !isOwnerKid) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  // ── Writes (parent or owner kid; rating is parent-only) ────────────────
+  if (action === 'save' || action === 'airead' || action === 'feedback' || action === 'rating') {
+    if (action === 'rating') {
+      if (!isParent) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    } else if (!isParent && !isOwnerKid) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
     const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : '';
     if (!date) return NextResponse.json({ error: 'bad-date' }, { status: 400 });
 
@@ -127,6 +132,27 @@ export async function POST(req: NextRequest) {
       const air = body.ai_read && typeof body.ai_read === 'object' ? body.ai_read : null;
       if (!air) return NextResponse.json({ error: 'bad-airead' }, { status: 400 });
       await ref.set({ ai_read: air, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'rating') {
+      const r = body.rating || {};
+      const stars = typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 5
+        ? Math.round(r.stars) : undefined;
+      const notes = typeof r.notes === 'string' ? r.notes.trim().slice(0, 800) : '';
+      const ratedByName = typeof r.ratedByName === 'string' && r.ratedByName.trim().length > 0
+        ? r.ratedByName.trim().slice(0, 80) : 'Parent';
+      if (stars === undefined && notes.length === 0) {
+        return NextResponse.json({ error: 'empty-rating' }, { status: 400 });
+      }
+      const parent_rating: Record<string, unknown> = {
+        ratedBy: uid,
+        ratedByName,
+        ratedAt: FieldValue.serverTimestamp(),
+      };
+      if (stars !== undefined) parent_rating.stars = stars;
+      if (notes.length > 0)    parent_rating.notes = notes;
+      await ref.set({ parent_rating, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return NextResponse.json({ ok: true });
     }
 
