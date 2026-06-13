@@ -884,6 +884,15 @@ service cloud.firestore {
         allow read, create, update, delete: if isParentInFamily(familyId);
       }
 
+      // ── Time Capsule (Kaya Reminders R3) ─────────────────────────
+      // Schedule a message/photo to auto-deliver on a future date. Any
+      // family member can create one; the reminders cron delivers it.
+      // Served via the /api/reminders/capsules Admin route (verified ID
+      // token) — this block is documented defense-in-depth (undeployed).
+      match /timeCapsules/{capsuleId} {
+        allow read, create, update, delete: if belongsToFamily(familyId);
+      }
+
       // ── Vehicles (Household → Drivers) ─────────────────────────
       // The family's vehicles (sedan / SUV / pickup / motorbike /
       // tuk-tuk / etc.) — one doc per vehicle. Each Drivers
