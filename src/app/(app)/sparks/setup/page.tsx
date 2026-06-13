@@ -22,10 +22,12 @@ import {
 import KidAvatar from '@/components/ui/KidAvatar';
 import {
   DEFAULT_REVISION_SETTINGS, DEFAULT_REFLECTION_SETTINGS,
-  DEFAULT_REFLECTION_REMINDERS, DEFAULT_REFLECTION_STREAK_REWARDS, SPARKS_AREA_META,
+  DEFAULT_REFLECTION_REMINDERS, DEFAULT_REFLECTION_STREAK_REWARDS,
+  DEFAULT_EMAIL_ALERTS, SPARKS_AREA_META,
   type RevisionSettings, type ReflectionSettings,
   type ReflectionReminderSettings, type ReflectionStreakRewards,
   type ReflectionStreakMilestone,
+  type EmailAlertSettings, type EmailAlertArea, type EmailAlertFrequency,
   type SparksItemArea, type SparksProfile, type SparksSiblingVisibility,
 } from '@/lib/sparks/schema';
 import type { Child, DayOfWeek } from '@/lib/firestore';
@@ -134,6 +136,11 @@ export default function SparksSetupPage() {
                   uid={profile.uid}
                 />
                 <ReflectionStreakRewardsCard
+                  familyId={familyId}
+                  kid={activeKid}
+                  uid={profile.uid}
+                />
+                <EmailAlertsCard
                   familyId={familyId}
                   kid={activeKid}
                   uid={profile.uid}
@@ -787,6 +794,165 @@ function ReflectionStreakRewardsCard({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Slice 7q · Parent email alerts. Per-parent picks instant / digest /
+// off for each Sparks area on each kid. Quiet hours respected.
+
+const EMAIL_AREAS: Array<{ id: EmailAlertArea; label: string; hint: string; emoji: string }> = [
+  { id: 'reflection',     label: 'Daily Reflection',  hint: 'When the kid logs today\'s journal entry.', emoji: '📔' },
+  { id: 'revision',       label: 'Home Revisions',    hint: 'Math · English · AI-scored revisions.',     emoji: '🎯' },
+  { id: 'school_project', label: 'School Projects',   hint: 'Photos, art, models from school.',          emoji: '🎒' },
+  { id: 'home_project',   label: 'Home Projects',     hint: 'Builds, crafts, drawings made at home.',    emoji: '🛠' },
+  { id: 'achievement',    label: 'Achievements',      hint: 'Certificates, medals, awards.',             emoji: '🏅' },
+];
+
+function EmailAlertsCard({
+  familyId, kid, uid,
+}: {
+  familyId: string;
+  kid: Child;
+  uid: string;
+}) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => subscribeToSparksProfile(familyId, kid.id, setProfile), [familyId, kid.id]);
+
+  // Each parent has their own row in profile.email_alerts. We render
+  // the row for the SIGNED-IN parent (`uid`). The other parent
+  // configures their own from their own session.
+  const myAlerts: EmailAlertSettings = {
+    ...DEFAULT_EMAIL_ALERTS,
+    ...(profile?.email_alerts?.[uid] ?? {}),
+    areas: {
+      ...DEFAULT_EMAIL_ALERTS.areas,
+      ...(profile?.email_alerts?.[uid]?.areas ?? {}),
+    },
+  };
+  const hasSaved = !!profile?.email_alerts?.[uid];
+
+  const patch = async (next: Partial<EmailAlertSettings>) => {
+    setSaving(true);
+    try {
+      const merged: EmailAlertSettings = {
+        ...myAlerts,
+        ...next,
+        areas: { ...myAlerts.areas, ...(next.areas ?? {}) },
+      };
+      await upsertSparksProfile(
+        familyId, kid.id,
+        { email_alerts: { ...(profile?.email_alerts ?? {}), [uid]: merged } },
+        uid,
+      );
+    } finally { setSaving(false); }
+  };
+
+  const setArea = (area: EmailAlertArea, freq: EmailAlertFrequency) => {
+    void patch({ areas: { [area]: freq } as Record<EmailAlertArea, EmailAlertFrequency> });
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <span className="text-xl" aria-hidden>📨</span>
+        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+          Email alerts · {kid.name}
+        </div>
+        <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full ${hasSaved ? 'bg-[#DDF5DF] text-[#2E7D34]' : 'bg-[#FFF1C9] text-[#8A6800]'}`}>
+          {hasSaved ? '✓ Saved' : 'Defaults'}
+        </span>
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
+        Pick how you want to be alerted when {kid.name.split(' ')[0]} submits something. The other parent picks their own rhythm independently. Quiet hours queue instant emails to the next allowed slot.
+      </p>
+
+      <div className="space-y-2">
+        {EMAIL_AREAS.map((a) => (
+          <div key={a.id} className="flex items-center justify-between gap-3 bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+            <div className="min-w-0">
+              <div className="font-nunito font-extrabold text-[13px] text-[#0F1F44]">
+                <span aria-hidden className="mr-1">{a.emoji}</span>{a.label}
+              </div>
+              <div className="text-[11px] text-[#5A6488] truncate">{a.hint}</div>
+            </div>
+            <select
+              value={myAlerts.areas[a.id]}
+              onChange={(e) => setArea(a.id, e.target.value as EmailAlertFrequency)}
+              disabled={saving}
+              className="bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[12.5px] font-extrabold text-[#0F1F44]"
+              aria-label={`${a.label} frequency`}
+            >
+              <option value="off">Off</option>
+              <option value="instant">Instant</option>
+              <option value="digest">Daily digest</option>
+            </select>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Digest hour</div>
+          <select
+            value={myAlerts.digest_hour}
+            onChange={(e) => patch({ digest_hour: Math.max(0, Math.min(23, Number(e.target.value))) })}
+            disabled={saving}
+            className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Minute</div>
+          <select
+            value={myAlerts.digest_minute}
+            onChange={(e) => patch({ digest_minute: (Number(e.target.value) === 30 ? 30 : 0) as 0 | 30 })}
+            disabled={saving}
+            className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+          >
+            <option value={0}>00</option>
+            <option value={30}>30</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Quiet from</div>
+          <select
+            value={myAlerts.quiet_start}
+            onChange={(e) => patch({ quiet_start: Math.max(0, Math.min(23, Number(e.target.value))) })}
+            disabled={saving}
+            className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>
+            ))}
+          </select>
+        </label>
+        <label className="block bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2.5">
+          <div className="text-[10px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488]">Quiet until</div>
+          <select
+            value={myAlerts.quiet_end}
+            onChange={(e) => patch({ quiet_end: Math.max(0, Math.min(23, Number(e.target.value))) })}
+            disabled={saving}
+            className="mt-1 w-full bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+          >
+            {Array.from({ length: 24 }, (_, h) => (
+              <option key={h} value={h}>{`${String(h).padStart(2, '0')}:00`}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <p className="text-[11px] text-[#5A6488] mt-3 leading-snug">
+        Instant emails fired during quiet hours queue until the window opens — never silenced. Digest sends one bundled email per day at the picked time.
+      </p>
     </div>
   );
 }
