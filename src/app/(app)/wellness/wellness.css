@@ -177,6 +177,18 @@
 .wl .toggle::after{content:'';position:absolute;width:20px;height:20px;border-radius:50%;background:#fff;top:3px;right:3px}
 .wl .toggle.off{background:#e1dcef}.wl .toggle.off::after{right:auto;left:3px}
 
+/* Daily Spark card on Home */
+.wl .sparkcard{margin:8px 0 0;background:linear-gradient(135deg,#fff5e9,#ffeaf4);border:1px solid #ffe0cf;border-radius:18px;padding:13px 15px;cursor:pointer;width:100%;text-align:left}
+.wl .sparkcard-row{display:flex;align-items:center;gap:11px}
+.wl .sparkcard .se{font-size:24px;flex:none}
+.wl .sparkcard .sk{font-size:9.5px;letter-spacing:1.5px;font-weight:800;color:#9b4dca}
+.wl .sparkcard .sq{font-size:13px;font-weight:800;color:#5a4660;line-height:1.35;margin-top:2px}
+
+/* Profile setup prompt on Weight */
+.wl .setupcard{margin:12px 0 0;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:#f7f4fd;border:1.5px solid #d9ccf5;border-radius:16px;padding:14px;cursor:pointer}
+.wl .setupcard b{font-size:13px;display:block}
+.wl .setupcard small{font-size:11px;color:var(--w-grey);font-weight:600;line-height:1.4;display:block;margin-top:2px}
+
 .wl .spark-bg{flex:1;background:linear-gradient(160deg,#6C4AB6,#8a5fd0);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;padding:30px;text-align:center;border-radius:22px;min-height:560px}
 .wl .spark-q{font-size:23px;font-weight:800;line-height:1.4;margin:16px 0}
 .wl .spark-why{font-size:13px;opacity:.9;font-style:italic}

@@ -419,7 +419,6 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'section', id: 'stats',     icon: '📊', label: 'Stats', items: KID_STATS_NAV },
   { kind: 'section', id: 'fun',       iconNode: <KayaFunIcon className="w-4 h-4" />, label: 'Kaya Fun', items: KID_FUN_NAV },
   { kind: 'link',    id: 'wealth',    path: '/wealth',    icon: '💎', label: 'Kaya Wealth',   soon: true },
-  { kind: 'link',    id: 'wellness',  path: '/wellness',  icon: '🧘', label: 'Kaya Wellness' },
   { kind: 'link',    id: 'chef',      path: '/chef',      icon: '🍳', label: 'Kaya Chef',     soon: true },
   // Buzz stays last in the kid menu — sits under the apps, not above them.
   { kind: 'link',    id: 'buzz',      path: '/buzz',      icon: '🐝', label: 'Buzz' },
