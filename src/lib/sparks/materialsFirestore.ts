@@ -114,6 +114,27 @@ export async function updateMaterial(
   await updateDoc(doc(db, 'families', familyId, 'sparks_materials', materialId), patch);
 }
 
+/** Parent rates a material — ⭐1–5 + an optional feedback note the kid
+ *  reads. Mirrors the Sparks Projects rating. Written by a parent (or a
+ *  Sparks-act helper) — the sparks_materials rule already allows update. */
+export async function rateMaterial(
+  familyId: string, materialId: string,
+  input: { stars: number; note?: string; by: string; byName: string },
+): Promise<void> {
+  const rating: Record<string, unknown> = {
+    stars: Math.max(1, Math.min(5, Math.round(input.stars))),
+    rated_by: input.by,
+    rated_by_name: input.byName,
+    rated_at: Date.now(),
+  };
+  const note = (input.note || '').trim();
+  if (note) rating.note = note.slice(0, 500);
+  await updateDoc(doc(db, 'families', familyId, 'sparks_materials', materialId), {
+    rating,
+    updated_at: serverTimestamp(),
+  });
+}
+
 /** Delete a material doc + its stored file (file kind). Stored blob
  *  cleanup is best-effort — a missing storage object should NOT block
  *  the Firestore delete. */
