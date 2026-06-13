@@ -1,0 +1,541 @@
+"use client";
+import { useMemo, useState } from "react";
+import { celebrate } from "./fx";
+import {
+  SEED_WEIGHTS, GOAL_KG, bmi, bmiBand, bodyFatPct, weeklyPace, weeksToGoal, aiAnalysis,
+} from "./calc";
+
+export type View =
+  | "home" | "weight" | "weight-settings" | "goals" | "program" | "circle" | "more"
+  | "onboard" | "plan" | "library" | "gyms" | "spark" | "achievements" | "impact" | "reminders" | "juniors";
+
+/* ============ HOME ============ */
+const MOODS = [
+  { e: "😣", t: "Drained" }, { e: "😕", t: "Low" }, { e: "🙂", t: "OK" }, { e: "😄", t: "Good" }, { e: "🤩", t: "Great" },
+];
+const PILLARS = [
+  { cls: "gym", e: "🏋️", n: "Gym" }, { cls: "home", e: "🏠", n: "Home" },
+  { cls: "breathe", e: "🌬️", n: "Breathe" }, { cls: "reflect", e: "📓", n: "Reflect" },
+];
+export function Home({ go, name }: { go: (v: View) => void; name: string }) {
+  const [mood, setMood] = useState(2);
+  return (
+    <>
+      <div className="top">
+        <div className="t">Good morning, {name}<small>WELLNESS · TODAY</small></div>
+        <div className="mscore">🌿 72</div>
+      </div>
+      <div className="focus">
+        <div className="stars" />
+        <div className="ringrow">
+          <div className="ring">
+            <svg viewBox="0 0 112 112">
+              <circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="9" />
+              <circle cx="56" cy="56" r="47" fill="none" stroke="#F9A826" strokeWidth="9" strokeLinecap="round" strokeDasharray="295" strokeDashoffset="60" transform="rotate(-90 56 56)" />
+            </svg>
+            <div className="c"><div className="n">24</div><div className="d">DAYS 🔥</div></div>
+          </div>
+          <div className="meta">
+            <div className="k">⭐ Your momentum</div>
+            <div style={{ marginTop: 6 }}>6 days to your <b>longest yet — 30</b> 🌱<br />Never Zero kept it alive twice this week.</div>
+          </div>
+        </div>
+      </div>
+      <div className="pillars">
+        {PILLARS.map((p) => (
+          <button key={p.n} className={`pill ${p.cls}`}><div className="pe">{p.e}</div><span className="pn">{p.n}</span></button>
+        ))}
+      </div>
+      <div className="moodcard">
+        <div className="q">How&apos;s your energy today?</div>
+        <div className="moodbar">
+          {MOODS.map((m, i) => (
+            <button key={m.t} className={`mood${mood === i ? " sel" : ""}`} onClick={() => setMood(i)}>
+              <div className="e">{m.e}</div><div className="t">{m.t}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="ritual">
+        <div className="rt"><div><b>Morning cardio + abs</b><small>Zone-2 walk · ab circuit A</small></div><span className="tag med">Medium · 35 min</span></div>
+        <button className="btn btn-teal" style={{ width: "100%", padding: 12, fontSize: 14 }}>Start ritual</button>
+      </div>
+      <div style={{ padding: "14px 0 0" }}>
+        <button className="btn btn-ghost" onClick={() => go("weight")}>⚖️ Log today&apos;s weight →</button>
+      </div>
+    </>
+  );
+}
+
+/* ============ WEIGHT ============ */
+function WeightSpark({ weights }: { weights: number[] }) {
+  const W = 320, H = 60, pad = 5;
+  const { d, area, last } = useMemo(() => {
+    const mn = Math.min(...weights), mx = Math.max(...weights), rng = mx - mn || 1;
+    const pts = weights.map((w, i) => [pad + (i / (weights.length - 1)) * (W - pad * 2), pad + (1 - (w - mn) / rng) * (H - pad * 2)]);
+    const dd = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(" ");
+    const lp = pts[pts.length - 1];
+    return { d: dd, area: `${dd} L ${lp[0].toFixed(1)} ${H} L ${pts[0][0].toFixed(1)} ${H} Z`, last: lp };
+  }, [weights]);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={50} preserveAspectRatio="none">
+      <path d={area} fill="rgba(255,255,255,.18)" />
+      <path d={d} fill="none" stroke="#fff" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={last[0]} cy={last[1]} r={4} fill="#F9A826" stroke="#fff" strokeWidth={2} />
+    </svg>
+  );
+}
+export function Weight({ go }: { go: (v: View) => void }) {
+  const [weights, setWeights] = useState<number[]>(SEED_WEIGHTS);
+  const [streak, setStreak] = useState(12);
+  const [input, setInput] = useState("81.4");
+  const cur = weights[weights.length - 1];
+  const diff = weights[0] - cur;
+  const b = bmi(cur);
+  const band = bmiBand(b);
+  const pace = weeklyPace(weights);
+  const wks = weeksToGoal(cur, pace);
+  const step = (delta: number) => setInput((v) => (parseFloat(v || "0") + delta).toFixed(1));
+  const log = () => {
+    const v = parseFloat(input);
+    if (isNaN(v)) return;
+    setWeights((w) => [...w, v].slice(-15));
+    const ns = streak + 1; setStreak(ns);
+    celebrate("⚖️", "Logged!", `${ns}-day logging streak. What gets measured gets repeated.`);
+  };
+  return (
+    <>
+      <div className="top"><div className="t">Weight Management<small>FREE · DAILY TRACKING</small></div><div className="mscore">⚖️ {streak}🔥</div></div>
+      <div className="wbig">
+        <div className="freebadge">FREE</div>
+        <div className="lab">Current weight</div>
+        <div className="wt">{cur.toFixed(1)}<span> kg</span></div>
+        <div className="delta">{diff >= 0 ? "▼" : "▲"} {Math.abs(diff).toFixed(1)} kg · trending {diff >= 0 ? "down" : "up"}</div>
+        <div style={{ marginTop: 10 }}><WeightSpark weights={weights} /></div>
+      </div>
+      <div className="grouphdr ai">🤖 Kaya calculates (auto)</div>
+      <div className="statgrid">
+        <div className="stat"><span className="autotag">AUTO</span><div className="sl">BMI</div><div className="sv">{b.toFixed(1)}</div><span className={`bmichip ${band.cls}`}>{band.label}</span></div>
+        <div className="stat"><span className="autotag">AUTO</span><div className="sl">Body fat</div><div className="sv">{bodyFatPct(cur).toFixed(1)}<small>%</small></div><span className="bmichip normal">est. from BMI + age</span></div>
+      </div>
+      <div className="statgrid" style={{ marginTop: 10 }}>
+        <div className="stat"><span className="autotag">AUTO</span><div className="sl">Weekly pace</div><div className="sv">{Math.abs(pace).toFixed(1)}<small> kg/wk</small></div></div>
+        <div className="stat"><span className="autotag">AUTO</span><div className="sl">Goal date</div><div className="sv">{cur <= GOAL_KG ? "reached 🎉" : wks == null ? "—" : `~${wks} wk`}</div></div>
+      </div>
+      <div className="grouphdr you">📝 You log</div>
+      <div className="logcard">
+        <h4>Today&apos;s weight</h4>
+        <div className="logrow">
+          <button className="stepbtn" onClick={() => step(-0.1)}>−</button>
+          <input className="wInput" type="number" step="0.1" inputMode="decimal" value={input} onChange={(e) => setInput(e.target.value)} />
+          <button className="stepbtn" onClick={() => step(0.1)}>+</button>
+        </div>
+        <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={log}>✓ Log weight</button>
+      </div>
+      <div className="statgrid" style={{ marginTop: 10 }}>
+        <div className="stat"><span className="logtag">YOU LOG</span><div className="sl">Waist</div><div className="sv">86<small> cm ▼3</small></div></div>
+        <div className="stat"><span className="logtag">YOU LOG</span><div className="sl">Chest</div><div className="sv">102<small> cm</small></div></div>
+      </div>
+      <div className="ai">
+        <div className="ah"><span className="pulse" />KAYA AI · HIGH-LEVEL ANALYSIS</div>
+        <p>{aiAnalysis(weights, streak)}</p>
+        <div className="sugg"><div className="s">💧 Front-load water</div><div className="s">🍳 Protein at breakfast</div><div className="s">😴 Protect 7h sleep</div></div>
+      </div>
+      <div style={{ padding: "14px 0 0" }}>
+        <button className="btn btn-ghost" onClick={() => go("weight-settings")}>⚙️ Tracking settings &amp; import old data →</button>
+      </div>
+    </>
+  );
+}
+
+/* ============ WEIGHT SETTINGS ============ */
+const FREQ = ["Weekly", "2× / month", "3× / month", "Monthly"];
+const WEIGH = ["Daily", "Every other day", "Weekly"];
+export function WeightSettings({ go }: { go: (v: View) => void }) {
+  const [freq, setFreq] = useState(1);
+  const [weigh, setWeigh] = useState(0);
+  const [parsed, setParsed] = useState(false);
+  return (
+    <>
+      <div className="top"><div className="t">Tracking settings<small>WEIGHT MANAGEMENT</small></div><button className="mscore" onClick={() => go("weight")}>← Back</button></div>
+      <div className="freqcard">
+        <h4>Full body measurements</h4>
+        <p>How often should Kaya ask you to measure waist, chest, arms, etc.?</p>
+        <div className="selrow">{FREQ.map((f, i) => <button key={f} className={`opt${freq === i ? " on" : ""}`} onClick={() => setFreq(i)}>{f}</button>)}</div>
+      </div>
+      <div className="freqcard">
+        <h4>Weigh-in reminder</h4>
+        <p>Daily weigh-in nudge — first thing, after waking.</p>
+        <div className="selrow">{WEIGH.map((f, i) => <button key={f} className={`opt${weigh === i ? " on" : ""}`} onClick={() => setWeigh(i)}>{f}</button>)}</div>
+      </div>
+      <div className="sec"><h3>Import old data</h3><div className="hint">backfill</div></div>
+      <div className="uploadzone">
+        <div className="e">📄</div><div className="ut">Upload an Excel / CSV</div>
+        <div className="us">Drag your old weight log here — Kaya AI reads it and fills in the past for you.</div>
+        <button className="btn btn-ghost" style={{ marginTop: 12, width: "auto", padding: "10px 18px" }} onClick={() => setParsed(true)}>Choose file</button>
+      </div>
+      {parsed && (
+        <>
+          <div className="parsed">
+            <div className="ph"><span>🤖 KAYA AI PARSED · weights.xlsx</span><span>34 rows</span></div>
+            <div className="prow"><span>01–14 May · 14 entries</span><span className="ok">✓ clean</span></div>
+            <div className="prow"><span>15–28 May · 14 entries</span><span className="ok">✓ clean</span></div>
+            <div className="prow"><span>29–31 May · 3 entries</span><span className="warn">⚠ units? (lb→kg)</span></div>
+            <div className="prow"><span>03 Jun · duplicate</span><span className="warn">⚠ skip</span></div>
+          </div>
+          <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, margin: "10px 0 0", textAlign: "center" }}>Review the flags, then approve — nothing is saved until you confirm.</p>
+          <div style={{ padding: "10px 0 0" }}>
+            <button className="btn btn-primary" onClick={() => celebrate("📈", "Imported!", "31 past entries added — your history is now complete.")}>✓ Approve &amp; import 31 entries</button>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
+/* ============ GOALS ============ */
+type Goal = { wish: string; tiny: string; pill: string; pcol: string; streak: number; todayDone: boolean; cheers: number; target: number; };
+const GOAL_SEED: Goal[] = [
+  { wish: "Visible abs", tiny: "Log weight + abs circuit today", pill: "⚖️", pcol: "#1FB6A6", streak: 12, todayDone: false, cheers: 4, target: 14 },
+  { wish: "Calmer evenings", tiny: "3 deep breaths before bed", pill: "🧘", pcol: "#FF6B6B", streak: 2, todayDone: false, cheers: 0, target: 7 },
+  { wish: "Hydrate", tiny: "First glass of water on waking", pill: "💧", pcol: "#F9A826", streak: 6, todayDone: true, cheers: 2, target: 7 },
+];
+const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
+function Chain({ streak, todayDone }: { streak: number; todayDone: boolean }) {
+  return (
+    <div className="chain">
+      {DAYS.map((d, i) => {
+        const isToday = i === 6;
+        const on = isToday ? todayDone : i >= 7 - 1 - Math.min(streak, 6);
+        return <div key={i} className={`d${on ? " on" : ""}${isToday ? " today" : ""}`}>{on ? "✓" : d}</div>;
+      })}
+      <span className="lab">{streak}🔥</span>
+    </div>
+  );
+}
+export function Goals() {
+  const [goals, setGoals] = useState<Goal[]>(GOAL_SEED);
+  const markDone = (i: number) =>
+    setGoals((gs) => gs.map((g, j) => {
+      if (j !== i) return g;
+      if (g.todayDone) return { ...g, todayDone: false, streak: Math.max(0, g.streak - 1) };
+      const streak = g.streak + 1;
+      if (streak === g.target) celebrate("🏅", `${g.target}-day badge!`, `${g.wish} milestone unlocked. 🎉`);
+      else if ([3, 7, 14, 30].includes(streak)) celebrate("🔥", `${streak}-day streak!`, "On fire — keep it going!");
+      else celebrate("✅", "Done today!", `${g.wish} — streak now ${streak} 🔥`);
+      return { ...g, todayDone: true, streak };
+    }));
+  const cheer = (i: number) => setGoals((gs) => gs.map((g, j) => (j === i ? { ...g, cheers: g.cheers + 1 } : g)));
+  return (
+    <>
+      <div className="top"><div className="t">My goals<small>TINY &amp; DOABLE</small></div><div className="mscore">🌿 72</div></div>
+      <div className="nz"><div className="em">🛡️</div><p><b>Never Zero:</b> a hard day spends a shield, not your streak. Do 10 minutes — it still counts.</p></div>
+      <div className="sec"><h3>One simple goal at a time</h3><div className="hint">tap done</div></div>
+      <div className="goals">
+        {goals.map((g, i) => {
+          const toB = g.target - g.streak;
+          return (
+            <div className="gcard" key={i}>
+              <div className="accent" style={{ background: g.pcol }} />
+              <div className="ghead">
+                <div className="fa" style={{ background: "#6C4AB6" }}>E</div>
+                <div className="gn"><b>{g.wish}</b><small>You</small></div>
+                <div className="pillico" style={{ background: g.pcol + "22" }}>{g.pill}</div>
+              </div>
+              <div className="gtiny"><span>🤏</span> {g.tiny}</div>
+              <Chain streak={g.streak} todayDone={g.todayDone} />
+              <div className="gactions">
+                <button className={`btn-done${g.todayDone ? " checked" : ""}`} onClick={() => markDone(i)}>{g.todayDone ? "✓ Done today" : "Mark today done"}</button>
+                <button className="btn-cheer" onClick={() => cheer(i)}>👏 <span>{g.cheers}</span></button>
+              </div>
+              <div className="milestone">🏅 {g.streak >= g.target ? <b>{g.target}-day badge!</b> : <span><b>{toB}</b> day{toB === 1 ? "" : "s"} to the {g.target}-day badge</span>}</div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+/* ============ PROGRAM ============ */
+const PHASES = [
+  { n: 1, color: "#6C4AB6", title: "Foundation · Wk 1–4", desc: "Rebuild base strength, lock the habit, dial in diet", cur: true },
+  { n: 2, color: "#1FB6A6", title: "Build & Burn · Wk 5–8", desc: "Peak intensity · Wk 8 deload", cur: false },
+  { n: 3, color: "#FF6B6B", title: "Cut & Reveal · Wk 9–12", desc: "Strip fat, keep muscle, bring out the abs", cur: false },
+];
+const PDAYS = [
+  { d: "Mon · Push", s: "AM cardio+abs · PM chest/shoulders/triceps", tag: "hard", lab: "Hard" },
+  { d: "Wed · Legs", s: "AM Zone-2 · PM lower body", tag: "hard", lab: "Hard" },
+  { d: "Fri · Lower + conditioning", s: "No AM — school run · PM only", tag: "med", lab: "Medium" },
+  { d: "Sun · Rest + review", s: "Photo · waist · weight · one PR", tag: "easy", lab: "Rest" },
+];
+export function Program() {
+  return (
+    <>
+      <div className="top"><div className="t">My program<small>STRUCTURED PLAN</small></div><div className="mscore">📋 Day 22</div></div>
+      <div className="phero"><div className="stars" /><div className="in">
+        <div className="k">90-Day Program</div><h2>The Restoration</h2>
+        <div className="desc">Body recomposition · two-a-day · goal: shape + visible abs</div>
+        <div className="pbar"><i style={{ width: "24%" }} /></div>
+        <div className="pf2"><span>Day 22 of 90</span><span>Phase 1 · Foundation</span></div>
+      </div></div>
+      <div className="sec"><h3>The 3 waves</h3><div className="hint">periodized</div></div>
+      <div>{PHASES.map((p) => (
+        <div key={p.n} className={`phase${p.cur ? " cur" : ""}`}><div className="pnum" style={{ background: p.color }}>{p.n}</div><div className="pt"><b>{p.title}</b><small>{p.desc}</small></div></div>
+      ))}</div>
+      <div className="sec"><h3>This week</h3><div className="hint">AM cardio · PM weights</div></div>
+      <div>{PDAYS.map((d) => (
+        <div key={d.d} className="day"><div className="dl"><b>{d.d}</b><small>{d.s}</small></div><span className={`tag ${d.tag}`}>{d.lab}</span></div>
+      ))}</div>
+      <div className="nz" style={{ marginTop: 14 }}><div className="em">🛡️</div><p><b>Never Zero:</b> on any day life wins, do 10 min or one exercise. Streak &amp; program stay alive.</p></div>
+      <div style={{ padding: "14px 0 0" }}><button className="btn btn-primary">Start today&apos;s session →</button></div>
+    </>
+  );
+}
+
+/* ============ CIRCLE ============ */
+const CLUBS = [
+  { ico: "🏃", bg: "#FF6B6B", n: "Weekend Runners", s: "1.2k · 3 runs/week" },
+  { ico: "🧘", bg: "#F9A826", n: "Calm After Work", s: "540 · evening unwind" },
+  { ico: "💪", bg: "#6C4AB6", n: "Strength Starters", s: "890 · beginner-friendly" },
+];
+export function Circle() {
+  const [share, setShare] = useState(0);
+  return (
+    <>
+      <div className="top"><div className="t">Wellness community<small>CHALLENGES · CLUBS · SHARING</small></div></div>
+      <div className="sec"><h3>Live challenges</h3></div>
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><b style={{ fontSize: 14 }}>June Movement</b><span className="tag easy">14/20 days</span></div>
+        <div className="xpbar" style={{ background: "#e9e3f7", marginTop: 10 }}><i style={{ background: "var(--teal)", width: "70%" }} /></div>
+        <div style={{ fontSize: 12, color: "var(--w-grey)", fontWeight: 600, marginTop: 8 }}>🌍 8,402 people moving with you</div>
+        <button className="btn btn-teal" style={{ width: "100%", padding: 10, fontSize: 13, marginTop: 10 }} onClick={() => celebrate("🌍", "You're in!", "June Movement — moving with 8,402 others.")}>I&apos;m in</button>
+      </div>
+      <div className="sec"><h3>Your clubs</h3></div>
+      <div className="listitem"><div className="ico" style={{ background: "var(--teal)" }}>🌅</div><div className="m"><b>Sunrise Breathers</b><small>312 members · breathe daily 7 AM</small></div><span className="tag easy">Joined</span></div>
+      {CLUBS.map((c) => (
+        <div className="listitem" key={c.n}><div className="ico" style={{ background: c.bg }}>{c.ico}</div><div className="m"><b>{c.n}</b><small>{c.s}</small></div><button className="btn btn-teal" style={{ padding: "8px 14px", fontSize: 12 }} onClick={() => celebrate("👥", "Joined!", `Welcome to ${c.n}.`)}>Join</button></div>
+      ))}
+      <div className="sec"><h3>Shared schedules</h3><div className="hint">anon or revealed</div></div>
+      <div className="card" style={{ background: "#f7f4fd", border: "none", marginBottom: 10 }}>
+        <b style={{ fontSize: 13 }}>Share my schedule</b>
+        <div className="selrow" style={{ marginTop: 10 }}>
+          <button className={`opt${share === 0 ? " on" : ""}`} onClick={() => setShare(0)}>🕶️ Anonymous</button>
+          <button className={`opt${share === 1 ? " on" : ""}`} onClick={() => setShare(1)}>😊 Show me</button>
+        </div>
+        <button className="btn btn-primary" style={{ marginTop: 11, padding: 10, fontSize: 13 }} onClick={() => celebrate("📢", "Posted!", share === 0 ? "Shared anonymously to the wall." : "Shared with your name.")}>Post to wall</button>
+      </div>
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between" }}><small style={{ color: "var(--w-grey)", fontWeight: 700 }}>🕶️ Anonymous · 30–44</small><span className="tag med">Medium</span></div>
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 8 }}>Mon Breathe · Tue Gym · Thu Run · Sat Home</div>
+        <div className="selrow" style={{ marginTop: 10 }}>
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "7px 12px", fontSize: 12 }}>👏 184</button>
+          <button className="btn btn-teal" style={{ padding: "7px 12px", fontSize: 12 }}>Adopt</button>
+        </div>
+      </div>
+      <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, textAlign: "center", marginTop: 6 }}>Adopting auto-rescales to your age &amp; intensity.</p>
+    </>
+  );
+}
+
+/* ============ MORE launcher + secondary screens ============ */
+function Head({ title, sub, go }: { title: string; sub: string; go: (v: View) => void }) {
+  return <div className="top"><div className="t">{title}<small>{sub}</small></div><button className="mscore" onClick={() => go("more")}>← More</button></div>;
+}
+const MORE_ITEMS: { v: View; e: string; n: string }[] = [
+  { v: "onboard", e: "🪄", n: "Onboard" }, { v: "plan", e: "🗓️", n: "Suggested plan" },
+  { v: "library", e: "📚", n: "Exercise library" }, { v: "gyms", e: "🏋️", n: "My gyms" },
+  { v: "spark", e: "✨", n: "Daily spark" }, { v: "achievements", e: "🏅", n: "Achievements" },
+  { v: "impact", e: "🌍", n: "Move for good" }, { v: "reminders", e: "🔔", n: "Reminders" },
+  { v: "juniors", e: "🧒", n: "Kaya Juniors" },
+];
+export function More({ go }: { go: (v: View) => void }) {
+  return (
+    <>
+      <div className="top"><div className="t">More<small>EVERYTHING ELSE</small></div></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, paddingTop: 12 }}>
+        {MORE_ITEMS.map((it) => (
+          <button key={it.v} className="card" style={{ textAlign: "left", cursor: "pointer" }} onClick={() => go(it.v)}>
+            <div style={{ fontSize: 28 }}>{it.e}</div>
+            <div style={{ fontWeight: 800, fontSize: 14, marginTop: 6 }}>{it.n}</div>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+export function Onboard({ go }: { go: (v: View) => void }) {
+  const goals = ["Shape + abs", "Less stress", "More energy", "Sleep better", "Stay active"];
+  const [sel, setSel] = useState(0);
+  return (
+    <>
+      <Head title="This is you" sub="STEP 2 OF 3" go={go} />
+      <p style={{ fontSize: 12.5, color: "var(--w-grey)", fontWeight: 600, lineHeight: 1.5, margin: "6px 0 14px" }}>Pulled from your verified Kaya account — so it can&apos;t be faked. Change it in account settings.</p>
+      <div className="grouphdr you" style={{ paddingLeft: 0 }}>🔒 Your profile (locked)</div>
+      <div className="pf"><span className="pl">Account</span><span className="pv">👤 Adult</span></div>
+      <div className="pf"><span className="pl">Age range</span><span className="pv">30–44 🔒</span></div>
+      <div className="pf"><span className="pl">Gender</span><span className="pv">Man 🔒</span></div>
+      <div className="pf"><span className="pl">Height</span><span className="pv">178 cm 🔒</span></div>
+      <div className="grouphdr" style={{ paddingLeft: 0, color: "var(--violet)" }}>One question — what do you want to achieve?</div>
+      <div className="selrow">{goals.map((g, i) => <button key={g} className={`opt${sel === i ? " on" : ""}`} onClick={() => setSel(i)}>{g}</button>)}</div>
+      <button className="btn btn-primary" style={{ marginTop: 20 }} onClick={() => go("plan")}>See my suggested plan</button>
+      <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, textAlign: "center", marginTop: 10 }}>Age &amp; gender only tune content — they never gate it.</p>
+    </>
+  );
+}
+export function Plan({ go }: { go: (v: View) => void }) {
+  const [intensity, setIntensity] = useState(1);
+  const I = ["Easy", "Medium", "Hard"];
+  return (
+    <>
+      <Head title="Suggested week" sub="BUILT FOR YOU" go={go} />
+      <div className="card" style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 800 }}>Pick your overall intensity</div>
+        <div className="selrow" style={{ marginTop: 10 }}>{I.map((x, i) => <button key={x} className={`opt${intensity === i ? " on" : ""}`} onClick={() => setIntensity(i)}>{x}</button>)}</div>
+        <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, marginTop: 8 }}>Scales every suggested session — tweak each one too.</p>
+      </div>
+      <div className="sec"><h3>Mon</h3></div>
+      <div className="day"><div className="dl"><b>Breathe · 4-7-8</b><small>7:00 AM</small></div><span className="tag easy">Easy</span></div>
+      <div className="day"><div className="dl"><b>Strength · Gym</b><small>6:30 PM</small></div><span className="tag med">Medium</span></div>
+      <div className="sec"><h3>Wed</h3></div>
+      <div className="day"><div className="dl"><b>Home workout</b><small>6:30 PM</small></div><span className="tag med">Medium</span></div>
+      <div style={{ padding: "14px 0 0" }}>
+        <button className="btn btn-primary" onClick={() => celebrate("🗓️", "Plan adopted!", "Your week is set. Reminders follow these times.")}>Adopt this plan</button>
+        <button className="btn btn-ghost" style={{ marginTop: 9 }} onClick={() => go("library")}>Build my own</button>
+      </div>
+    </>
+  );
+}
+const EX = [
+  { ico: "🏋️", bg: "#ffeef0", n: "Full-body strength", tiers: ["Easy 15m", "Med 25m", "Hard 40m"] },
+  { ico: "🤸", bg: "#fff5e0", n: "Bodyweight flow", tiers: ["Easy 10m", "Med 20m", "Hard 35m"] },
+  { ico: "🌬️", bg: "#e8f8f5", n: "Box breathing", tiers: ["Easy 5m", "Med 10m"] },
+  { ico: "📓", bg: "#f3effb", n: "Evening reflection", tiers: ["Easy 5m"] },
+];
+const tierCls = (t: string) => (t.startsWith("Easy") ? "easy" : t.startsWith("Med") ? "med" : "hard");
+export function Library({ go }: { go: (v: View) => void }) {
+  const [filter, setFilter] = useState(0);
+  const cats = ["All", "Gym", "Home", "Breathe", "Reflect"];
+  return (
+    <>
+      <Head title="Exercise library" sub="BUILD EXERCISE-WISE" go={go} />
+      <div style={{ paddingTop: 10 }}><div className="selrow">{cats.map((c, i) => <button key={c} className={`opt${filter === i ? " on" : ""}`} onClick={() => setFilter(i)}>{c}</button>)}</div></div>
+      <div className="card" style={{ marginTop: 12 }}>
+        {EX.map((e) => (
+          <div className="exrow" key={e.n}>
+            <div className="exico" style={{ background: e.bg }}>{e.ico}</div>
+            <div><b style={{ fontSize: 13 }}>{e.n}</b><div className="selrow" style={{ marginTop: 5 }}>{e.tiers.map((t) => <span key={t} className={`tag ${tierCls(t)}`}>{t}</span>)}</div></div>
+            <button className="exadd" onClick={() => celebrate("➕", "Added!", `${e.n} added to your week.`)}>+</button>
+          </div>
+        ))}
+      </div>
+      <div style={{ padding: "14px 0 0" }}><button className="btn btn-teal" style={{ width: "100%", padding: 13, fontSize: 14 }} onClick={() => go("plan")}>Back to my week →</button></div>
+    </>
+  );
+}
+export function Gyms({ go }: { go: (v: View) => void }) {
+  return (
+    <>
+      <Head title="My gyms" sub="KEEP TRACK OF VISITS" go={go} />
+      <p style={{ fontSize: 12.5, color: "var(--w-grey)", fontWeight: 600, paddingTop: 6 }}>Register where you train so Kaya tracks visits and links gym sessions.</p>
+      <div className="sec"><h3>Registered</h3></div>
+      <div className="listitem"><div className="ico" style={{ background: "var(--coral)" }}>🏋️</div><div className="m"><b>FitZone · Downtown</b><small>📍 1.2 km · 🔥 12 visits</small></div><span className="tag easy">Primary</span></div>
+      <div className="listitem"><div className="ico" style={{ background: "var(--teal)" }}>🏊</div><div className="m"><b>Aqua Club</b><small>📍 3.4 km · 🔥 4 visits</small></div></div>
+      <div style={{ padding: "10px 0 0" }}><button className="btn btn-coral" style={{ width: "100%", padding: 13, fontSize: 14 }} onClick={() => celebrate("🏋️", "Gym added!", "Now tracking your visits there.")}>+ Register a gym</button></div>
+      <div className="sec"><h3>This month</h3></div>
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div><b style={{ fontSize: 14 }}>16 gym visits</b><small style={{ display: "block", color: "var(--w-grey)", fontSize: 11, fontWeight: 600 }}>Goal: 20</small></div>
+          <span style={{ fontSize: 13, fontWeight: 800, color: "var(--teal)" }}>80%</span>
+        </div>
+        <div className="xpbar" style={{ background: "#ffe0d6" }}><i style={{ width: "80%", background: "var(--coral)" }} /></div>
+      </div>
+    </>
+  );
+}
+export function Spark({ go }: { go: (v: View) => void }) {
+  return (
+    <div className="spark-bg">
+      <div style={{ fontSize: 13, opacity: 0.85, fontWeight: 700 }}>YOUR DAILY SPARK · 13 JUN</div>
+      <div style={{ fontSize: 42 }}>✨</div>
+      <div className="spark-q">&ldquo;You don&apos;t have to be extreme. Just consistent.&rdquo;</div>
+      <div className="spark-why">Your why: <b>To have energy for my kids.</b></div>
+      <button className="btn" style={{ background: "rgba(255,255,255,.2)", color: "#fff", padding: "13px 22px", marginTop: 26 }} onClick={() => go("home")}>Start today&apos;s ritual</button>
+      <button className="btn" style={{ background: "transparent", border: "1.5px solid rgba(255,255,255,.45)", color: "#fff", padding: "12px 22px", marginTop: 10 }} onClick={() => celebrate("✨", "Shared!", "Your spark card is on its way.")}>Share this card</button>
+    </div>
+  );
+}
+const BADGES = [{ e: "🔥", n: "7-day" }, { e: "🌅", n: "early bird" }, { e: "📓", n: "reflector" }, { e: "🌬️", n: "10 breaths" }];
+const LOCKED = [{ e: "🏔️", n: "30-day" }, { e: "💪", n: "50 moves" }, { e: "🌳", n: "tree" }, { e: "⭐", n: "locked" }];
+export function Achievements({ go }: { go: (v: View) => void }) {
+  return (
+    <>
+      <Head title="Achievements" sub="LEVEL & BADGES" go={go} />
+      <div className="lvl"><div className="ln">Level 7 · Rooted</div><div className="lx">1,280 / 2,000 XP to Grounded</div><div className="xpbar"><i style={{ width: "64%" }} /></div></div>
+      <div className="sec"><h3>Your badges</h3></div>
+      <div className="badges">
+        {BADGES.map((b) => <div className="badge" key={b.n}>{b.e}<small>{b.n}</small></div>)}
+        {LOCKED.map((b) => <div className="badge lock" key={b.n}>{b.e}<small>{b.n}</small></div>)}
+      </div>
+      <div className="sec"><h3>Grow your Kaya</h3></div>
+      <div className="plant"><div className="em">🌿</div><div className="st">Sapling</div><p>Keep showing up and it grows into a tree.</p></div>
+    </>
+  );
+}
+export function Impact({ go }: { go: (v: View) => void }) {
+  return (
+    <>
+      <Head title="Move for good" sub="REAL-WORLD IMPACT" go={go} />
+      <div className="impact">
+        <div style={{ fontSize: 12, opacity: 0.85, fontWeight: 700 }}>YOUR MINUTES THIS SEASON</div>
+        <div className="big">1,840 min</div>
+        <div className="pbar"><i style={{ width: "72%" }} /></div>
+        <div style={{ fontSize: 12, opacity: 0.9, marginTop: 8, fontWeight: 600 }}>72% to funding a sports kit for a child ⚽</div>
+      </div>
+      <div className="sec"><h3>Milestones</h3></div>
+      <div className="listitem"><div className="ico" style={{ background: "var(--teal)" }}>✅</div><div className="m"><b>500 min — planted a tree 🌳</b><small>reached 12 days ago</small></div></div>
+      <div className="listitem"><div className="ico" style={{ background: "var(--teal)" }}>✅</div><div className="m"><b>1,000 min — clean water day 💧</b><small>reached 4 days ago</small></div></div>
+      <div className="listitem" style={{ opacity: 0.6 }}><div className="ico" style={{ background: "#cdbef0" }}>⬜</div><div className="m"><b>2,500 min — sports kit ⚽</b><small>660 min to go</small></div></div>
+    </>
+  );
+}
+function Toggle({ on: initial }: { on: boolean }) {
+  const [on, setOn] = useState(initial);
+  return <button className={`toggle${on ? "" : " off"}`} onClick={() => setOn(!on)} aria-label="toggle" />;
+}
+export function Reminders({ go }: { go: (v: View) => void }) {
+  return (
+    <>
+      <Head title="Reminders" sub="FROM YOUR PLAN" go={go} />
+      <div className="card" style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div><b style={{ fontSize: 13 }}>Sync to schedule</b><small style={{ display: "block", color: "var(--w-grey)", fontSize: 11, fontWeight: 600 }}>Reminders follow your plan times</small></div>
+        <Toggle on={true} />
+      </div>
+      <div className="sec"><h3>Morning</h3></div>
+      <div className="remrow"><div className="rl"><b>Weigh-in · 5:30 AM</b><small>First thing, after waking</small></div><Toggle on={true} /></div>
+      <div className="remrow"><div className="rl"><b>Cardio + abs · 5:45 AM</b><small>Zone-2 walk</small></div><Toggle on={true} /></div>
+      <div className="sec"><h3>Evening</h3></div>
+      <div className="remrow"><div className="rl"><b>Strength · 6:30 PM</b><small>Gym session</small></div><Toggle on={true} /></div>
+      <div className="remrow"><div className="rl"><b>Wind down · 9:30 PM</b><small>3 breaths before bed</small></div><Toggle on={false} /></div>
+      <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, textAlign: "center", marginTop: 12 }}>Busy day? Kaya offers to move the nudge — never marks a failure.</p>
+    </>
+  );
+}
+export function Juniors() {
+  return (
+    <div className="spark-bg" style={{ background: "linear-gradient(165deg,#F9A826,#FF6B6B)" }}>
+      <div style={{ alignSelf: "stretch", textAlign: "left" }}>
+        <div style={{ fontSize: 13, opacity: 0.95, fontWeight: 700 }}>Hi Maya! 👋</div>
+        <div style={{ fontSize: 22, fontWeight: 800 }}>Today&apos;s quest</div>
+      </div>
+      <div style={{ background: "rgba(255,255,255,.2)", borderRadius: 22, padding: 20, textAlign: "center", marginTop: 12, alignSelf: "stretch" }}>
+        <div style={{ fontSize: 50 }}>🦁</div>
+        <div style={{ fontSize: 17, fontWeight: 800, marginTop: 4 }}>Move like an animal</div>
+        <div style={{ fontSize: 12, opacity: 0.95, marginTop: 4 }}>Hop, stomp and roar for 8 minutes</div>
+        <div style={{ fontSize: 22, letterSpacing: 3, marginTop: 8 }}>⭐⭐⭐☆☆</div>
+      </div>
+      <button className="btn" style={{ background: "#fff", color: "var(--coral)", width: "100%", padding: 13, marginTop: 14 }} onClick={() => celebrate("⭐", "Quest started!", "Move like a lion — roar!")}>Start quest</button>
+      <div style={{ background: "rgba(255,255,255,.2)", borderRadius: 14, padding: 12, marginTop: 18, fontSize: 12, textAlign: "center", fontWeight: 700, alignSelf: "stretch" }}>🔒 Parent-approved · no ads · safe space</div>
+    </div>
+  );
+}
