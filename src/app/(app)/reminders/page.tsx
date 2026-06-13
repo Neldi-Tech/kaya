@@ -222,7 +222,7 @@ export default function RemindersPage() {
       <div className="flex items-center justify-between gap-3 mb-5">
         <div>
           <h1 className="text-2xl font-display font-extrabold text-kaya-chocolate flex items-center gap-2">
-            <span>📅</span> Reminders
+            <span>🔔</span> Reminders
           </h1>
           <p className="text-sm text-kaya-sand mt-1">
             Birthdays, anniversaries, appointments &amp; special days — private or shared with the family.
@@ -349,7 +349,7 @@ function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; o
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="text-center py-12">
-      <div className="text-4xl mb-2">📅</div>
+      <div className="text-4xl mb-2">🔔</div>
       <div className="font-bold text-kaya-chocolate">No reminders yet</div>
       <div className="text-sm text-kaya-sand mt-1 mb-4">Never miss a birthday, appointment or special day.</div>
       <button onClick={onNew} className="rounded-kaya px-5 py-2.5 text-white font-bold text-sm" style={{ background: CAL }}>+ Add your first reminder</button>

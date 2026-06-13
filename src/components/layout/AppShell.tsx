@@ -169,9 +169,10 @@ const KAYA_NAV: NavItem[] = [
   { path: '/meetings',        icon: '👨‍👩‍👧‍👦', label: 'Family meeting',  mobileLabel: 'Meet' },
   { path: '/rewards',         icon: '🎁',           label: 'Rewards',         mobileLabel: 'Rewards' },
   { path: '/parent/rewards',  icon: '⚙️',           label: 'Manage rewards',  mobileLabel: 'Manage' },
-  // Kaya Reminders — calendar/reminders space, every user (approved v3
-  // FINAL 2026-06-13). Sits last in the Kaya group per the design mock.
-  { path: '/reminders',       icon: '📅',           label: 'Reminders',       mobileLabel: 'Reminders' },
+  // Kaya Reminders — reminders space, every user (approved v3 FINAL
+  // 2026-06-13). Sits last in the Kaya group per the design mock.
+  // Icon is a 🔔 bell (Elia 2026-06-13 — bell, not calendar, across).
+  { path: '/reminders',       icon: '🔔',           label: 'Reminders',       mobileLabel: 'Reminders' },
 ];
 
 // Household · runs the home. Pantry today; shopping list, meal plan,
@@ -366,7 +367,7 @@ const HELPER_SIDEBAR: SidebarRow[] = [
   // Reminders — ungated path (helperModuleKeyForPath returns undefined), so
   // every helper sees it + never gets bounced. Shared family reminders
   // (e.g. drives) are exactly what helpers need.
-  { kind: 'link', id: 'reminders', path: '/reminders',      icon: '📅', label: 'Reminders' },
+  { kind: 'link', id: 'reminders', path: '/reminders',      icon: '🔔', label: 'Reminders' },
   { kind: 'link', id: 'rate',     path: '/rate',            icon: '📋', label: 'Rate' },
   { kind: 'link', id: 'award',    path: '/award',           icon: '🎖️', label: 'Award' },
   { kind: 'link', id: 'moments',  path: '/moments',         icon: '📸', label: 'Moments' },
@@ -405,7 +406,7 @@ const KID_SIDEBAR: SidebarRow[] = [
   // Reminders — always-on for every kid (granted unconditionally in
   // resolveKidModules, like Home), so the "every user" promise holds even
   // if a family hides the Kaya section.
-  { kind: 'link',    id: 'reminders', path: '/reminders', icon: '📅', label: 'Reminders' },
+  { kind: 'link',    id: 'reminders', path: '/reminders', icon: '🔔', label: 'Reminders' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
