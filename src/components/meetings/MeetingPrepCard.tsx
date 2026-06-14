@@ -12,10 +12,12 @@
 //   • Option A — *expand by default* near the meeting when nothing's
 //     filled. Option C — a "📅 Meeting prep ready" alert pill on top.
 //
-// 2026-06-14 — UP TO 3 LINES per section (Elia). Each section starts with
-// one input and a "+ Add another" (max MAX_SUBMISSION_LINES). Each
-// appreciation LINE carries its own @-tag (tap a family member), revealed
-// to that person on meeting day.
+// 2026-06-14 — UP TO 3 LINES per section (Elia), then Appreciations
+// UNCAPPED (some families appreciate everyone). Each section starts with
+// one input and a "+ Add another" — Gratitude/Goals cap at
+// MAX_SUBMISSION_LINES (3); Appreciations have no visible limit
+// (MAX_APPRECIATION_LINES backstop only). Each appreciation LINE carries
+// its own @-tag (tap a family member), revealed to them on meeting day.
 //
 // Self-contained — pulls family from context, persists to the
 // upcomingMeetingSubmissions subcollection via setMeetingSubmission, which
@@ -24,7 +26,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES,
+  setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES, MAX_APPRECIATION_LINES,
 } from '@/lib/meetingSubmissions';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
@@ -160,7 +162,7 @@ export default function MeetingPrepCard({
     dirty();
   };
   const addApprLine = () => {
-    if (appreciations.length >= MAX_SUBMISSION_LINES) return;
+    if (appreciations.length >= MAX_APPRECIATION_LINES) return;
     setAppreciations([...appreciations, '']);
     setApprTagIds([...apprTagIds, null]);
     setApprTagNames([...apprTagNames, null]);
@@ -309,7 +311,7 @@ export default function MeetingPrepCard({
                   </div>
                 ))}
               </div>
-              <AddAnother count={appreciations.length} onAdd={addApprLine} />
+              <AddAnother count={appreciations.length} onAdd={addApprLine} unlimited />
             </div>
 
             {/* 🎯 Goal */}
@@ -347,9 +349,13 @@ export default function MeetingPrepCard({
   );
 }
 
-// A "+ Add another (n/3)" button — greys out at the max.
-function AddAnother({ count, onAdd }: { count: number; onAdd: () => void }) {
-  const atMax = count >= MAX_SUBMISSION_LINES;
+// A "+ Add another" button. Capped sections (Gratitude/Goals) show
+// "(n/3)" and grey out at the max; `unlimited` (Appreciation) shows a
+// plain "+ Add another" — some families appreciate everyone, so there's
+// no visible limit (only a high defensive backstop in the lib).
+function AddAnother({ count, onAdd, unlimited = false }: { count: number; onAdd: () => void; unlimited?: boolean }) {
+  const max = unlimited ? MAX_APPRECIATION_LINES : MAX_SUBMISSION_LINES;
+  const atMax = count >= max;
   return (
     <button
       type="button"
@@ -360,7 +366,10 @@ function AddAnother({ count, onAdd }: { count: number; onAdd: () => void }) {
         ? { background: '#F4F1EC', color: '#B9AFC9', borderColor: '#E8E0D4' }
         : { background: '#F3ECFF', color: PURPLE, borderColor: PURPLE }}
     >
-      ＋ Add another <span style={{ opacity: 0.7 }}>{atMax ? `(${MAX_SUBMISSION_LINES}/${MAX_SUBMISSION_LINES} — max)` : `(${count}/${MAX_SUBMISSION_LINES})`}</span>
+      ＋ Add another
+      {!unlimited && (
+        <span style={{ opacity: 0.7 }}>{atMax ? `(${max}/${max} — max)` : `(${count}/${max})`}</span>
+      )}
     </button>
   );
 }
