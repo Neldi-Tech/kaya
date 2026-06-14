@@ -218,7 +218,7 @@ export default function FamilyTriviaPlay({
   // Idempotent per question via revealedRef — safe to re-evaluate each tick.
   const revealedRef = useRef('');
   useEffect(() => {
-    if (!isHost || !q || !qStartAt || subject === '' || revealed) return;
+    if (!isHost || !q || !qStartAt || (subject === '' && !isLocal) || revealed) return;
     if (elapsed < QUESTION_SECS && !allAnswered) return;
     const key = `reveal-${qIndex}`;
     if (revealedRef.current === key) return;
