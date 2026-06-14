@@ -48,6 +48,25 @@ export function PulseHeader({
   );
 }
 
+/** Inline breadcrumb trail for the Pulse drill-down chain (Dashboard → Bucket
+ *  → Transaction, etc). The last crumb is non-clickable and styled as the
+ *  current page. Pass every link except the current page leaf. */
+export function PulseBreadcrumb({ trail, current }: { trail: Array<{ href: string; label: string }>; current: string }) {
+  return (
+    <nav aria-label="Breadcrumb" className="text-[10.5px] font-bold text-hive-muted mb-1.5 flex flex-wrap items-center gap-1">
+      <Link href="/pulse" className="text-pulse-gold-dk no-underline hover:underline">‹ Pulse</Link>
+      {trail.map((c) => (
+        <span key={c.href} className="flex items-center gap-1">
+          <span className="text-[#cfcfcf]">/</span>
+          <Link href={c.href} className="text-pulse-gold-dk no-underline hover:underline">{c.label}</Link>
+        </span>
+      ))}
+      <span className="text-[#cfcfcf]">/</span>
+      <span className="text-pulse-navy font-black">{current}</span>
+    </nav>
+  );
+}
+
 /** Premium hero card (navy → indigo gradient with a soft gold-tinted accent
  *  ring), the signature Pulse surface for headline numbers. */
 export function PulseHero({ children, className = '' }: { children: React.ReactNode; className?: string }) {

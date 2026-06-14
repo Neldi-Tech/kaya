@@ -448,10 +448,15 @@ export default function PulseDashboardPage() {
 
       {activeTab === 'overview' && (
       <>
-      {/* Hero — cash lens (savings basis) */}
+      {/* Hero — cash lens (savings basis). Clickable → /pulse/breakdown for
+          the composition drill-down (PR 2). */}
       <div className="mt-4">
+        <Link href="/pulse/breakdown" className="block no-underline">
         <PulseHero>
+          <div className="flex items-center justify-between mb-1">
           <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent this month</div>
+          <span className="text-[9px] font-black uppercase tracking-[0.4px] bg-pulse-gold/20 text-pulse-gold px-2 py-0.5 rounded-full">→ tap to drill</span>
+          </div>
           <div className="text-3xl font-nunito font-black mt-1">
             {formatCentsBudgetNeat(totalSpent, currency)}
             <span className="text-sm opacity-80 font-bold"> / {totalCap > 0 ? formatCentsBudgetNeat(totalCap, currency) : '—'}</span>
@@ -507,6 +512,7 @@ export default function PulseDashboardPage() {
             </div>
           )}
         </PulseHero>
+        </Link>
       </div>
 
       {/* Compare card — narrated vs-last-month line, only when last month had spend. */}
