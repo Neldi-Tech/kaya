@@ -392,6 +392,14 @@ function Editor({
   }
 
   const [extInput, setExtInput] = useState('');
+  // Manual lead time — any number of days beyond the presets.
+  const [customLead, setCustomLead] = useState('');
+  function addCustomLead() {
+    const n = Math.round(Number(customLead));
+    if (!Number.isFinite(n) || n < 1 || n > 60) return;
+    setForm((f) => (f.leadDays.includes(n) ? f : { ...f, leadDays: [...f.leadDays, n] }));
+    setCustomLead('');
+  }
   function addExternal() {
     const email = extInput.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
@@ -556,7 +564,7 @@ function Editor({
             )}
           </Field>
 
-          {/* Remind me — lead times */}
+          {/* Remind me — lead times (presets + any custom number of days) */}
           <Field label="Remind me">
             <div className="flex flex-wrap gap-2">
               {LEAD_PRESETS.map((p) => (
@@ -564,6 +572,29 @@ function Editor({
                   {p.label}
                 </Chip>
               ))}
+              {/* Custom lead days the user added — tap to remove. */}
+              {form.leadDays
+                .filter((d) => !LEAD_PRESETS.some((p) => p.days === d))
+                .sort((a, b) => a - b)
+                .map((d) => (
+                  <Chip key={`custom-${d}`} on onClick={() => set('leadDays', toggleArr(form.leadDays, d))}>
+                    {d} days before ✕
+                  </Chip>
+                ))}
+            </div>
+            {/* Manual entry — set your own number of days beyond the presets. */}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[11px] text-kaya-sand">or set your own</span>
+              <input
+                type="number" min={1} max={60} inputMode="numeric"
+                value={customLead}
+                onChange={(e) => setCustomLead(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomLead(); } }}
+                placeholder="#"
+                className="w-16 rounded-kaya-sm border border-kaya-warm-dark bg-white px-2.5 py-1.5 text-sm text-center font-bold text-kaya-chocolate"
+              />
+              <span className="text-[11px] text-kaya-sand">days before</span>
+              <button onClick={addCustomLead} className="rounded-kaya-sm px-3 py-1.5 text-xs font-extrabold text-white" style={{ background: CAL }}>+ Add</button>
             </div>
           </Field>
 
