@@ -26,7 +26,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
 import { setMeetingSubmission, getMeetingSubmission } from '@/lib/meetingSubmissions';
+import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
+
+type TagOption = { id: string; name: string; emoji: string };
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as const;
 
@@ -51,7 +54,7 @@ export default function MeetingPrepCard({
   childId?: string;    // when role === 'kid'
   avatarEmoji?: string;
 }) {
-  const { family } = useFamily();
+  const { family, children: familyChildren } = useFamily();
   const familyId = family?.id;
   const scheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
   const todayDow = new Date().getDay();
@@ -66,6 +69,9 @@ export default function MeetingPrepCard({
   const [gratitude, setGratitude] = useState('');
   const [appreciation, setAppreciation] = useState('');
   const [goal, setGoal] = useState('');
+  // @-tag for the appreciation (PR E): who it's for. id = childId/uid.
+  const [tagId, setTagId] = useState<string | null>(null);
+  const [tagName, setTagName] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -83,6 +89,8 @@ export default function MeetingPrepCard({
           setGratitude(sub.gratitudes?.[0] ?? '');
           setAppreciation(sub.appreciations?.[0] ?? '');
           setGoal(sub.goals?.[0] ?? '');
+          setTagId(sub.appreciationTagId ?? null);
+          setTagName(sub.appreciationTagName ?? null);
           if ((sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length)) {
             setSavedAt(sub.updatedAt || Date.now());
           }
@@ -92,6 +100,26 @@ export default function MeetingPrepCard({
       .finally(() => { if (!cancelled) setHydrated(true); });
     return () => { cancelled = true; };
   }, [familyId, meId]);
+
+  // Family roster for the @-tag picker (kids + parents), excluding self.
+  const [tagOptions, setTagOptions] = useState<TagOption[]>([]);
+  useEffect(() => {
+    if (!familyId) return;
+    let cancelled = false;
+    const kids: TagOption[] = (familyChildren || []).map((c: { id: string; name: string; avatarEmoji?: string }) => ({ id: c.id, name: c.name, emoji: c.avatarEmoji || '🧒' }));
+    getFamilyMembers(familyId)
+      .then((members) => {
+        if (cancelled) return;
+        const parents: TagOption[] = members
+          .filter((m) => m.role === 'parent')
+          .map((m) => ({ id: m.uid, name: (m.displayName || 'Parent').split(' ')[0], emoji: (m as { avatarEmoji?: string }).avatarEmoji || '👤' }));
+        // Exclude self (you don't appreciate yourself in the meeting).
+        const all = [...parents, ...kids].filter((o) => o.id !== meId && o.id !== childId);
+        setTagOptions(all);
+      })
+      .catch(() => { if (!cancelled) setTagOptions(kids.filter((o) => o.id !== childId)); });
+    return () => { cancelled = true; };
+  }, [familyId, family?.children, meId, childId]);
 
   const filledCount = useMemo(
     () => [gratitude, appreciation, goal].filter((s) => s.trim().length > 0).length,
@@ -125,6 +153,8 @@ export default function MeetingPrepCard({
         gratitudes: [gratitude],
         appreciations: [appreciation],
         goals: [goal],
+        appreciationTagId: appreciation.trim() && tagId ? tagId : undefined,
+        appreciationTagName: appreciation.trim() && tagId ? (tagName ?? undefined) : undefined,
       });
       setSavedAt(Date.now());
     } catch (e: any) {
@@ -197,14 +227,46 @@ export default function MeetingPrepCard({
               value={gratitude}
               onChange={(v) => { setGratitude(v); setSavedAt(null); }}
             />
-            <PrepInput
-              emoji="💛"
-              label="Appreciation"
-              placeholder="I appreciate @name for…"
-              hint="@-tag a family member"
-              value={appreciation}
-              onChange={(v) => { setAppreciation(v); setSavedAt(null); }}
-            />
+            <div className="rounded-xl bg-white border border-[#F0E8FF] p-2.5">
+              <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: '#9B5DE5' }}>
+                <span aria-hidden>💛</span> Appreciation
+                <span className="ml-1 font-bold text-[#5C6975] normal-case">· tap who it&apos;s for</span>
+              </p>
+              {/* @-tag picker — tap a family member. Revealed to them on
+                  meeting day (kept sealed until then). */}
+              {tagOptions.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1.5 mb-1">
+                  {tagOptions.map((o) => {
+                    const on = tagId === o.id;
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        onClick={() => {
+                          if (on) { setTagId(null); setTagName(null); }
+                          else { setTagId(o.id); setTagName(o.name); }
+                          setSavedAt(null);
+                        }}
+                        className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold border transition-colors ${
+                          on ? 'text-white border-transparent' : 'text-[#5C6975] border-[#E8E0F5] bg-[#FAF7FF]'
+                        }`}
+                        style={on ? { background: '#9B5DE5' } : undefined}
+                      >
+                        <span aria-hidden>{o.emoji}</span>@{o.name}{on ? ' ✓' : ''}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <input
+                value={appreciation}
+                onChange={(e) => { setAppreciation(e.target.value); setSavedAt(null); }}
+                placeholder={tagName ? `…for…` : 'I appreciate @name for…'}
+                maxLength={140}
+                className="mt-1 w-full bg-transparent text-[13px] font-extrabold leading-snug placeholder-[#B9AFC9] focus:outline-none"
+                style={{ color: '#2D1B5E' }}
+              />
+            </div>
             <PrepInput
               emoji="🎯"
               label="Goal for the week"
