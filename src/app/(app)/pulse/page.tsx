@@ -85,6 +85,9 @@ export default function PulseDashboardPage() {
   const [tasksToday, setTasksToday] = useState<PulseTask[]>([]);
   const [helpers, setHelpers] = useState<HelperLink[]>([]);
   const [assistBusy, setAssistBusy] = useState('');   // taskId being approved/rejected
+  // v2 tab strip — Overview keeps cash/savings/readings/buckets; Metered hosts
+  // the metered consumption section (was previously stacked at the bottom).
+  const [activeTab, setActiveTab] = useState<'overview' | 'metered'>('overview');
 
   const onResolveAssist = async (taskId: string, action: 'approve' | 'reject') => {
     if (!profile?.familyId || assistBusy) return;
@@ -161,6 +164,103 @@ export default function PulseDashboardPage() {
     const totalCap = LIVE_MODULES.reduce((s, m) => s + per[m].cap, 0);
     return { per, totalSpent, totalCap };
   }, [recent, ledger, family?.householdBudgets, thisMonth]);
+
+  // v2 — LAST MONTH lens for the vs-LM compare chips + hero ghost-line.
+  // Uses the already-subscribed `recent` (no time bound) + `ledger` (200 most
+  // recent). Same shape as `cash`, plus a per-bucket cumulative-by-day series
+  // so we can read "spent up to day-of-month N" for the hero ghost-line +
+  // bucket compare chips. No extra subscriptions = no schema/query churn.
+  const lastMonthKey = useMemo(() => prevMonth(thisMonth), [thisMonth]);
+  const lastMonthDaysInMonth = useMemo(() => {
+    const [y, m] = lastMonthKey.split('-').map(Number);
+    return new Date(y, m, 0).getDate();
+  }, [lastMonthKey]);
+  const lastMonthCash = useMemo(() => {
+    const per: Record<string, { spent: number; byDay: number[] }> = {};
+    LIVE_MODULES.forEach((m) => { per[m] = { spent: 0, byDay: Array(lastMonthDaysInMonth + 1).fill(0) }; });
+    for (const r of recent) {
+      if (r.status !== 'closed') continue;
+      const at = r.closedAt?.toDate?.();
+      if (!at || monthKeyOf(at) !== lastMonthKey) continue;
+      const m = (r.module ?? 'pantry') as PurchaseModule;
+      if (!per[m]) continue;
+      const cents = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
+      per[m].spent += cents;
+      const d = at.getDate();
+      if (d >= 1 && d <= lastMonthDaysInMonth) per[m].byDay[d] += cents;
+    }
+    for (const e of ledger) {
+      if (e.isProfessionalExpense) continue;
+      const at = e.occurredOn?.toDate?.();
+      if (!at || monthKeyOf(at) !== lastMonthKey) continue;
+      const m = e.sourceModule as PurchaseModule;
+      if (!per[m]) continue;
+      const cents = e.amountHousehold || 0;
+      per[m].spent += cents;
+      const d = at.getDate();
+      if (d >= 1 && d <= lastMonthDaysInMonth) per[m].byDay[d] += cents;
+    }
+    const totalSpent = LIVE_MODULES.reduce((s, m) => s + per[m].spent, 0);
+    // Cumulative-by-day (1..N) for the whole house.
+    const totalByDay: number[] = Array(lastMonthDaysInMonth + 1).fill(0);
+    let run = 0;
+    for (let d = 1; d <= lastMonthDaysInMonth; d++) {
+      run += LIVE_MODULES.reduce((s, m) => s + per[m].byDay[d], 0);
+      totalByDay[d] = run;
+    }
+    return { per, totalSpent, totalByDay };
+  }, [recent, ledger, lastMonthKey, lastMonthDaysInMonth]);
+
+  // Per-bucket cumulative spend up to "same day-of-month" last month — the
+  // value the compare chips read against this-month spend.
+  const lastMonthSameDay = useMemo(() => {
+    const dom = new Date().getDate();
+    const cap = Math.min(dom, lastMonthDaysInMonth);
+    const out: Record<string, number> = {};
+    let total = 0;
+    for (const m of LIVE_MODULES) {
+      let v = 0;
+      for (let d = 1; d <= cap; d++) v += lastMonthCash.per[m].byDay[d] ?? 0;
+      out[m] = v;
+      total += v;
+    }
+    return { per: out, total };
+  }, [lastMonthCash, lastMonthDaysInMonth]);
+
+  // Last-7-days sparkline data per bucket (rolling — includes the bridge into
+  // last month). Reads `recent` + `ledger`; index 0 = oldest, index 6 = today.
+  const sparkByBucket = useMemo(() => {
+    const today = new Date();
+    const day7keys: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      day7keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    }
+    const out: Record<string, number[]> = {};
+    LIVE_MODULES.forEach((m) => { out[m] = Array(7).fill(0); });
+    const keyFor = (at: Date) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+    for (const r of recent) {
+      if (r.status !== 'closed') continue;
+      const at = r.closedAt?.toDate?.();
+      if (!at) continue;
+      const k = keyFor(at);
+      const i = day7keys.indexOf(k);
+      if (i < 0) continue;
+      const m = (r.module ?? 'pantry') as PurchaseModule;
+      if (out[m]) out[m][i] += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
+    }
+    for (const e of ledger) {
+      if (e.isProfessionalExpense) continue;
+      const at = e.occurredOn?.toDate?.();
+      if (!at) continue;
+      const k = keyFor(at);
+      const i = day7keys.indexOf(k);
+      if (i < 0) continue;
+      const m = e.sourceModule as PurchaseModule;
+      if (out[m]) out[m][i] += e.amountHousehold || 0;
+    }
+    return out;
+  }, [recent, ledger]);
 
   // CONSUMPTION lens (monthly).
   const consumption = useMemo(() => {
@@ -331,6 +431,23 @@ export default function PulseDashboardPage() {
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <PulseHeader eyebrow="Dashboard" title={monthLabel()} subtitle="Spend, savings pace + metered consumption" />
 
+      {/* v2 — Tab strip. Overview is the default cash/savings view; Metered
+          carries the consumption section that used to stack below it. */}
+      <div className="mt-3 flex bg-white border border-pulse-gold/30 rounded-2xl p-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab('overview')}
+          className={`flex-1 py-2 rounded-xl font-nunito font-black text-[12px] ${activeTab === 'overview' ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
+        >📊 Overview</button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('metered')}
+          className={`flex-1 py-2 rounded-xl font-nunito font-black text-[12px] ${activeTab === 'metered' ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
+        >⚡ Metered</button>
+      </div>
+
+      {activeTab === 'overview' && (
+      <>
       {/* Hero — cash lens (savings basis) */}
       <div className="mt-4">
         <PulseHero>
@@ -347,13 +464,42 @@ export default function PulseDashboardPage() {
                   : `Trending ${formatCentsBudgetNeat(-projectedSavings, currency)} over cap`}
                 <span className="opacity-70"> · run-rate</span>
               </div>
-              <div className="h-2 bg-white/20 rounded-full mt-3 overflow-hidden">
+              {/* Bar with ghost-tick at last-month-same-day pace */}
+              <div className="relative h-2 bg-white/20 rounded-full mt-3 overflow-visible">
                 <div className="h-full rounded-full" style={{ width: `${pct}%`, background: '#D4A847' }} />
+                {totalCap > 0 && lastMonthSameDay.total > 0 && (() => {
+                  const ghostPct = Math.min(100, Math.round((lastMonthSameDay.total / totalCap) * 100));
+                  return (
+                    <>
+                      <div
+                        className="absolute top-[-3px] bottom-[-3px] w-[2.5px] rounded-sm bg-white/55"
+                        style={{ left: `${ghostPct}%` }}
+                        aria-hidden="true"
+                      />
+                      <div
+                        className="absolute -top-[14px] text-[8.5px] font-black tracking-[0.4px] uppercase opacity-60 whitespace-nowrap pointer-events-none"
+                        style={{ left: `${ghostPct}%`, transform: 'translateX(-50%)' }}
+                        aria-hidden="true"
+                      >Last month · day {Math.min(dayOfMonth, lastMonthDaysInMonth)}</div>
+                    </>
+                  );
+                })()}
               </div>
               <div className="flex justify-between text-[10px] font-black mt-2 opacity-90">
                 <span>{pct}% of cap</span>
                 <span>Day {dayOfMonth} / {daysInMonth}</span>
               </div>
+              {/* Delta chip — only when last month has data at this point. */}
+              {lastMonthSameDay.total > 0 && (() => {
+                const delta = totalSpent - lastMonthSameDay.total;
+                const ahead = delta < 0;
+                const abs = Math.abs(delta);
+                return (
+                  <div className={`inline-block mt-2 px-2.5 py-1 rounded-full text-[10px] font-black tracking-[0.3px] ${ahead ? 'bg-pulse-green/25 text-[#B5E5B8]' : 'bg-pulse-coral/25 text-[#FAB8B8]'}`}>
+                    {ahead ? '▼' : '▲'} {formatCentsBudgetNeat(abs, currency)} {ahead ? 'less' : 'more'} than last month at day {Math.min(dayOfMonth, lastMonthDaysInMonth)}
+                  </div>
+                );
+              })()}
             </>
           ) : (
             <div className="text-[12px] opacity-90 mt-1">
@@ -362,6 +508,27 @@ export default function PulseDashboardPage() {
           )}
         </PulseHero>
       </div>
+
+      {/* Compare card — narrated vs-last-month line, only when last month had spend. */}
+      {lastMonthSameDay.total > 0 && lastMonthCash.totalSpent > 0 && (() => {
+        const lmProjected = projectMonthSpendCents(lastMonthSameDay.total, dayOfMonth, lastMonthDaysInMonth);
+        const thisProjected = projectedSpend;
+        const saveDelta = lmProjected - thisProjected; // positive → saving more this month
+        const ahead = saveDelta > 0;
+        return (
+          <div className="mt-3 bg-white border border-pulse-gold/30 rounded-2xl px-3 py-2.5">
+            <div className="text-[10px] font-black tracking-[1.4px] uppercase text-pulse-gold-dk mb-1">🧭 vs {monthLabel(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1))}</div>
+            <div className="text-[11.5px] font-bold text-pulse-navy leading-snug">
+              Day {Math.min(dayOfMonth, lastMonthDaysInMonth)} last month: <span className="font-black">{formatCentsBudgetNeat(lastMonthSameDay.total, currency)}</span> spent · projected <span className="font-black">{formatCentsBudgetNeat(lmProjected, currency)}</span>.
+            </div>
+            {Math.abs(saveDelta) > 0 && (
+              <div className="text-[11.5px] font-bold text-pulse-navy leading-snug mt-0.5">
+                This month: <span className={`font-black ${ahead ? 'text-pulse-green' : 'text-pulse-coral'}`}>{ahead ? '+' : '−'} {formatCentsBudgetNeat(Math.abs(saveDelta), currency)} {ahead ? 'ahead on savings' : 'behind on savings'}</span> at the same point.
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Ask Kaya — on-demand AI advisor (parent-only; this whole page is) */}
       {profile?.familyId && (
@@ -456,25 +623,51 @@ export default function PulseDashboardPage() {
           {buckets.map((b) => {
             const over = b.cap > 0 && b.spent > b.cap;
             const bpct = b.cap > 0 ? Math.min(100, Math.round((b.spent / b.cap) * 100)) : 0;
+            const lmSame = lastMonthSameDay.per[b.m] ?? 0;
+            const lmDelta = lmSame > 0 ? Math.round(((b.spent - lmSame) / lmSame) * 100) : null;
+            const lmAhead = lmDelta !== null && lmDelta < 0;
+            const spark = sparkByBucket[b.m] ?? [];
+            const sparkMax = Math.max(1, ...spark);
             return (
               <Link key={b.m} href={`/pulse/bucket/${b.m}`} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40">
                 <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{MODULE_EMOJI[b.m]}</div>
                 <div className="flex-1 min-w-0">
                   <div className="font-nunito font-black text-sm text-pulse-navy">{MODULE_LABEL[b.m]}</div>
-                  <div className="text-[11px] text-hive-muted font-bold">
-                    {formatCents(b.spent, currency)}{b.cap > 0 ? ` / ${formatCents(b.cap, currency)}` : ''}
+                  <div className="text-[11px] text-hive-muted font-bold flex items-center gap-1.5">
+                    <span>{formatCents(b.spent, currency)}{b.cap > 0 ? ` / ${formatCents(b.cap, currency)}` : ''}</span>
+                    {spark.some((v) => v > 0) && (
+                      <span className="inline-flex items-end gap-[1px] h-3" aria-hidden="true">
+                        {spark.map((v, i) => (
+                          <span
+                            key={i}
+                            className="w-[2px] bg-pulse-navy/30 rounded-[1px]"
+                            style={{ height: `${Math.max(2, Math.round((v / sparkMax) * 12))}px` }}
+                          />
+                        ))}
+                      </span>
+                    )}
                   </div>
                 </div>
-                {b.cap > 0 && (
-                  <span className={`text-[9px] font-black px-2 py-1 rounded-lg ${over ? 'bg-[#fde6e6] text-pulse-coral' : 'bg-[#e3f2e6] text-pulse-green'}`}>{bpct}%</span>
-                )}
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                  {b.cap > 0 && (
+                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg ${over ? 'bg-[#fde6e6] text-pulse-coral' : 'bg-[#e3f2e6] text-pulse-green'}`}>{bpct}%</span>
+                  )}
+                  {lmDelta !== null && Math.abs(lmDelta) >= 1 && (
+                    <span className={`text-[8.5px] font-black px-1.5 py-0.5 rounded-full ${lmAhead ? 'bg-pulse-green/15 text-pulse-green' : 'bg-pulse-coral/15 text-pulse-coral'}`}>
+                      {lmAhead ? '▼' : '▲'} {Math.abs(lmDelta)}% vs LM
+                    </span>
+                  )}
+                </div>
                 <span className="text-pulse-gold-dk text-sm">›</span>
               </Link>
             );
           })}
         </div>
       )}
+      </>
+      )}
 
+      {activeTab === 'metered' && (<>
       {/* Metered consumption — Pulse lens */}
       <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-6 mb-2">Metered consumption</div>
       {consumption.rows.length === 0 && Object.keys(extraMonth).length === 0 ? (
@@ -580,6 +773,8 @@ export default function PulseDashboardPage() {
             </div>
           )}
         </>
+      )}
+      </>
       )}
     </div>
   );
