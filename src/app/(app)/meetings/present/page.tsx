@@ -29,7 +29,7 @@ import { toDisplayDate } from '@/lib/dates';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  createMeeting, updateMeeting, getMeetings, getFamilyMembers,
+  createMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
   updateFamily,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
@@ -251,6 +251,13 @@ export default function MeetingPresenterPage() {
   // Fetch parent profiles for the household so attendance lists adults
   // alongside kids. Falls back to just the signed-in profile if the
   // family-members query is empty (e.g. guest mode).
+  // Map a roster tag id → the recipient's auth uid, so @-tagged
+  // appreciations can be routed as a notification at meeting submit.
+  // Parents: their uid is the roster id already. Kids: resolve via the
+  // member whose childId matches (kids with no login won't have one —
+  // they simply get no notification; the appreciation still shows in the
+  // meeting). Sunday-Meeting v2 PR E.
+  const [uidByTagId, setUidByTagId] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!profile?.familyId) return;
     let cancelled = false;
@@ -267,6 +274,12 @@ export default function MeetingPresenterPage() {
           avatarEmoji: (p as { avatarEmoji?: string }).avatarEmoji,
         }))
       );
+      const map: Record<string, string> = {};
+      for (const m of members) {
+        map[m.uid] = m.uid;                               // parents (+ any) by uid
+        if (m.role === 'kid' && m.childId) map[m.childId] = m.uid; // kids by childId
+      }
+      setUidByTagId(map);
     });
     return () => { cancelled = true; };
   }, [profile?.familyId, profile]);
@@ -416,6 +429,27 @@ export default function MeetingPresenterPage() {
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+
+    // Sunday-Meeting v2 (PR E): reveal @-tagged appreciations on meeting
+    // day. Each was sealed (the recipient couldn't read the author's
+    // submission doc); now the meeting is in, fire a notification to the
+    // tagged person. Fire-and-forget — never blocks finishing.
+    for (const s of submissions) {
+      const tagId = s.appreciationTagId;
+      const text = (s.appreciations?.[0] || '').trim();
+      if (!tagId || !text) continue;
+      const toUid = uidByTagId[tagId];
+      if (!toUid || toUid === s.uid) continue; // no login / self — skip
+      createNotification(profile.familyId, {
+        type: 'appreciation',
+        title: '💛 You were appreciated',
+        message: `${s.name} appreciates you — ${text}`,
+        read: false,
+        forUserId: toUid,
+        link: '/meetings',
+      } as any).catch(() => { /* non-fatal */ });
+    }
+
     // Clear async pre-fill submissions so next week's meeting starts
     // with empty prompts. Tolerated to fail silently — submissions are
     // a soft state, the meeting itself is saved.
@@ -1100,8 +1134,15 @@ function StepSubmissions({
     return (s?.[section] || []).filter(Boolean);
   };
 
+  // Appreciation @-tag (PR E): who each member's appreciation is for.
+  const tagFor = (m: PrepMember): string | undefined => {
+    if (section !== 'appreciations') return undefined;
+    const s = submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
+    return s?.appreciationTagName || undefined;
+  };
+
   const filled = roster
-    .map((m) => ({ m, lines: subFor(m), live: (liveValues[m.id] || '').trim() }))
+    .map((m) => ({ m, lines: subFor(m), live: (liveValues[m.id] || '').trim(), tag: tagFor(m) }))
     .filter((r) => r.lines.length > 0 || r.live.length > 0);
   const missing = roster.filter((m) => subFor(m).length === 0 && !(liveValues[m.id] || '').trim());
 
@@ -1118,11 +1159,18 @@ function StepSubmissions({
             {filledHead}
           </p>
           <ul className="space-y-2">
-            {filled.map(({ m, lines, live }) => (
+            {filled.map(({ m, lines, live, tag }) => (
               <li key={m.id} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
                 <span className="text-base lg:text-lg" aria-hidden>{m.emoji}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-display font-extrabold text-white">{m.name}</p>
+                  <p className="font-display font-extrabold text-white">
+                    {m.name}
+                    {tag && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
+                        💛 @{tag}
+                      </span>
+                    )}
+                  </p>
                   <ul className="text-white/80 leading-snug">
                     {lines.map((line, i) => <li key={i} className="italic">&ldquo;{line}&rdquo;</li>)}
                     {live && (

@@ -36,6 +36,13 @@ export interface MeetingSubmission {
   gratitudes: string[];
   appreciations: string[];
   goals: string[];
+  /** Sunday-Meeting v2 (PR E): the appreciation can @-tag one family
+   *  member (tap from the family list). Stored as the recipient's roster
+   *  id (childId for kids / uid for parents) + a name snapshot. Kept
+   *  sealed from the recipient by the per-doc read rules and revealed on
+   *  meeting day (a notification fires at submit). */
+  appreciationTagId?: string;
+  appreciationTagName?: string;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
@@ -112,6 +119,12 @@ export async function setMeetingSubmission(
     return stored ?? [];
   };
 
+  const nextAppreciations = mergeField(payload.appreciations, prev?.appreciations);
+  // The @-tag rides with the appreciation. Keep the new tag when the
+  // appreciation has content this save; otherwise preserve the stored tag
+  // (so a goals-only re-save doesn't strip an earlier appreciation's tag).
+  const appreciationHasContent = nextAppreciations.length > 0
+    && payload.appreciations.some((s) => s.trim());
   const merged: MeetingSubmission = {
     uid,
     name: payload.name || prev?.name || '',
@@ -119,8 +132,14 @@ export async function setMeetingSubmission(
     childId: payload.childId ?? prev?.childId,
     role: payload.role || prev?.role || 'kid',
     gratitudes: mergeField(payload.gratitudes, prev?.gratitudes),
-    appreciations: mergeField(payload.appreciations, prev?.appreciations),
+    appreciations: nextAppreciations,
     goals: mergeField(payload.goals, prev?.goals),
+    appreciationTagId: appreciationHasContent
+      ? (payload.appreciationTagId ?? undefined)
+      : (payload.appreciationTagId ?? prev?.appreciationTagId),
+    appreciationTagName: appreciationHasContent
+      ? (payload.appreciationTagName ?? undefined)
+      : (payload.appreciationTagName ?? prev?.appreciationTagName),
     updatedAt: Date.now(),
   };
   await setDoc(ref, merged, { merge: true });

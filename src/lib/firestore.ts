@@ -1410,7 +1410,11 @@ export interface Notification {
     | 'pulse-missed'
     // Kaya Reminders — a reminder's lead-time fired (in-app channel), or a
     // kid's shared-event needs/cleared a parent nod. Links to /reminders.
-    | 'reminder';
+    | 'reminder'
+    // Sunday Meeting — someone @-tagged you in their appreciation; revealed
+    // to you on meeting day (kept sealed until the meeting is submitted).
+    // Links to /meetings.
+    | 'appreciation';
   title: string;
   message: string;
   read: boolean;
