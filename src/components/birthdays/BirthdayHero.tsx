@@ -14,6 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTodaysBirthdays } from './useTodaysBirthdays';
 import WishCandleCake from './WishCandleCake';
+import BirthdayMemoryLane from './BirthdayMemoryLane';
 import { ordinalAge, localDayKey, type BirthdayPerson, type BirthdayDayState } from '@/lib/birthdays';
 
 export default function BirthdayHero({ familyId, viewerUid, viewerChildId }: {
@@ -49,6 +50,7 @@ export default function BirthdayHero({ familyId, viewerUid, viewerChildId }: {
           key={p.stateKey}
           person={p}
           dayState={state[p.stateKey]}
+          allState={state}
           familyId={familyId}
           viewerUid={viewerUid}
           isSelf={p.id === viewerChildId || p.id === viewerUid}
@@ -58,9 +60,10 @@ export default function BirthdayHero({ familyId, viewerUid, viewerChildId }: {
   );
 }
 
-function BirthdayCard({ person, dayState, familyId, viewerUid, isSelf }: {
+function BirthdayCard({ person, dayState, allState, familyId, viewerUid, isSelf }: {
   person: BirthdayPerson;
   dayState?: BirthdayDayState;
+  allState: Record<string, BirthdayDayState>;
   familyId: string;
   viewerUid: string;
   isSelf: boolean;
@@ -103,6 +106,7 @@ function BirthdayCard({ person, dayState, familyId, viewerUid, isSelf }: {
         {isSelf && (
           <div className="mt-4">
             <WishCandleCake familyId={familyId} person={person} dayState={dayState} viewerUid={viewerUid} isSelf />
+            <BirthdayMemoryLane person={person} state={allState} />
           </div>
         )}
 
@@ -123,6 +127,7 @@ function BirthdayCard({ person, dayState, familyId, viewerUid, isSelf }: {
         {!isSelf && cakeOpen && (
           <div className="mt-4">
             <WishCandleCake familyId={familyId} person={person} dayState={dayState} viewerUid={viewerUid} isSelf={false} />
+            <BirthdayMemoryLane person={person} state={allState} />
           </div>
         )}
       </div>

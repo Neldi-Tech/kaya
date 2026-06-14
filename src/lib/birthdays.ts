@@ -46,6 +46,8 @@ export interface BirthdayDayState {
   dropAt?: number;            // B3: birthday gift dropped
   noChores?: boolean;         // B3: parent toggle
   blownOutAt?: number;        // B2: candles blown out
+  keepsakeAt?: number;        // B2: saved to Moments (epoch ms)
+  keepsakePostId?: string;    // B2: the Moments post id of the keepsake
 }
 
 // ── Date math (LOCAL time — Kaya families are worldwide) ─────────────
