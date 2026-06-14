@@ -38,6 +38,7 @@ import {
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
+import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -450,9 +451,12 @@ export default function MeetingPresenterPage() {
       } as any).catch(() => { /* non-fatal */ });
     }
 
-    // Clear async pre-fill submissions so next week's meeting starts
-    // with empty prompts. Tolerated to fail silently — submissions are
-    // a soft state, the meeting itself is saved.
+    // Archive everyone's submissions into their history (PR F) BEFORE
+    // clearing, so members can always look back in "My Submissions".
+    // Then clear the upcoming docs so next week starts fresh. Both are
+    // best-effort — the meeting itself is already saved.
+    await archiveMeetingSubmissions(profile.familyId, submissions, payload.date)
+      .catch(() => { /* non-fatal */ });
     clearMeetingSubmissions(profile.familyId).catch(() => { /* non-fatal */ });
 
     // Sunday-Meeting v2 (b6): email the Meeting Recap Book to parents +

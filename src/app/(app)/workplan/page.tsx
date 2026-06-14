@@ -27,6 +27,10 @@ import { updateFamily, readWorkplanProofMode } from '@/lib/firestore';
 import { useLocale } from '@/lib/useLocale';
 import PauseSheet from '@/components/workplan/PauseSheet';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import {
+  getMeetingSubmissionHistory, type SubmissionHistoryDoc,
+} from '@/lib/meetingSubmissionHistory';
+import { toDisplayDate } from '@/lib/dates';
 import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
@@ -92,6 +96,7 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
   userUid: string;
   avatarEmoji?: string;
 }) {
+  const [tab, setTab] = useState<'workplan' | 'submissions'>('workplan');
   const [offset, setOffset] = useState(0);
   const date = useMemo(() => {
     const d = new Date();
@@ -118,27 +123,115 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
         avatarEmoji={avatarEmoji}
       />
 
-      <p className="text-[11px] font-black uppercase tracking-[3px] mb-2" style={{ color: PURPLE }}>My Workplan</p>
-
-      {/* Day navigator — default today, scroll back/forward */}
-      <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
-        <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>‹</button>
-        <button type="button" onClick={() => setOffset(0)} className="flex-1 text-center leading-tight">
-          <span className="block font-black text-[14px]" style={{ color: '#2D1B5E' }}>{rel ?? dlabel}</span>
-          {rel && <span className="block text-[10px] font-bold" style={{ color: '#9B8AA8' }}>{dlabel}</span>}
-        </button>
-        <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next day"
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>›</button>
+      {/* Tabs — Workplan vs My Submissions (PR F). Keeps the meeting
+          submission history out of the to-do list so neither crowds the
+          other. */}
+      <div className="flex gap-1.5 mb-3 rounded-full p-1" style={{ background: '#F0EBE3' }}>
+        {([['workplan', '🗓️ Workplan'], ['submissions', '📒 My Submissions']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className="flex-1 text-center font-black text-[12px] py-2 rounded-full transition-colors"
+            style={tab === key
+              ? { background: '#fff', color: '#1E120B', boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }
+              : { color: '#9B8A72' }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {offset !== 0 && (
-        <button type="button" onClick={() => setOffset(0)}
-          className="mb-3 text-[11px] font-black px-3 py-1 rounded-full" style={{ background: '#F0E8FF', color: PURPLE }}>
-          ↩ Back to today
-        </button>
-      )}
 
-      <KidWorkplanToday familyId={familyId} childId={childId} childName={name} date={date} />
+      {tab === 'workplan' ? (
+        <>
+          {/* Day navigator — default today, scroll back/forward */}
+          <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
+            <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>‹</button>
+            <button type="button" onClick={() => setOffset(0)} className="flex-1 text-center leading-tight">
+              <span className="block font-black text-[14px]" style={{ color: '#2D1B5E' }}>{rel ?? dlabel}</span>
+              {rel && <span className="block text-[10px] font-bold" style={{ color: '#9B8AA8' }}>{dlabel}</span>}
+            </button>
+            <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next day"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>›</button>
+          </div>
+          {offset !== 0 && (
+            <button type="button" onClick={() => setOffset(0)}
+              className="mb-3 text-[11px] font-black px-3 py-1 rounded-full" style={{ background: '#F0E8FF', color: PURPLE }}>
+              ↩ Back to today
+            </button>
+          )}
+          <KidWorkplanToday familyId={familyId} childId={childId} childName={name} date={date} />
+        </>
+      ) : (
+        <SubmissionHistoryView familyId={familyId} uid={userUid} />
+      )}
+    </div>
+  );
+}
+
+// ── My Submissions (Sunday-Meeting v2 · PR F) ────────────────────────
+// Read-only archive of what this member shared at past meetings —
+// Gratitude / Appreciation / Goal per week, newest first. A keepsake the
+// kid (or parent) can always look back on.
+function SubmissionHistoryView({ familyId, uid }: { familyId: string; uid: string }) {
+  const [doc, setDoc] = useState<SubmissionHistoryDoc | null>(null);
+  const [loading, setLoading] = useState(true);
+  const PURPLE = '#9B5DE5';
+
+  useEffect(() => {
+    let cancelled = false;
+    getMeetingSubmissionHistory(familyId, uid)
+      .then((d) => { if (!cancelled) setDoc(d); })
+      .catch(() => { if (!cancelled) setDoc(null); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [familyId, uid]);
+
+  if (loading) {
+    return <p className="text-center text-[13px] font-extrabold py-8" style={{ color: PURPLE }}>Loading your submissions…</p>;
+  }
+
+  const entries = doc?.entries || [];
+  if (entries.length === 0) {
+    return (
+      <div className="text-center py-12 px-4">
+        <div className="text-4xl mb-2">📒</div>
+        <p className="font-black text-[15px]" style={{ color: '#2D1B5E' }}>No submissions yet</p>
+        <p className="text-[12px] mt-1" style={{ color: '#5C6975' }}>
+          Fill your meeting prep above — after each meeting it&apos;s saved here so you can always look back.
+        </p>
+      </div>
+    );
+  }
+
+  const Row = ({ emoji, label, lines, tag }: { emoji: string; label: string; lines: string[]; tag?: string }) => {
+    if (!lines || lines.length === 0) return null;
+    return (
+      <div className="flex gap-2 text-[12.5px] mb-1.5">
+        <span className="font-black uppercase tracking-wide text-[9.5px] w-[78px] flex-shrink-0 pt-[2px]" style={{ color: '#9B8A72' }}>
+          {emoji} {label}
+        </span>
+        <span className="flex-1" style={{ color: '#3D241A' }}>
+          {tag && <span className="font-extrabold" style={{ color: PURPLE }}>@{tag} · </span>}
+          {lines.join(' · ')}
+        </span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-3">
+      {entries.map((e, i) => (
+        <div key={`${e.date}-${i}`} className="rounded-2xl bg-white border-2 p-3.5" style={{ borderColor: '#F0E8FF' }}>
+          <p className="font-black text-[11px] uppercase tracking-wide mb-2" style={{ color: '#B8860B' }}>
+            🗓️ {toDisplayDate(e.date) || e.date}
+          </p>
+          <Row emoji="🙏" label="Grateful" lines={e.gratitudes} />
+          <Row emoji="💛" label="Appreciate" lines={e.appreciations} tag={e.appreciationTagName} />
+          <Row emoji="🎯" label="Goal" lines={e.goals} />
+        </div>
+      ))}
     </div>
   );
 }
