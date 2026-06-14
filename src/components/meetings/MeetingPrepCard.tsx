@@ -23,9 +23,9 @@
 // The Appreciations placeholder uses the v2 "I appreciate @name for…"
 // framing per Elia's tweak.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
-import { setMeetingSubmission } from '@/lib/meetingSubmissions';
+import { setMeetingSubmission, getMeetingSubmission } from '@/lib/meetingSubmissions';
 import { ChevronRight } from 'lucide-react';
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as const;
@@ -69,6 +69,29 @@ export default function MeetingPrepCard({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Hydration (data-loss fix): pre-load the member's saved submission so
+  // the boxes show what they already wrote — editing/re-saving never
+  // starts blank, and an empty box can't wipe a stored answer.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    if (!familyId || !meId) return;
+    let cancelled = false;
+    getMeetingSubmission(familyId, meId)
+      .then((sub) => {
+        if (cancelled) return;
+        if (sub) {
+          setGratitude(sub.gratitudes?.[0] ?? '');
+          setAppreciation(sub.appreciations?.[0] ?? '');
+          setGoal(sub.goals?.[0] ?? '');
+          if ((sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length)) {
+            setSavedAt(sub.updatedAt || Date.now());
+          }
+        }
+      })
+      .catch(() => { /* tolerate offline — fall back to blank */ })
+      .finally(() => { if (!cancelled) setHydrated(true); });
+    return () => { cancelled = true; };
+  }, [familyId, meId]);
 
   const filledCount = useMemo(
     () => [gratitude, appreciation, goal].filter((s) => s.trim().length > 0).length,
@@ -76,9 +99,11 @@ export default function MeetingPrepCard({
   );
 
   // Default-open when the meeting is near AND nothing is filled yet —
-  // kids should never have to discover the chevron during prep week.
+  // kids should never have to discover the chevron during prep week. We
+  // wait for hydration so an already-filled member doesn't briefly see
+  // the "fill me" expanded state before their saved answers load.
   const shouldOpenByDefault =
-    daysUntil !== null && daysUntil <= OPEN_BY_DEFAULT_DAYS && filledCount === 0;
+    hydrated && daysUntil !== null && daysUntil <= OPEN_BY_DEFAULT_DAYS && filledCount === 0;
   const [openOverride, setOpenOverride] = useState<boolean | null>(null);
   const open = openOverride !== null ? openOverride : shouldOpenByDefault;
 
@@ -170,7 +195,7 @@ export default function MeetingPrepCard({
               label="Gratitude"
               placeholder="I'm thankful for…"
               value={gratitude}
-              onChange={setGratitude}
+              onChange={(v) => { setGratitude(v); setSavedAt(null); }}
             />
             <PrepInput
               emoji="💛"
@@ -178,14 +203,14 @@ export default function MeetingPrepCard({
               placeholder="I appreciate @name for…"
               hint="@-tag a family member"
               value={appreciation}
-              onChange={setAppreciation}
+              onChange={(v) => { setAppreciation(v); setSavedAt(null); }}
             />
             <PrepInput
               emoji="🎯"
               label="Goal for the week"
               placeholder="This week I want to…"
               value={goal}
-              onChange={setGoal}
+              onChange={(v) => { setGoal(v); setSavedAt(null); }}
             />
             <div className="flex items-center gap-2 pt-1 flex-wrap">
               <button
