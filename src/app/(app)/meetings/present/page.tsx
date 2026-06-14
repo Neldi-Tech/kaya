@@ -35,7 +35,7 @@ import {
 } from '@/lib/firestore';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions,
-  appreciationTagNameForLine, appreciationTagIdForLine,
+  appreciationTagsForLine, appreciationTagLabelForLine,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
@@ -450,24 +450,32 @@ export default function MeetingPresenterPage() {
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
 
-    // Sunday-Meeting v2 (PR E + 3-lines): reveal @-tagged appreciations on
-    // meeting day. Each line can tag a different person — fire one
-    // notification PER tagged line. Fire-and-forget; never blocks finish.
+    // Sunday-Meeting v2 (multi-tag): reveal @-tagged appreciations on
+    // meeting day. A line can tag SEVERAL people or "All" — notify each
+    // recipient once per line. Fire-and-forget; never blocks finish.
+    const allMemberUids = Array.from(new Set(Object.values(uidByTagId)));
     for (const s of submissions) {
       (s.appreciations || []).forEach((rawText, i) => {
         const text = (rawText || '').trim();
-        const tagId = appreciationTagIdForLine(s, i);
-        if (!tagId || !text) return;
-        const toUid = uidByTagId[tagId];
-        if (!toUid || toUid === s.uid) return; // no login / self — skip
-        createNotification(profile.familyId!, {
-          type: 'appreciation',
-          title: '💛 You were appreciated',
-          message: `${s.name} appreciates you — ${text}`,
-          read: false,
-          forUserId: toUid,
-          link: '/meetings',
-        } as any).catch(() => { /* non-fatal */ });
+        if (!text) return;
+        const tag = appreciationTagsForLine(s, i);
+        // Resolve target uids: "All" → every member; else each tagged id.
+        const targetUids = tag.all
+          ? allMemberUids
+          : tag.ids.map((id) => uidByTagId[id]).filter(Boolean);
+        const seen = new Set<string>();
+        for (const toUid of targetUids) {
+          if (!toUid || toUid === s.uid || seen.has(toUid)) continue; // dedupe / skip self
+          seen.add(toUid);
+          createNotification(profile.familyId!, {
+            type: 'appreciation',
+            title: '💛 You were appreciated',
+            message: `${s.name} appreciates you — ${text}`,
+            read: false,
+            forUserId: toUid,
+            link: '/meetings',
+          } as any).catch(() => { /* non-fatal */ });
+        }
       });
     }
 
@@ -1176,7 +1184,7 @@ function StepSubmissions({
     const s = subDoc(m);
     if (!s) return [];
     return (s[section] || [])
-      .map((text, i) => ({ text, tag: section === 'appreciations' ? appreciationTagNameForLine(s, i) : undefined }))
+      .map((text, i) => ({ text, tag: section === 'appreciations' ? (appreciationTagLabelForLine(s, i) || undefined) : undefined }))
       .filter((r) => !!r.text && r.text.trim().length > 0);
   };
 
@@ -1239,7 +1247,7 @@ function StepSubmissions({
                         <li key={i} className="italic">
                           {l.tag && (
                             <span className="not-italic mr-1.5 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
-                              💛 @{l.tag}
+                              💛 {l.tag}
                             </span>
                           )}
                           &ldquo;{l.text}&rdquo;

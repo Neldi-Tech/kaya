@@ -47,39 +47,57 @@ export interface MeetingSubmission {
   gratitudes: string[];
   appreciations: string[];
   goals: string[];
-  /** Sunday-Meeting v2 (PR E + 3-lines): each appreciation LINE can @-tag
-   *  one family member (tap from the family list). These arrays are
-   *  aligned by index with `appreciations` (a `null` entry = that line
-   *  has no tag). Stored as the recipient's roster id (childId for kids /
-   *  uid for parents) + a name snapshot. Revealed to each tagged person
-   *  on meeting day. */
+  /** Sunday-Meeting v2 (multi-tag, 2026-06-14): each appreciation LINE can
+   *  @-tag MULTIPLE family members, or "All". Aligned by index with
+   *  `appreciations`. Firestore-safe (array of maps; each map holds
+   *  primitive arrays). `all: true` = everyone (ids/names left empty). */
+  appreciationTags?: AppreciationTag[];
+  /** @deprecated per-line SINGLE tag (pre-multi). Read as a fallback when
+   *  `appreciationTags` is absent. */
   appreciationTagIds?: (string | null)[];
   appreciationTagNames?: (string | null)[];
   /** @deprecated single-tag fields from the first @-tag ship — read as a
-   *  fallback for line 0 only. New writes use the *Ids/*Names arrays. */
+   *  fallback for line 0 only. */
   appreciationTagId?: string;
   appreciationTagName?: string;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
-const SUBS = 'upcomingMeetingSubmissions';
-
-/** Resolve the @-tag name for a given appreciation line, preferring the
- *  per-line arrays and falling back to the legacy single field for line 0.
- *  Shared by the presenter, history archive, and routing. */
-export function appreciationTagNameForLine(s: MeetingSubmission, i: number): string | undefined {
-  const fromArr = s.appreciationTagNames?.[i];
-  if (fromArr) return fromArr;
-  if (i === 0 && s.appreciationTagName) return s.appreciationTagName;
-  return undefined;
+/** Per-appreciation-line tag: a multi-select of recipients, or "All". */
+export interface AppreciationTag {
+  ids: string[];     // recipient roster ids (childId for kids / uid for parents)
+  names: string[];   // name snapshots, aligned with ids
+  all?: boolean;     // "Everyone" — overrides ids/names
 }
 
-/** Same, for the routing id (uid/childId). */
+const SUBS = 'upcomingMeetingSubmissions';
+
+/** Resolve the full multi-tag for an appreciation line, with back-compat:
+ *  prefer `appreciationTags`, else the per-line single arrays, else the
+ *  legacy singular (line 0). Shared by presenter / history / routing. */
+export function appreciationTagsForLine(s: MeetingSubmission, i: number): AppreciationTag {
+  const t = s.appreciationTags?.[i];
+  if (t) return { ids: t.ids || [], names: t.names || [], all: !!t.all };
+  const id = s.appreciationTagIds?.[i] ?? (i === 0 ? s.appreciationTagId : undefined) ?? undefined;
+  const nm = s.appreciationTagNames?.[i] ?? (i === 0 ? s.appreciationTagName : undefined) ?? undefined;
+  return { ids: id ? [id] : [], names: nm ? [nm] : [], all: false };
+}
+
+/** A human label for a line's tag — "Everyone" or "A, B, C" (or ''). */
+export function appreciationTagLabelForLine(s: MeetingSubmission, i: number): string {
+  const t = appreciationTagsForLine(s, i);
+  if (t.all) return 'Everyone';
+  return t.names.filter(Boolean).join(', ');
+}
+
+/** @deprecated single-name reader — kept for any older call site. */
+export function appreciationTagNameForLine(s: MeetingSubmission, i: number): string | undefined {
+  const lbl = appreciationTagLabelForLine(s, i);
+  return lbl || undefined;
+}
+/** @deprecated single-id reader. */
 export function appreciationTagIdForLine(s: MeetingSubmission, i: number): string | undefined {
-  const fromArr = s.appreciationTagIds?.[i];
-  if (fromArr) return fromArr;
-  if (i === 0 && s.appreciationTagId) return s.appreciationTagId;
-  return undefined;
+  return appreciationTagsForLine(s, i).ids[0];
 }
 
 export async function getMeetingSubmissions(
@@ -153,36 +171,41 @@ export async function setMeetingSubmission(
     return stored ?? [];
   };
 
-  // Appreciations carry an aligned per-line @-tag. Zip text+tags, drop
-  // empty-text lines (keeping each line's tag with it), cap to MAX. If the
-  // result is empty, preserve the previously stored appreciations + tags
-  // (non-destructive — a gratitude/goal-only re-save won't wipe them).
-  const zipAppr = (
-    texts: string[],
-    ids?: (string | null)[],
-    names?: (string | null)[],
-  ) => {
-    const rows = texts
-      .map((t, i) => ({ t: (t || '').trim(), id: ids?.[i] ?? null, name: names?.[i] ?? null }))
-      .filter((r) => r.t.length > 0)
-      .slice(0, MAX_APPRECIATION_LINES);
-    return {
-      appreciations: rows.map((r) => r.t),
-      appreciationTagIds: rows.map((r) => r.id),
-      appreciationTagNames: rows.map((r) => r.name),
-    };
+  // Normalise one line's multi-tag: drop empty ids/names, keep alignment;
+  // `all` wins (ids/names cleared). Firestore-safe plain object.
+  const cleanTag = (t?: AppreciationTag): AppreciationTag => {
+    if (t?.all) return { ids: [], names: [], all: true };
+    const ids = (t?.ids || []);
+    const names = (t?.names || []);
+    const rows = ids.map((id, j) => ({ id, name: names[j] || '' })).filter((r) => !!r.id);
+    return { ids: rows.map((r) => r.id), names: rows.map((r) => r.name) };
   };
-  const incomingAppr = zipAppr(payload.appreciations, payload.appreciationTagIds, payload.appreciationTagNames);
-  const useIncomingAppr = incomingAppr.appreciations.length > 0 || opts?.allowClear;
-  const apprFinal = useIncomingAppr
-    ? incomingAppr
-    : {
-        appreciations: prev?.appreciations ?? [],
-        appreciationTagIds: prev?.appreciationTagIds
-          ?? (prev?.appreciationTagId ? [prev.appreciationTagId] : []),
-        appreciationTagNames: prev?.appreciationTagNames
-          ?? (prev?.appreciationTagName ? [prev.appreciationTagName] : []),
-      };
+
+  // Appreciations carry an aligned per-line multi-tag. Zip text+tag, drop
+  // empty-text lines (keeping each line's tag), cap to MAX. If the result
+  // is empty, preserve the previously stored appreciations + tags
+  // (non-destructive — a gratitude/goal-only re-save won't wipe them).
+  const incomingRows = (payload.appreciations || [])
+    .map((t, i) => ({ t: (t || '').trim(), tag: cleanTag(payload.appreciationTags?.[i]) }))
+    .filter((r) => r.t.length > 0)
+    .slice(0, MAX_APPRECIATION_LINES);
+
+  let apprTexts: string[];
+  let apprTags: AppreciationTag[];
+  if (incomingRows.length > 0 || opts?.allowClear) {
+    apprTexts = incomingRows.map((r) => r.t);
+    apprTags = incomingRows.map((r) => r.tag);
+  } else {
+    // Preserve prior appreciations + tags (back-compat: rebuild tags from
+    // whatever shape the stored doc used).
+    apprTexts = prev?.appreciations ?? [];
+    apprTags = apprTexts.map((_, i) => (prev ? appreciationTagsForLine(prev, i) : { ids: [], names: [] }));
+  }
+
+  // Legacy mirrors so any not-yet-updated reader still shows something:
+  // per-line first name/id + a singular line-0 fallback.
+  const legacyNames = apprTags.map((t) => (t.all ? 'Everyone' : (t.names[0] || null)));
+  const legacyIds = apprTags.map((t) => (t.ids[0] || null));
 
   const merged: MeetingSubmission = {
     uid,
@@ -191,14 +214,13 @@ export async function setMeetingSubmission(
     childId: payload.childId ?? prev?.childId,
     role: payload.role || prev?.role || 'kid',
     gratitudes: mergeField(payload.gratitudes, prev?.gratitudes),
-    appreciations: apprFinal.appreciations,
+    appreciations: apprTexts,
     goals: mergeField(payload.goals, prev?.goals),
-    appreciationTagIds: apprFinal.appreciationTagIds,
-    appreciationTagNames: apprFinal.appreciationTagNames,
-    // Keep the legacy singular fields mirrored to line 0 so any
-    // not-yet-updated reader still shows the first tag.
-    appreciationTagId: apprFinal.appreciationTagIds[0] || undefined,
-    appreciationTagName: apprFinal.appreciationTagNames[0] || undefined,
+    appreciationTags: apprTags,
+    appreciationTagIds: legacyIds,
+    appreciationTagNames: legacyNames,
+    appreciationTagId: legacyIds[0] || undefined,
+    appreciationTagName: legacyNames[0] || undefined,
     updatedAt: Date.now(),
   };
   await setDoc(ref, merged, { merge: true });

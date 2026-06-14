@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES, MAX_APPRECIATION_LINES,
+  appreciationTagsForLine, type AppreciationTag,
 } from '@/lib/meetingSubmissions';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
@@ -42,13 +43,6 @@ function daysUntilNextMeeting(scheduleDow: number | undefined, todayDow: number)
   if (typeof scheduleDow !== 'number') return null;
   const diff = (scheduleDow - todayDow + 7) % 7;
   return diff; // 0 = today, 1 = tomorrow, …
-}
-
-// Pad an aligned tag array to a target length with nulls.
-function padNull<T>(arr: (T | null)[] | undefined, len: number): (T | null)[] {
-  const out = [...(arr || [])];
-  while (out.length < len) out.push(null);
-  return out.slice(0, len);
 }
 
 export default function MeetingPrepCard({
@@ -74,8 +68,8 @@ export default function MeetingPrepCard({
   const [gratitudes, setGratitudes] = useState<string[]>(['']);
   const [appreciations, setAppreciations] = useState<string[]>(['']);
   const [goals, setGoals] = useState<string[]>(['']);
-  const [apprTagIds, setApprTagIds] = useState<(string | null)[]>([null]);
-  const [apprTagNames, setApprTagNames] = useState<(string | null)[]>([null]);
+  // Per-line multi-tag: each appreciation can tag several people, or All.
+  const [apprTags, setApprTags] = useState<AppreciationTag[]>([{ ids: [], names: [] }]);
 
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -93,13 +87,11 @@ export default function MeetingPrepCard({
         const g = sub.gratitudes?.length ? sub.gratitudes : [''];
         const a = sub.appreciations?.length ? sub.appreciations : [''];
         const go = sub.goals?.length ? sub.goals : [''];
-        const ids = sub.appreciationTagIds ?? (sub.appreciationTagId ? [sub.appreciationTagId] : []);
-        const names = sub.appreciationTagNames ?? (sub.appreciationTagName ? [sub.appreciationTagName] : []);
         setGratitudes(g);
         setAppreciations(a);
         setGoals(go);
-        setApprTagIds(padNull(ids, a.length));
-        setApprTagNames(padNull(names, a.length));
+        // Rebuild per-line multi-tags (handles old single-tag shape too).
+        setApprTags(a.map((_, i) => appreciationTagsForLine(sub, i)));
         if (sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length) {
           setSavedAt(sub.updatedAt || Date.now());
         }
@@ -152,26 +144,41 @@ export default function MeetingPrepCard({
     const next = arr.filter((_, idx) => idx !== i);
     setArr(next.length ? next : ['']); dirty();
   };
-  // Appreciation lines remove text + both tag arrays in lock-step.
+  // Appreciation lines remove text + tag in lock-step.
   const removeApprLine = (i: number) => {
     const drop = <T,>(a: T[]) => a.filter((_, idx) => idx !== i);
-    const t = drop(appreciations); const ids = drop(apprTagIds); const nm = drop(apprTagNames);
+    const t = drop(appreciations); const tags = drop(apprTags);
     setAppreciations(t.length ? t : ['']);
-    setApprTagIds(t.length ? ids : [null]);
-    setApprTagNames(t.length ? nm : [null]);
+    setApprTags(t.length ? tags : [{ ids: [], names: [] }]);
     dirty();
   };
   const addApprLine = () => {
     if (appreciations.length >= MAX_APPRECIATION_LINES) return;
     setAppreciations([...appreciations, '']);
-    setApprTagIds([...apprTagIds, null]);
-    setApprTagNames([...apprTagNames, null]);
+    setApprTags([...apprTags, { ids: [], names: [] }]);
     dirty();
   };
-  const setApprTag = (i: number, opt: TagOption | null) => {
-    const ids = [...apprTagIds]; const nm = [...apprTagNames];
-    ids[i] = opt ? opt.id : null; nm[i] = opt ? opt.name : null;
-    setApprTagIds(ids); setApprTagNames(nm); dirty();
+  // Toggle one person on a line's multi-select (clears "All").
+  const togglePerson = (i: number, opt: TagOption) => {
+    const next = [...apprTags];
+    const cur = next[i] || { ids: [], names: [] };
+    const has = cur.ids.includes(opt.id) && !cur.all;
+    if (cur.all) {
+      next[i] = { ids: [opt.id], names: [opt.name] };
+    } else if (has) {
+      const keep = cur.ids.map((id, j) => ({ id, name: cur.names[j] })).filter((r) => r.id !== opt.id);
+      next[i] = { ids: keep.map((r) => r.id), names: keep.map((r) => r.name) };
+    } else {
+      next[i] = { ids: [...cur.ids, opt.id], names: [...cur.names, opt.name] };
+    }
+    setApprTags(next); dirty();
+  };
+  // Toggle the exclusive "All / Everyone" option for a line.
+  const toggleAll = (i: number) => {
+    const next = [...apprTags];
+    const cur = next[i] || { ids: [], names: [] };
+    next[i] = cur.all ? { ids: [], names: [] } : { ids: [], names: [], all: true };
+    setApprTags(next); dirty();
   };
 
   const handleSave = async () => {
@@ -187,9 +194,8 @@ export default function MeetingPrepCard({
         gratitudes,
         appreciations,
         goals,
-        // Only keep a tag where its line has text (lib also enforces this).
-        appreciationTagIds: apprTagIds.map((id, i) => (appreciations[i]?.trim() ? id : null)),
-        appreciationTagNames: apprTagNames.map((nm, i) => (appreciations[i]?.trim() ? nm : null)),
+        // Per-line multi-tag; the lib drops tags on empty-text lines.
+        appreciationTags: apprTags,
       });
       setSavedAt(Date.now());
     } catch (e: any) {
@@ -266,20 +272,33 @@ export default function MeetingPrepCard({
             <div className="rounded-xl bg-white border border-[#F0E8FF] p-2.5">
               <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: PURPLE }}>
                 <span aria-hidden>💛</span> Appreciation
-                <span className="ml-1 font-bold text-[#5C6975] normal-case">· tap who each is for</span>
+                <span className="ml-1 font-bold text-[#5C6975] normal-case">· tap who each is for (pick several or All)</span>
               </p>
               <div className="mt-1.5 space-y-2.5">
-                {appreciations.map((val, i) => (
+                {appreciations.map((val, i) => {
+                  const tag = apprTags[i] || { ids: [], names: [] };
+                  return (
                   <div key={i} className={i > 0 ? 'pt-2.5 border-t border-[#F4EFFB]' : ''}>
                     {tagOptions.length > 0 && (
                       <div className="flex flex-wrap gap-1.5 mb-1">
+                        {/* 👨‍👩‍👧‍👦 All — exclusive "Everyone" */}
+                        <button
+                          type="button"
+                          onClick={() => toggleAll(i)}
+                          className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold border transition-colors ${
+                            tag.all ? 'text-white border-transparent' : 'text-[#5C6975] border-[#E8E0F5] bg-[#FAF7FF]'
+                          }`}
+                          style={tag.all ? { background: PURPLE } : undefined}
+                        >
+                          <span aria-hidden>👨‍👩‍👧‍👦</span>All{tag.all ? ' ✓' : ''}
+                        </button>
                         {tagOptions.map((o) => {
-                          const on = apprTagIds[i] === o.id;
+                          const on = !tag.all && tag.ids.includes(o.id);
                           return (
                             <button
                               key={o.id}
                               type="button"
-                              onClick={() => setApprTag(i, on ? null : o)}
+                              onClick={() => togglePerson(i, o)}
                               className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold border transition-colors ${
                                 on ? 'text-white border-transparent' : 'text-[#5C6975] border-[#E8E0F5] bg-[#FAF7FF]'
                               }`}
@@ -298,7 +317,7 @@ export default function MeetingPrepCard({
                       <input
                         value={val}
                         onChange={(e) => editLine(appreciations, setAppreciations, i, e.target.value)}
-                        placeholder={apprTagNames[i] ? `…for…` : 'I appreciate @name for…'}
+                        placeholder={(tag.all || tag.ids.length) ? `…for…` : 'I appreciate @name for…'}
                         maxLength={140}
                         className="flex-1 bg-transparent text-[13px] font-extrabold leading-snug placeholder-[#B9AFC9] focus:outline-none"
                         style={{ color: '#2D1B5E' }}
@@ -309,7 +328,8 @@ export default function MeetingPrepCard({
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
               <AddAnother count={appreciations.length} onAdd={addApprLine} unlimited />
             </div>

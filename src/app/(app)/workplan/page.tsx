@@ -257,7 +257,7 @@ function SubmissionHistoryView({ familyId, uid }: { familyId: string; uid: strin
             // Per-line: each appreciation on its own line with its @tag.
             lines.map((ln, i) => (
               <span key={i} className="block">
-                {tags?.[i] && <span className="font-extrabold" style={{ color: PURPLE }}>@{tags[i]} · </span>}
+                {tags?.[i] && <span className="font-extrabold" style={{ color: PURPLE }}>💛 {tags[i]} · </span>}
                 {ln}
               </span>
             ))

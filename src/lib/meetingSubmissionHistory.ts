@@ -16,7 +16,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { appreciationTagNameForLine, type MeetingSubmission } from './meetingSubmissions';
+import { appreciationTagLabelForLine, type MeetingSubmission } from './meetingSubmissions';
 
 /** Keep ~1 year of weekly meetings; older entries roll off. */
 const MAX_ENTRIES = 50;
@@ -66,7 +66,7 @@ export async function archiveMeetingSubmissions(
     // Zip appreciation text with its per-line tag, then drop empty lines
     // so text + tag stay index-aligned in the archive.
     const apprRows = (s.appreciations || [])
-      .map((t, i) => ({ t: (t || '').trim(), tag: appreciationTagNameForLine(s, i) ?? null }))
+      .map((t, i) => ({ t: (t || '').trim(), tag: appreciationTagLabelForLine(s, i) || null }))
       .filter((r) => r.t.length > 0);
     const appreciations = apprRows.map((r) => r.t);
     const appreciationTagNames = apprRows.map((r) => r.tag);
