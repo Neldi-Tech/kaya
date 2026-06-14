@@ -13,6 +13,7 @@
 // cream cake + white text read against the theme. No background of its own.
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { BirthdayPerson, BirthdayDayState } from '@/lib/birthdays';
 
 const MAX_VISIBLE_CANDLES = 12;
@@ -31,8 +32,11 @@ export default function WishCandleCake({ familyId, person, dayState, viewerUid, 
   const extra = lit - visible;
 
   const [blownLocal, setBlownLocal] = useState(false);
+  const [savedLocal, setSavedLocal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
   const blown = !!dayState?.blownOutAt || blownLocal;
+  const saved = !!dayState?.keepsakeAt || savedLocal;
 
   const blow = async () => {
     if (busy || blown) return;
@@ -44,6 +48,18 @@ export default function WishCandleCake({ familyId, person, dayState, viewerUid, 
         body: JSON.stringify({ familyId, byUid: viewerUid, personKey: person.stateKey }),
       });
     } catch { /* keep optimistic state */ } finally { setBusy(false); }
+  };
+
+  const saveKeepsake = async () => {
+    if (saveBusy || saved) return;
+    setSaveBusy(true);
+    setSavedLocal(true);                            // optimistic
+    try {
+      await fetch('/api/birthdays/keepsake', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId, byUid: viewerUid, personKey: person.stateKey }),
+      });
+    } catch { /* keep optimistic state */ } finally { setSaveBusy(false); }
   };
 
   return (
@@ -133,6 +149,21 @@ export default function WishCandleCake({ familyId, person, dayState, viewerUid, 
           </div>
         </div>
       )}
+
+      {/* keepsake — save the birthday (+ wishes) to Moments. Idempotent. */}
+      <div className="mt-3">
+        {saved ? (
+          <Link href="/moments"
+            className="flex items-center justify-center gap-1.5 w-full font-nunito font-black text-[12.5px] rounded-full py-2.5 no-underline bg-white/20 text-white">
+            ✓ Saved to Moments — see it →
+          </Link>
+        ) : (
+          <button type="button" onClick={saveKeepsake} disabled={saveBusy}
+            className="w-full font-nunito font-black text-[12.5px] rounded-full py-2.5 disabled:opacity-60 bg-white/20 text-white">
+            {saveBusy ? 'Saving…' : '📸 Save this birthday to Moments'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
