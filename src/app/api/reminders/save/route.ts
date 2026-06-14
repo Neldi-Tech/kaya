@@ -183,7 +183,11 @@ export async function POST(req: NextRequest) {
 
   const base = {
     type, title, date,
-    ...(time ? { time } : { time: FieldValue.delete() }),
+    // Only set `time` when present. NEVER put FieldValue.delete() here — it's
+    // illegal inside .add() (create) and throws a 500 when creating an event
+    // with no time. Clearing a previously-set time on EDIT is handled in the
+    // update branch below.
+    ...(time ? { time } : {}),
     withWho: clampStr(ev.withWho, 120),
     location: clampStr(ev.location, 160),
     note: clampStr(ev.note, 500),
@@ -207,7 +211,12 @@ export async function POST(req: NextRequest) {
     if (cur.ownerUid !== uid && role !== 'parent') return NextResponse.json({ error: 'forbidden' }, { status: 403 });
     // Preserve owner; recompute status only when the editor is the kid owner.
     const nextStatus = (cur.ownerRole === 'kid' && cur.ownerUid === uid) ? status : (cur.status || 'active');
-    await ref.set({ ...base, status: nextStatus, firedKeys: cur.firedKeys || [] }, { merge: true });
+    // Clear a previously-set time when the editor removed it (legal on a
+    // merge:true set, unlike create).
+    await ref.set(
+      { ...base, ...(time ? {} : { time: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] },
+      { merge: true },
+    );
     if (nextStatus === 'pending_parent') {
       for (const pid of await parentUids(db, familyId)) {
         await notify(db, familyId, pid, {
