@@ -20,6 +20,7 @@ import {
 import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
+import { projectMonthSpendCents } from '@/lib/pulse';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -188,6 +189,36 @@ export default function PulseBreakdownPage() {
           </>
         )}
       </div>
+
+      {/* Future Self — pure projection. Only when there's positive monthly save. */}
+      {totalCap > 0 && totalSpent > 0 && (() => {
+        const projected = projectMonthSpendCents(totalSpent, dayOfMonth, daysInMonth);
+        const monthlySave = totalCap - projected;
+        if (monthlySave <= 0) return null;
+        const six = monthlySave * 6;
+        const year = monthlySave * 12;
+        const five = monthlySave * 60;
+        return (
+          <div className="mt-3 relative overflow-hidden rounded-2xl p-4 text-white"
+            style={{ background: 'linear-gradient(135deg,#2a3a6a 0%,#0F1F44 100%)' }}>
+            <div className="text-[10px] font-nunito font-black uppercase tracking-[1.4px] text-pulse-gold mb-2">🌳 Future Self · if this pace holds</div>
+            <div className="text-[11.5px] font-bold opacity-80 mb-2.5">{monthLabel()} monthly save: {formatCentsBudgetNeat(monthlySave, currency)}</div>
+            <FutureRow label="By 6 months" value={formatCentsBudgetNeat(six, currency)} />
+            <FutureRow label="By 1 year" value={formatCentsBudgetNeat(year, currency)} />
+            <FutureRow label="By 5 years" value={formatCentsBudgetNeat(five, currency)} />
+            <p className="text-[10px] font-bold opacity-60 mt-3 text-center italic">A year of school fees · a duka deposit · or a family trip.</p>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+function FutureRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between py-2 border-t border-dashed border-white/15 first:border-t-0">
+      <span className="text-[11.5px] font-extrabold opacity-90">{label}</span>
+      <span className="font-nunito font-black text-[15px] text-pulse-gold">{value}</span>
     </div>
   );
 }

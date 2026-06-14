@@ -55,6 +55,11 @@ const prevMonth = (mk: string): string => {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 };
 const todayDayKey = () => dayKeyInTZ(new Date(), PULSE_TZ);
+const labelForDayKey = (k: string) => {
+  const [y, m, d] = k.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  return `${d} ${dt.toLocaleDateString('en-US', { month: 'short' })}`;
+};
 /** N days before the day-key, returned as a fresh YYYY-MM-DD. */
 const shiftDayKey = (dayKey: string, delta: number): string => {
   const [y, m, d] = dayKey.split('-').map(Number);
@@ -275,6 +280,36 @@ export default function PulseDashboardPage() {
       .sort((a, b) => b.cents - a.cents);
     return { rows, total };
   }, [readings, trackables]);
+
+  // 14-day metered trend — daily total cost for the bar chart on the Metered
+  // tab. Bridges back into last month if today is day < 14. Spike flag = any
+  // reading that day was tagged anomaly. Uses `readings` (this month) +
+  // `extraMonth` (any previously-scrubbed cached month).
+  const metered14 = useMemo(() => {
+    const today = new Date();
+    const days: { key: string; total: number; anomaly: boolean }[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      days.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        total: 0,
+        anomaly: false,
+      });
+    }
+    const idx: Record<string, number> = {};
+    days.forEach((d, i) => { idx[d.key] = i; });
+    const ingest = (rs: PulseReading[]) => {
+      for (const r of rs) {
+        const i = idx[r.dayKey];
+        if (i === undefined) continue;
+        days[i].total += r.deltaCost ?? 0;
+        if (r.isAnomaly) days[i].anomaly = true;
+      }
+    };
+    ingest(readings);
+    Object.values(extraMonth).forEach(ingest);
+    return days;
+  }, [readings, extraMonth]);
 
   // Latest reading per trackable (from this month's readings) → powers the
   // at-a-glance "last entry" line on each metered row (balance/reading + when).
@@ -674,6 +709,45 @@ export default function PulseDashboardPage() {
       )}
 
       {activeTab === 'metered' && (<>
+      {/* 14-day metered trend chart (PR 3 / v2). Spike days flagged coral. */}
+      {(() => {
+        const max = Math.max(1, ...metered14.map((d) => d.total));
+        const hasData = metered14.some((d) => d.total > 0);
+        if (!hasData) return null;
+        const last = metered14[metered14.length - 1];
+        return (
+          <div className="bg-white border border-pulse-gold/30 rounded-2xl p-3 mt-4 mb-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] font-nunito font-black uppercase tracking-[1.4px] text-pulse-gold-dk">📈 14-day trend</div>
+              <div className="text-[10px] text-hive-muted font-bold">today: {formatCents(last.total, currency)}</div>
+            </div>
+            <div className="flex items-end gap-[3px] h-16">
+              {metered14.map((d) => {
+                const h = Math.max(4, Math.round((d.total / max) * 100));
+                return (
+                  <div
+                    key={d.key}
+                    title={`${d.key} · ${formatCents(d.total, currency)}${d.anomaly ? ' (spike)' : ''}`}
+                    className="flex-1 rounded-t"
+                    style={{
+                      height: `${h}%`,
+                      minHeight: '4px',
+                      background: d.anomaly
+                        ? 'linear-gradient(180deg,#F48989 0%,#E85C5C 100%)'
+                        : 'linear-gradient(180deg,#E8C268 0%,#D4A847 100%)',
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex justify-between mt-1 text-[8.5px] font-extrabold text-hive-muted">
+              <span>{labelForDayKey(metered14[0].key)}</span>
+              <span>{labelForDayKey(last.key)}</span>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Metered consumption — Pulse lens */}
       <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px] mt-6 mb-2">Metered consumption</div>
       {consumption.rows.length === 0 && Object.keys(extraMonth).length === 0 ? (
