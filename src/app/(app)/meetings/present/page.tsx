@@ -386,6 +386,19 @@ export default function MeetingPresenterPage() {
       ? { by: presentBy.trim() || undefined, topic: presentTopic.trim() || undefined }
       : undefined;
 
+    // This week's committed goals come from each kid's prep submission
+    // (or a live capture). Merge prep goals into the per-kid `goals` map
+    // so the saved meeting doc records them — next week's carry-forward
+    // review reads `meeting.goals`, so an unmerged commitment would
+    // silently fail to carry. Live-captured goals take precedence.
+    const goalsForRecord: Record<string, string> = { ...goals };
+    for (const c of children) {
+      if (!goalsForRecord[c.id]?.trim()) {
+        const g = submissions.find((s) => s.childId === c.id)?.goals?.[0]?.trim();
+        if (g) goalsForRecord[c.id] = g;
+      }
+    }
+
     const payload: Omit<Meeting, 'id' | 'createdAt'> = {
       date: todayString(),
       type: 'weekly',
@@ -395,7 +408,7 @@ export default function MeetingPresenterPage() {
         .filter((g) => g.name.trim().length > 0)
         .map((g) => ({ id: g.id, name: g.name.trim(), relationship: g.relationship || undefined })),
       gratitude,
-      goals,
+      goals: goalsForRecord,
       notes: '',
       appreciations,
       presentation,
@@ -621,17 +634,16 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'goals' && (
-                <>
-                  <SubmittedList kind="goals" submissions={submissions} />
-                  <GoalsStep
-                    childrenList={children}
-                    recentMeetings={recentMeetings}
-                    reviewedGoalsDone={reviewedGoalsDone}
-                    onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
-                    goals={goals}
-                    onChangeGoals={setGoals}
-                  />
-                </>
+                <GoalsStep
+                  childrenList={children}
+                  submissions={submissions}
+                  roster={prepRoster}
+                  recentMeetings={recentMeetings}
+                  reviewedGoalsDone={reviewedGoalsDone}
+                  onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
+                  goals={goals}
+                  onChangeGoals={setGoals}
+                />
               )}
 
               {step.id === 'reflection' && (
@@ -1052,57 +1064,6 @@ function CapsuleSealer({
   );
 }
 
-// ── Async pre-fill display ───────────────────────────────────────────
-// Sunday-Meeting v2 (b2). Reads everyone's pre-meeting submissions and
-// surfaces them as a stack of read-only rows above the live per-kid
-// inputs. The presenter / leader can still type in the live inputs to
-// add or refine on the night — submissions are the *starting point*,
-// not the only point.
-function SubmittedList({
-  kind, submissions,
-}: {
-  kind: 'gratitudes' | 'appreciations' | 'goals';
-  submissions: MeetingSubmission[];
-}) {
-  // Filter out anyone who didn't fill *this* section. Order by name so
-  // the screen reads consistently across steps.
-  const rows = submissions
-    .map((s) => ({ submitter: s, lines: s[kind] || [] }))
-    .filter((r) => r.lines.length > 0)
-    .sort((a, b) => a.submitter.name.localeCompare(b.submitter.name));
-
-  if (rows.length === 0) return null;
-
-  const sectionLabel = kind === 'gratitudes' ? 'Filled in advance · Gratitudes'
-    : kind === 'appreciations' ? 'Filled in advance · Appreciations'
-    : 'Filled in advance · Goals';
-
-  return (
-    <div className="mb-5 lg:mb-7 rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
-      <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
-        📨 {sectionLabel}
-      </p>
-      <ul className="space-y-2">
-        {rows.map((r) => (
-          <li key={r.submitter.uid} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
-            <span className="text-base lg:text-lg" aria-hidden>
-              {r.submitter.emoji || (r.submitter.role === 'kid' ? '🧒' : '👤')}
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className="font-display font-extrabold text-white">{r.submitter.name}</p>
-              <ul className="text-white/80 leading-snug">
-                {r.lines.map((line, i) => (
-                  <li key={i} className="italic">&ldquo;{line}&rdquo;</li>
-                ))}
-              </ul>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 // ── StepSubmissions (Sunday-Meeting v2 PR C) ─────────────────────────
 // Replaces the old "wall of empty input boxes" for Gratitude /
 // Appreciations. Two parts:
@@ -1116,13 +1077,18 @@ function SubmittedList({
 //      writes to the leader's local map, persisted with the meeting.
 function StepSubmissions({
   section, submissions, roster, liveValues, onChangeLive, placeholder,
+  filledHeader, missingHeader,
 }: {
-  section: 'gratitudes' | 'appreciations';
+  section: 'gratitudes' | 'appreciations' | 'goals';
   submissions: MeetingSubmission[];
   roster: PrepMember[];
   liveValues: Record<string, string>;
   onChangeLive: (memberId: string, value: string) => void;
   placeholder: string;
+  /** Optional overrides (used by the Goals step to read
+   *  "🎯 This week — our commitments" / "Still to set this week"). */
+  filledHeader?: string;
+  missingHeader?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -1139,14 +1105,17 @@ function StepSubmissions({
     .filter((r) => r.lines.length > 0 || r.live.length > 0);
   const missing = roster.filter((m) => subFor(m).length === 0 && !(liveValues[m.id] || '').trim());
 
-  const sectionLabel = section === 'gratitudes' ? 'Gratitudes' : 'Appreciations';
+  const sectionLabel = section === 'gratitudes' ? 'Gratitudes'
+    : section === 'appreciations' ? 'Appreciations' : 'Goals';
+  const filledHead = filledHeader ?? `📨 Filled in advance · ${sectionLabel}`;
+  const missingHead = missingHeader ?? 'Still to add';
 
   return (
     <div className="space-y-4 lg:space-y-5">
       {filled.length > 0 && (
         <div className="rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
           <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
-            📨 Filled in advance · {sectionLabel}
+            {filledHead}
           </p>
           <ul className="space-y-2">
             {filled.map(({ m, lines, live }) => (
@@ -1548,56 +1517,6 @@ function LeaderWheel({
   );
 }
 
-function PerKidTextInputs({
-  childrenList,
-  values,
-  onChange,
-  placeholder,
-  multiline = false,
-}: {
-  childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
-  values: Record<string, string>;
-  onChange: (next: Record<string, string>) => void;
-  placeholder: string;
-  multiline?: boolean;
-}) {
-  if (childrenList.length === 0) {
-    return (
-      <div className="bg-white/5 border border-white/10 rounded-kaya p-8 text-center text-white/60">
-        Add kids to your family in <Link href="/profiles" className="underline">profiles</Link> first.
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-4">
-      {childrenList.map((c) => (
-        <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya p-4 lg:p-5">
-          <label className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold text-kaya-gold-light mb-2">
-            <span className="text-2xl">{c.avatarEmoji || '👧'}</span>
-            <span>{c.name}</span>
-          </label>
-          {multiline ? (
-            <textarea
-              value={values[c.id] || ''}
-              onChange={(e) => onChange({ ...values, [c.id]: e.target.value })}
-              placeholder={placeholder}
-              rows={3}
-              className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[15px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none"
-            />
-          ) : (
-            <input
-              value={values[c.id] || ''}
-              onChange={(e) => onChange({ ...values, [c.id]: e.target.value })}
-              placeholder={placeholder}
-              className="w-full h-12 lg:h-14 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[15px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
-            />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function CelebrateStep() {
   return (
     <div className="bg-gradient-to-br from-kaya-gold/20 via-kaya-gold-light/10 to-transparent border border-kaya-gold/30 rounded-kaya-lg p-6 lg:p-10 text-center">
@@ -1900,6 +1819,8 @@ function AttendanceStep({
 // drops off the recent-N window).
 function GoalsStep({
   childrenList,
+  submissions,
+  roster,
   recentMeetings,
   reviewedGoalsDone,
   onToggleHistoricalGoalDone,
@@ -1907,6 +1828,8 @@ function GoalsStep({
   onChangeGoals,
 }: {
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  submissions: MeetingSubmission[];
+  roster: PrepMember[];
   recentMeetings: Meeting[];
   reviewedGoalsDone: Record<string, Record<string, boolean>>;
   onToggleHistoricalGoalDone: (meetingId: string, kidId: string, done: boolean) => void;
@@ -1954,12 +1877,36 @@ function GoalsStep({
 
   return (
     <div className="space-y-7">
-      {/* Multi-week review */}
+      {/* ① This week — our commitments (forward-looking, shown FIRST per
+          Elia). Read from each member's prep submission (live-synced),
+          with a "still to set" nudge + optional in-meeting capture. */}
+      <section>
+        <StepSubmissions
+          section="goals"
+          submissions={submissions}
+          roster={roster}
+          liveValues={goals}
+          onChangeLive={(id, v) => onChangeGoals({ ...goals, [id]: v })}
+          placeholder="This week I want to…"
+          filledHeader="🎯 This week — our commitments"
+          missingHeader="Still to set this week"
+        />
+        <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
+          Keep it small and specific — "read every night before bed" beats "do better at school."
+        </p>
+      </section>
+
+      {/* ② Last week — tick what's done. Ticked goals are saved done (and
+          land in history); unticked ones carry forward to next week,
+          flagged with ↻. */}
       {goalsByMeeting.length > 0 && (
         <section>
-          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-3 px-1">
-            ✅ Outstanding goals — check off what we did
+          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-1 px-1">
+            ✅ Last week — tick what's done
           </h3>
+          <p className="text-[11px] text-white/45 mb-3 px-1">
+            Unticked goals <span className="font-bold text-amber-300">↻ carry</span> into next week so nothing drops.
+          </p>
           <div className="space-y-5">
             {goalsByMeeting.map(({ meeting, index, kids }) => (
               <div key={meeting.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4 lg:p-5">
@@ -1990,6 +1937,11 @@ function GoalsStep({
                           <div className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold">
                             <span className="text-xl">{child.avatarEmoji || '👧'}</span>
                             <span>{child.name}</span>
+                            {!done && (
+                              <span className="ml-auto text-[9px] font-extrabold uppercase tracking-wide text-amber-300 bg-amber-400/15 rounded-full px-2 py-0.5">
+                                ↻ carries
+                              </span>
+                            )}
                           </div>
                           <p className={`mt-1 text-[14px] lg:text-base leading-snug ${done ? 'text-white/50 line-through' : 'text-white/85'}`}>
                             {goal}
@@ -2004,27 +1956,6 @@ function GoalsStep({
           </div>
         </section>
       )}
-
-      {/* This week's goals */}
-      <section>
-        <div className="flex items-baseline justify-between mb-3 px-1">
-          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light">
-            🎯 This week — what do we commit to?
-          </h3>
-          <span className="text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
-            AI assist · Soon
-          </span>
-        </div>
-        <PerKidTextInputs
-          childrenList={childrenList}
-          values={goals}
-          onChange={onChangeGoals}
-          placeholder="Next week I will…"
-        />
-        <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
-          Keep it small and specific — "read every night before bed" beats "do better at school."
-        </p>
-      </section>
     </div>
   );
 }
