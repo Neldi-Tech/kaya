@@ -26,7 +26,7 @@ import {
 } from '@/lib/pulse';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-const VALID_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
+const VALID_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home', 'subscriptions', 'contributions'];
 
 export default function BucketDrillDownPage() {
   const router = useRouter();
