@@ -29,6 +29,13 @@ import { db } from './firebase';
  *  still fine — this is optional headroom. */
 export const MAX_SUBMISSION_LINES = 3;
 
+/** Appreciations are effectively uncapped — some families want to
+ *  appreciate everyone (2026-06-14, Elia: "some families can have more
+ *  than 3"). This high ceiling is only a defensive backstop against a
+ *  runaway array; the UI shows no limit. Gratitude/Goals stay at
+ *  MAX_SUBMISSION_LINES. */
+export const MAX_APPRECIATION_LINES = 50;
+
 export interface MeetingSubmission {
   uid: string;
   name: string;              // display name snapshot (for the presenter)
@@ -158,7 +165,7 @@ export async function setMeetingSubmission(
     const rows = texts
       .map((t, i) => ({ t: (t || '').trim(), id: ids?.[i] ?? null, name: names?.[i] ?? null }))
       .filter((r) => r.t.length > 0)
-      .slice(0, MAX_SUBMISSION_LINES);
+      .slice(0, MAX_APPRECIATION_LINES);
     return {
       appreciations: rows.map((r) => r.t),
       appreciationTagIds: rows.map((r) => r.id),
