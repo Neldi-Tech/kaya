@@ -5,9 +5,10 @@
 // Tab 1 of the Savings Analytics screen (v3 narrated design). Plain-English
 // projection of this month's outcome — hero + per-bucket pacing — plus
 // three "surprise" affordances: today's allowance pocket, recovery moves
-// (display-only for now), and a where-it-lands preview of the projected
-// save. Tab 2 ("Plan") routes to /pulse/plan (kept as its own page so we
-// don't tangle with parallel work editing the planner). Parent-only.
+// (one-tap "Try it" sets a 14-day temp cap stored on pulsePlan.tempCapOverrides),
+// and a where-it-lands preview of the projected save. Tab 2 ("Plan") routes
+// to /pulse/plan (kept as its own page so we don't tangle with parallel work
+// editing the planner). Parent-only.
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
@@ -22,6 +23,7 @@ import {
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader } from '@/components/pulse/ui';
 import { projectMonthSpendCents } from '@/lib/pulse';
+import { updateFamily } from '@/lib/firestore';
 
 const NAVY = '#0F1F44';
 const GOLD = '#D4A847';
@@ -79,6 +81,10 @@ export default function PulseLivePage() {
     return subscribeToRecentRequests(profile.familyId, setRecent);
   }, [profile?.familyId, profile?.role]);
 
+  // Recovery "Try it" — busy state per module + a transient flash.
+  const [busyRecovery, setBusyRecovery] = useState<PurchaseModule | null>(null);
+  const [recoveryFlash, setRecoveryFlash] = useState<string | null>(null);
+
   const now = new Date();
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -109,11 +115,25 @@ export default function PulseLivePage() {
   const planBaseline = plan?.baselineByModule ?? {};
   const planCaps = plan?.perModuleCapCents ?? {};
 
-  // Per-bucket rows + totals.
+  // Recovery overrides — parent-set temporary trims on a module's cap, with
+  // a 14-day expiry by default. Stored on pulsePlan.tempCapOverrides so we
+  // don't touch family.householdBudgets directly (the cap there stays the
+  // "true" plan; this is a time-bounded override the Live tab applies).
+  type Override = { capCents: number; until: number; setBy: string; setAt: number; reason?: string };
+  const planAny = plan as unknown as { tempCapOverrides?: Record<string, Override> } | undefined;
+  const overrides: Record<string, Override> = planAny?.tempCapOverrides ?? {};
+  const nowMs = now.getTime();
+  const activeOverrideEntries = Object.entries(overrides).filter(([, o]) => o && o.until > nowMs) as Array<[string, Override]>;
+  const activeOverridesMap: Record<string, Override> = Object.fromEntries(activeOverrideEntries);
+
+  // Per-bucket rows + totals. Effective cap = active override (if any), else
+  // the household budget.
   const rows = useMemo<BucketRow[]>(() => {
     return LIVE_MODULES.map((m) => {
       const spent = perModuleSpent[m] ?? 0;
-      const budget = budgets[m] ?? 0;
+      const baseCap = budgets[m] ?? 0;
+      const ov = activeOverridesMap[m];
+      const budget = ov ? ov.capCents : baseCap;
       const projected = projectMonthSpendCents(spent, dayOfMonth, daysInMonth);
       const projectedSave = budget - projected;
       const planSave = Math.max(0, (planBaseline[m] ?? 0) - (planCaps[m] ?? budgets[m] ?? 0));
@@ -121,7 +141,41 @@ export default function PulseLivePage() {
       const leftInBudget = budget - spent;
       return { m, spent, budget, projected, projectedSave, planSave, status, leftInBudget };
     }).filter((r) => r.budget > 0 || r.spent > 0);
-  }, [perModuleSpent, budgets, planBaseline, planCaps, dayOfMonth, daysInMonth]);
+  }, [perModuleSpent, budgets, planBaseline, planCaps, dayOfMonth, daysInMonth, activeOverridesMap]);
+
+  // Write a new override (14-day default) or clear one. We patch only
+  // pulsePlan.tempCapOverrides — the wider plan stays intact.
+  const writeOverrides = async (next: Record<string, Override>): Promise<boolean> => {
+    if (!profile?.familyId || !plan) return false;
+    try {
+      await updateFamily(profile.familyId, { pulsePlan: { ...plan, tempCapOverrides: next } } as Parameters<typeof updateFamily>[1]);
+      return true;
+    } catch { return false; }
+  };
+  const tryRecovery = async (m: PurchaseModule, trimmedCapCents: number) => {
+    if (busyRecovery) return;
+    setBusyRecovery(m); setRecoveryFlash(null);
+    const ok = await writeOverrides({ ...overrides, [m]: {
+      capCents: Math.max(0, trimmedCapCents),
+      until: nowMs + 14 * 24 * 3600 * 1000,
+      setBy: profile?.uid ?? '',
+      setAt: nowMs,
+      reason: 'Recovery move',
+    }});
+    setRecoveryFlash(ok ? `✓ ${MODULE_LABEL[m]} cap trimmed for 14 days` : '⚠ Could not save — try again');
+    setTimeout(() => setRecoveryFlash(null), 3500);
+    setBusyRecovery(null);
+  };
+  const clearOverride = async (m: PurchaseModule) => {
+    if (busyRecovery) return;
+    setBusyRecovery(m);
+    const next = { ...overrides };
+    delete next[m];
+    const ok = await writeOverrides(next);
+    setRecoveryFlash(ok ? `✓ ${MODULE_LABEL[m]} cap restored` : '⚠ Could not save — try again');
+    setTimeout(() => setRecoveryFlash(null), 3500);
+    setBusyRecovery(null);
+  };
 
   const totalBudget = LIVE_MODULES.reduce((s, m) => s + (budgets[m] ?? 0), 0);
   const totalProjected = projectMonthSpendCents(spentTotal, dayOfMonth, daysInMonth);
@@ -138,22 +192,25 @@ export default function PulseLivePage() {
   const todayAllowanceCap = Math.max(1, Math.round((totalBudget - spentTotal) / daysLeft));
   const todayPct = Math.min(100, Math.round((spentToday / todayAllowanceCap) * 100));
 
-  // Recovery moves — top overshooting buckets.
+  // Recovery moves — top overshooting buckets. Carries `cap` so "Try it"
+  // can compute the trimmed cap = round(cap * 0.9). Skips buckets that
+  // already have an active override (they're listed in the banner above).
   const recoveries = useMemo(() => {
     return rows
-      .filter((r) => r.status === 'watch' || r.status === 'over')
+      .filter((r) => (r.status === 'watch' || r.status === 'over') && !activeOverridesMap[r.m])
       .sort((a, b) => (b.projected - b.budget) - (a.projected - a.budget))
       .slice(0, 3)
       .map((r) => {
         const overBy = Math.max(0, r.projected - r.budget);
         return {
           m: r.m,
-          title: `${MODULE_EMOJI[r.m]} Trim ${MODULE_LABEL[r.m]} by 10%`,
+          cap: r.budget,
+          title: `${MODULE_EMOJI[r.m]} Trim ${MODULE_LABEL[r.m]} cap by 10%`,
           impact: Math.round(r.projected * 0.10),
           note: overBy > 0 ? `clears ≈ ${formatCents(Math.min(overBy, r.projected * 0.10), currency)} of the overshoot` : 'tightens pace before it slips',
         };
       });
-  }, [rows, currency]);
+  }, [rows, currency, activeOverridesMap]);
 
   // Where it lands — 80/15/5 default split of projected save.
   const landing = useMemo(() => {
@@ -296,7 +353,46 @@ export default function PulseLivePage() {
         </div>
       )}
 
-      {/* SURPRISE #2 — RECOVERY MOVES (display-only "Try it" for now) */}
+      {/* Active recovery moves — parent-set temp caps with days remaining +
+          Clear button. Sits ABOVE the suggestions so it's clear what's on. */}
+      {activeOverrideEntries.length > 0 && (
+        <div className="mt-3 rounded-2xl p-3" style={{ background: '#FFF8E0', border: '1px solid #F0D38A' }}>
+          <div className="text-[10px] font-black uppercase tracking-[1px]" style={{ color: GOLD_DK }}>Active recovery moves</div>
+          <div className="mt-2 flex flex-col gap-1.5">
+            {activeOverrideEntries.map(([m, ov]) => {
+              const daysLeft = Math.max(1, Math.ceil((ov.until - nowMs) / (24 * 3600 * 1000)));
+              const mk = m as PurchaseModule;
+              return (
+                <div key={m} className="flex items-center gap-2 bg-white rounded-xl px-2.5 py-2" style={{ border: '1px solid #F0D38A' }}>
+                  <span className="text-base flex-shrink-0">{MODULE_EMOJI[mk]}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-black" style={{ color: NAVY }}>{MODULE_LABEL[mk]} cap → {formatCentsBudgetNeat(ov.capCents, currency)}</div>
+                    <div className="text-[9px] font-bold text-hive-muted">{daysLeft}d remaining · ends {new Date(ov.until).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => clearOverride(mk)}
+                    disabled={busyRecovery === mk}
+                    className="text-[10px] font-black px-2.5 py-1 rounded-full bg-white disabled:opacity-50"
+                    style={{ color: GOLD_DK, border: '1px solid #F0D38A' }}
+                  >
+                    {busyRecovery === mk ? '…' : 'Clear'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Flash banner — success/failure on Try-it or Clear. */}
+      {recoveryFlash && (
+        <div className="mt-3 rounded-xl px-3 py-2 text-[12px] font-bold" style={{ background: '#FFF8E0', color: GOLD_DK, border: '1px solid #F0D38A' }}>
+          {recoveryFlash}
+        </div>
+      )}
+
+      {/* SURPRISE #2 — RECOVERY MOVES · suggestions */}
       {recoveries.length > 0 && (
         <div className="mt-4 rounded-2xl p-3 relative" style={{ background: '#FDE6E6', border: '1px solid #F3BCBC' }}>
           <span className="absolute -top-2 right-3 text-[8px] font-black px-2 py-[2px] rounded-full text-white" style={{ background: 'linear-gradient(135deg,#9B5DE5,#FF6B6B)' }}>✨ NEW</span>
@@ -310,16 +406,20 @@ export default function PulseLivePage() {
                   <b>{rec.title}</b> · saves ≈ <b style={{ color: GREEN }}>{formatCentsBudgetNeat(rec.impact, currency)}</b> · {rec.note}.
                 </p>
                 <div className="mt-1.5">
-                  <span className="inline-block text-[9.5px] font-black px-2.5 py-1 rounded-full" style={{ background: '#fbeaea', color: SOFT, border: '1px dashed #F3BCBC' }}>
-                    Try it › · coming next
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => tryRecovery(rec.m, Math.round(rec.cap * 0.9))}
+                    disabled={busyRecovery === rec.m}
+                    className="inline-block text-[10px] font-black px-3 py-1.5 rounded-full text-white disabled:opacity-50"
+                    style={{ background: CORAL }}
+                  >
+                    {busyRecovery === rec.m ? 'Saving…' : 'Try it ›'}
+                  </button>
+                  <span className="ml-2 text-[9px] font-bold" style={{ color: SOFT }}>14d temp cap · clearable above</span>
                 </div>
               </div>
             ))}
           </div>
-          <p className="text-[9.5px] mt-2" style={{ color: SOFT }}>
-            One-tap temp-cap action is shipping in the next PR. For now, treat these as the highest-leverage trims to consider.
-          </p>
         </div>
       )}
 
