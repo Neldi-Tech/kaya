@@ -22,6 +22,7 @@ import { addKidWorkplanItem } from '@/lib/kidWorkplan';
 import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
 import { listHelpers } from '@/lib/helpers';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -67,8 +68,46 @@ export default function MyDayPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
   const role = profile?.role;
+  // Two views of My Day (2026-06-14): Today (everything now) and
+  // 📒 My Submissions (look back at past meetings). Hook before any early
+  // return to keep hooks order stable.
+  const [tab, setTab] = useState<'today' | 'submissions'>('today');
 
   if (!family || !profile) return null;
+
+  // Shared tab bar — sits under the date, above the day's content. Same
+  // for parent / kid / helper.
+  const tabBar = (
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
+      <div className="flex gap-1.5 rounded-full p-1" style={{ background: '#F0EBE3' }}>
+        {([['today', '🌟 Today'], ['submissions', '📒 My Submissions']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className="flex-1 text-center font-black text-[12px] py-2 rounded-full transition-colors"
+            style={tab === key
+              ? { background: '#fff', color: '#1E120B', boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }
+              : { color: '#9B8A72' }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // 📒 My Submissions — same for every role; keyed by the viewer's uid.
+  if (tab === 'submissions') {
+    return (
+      <>
+        {tabBar}
+        <div className="mx-auto max-w-md w-full px-4 pt-3 pb-32">
+          <SubmissionHistoryView familyId={family.id} uid={profile.uid} />
+        </div>
+      </>
+    );
+  }
 
   // 🎂 Birthday wish card — every role sees it on the day (B1). Renders
   // nothing (no spacing) when nobody's celebrating.
@@ -91,18 +130,19 @@ export default function MyDayPage() {
     if (!profile.childId) return null;
     const me = children.find((c) => c.id === profile.childId);
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
-    return <>{wishCard}{remindersStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
   if (role === 'helper') {
     const first = (profile.displayName ?? 'there').split(' ')[0];
-    return <>{wishCard}{remindersStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
   }
 
   // Parent
   const first = (profile.displayName ?? 'there').split(' ')[0];
   return (
     <>
+      {tabBar}
       {wishCard}
       {remindersStrip}
       <MyDayParent
