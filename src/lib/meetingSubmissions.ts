@@ -25,28 +25,55 @@ import {
 } from 'firebase/firestore';
 import { db } from './firebase';
 
+/** Max lines a member can add per section (2026-06-14, Elia). One is
+ *  still fine — this is optional headroom. */
+export const MAX_SUBMISSION_LINES = 3;
+
 export interface MeetingSubmission {
   uid: string;
   name: string;              // display name snapshot (for the presenter)
   emoji?: string;            // avatar emoji snapshot
   childId?: string;          // set when the submitter is a kid
   role: 'kid' | 'parent' | 'helper';
-  /** Each section accepts 1-2 short entries. Empty strings dropped at
-   *  save time so "filled" counts mean what they say. */
+  /** Each section accepts up to MAX_SUBMISSION_LINES short entries. Empty
+   *  strings dropped at save time so "filled" counts mean what they say. */
   gratitudes: string[];
   appreciations: string[];
   goals: string[];
-  /** Sunday-Meeting v2 (PR E): the appreciation can @-tag one family
-   *  member (tap from the family list). Stored as the recipient's roster
-   *  id (childId for kids / uid for parents) + a name snapshot. Kept
-   *  sealed from the recipient by the per-doc read rules and revealed on
-   *  meeting day (a notification fires at submit). */
+  /** Sunday-Meeting v2 (PR E + 3-lines): each appreciation LINE can @-tag
+   *  one family member (tap from the family list). These arrays are
+   *  aligned by index with `appreciations` (a `null` entry = that line
+   *  has no tag). Stored as the recipient's roster id (childId for kids /
+   *  uid for parents) + a name snapshot. Revealed to each tagged person
+   *  on meeting day. */
+  appreciationTagIds?: (string | null)[];
+  appreciationTagNames?: (string | null)[];
+  /** @deprecated single-tag fields from the first @-tag ship — read as a
+   *  fallback for line 0 only. New writes use the *Ids/*Names arrays. */
   appreciationTagId?: string;
   appreciationTagName?: string;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
 const SUBS = 'upcomingMeetingSubmissions';
+
+/** Resolve the @-tag name for a given appreciation line, preferring the
+ *  per-line arrays and falling back to the legacy single field for line 0.
+ *  Shared by the presenter, history archive, and routing. */
+export function appreciationTagNameForLine(s: MeetingSubmission, i: number): string | undefined {
+  const fromArr = s.appreciationTagNames?.[i];
+  if (fromArr) return fromArr;
+  if (i === 0 && s.appreciationTagName) return s.appreciationTagName;
+  return undefined;
+}
+
+/** Same, for the routing id (uid/childId). */
+export function appreciationTagIdForLine(s: MeetingSubmission, i: number): string | undefined {
+  const fromArr = s.appreciationTagIds?.[i];
+  if (fromArr) return fromArr;
+  if (i === 0 && s.appreciationTagId) return s.appreciationTagId;
+  return undefined;
+}
 
 export async function getMeetingSubmissions(
   familyId: string,
@@ -109,7 +136,7 @@ export async function setMeetingSubmission(
   const existing = await getDoc(ref);
   const prev = existing.exists() ? (existing.data() as MeetingSubmission) : null;
 
-  const clean = (arr: string[]) => arr.map((s) => s.trim()).filter(Boolean).slice(0, 2);
+  const clean = (arr: string[]) => arr.map((s) => s.trim()).filter(Boolean).slice(0, MAX_SUBMISSION_LINES);
   // Per-field merge: take the incoming value if it has content; otherwise
   // keep what was already stored (unless an explicit clear was requested).
   const mergeField = (incoming: string[], stored: string[] | undefined): string[] => {
@@ -119,12 +146,37 @@ export async function setMeetingSubmission(
     return stored ?? [];
   };
 
-  const nextAppreciations = mergeField(payload.appreciations, prev?.appreciations);
-  // The @-tag rides with the appreciation. Keep the new tag when the
-  // appreciation has content this save; otherwise preserve the stored tag
-  // (so a goals-only re-save doesn't strip an earlier appreciation's tag).
-  const appreciationHasContent = nextAppreciations.length > 0
-    && payload.appreciations.some((s) => s.trim());
+  // Appreciations carry an aligned per-line @-tag. Zip text+tags, drop
+  // empty-text lines (keeping each line's tag with it), cap to MAX. If the
+  // result is empty, preserve the previously stored appreciations + tags
+  // (non-destructive — a gratitude/goal-only re-save won't wipe them).
+  const zipAppr = (
+    texts: string[],
+    ids?: (string | null)[],
+    names?: (string | null)[],
+  ) => {
+    const rows = texts
+      .map((t, i) => ({ t: (t || '').trim(), id: ids?.[i] ?? null, name: names?.[i] ?? null }))
+      .filter((r) => r.t.length > 0)
+      .slice(0, MAX_SUBMISSION_LINES);
+    return {
+      appreciations: rows.map((r) => r.t),
+      appreciationTagIds: rows.map((r) => r.id),
+      appreciationTagNames: rows.map((r) => r.name),
+    };
+  };
+  const incomingAppr = zipAppr(payload.appreciations, payload.appreciationTagIds, payload.appreciationTagNames);
+  const useIncomingAppr = incomingAppr.appreciations.length > 0 || opts?.allowClear;
+  const apprFinal = useIncomingAppr
+    ? incomingAppr
+    : {
+        appreciations: prev?.appreciations ?? [],
+        appreciationTagIds: prev?.appreciationTagIds
+          ?? (prev?.appreciationTagId ? [prev.appreciationTagId] : []),
+        appreciationTagNames: prev?.appreciationTagNames
+          ?? (prev?.appreciationTagName ? [prev.appreciationTagName] : []),
+      };
+
   const merged: MeetingSubmission = {
     uid,
     name: payload.name || prev?.name || '',
@@ -132,14 +184,14 @@ export async function setMeetingSubmission(
     childId: payload.childId ?? prev?.childId,
     role: payload.role || prev?.role || 'kid',
     gratitudes: mergeField(payload.gratitudes, prev?.gratitudes),
-    appreciations: nextAppreciations,
+    appreciations: apprFinal.appreciations,
     goals: mergeField(payload.goals, prev?.goals),
-    appreciationTagId: appreciationHasContent
-      ? (payload.appreciationTagId ?? undefined)
-      : (payload.appreciationTagId ?? prev?.appreciationTagId),
-    appreciationTagName: appreciationHasContent
-      ? (payload.appreciationTagName ?? undefined)
-      : (payload.appreciationTagName ?? prev?.appreciationTagName),
+    appreciationTagIds: apprFinal.appreciationTagIds,
+    appreciationTagNames: apprFinal.appreciationTagNames,
+    // Keep the legacy singular fields mirrored to line 0 so any
+    // not-yet-updated reader still shows the first tag.
+    appreciationTagId: apprFinal.appreciationTagIds[0] || undefined,
+    appreciationTagName: apprFinal.appreciationTagNames[0] || undefined,
     updatedAt: Date.now(),
   };
   await setDoc(ref, merged, { merge: true });

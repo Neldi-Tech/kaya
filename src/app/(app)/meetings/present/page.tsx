@@ -35,6 +35,7 @@ import {
 } from '@/lib/firestore';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions,
+  appreciationTagNameForLine, appreciationTagIdForLine,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
@@ -422,7 +423,11 @@ export default function MeetingPresenterPage() {
     const goalsForRecord: Record<string, string> = { ...goals };
     for (const c of children) {
       if (!goalsForRecord[c.id]?.trim()) {
-        const g = submissions.find((s) => s.childId === c.id)?.goals?.[0]?.trim();
+        // Up to 3 goals join into the single per-kid meeting field so the
+        // carry-forward review (which reads meeting.goals[childId]) keeps
+        // the whole set.
+        const g = (submissions.find((s) => s.childId === c.id)?.goals || [])
+          .map((x) => x.trim()).filter(Boolean).join(' · ');
         if (g) goalsForRecord[c.id] = g;
       }
     }
@@ -445,24 +450,25 @@ export default function MeetingPresenterPage() {
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
 
-    // Sunday-Meeting v2 (PR E): reveal @-tagged appreciations on meeting
-    // day. Each was sealed (the recipient couldn't read the author's
-    // submission doc); now the meeting is in, fire a notification to the
-    // tagged person. Fire-and-forget — never blocks finishing.
+    // Sunday-Meeting v2 (PR E + 3-lines): reveal @-tagged appreciations on
+    // meeting day. Each line can tag a different person — fire one
+    // notification PER tagged line. Fire-and-forget; never blocks finish.
     for (const s of submissions) {
-      const tagId = s.appreciationTagId;
-      const text = (s.appreciations?.[0] || '').trim();
-      if (!tagId || !text) continue;
-      const toUid = uidByTagId[tagId];
-      if (!toUid || toUid === s.uid) continue; // no login / self — skip
-      createNotification(profile.familyId, {
-        type: 'appreciation',
-        title: '💛 You were appreciated',
-        message: `${s.name} appreciates you — ${text}`,
-        read: false,
-        forUserId: toUid,
-        link: '/meetings',
-      } as any).catch(() => { /* non-fatal */ });
+      (s.appreciations || []).forEach((rawText, i) => {
+        const text = (rawText || '').trim();
+        const tagId = appreciationTagIdForLine(s, i);
+        if (!tagId || !text) return;
+        const toUid = uidByTagId[tagId];
+        if (!toUid || toUid === s.uid) return; // no login / self — skip
+        createNotification(profile.familyId!, {
+          type: 'appreciation',
+          title: '💛 You were appreciated',
+          message: `${s.name} appreciates you — ${text}`,
+          read: false,
+          forUserId: toUid,
+          link: '/meetings',
+        } as any).catch(() => { /* non-fatal */ });
+      });
     }
 
     // Archive everyone's submissions into their history (PR F) BEFORE
@@ -1161,25 +1167,23 @@ function StepSubmissions({
   // opened this session.
   const [unwrapped, setUnwrapped] = useState<Set<string>>(new Set());
 
-  // Resolve each member's submitted lines for this section.
-  const subFor = (m: PrepMember): string[] => {
-    const s = submissions.find((x) =>
-      m.kind === 'kid' ? x.childId === m.id : x.uid === m.id,
-    );
-    return (s?.[section] || []).filter(Boolean);
-  };
+  const subDoc = (m: PrepMember): MeetingSubmission | undefined =>
+    submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
 
-  // Appreciation @-tag (PR E): who each member's appreciation is for.
-  const tagFor = (m: PrepMember): string | undefined => {
-    if (section !== 'appreciations') return undefined;
-    const s = submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
-    return s?.appreciationTagName || undefined;
+  // Per-line view for this section. For appreciations each line carries
+  // its own @-tag name (PR "3-lines"); other sections have no tags.
+  const linesFor = (m: PrepMember): Array<{ text: string; tag?: string }> => {
+    const s = subDoc(m);
+    if (!s) return [];
+    return (s[section] || [])
+      .map((text, i) => ({ text, tag: section === 'appreciations' ? appreciationTagNameForLine(s, i) : undefined }))
+      .filter((r) => !!r.text && r.text.trim().length > 0);
   };
 
   const filled = roster
-    .map((m) => ({ m, lines: subFor(m), live: (liveValues[m.id] || '').trim(), tag: tagFor(m) }))
+    .map((m) => ({ m, lines: linesFor(m), live: (liveValues[m.id] || '').trim() }))
     .filter((r) => r.lines.length > 0 || r.live.length > 0);
-  const missing = roster.filter((m) => subFor(m).length === 0 && !(liveValues[m.id] || '').trim());
+  const missing = roster.filter((m) => linesFor(m).length === 0 && !(liveValues[m.id] || '').trim());
 
   const sectionLabel = section === 'gratitudes' ? 'Gratitudes'
     : section === 'appreciations' ? 'Appreciations' : 'Goals';
@@ -1194,11 +1198,13 @@ function StepSubmissions({
             {filledHead}
           </p>
           <ul className="space-y-2">
-            {filled.map(({ m, lines, live, tag }) => {
-              // 💌 Sealed gift: a tagged appreciation stays wrapped until
-              // tapped, then unwraps with a little pop. Only for
-              // appreciations that carry a tag and haven't been opened.
-              const sealed = !!tag && !unwrapped.has(m.id);
+            {filled.map(({ m, lines, live }) => {
+              // 💌 Sealed gift: if ANY appreciation line is tagged, the
+              // member's set stays wrapped until tapped, then unwraps with
+              // a little pop. Each line keeps its own @chip on reveal.
+              const hasTag = lines.some((l) => !!l.tag);
+              const sealed = hasTag && !unwrapped.has(m.id);
+              const tagNames = lines.filter((l) => l.tag).map((l) => l.tag).join(' · ');
               if (sealed) {
                 return (
                   <li key={m.id}>
@@ -1210,7 +1216,7 @@ function StepSubmissions({
                       <span className="text-2xl" aria-hidden>🎁</span>
                       <span className="flex-1 min-w-0">
                         <span className="block font-display font-extrabold text-white text-[13px]">
-                          An appreciation for {tag}
+                          {lines.length > 1 ? 'Appreciations' : 'An appreciation'} for {tagNames}
                         </span>
                         <span className="block text-[11px] text-purple-100/80">Tap to unwrap 💛</span>
                       </span>
@@ -1224,17 +1230,21 @@ function StepSubmissions({
                   <div className="flex-1 min-w-0">
                     <p className="font-display font-extrabold text-white">
                       {m.name}
-                      {tag && (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
-                          💛 @{tag}
-                        </span>
-                      )}
-                      {tag && unwrapped.has(m.id) && (
+                      {hasTag && unwrapped.has(m.id) && (
                         <span className="ml-1.5 text-[12px]" aria-hidden>🎉</span>
                       )}
                     </p>
                     <ul className="text-white/80 leading-snug">
-                      {lines.map((line, i) => <li key={i} className="italic">&ldquo;{line}&rdquo;</li>)}
+                      {lines.map((l, i) => (
+                        <li key={i} className="italic">
+                          {l.tag && (
+                            <span className="not-italic mr-1.5 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
+                              💛 @{l.tag}
+                            </span>
+                          )}
+                          &ldquo;{l.text}&rdquo;
+                        </li>
+                      ))}
                       {live && (
                         <li className="italic">
                           &ldquo;{live}&rdquo;{' '}
