@@ -212,15 +212,41 @@ export default function PulseLivePage() {
       });
   }, [rows, currency, activeOverridesMap]);
 
-  // Where it lands — 80/15/5 default split of projected save.
+  // Where it lands — split read from the plan if set, else 80/15/5 default.
+  type LandingSplit = { wealth: number; rollover: number; reserve: number };
+  const planSplit = (planAny as unknown as { landingSplit?: LandingSplit } | undefined)?.landingSplit;
+  const splitPct: LandingSplit = planSplit && (planSplit.wealth + planSplit.rollover + planSplit.reserve) > 0
+    ? planSplit
+    : { wealth: 80, rollover: 15, reserve: 5 };
   const landing = useMemo(() => {
     const t = totalProjectedSave;
     return {
-      wealth: Math.round(t * 0.80),
-      rollover: Math.round(t * 0.15),
-      reserve: Math.round(t * 0.05),
+      wealth: Math.round(t * (splitPct.wealth / 100)),
+      rollover: Math.round(t * (splitPct.rollover / 100)),
+      reserve: Math.round(t * (splitPct.reserve / 100)),
     };
-  }, [totalProjectedSave]);
+  }, [totalProjectedSave, splitPct.wealth, splitPct.rollover, splitPct.reserve]);
+
+  // Editable destination split (Surprise #3 follow-up).
+  const [editingLanding, setEditingLanding] = useState(false);
+  const [landingDraft, setLandingDraft] = useState<LandingSplit>(splitPct);
+  const [savingLanding, setSavingLanding] = useState(false);
+  const [landingFlash, setLandingFlash] = useState<string | null>(null);
+  const draftSum = landingDraft.wealth + landingDraft.rollover + landingDraft.reserve;
+  const openLandingEditor = () => { setLandingDraft(splitPct); setEditingLanding(true); setLandingFlash(null); };
+  const saveLanding = async () => {
+    if (!profile?.familyId || !plan || draftSum !== 100 || savingLanding) return;
+    setSavingLanding(true);
+    try {
+      await updateFamily(profile.familyId, { pulsePlan: { ...plan, landingSplit: landingDraft } } as Parameters<typeof updateFamily>[1]);
+      setLandingFlash('✓ Destination split saved');
+      setEditingLanding(false);
+      setTimeout(() => setLandingFlash(null), 3500);
+    } catch {
+      setLandingFlash('⚠ Could not save — try again');
+      setTimeout(() => setLandingFlash(null), 3500);
+    } finally { setSavingLanding(false); }
+  };
 
   if (profile && profile.role !== 'parent') {
     return <div className="mx-auto max-w-md px-4 pt-16 text-center text-hive-muted text-sm">Redirecting…</div>;
@@ -434,11 +460,53 @@ export default function PulseLivePage() {
             Your <b>{formatCentsBudgetNeat(totalProjectedSave, currency)} projected save</b> sweeps into:
           </p>
           <div className="mt-2 flex flex-col gap-1">
-            <LandingRow icon="💎" name="Kaya Wealth deposit" sub="80% · auto-sweep" amount={landing.wealth} currency={currency} />
-            <LandingRow icon="🗓️" name={`Rollover · ${new Date(now.getFullYear(), now.getMonth() + 1, 1).toLocaleDateString('en-US', { month: 'long' })} buffer`} sub="15% · cushion for fixed bills" amount={landing.rollover} currency={currency} />
-            <LandingRow icon="🛟" name="Emergency reserve" sub="5% · safety top-up" amount={landing.reserve} currency={currency} />
+            <LandingRow icon="💎" name="Kaya Wealth deposit" sub={`${splitPct.wealth}% · auto-sweep`} amount={landing.wealth} currency={currency} />
+            <LandingRow icon="🗓️" name={`Rollover · ${new Date(now.getFullYear(), now.getMonth() + 1, 1).toLocaleDateString('en-US', { month: 'long' })} buffer`} sub={`${splitPct.rollover}% · cushion for fixed bills`} amount={landing.rollover} currency={currency} />
+            <LandingRow icon="🛟" name="Emergency reserve" sub={`${splitPct.reserve}% · safety top-up`} amount={landing.reserve} currency={currency} />
           </div>
-          <p className="text-[9.5px] mt-2" style={{ color: SOFT }}>Editable destination split coming next.</p>
+          {!editingLanding && (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-[9.5px]" style={{ color: SOFT }}>Tap Edit to change the split.</p>
+              <button
+                type="button"
+                onClick={openLandingEditor}
+                className="text-[10px] font-black px-2.5 py-1 rounded-full"
+                style={{ background: '#264B6E', color: 'white' }}
+              >Edit split</button>
+            </div>
+          )}
+          {editingLanding && (
+            <div className="mt-2 rounded-xl bg-white p-2.5 border border-[#CFDDEC]">
+              <div className="text-[10px] font-black uppercase tracking-[1px] mb-1.5" style={{ color: '#264B6E' }}>Edit destination split</div>
+              <div className="grid grid-cols-3 gap-1.5">
+                <SplitInput label="💎 Wealth" value={landingDraft.wealth} onChange={(v) => setLandingDraft({ ...landingDraft, wealth: v })} />
+                <SplitInput label="🗓️ Rollover" value={landingDraft.rollover} onChange={(v) => setLandingDraft({ ...landingDraft, rollover: v })} />
+                <SplitInput label="🛟 Reserve" value={landingDraft.reserve} onChange={(v) => setLandingDraft({ ...landingDraft, reserve: v })} />
+              </div>
+              <div className="mt-1.5 text-[10px] font-bold" style={{ color: draftSum === 100 ? GREEN : CORAL }}>
+                Sum: {draftSum}% {draftSum === 100 ? '✓' : '— must total 100%'}
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingLanding(false)}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full"
+                  style={{ background: '#EEF3FB', color: NAVY }}
+                  disabled={savingLanding}
+                >Cancel</button>
+                <button
+                  type="button"
+                  onClick={saveLanding}
+                  className="text-[10px] font-black px-2.5 py-1 rounded-full"
+                  style={{ background: draftSum === 100 && !savingLanding ? GREEN : '#9aa3ad', color: 'white' }}
+                  disabled={draftSum !== 100 || savingLanding}
+                >{savingLanding ? 'Saving…' : 'Save split'}</button>
+              </div>
+            </div>
+          )}
+          {landingFlash && (
+            <div className="mt-2 text-[10px] font-bold" style={{ color: landingFlash.startsWith('✓') ? GREEN : CORAL }}>{landingFlash}</div>
+          )}
         </div>
       )}
     </div>
@@ -455,5 +523,29 @@ function LandingRow({ icon, name, sub, amount, currency }: { icon: string; name:
       </div>
       <div className="text-[12px] font-black" style={{ color: GREEN }}>+{formatCentsBudgetNeat(amount, currency)}</div>
     </div>
+  );
+}
+
+function SplitInput({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[9px] font-black text-pulse-navy">{label}</span>
+      <div className="flex items-center gap-1 bg-[#F6F9FC] border border-[#CFDDEC] rounded-lg px-1.5 py-1">
+        <input
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={100}
+          value={Number.isFinite(value) ? value : 0}
+          onChange={(e) => {
+            const raw = parseInt(e.target.value, 10);
+            const next = Number.isFinite(raw) ? Math.max(0, Math.min(100, raw)) : 0;
+            onChange(next);
+          }}
+          className="w-full bg-transparent text-[12px] font-black text-pulse-navy outline-none text-right"
+        />
+        <span className="text-[10px] font-bold text-hive-muted">%</span>
+      </div>
+    </label>
   );
 }
