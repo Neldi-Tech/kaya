@@ -13,6 +13,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
+import { useTodaysBirthdays } from '@/components/birthdays/useTodaysBirthdays';
+import KidAvatar from '@/components/ui/KidAvatar';
 import RemindersInline from '@/components/reminders/RemindersInline';
 import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
 import { useKidMyDay, useParentMyDay, useReminders, actOnApproval, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
@@ -125,6 +127,13 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
   const allDone = total > 0 && doneCount === total;
 
+  // Birthday day — crown + chore-free banner for the birthday kid (B3).
+  const { children } = useFamily();
+  const { people: bdayPeople, state: bdayState } = useTodaysBirthdays(familyId);
+  const myBday = bdayPeople.find((p) => p.id === childId);
+  const meChild = children.find((c) => c.id === childId);
+  const choreFreeBday = !!myBday && !!bdayState[myBday.stateKey]?.noChores;
+
   const onTap = async (item: MyDayItem) => {
     if (item.tickItemId) {
       setBusy(item.id);
@@ -206,7 +215,12 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
         <p className="text-[10px] font-black uppercase tracking-[2px] opacity-90">My Day</p>
         <div className="flex items-center justify-between gap-3 mt-0.5">
           <div className="min-w-0">
-            <p className="font-black text-[18px] leading-tight">{allDone ? '🎉 All done!' : `Habari, ${name} 👋`}</p>
+            {myBday && meChild && (
+              <KidAvatar child={meChild} crown size="md" className="mb-1.5" />
+            )}
+            <p className="font-black text-[18px] leading-tight">
+              {allDone ? '🎉 All done!' : myBday ? `🎂 Happy Birthday, ${name}! 👑` : `Habari, ${name} 👋`}
+            </p>
             <p className="text-[12px] font-bold opacity-90 mt-0.5">{today} · {total > 0 ? `${doneCount} of ${total} done` : 'nothing to do yet'}</p>
           </div>
           {total > 0 && (
@@ -219,6 +233,13 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
           </div>
         )}
       </div>
+
+      {choreFreeBday && (
+        <div className="rounded-2xl p-3.5 mb-4 text-center border-2 border-dashed" style={{ borderColor: JOY.coral, background: '#FFF6F3' }}>
+          <p className="font-black text-[14px]" style={{ color: JOY.coral }}>🎂 Happy Birthday, {name}! 🎉</p>
+          <p className="text-[12px] font-bold mt-0.5" style={{ color: JOY.ink }}>Chores are optional today — go enjoy your day 💛</p>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-center text-sm font-extrabold py-8" style={{ color: JOY.purple }}>Loading your day…</p>

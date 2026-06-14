@@ -31,10 +31,11 @@ export default function BirthdayMemoryLane({ person, state }: {
   if (past.length === 0) return null;
 
   const accent = person.theme.accent;
+  const badges = past.filter((p) => p.st.dropAt).length;
   return (
     <div className="mt-4">
       <div className="text-[10.5px] font-nunito font-black uppercase tracking-[1.5px] mb-1.5" style={{ color: accent }}>
-        ✨ Memory Lane — birthdays past
+        ✨ Memory Lane — birthdays past{badges > 0 ? ` · 🏅 ${badges} badge${badges === 1 ? '' : 's'}` : ''}
       </div>
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
         {past.map(({ year, st }) => {
@@ -47,7 +48,7 @@ export default function BirthdayMemoryLane({ person, state }: {
                 <div className="text-[10.5px] text-white/85">turned {st.age}</div>
               )}
               <div className="text-[10.5px] mt-0.5" style={{ color: accent }}>
-                {wishes > 0 ? `${wishes} 💛` : '🎈'}
+                {wishes > 0 ? `${wishes} 💛` : '🎈'}{st.dropAt ? ' · 🏅' : ''}
               </div>
             </div>
           );
