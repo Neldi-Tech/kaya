@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { useTodaysBirthdays } from './useTodaysBirthdays';
 import WishCandleCake from './WishCandleCake';
 import BirthdayMemoryLane from './BirthdayMemoryLane';
+import { useAuth } from '@/contexts/AuthContext';
 import { ordinalAge, localDayKey, type BirthdayPerson, type BirthdayDayState } from '@/lib/birthdays';
 
 export default function BirthdayHero({ familyId, viewerUid, viewerChildId }: {
@@ -68,9 +69,27 @@ function BirthdayCard({ person, dayState, allState, familyId, viewerUid, isSelf 
   viewerUid: string;
   isSelf: boolean;
 }) {
+  const { profile } = useAuth();
+  const isParent = profile?.role === 'parent';
   const [cakeOpen, setCakeOpen] = useState(false);
+  const [ncOverride, setNcOverride] = useState<boolean | null>(null);
+  const [ncBusy, setNcBusy] = useState(false);
   const theme = person.theme;
   const wishes = dayState?.wishes?.length ?? 0;
+  const noChores = ncOverride ?? !!dayState?.noChores;
+
+  const toggleNoChores = async () => {
+    if (ncBusy) return;
+    const next = !noChores;
+    setNcBusy(true);
+    setNcOverride(next);                               // optimistic
+    try {
+      await fetch('/api/birthdays/mark', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId, byUid: viewerUid, personKey: person.stateKey, action: next ? 'nochores-on' : 'nochores-off' }),
+      });
+    } catch { /* keep optimistic state */ } finally { setNcBusy(false); }
+  };
 
   return (
     <div className="relative rounded-hive overflow-hidden text-white p-4 sm:p-5"
@@ -101,6 +120,18 @@ function BirthdayCard({ person, dayState, allState, familyId, viewerUid, isSelf 
               ? `${wishes} wish${wishes === 1 ? '' : 'es'} sent so far — add yours 🎈`
               : `Be the first to send a wish 🎈`}
         </div>
+
+        {/* Parent gift — a chore-free birthday for the birthday kid. */}
+        {isParent && person.kind === 'kid' && (
+          <button type="button" onClick={toggleNoChores} disabled={ncBusy}
+            className="mt-3 w-full flex items-center justify-between gap-2 rounded-full px-4 py-2.5 bg-white/20 text-white font-nunito font-black text-[12px] disabled:opacity-60">
+            <span>🎉 Chore-free birthday for {person.name}</span>
+            <span className="rounded-full px-2.5 py-0.5 text-[11px]"
+              style={{ background: noChores ? theme.accent : 'rgba(255,255,255,.25)', color: noChores ? '#3D2E08' : '#fff' }}>
+              {noChores ? 'ON' : 'OFF'}
+            </span>
+          </button>
+        )}
 
         {/* Birthday person → the cake takeover, front & centre. */}
         {isSelf && (

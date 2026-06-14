@@ -27,39 +27,57 @@ export default function KidAvatar({
   shape = 'circle',
   bgOpacity = '26',
   className = '',
+  crown = false,
 }: {
   child: AvatarChild;
   size?: Size;
   shape?: Shape;
   bgOpacity?: string;
   className?: string;
+  /** Birthday 👑 — a little crown perched on top. Additive; defaults off. */
+  crown?: boolean;
 }) {
   const sizeCls = SIZE_CLASSES[size];
   const shapeCls = SHAPE_CLASSES[shape];
   const bg = `${child.houseColor}${bgOpacity}`;
 
-  if (child.avatarPhoto) {
-    return (
-      <div
-        className={`${sizeCls} ${shapeCls} overflow-hidden flex items-center justify-center shrink-0 ${className}`}
-        style={{ backgroundColor: bg }}
-      >
-        <img
-          src={child.avatarPhoto}
-          alt={child.avatarEmoji}
-          className="w-full h-full object-cover"
-          referrerPolicy="no-referrer"
-        />
-      </div>
-    );
-  }
+  // When crowned, external positioning classes apply to the wrapper so the
+  // crown can overhang; otherwise they apply to the avatar itself.
+  const innerCls = crown ? '' : className;
 
-  return (
+  const inner = child.avatarPhoto ? (
     <div
-      className={`${sizeCls} ${shapeCls} flex items-center justify-center shrink-0 ${className}`}
+      className={`${sizeCls} ${shapeCls} overflow-hidden flex items-center justify-center shrink-0 ${innerCls}`}
+      style={{ backgroundColor: bg }}
+    >
+      <img
+        src={child.avatarPhoto}
+        alt={child.avatarEmoji}
+        className="w-full h-full object-cover"
+        referrerPolicy="no-referrer"
+      />
+    </div>
+  ) : (
+    <div
+      className={`${sizeCls} ${shapeCls} flex items-center justify-center shrink-0 ${innerCls}`}
       style={{ backgroundColor: bg }}
     >
       <span>{child.avatarEmoji}</span>
+    </div>
+  );
+
+  if (!crown) return inner;
+
+  return (
+    <div className={`relative inline-flex shrink-0 ${className}`}>
+      {inner}
+      <span
+        aria-hidden
+        className="absolute -top-2 left-1/2 -translate-x-1/2 text-[13px] leading-none rotate-[10deg]"
+        style={{ filter: 'drop-shadow(0 1px 1px rgba(0,0,0,.3))' }}
+      >
+        👑
+      </span>
     </div>
   );
 }

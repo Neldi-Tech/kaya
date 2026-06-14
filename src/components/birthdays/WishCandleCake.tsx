@@ -33,10 +33,14 @@ export default function WishCandleCake({ familyId, person, dayState, viewerUid, 
 
   const [blownLocal, setBlownLocal] = useState(false);
   const [savedLocal, setSavedLocal] = useState(false);
+  const [droppedLocal, setDroppedLocal] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
+  const [dropBusy, setDropBusy] = useState(false);
   const blown = !!dayState?.blownOutAt || blownLocal;
   const saved = !!dayState?.keepsakeAt || savedLocal;
+  const dropped = !!dayState?.dropAt || droppedLocal;
+  const dropYear = person.stateKey.slice(person.stateKey.lastIndexOf('_') + 1);
 
   const blow = async () => {
     if (busy || blown) return;
@@ -60,6 +64,18 @@ export default function WishCandleCake({ familyId, person, dayState, viewerUid, 
         body: JSON.stringify({ familyId, byUid: viewerUid, personKey: person.stateKey }),
       });
     } catch { /* keep optimistic state */ } finally { setSaveBusy(false); }
+  };
+
+  const openDrop = async () => {
+    if (dropBusy || dropped) return;
+    setDropBusy(true);
+    setDroppedLocal(true);                          // optimistic
+    try {
+      await fetch('/api/birthdays/mark', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ familyId, byUid: viewerUid, personKey: person.stateKey, action: 'drop' }),
+      });
+    } catch { /* keep optimistic state */ } finally { setDropBusy(false); }
   };
 
   return (
@@ -131,6 +147,28 @@ export default function WishCandleCake({ familyId, person, dayState, viewerUid, 
           style={{ background: theme.accent, color: '#3D2E08' }}>
           {busy ? 'Blowing…' : '🕯️ Make a wish & blow out the candles'}
         </button>
+      )}
+
+      {/* 🎁 Birthday Drop — the birthday person's surprise to open (self only). */}
+      {isSelf && (
+        <div className="mt-3 rounded-2xl bg-white/15 p-3 text-center">
+          {dropped ? (
+            <>
+              <div className="text-[26px]">🏅</div>
+              <div className="font-nunito font-black text-[13.5px] text-white mt-0.5">Birthday Badge {dropYear} unlocked!</div>
+              <div className="text-[11px] text-white/85 mt-0.5">{theme.emoji} A keepsake badge for your big day — it lives in Memory Lane.</div>
+            </>
+          ) : (
+            <>
+              <div className="text-[11.5px] text-white/90 font-nunito font-bold mb-2">🎁 You have a Birthday Drop waiting!</div>
+              <button type="button" onClick={openDrop} disabled={dropBusy}
+                className="w-full font-nunito font-black text-[13px] rounded-full py-2.5 disabled:opacity-60"
+                style={{ background: theme.accent, color: '#3D2E08' }}>
+                {dropBusy ? 'Opening…' : '🎁 Open your Birthday Drop'}
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {/* wishes wall */}
