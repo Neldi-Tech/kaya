@@ -244,16 +244,26 @@ function SubmissionHistoryView({ familyId, uid }: { familyId: string; uid: strin
     );
   }
 
-  const Row = ({ emoji, label, lines, tag }: { emoji: string; label: string; lines: string[]; tag?: string }) => {
+  const Row = ({ emoji, label, lines, tags }: { emoji: string; label: string; lines: string[]; tags?: (string | null)[] }) => {
     if (!lines || lines.length === 0) return null;
+    const hasTags = !!tags && tags.some(Boolean);
     return (
       <div className="flex gap-2 text-[12.5px] mb-1.5">
         <span className="font-black uppercase tracking-wide text-[9.5px] w-[78px] flex-shrink-0 pt-[2px]" style={{ color: '#9B8A72' }}>
           {emoji} {label}
         </span>
         <span className="flex-1" style={{ color: '#3D241A' }}>
-          {tag && <span className="font-extrabold" style={{ color: PURPLE }}>@{tag} · </span>}
-          {lines.join(' · ')}
+          {hasTags ? (
+            // Per-line: each appreciation on its own line with its @tag.
+            lines.map((ln, i) => (
+              <span key={i} className="block">
+                {tags?.[i] && <span className="font-extrabold" style={{ color: PURPLE }}>@{tags[i]} · </span>}
+                {ln}
+              </span>
+            ))
+          ) : (
+            lines.join(' · ')
+          )}
         </span>
       </div>
     );
@@ -299,7 +309,12 @@ function SubmissionHistoryView({ familyId, uid }: { familyId: string; uid: strin
             🗓️ {toDisplayDate(e.date) || e.date}
           </p>
           <Row emoji="🙏" label="Grateful" lines={e.gratitudes} />
-          <Row emoji="💛" label="Appreciate" lines={e.appreciations} tag={e.appreciationTagName} />
+          <Row
+            emoji="💛"
+            label="Appreciate"
+            lines={e.appreciations}
+            tags={e.appreciationTagNames ?? (e.appreciationTagName ? [e.appreciationTagName] : [])}
+          />
           <Row emoji="🎯" label="Goal" lines={e.goals} />
         </div>
       ))}

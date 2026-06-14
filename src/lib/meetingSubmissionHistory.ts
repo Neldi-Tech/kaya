@@ -16,7 +16,7 @@ import {
   collection, doc, getDoc, getDocs, setDoc,
 } from 'firebase/firestore';
 import { db } from './firebase';
-import type { MeetingSubmission } from './meetingSubmissions';
+import { appreciationTagNameForLine, type MeetingSubmission } from './meetingSubmissions';
 
 /** Keep ~1 year of weekly meetings; older entries roll off. */
 const MAX_ENTRIES = 50;
@@ -26,7 +26,10 @@ export interface SubmissionHistoryEntry {
   date: string;                     // meeting date, YYYY-MM-DD
   gratitudes: string[];
   appreciations: string[];
-  appreciationTagName?: string;     // who the appreciation was for
+  /** Aligned with `appreciations` — who each line was for (null = none). */
+  appreciationTagNames?: (string | null)[];
+  /** @deprecated single-tag from the first ship — read as fallback. */
+  appreciationTagName?: string;
   goals: string[];
 }
 
@@ -59,8 +62,14 @@ export async function archiveMeetingSubmissions(
 ): Promise<void> {
   await Promise.all(submissions.map(async (s) => {
     const gratitudes = (s.gratitudes || []).filter(Boolean);
-    const appreciations = (s.appreciations || []).filter(Boolean);
     const goals = (s.goals || []).filter(Boolean);
+    // Zip appreciation text with its per-line tag, then drop empty lines
+    // so text + tag stay index-aligned in the archive.
+    const apprRows = (s.appreciations || [])
+      .map((t, i) => ({ t: (t || '').trim(), tag: appreciationTagNameForLine(s, i) ?? null }))
+      .filter((r) => r.t.length > 0);
+    const appreciations = apprRows.map((r) => r.t);
+    const appreciationTagNames = apprRows.map((r) => r.tag);
     if (gratitudes.length === 0 && appreciations.length === 0 && goals.length === 0) return;
 
     const entry: SubmissionHistoryEntry = {
@@ -68,7 +77,7 @@ export async function archiveMeetingSubmissions(
       gratitudes,
       appreciations,
       goals,
-      ...(s.appreciationTagName ? { appreciationTagName: s.appreciationTagName } : {}),
+      ...(appreciationTagNames.some(Boolean) ? { appreciationTagNames } : {}),
     };
 
     const ref = doc(db, 'families', familyId, COL, s.uid);

@@ -9,40 +9,44 @@
 //   • Lifted from /my-day into a shared component so /workplan and
 //     /kid Home can render it too — many families hide My Day in
 //     `kidModules`, which left the only doorway invisible.
-//   • Option A — *expand by default* + *bigger* visual when the
-//     meeting is within `OPEN_BY_DEFAULT_DAYS` (3 days) AND nothing
-//     has been filled yet. The thin-strip-with-chevron treatment now
-//     only applies after the kid has saved a line.
-//   • Option C — adds a top "📅 Meeting prep ready" alert pill above
-//     the card during the same window, so even a kid scrolling fast
-//     spots it as "something I need to do today", not as a
-//     notification banner.
+//   • Option A — *expand by default* near the meeting when nothing's
+//     filled. Option C — a "📅 Meeting prep ready" alert pill on top.
+//
+// 2026-06-14 — UP TO 3 LINES per section (Elia). Each section starts with
+// one input and a "+ Add another" (max MAX_SUBMISSION_LINES). Each
+// appreciation LINE carries its own @-tag (tap a family member), revealed
+// to that person on meeting day.
 //
 // Self-contained — pulls family from context, persists to the
-// upcomingMeetingSubmissions subcollection via setMeetingSubmission.
-// The Appreciations placeholder uses the v2 "I appreciate @name for…"
-// framing per Elia's tweak.
+// upcomingMeetingSubmissions subcollection via setMeetingSubmission, which
+// hydrates + saves per-field non-destructively.
 
 import { useEffect, useMemo, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
-import { setMeetingSubmission, getMeetingSubmission } from '@/lib/meetingSubmissions';
+import {
+  setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES,
+} from '@/lib/meetingSubmissions';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
 
 type TagOption = { id: string; name: string; emoji: string };
 
 const DAY_NAMES = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'] as const;
+const PURPLE = '#9B5DE5';
 
-/** When the meeting is this many days away or closer AND nothing has
- *  been filled yet, the card opens with the 3 input fields visible
- *  by default. Outside this window it stays collapsed to keep the
- *  surface tidy (kids re-tap to re-open). */
 const OPEN_BY_DEFAULT_DAYS = 3;
 
 function daysUntilNextMeeting(scheduleDow: number | undefined, todayDow: number): number | null {
   if (typeof scheduleDow !== 'number') return null;
   const diff = (scheduleDow - todayDow + 7) % 7;
   return diff; // 0 = today, 1 = tomorrow, …
+}
+
+// Pad an aligned tag array to a target length with nulls.
+function padNull<T>(arr: (T | null)[] | undefined, len: number): (T | null)[] {
+  const out = [...(arr || [])];
+  while (out.length < len) out.push(null);
+  return out.slice(0, len);
 }
 
 export default function MeetingPrepCard({
@@ -60,40 +64,42 @@ export default function MeetingPrepCard({
   const todayDow = new Date().getDay();
   const daysUntil = daysUntilNextMeeting(scheduleDow, todayDow);
 
-  // Visible whenever there's no schedule, or the schedule is anywhere
-  // in the next 7 days (i.e. always — a kid who's late one week can
-  // still fill in next week's). Hiding the card requires an explicit
-  // "filled and dismissed" flag, queued for a follow-up.
   const visible = familyId && (daysUntil === null || daysUntil >= 0);
 
-  const [gratitude, setGratitude] = useState('');
-  const [appreciation, setAppreciation] = useState('');
-  const [goal, setGoal] = useState('');
-  // @-tag for the appreciation (PR E): who it's for. id = childId/uid.
-  const [tagId, setTagId] = useState<string | null>(null);
-  const [tagName, setTagName] = useState<string | null>(null);
+  // Each section is now a list of up to MAX_SUBMISSION_LINES. Starts with
+  // one empty line. Appreciation tag arrays stay index-aligned with
+  // `appreciations`.
+  const [gratitudes, setGratitudes] = useState<string[]>(['']);
+  const [appreciations, setAppreciations] = useState<string[]>(['']);
+  const [goals, setGoals] = useState<string[]>(['']);
+  const [apprTagIds, setApprTagIds] = useState<(string | null)[]>([null]);
+  const [apprTagNames, setApprTagNames] = useState<(string | null)[]>([null]);
+
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Hydration (data-loss fix): pre-load the member's saved submission so
-  // the boxes show what they already wrote — editing/re-saving never
-  // starts blank, and an empty box can't wipe a stored answer.
   const [hydrated, setHydrated] = useState(false);
+
+  // Hydrate from the saved submission so the boxes show what was already
+  // written (data-loss fix), now restoring all lines + per-line tags.
   useEffect(() => {
     if (!familyId || !meId) return;
     let cancelled = false;
     getMeetingSubmission(familyId, meId)
       .then((sub) => {
-        if (cancelled) return;
-        if (sub) {
-          setGratitude(sub.gratitudes?.[0] ?? '');
-          setAppreciation(sub.appreciations?.[0] ?? '');
-          setGoal(sub.goals?.[0] ?? '');
-          setTagId(sub.appreciationTagId ?? null);
-          setTagName(sub.appreciationTagName ?? null);
-          if ((sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length)) {
-            setSavedAt(sub.updatedAt || Date.now());
-          }
+        if (cancelled || !sub) return;
+        const g = sub.gratitudes?.length ? sub.gratitudes : [''];
+        const a = sub.appreciations?.length ? sub.appreciations : [''];
+        const go = sub.goals?.length ? sub.goals : [''];
+        const ids = sub.appreciationTagIds ?? (sub.appreciationTagId ? [sub.appreciationTagId] : []);
+        const names = sub.appreciationTagNames ?? (sub.appreciationTagName ? [sub.appreciationTagName] : []);
+        setGratitudes(g);
+        setAppreciations(a);
+        setGoals(go);
+        setApprTagIds(padNull(ids, a.length));
+        setApprTagNames(padNull(names, a.length));
+        if (sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length) {
+          setSavedAt(sub.updatedAt || Date.now());
         }
       })
       .catch(() => { /* tolerate offline — fall back to blank */ })
@@ -113,7 +119,6 @@ export default function MeetingPrepCard({
         const parents: TagOption[] = members
           .filter((m) => m.role === 'parent')
           .map((m) => ({ id: m.uid, name: (m.displayName || 'Parent').split(' ')[0], emoji: (m as { avatarEmoji?: string }).avatarEmoji || '👤' }));
-        // Exclude self (you don't appreciate yourself in the meeting).
         const all = [...parents, ...kids].filter((o) => o.id !== meId && o.id !== childId);
         setTagOptions(all);
       })
@@ -122,23 +127,50 @@ export default function MeetingPrepCard({
   }, [familyId, familyChildren, meId, childId]);
 
   const filledCount = useMemo(
-    () => [gratitude, appreciation, goal].filter((s) => s.trim().length > 0).length,
-    [gratitude, appreciation, goal],
+    () => [gratitudes, appreciations, goals].filter((arr) => arr.some((s) => s.trim().length > 0)).length,
+    [gratitudes, appreciations, goals],
   );
 
-  // Default-open when the meeting is near AND nothing is filled yet —
-  // kids should never have to discover the chevron during prep week. We
-  // wait for hydration so an already-filled member doesn't briefly see
-  // the "fill me" expanded state before their saved answers load.
   const shouldOpenByDefault =
     hydrated && daysUntil !== null && daysUntil <= OPEN_BY_DEFAULT_DAYS && filledCount === 0;
   const [openOverride, setOpenOverride] = useState<boolean | null>(null);
   const open = openOverride !== null ? openOverride : shouldOpenByDefault;
-
-  // Alert pill above the card — only during the open-by-default window
-  // and only if the kid hasn't filled anything yet. As soon as they
-  // save a line, the alert goes away and the card slims down.
   const showAlert = shouldOpenByDefault;
+
+  // ── Line helpers ─────────────────────────────────────────────────
+  const dirty = () => setSavedAt(null);
+  const editLine = (
+    arr: string[], setArr: (v: string[]) => void, i: number, val: string,
+  ) => { const next = [...arr]; next[i] = val; setArr(next); dirty(); };
+  const addLine = (arr: string[], setArr: (v: string[]) => void) => {
+    if (arr.length >= MAX_SUBMISSION_LINES) return;
+    setArr([...arr, '']); dirty();
+  };
+  const removeLine = (arr: string[], setArr: (v: string[]) => void, i: number) => {
+    const next = arr.filter((_, idx) => idx !== i);
+    setArr(next.length ? next : ['']); dirty();
+  };
+  // Appreciation lines remove text + both tag arrays in lock-step.
+  const removeApprLine = (i: number) => {
+    const drop = <T,>(a: T[]) => a.filter((_, idx) => idx !== i);
+    const t = drop(appreciations); const ids = drop(apprTagIds); const nm = drop(apprTagNames);
+    setAppreciations(t.length ? t : ['']);
+    setApprTagIds(t.length ? ids : [null]);
+    setApprTagNames(t.length ? nm : [null]);
+    dirty();
+  };
+  const addApprLine = () => {
+    if (appreciations.length >= MAX_SUBMISSION_LINES) return;
+    setAppreciations([...appreciations, '']);
+    setApprTagIds([...apprTagIds, null]);
+    setApprTagNames([...apprTagNames, null]);
+    dirty();
+  };
+  const setApprTag = (i: number, opt: TagOption | null) => {
+    const ids = [...apprTagIds]; const nm = [...apprTagNames];
+    ids[i] = opt ? opt.id : null; nm[i] = opt ? opt.name : null;
+    setApprTagIds(ids); setApprTagNames(nm); dirty();
+  };
 
   const handleSave = async () => {
     if (!familyId) return;
@@ -150,11 +182,12 @@ export default function MeetingPrepCard({
         emoji: avatarEmoji,
         childId,
         role,
-        gratitudes: [gratitude],
-        appreciations: [appreciation],
-        goals: [goal],
-        appreciationTagId: appreciation.trim() && tagId ? tagId : undefined,
-        appreciationTagName: appreciation.trim() && tagId ? (tagName ?? undefined) : undefined,
+        gratitudes,
+        appreciations,
+        goals,
+        // Only keep a tag where its line has text (lib also enforces this).
+        appreciationTagIds: apprTagIds.map((id, i) => (appreciations[i]?.trim() ? id : null)),
+        appreciationTagNames: apprTagNames.map((nm, i) => (appreciations[i]?.trim() ? nm : null)),
       });
       setSavedAt(Date.now());
     } catch (e: any) {
@@ -177,13 +210,10 @@ export default function MeetingPrepCard({
 
   return (
     <div className="mb-4">
-      {/* Option C — "meeting prep ready" pill. Sits on top of the card
-          during the open-by-default window so the kid sees a clear
-          "do this now" signal, not a notification strip. */}
       {showAlert && (
         <div
           className="flex items-center gap-2 mb-2 rounded-full px-3 py-1.5 text-[11px] font-extrabold border-2"
-          style={{ background: '#9B5DE5', borderColor: '#7C3DC8', color: '#fff' }}
+          style={{ background: PURPLE, borderColor: '#7C3DC8', color: '#fff' }}
           role="status"
         >
           <span aria-hidden>📅</span>
@@ -195,7 +225,7 @@ export default function MeetingPrepCard({
 
       <div
         className="rounded-2xl border-2 overflow-hidden"
-        style={{ borderColor: '#9B5DE5', background: 'linear-gradient(135deg, #FAF5FF, #fff)' }}
+        style={{ borderColor: PURPLE, background: 'linear-gradient(135deg, #FAF5FF, #fff)' }}
       >
         <button
           type="button"
@@ -205,82 +235,99 @@ export default function MeetingPrepCard({
         >
           <span className="text-xl" aria-hidden>📨</span>
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] font-black uppercase tracking-[1.5px]" style={{ color: '#9B5DE5' }}>
+            <p className="text-[10px] font-black uppercase tracking-[1.5px]" style={{ color: PURPLE }}>
               Sunday Meeting prep · {whenLabel}
             </p>
             <p className="text-[12.5px] font-extrabold text-[#2D1B5E] leading-snug">
-              Fill 3 quick lines so the meeting flows · {filledCount}/3
+              Share what&apos;s on your heart — add up to 3 each · {filledCount}/3 sections
             </p>
           </div>
           <ChevronRight
             size={18}
             className="shrink-0 transition-transform"
-            style={{ color: '#9B5DE5', transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+            style={{ color: PURPLE, transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
           />
         </button>
+
         {open && (
           <div className="px-3.5 pb-3.5 space-y-3">
-            <PrepInput
-              emoji="🙏"
-              label="Gratitude"
-              placeholder="I'm thankful for…"
-              value={gratitude}
-              onChange={(v) => { setGratitude(v); setSavedAt(null); }}
+            {/* 🙏 Gratitude */}
+            <SectionLines
+              emoji="🙏" label="Gratitude" placeholder="I'm thankful for…"
+              values={gratitudes}
+              onEdit={(i, v) => editLine(gratitudes, setGratitudes, i, v)}
+              onAdd={() => addLine(gratitudes, setGratitudes)}
+              onRemove={(i) => removeLine(gratitudes, setGratitudes, i)}
             />
+
+            {/* 💛 Appreciation — each line with its own @-tag */}
             <div className="rounded-xl bg-white border border-[#F0E8FF] p-2.5">
-              <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: '#9B5DE5' }}>
+              <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: PURPLE }}>
                 <span aria-hidden>💛</span> Appreciation
-                <span className="ml-1 font-bold text-[#5C6975] normal-case">· tap who it&apos;s for</span>
+                <span className="ml-1 font-bold text-[#5C6975] normal-case">· tap who each is for</span>
               </p>
-              {/* @-tag picker — tap a family member. Revealed to them on
-                  meeting day (kept sealed until then). */}
-              {tagOptions.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-1.5 mb-1">
-                  {tagOptions.map((o) => {
-                    const on = tagId === o.id;
-                    return (
-                      <button
-                        key={o.id}
-                        type="button"
-                        onClick={() => {
-                          if (on) { setTagId(null); setTagName(null); }
-                          else { setTagId(o.id); setTagName(o.name); }
-                          setSavedAt(null);
-                        }}
-                        className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold border transition-colors ${
-                          on ? 'text-white border-transparent' : 'text-[#5C6975] border-[#E8E0F5] bg-[#FAF7FF]'
-                        }`}
-                        style={on ? { background: '#9B5DE5' } : undefined}
-                      >
-                        <span aria-hidden>{o.emoji}</span>@{o.name}{on ? ' ✓' : ''}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              <input
-                value={appreciation}
-                onChange={(e) => { setAppreciation(e.target.value); setSavedAt(null); }}
-                placeholder={tagName ? `…for…` : 'I appreciate @name for…'}
-                maxLength={140}
-                className="mt-1 w-full bg-transparent text-[13px] font-extrabold leading-snug placeholder-[#B9AFC9] focus:outline-none"
-                style={{ color: '#2D1B5E' }}
-              />
+              <div className="mt-1.5 space-y-2.5">
+                {appreciations.map((val, i) => (
+                  <div key={i} className={i > 0 ? 'pt-2.5 border-t border-[#F4EFFB]' : ''}>
+                    {tagOptions.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-1">
+                        {tagOptions.map((o) => {
+                          const on = apprTagIds[i] === o.id;
+                          return (
+                            <button
+                              key={o.id}
+                              type="button"
+                              onClick={() => setApprTag(i, on ? null : o)}
+                              className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-extrabold border transition-colors ${
+                                on ? 'text-white border-transparent' : 'text-[#5C6975] border-[#E8E0F5] bg-[#FAF7FF]'
+                              }`}
+                              style={on ? { background: PURPLE } : undefined}
+                            >
+                              <span aria-hidden>{o.emoji}</span>@{o.name}{on ? ' ✓' : ''}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5">
+                      {appreciations.length > 1 && (
+                        <span className="text-[10px] font-black w-3 shrink-0" style={{ color: '#C4B89A' }}>{i + 1}</span>
+                      )}
+                      <input
+                        value={val}
+                        onChange={(e) => editLine(appreciations, setAppreciations, i, e.target.value)}
+                        placeholder={apprTagNames[i] ? `…for…` : 'I appreciate @name for…'}
+                        maxLength={140}
+                        className="flex-1 bg-transparent text-[13px] font-extrabold leading-snug placeholder-[#B9AFC9] focus:outline-none"
+                        style={{ color: '#2D1B5E' }}
+                      />
+                      {appreciations.length > 1 && (
+                        <button type="button" onClick={() => removeApprLine(i)} aria-label="Remove line"
+                          className="text-[13px] font-black shrink-0" style={{ color: '#C4B89A' }}>✕</button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <AddAnother count={appreciations.length} onAdd={addApprLine} />
             </div>
-            <PrepInput
-              emoji="🎯"
-              label="Goal for the week"
-              placeholder="This week I want to…"
-              value={goal}
-              onChange={(v) => { setGoal(v); setSavedAt(null); }}
+
+            {/* 🎯 Goal */}
+            <SectionLines
+              emoji="🎯" label="Goal for the week" placeholder="This week I want to…"
+              values={goals}
+              onEdit={(i, v) => editLine(goals, setGoals, i, v)}
+              onAdd={() => addLine(goals, setGoals)}
+              onRemove={(i) => removeLine(goals, setGoals, i)}
             />
+
             <div className="flex items-center gap-2 pt-1 flex-wrap">
               <button
                 type="button"
                 onClick={handleSave}
                 disabled={saving || filledCount === 0}
                 className="inline-flex items-center gap-1.5 h-10 px-4 rounded-full text-[12.5px] font-extrabold text-white transition-colors disabled:opacity-50"
-                style={{ background: '#9B5DE5' }}
+                style={{ background: PURPLE }}
               >
                 {saving ? 'Saving…' : savedAt ? '✓ Saved' : 'Save'}
               </button>
@@ -300,30 +347,64 @@ export default function MeetingPrepCard({
   );
 }
 
-function PrepInput({
-  emoji, label, placeholder, hint, value, onChange,
+// A "+ Add another (n/3)" button — greys out at the max.
+function AddAnother({ count, onAdd }: { count: number; onAdd: () => void }) {
+  const atMax = count >= MAX_SUBMISSION_LINES;
+  return (
+    <button
+      type="button"
+      onClick={onAdd}
+      disabled={atMax}
+      className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-extrabold border border-dashed transition-colors disabled:cursor-default"
+      style={atMax
+        ? { background: '#F4F1EC', color: '#B9AFC9', borderColor: '#E8E0D4' }
+        : { background: '#F3ECFF', color: PURPLE, borderColor: PURPLE }}
+    >
+      ＋ Add another <span style={{ opacity: 0.7 }}>{atMax ? `(${MAX_SUBMISSION_LINES}/${MAX_SUBMISSION_LINES} — max)` : `(${count}/${MAX_SUBMISSION_LINES})`}</span>
+    </button>
+  );
+}
+
+// A simple multi-line section (Gratitude / Goal) — up to 3 inputs with
+// add/remove. No tags (those are appreciation-only).
+function SectionLines({
+  emoji, label, placeholder, values, onEdit, onAdd, onRemove,
 }: {
   emoji: string;
   label: string;
   placeholder: string;
-  hint?: string;
-  value: string;
-  onChange: (v: string) => void;
+  values: string[];
+  onEdit: (i: number, v: string) => void;
+  onAdd: () => void;
+  onRemove: (i: number) => void;
 }) {
   return (
     <div className="rounded-xl bg-white border border-[#F0E8FF] p-2.5">
-      <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: '#9B5DE5' }}>
+      <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: PURPLE }}>
         <span aria-hidden>{emoji}</span> {label}
-        {hint && <span className="ml-1 font-bold text-[#5C6975] normal-case">· {hint}</span>}
       </p>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        maxLength={140}
-        className="mt-1 w-full bg-transparent text-[13px] font-extrabold leading-snug placeholder-[#B9AFC9] focus:outline-none"
-        style={{ color: '#2D1B5E' }}
-      />
+      <div className="mt-1 space-y-1.5">
+        {values.map((val, i) => (
+          <div key={i} className="flex items-center gap-1.5">
+            {values.length > 1 && (
+              <span className="text-[10px] font-black w-3 shrink-0" style={{ color: '#C4B89A' }}>{i + 1}</span>
+            )}
+            <input
+              value={val}
+              onChange={(e) => onEdit(i, e.target.value)}
+              placeholder={placeholder}
+              maxLength={140}
+              className="flex-1 bg-transparent text-[13px] font-extrabold leading-snug placeholder-[#B9AFC9] focus:outline-none"
+              style={{ color: '#2D1B5E' }}
+            />
+            {values.length > 1 && (
+              <button type="button" onClick={() => onRemove(i)} aria-label="Remove line"
+                className="text-[13px] font-black shrink-0" style={{ color: '#C4B89A' }}>✕</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <AddAnother count={values.length} onAdd={onAdd} />
     </div>
   );
 }
