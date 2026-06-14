@@ -21,7 +21,7 @@
 // `gratitude[childId]` state without an extra round-trip.
 
 import {
-  collection, doc, getDoc, getDocs, setDoc, deleteDoc,
+  collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -46,6 +46,20 @@ export async function getMeetingSubmissions(
 ): Promise<MeetingSubmission[]> {
   const snap = await getDocs(collection(db, 'families', familyId, SUBS));
   return snap.docs.map((d) => d.data() as MeetingSubmission);
+}
+
+/** Live subscription — the presenter uses this so a member filling from
+ *  their OWN My Day / Workplan appears in the meeting in real time (no
+ *  refresh, no in-meeting typing needed). Returns an unsubscribe fn. */
+export function subscribeMeetingSubmissions(
+  familyId: string,
+  cb: (rows: MeetingSubmission[]) => void,
+): () => void {
+  return onSnapshot(
+    collection(db, 'families', familyId, SUBS),
+    (snap) => cb(snap.docs.map((d) => d.data() as MeetingSubmission)),
+    () => cb([]),
+  );
 }
 
 /** Single-doc getter — the prep card uses this to HYDRATE its inputs on
