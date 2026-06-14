@@ -34,7 +34,7 @@ import {
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
 import {
-  getMeetingSubmissions, clearMeetingSubmissions,
+  subscribeMeetingSubmissions, clearMeetingSubmissions,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
@@ -69,6 +69,11 @@ const STEPS = [
 // each entry's literal union shape) so we can build new step objects
 // from the catalog with a parent-customised title without a cast.
 type StepDef = { id: string; title: string; emoji: string; sub: string };
+
+// A family member expected to prep (Sunday-Meeting v2 PR C). `id` is the
+// childId for kids and the uid for parents — matching how submissions key
+// (kids carry childId, parents key by uid).
+type PrepMember = { id: string; name: string; emoji: string; kind: 'kid' | 'parent' };
 type StepId = typeof STEPS[number]['id'];
 
 // How many of the most-recent meetings to surface in the Goals Review
@@ -266,19 +271,26 @@ export default function MeetingPresenterPage() {
     return () => { cancelled = true; };
   }, [profile?.familyId, profile]);
 
-  // Async pre-fill submissions — fetched once on mount. Presenter
-  // displays them as read-only "what they wrote" rows above the live
-  // editable per-kid inputs on Gratitude / Appreciations / Goals.
-  // Sunday-Meeting v2 (b2).
+  // Async pre-fill submissions — LIVE subscription (Sunday-Meeting v2
+  // PR C). The presenter reads what everyone filled and updates in real
+  // time, so a member filling from their own My Day / Workplan appears
+  // here mid-meeting without a refresh. The meeting screen itself is for
+  // reading + celebrating — see StepSubmissions for the "still to add"
+  // nudge + optional in-meeting capture fallback.
   const [submissions, setSubmissions] = useState<MeetingSubmission[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
-    let cancelled = false;
-    getMeetingSubmissions(profile.familyId).then((rows) => {
-      if (!cancelled) setSubmissions(rows);
-    }).catch(() => { /* tolerate offline / empty */ });
-    return () => { cancelled = true; };
+    const unsub = subscribeMeetingSubmissions(profile.familyId, setSubmissions);
+    return () => unsub();
   }, [profile?.familyId]);
+
+  // Roster of everyone expected to prep — kids + present parents. Used by
+  // StepSubmissions to compute "who's still to add" for each section.
+  // id = childId for kids, uid for parents (matches submission keying).
+  const prepRoster = useMemo<PrepMember[]>(() => [
+    ...children.map((c) => ({ id: c.id, name: c.name, emoji: c.avatarEmoji || '🧒', kind: 'kid' as const })),
+    ...householdParents.map((p) => ({ id: p.uid, name: p.name, emoji: p.avatarEmoji || '👤', kind: 'parent' as const })),
+  ], [children, householdParents]);
 
   // Family Time Capsule — Sunday-Meeting v2 (b7). Sealed notes from
   // ~1 year ago surface as the first reveal of the meeting if today
@@ -583,15 +595,14 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'gratitude' && (
-                <>
-                  <SubmittedList kind="gratitudes" submissions={submissions} />
-                  <PerKidTextInputs
-                    childrenList={children}
-                    values={gratitude}
-                    onChange={setGratitude}
-                    placeholder="I'm thankful for…"
-                  />
-                </>
+                <StepSubmissions
+                  section="gratitudes"
+                  submissions={submissions}
+                  roster={prepRoster}
+                  liveValues={gratitude}
+                  onChangeLive={(id, v) => setGratitude({ ...gratitude, [id]: v })}
+                  placeholder="I'm thankful for…"
+                />
               )}
 
               {step.id === 'celebrate' && (
@@ -599,16 +610,14 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'appreciations' && (
-                <>
-                  <SubmittedList kind="appreciations" submissions={submissions} />
-                  <PerKidTextInputs
-                    childrenList={children}
-                    values={appreciations}
-                    onChange={setAppreciations}
-                    placeholder="I appreciate @name for…"
-                    multiline
-                  />
-                </>
+                <StepSubmissions
+                  section="appreciations"
+                  submissions={submissions}
+                  roster={prepRoster}
+                  liveValues={appreciations}
+                  onChangeLive={(id, v) => setAppreciations({ ...appreciations, [id]: v })}
+                  placeholder="I appreciate @name for…"
+                />
               )}
 
               {step.id === 'goals' && (
@@ -1090,6 +1099,132 @@ function SubmittedList({
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// ── StepSubmissions (Sunday-Meeting v2 PR C) ─────────────────────────
+// Replaces the old "wall of empty input boxes" for Gratitude /
+// Appreciations. Two parts:
+//   1. Filled — what everyone added in advance (live-synced; a member
+//      filling from their own My Day / Workplan pops in here mid-meeting),
+//      plus anything captured live in the meeting (tagged "added live").
+//   2. Still to add — a tidy chip per member who hasn't filled this
+//      section. The preferred path is they fill from their own device
+//      (it appears above live). Tapping a chip opens an OPTIONAL inline
+//      capture as a quiet fallback ("but can leave it", per Elia) — it
+//      writes to the leader's local map, persisted with the meeting.
+function StepSubmissions({
+  section, submissions, roster, liveValues, onChangeLive, placeholder,
+}: {
+  section: 'gratitudes' | 'appreciations';
+  submissions: MeetingSubmission[];
+  roster: PrepMember[];
+  liveValues: Record<string, string>;
+  onChangeLive: (memberId: string, value: string) => void;
+  placeholder: string;
+}) {
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  // Resolve each member's submitted lines for this section.
+  const subFor = (m: PrepMember): string[] => {
+    const s = submissions.find((x) =>
+      m.kind === 'kid' ? x.childId === m.id : x.uid === m.id,
+    );
+    return (s?.[section] || []).filter(Boolean);
+  };
+
+  const filled = roster
+    .map((m) => ({ m, lines: subFor(m), live: (liveValues[m.id] || '').trim() }))
+    .filter((r) => r.lines.length > 0 || r.live.length > 0);
+  const missing = roster.filter((m) => subFor(m).length === 0 && !(liveValues[m.id] || '').trim());
+
+  const sectionLabel = section === 'gratitudes' ? 'Gratitudes' : 'Appreciations';
+
+  return (
+    <div className="space-y-4 lg:space-y-5">
+      {filled.length > 0 && (
+        <div className="rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
+          <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
+            📨 Filled in advance · {sectionLabel}
+          </p>
+          <ul className="space-y-2">
+            {filled.map(({ m, lines, live }) => (
+              <li key={m.id} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
+                <span className="text-base lg:text-lg" aria-hidden>{m.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-display font-extrabold text-white">{m.name}</p>
+                  <ul className="text-white/80 leading-snug">
+                    {lines.map((line, i) => <li key={i} className="italic">&ldquo;{line}&rdquo;</li>)}
+                    {live && (
+                      <li className="italic">
+                        &ldquo;{live}&rdquo;{' '}
+                        <span className="not-italic text-[10px] font-bold uppercase tracking-wide text-kaya-gold-light/80">· added live</span>
+                      </li>
+                    )}
+                  </ul>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {missing.length > 0 && (
+        <div className="rounded-kaya-lg border border-dashed border-white/20 bg-white/[0.04] p-4 lg:p-5">
+          <p className="text-[10px] uppercase tracking-[0.16em] font-extrabold text-white/45 mb-1">
+            Still to add
+          </p>
+          <p className="text-[11px] text-white/45 mb-3">
+            They can fill from their own <strong className="text-white/70">My Day / Workplan</strong> — it appears here live.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {missing.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setOpenId(openId === m.id ? null : m.id)}
+                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-xs font-bold border transition-colors ${
+                  openId === m.id
+                    ? 'bg-white/15 border-white/40 text-white'
+                    : 'bg-white/[0.06] border-white/15 text-white/70 hover:bg-white/10'
+                }`}
+              >
+                <span aria-hidden>{m.emoji}</span>
+                <span>{m.name}</span>
+                <span className="text-kaya-gold-light/80 font-extrabold">{openId === m.id ? '✕' : '+ add here'}</span>
+              </button>
+            ))}
+          </div>
+
+          {openId && (
+            <div className="mt-3">
+              <input
+                autoFocus
+                value={liveValues[openId] || ''}
+                onChange={(e) => onChangeLive(openId, e.target.value)}
+                placeholder={placeholder}
+                className="w-full bg-white/10 border border-white/15 rounded-kaya-sm px-4 py-3 text-[14px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+              />
+              <p className="mt-1.5 text-[10.5px] text-white/40">
+                Optional — the meeting is for reading &amp; celebrating. Best if {roster.find((r) => r.id === openId)?.name || 'they'} fills from their own My Day.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {filled.length === 0 && missing.length === 0 && (
+        <EmptyHint>Nobody has added a {section === 'gratitudes' ? 'gratitude' : 'appreciation'} yet — they can fill from My Day / Workplan and it shows here live.</EmptyHint>
+      )}
+    </div>
+  );
+}
+
+function EmptyHint({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-kaya-lg border border-white/10 bg-white/[0.04] p-6 text-center text-white/55 text-[13px]">
+      {children}
     </div>
   );
 }
