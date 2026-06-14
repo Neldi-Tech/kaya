@@ -119,7 +119,7 @@ export default function MeetingPrepCard({
       })
       .catch(() => { if (!cancelled) setTagOptions(kids.filter((o) => o.id !== childId)); });
     return () => { cancelled = true; };
-  }, [familyId, family?.children, meId, childId]);
+  }, [familyId, familyChildren, meId, childId]);
 
   const filledCount = useMemo(
     () => [gratitude, appreciation, goal].filter((s) => s.trim().length > 0).length,
