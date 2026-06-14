@@ -306,6 +306,20 @@ export default function MeetingPresenterPage() {
     ...householdParents.map((p) => ({ id: p.uid, name: p.name, emoji: p.avatarEmoji || '👤', kind: 'parent' as const })),
   ], [children, householdParents]);
 
+  // 🔥 Surprise 1 — "Most Prepared" crown. Whoever filled the most of
+  // their 3 prep sections this cycle wears 👑 in the opener. Pure
+  // celebration of the behaviour we want (filling ahead). Ties → the
+  // earliest in the roster; nobody crowned if no one filled anything.
+  const mostPrepared = useMemo(() => {
+    let best: { name: string; emoji: string; count: number } | null = null;
+    for (const m of prepRoster) {
+      const s = submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
+      const count = s ? [s.gratitudes, s.appreciations, s.goals].filter((a) => (a || []).some(Boolean)).length : 0;
+      if (count > 0 && (!best || count > best.count)) best = { name: m.name, emoji: m.emoji, count };
+    }
+    return best;
+  }, [prepRoster, submissions]);
+
   // Family Time Capsule — Sunday-Meeting v2 (b7). Sealed notes from
   // ~1 year ago surface as the first reveal of the meeting if today
   // falls in their ±3-day window. Sealed locally and re-fetched after
@@ -589,6 +603,7 @@ export default function MeetingPresenterPage() {
                     // first-ever meeting isn't blank.
                     leaderName={family?.nextMeetingLeader?.name || profile?.displayName}
                     leaderEmoji={family?.nextMeetingLeader?.emoji}
+                    mostPrepared={mostPrepared}
                     onContinue={() => setStepIdx(safeStepIdx + 1)}
                   />
                 </>
@@ -804,6 +819,7 @@ function OpenStep({
   family,
   leaderName,
   leaderEmoji,
+  mostPrepared,
   onContinue,
 }: {
   family: any; // Family doc; loose-typed here because the import chain
@@ -811,6 +827,7 @@ function OpenStep({
                // name (both optional with safe fallbacks).
   leaderName?: string;
   leaderEmoji?: string;
+  mostPrepared?: { name: string; emoji: string; count: number } | null;
   onContinue: () => void;
 }) {
   const sch = family?.meetingSetup?.schedule;
@@ -889,6 +906,16 @@ function OpenStep({
               {leaderEmoji || '🎤'}
             </span>
             {leaderName} · leading
+          </div>
+        )}
+
+        {/* 👑 Surprise 1 — Most Prepared crown (whoever filled the most
+            prep this cycle). Pure celebration of filling ahead. */}
+        {mostPrepared && (
+          <div className="mt-3">
+            <span className="inline-flex items-center gap-1.5 bg-kaya-gold/20 border border-kaya-gold-light/40 rounded-full px-3 py-1 text-kaya-gold-light text-[11px] lg:text-xs font-extrabold">
+              👑 Most Prepared · {mostPrepared.emoji} {mostPrepared.name}
+            </span>
           </div>
         )}
 
@@ -1129,6 +1156,10 @@ function StepSubmissions({
   missingHeader?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
+  // 💌 Surprise 3 — tagged appreciations arrive SEALED and unwrap on tap
+  // (a little group reveal moment in the meeting). Tracks which have been
+  // opened this session.
+  const [unwrapped, setUnwrapped] = useState<Set<string>>(new Set());
 
   // Resolve each member's submitted lines for this section.
   const subFor = (m: PrepMember): string[] => {
@@ -1163,30 +1194,58 @@ function StepSubmissions({
             {filledHead}
           </p>
           <ul className="space-y-2">
-            {filled.map(({ m, lines, live, tag }) => (
-              <li key={m.id} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
-                <span className="text-base lg:text-lg" aria-hidden>{m.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-display font-extrabold text-white">
-                    {m.name}
-                    {tag && (
-                      <span className="ml-2 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
-                        💛 @{tag}
+            {filled.map(({ m, lines, live, tag }) => {
+              // 💌 Sealed gift: a tagged appreciation stays wrapped until
+              // tapped, then unwraps with a little pop. Only for
+              // appreciations that carry a tag and haven't been opened.
+              const sealed = !!tag && !unwrapped.has(m.id);
+              if (sealed) {
+                return (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      onClick={() => setUnwrapped((prev) => new Set(prev).add(m.id))}
+                      className="w-full flex items-center gap-3 text-left rounded-kaya border border-purple-300/40 bg-purple-500/15 hover:bg-purple-500/25 px-3 py-2.5 transition-colors"
+                    >
+                      <span className="text-2xl" aria-hidden>🎁</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-display font-extrabold text-white text-[13px]">
+                          An appreciation for {tag}
+                        </span>
+                        <span className="block text-[11px] text-purple-100/80">Tap to unwrap 💛</span>
                       </span>
-                    )}
-                  </p>
-                  <ul className="text-white/80 leading-snug">
-                    {lines.map((line, i) => <li key={i} className="italic">&ldquo;{line}&rdquo;</li>)}
-                    {live && (
-                      <li className="italic">
-                        &ldquo;{live}&rdquo;{' '}
-                        <span className="not-italic text-[10px] font-bold uppercase tracking-wide text-kaya-gold-light/80">· added live</span>
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              </li>
-            ))}
+                    </button>
+                  </li>
+                );
+              }
+              return (
+                <li key={m.id} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
+                  <span className="text-base lg:text-lg" aria-hidden>{m.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-display font-extrabold text-white">
+                      {m.name}
+                      {tag && (
+                        <span className="ml-2 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
+                          💛 @{tag}
+                        </span>
+                      )}
+                      {tag && unwrapped.has(m.id) && (
+                        <span className="ml-1.5 text-[12px]" aria-hidden>🎉</span>
+                      )}
+                    </p>
+                    <ul className="text-white/80 leading-snug">
+                      {lines.map((line, i) => <li key={i} className="italic">&ldquo;{line}&rdquo;</li>)}
+                      {live && (
+                        <li className="italic">
+                          &ldquo;{live}&rdquo;{' '}
+                          <span className="not-italic text-[10px] font-bold uppercase tracking-wide text-kaya-gold-light/80">· added live</span>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
