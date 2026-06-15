@@ -18,10 +18,11 @@
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
   query, where, orderBy, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch, increment, runTransaction, deleteField,
+  onSnapshot, writeBatch, increment, runTransaction, deleteField, arrayUnion,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
+import { toDisplayDate } from './dates';
 import type { StapleCategory } from './pantry';
 import { stapleNamesOverlap } from './pantry';
 
@@ -540,6 +541,24 @@ export interface PurchaseRequest {
    *  "Mark paid" in the pay window, which stamps paidAt = the payment
    *  day. Status stays `closed`; the budget month never moves. */
   paidAt?: Timestamp;
+
+  /** Edit trail for post-close corrections (2026-06-15). Every parent
+   *  edit to a posted payroll entry — work period, payment day, or
+   *  budget month — appends an entry here so the change is traceable
+   *  ("Budget month → May 2026 · Elia · 15 Jun"). Append-only; the
+   *  detail page renders it as a quiet history line. */
+  editLog?: PayrollEditLogEntry[];
+}
+
+/** One line in a posted entry's edit trail. `at`/`by` are stamped at
+ *  edit time (Timestamp.now, since serverTimestamp can't live inside an
+ *  array element); `summary` is the human-readable change. */
+export interface PayrollEditLogEntry {
+  at: Timestamp;
+  by: string;
+  byName?: string;
+  field: 'period' | 'paidAt' | 'budgetMonth';
+  summary: string;
 }
 
 /** Reusable basket template (2026-05-18). Auto-saved on every
@@ -1043,19 +1062,47 @@ export function budgetMonthKeyFor(
   return at ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}` : null;
 }
 
+/** A short human label for the editor stamped on an edit-trail entry. */
+export interface EditActor { uid: string; name?: string }
+
+/** Build an edit-trail entry (Timestamp.now — serverTimestamp can't live
+ *  inside an arrayUnion element). Returns null when no actor is supplied
+ *  so callers can opt out of trailing (e.g. system writes). */
+function editLogEntry(
+  actor: EditActor | undefined,
+  field: PayrollEditLogEntry['field'],
+  summary: string,
+): PayrollEditLogEntry | null {
+  if (!actor?.uid) return null;
+  const e: PayrollEditLogEntry = { at: Timestamp.now(), by: actor.uid, field, summary };
+  if (actor.name) e.byName = actor.name;
+  return e;
+}
+
+/** Short "12 Jun 2026" for edit-trail summaries. */
+function fmtDay(d: Date): string {
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 /** Mark a salary (or any closed payroll request) as paid. Stamps `paidAt`
  *  to the chosen payment day — a status-only change that captures WHEN it
  *  was paid without ever moving the budget month. Parent-only; used by the
- *  one-tap "Mark paid" in the pay window (1st–5th). */
+ *  one-tap "Mark paid" in the pay window (1st–5th) and by the post-close
+ *  "edit payment date" control. Pass `actor` to record an edit-trail entry. */
 export async function markSalaryPaid(
   familyId: string,
   requestId: string,
   paidOn?: Date,
+  actor?: EditActor,
 ): Promise<void> {
   if (isGuestActive()) return;
+  const entry = paidOn
+    ? editLogEntry(actor, 'paidAt', `Payment day → ${fmtDay(paidOn)}`)
+    : null;
   await updateDoc(requestDoc(familyId, requestId), {
     paidAt: paidOn ? Timestamp.fromDate(paidOn) : serverTimestamp(),
     updatedAt: serverTimestamp(),
+    ...(entry ? { editLog: arrayUnion(entry) } : {}),
   });
 }
 
@@ -1090,11 +1137,52 @@ export async function setRequestBudgetMonth(
   familyId: string,
   requestId: string,
   budgetMonth: string,
+  actor?: EditActor,
 ): Promise<void> {
   if (isGuestActive()) return;
+  const [y, m] = budgetMonth.split('-').map(Number);
+  const label = y && m
+    ? new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+    : budgetMonth;
+  const entry = editLogEntry(actor, 'budgetMonth', `Budget month → ${label}`);
   await updateDoc(requestDoc(familyId, requestId), {
     budgetMonth,
     updatedAt: serverTimestamp(),
+    ...(entry ? { editLog: arrayUnion(entry) } : {}),
+  });
+}
+
+/** Edit the work period (periodStart/periodEnd ISO 'YYYY-MM-DD') of a
+ *  posted payroll entry (2026-06-15). The dates are kept FULLY INDEPENDENT
+ *  of the budget month: `budgetMonthKeyFor` would otherwise derive the
+ *  month from periodStart, so we PIN the current resolved budget month
+ *  into `budgetMonth` first — changing the period then never moves which
+ *  month the cost lands in. Parent-only. Pass `actor` for the edit trail. */
+export async function editPayrollPeriod(
+  familyId: string,
+  requestId: string,
+  periodStart: string,
+  periodEnd: string,
+  actor?: EditActor,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const ref = requestDoc(familyId, requestId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const req = { id: snap.id, ...snap.data() } as PurchaseRequest;
+  if (req.module !== 'payroll' || !req.payrollCycle) return;
+  // Pin the month so the period change stays independent of it.
+  const pinnedMonth = req.budgetMonth ?? budgetMonthKeyFor(req) ?? undefined;
+  const entry = editLogEntry(
+    actor, 'period',
+    `Work period → ${toDisplayDate(periodStart)} – ${toDisplayDate(periodEnd)}`,
+  );
+  await updateDoc(ref, {
+    'payrollCycle.periodStart': periodStart,
+    'payrollCycle.periodEnd': periodEnd,
+    ...(pinnedMonth ? { budgetMonth: pinnedMonth } : {}),
+    updatedAt: serverTimestamp(),
+    ...(entry ? { editLog: arrayUnion(entry) } : {}),
   });
 }
 

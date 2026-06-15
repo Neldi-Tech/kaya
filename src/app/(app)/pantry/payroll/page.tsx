@@ -56,23 +56,27 @@ export default function PayrollHomePage() {
   const RECENT_DEFAULT_LIMIT = 3;
 
   const confirmAction = useConfirm();
-  // One-tap "Mark paid" — captures today as the payment day. Status-only;
+  // "Mark paid" now opens a date picker (2026-06-15) — real payments often
+  // land later than the tap, so the parent picks the actual day. Status-only;
   // never moves the budget month (the salary stays in its work month).
-  const handleMarkPaid = async (req: PurchaseRequest) => {
+  const [markPaidTarget, setMarkPaidTarget] = useState<PurchaseRequest | null>(null);
+  const handleMarkPaid = (req: PurchaseRequest) => {
     if (!profile?.familyId || isGuest) return;
-    const ok = await confirmAction({
-      title: `Mark "${req.name || 'this salary'}" paid?`,
-      message: 'Records today as the payment day. The budget month stays unchanged.',
-      confirmLabel: 'Mark paid',
-    });
-    if (!ok) return;
+    setMarkPaidTarget(req);
+  };
+  const confirmMarkPaid = async (req: PurchaseRequest, paidOn: Date) => {
+    if (!profile?.familyId || isGuest) return;
     try {
-      await markSalaryPaid(profile.familyId, req.id, new Date());
+      await markSalaryPaid(profile.familyId, req.id, paidOn, {
+        uid: profile.uid ?? '', name: profile.displayName ?? undefined,
+      });
       // Receipt email (D) — fire-and-forget when the parent opted in.
       void sendPaidReceipt(req);
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[payroll] markSalaryPaid failed:', e);
+    } finally {
+      setMarkPaidTarget(null);
     }
   };
   // Email a "salary marked paid" receipt to the parent's inboxes when the
@@ -400,6 +404,7 @@ export default function PayrollHomePage() {
               currency={currency}
               showHelper={role === 'parent'}
               dimmed
+              canEdit={role === 'parent' && r.module === 'payroll' && r.status === 'closed'}
               onMarkPaid={role === 'parent' ? () => handleMarkPaid(r) : undefined}
               onDelete={role === 'parent' ? () => handleRemoveSalary(r) : undefined}
             />
@@ -433,6 +438,86 @@ export default function PayrollHomePage() {
             Guest mode — sign in to create a request.
           </p>
         )}
+      </div>
+
+      {markPaidTarget && (
+        <MarkPaidModal
+          req={markPaidTarget}
+          currency={currency}
+          onCancel={() => setMarkPaidTarget(null)}
+          onConfirm={(d) => confirmMarkPaid(markPaidTarget, d)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Date-picker sheet for "Mark paid" (2026-06-15). Defaults to today but the
+// parent can pick the real day money left their hands (Today / Yesterday /
+// 1st-of-month shortcuts). Budget month is untouched — payment record only.
+function MarkPaidModal({
+  req, currency, onCancel, onConfirm,
+}: {
+  req: PurchaseRequest;
+  currency: string;
+  onCancel: () => void;
+  onConfirm: (paidOn: Date) => void | Promise<void>;
+}) {
+  const iso = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const today = new Date();
+  const [day, setDay] = useState(iso(today));
+  const [busy, setBusy] = useState(false);
+  const total = req.actualTotalCents ?? req.estimatedTotalCents;
+
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const chips: [string, string][] = [
+    ['Today', iso(today)],
+    ['Yesterday', iso(yesterday)],
+    ['1st of month', iso(firstOfMonth)],
+  ];
+
+  const confirm = async () => {
+    if (!day) return;
+    setBusy(true);
+    const [y, m, d] = day.split('-').map(Number);
+    await onConfirm(new Date(y, m - 1, d, 12));
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" onClick={onCancel}>
+      <div className="w-full max-w-md bg-hive-paper rounded-hive shadow-xl p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="font-nunito font-black text-[18px] text-hive-navy">Mark salary paid</p>
+        <p className="text-[13px] text-hive-muted font-bold mt-0.5">
+          {req.name || 'Salary'} · {formatCents(total, currency)}
+        </p>
+
+        <p className="text-[10px] uppercase tracking-wider font-bold text-hive-blue mt-4">Payment day</p>
+        <input type="date" value={day} max={iso(today)}
+          onChange={(e) => setDay(e.target.value)}
+          className="mt-1.5 w-full h-11 px-3 bg-white border border-hive-blue/30 rounded-hive text-[15px] font-bold text-hive-navy focus:outline-none focus:border-hive-blue" />
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {chips.map(([label, v]) => (
+            <button key={label} type="button" onClick={() => setDay(v)}
+              className={`rounded-hive px-3 h-8 text-[12px] font-nunito font-extrabold border ${
+                day === v ? 'bg-hive-blue text-white border-hive-blue' : 'bg-white text-hive-blue border-hive-blue/30'
+              }`}>{label}</button>
+          ))}
+        </div>
+
+        <p className="text-[11px] text-hive-muted mt-3">Budget month stays unchanged — only the payment record moves.</p>
+
+        <div className="flex gap-2 mt-4">
+          <button type="button" onClick={onCancel} disabled={busy}
+            className="flex-1 h-11 rounded-hive border border-hive-line bg-white text-hive-ink font-nunito font-black text-[14px] disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button" onClick={confirm} disabled={busy || !day}
+            className="flex-[1.4] h-11 rounded-hive bg-pantry-leaf text-white font-nunito font-black text-[14px] disabled:opacity-50">
+            {busy ? 'Saving…' : '✓ Mark paid'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -482,7 +567,7 @@ function payWindowLabel(cycle: PurchaseRequest['payrollCycle']): string | null {
 }
 
 function RequestRow({
-  req, currency, dimmed, showHelper, onDelete, onMarkPaid,
+  req, currency, dimmed, showHelper, onDelete, onMarkPaid, canEdit,
 }: {
   req: PurchaseRequest;
   currency: string;
@@ -493,6 +578,9 @@ function RequestRow({
   onDelete?: () => void | Promise<void>;
   /** Parent-only: one-tap "Mark paid" for a closed-but-unpaid salary. */
   onMarkPaid?: () => void | Promise<void>;
+  /** Parent-only: show a ✏️ shortcut into the "Edit posted entry" controls
+   *  on the detail page (dates · payment day · budget month). */
+  canEdit?: boolean;
 }) {
   const total = req.actualTotalCents ?? req.estimatedTotalCents;
   const isClosed = req.status === 'closed' || req.status === 'rejected';
@@ -550,6 +638,16 @@ function RequestRow({
         >
           Mark&nbsp;paid
         </button>
+      )}
+      {canEdit && (
+        <Link
+          href={`/pantry/purchase/${req.id}`}
+          className="flex-shrink-0 bg-[#FFF7E8] border border-hive-honey/60 rounded-hive px-3 flex items-center text-[#8A6D1E] font-nunito font-black no-underline hover:bg-hive-honey/15"
+          aria-label="Edit this posted entry — dates, payment day, budget month"
+          title="Edit posted entry — dates · payment day · budget month"
+        >
+          ✏️
+        </Link>
       )}
       {onDelete && (
         <button
