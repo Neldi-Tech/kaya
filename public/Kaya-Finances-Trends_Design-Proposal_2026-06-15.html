@@ -136,6 +136,7 @@
   svg.chart{width:100%;height:auto;display:block}
   .axisline{stroke:#EADFC8;stroke-width:1}
   .axislbl{fill:#A79E89;font-size:11px;font-weight:800}
+  .axistitle{fill:#8C8775;font-size:11px;font-weight:900;letter-spacing:.6px}
   .dlabel{fill:var(--ink);font-size:11px;font-weight:900}
   .subview{display:none}.subview.on{display:block}
 
@@ -479,10 +480,18 @@ function buildLegend(id){
   });
 }
 
+/* ---------- chart axis helpers ---------- */
+const CURRENCY='TZS';                                   // family currency
+const fmtAxis=v=>Math.round(v).toLocaleString('en-US'); // 4,990 not 4990
+function axisTitle(padT,H,padB){
+  const cy=(padT+(H-padB))/2;
+  return `<text class="axistitle" transform="rotate(-90 13 ${cy})" x="13" y="${cy}" text-anchor="middle">${CURRENCY} ’000</text>`;
+}
+
 /* ---------- line chart ---------- */
 function drawLines(){
   const svg=document.getElementById('lineChart'); if(!svg)return;
-  const W=720,H=320,padL=44,padR=16,padT=16,padB=34;
+  const W=720,H=320,padL=62,padR=16,padT=16,padB=34;
   const allVals=CATS.flatMap(c=>active.has(c.key)?c.data.concat(c.proj):[0]);
   const maxV=Math.max(200,...allVals)*1.1;
   const x=i=>padL+(i*(W-padL-padR)/(MONTHS.length-1));
@@ -491,7 +500,8 @@ function drawLines(){
   // gridlines
   for(let g=0;g<=4;g++){const gv=maxV*g/4, yy=y(gv);
     s+=`<line class="axisline" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
-    s+=`<text class="axislbl" x="6" y="${yy+4}">${Math.round(gv)}</text>`;}
+    s+=`<text class="axislbl" x="${padL-9}" y="${yy+4}" text-anchor="end">${fmtAxis(gv)}</text>`;}
+  s+=axisTitle(padT,H,padB);
   MONTHS.forEach((m,i)=>{ s+=`<text class="axislbl" x="${x(i)}" y="${H-12}" text-anchor="middle">${m}</text>`; });
   CATS.forEach(c=>{
     if(!active.has(c.key))return;
@@ -510,7 +520,7 @@ function drawLines(){
 /* ---------- stacked bars ---------- */
 function drawBars(){
   const svg=document.getElementById('barChart'); if(!svg)return;
-  const W=720,H=340,padL=44,padR=16,padT=16,padB=34;
+  const W=720,H=340,padL=62,padR=16,padT=16,padB=34;
   const totals=MONTHS.map((m,i)=>CATS.reduce((a,c)=>a+(active.has(c.key)?(i===5?c.proj:c.data[i]):0),0));
   const maxV=Math.max(200,...totals)*1.12;
   const bw=(W-padL-padR)/MONTHS.length*0.56;
@@ -519,7 +529,8 @@ function drawBars(){
   let s='';
   for(let g=0;g<=4;g++){const gv=maxV*g/4, yy=y(gv);
     s+=`<line class="axisline" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
-    s+=`<text class="axislbl" x="6" y="${yy+4}">${Math.round(gv)}</text>`;}
+    s+=`<text class="axislbl" x="${padL-9}" y="${yy+4}" text-anchor="end">${fmtAxis(gv)}</text>`;}
+  s+=axisTitle(padT,H,padB);
   MONTHS.forEach((m,i)=>{
     let acc=0;
     CATS.forEach(c=>{
@@ -533,7 +544,7 @@ function drawBars(){
     s+=`<text class="dlabel" x="${cx(i)}" y="${y(acc)-7}" text-anchor="middle">${(acc/1000).toFixed(acc>=1000?1:0).replace(/\.0$/,'')}${acc>=1000?'M':'k'}</text>`;
     s+=`<text class="axislbl" x="${cx(i)}" y="${H-12}" text-anchor="middle">${m}${i===5?' *':''}</text>`;
   });
-  s+=`<text class="axislbl" x="${W-padR}" y="${H-12}" text-anchor="end">* projected</text>`;
+  s+=`<text class="axislbl" x="${W-padR}" y="${padT+4}" text-anchor="end" style="font-style:italic">* Jun = run-rate projection</text>`;
   svg.innerHTML=s;
 }
 
