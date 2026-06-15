@@ -27,11 +27,14 @@ import PerParentTotals from '@/components/household/PerParentTotals';
 import TimeRangeFilter from '@/components/finance/TimeRangeFilter';
 import FinanceTrends from '@/components/finance/FinanceTrends';
 import FinanceInsights from '@/components/finance/FinanceInsights';
+import BudgetHealthBadge from '@/components/finance/BudgetHealthBadge';
+import WhatIfSimulator from '@/components/finance/WhatIfSimulator';
 import {
   type TimeRange, currentMonthRange, monthKeysInRange, monthSpan,
-  rangeLabel, rangePeriodWord, rangeEndMonthKey, lastNMonthKeys,
+  rangeLabel, rangePeriodWord, rangeEndMonthKey, lastNMonthKeys, elapsedFraction,
 } from '@/lib/timeRange';
-import { buildModuleSeries, activeModulesIn } from '@/lib/financeSeries';
+import { buildModuleSeries, activeModulesIn, monthlyAverages, headlineSignal } from '@/lib/financeSeries';
+import { budgetHealth } from '@/lib/budgetHealth';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -261,6 +264,15 @@ export default function FinancesPage() {
   );
   const trendModules = useMemo(() => activeModulesIn(series, LIVE_MODULES), [series]);
 
+  // Surprises (PR 4): health score, headline "Kaya noticed" signal, what-if averages.
+  const overCount = useMemo(() => LIVE_MODULES.filter((m) => perModule[m].over).length, [perModule]);
+  const health = useMemo(
+    () => budgetHealth(totalSpent, totalCap, elapsedFraction(range), overCount),
+    [totalSpent, totalCap, range, overCount],
+  );
+  const averages = useMemo(() => monthlyAverages(series, trendModules), [series, trendModules]);
+  const signal = useMemo(() => headlineSignal(series, trendModules, (m) => MODULE_LABEL[m]), [series, trendModules]);
+
   // Polite blocker for non-parents who reach this URL before redirect.
   if (profile && profile.role !== 'parent') {
     return (
@@ -333,11 +345,29 @@ export default function FinancesPage() {
             periodLabel={rangeLabel(range)}
             monthKey={rangeEndMonthKey(range)}
           />
+          {/* ✨ Surprise 3 — What-if savings simulator */}
+          <WhatIfSimulator averages={averages} modules={trendModules} currency={currency} />
         </div>
       )}
 
       {tab === 'overview' && (
       <>
+      {/* ✨ Surprise 2 — "Kaya noticed" quiet anomaly banner */}
+      {signal && (
+        <button
+          type="button"
+          onClick={() => setTab('insights')}
+          className="mt-3 w-full flex items-center gap-2.5 text-left rounded-hive border border-hive-line bg-hive-paper px-3.5 py-2.5"
+        >
+          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{
+            background: signal.tone === 'hi' ? '#E8806B' : signal.tone === 'win' ? '#7FCF97' : '#D4A847',
+          }} />
+          <span className="text-[12.5px] font-bold text-hive-ink leading-snug">
+            <span className="font-nunito font-black">{signal.emoji} Kaya noticed</span>{' — '}{signal.text}.
+          </span>
+          <span className="ml-auto text-[11px] font-nunito font-black text-hive-muted flex-shrink-0">AI →</span>
+        </button>
+      )}
       {/* Family total */}
       <div className={`mt-4 rounded-hive border p-4 ${
         totalOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-pantry-leaf-soft border-pantry-leaf'
@@ -367,6 +397,10 @@ export default function FinancesPage() {
         <p className="text-[11px] text-hive-muted mt-2 font-bold">
           {closedInRange.length} closed request{closedInRange.length === 1 ? '' : 's'} {rangePeriodWord(range)}
         </p>
+        {/* ✨ Surprise 1 — Budget Health Score */}
+        <div className="mt-3 pt-3 border-t border-pantry-leaf/40">
+          <BudgetHealthBadge health={health} />
+        </div>
       </div>
 
       {/* Per-parent attribution card — stacked bar + tappable rows.

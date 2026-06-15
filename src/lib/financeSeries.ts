@@ -71,6 +71,62 @@ export interface ModuleDelta {
   deltaPct: number | null;
 }
 
+/** Per-module mean monthly spend across the window (cents). Drives the
+ *  what-if simulator's baselines. */
+export function monthlyAverages(series: ModuleSeries, modules: PurchaseModule[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  const n = Math.max(1, series.months.length);
+  for (const m of modules) {
+    const arr = series.perModule[m] ?? [];
+    out[m] = arr.reduce((a, v) => a + v, 0) / n;
+  }
+  return out;
+}
+
+export interface HeadlineSignal {
+  tone: 'hi' | 'win' | 'mid';
+  emoji: string;
+  module: PurchaseModule;
+  text: string;
+}
+
+/** The single most noteworthy movement in the window — for the quiet
+ *  "Kaya noticed" banner on the Overview tab (surprise #2). Prefers an
+ *  anomaly, then the biggest riser, then the biggest win. Returns null
+ *  when there's nothing worth flagging. */
+export function headlineSignal(
+  series: ModuleSeries,
+  modules: PurchaseModule[],
+  labelOf: (m: PurchaseModule) => string,
+): HeadlineSignal | null {
+  const n = series.months.length;
+  // Anomaly — latest vs trailing average.
+  if (n >= 3) {
+    let best: { m: PurchaseModule; pct: number } | null = null;
+    for (const m of modules) {
+      const arr = series.perModule[m] ?? [];
+      const latest = arr[n - 1] ?? 0;
+      const past = arr.slice(0, n - 1);
+      const avg = past.reduce((a, v) => a + v, 0) / Math.max(1, past.length);
+      if (avg > 0 && latest > avg * 1.3) {
+        const pct = Math.round(((latest - avg) / avg) * 100);
+        if (!best || pct > best.pct) best = { m, pct };
+      }
+    }
+    if (best) return { tone: 'hi', emoji: '📈', module: best.m, text: `${labelOf(best.m)} is ${best.pct}% above its recent average` };
+  }
+  const deltas = lastTwoDeltas(series, modules);
+  const riser = deltas.find((d) => d.deltaCents > 0);
+  if (riser && riser.deltaPct != null && riser.deltaPct >= 15) {
+    return { tone: 'hi', emoji: '⚡', module: riser.module, text: `${labelOf(riser.module)} is up ${riser.deltaPct}% vs last month` };
+  }
+  const win = [...deltas].sort((a, b) => a.deltaCents - b.deltaCents)[0];
+  if (win && win.deltaCents < 0 && win.deltaPct != null) {
+    return { tone: 'win', emoji: '✅', module: win.module, text: `${labelOf(win.module)} is down ${Math.abs(win.deltaPct)}% vs last month` };
+  }
+  return null;
+}
+
 /** Month-over-month deltas (last two months in the window), biggest first. */
 export function lastTwoDeltas(series: ModuleSeries, modules: PurchaseModule[]): ModuleDelta[] {
   const n = series.months.length;

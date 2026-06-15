@@ -119,6 +119,23 @@ export function rangeLabel(r: TimeRange): string {
   }
 }
 
+/** Fraction (0-1) of the range that has elapsed as of `now`. Drives the
+ *  Budget Health pace calc — a month seen on day 15/30 is ~0.5 elapsed. */
+export function elapsedFraction(r: TimeRange, now: Date = new Date()): number {
+  const keys = monthKeysInRange(r);
+  if (!keys.length) return 1;
+  const [sy, sm] = keys[0].split('-').map(Number);
+  const [ey, em] = keys[keys.length - 1].split('-').map(Number);
+  const start = new Date(sy, sm - 1, 1).getTime();
+  const end = new Date(ey, em, 1).getTime(); // first instant after the last month
+  const total = end - start;
+  const el = now.getTime() - start;
+  if (total <= 0) return 1;
+  if (el <= 0) return 0.02;
+  if (el >= total) return 1;
+  return el / total;
+}
+
 /** Plain-language period word for subtitles ("this month" / "this quarter"…). */
 export function rangePeriodWord(r: TimeRange): string {
   switch (r.kind) {
