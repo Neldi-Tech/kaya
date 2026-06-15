@@ -25,10 +25,12 @@ import { subscribeToContributions, type Contribution } from '@/lib/contributions
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import PerParentTotals from '@/components/household/PerParentTotals';
 import TimeRangeFilter from '@/components/finance/TimeRangeFilter';
+import FinanceTrends from '@/components/finance/FinanceTrends';
 import {
   type TimeRange, currentMonthRange, monthKeysInRange, monthSpan,
-  rangeLabel, rangePeriodWord,
+  rangeLabel, rangePeriodWord, rangeEndMonthKey, lastNMonthKeys,
 } from '@/lib/timeRange';
+import { buildModuleSeries, activeModulesIn } from '@/lib/financeSeries';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -247,6 +249,17 @@ export default function FinancesPage() {
   const totalPct = totalCap > 0 ? Math.min(100, Math.round((totalSpent / totalCap) * 100)) : 0;
   const totalOver = totalCap > 0 && totalSpent > totalCap;
 
+  // ── Tabs + trends series (PR 2) ──────────────────────────────────
+  const [tab, setTab] = useState<'overview' | 'trends'>('overview');
+  // Trends are inherently multi-month: a trailing 6-month window ending at
+  // the selected range's most recent month.
+  const trendMonths = useMemo(() => lastNMonthKeys(rangeEndMonthKey(range), 6), [range]);
+  const series = useMemo(
+    () => buildModuleSeries(LIVE_MODULES, recent, ledger, trendMonths),
+    [recent, ledger, trendMonths],
+  );
+  const trendModules = useMemo(() => activeModulesIn(series, LIVE_MODULES), [series]);
+
   // Polite blocker for non-parents who reach this URL before redirect.
   if (profile && profile.role !== 'parent') {
     return (
@@ -286,6 +299,30 @@ export default function FinancesPage() {
         />
       </div>
 
+      {/* Tabs — Overview (roll-up) · Trends (charts). AI Insights lands next. */}
+      <div className="flex gap-1.5 bg-hive-paper border border-hive-line rounded-hive p-1 mt-3">
+        {([['overview', '📊 Overview'], ['trends', '📈 Trends']] as const).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={`flex-1 font-nunito font-black text-[14px] py-2.5 rounded-[12px] transition-colors ${
+              tab === k ? 'bg-hive-navy text-white' : 'text-hive-muted'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'trends' && (
+        <div className="mt-4">
+          <FinanceTrends series={series} modules={trendModules} currency={currency} />
+        </div>
+      )}
+
+      {tab === 'overview' && (
+      <>
       {/* Family total */}
       <div className={`mt-4 rounded-hive border p-4 ${
         totalOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-pantry-leaf-soft border-pantry-leaf'
@@ -451,6 +488,8 @@ export default function FinancesPage() {
         Subscriptions + Contributions feed in from the new Household modules.
         Professional-tagged subs are excluded from the household roll-up.
       </p>
+      </>
+      )}
     </div>
   );
 }

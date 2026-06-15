@@ -68,6 +68,35 @@ export function monthKeysInRange(r: TimeRange): string[] {
 /** Number of months the range covers (≥1 for valid ranges). */
 export const monthSpan = (r: TimeRange) => monthKeysInRange(r).length;
 
+/** The last 'YYYY-MM' the range covers (its most recent month). */
+export function rangeEndMonthKey(r: TimeRange): string {
+  const keys = monthKeysInRange(r);
+  if (keys.length) return keys[keys.length - 1];
+  return monthKeyOfDate(new Date());
+}
+
+/** N consecutive month keys ending at (and including) `endKey`, oldest first.
+ *  Used by the Trends window, which is inherently multi-month. */
+export function lastNMonthKeys(endKey: string, n: number): string[] {
+  const [ey, em] = endKey.split('-').map(Number);
+  const out: string[] = [];
+  let y = ey, m = em; // m is 1-based
+  for (let i = 0; i < n; i++) {
+    out.unshift(`${y}-${pad2(m)}`);
+    m -= 1; if (m < 1) { m = 12; y -= 1; }
+  }
+  return out;
+}
+
+/** Short month label for an axis tick, e.g. "Jun" or "Jun '26" when spanning years. */
+export function shortMonthLabel(key: string, withYear = false): string {
+  const [y, m] = key.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  return withYear
+    ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' })
+    : d.toLocaleDateString('en-US', { month: 'short' });
+}
+
 /** Headline label, e.g. "June 2026", "Q2 2026", "2026", "Apr–Jun 2026". */
 export function rangeLabel(r: TimeRange): string {
   switch (r.kind) {
