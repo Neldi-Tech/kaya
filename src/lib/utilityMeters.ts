@@ -105,6 +105,9 @@ export interface UtilityMeter {
   /** When balanceUnits falls below this, Pulse auto-creates a utility top-up
    *  purchaseRequest — the Kaya Plus seam. 'down' meters only. */
   minUnitsThreshold?: number;
+  /** Helper-of-record uid — Kaya auto-pings this helper when the meter dips
+   *  below minUnitsThreshold (Auto-buddy, PR 5). Picker UI lands in PR 5. */
+  helperOfRecord?: string;
   // ── Auto top-up config (Kaya Plus, 2026-06-06) ─────────────────────
   /** Master switch — when on + balanceUnits < minUnitsThreshold, Kaya
    *  auto-creates a pending-approval top-up request for this meter. */

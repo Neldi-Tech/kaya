@@ -322,6 +322,53 @@ export default function PulseDashboardPage() {
     return out;
   }, [readings]);
 
+  // v2 — Unit Balances panel (Metered tab). For every direction='down'
+  // meter, compute units-left + burn-rate + days-left. Visual fuel-gauge,
+  // colored by days-left. PR 5 wires the helperOfRecord auto-buddy ping.
+  const unitBalances = useMemo(() => {
+    const today = new Date();
+    const dom = today.getDate();
+    return trackables
+      .filter((t) => t.active && t.direction === 'down')
+      .map((t) => {
+        const latest = latestByTrackable[t.id];
+        const unitsLeft = latest && Number.isFinite(latest.value)
+          ? latest.value
+          : (t.balanceUnits ?? 0);
+        let monthBurn = 0;
+        for (const r of readings) {
+          if (r.trackableId !== t.id) continue;
+          monthBurn += r.consumedUnits ?? 0;
+        }
+        const avgBurnPerDay = monthBurn / Math.max(1, dom);
+        const daysLeft = avgBurnPerDay > 0 ? unitsLeft / avgBurnPerDay : Number.POSITIVE_INFINITY;
+        const status: 'ok' | 'warn' | 'low' = daysLeft < 2 ? 'low' : daysLeft < 5 ? 'warn' : 'ok';
+        const fillPct = Number.isFinite(daysLeft)
+          ? Math.max(4, Math.min(100, Math.round((daysLeft / 14) * 100)))
+          : 100;
+        const lastTopUp = (() => {
+          // most-recent reading where event === 'topup' (across this month +
+          // any extraMonth caches) — gives a "last top-up" line per meter.
+          let best: PulseReading | undefined;
+          const scan = (rs: PulseReading[]) => {
+            for (const r of rs) {
+              if (r.trackableId !== t.id) continue;
+              if (r.event !== 'topup') continue;
+              if (!best || (r.capturedAt?.toMillis?.() ?? 0) > (best.capturedAt?.toMillis?.() ?? 0)) best = r;
+            }
+          };
+          scan(readings);
+          Object.values(extraMonth).forEach(scan);
+          return best?.dayKey;
+        })();
+        return { t, unitsLeft, daysLeft, fillPct, status, lastTopUp };
+      })
+      .sort((a, b) => {
+        const order = { low: 0, warn: 1, ok: 2 } as const;
+        return order[a.status] - order[b.status];
+      });
+  }, [trackables, latestByTrackable, readings, extraMonth]);
+
   // "60 kWh left · 2 days ago" for depleting meters, "4,210 kWh · today" for
   // cumulative ones. Empty when there's no reading this month.
   const lastEntryLine = (trackableId: string): string | null => {
@@ -709,6 +756,59 @@ export default function PulseDashboardPage() {
       )}
 
       {activeTab === 'metered' && (<>
+      {/* 🔋 Unit balances panel (PR 4 / v2). For depleting meters, shows
+          units-left + a fuel-gauge colored by days-left. PR 5 wires Auto-buddy. */}
+      {unitBalances.length > 0 && (
+        <div className="bg-white border-2 border-pulse-gold/60 rounded-2xl p-3 mt-4 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="font-nunito font-black text-pulse-navy text-[14px]">🔋 Unit balances</div>
+              <div className="text-[9px] font-extrabold tracking-[1px] uppercase text-hive-muted">as of today</div>
+            </div>
+            <span className="text-[10px] font-black px-2 py-1 rounded-full bg-pulse-cream text-pulse-navy">{unitBalances.length} meter{unitBalances.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="flex flex-col">
+            {unitBalances.map(({ t, unitsLeft, daysLeft, fillPct, status, lastTopUp }) => {
+              const fillCls = status === 'low' ? 'bg-pulse-coral' : status === 'warn' ? 'bg-[#D4A847]' : 'bg-pulse-green';
+              const daysLbl = Number.isFinite(daysLeft) ? `≈ ${daysLeft.toFixed(1)} days left at today's pace` : 'no burn yet';
+              const daysTone = status === 'low' ? 'text-pulse-coral animate-pulse' : status === 'warn' ? 'text-[#B58A2F]' : 'text-pulse-navy';
+              const buddyLine = status === 'low' && t.helperOfRecord
+                ? ' · 🤝 helper alerted'
+                : status === 'low' && !t.helperOfRecord
+                  ? ' · set a helper for auto-alerts'
+                  : '';
+              return (
+                <Link key={t.id} href={`/pulse/trackable/${t.id}`} className="block py-2.5 border-t border-dashed border-pulse-gold/30 first:border-t-0 no-underline">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[12px] font-black text-pulse-navy">{t.emoji} {t.name}</span>
+                    <span className="font-nunito font-black text-[14px] text-pulse-navy">
+                      {Math.round(unitsLeft).toLocaleString()}
+                      <span className="text-[10px] text-hive-muted font-bold"> {t.unit}</span>
+                    </span>
+                  </div>
+                  <div className="h-2 bg-pulse-cream rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${fillCls}`} style={{ width: `${fillPct}%` }} />
+                  </div>
+                  <div className="flex justify-between mt-1 text-[9.5px] font-extrabold">
+                    <span className={daysTone}>
+                      {status === 'low' ? '🪫 ' : status === 'warn' ? '⚠ ' : ''}{daysLbl}{buddyLine}
+                    </span>
+                    <span className="text-hive-muted">{lastTopUp ? `top-up ${relativeDayLabel(lastTopUp)}` : 'no top-up logged'}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+          <Link
+            href="/pulse/brief-setup"
+            className="mt-3 block bg-pulse-navy text-pulse-gold rounded-xl px-3 py-2 text-[11px] font-black no-underline flex items-center justify-between"
+          >
+            <span>📬 Morning brief setup</span>
+            <span>→</span>
+          </Link>
+        </div>
+      )}
+
       {/* 14-day metered trend chart (PR 3 / v2). Spike days flagged coral. */}
       {(() => {
         const max = Math.max(1, ...metered14.map((d) => d.total));
