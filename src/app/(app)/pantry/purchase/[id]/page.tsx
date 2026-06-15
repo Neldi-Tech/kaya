@@ -34,8 +34,9 @@ import {
   submitForCloseReview, approveCloseAndPost, kickBackToReconcile,
   readPurchaseConfig, bandPctFor, priceBandRange, priceWithinBand,
   resolvePriceException, hasUnresolvedPriceException,
-  setRequestBudgetMonth, budgetMonthKeyFor,
+  setRequestBudgetMonth, budgetMonthKeyFor, editPayrollPeriod, markSalaryPaid,
 } from '@/lib/purchase';
+import type { EditActor, PayrollEditLogEntry } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
 import { useLocale } from '@/lib/useLocale';
@@ -1075,11 +1076,32 @@ export default function PurchaseDetailPage() {
         <PayrollPaystubBanner cycle={req.payrollCycle} currency={currency} />
       )}
 
+      {/* Edit posted entry (2026-06-15) — parent-only corrections to a
+          CLOSED salary: work-period dates + actual payment day. Kept above
+          the budget-month card so the three controls read as one group. */}
+      {req.module === 'payroll' && role === 'parent' && isClosed && profile?.familyId && (
+        <PayrollEditPostedCard
+          familyId={profile.familyId}
+          req={req}
+          actor={{ uid: profile.uid!, name: profile.displayName ?? undefined }}
+        />
+      )}
+
       {/* Budget month — parent correction for a salary stamped to the wrong
           month (e.g. May's pay paid on the 1st–5th of June). Sets budgetMonth
           so the cost reads in the month worked. Parent + payroll only. */}
       {req.module === 'payroll' && role === 'parent' && profile?.familyId && (
-        <PayrollBudgetMonthCard familyId={profile.familyId} req={req} />
+        <PayrollBudgetMonthCard
+          familyId={profile.familyId}
+          req={req}
+          actor={{ uid: profile.uid!, name: profile.displayName ?? undefined }}
+        />
+      )}
+
+      {/* Edit trail — quiet history of post-close corrections. Parent-only,
+          payroll, only when there's something to show. */}
+      {req.module === 'payroll' && role === 'parent' && (req.editLog?.length ?? 0) > 0 && (
+        <PayrollEditTrail entries={req.editLog!} />
       )}
 
       {/* Module budget banner — kept lightweight (single Family read).
@@ -3163,7 +3185,7 @@ function prevMonthKey(mk: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function PayrollBudgetMonthCard({ familyId, req }: { familyId: string; req: PurchaseRequest }) {
+function PayrollBudgetMonthCard({ familyId, req, actor }: { familyId: string; req: PurchaseRequest; actor: EditActor }) {
   const current = budgetMonthKeyFor(req) ?? '';
   const [month, setMonth] = useState(current);
   const [saving, setSaving] = useState(false);
@@ -3176,7 +3198,7 @@ function PayrollBudgetMonthCard({ familyId, req }: { familyId: string; req: Purc
     if (!mk) return;
     setSaving(true); setSaved(false);
     try {
-      await setRequestBudgetMonth(familyId, req.id, mk);
+      await setRequestBudgetMonth(familyId, req.id, mk, actor);
       setMonth(mk);
       setSaved(true);
       setTimeout(() => setSaved(false), 1600);
@@ -3221,6 +3243,138 @@ function PayrollBudgetMonthCard({ familyId, req }: { familyId: string; req: Purc
           {saving ? 'Saving…' : 'Set month'}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Edit posted entry (2026-06-15) ──────────────────────────────────
+// Parent-only post-close corrections for a CLOSED salary:
+//   • Work period — the days this salary covers. Kept INDEPENDENT of the
+//     budget month (editPayrollPeriod pins the month first), so fixing a
+//     date never silently moves which month the cost lands in.
+//   • Payment day — the real date money left the parent's hands, which is
+//     often later than the system "Mark paid" tap. Writes paidAt only.
+// Every save lands a line in the edit trail below.
+function isoToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function tsToIso(ts: PurchaseRequest['paidAt']): string {
+  const d = ts?.toDate?.();
+  if (!d) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function PayrollEditPostedCard({ familyId, req, actor }: { familyId: string; req: PurchaseRequest; actor: EditActor }) {
+  const cycle = req.payrollCycle;
+  const [start, setStart] = useState(cycle?.periodStart ?? '');
+  const [end, setEnd] = useState(cycle?.periodEnd ?? '');
+  const [paid, setPaid] = useState(tsToIso(req.paidAt));
+  const [savingWhat, setSavingWhat] = useState<null | 'period' | 'paid'>(null);
+  const [savedWhat, setSavedWhat] = useState<null | 'period' | 'paid'>(null);
+
+  const flashSaved = (what: 'period' | 'paid') => {
+    setSavedWhat(what);
+    setTimeout(() => setSavedWhat((w) => (w === what ? null : w)), 1600);
+  };
+
+  const savePeriod = async () => {
+    if (!start || !end || end < start) return;
+    setSavingWhat('period');
+    try {
+      await editPayrollPeriod(familyId, req.id, start, end, actor);
+      flashSaved('period');
+    } finally { setSavingWhat(null); }
+  };
+
+  const savePaid = async (iso: string) => {
+    if (!iso) return;
+    setPaid(iso);
+    setSavingWhat('paid');
+    try {
+      // Parse as a local date at noon to dodge timezone roll-back.
+      const [y, m, d] = iso.split('-').map(Number);
+      await markSalaryPaid(familyId, req.id, new Date(y, m - 1, d, 12), actor);
+      flashSaved('paid');
+    } finally { setSavingWhat(null); }
+  };
+
+  const periodDirty = !!cycle && (start !== cycle.periodStart || end !== cycle.periodEnd);
+  const periodInvalid = !start || !end || end < start;
+
+  return (
+    <div className="rounded-kaya bg-white border border-hive-honey/60 mb-3 overflow-hidden">
+      <div className="bg-[#FFF7E8] border-b border-hive-honey/50 px-4 py-2.5">
+        <p className="font-nunito font-black text-[13px] text-[#8A6D1E]">✏️ Edit posted entry</p>
+        <p className="text-[11px] text-[#9A7E33] font-bold mt-0.5">Correct the dates or the day it was actually paid. Parent-only.</p>
+      </div>
+
+      {/* Work period — independent of the budget month. */}
+      {cycle && (
+        <div className="px-4 py-3 border-b border-hive-cream">
+          <div className="flex items-baseline justify-between gap-2">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-hive-navy">Work period</p>
+            {savedWhat === 'period' && <span className="text-[10px] font-bold text-pantry-leaf-dk">✓ Saved</span>}
+          </div>
+          <p className="text-[11px] text-hive-muted mt-0.5">The days this salary covers. Changing these won&apos;t move the budget month — use <b>Budget month</b> below for that.</p>
+          <div className="flex flex-wrap items-center gap-2 mt-2">
+            <input type="date" value={start} max={end || undefined}
+              onChange={(e) => setStart(e.target.value)}
+              className="h-9 px-2 bg-[#FBFAF7] border border-hive-cream rounded-kaya-sm text-[12.5px] font-bold text-hive-navy focus:outline-none focus:border-hive-honey" />
+            <span className="text-hive-muted font-bold">→</span>
+            <input type="date" value={end} min={start || undefined}
+              onChange={(e) => setEnd(e.target.value)}
+              className="h-9 px-2 bg-[#FBFAF7] border border-hive-cream rounded-kaya-sm text-[12.5px] font-bold text-hive-navy focus:outline-none focus:border-hive-honey" />
+            <button type="button" disabled={!periodDirty || periodInvalid || savingWhat === 'period'}
+              onClick={savePeriod}
+              className="rounded-kaya-sm bg-hive-navy text-hive-cream px-4 h-9 text-[12.5px] font-nunito font-black disabled:opacity-40">
+              {savingWhat === 'period' ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Payment day — the real date paid (often after the system tap). */}
+      <div className="px-4 py-3">
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="text-[10px] uppercase tracking-wider font-bold text-hive-blue">Payment date</p>
+          {savedWhat === 'paid' && <span className="text-[10px] font-bold text-pantry-leaf-dk">✓ Saved</span>}
+        </div>
+        <p className="text-[11px] text-hive-muted mt-0.5">When you actually paid — edit if it landed later than recorded. Budget month stays put.</p>
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          <input type="date" value={paid} max={isoToday()}
+            onChange={(e) => setPaid(e.target.value)}
+            className="h-9 px-2 bg-[#FBFAF7] border border-hive-blue/30 rounded-kaya-sm text-[12.5px] font-bold text-hive-navy focus:outline-none focus:border-hive-blue" />
+          <button type="button" disabled={!paid || savingWhat === 'paid'}
+            onClick={() => savePaid(paid)}
+            className="rounded-kaya-sm bg-hive-blue text-white px-4 h-9 text-[12.5px] font-nunito font-black disabled:opacity-40">
+            {savingWhat === 'paid' ? 'Saving…' : (req.paidAt ? 'Update date' : 'Set paid date')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Quiet, append-only history of post-close corrections (2026-06-15).
+function PayrollEditTrail({ entries }: { entries: PayrollEditLogEntry[] }) {
+  // Newest first.
+  const rows = [...entries].sort((a, b) => (b.at?.toMillis?.() ?? 0) - (a.at?.toMillis?.() ?? 0));
+  return (
+    <div className="rounded-kaya bg-hive-cream/40 border border-hive-cream px-4 py-3 mb-3">
+      <p className="text-[10px] uppercase tracking-wider font-bold text-hive-muted">Edit history</p>
+      <ul className="mt-1.5 space-y-1">
+        {rows.map((e, i) => {
+          const when = e.at?.toDate?.();
+          const whenLbl = when ? when.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) : '';
+          return (
+            <li key={i} className="text-[11.5px] text-hive-ink leading-snug">
+              <span className="font-bold">{e.summary}</span>
+              <span className="text-hive-muted">{' · '}{e.byName || 'Parent'}{whenLbl ? ` · ${whenLbl}` : ''}</span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
