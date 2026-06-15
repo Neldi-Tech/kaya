@@ -26,6 +26,7 @@ import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import PerParentTotals from '@/components/household/PerParentTotals';
 import TimeRangeFilter from '@/components/finance/TimeRangeFilter';
 import FinanceTrends from '@/components/finance/FinanceTrends';
+import FinanceInsights from '@/components/finance/FinanceInsights';
 import {
   type TimeRange, currentMonthRange, monthKeysInRange, monthSpan,
   rangeLabel, rangePeriodWord, rangeEndMonthKey, lastNMonthKeys,
@@ -250,7 +251,7 @@ export default function FinancesPage() {
   const totalOver = totalCap > 0 && totalSpent > totalCap;
 
   // ── Tabs + trends series (PR 2) ──────────────────────────────────
-  const [tab, setTab] = useState<'overview' | 'trends'>('overview');
+  const [tab, setTab] = useState<'overview' | 'trends' | 'insights'>('overview');
   // Trends are inherently multi-month: a trailing 6-month window ending at
   // the selected range's most recent month.
   const trendMonths = useMemo(() => lastNMonthKeys(rangeEndMonthKey(range), 6), [range]);
@@ -301,12 +302,12 @@ export default function FinancesPage() {
 
       {/* Tabs — Overview (roll-up) · Trends (charts). AI Insights lands next. */}
       <div className="flex gap-1.5 bg-hive-paper border border-hive-line rounded-hive p-1 mt-3">
-        {([['overview', '📊 Overview'], ['trends', '📈 Trends']] as const).map(([k, label]) => (
+        {([['overview', '📊 Overview'], ['trends', '📈 Trends'], ['insights', '🤖 AI']] as const).map(([k, label]) => (
           <button
             key={k}
             type="button"
             onClick={() => setTab(k)}
-            className={`flex-1 font-nunito font-black text-[14px] py-2.5 rounded-[12px] transition-colors ${
+            className={`flex-1 font-nunito font-black text-[13.5px] py-2.5 rounded-[12px] transition-colors ${
               tab === k ? 'bg-hive-navy text-white' : 'text-hive-muted'
             }`}
           >
@@ -318,6 +319,20 @@ export default function FinancesPage() {
       {tab === 'trends' && (
         <div className="mt-4">
           <FinanceTrends series={series} modules={trendModules} currency={currency} />
+        </div>
+      )}
+
+      {tab === 'insights' && profile?.familyId && (
+        <div className="mt-4">
+          <FinanceInsights
+            familyId={profile.familyId}
+            series={series}
+            modules={trendModules}
+            perModule={perModule}
+            currency={currency}
+            periodLabel={rangeLabel(range)}
+            monthKey={rangeEndMonthKey(range)}
+          />
         </div>
       )}
 
