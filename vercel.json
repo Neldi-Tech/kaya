@@ -75,6 +75,10 @@
     {
       "path": "/api/cron/birthdays",
       "schedule": "30 3 * * *"
+    },
+    {
+      "path": "/api/cron/pulse-brief",
+      "schedule": "0,30 * * * *"
     }
   ]
 }
