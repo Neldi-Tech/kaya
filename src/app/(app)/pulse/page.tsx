@@ -17,12 +17,21 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule,
-  subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
+  subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL, budgetMonthKeyFor,
 } from '@/lib/purchase';
 import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero } from '@/components/pulse/ui';
 import AskKaya from '@/components/pulse/AskKaya';
+import TimeRangeFilter from '@/components/finance/TimeRangeFilter';
+import FinanceTrends from '@/components/finance/FinanceTrends';
+import FinanceInsights from '@/components/finance/FinanceInsights';
+import WhatIfSimulator from '@/components/finance/WhatIfSimulator';
+import {
+  type TimeRange, currentMonthRange, monthKeysInRange,
+  rangeLabel, rangeEndMonthKey, lastNMonthKeys,
+} from '@/lib/timeRange';
+import { buildModuleSeries, activeModulesIn, monthlyAverages } from '@/lib/financeSeries';
 import {
   type PulseReading, type Trackable, type PulseTask,
   subscribeToReadingsInMonth, subscribeToTrackables, subscribeToTasksForDay, resolveAssist,
@@ -92,7 +101,9 @@ export default function PulseDashboardPage() {
   const [assistBusy, setAssistBusy] = useState('');   // taskId being approved/rejected
   // v2 tab strip — Overview keeps cash/savings/readings/buckets; Metered hosts
   // the metered consumption section (was previously stacked at the bottom).
-  const [activeTab, setActiveTab] = useState<'overview' | 'metered'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'metered' | 'trends' | 'insights'>('overview');
+  // Shared analytics range for the Trends + AI tabs (default current month).
+  const [range, setRange] = useState<TimeRange>(() => currentMonthRange());
 
   const onResolveAssist = async (taskId: string, action: 'approve' | 'reject') => {
     if (!profile?.familyId || assistBusy) return;
@@ -169,6 +180,34 @@ export default function PulseDashboardPage() {
     const totalCap = LIVE_MODULES.reduce((s, m) => s + per[m].cap, 0);
     return { per, totalSpent, totalCap };
   }, [recent, ledger, family?.householdBudgets, thisMonth]);
+
+  // ── Analytics (Trends + AI tabs) — reuses the shared finance components.
+  const monthSet = useMemo(() => new Set(monthKeysInRange(range)), [range]);
+  const trendMonths = useMemo(() => lastNMonthKeys(rangeEndMonthKey(range), 6), [range]);
+  const series = useMemo(() => buildModuleSeries(LIVE_MODULES, recent, ledger, trendMonths), [recent, ledger, trendMonths]);
+  const trendModules = useMemo(() => activeModulesIn(series, LIVE_MODULES), [series]);
+  const averages = useMemo(() => monthlyAverages(series, trendModules), [series, trendModules]);
+  const rangePerModule = useMemo(() => {
+    const per: Record<string, { spent: number; cap: number }> = {};
+    LIVE_MODULES.forEach((m) => { per[m] = { spent: 0, cap: 0 }; });
+    for (const r of recent) {
+      if (r.status !== 'closed') continue;
+      const k = budgetMonthKeyFor(r);
+      if (!k || !monthSet.has(k)) continue;
+      const m = (r.module ?? 'pantry') as PurchaseModule;
+      if (per[m]) per[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
+    }
+    for (const e of ledger) {
+      if (e.isProfessionalExpense) continue;
+      const at = e.occurredOn?.toDate?.();
+      if (!at || !monthSet.has(monthKeyOf(at))) continue;
+      const m = e.sourceModule as PurchaseModule;
+      if (per[m]) per[m].spent += e.amountHousehold || 0;
+    }
+    const budgets = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
+    LIVE_MODULES.forEach((m) => { per[m].cap = budgets[m] ?? 0; });
+    return per as Record<PurchaseModule, { spent: number; cap: number }>;
+  }, [recent, ledger, family?.householdBudgets, monthSet]);
 
   // v2 — LAST MONTH lens for the vs-LM compare chips + hero ghost-line.
   // Uses the already-subscribed `recent` (no time bound) + `ledger` (200 most
@@ -526,7 +565,43 @@ export default function PulseDashboardPage() {
           onClick={() => setActiveTab('metered')}
           className={`flex-1 py-2 rounded-xl font-nunito font-black text-[12px] ${activeTab === 'metered' ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
         >⚡ Metered</button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('trends')}
+          className={`flex-1 py-2 rounded-xl font-nunito font-black text-[12px] ${activeTab === 'trends' ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
+        >📈 Trends</button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('insights')}
+          className={`flex-1 py-2 rounded-xl font-nunito font-black text-[12px] ${activeTab === 'insights' ? 'bg-pulse-navy text-pulse-gold' : 'text-hive-muted'}`}
+        >🤖 AI</button>
       </div>
+
+      {/* Trends + AI — the shared finance analytics, range-filtered. */}
+      {(activeTab === 'trends' || activeTab === 'insights') && (
+        <div className="mt-4">
+          <TimeRangeFilter value={range} onChange={setRange} />
+          {activeTab === 'trends' && (
+            <div className="mt-4">
+              <FinanceTrends series={series} modules={trendModules} currency={currency} />
+            </div>
+          )}
+          {activeTab === 'insights' && profile?.familyId && (
+            <div className="mt-4">
+              <FinanceInsights
+                familyId={profile.familyId}
+                series={series}
+                modules={trendModules}
+                perModule={rangePerModule}
+                currency={currency}
+                periodLabel={rangeLabel(range)}
+                monthKey={rangeEndMonthKey(range)}
+              />
+              <WhatIfSimulator averages={averages} modules={trendModules} currency={currency} />
+            </div>
+          )}
+        </div>
+      )}
 
       {activeTab === 'overview' && (
       <>
