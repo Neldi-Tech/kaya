@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
+import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 
@@ -40,6 +41,29 @@ export default function MeetingsPage() {
   // merged into "Celebrate the wins" in presenter mode (link to the
   // existing /meetings/review screen). The agenda below is fixed.
   const agenda = BASE_AGENDA;
+
+  // Sunday-Meeting v2 (PR B) — the current user's prep-card props so the
+  // Meetings hub is another doorway to fill Gratitude/Appreciation/Goal
+  // before the meeting (parents especially, who land here to start it).
+  // Kid childId can be empty-string — resolve via email match, never
+  // silently children[0].
+  const myPrep = useMemo(() => {
+    if (!profile?.uid) return null;
+    if (profile.role === 'kid') {
+      const myEmail = profile.email?.toLowerCase() ?? '';
+      const childId =
+        (profile.childId?.trim() || '') ||
+        (myEmail ? (children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id ?? '') : '');
+      if (!childId) return null;
+      const me = children.find((c) => c.id === childId);
+      return { meId: profile.uid, role: 'kid' as const, name: (me?.name || profile.displayName || 'friend').split(' ')[0], childId, avatarEmoji: me?.avatarEmoji };
+    }
+    return {
+      meId: profile.uid,
+      role: (profile.role === 'helper' ? 'helper' : 'parent') as 'parent' | 'helper',
+      name: (profile.displayName || 'there').split(' ')[0],
+    };
+  }, [profile?.uid, profile?.role, profile?.childId, profile?.email, profile?.displayName, children]);
 
   // Meeting day reminder — when the family has saved a schedule in
   // /settings/meetings and today is that day, surface a "Meeting
@@ -183,6 +207,9 @@ export default function MeetingsPage() {
           <h1 className="font-display text-2xl font-black">Family Meetings</h1>
           <p className="text-kaya-sand text-sm">Weekly check-ins to grow together</p>
         </div>
+
+        {/* Prep card — fill your Gratitude/Appreciation/Goal here too (PR B). */}
+        {myPrep && <MeetingPrepCard {...myPrep} />}
 
         {/* Schedule reminder banner — only on the family's meeting day. */}
         {scheduleReminder && (
@@ -352,6 +379,10 @@ export default function MeetingsPage() {
           </div>
           <Tabs />
         </div>
+
+        {/* Prep card — desktop (PR B). Constrained width so it doesn't
+            sprawl across the full meeting canvas. */}
+        {myPrep && <div className="max-w-xl"><MeetingPrepCard {...myPrep} /></div>}
 
         {/* Schedule reminder banner — desktop, only on meeting day. */}
         {scheduleReminder && (

@@ -13,6 +13,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
+import { useTodaysBirthdays } from '@/components/birthdays/useTodaysBirthdays';
+import KidAvatar from '@/components/ui/KidAvatar';
 import RemindersInline from '@/components/reminders/RemindersInline';
 import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
 import { useKidMyDay, useParentMyDay, useReminders, actOnApproval, type MyDayItem, type MyDayPeriod } from '@/lib/myDay';
@@ -20,6 +22,7 @@ import { addKidWorkplanItem } from '@/lib/kidWorkplan';
 import { addAdhocWorkplanItem, todayDateString } from '@/lib/workplan';
 import { listHelpers } from '@/lib/helpers';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -65,8 +68,46 @@ export default function MyDayPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
   const role = profile?.role;
+  // Two views of My Day (2026-06-14): Today (everything now) and
+  // 📒 My Submissions (look back at past meetings). Hook before any early
+  // return to keep hooks order stable.
+  const [tab, setTab] = useState<'today' | 'submissions'>('today');
 
   if (!family || !profile) return null;
+
+  // Shared tab bar — sits under the date, above the day's content. Same
+  // for parent / kid / helper.
+  const tabBar = (
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
+      <div className="flex gap-1.5 rounded-full p-1" style={{ background: '#F0EBE3' }}>
+        {([['today', '🌟 Today'], ['submissions', '📒 My Submissions']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className="flex-1 text-center font-black text-[12px] py-2 rounded-full transition-colors"
+            style={tab === key
+              ? { background: '#fff', color: '#1E120B', boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }
+              : { color: '#9B8A72' }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // 📒 My Submissions — same for every role; keyed by the viewer's uid.
+  if (tab === 'submissions') {
+    return (
+      <>
+        {tabBar}
+        <div className="mx-auto max-w-md w-full px-4 pt-3 pb-32">
+          <SubmissionHistoryView familyId={family.id} uid={profile.uid} />
+        </div>
+      </>
+    );
+  }
 
   // 🎂 Birthday wish card — every role sees it on the day (B1). Renders
   // nothing (no spacing) when nobody's celebrating.
@@ -89,18 +130,19 @@ export default function MyDayPage() {
     if (!profile.childId) return null;
     const me = children.find((c) => c.id === profile.childId);
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
-    return <>{wishCard}{remindersStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
   if (role === 'helper') {
     const first = (profile.displayName ?? 'there').split(' ')[0];
-    return <>{wishCard}{remindersStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
   }
 
   // Parent
   const first = (profile.displayName ?? 'there').split(' ')[0];
   return (
     <>
+      {tabBar}
       {wishCard}
       {remindersStrip}
       <MyDayParent
@@ -124,6 +166,13 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
 
   const today = new Date().toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
   const allDone = total > 0 && doneCount === total;
+
+  // Birthday day — crown + chore-free banner for the birthday kid (B3).
+  const { children } = useFamily();
+  const { people: bdayPeople, state: bdayState } = useTodaysBirthdays(familyId);
+  const myBday = bdayPeople.find((p) => p.id === childId);
+  const meChild = children.find((c) => c.id === childId);
+  const choreFreeBday = !!myBday && !!bdayState[myBday.stateKey]?.noChores;
 
   const onTap = async (item: MyDayItem) => {
     if (item.tickItemId) {
@@ -206,7 +255,12 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
         <p className="text-[10px] font-black uppercase tracking-[2px] opacity-90">My Day</p>
         <div className="flex items-center justify-between gap-3 mt-0.5">
           <div className="min-w-0">
-            <p className="font-black text-[18px] leading-tight">{allDone ? '🎉 All done!' : `Habari, ${name} 👋`}</p>
+            {myBday && meChild && (
+              <KidAvatar child={meChild} crown size="md" className="mb-1.5" />
+            )}
+            <p className="font-black text-[18px] leading-tight">
+              {allDone ? '🎉 All done!' : myBday ? `🎂 Happy Birthday, ${name}! 👑` : `Habari, ${name} 👋`}
+            </p>
             <p className="text-[12px] font-bold opacity-90 mt-0.5">{today} · {total > 0 ? `${doneCount} of ${total} done` : 'nothing to do yet'}</p>
           </div>
           {total > 0 && (
@@ -219,6 +273,13 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
           </div>
         )}
       </div>
+
+      {choreFreeBday && (
+        <div className="rounded-2xl p-3.5 mb-4 text-center border-2 border-dashed" style={{ borderColor: JOY.coral, background: '#FFF6F3' }}>
+          <p className="font-black text-[14px]" style={{ color: JOY.coral }}>🎂 Happy Birthday, {name}! 🎉</p>
+          <p className="text-[12px] font-bold mt-0.5" style={{ color: JOY.ink }}>Chores are optional today — go enjoy your day 💛</p>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-center text-sm font-extrabold py-8" style={{ color: JOY.purple }}>Loading your day…</p>

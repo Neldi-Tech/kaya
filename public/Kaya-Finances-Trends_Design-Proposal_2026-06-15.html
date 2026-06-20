@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kaya · Finances + Trends — design preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#FBF2DD; --cream-2:#FCF6E8; --ink:#16243F; --navy:#1C2B49; --navy-2:#23365c;
+    --leaf:#5C8C6A; --leaf-dk:#3E6B4F; --leaf-soft:#DCE9D3; --leaf-border:#BFD4B2;
+    --honey:#D6A94A; --honey-dk:#B5872C;
+    --blue:#4A6FA5; --purple:#6B4FA0; --purple-soft:#F1ECFA;
+    --amber:#C68A2E; --rose:#C26B6B; --olive:#7BA05B;
+    --muted:#8C8775; --line:#ECE3CF; --white:#fff;
+    --shadow:0 10px 30px rgba(28,43,73,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:'Nunito',system-ui,-apple-system,'Segoe UI',sans-serif;
+    background:
+      radial-gradient(1200px 380px at 50% -120px, #FFF7E6 0%, rgba(255,247,230,0) 70%),
+      var(--cream);
+    color:var(--ink); -webkit-font-smoothing:antialiased; line-height:1.45;
+    padding-bottom:80px;
+  }
+  .wrap{max-width:980px;margin:0 auto;padding:0 18px}
+  .preview-flag{
+    background:linear-gradient(90deg,#1C2B49,#2c3f66);color:#fff;text-align:center;
+    font-size:12px;font-weight:800;letter-spacing:.4px;padding:8px 14px;
+  }
+  .preview-flag b{color:var(--honey)}
+  .topbar{display:flex;align-items:center;gap:10px;padding:18px 0 6px}
+  .chip-back{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 14px;
+    font-weight:800;font-size:14px;color:var(--ink);box-shadow:0 2px 6px rgba(0,0,0,.04)}
+  .eyebrow{color:var(--leaf-dk);font-weight:800;letter-spacing:2.5px;font-size:12px;margin:14px 0 2px}
+  h1.title{font-size:40px;font-weight:900;margin:2px 0 2px;letter-spacing:-.5px}
+  .subtitle{color:var(--muted);font-weight:700;margin:0 0 14px;font-size:15px}
+
+  /* ---- Time filter bar ---- */
+  .filterbar{position:sticky;top:0;z-index:30;background:rgba(251,242,221,.86);
+    backdrop-filter:blur(8px);padding:10px 0 12px;margin:0 -18px;}
+  .filterbar .wrap{padding:0 18px}
+  .seg{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:14px;
+    padding:4px;gap:3px;box-shadow:0 2px 8px rgba(0,0,0,.04);flex-wrap:wrap}
+  .seg button{border:0;background:transparent;font-family:inherit;font-weight:800;font-size:13.5px;
+    color:var(--muted);padding:8px 14px;border-radius:11px;cursor:pointer;transition:.15s}
+  .seg button.on{background:var(--navy);color:#fff;box-shadow:0 4px 10px rgba(28,43,73,.22)}
+  .subfilter{margin-top:10px;display:none;align-items:center;gap:8px;flex-wrap:wrap}
+  .subfilter.on{display:flex}
+  .stepper{display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--line);
+    border-radius:12px;padding:4px}
+  .stepper button{border:0;background:var(--leaf-soft);color:var(--leaf-dk);width:30px;height:30px;
+    border-radius:9px;font-weight:900;cursor:pointer;font-size:15px}
+  .stepper .lbl{font-weight:900;padding:0 10px;min-width:118px;text-align:center}
+  .qchip,.pill-select{background:#fff;border:1px solid var(--line);border-radius:11px;padding:8px 13px;
+    font-weight:800;font-size:13px;color:var(--ink);cursor:pointer}
+  .qchip.on{background:var(--honey);border-color:var(--honey);color:#3a2c06}
+  .dateinput{background:#fff;border:1px solid var(--line);border-radius:11px;padding:7px 10px;
+    font-family:inherit;font-weight:700;color:var(--ink)}
+  .apply{background:var(--leaf-dk);color:#fff;border:0;border-radius:11px;padding:9px 16px;font-weight:900;
+    font-family:inherit;cursor:pointer}
+  .period-note{font-size:12.5px;color:var(--muted);font-weight:700;margin-top:8px}
+
+  /* ---- Tabs ---- */
+  .tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:5px;
+    margin:16px 0 8px;box-shadow:var(--shadow)}
+  .tabs button{flex:1;border:0;background:transparent;font-family:inherit;font-weight:900;font-size:14.5px;
+    color:var(--muted);padding:12px;border-radius:12px;cursor:pointer;transition:.15s}
+  .tabs button.on{background:var(--navy);color:#fff}
+  .tabs button.on .em{filter:none}
+  .panel{display:none;animation:fade .25s ease}
+  .panel.on{display:block}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+  /* ---- Cards ---- */
+  .card{background:#fff;border:1px solid var(--line);border-radius:20px;padding:20px;margin:14px 0;box-shadow:var(--shadow)}
+  .card.green{background:linear-gradient(180deg,#DCEAD2,#D2E5C8);border-color:var(--leaf-border)}
+  .clabel{font-weight:900;letter-spacing:1.6px;font-size:12px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+  .green .clabel{color:var(--leaf-dk)}
+  .bignum{font-size:34px;font-weight:900;margin:8px 0 2px;letter-spacing:-.5px}
+  .bignum small{font-size:16px;color:var(--muted);font-weight:800}
+  .bar{height:12px;border-radius:999px;background:#fff;overflow:hidden;margin:14px 0 6px;border:1px solid rgba(0,0,0,.04)}
+  .bar > span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--leaf-dk),var(--leaf))}
+  .row-between{display:flex;justify-content:space-between;align-items:center}
+  .muted{color:var(--muted);font-weight:700;font-size:13px}
+
+  /* health gauge (surprise 1) */
+  .health{display:flex;gap:18px;align-items:center;margin-top:8px}
+  .gauge{position:relative;width:120px;height:120px;flex:0 0 120px}
+  .gauge svg{transform:rotate(-90deg)}
+  .gauge .score{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .gauge .score b{font-size:30px;font-weight:900;line-height:1}
+  .gauge .score span{font-size:11px;font-weight:800;color:var(--leaf-dk);letter-spacing:.5px}
+  .grade-pill{display:inline-block;background:#fff;border:1px solid var(--leaf-border);color:var(--leaf-dk);
+    font-weight:900;border-radius:999px;padding:3px 12px;font-size:13px;margin-bottom:6px}
+
+  /* parent split */
+  .splitbar{height:14px;border-radius:999px;display:flex;overflow:hidden;margin:6px 0 14px;border:1px solid rgba(0,0,0,.04)}
+  .splitbar i{display:block;height:100%}
+  .leg{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px dashed var(--line)}
+  .leg:first-of-type{border-top:0}
+  .dot{width:11px;height:11px;border-radius:4px;display:inline-block;margin-right:8px;vertical-align:-1px}
+
+  /* module grid */
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}}
+  .mod{border-radius:18px;padding:16px;border:1px solid var(--line);background:#fff}
+  .mod .top{display:flex;justify-content:space-between;align-items:center}
+  .mod .name{font-weight:900;letter-spacing:1px;font-size:12.5px;text-transform:uppercase;display:flex;gap:7px;align-items:center}
+  .mod .shops{font-size:12px;color:var(--muted);font-weight:800}
+  .mod .amt{font-size:21px;font-weight:900;margin:8px 0 2px}
+  .mod .amt small{font-size:12.5px;color:var(--muted);font-weight:800}
+  .mbar{height:9px;border-radius:999px;background:#F0EAD9;overflow:hidden;margin-top:10px;position:relative}
+  .mbar > span{display:block;height:100%;border-radius:999px}
+  .mod.g{background:#E3EFDA;border-color:var(--leaf-border)} .mod.g .name{color:var(--leaf-dk)}
+  .mod.b{background:#E7EDF6;border-color:#C9D6E8} .mod.b .name{color:var(--blue)}
+  .mod.a{background:#FBF0D6;border-color:#EAD6A1} .mod.a .name{color:var(--amber)}
+  .mod.p{background:var(--purple-soft);border-color:#D6CBEC} .mod.p .name{color:var(--purple)}
+  .mod.r{background:#F7E7E3;border-color:#E7C9C0} .mod.r .name{color:var(--rose)}
+  .mchg{font-size:11.5px;font-weight:900;margin-top:8px;display:inline-flex;align-items:center;gap:4px}
+  .up{color:var(--rose)} .down{color:var(--leaf-dk)}
+
+  /* trends */
+  .subtabs{display:inline-flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:13px;padding:4px;margin-bottom:6px}
+  .subtabs button{border:0;background:transparent;font-family:inherit;font-weight:800;font-size:13px;color:var(--muted);padding:8px 14px;border-radius:10px;cursor:pointer}
+  .subtabs button.on{background:var(--leaf-dk);color:#fff}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 4px}
+  .legchip{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid var(--line);
+    border-radius:999px;padding:6px 12px;font-weight:800;font-size:12.5px;cursor:pointer;user-select:none;transition:.15s}
+  .legchip.off{opacity:.35}
+  .chartwrap{width:100%;overflow:hidden}
+  svg.chart{width:100%;height:auto;display:block}
+  .axisline{stroke:#EADFC8;stroke-width:1}
+  .axislbl{fill:#A79E89;font-size:11px;font-weight:800}
+  .axistitle{fill:#8C8775;font-size:11px;font-weight:900;letter-spacing:.6px}
+  .dlabel{fill:var(--ink);font-size:11px;font-weight:900}
+  .subview{display:none}.subview.on{display:block}
+
+  /* insights */
+  .ask{background:linear-gradient(165deg,#1C2B49,#243a63);color:#fff;border-radius:22px;padding:22px;box-shadow:var(--shadow)}
+  .ask h3{margin:0 0 4px;font-size:18px;font-weight:900;display:flex;align-items:center;gap:9px}
+  .ask h3 .k{color:var(--honey);letter-spacing:1.5px;font-size:13px}
+  .ask p.lead{color:#cdd7ea;font-weight:700;margin:0 0 16px;font-size:14px}
+  .ai-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:15px;margin-top:10px}
+  .ai-card .h{font-weight:900;font-size:14.5px;display:flex;align-items:center;gap:9px;margin-bottom:3px}
+  .ai-card .b{color:#d7dfee;font-weight:600;font-size:13.5px}
+  .sev{width:9px;height:9px;border-radius:50%;display:inline-block}
+  .sev.hi{background:#E8806B} .sev.mid{background:var(--honey)} .sev.win{background:#7FCf97}
+  .tagrow{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+  .tag{font-size:11px;font-weight:900;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);
+    color:#e7ecf6;border-radius:999px;padding:4px 10px}
+  .getbtn{display:block;width:100%;background:var(--honey);color:#3a2c06;border:0;border-radius:14px;
+    padding:15px;font-family:inherit;font-weight:900;font-size:15px;margin-top:16px;cursor:pointer}
+
+  /* what-if simulator (surprise 3) */
+  .simrow{display:flex;align-items:center;gap:14px;margin:14px 0}
+  .simrow label{font-weight:900;min-width:86px}
+  input[type=range]{flex:1;accent-color:var(--leaf-dk);height:6px}
+  .simout{background:var(--leaf-soft);border:1px solid var(--leaf-border);border-radius:16px;padding:16px;text-align:center;margin-top:6px}
+  .simout b{font-size:26px;font-weight:900;color:var(--leaf-dk);display:block}
+
+  .surprise{display:inline-flex;align-items:center;gap:6px;background:linear-gradient(90deg,#FBE7B0,#F4D27E);
+    color:#5b4407;font-weight:900;font-size:11px;letter-spacing:.5px;border-radius:999px;padding:4px 11px;
+    border:1px solid #E9C879;margin-bottom:10px}
+  .sec-head{display:flex;align-items:center;gap:10px;margin:26px 0 2px}
+  .sec-head h2{font-size:20px;font-weight:900;margin:0}
+  .footnote{color:var(--muted);font-size:12px;font-weight:700;text-align:center;margin:30px 0 0}
+</style>
+</head>
+<body>
+<div class="preview-flag">✦ KAYA DESIGN PREVIEW — <b>Finances + Dashboard: time filters · trends · AI insights</b> · sample data, not live</div>
+
+<div class="wrap">
+  <div class="topbar"><span class="chip-back">‹ Pantry</span></div>
+  <div class="eyebrow">HOUSEHOLD · FINANCES</div>
+  <h1 class="title" id="pageTitle">June 2026</h1>
+  <p class="subtitle" id="pageSub">Every closed request this period, rolled up across Household modules.</p>
+</div>
+
+<!-- ===== TIME FILTER BAR ===== -->
+<div class="filterbar">
+  <div class="wrap">
+    <div class="seg" id="rangeSeg">
+      <button data-range="month" class="on">This month</button>
+      <button data-range="quarter">Quarter</button>
+      <button data-range="year">Year</button>
+      <button data-range="custom">Custom range</button>
+    </div>
+
+    <div class="subfilter on" data-sub="month">
+      <div class="stepper">
+        <button onclick="stepMonth(-1)">‹</button>
+        <span class="lbl" id="monthLbl">June 2026</span>
+        <button onclick="stepMonth(1)">›</button>
+      </div>
+      <select class="pill-select" id="monthPick" onchange="pickMonth(this.value)">
+        <option>January 2026</option><option>February 2026</option><option>March 2026</option>
+        <option>April 2026</option><option>May 2026</option><option selected>June 2026</option>
+      </select>
+    </div>
+
+    <div class="subfilter" data-sub="quarter">
+      <button class="qchip" onclick="pickQuarter(1,this)">Q1 · Jan–Mar</button>
+      <button class="qchip on" onclick="pickQuarter(2,this)">Q2 · Apr–Jun</button>
+      <button class="qchip" onclick="pickQuarter(3,this)">Q3 · Jul–Sep</button>
+      <button class="qchip" onclick="pickQuarter(4,this)">Q4 · Oct–Dec</button>
+      <span class="muted">2026</span>
+    </div>
+
+    <div class="subfilter" data-sub="year">
+      <div class="stepper">
+        <button>‹</button><span class="lbl">2026</span><button>›</button>
+      </div>
+      <span class="muted">Jan – Dec, rolled up</span>
+    </div>
+
+    <div class="subfilter" data-sub="custom">
+      <input class="dateinput" type="date" value="2026-04-01" />
+      <span class="muted">→</span>
+      <input class="dateinput" type="date" value="2026-06-15" />
+      <button class="apply" onclick="applyCustom()">Apply</button>
+    </div>
+
+    <div class="period-note" id="periodNote">📅 Showing <b>June 2026</b> · 13 closed requests · default view</div>
+  </div>
+</div>
+
+<div class="wrap">
+  <!-- ===== TABS ===== -->
+  <div class="tabs" id="tabBar">
+    <button data-tab="overview" class="on"><span class="em">📊</span> Overview</button>
+    <button data-tab="trends"><span class="em">📈</span> Trends</button>
+    <button data-tab="insights"><span class="em">🤖</span> AI Insights</button>
+  </div>
+
+  <!-- ===== OVERVIEW ===== -->
+  <section class="panel on" data-panel="overview">
+    <div class="card green">
+      <div class="row-between">
+        <div class="clabel">🏡 Household total</div>
+        <span class="surprise" title="Surprise #1">✨ Surprise 1 · Budget Health Score</span>
+      </div>
+      <div class="health">
+        <div class="gauge">
+          <svg width="120" height="120" viewBox="0 0 120 120">
+            <circle cx="60" cy="60" r="52" fill="none" stroke="#fff" stroke-width="12"/>
+            <circle cx="60" cy="60" r="52" fill="none" stroke="#3E6B4F" stroke-width="12"
+              stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="62.07"/>
+          </svg>
+          <div class="score"><b>81</b><span>HEALTHY</span></div>
+        </div>
+        <div>
+          <span class="grade-pill">Grade B+ · On pace</span>
+          <div class="bignum">TZS 1,348,000 <small>of 8,660,000</small></div>
+          <div class="bar"><span style="width:16%"></span></div>
+          <div class="muted">16% of caps used · 13 closed requests · <b style="color:var(--leaf-dk)">TZS 3.72M projected savings</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="clabel" style="color:var(--muted)">👥 Spend by parent · June 2026</div>
+      <div class="splitbar" style="margin-top:14px">
+        <i style="width:40%;background:#4A6FA5"></i><i style="width:59%;background:#5b7fb3"></i><i style="width:2%;background:#9aa9c0"></i>
+      </div>
+      <div class="leg"><span><span class="dot" style="background:#4A6FA5"></span>🧑 Elia</span><span><b>TZS 839,000</b> <span class="muted">· 40%</span></span></div>
+      <div class="leg"><span><span class="dot" style="background:#5b7fb3"></span>🧑 Diana</span><span><b>TZS 1,236,000</b> <span class="muted">· 59%</span></span></div>
+      <div class="leg"><span><span class="dot" style="background:#9aa9c0"></span>👫 Shared</span><span><b>TZS 32,000</b> <span class="muted">· 2%</span></span></div>
+    </div>
+
+    <div class="grid">
+      <div class="mod g">
+        <div class="top"><div class="name">🛒 Pantry</div><div class="shops">6 shops</div></div>
+        <div class="amt">TZS 419,500 <small>of 2,000,000</small></div>
+        <div class="mbar"><span style="width:21%;background:var(--leaf-dk)"></span></div>
+        <div class="mchg down">▼ 12% vs May avg</div>
+      </div>
+      <div class="mod g">
+        <div class="top"><div class="name">🌿 Outdoor</div><div class="shops">0 shops</div></div>
+        <div class="amt">TZS 0 <small>of 545,000</small></div>
+        <div class="mbar"><span style="width:0%;background:var(--olive)"></span></div>
+        <div class="mchg down">▼ no spend yet</div>
+      </div>
+      <div class="mod b">
+        <div class="top"><div class="name">🚗 Drivers</div><div class="shops">0 shops</div></div>
+        <div class="amt">TZS 0 <small>of 935,000</small></div>
+        <div class="mbar"><span style="width:0%;background:var(--blue)"></span></div>
+        <div class="mchg down">▼ vs 210k avg</div>
+      </div>
+      <div class="mod a">
+        <div class="top"><div class="name">⚡ Utilities</div><div class="shops">3 shops</div></div>
+        <div class="amt">TZS 300,000 <small>of 1,000,000</small></div>
+        <div class="mbar"><span style="width:30%;background:var(--amber)"></span></div>
+        <div class="mchg up">▲ 38% above usual</div>
+      </div>
+      <div class="mod p">
+        <div class="top"><div class="name">🤝 Payroll</div><div class="shops">0 shops</div></div>
+        <div class="amt">TZS 0 <small>of 2,180,000</small></div>
+        <div class="mbar"><span style="width:0%;background:var(--purple)"></span></div>
+        <div class="mchg down">⏳ pays 1st–5th Jul</div>
+      </div>
+      <div class="mod r">
+        <div class="top"><div class="name">🍽️ Dine Out</div><div class="shops">1 shop</div></div>
+        <div class="amt">TZS 32,000 <small>of 200,000</small></div>
+        <div class="mbar"><span style="width:16%;background:var(--rose)"></span></div>
+        <div class="mchg down">▼ 71% vs May</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== TRENDS ===== -->
+  <section class="panel" data-panel="trends">
+    <div class="subtabs" id="trendSub">
+      <button data-sub="lines" class="on">📈 By category</button>
+      <button data-sub="compare">📊 Compare months</button>
+    </div>
+
+    <!-- line view -->
+    <div class="subview on" data-view="lines">
+      <div class="card">
+        <div class="row-between">
+          <div class="clabel" style="color:var(--muted)">Spend by category · Jan – Jun 2026</div>
+          <span class="muted">TZS ’000</span>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div class="chartwrap"><svg class="chart" id="lineChart" viewBox="0 0 720 320" preserveAspectRatio="xMidYMid meet"></svg></div>
+        <div class="muted" style="margin-top:6px">Dashed tail = June run-rate projection (day 15/30). Tap a category to focus.</div>
+      </div>
+
+      <div class="card">
+        <span class="surprise">✨ Surprise 2 · "Kaya noticed" anomaly radar</span>
+        <div class="clabel" style="color:var(--muted);margin-bottom:8px">Auto-flagged movements this period</div>
+        <div id="anomalyList"></div>
+      </div>
+    </div>
+
+    <!-- compare view -->
+    <div class="subview" data-view="compare">
+      <div class="card">
+        <div class="row-between">
+          <div class="clabel" style="color:var(--muted)">Month vs month · total spend</div>
+          <span class="muted">stacked by category</span>
+        </div>
+        <div class="chartwrap"><svg class="chart" id="barChart" viewBox="0 0 720 340" preserveAspectRatio="xMidYMid meet"></svg></div>
+        <div class="legend" id="legend2"></div>
+      </div>
+      <div class="card">
+        <div class="clabel" style="color:var(--muted);margin-bottom:10px">June vs May — biggest deltas</div>
+        <div id="deltaList"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== INSIGHTS ===== -->
+  <section class="panel" data-panel="insights">
+    <div class="ask">
+      <h3>🐝 <span class="k">ASK KAYA</span></h3>
+      <p class="lead">Plain-language read of where the money's going this period — differences, trends, and the one thing to do next.</p>
+
+      <div class="ai-card">
+        <div class="h"><span class="sev hi"></span>⚡ Utilities is your fastest riser</div>
+        <div class="b">TZS 300,000 in 15 days is <b>38% above</b> your Jan–May average pace. Three Luku top-ups in one week drove it — security + sitting-room meters are the hot spots. At this rate Utilities lands near <b>600k</b>, inside the 1M cap but worth a glance.</div>
+      </div>
+      <div class="ai-card">
+        <div class="h"><span class="sev win"></span>🍽️ Dine Out is your big win</div>
+        <div class="b">Down <b>71%</b> vs May (175k → 32k). If that holds you free up ~140k/month — that's the single biggest improvement across all modules.</div>
+      </div>
+      <div class="ai-card">
+        <div class="h"><span class="sev mid"></span>📈 Pantry is steady but creeping</div>
+        <div class="b">Five-month trend is gently up (1.58M → 1.83M). Not alarming, but it's now <b>40%</b> of household spend — the lever with the most room if you want to bank more.</div>
+      </div>
+      <div class="tagrow">
+        <span class="tag">Biggest mover: Utilities ▲</span>
+        <span class="tag">Best win: Dine Out ▼</span>
+        <span class="tag">Watch: Pantry creep</span>
+        <span class="tag">On pace to save 3.72M</span>
+      </div>
+      <button class="getbtn" onclick="this.textContent='✨ Kaya is reading your June numbers…';">Get fresh advice for this period →</button>
+      <div style="text-align:center;color:#9fb0cc;font-size:11.5px;margin-top:10px">Runs on tap (Claude) — not on every load, to keep it cheap.</div>
+    </div>
+
+    <div class="card">
+      <span class="surprise">✨ Surprise 3 · "What-if" savings simulator</span>
+      <div class="clabel" style="color:var(--muted);margin-bottom:6px">Drag to trim a category — watch year-end savings move</div>
+      <div class="simrow"><label>🛒 Pantry</label><input type="range" min="0" max="25" value="0" oninput="sim()"><span id="pPct" style="font-weight:900;min-width:42px;text-align:right">0%</span></div>
+      <div class="simrow"><label>⚡ Utilities</label><input type="range" min="0" max="25" value="0" oninput="sim()"><span id="uPct" style="font-weight:900;min-width:42px;text-align:right">0%</span></div>
+      <div class="simrow"><label>🍽️ Dine Out</label><input type="range" min="0" max="25" value="0" oninput="sim()"><span id="dPct" style="font-weight:900;min-width:42px;text-align:right">0%</span></div>
+      <div class="simout">
+        Projected extra saved by Dec 2026
+        <b id="simSaved">TZS 0</b>
+        <span class="muted" id="simNote">Move a slider to model a gentle trim — Kaya extrapolates from your 6-month trend.</span>
+      </div>
+    </div>
+  </section>
+
+  <p class="footnote">Design preview · Kaya — interactive mockup for approval. Numbers are illustrative sample data. Tabs, filters &amp; sliders are live so you can feel the flow.</p>
+</div>
+
+<script>
+/* ---------- sample data (TZS '000) ---------- */
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun'];
+const CATS = [
+  {key:'pantry',  name:'Pantry',   color:'#5C8C6A', data:[1620,1740,1580,1690,1830,420], proj:840},
+  {key:'util',    name:'Utilities',color:'#D6A94A', data:[880,910,1020,870,940,300],     proj:600},
+  {key:'payroll', name:'Payroll',  color:'#6B4FA0', data:[1200,1200,1200,1250,1250,0],   proj:1250},
+  {key:'drivers', name:'Drivers',  color:'#4A6FA5', data:[210,180,240,150,260,0],         proj:150},
+  {key:'dine',    name:'Dine Out', color:'#C26B6B', data:[95,140,60,110,175,32],          proj:64},
+  {key:'outdoor', name:'Outdoor',  color:'#7BA05B', data:[120,0,320,90,0,0],              proj:0},
+];
+const active = new Set(CATS.map(c=>c.key));
+
+/* ---------- range filter ---------- */
+const segBtns=[...document.querySelectorAll('#rangeSeg button')];
+segBtns.forEach(b=>b.onclick=()=>{
+  segBtns.forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  const r=b.dataset.range;
+  document.querySelectorAll('.subfilter').forEach(s=>s.classList.toggle('on',s.dataset.sub===r));
+  if(r==='month'){pickMonth(document.getElementById('monthPick').value);}
+  if(r==='quarter'){setTitle('Q2 2026','Apr – Jun rolled up','📅 Showing <b>Q2 2026 (Apr–Jun)</b> · 41 closed requests');}
+  if(r==='year'){setTitle('2026','Full-year roll-up','📅 Showing <b>2026</b> · Jan–Dec · 94 closed requests');}
+  if(r==='custom'){applyCustom();}
+});
+let curMonth=5;
+function setTitle(t,sub,note){
+  document.getElementById('pageTitle').textContent=t;
+  if(sub) document.getElementById('pageSub').textContent='Every closed request this period — '+sub+'.';
+  document.getElementById('periodNote').innerHTML=note;
+}
+function pickMonth(label){
+  document.getElementById('monthLbl').textContent=label;
+  document.getElementById('monthPick').value=label;
+  curMonth=['January 2026','February 2026','March 2026','April 2026','May 2026','June 2026'].indexOf(label);
+  const counts=[11,13,9,14,17,13];
+  setTitle(label,null,'📅 Showing <b>'+label+'</b> · '+ (counts[curMonth]||13) +' closed requests');
+}
+function stepMonth(d){
+  const list=['January 2026','February 2026','March 2026','April 2026','May 2026','June 2026'];
+  curMonth=Math.max(0,Math.min(5,curMonth+d)); pickMonth(list[curMonth]);
+}
+function pickQuarter(q,el){
+  document.querySelectorAll('[data-sub=quarter] .qchip').forEach(x=>x.classList.remove('on')); el.classList.add('on');
+  const names={1:'Q1 2026',2:'Q2 2026',3:'Q3 2026',4:'Q4 2026'};
+  setTitle(names[q],'quarterly roll-up','📅 Showing <b>'+names[q]+'</b> · quarterly roll-up');
+}
+function applyCustom(){
+  const a=document.querySelectorAll('[data-sub=custom] .dateinput')[0].value;
+  const b=document.querySelectorAll('[data-sub=custom] .dateinput')[1].value;
+  setTitle('Custom range','custom date range','📅 Showing <b>'+a+'</b> → <b>'+b+'</b> · custom range');
+}
+
+/* ---------- tabs ---------- */
+const tabBtns=[...document.querySelectorAll('#tabBar button')];
+tabBtns.forEach(b=>b.onclick=()=>{
+  tabBtns.forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('on',p.dataset.panel===b.dataset.tab));
+  if(b.dataset.tab==='trends'){drawLines();drawBars();}
+});
+
+/* ---------- trends subtabs ---------- */
+const subBtns=[...document.querySelectorAll('#trendSub button')];
+subBtns.forEach(b=>b.onclick=()=>{
+  subBtns.forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  document.querySelectorAll('.subview').forEach(v=>v.classList.toggle('on',v.dataset.view===b.dataset.sub));
+  if(b.dataset.sub==='lines')drawLines(); else drawBars();
+});
+
+/* ---------- legend ---------- */
+function buildLegend(id){
+  const el=document.getElementById(id); el.innerHTML='';
+  CATS.forEach(c=>{
+    const chip=document.createElement('span');
+    chip.className='legchip'+(active.has(c.key)?'':' off');
+    chip.innerHTML='<span class="dot" style="background:'+c.color+'"></span>'+c.name;
+    chip.onclick=()=>{ active.has(c.key)?active.delete(c.key):active.add(c.key); drawLines(); drawBars(); buildLegend('legend'); buildLegend('legend2'); };
+    el.appendChild(chip);
+  });
+}
+
+/* ---------- chart axis helpers ---------- */
+const CURRENCY='TZS';                                   // family currency
+const fmtAxis=v=>Math.round(v).toLocaleString('en-US'); // 4,990 not 4990
+function axisTitle(padT,H,padB){
+  const cy=(padT+(H-padB))/2;
+  return `<text class="axistitle" transform="rotate(-90 13 ${cy})" x="13" y="${cy}" text-anchor="middle">${CURRENCY} ’000</text>`;
+}
+
+/* ---------- line chart ---------- */
+function drawLines(){
+  const svg=document.getElementById('lineChart'); if(!svg)return;
+  const W=720,H=320,padL=62,padR=16,padT=16,padB=34;
+  const allVals=CATS.flatMap(c=>active.has(c.key)?c.data.concat(c.proj):[0]);
+  const maxV=Math.max(200,...allVals)*1.1;
+  const x=i=>padL+(i*(W-padL-padR)/(MONTHS.length-1));
+  const y=v=>H-padB-(v/maxV)*(H-padT-padB);
+  let s='';
+  // gridlines
+  for(let g=0;g<=4;g++){const gv=maxV*g/4, yy=y(gv);
+    s+=`<line class="axisline" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
+    s+=`<text class="axislbl" x="${padL-9}" y="${yy+4}" text-anchor="end">${fmtAxis(gv)}</text>`;}
+  s+=axisTitle(padT,H,padB);
+  MONTHS.forEach((m,i)=>{ s+=`<text class="axislbl" x="${x(i)}" y="${H-12}" text-anchor="middle">${m}</text>`; });
+  CATS.forEach(c=>{
+    if(!active.has(c.key))return;
+    // solid Jan-May
+    let pts=c.data.slice(0,5).map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+    s+=`<polyline fill="none" stroke="${c.color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" points="${pts}"/>`;
+    // dashed May->Jun(proj)
+    s+=`<polyline fill="none" stroke="${c.color}" stroke-width="3" stroke-dasharray="3 5" stroke-linecap="round" points="${x(4)},${y(c.data[4])} ${x(5)},${y(c.proj)}"/>`;
+    // dots
+    c.data.slice(0,5).forEach((v,i)=>{ s+=`<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="#fff" stroke="${c.color}" stroke-width="2.5"/>`; });
+    s+=`<circle cx="${x(5)}" cy="${y(c.proj)}" r="3.5" fill="${c.color}" fill-opacity=".35" stroke="${c.color}" stroke-width="2"/>`;
+  });
+  svg.innerHTML=s;
+}
+
+/* ---------- stacked bars ---------- */
+function drawBars(){
+  const svg=document.getElementById('barChart'); if(!svg)return;
+  const W=720,H=340,padL=62,padR=16,padT=16,padB=34;
+  const totals=MONTHS.map((m,i)=>CATS.reduce((a,c)=>a+(active.has(c.key)?(i===5?c.proj:c.data[i]):0),0));
+  const maxV=Math.max(200,...totals)*1.12;
+  const bw=(W-padL-padR)/MONTHS.length*0.56;
+  const cx=i=>padL+(i+0.5)*((W-padL-padR)/MONTHS.length);
+  const y=v=>H-padB-(v/maxV)*(H-padT-padB);
+  let s='';
+  for(let g=0;g<=4;g++){const gv=maxV*g/4, yy=y(gv);
+    s+=`<line class="axisline" x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}"/>`;
+    s+=`<text class="axislbl" x="${padL-9}" y="${yy+4}" text-anchor="end">${fmtAxis(gv)}</text>`;}
+  s+=axisTitle(padT,H,padB);
+  MONTHS.forEach((m,i)=>{
+    let acc=0;
+    CATS.forEach(c=>{
+      if(!active.has(c.key))return;
+      const v=(i===5?c.proj:c.data[i]); if(v<=0)return;
+      const y0=y(acc), y1=y(acc+v);
+      const proj=(i===5);
+      s+=`<rect x="${cx(i)-bw/2}" y="${y1}" width="${bw}" height="${y0-y1}" fill="${c.color}" ${proj?'fill-opacity="0.45"':''} rx="2"/>`;
+      acc+=v;
+    });
+    s+=`<text class="dlabel" x="${cx(i)}" y="${y(acc)-7}" text-anchor="middle">${(acc/1000).toFixed(acc>=1000?1:0).replace(/\.0$/,'')}${acc>=1000?'M':'k'}</text>`;
+    s+=`<text class="axislbl" x="${cx(i)}" y="${H-12}" text-anchor="middle">${m}${i===5?' *':''}</text>`;
+  });
+  s+=`<text class="axislbl" x="${W-padR}" y="${padT+4}" text-anchor="end" style="font-style:italic">* Jun = run-rate projection</text>`;
+  svg.innerHTML=s;
+}
+
+/* ---------- anomaly + delta lists ---------- */
+const anomalies=[
+  {sev:'hi', t:'⚡ Utilities +38% vs trend', b:'3 Luku top-ups in 7 days. Pace points to ~600k by month-end.'},
+  {sev:'win',t:'🍽️ Dine Out −71% vs May', b:'175k → 32k. Biggest single improvement this month.'},
+  {sev:'mid',t:'🛒 Pantry slow creep', b:'Up ~13% over 5 months; now 40% of all spend.'},
+];
+document.getElementById('anomalyList').innerHTML=anomalies.map(a=>
+  `<div class="leg"><span><span class="sev ${a.sev}" style="margin-right:9px"></span><b>${a.t}</b><br><span class="muted" style="margin-left:18px">${a.b}</span></span></div>`).join('');
+
+const deltas=[
+  {n:'Utilities',c:'#D6A94A',d:'+?',note:'partial month',w:30},
+  {n:'Dine Out',c:'#C26B6B',d:'−143k',note:'−71%',w:60},
+  {n:'Pantry',c:'#5C8C6A',d:'−1.41M',note:'mid-month, will rise',w:40},
+  {n:'Payroll',c:'#6B4FA0',d:'−1.25M',note:'pays early Jul',w:50},
+];
+document.getElementById('deltaList').innerHTML=deltas.map(d=>
+  `<div class="leg"><span><span class="dot" style="background:${d.c}"></span>${d.n}</span><span><b>${d.d}</b> <span class="muted">· ${d.note}</span></span></div>`).join('');
+
+/* ---------- what-if simulator ---------- */
+function sim(){
+  const rs=document.querySelectorAll('.simrow input');
+  const base={pantry:1830,util:940,dine:175}; // monthly avg '000
+  const p=+rs[0].value,u=+rs[1].value,d=+rs[2].value;
+  document.getElementById('pPct').textContent=p+'%';
+  document.getElementById('uPct').textContent=u+'%';
+  document.getElementById('dPct').textContent=d+'%';
+  const monthly=(base.pantry*p+base.util*u+base.dine*d)/100; // '000 per month
+  const remaining=6; // Jul-Dec
+  const saved=Math.round(monthly*remaining); // '000
+  document.getElementById('simSaved').textContent='TZS '+ (saved>=1000?(saved/1000).toFixed(2)+'M':saved.toLocaleString()+'k');
+  document.getElementById('simNote').textContent = saved===0
+    ? 'Move a slider to model a gentle trim — Kaya extrapolates from your 6-month trend.'
+    : `Trimming these through Dec banks ~${saved>=1000?(saved/1000).toFixed(2)+'M':saved+'k'} on top of your 3.72M run-rate.`;
+}
+
+/* init */
+buildLegend('legend'); buildLegend('legend2'); drawLines(); drawBars();
+</script>
+</body>
+</html>

@@ -29,15 +29,17 @@ import { toDisplayDate } from '@/lib/dates';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  createMeeting, updateMeeting, getMeetings, getFamilyMembers,
+  createMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
   updateFamily,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
 import {
-  getMeetingSubmissions, clearMeetingSubmissions,
+  subscribeMeetingSubmissions, clearMeetingSubmissions,
+  appreciationTagsForLine, appreciationTagLabelForLine,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
+import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -69,6 +71,11 @@ const STEPS = [
 // each entry's literal union shape) so we can build new step objects
 // from the catalog with a parent-customised title without a cast.
 type StepDef = { id: string; title: string; emoji: string; sub: string };
+
+// A family member expected to prep (Sunday-Meeting v2 PR C). `id` is the
+// childId for kids and the uid for parents — matching how submissions key
+// (kids carry childId, parents key by uid).
+type PrepMember = { id: string; name: string; emoji: string; kind: 'kid' | 'parent' };
 type StepId = typeof STEPS[number]['id'];
 
 // How many of the most-recent meetings to surface in the Goals Review
@@ -246,6 +253,13 @@ export default function MeetingPresenterPage() {
   // Fetch parent profiles for the household so attendance lists adults
   // alongside kids. Falls back to just the signed-in profile if the
   // family-members query is empty (e.g. guest mode).
+  // Map a roster tag id → the recipient's auth uid, so @-tagged
+  // appreciations can be routed as a notification at meeting submit.
+  // Parents: their uid is the roster id already. Kids: resolve via the
+  // member whose childId matches (kids with no login won't have one —
+  // they simply get no notification; the appreciation still shows in the
+  // meeting). Sunday-Meeting v2 PR E.
+  const [uidByTagId, setUidByTagId] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!profile?.familyId) return;
     let cancelled = false;
@@ -262,23 +276,50 @@ export default function MeetingPresenterPage() {
           avatarEmoji: (p as { avatarEmoji?: string }).avatarEmoji,
         }))
       );
+      const map: Record<string, string> = {};
+      for (const m of members) {
+        map[m.uid] = m.uid;                               // parents (+ any) by uid
+        if (m.role === 'kid' && m.childId) map[m.childId] = m.uid; // kids by childId
+      }
+      setUidByTagId(map);
     });
     return () => { cancelled = true; };
   }, [profile?.familyId, profile]);
 
-  // Async pre-fill submissions — fetched once on mount. Presenter
-  // displays them as read-only "what they wrote" rows above the live
-  // editable per-kid inputs on Gratitude / Appreciations / Goals.
-  // Sunday-Meeting v2 (b2).
+  // Async pre-fill submissions — LIVE subscription (Sunday-Meeting v2
+  // PR C). The presenter reads what everyone filled and updates in real
+  // time, so a member filling from their own My Day / Workplan appears
+  // here mid-meeting without a refresh. The meeting screen itself is for
+  // reading + celebrating — see StepSubmissions for the "still to add"
+  // nudge + optional in-meeting capture fallback.
   const [submissions, setSubmissions] = useState<MeetingSubmission[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
-    let cancelled = false;
-    getMeetingSubmissions(profile.familyId).then((rows) => {
-      if (!cancelled) setSubmissions(rows);
-    }).catch(() => { /* tolerate offline / empty */ });
-    return () => { cancelled = true; };
+    const unsub = subscribeMeetingSubmissions(profile.familyId, setSubmissions);
+    return () => unsub();
   }, [profile?.familyId]);
+
+  // Roster of everyone expected to prep — kids + present parents. Used by
+  // StepSubmissions to compute "who's still to add" for each section.
+  // id = childId for kids, uid for parents (matches submission keying).
+  const prepRoster = useMemo<PrepMember[]>(() => [
+    ...children.map((c) => ({ id: c.id, name: c.name, emoji: c.avatarEmoji || '🧒', kind: 'kid' as const })),
+    ...householdParents.map((p) => ({ id: p.uid, name: p.name, emoji: p.avatarEmoji || '👤', kind: 'parent' as const })),
+  ], [children, householdParents]);
+
+  // 🔥 Surprise 1 — "Most Prepared" crown. Whoever filled the most of
+  // their 3 prep sections this cycle wears 👑 in the opener. Pure
+  // celebration of the behaviour we want (filling ahead). Ties → the
+  // earliest in the roster; nobody crowned if no one filled anything.
+  const mostPrepared = useMemo(() => {
+    let best: { name: string; emoji: string; count: number } | null = null;
+    for (const m of prepRoster) {
+      const s = submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
+      const count = s ? [s.gratitudes, s.appreciations, s.goals].filter((a) => (a || []).some(Boolean)).length : 0;
+      if (count > 0 && (!best || count > best.count)) best = { name: m.name, emoji: m.emoji, count };
+    }
+    return best;
+  }, [prepRoster, submissions]);
 
   // Family Time Capsule — Sunday-Meeting v2 (b7). Sealed notes from
   // ~1 year ago surface as the first reveal of the meeting if today
@@ -374,6 +415,23 @@ export default function MeetingPresenterPage() {
       ? { by: presentBy.trim() || undefined, topic: presentTopic.trim() || undefined }
       : undefined;
 
+    // This week's committed goals come from each kid's prep submission
+    // (or a live capture). Merge prep goals into the per-kid `goals` map
+    // so the saved meeting doc records them — next week's carry-forward
+    // review reads `meeting.goals`, so an unmerged commitment would
+    // silently fail to carry. Live-captured goals take precedence.
+    const goalsForRecord: Record<string, string> = { ...goals };
+    for (const c of children) {
+      if (!goalsForRecord[c.id]?.trim()) {
+        // Up to 3 goals join into the single per-kid meeting field so the
+        // carry-forward review (which reads meeting.goals[childId]) keeps
+        // the whole set.
+        const g = (submissions.find((s) => s.childId === c.id)?.goals || [])
+          .map((x) => x.trim()).filter(Boolean).join(' · ');
+        if (g) goalsForRecord[c.id] = g;
+      }
+    }
+
     const payload: Omit<Meeting, 'id' | 'createdAt'> = {
       date: todayString(),
       type: 'weekly',
@@ -383,7 +441,7 @@ export default function MeetingPresenterPage() {
         .filter((g) => g.name.trim().length > 0)
         .map((g) => ({ id: g.id, name: g.name.trim(), relationship: g.relationship || undefined })),
       gratitude,
-      goals,
+      goals: goalsForRecord,
       notes: '',
       appreciations,
       presentation,
@@ -391,9 +449,42 @@ export default function MeetingPresenterPage() {
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
-    // Clear async pre-fill submissions so next week's meeting starts
-    // with empty prompts. Tolerated to fail silently — submissions are
-    // a soft state, the meeting itself is saved.
+
+    // Sunday-Meeting v2 (multi-tag): reveal @-tagged appreciations on
+    // meeting day. A line can tag SEVERAL people or "All" — notify each
+    // recipient once per line. Fire-and-forget; never blocks finish.
+    const allMemberUids = Array.from(new Set(Object.values(uidByTagId)));
+    for (const s of submissions) {
+      (s.appreciations || []).forEach((rawText, i) => {
+        const text = (rawText || '').trim();
+        if (!text) return;
+        const tag = appreciationTagsForLine(s, i);
+        // Resolve target uids: "All" → every member; else each tagged id.
+        const targetUids = tag.all
+          ? allMemberUids
+          : tag.ids.map((id) => uidByTagId[id]).filter(Boolean);
+        const seen = new Set<string>();
+        for (const toUid of targetUids) {
+          if (!toUid || toUid === s.uid || seen.has(toUid)) continue; // dedupe / skip self
+          seen.add(toUid);
+          createNotification(profile.familyId!, {
+            type: 'appreciation',
+            title: '💛 You were appreciated',
+            message: `${s.name} appreciates you — ${text}`,
+            read: false,
+            forUserId: toUid,
+            link: '/meetings',
+          } as any).catch(() => { /* non-fatal */ });
+        }
+      });
+    }
+
+    // Archive everyone's submissions into their history (PR F) BEFORE
+    // clearing, so members can always look back in "My Submissions".
+    // Then clear the upcoming docs so next week starts fresh. Both are
+    // best-effort — the meeting itself is already saved.
+    await archiveMeetingSubmissions(profile.familyId, submissions, payload.date)
+      .catch(() => { /* non-fatal */ });
     clearMeetingSubmissions(profile.familyId).catch(() => { /* non-fatal */ });
 
     // Sunday-Meeting v2 (b6): email the Meeting Recap Book to parents +
@@ -526,6 +617,7 @@ export default function MeetingPresenterPage() {
                     // first-ever meeting isn't blank.
                     leaderName={family?.nextMeetingLeader?.name || profile?.displayName}
                     leaderEmoji={family?.nextMeetingLeader?.emoji}
+                    mostPrepared={mostPrepared}
                     onContinue={() => setStepIdx(safeStepIdx + 1)}
                   />
                 </>
@@ -583,15 +675,14 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'gratitude' && (
-                <>
-                  <SubmittedList kind="gratitudes" submissions={submissions} />
-                  <PerKidTextInputs
-                    childrenList={children}
-                    values={gratitude}
-                    onChange={setGratitude}
-                    placeholder="I'm thankful for…"
-                  />
-                </>
+                <StepSubmissions
+                  section="gratitudes"
+                  submissions={submissions}
+                  roster={prepRoster}
+                  liveValues={gratitude}
+                  onChangeLive={(id, v) => setGratitude({ ...gratitude, [id]: v })}
+                  placeholder="I'm thankful for…"
+                />
               )}
 
               {step.id === 'celebrate' && (
@@ -599,30 +690,27 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'appreciations' && (
-                <>
-                  <SubmittedList kind="appreciations" submissions={submissions} />
-                  <PerKidTextInputs
-                    childrenList={children}
-                    values={appreciations}
-                    onChange={setAppreciations}
-                    placeholder="I appreciate @name for…"
-                    multiline
-                  />
-                </>
+                <StepSubmissions
+                  section="appreciations"
+                  submissions={submissions}
+                  roster={prepRoster}
+                  liveValues={appreciations}
+                  onChangeLive={(id, v) => setAppreciations({ ...appreciations, [id]: v })}
+                  placeholder="I appreciate @name for…"
+                />
               )}
 
               {step.id === 'goals' && (
-                <>
-                  <SubmittedList kind="goals" submissions={submissions} />
-                  <GoalsStep
-                    childrenList={children}
-                    recentMeetings={recentMeetings}
-                    reviewedGoalsDone={reviewedGoalsDone}
-                    onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
-                    goals={goals}
-                    onChangeGoals={setGoals}
-                  />
-                </>
+                <GoalsStep
+                  childrenList={children}
+                  submissions={submissions}
+                  roster={prepRoster}
+                  recentMeetings={recentMeetings}
+                  reviewedGoalsDone={reviewedGoalsDone}
+                  onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
+                  goals={goals}
+                  onChangeGoals={setGoals}
+                />
               )}
 
               {step.id === 'reflection' && (
@@ -745,6 +833,7 @@ function OpenStep({
   family,
   leaderName,
   leaderEmoji,
+  mostPrepared,
   onContinue,
 }: {
   family: any; // Family doc; loose-typed here because the import chain
@@ -752,6 +841,7 @@ function OpenStep({
                // name (both optional with safe fallbacks).
   leaderName?: string;
   leaderEmoji?: string;
+  mostPrepared?: { name: string; emoji: string; count: number } | null;
   onContinue: () => void;
 }) {
   const sch = family?.meetingSetup?.schedule;
@@ -830,6 +920,16 @@ function OpenStep({
               {leaderEmoji || '🎤'}
             </span>
             {leaderName} · leading
+          </div>
+        )}
+
+        {/* 👑 Surprise 1 — Most Prepared crown (whoever filled the most
+            prep this cycle). Pure celebration of filling ahead. */}
+        {mostPrepared && (
+          <div className="mt-3">
+            <span className="inline-flex items-center gap-1.5 bg-kaya-gold/20 border border-kaya-gold-light/40 rounded-full px-3 py-1 text-kaya-gold-light text-[11px] lg:text-xs font-extrabold">
+              👑 Most Prepared · {mostPrepared.emoji} {mostPrepared.name}
+            </span>
           </div>
         )}
 
@@ -1043,53 +1143,186 @@ function CapsuleSealer({
   );
 }
 
-// ── Async pre-fill display ───────────────────────────────────────────
-// Sunday-Meeting v2 (b2). Reads everyone's pre-meeting submissions and
-// surfaces them as a stack of read-only rows above the live per-kid
-// inputs. The presenter / leader can still type in the live inputs to
-// add or refine on the night — submissions are the *starting point*,
-// not the only point.
-function SubmittedList({
-  kind, submissions,
+// ── StepSubmissions (Sunday-Meeting v2 PR C) ─────────────────────────
+// Replaces the old "wall of empty input boxes" for Gratitude /
+// Appreciations. Two parts:
+//   1. Filled — what everyone added in advance (live-synced; a member
+//      filling from their own My Day / Workplan pops in here mid-meeting),
+//      plus anything captured live in the meeting (tagged "added live").
+//   2. Still to add — a tidy chip per member who hasn't filled this
+//      section. The preferred path is they fill from their own device
+//      (it appears above live). Tapping a chip opens an OPTIONAL inline
+//      capture as a quiet fallback ("but can leave it", per Elia) — it
+//      writes to the leader's local map, persisted with the meeting.
+function StepSubmissions({
+  section, submissions, roster, liveValues, onChangeLive, placeholder,
+  filledHeader, missingHeader,
 }: {
-  kind: 'gratitudes' | 'appreciations' | 'goals';
+  section: 'gratitudes' | 'appreciations' | 'goals';
   submissions: MeetingSubmission[];
+  roster: PrepMember[];
+  liveValues: Record<string, string>;
+  onChangeLive: (memberId: string, value: string) => void;
+  placeholder: string;
+  /** Optional overrides (used by the Goals step to read
+   *  "🎯 This week — our commitments" / "Still to set this week"). */
+  filledHeader?: string;
+  missingHeader?: string;
 }) {
-  // Filter out anyone who didn't fill *this* section. Order by name so
-  // the screen reads consistently across steps.
-  const rows = submissions
-    .map((s) => ({ submitter: s, lines: s[kind] || [] }))
-    .filter((r) => r.lines.length > 0)
-    .sort((a, b) => a.submitter.name.localeCompare(b.submitter.name));
+  const [openId, setOpenId] = useState<string | null>(null);
+  // 💌 Surprise 3 — tagged appreciations arrive SEALED and unwrap on tap
+  // (a little group reveal moment in the meeting). Tracks which have been
+  // opened this session.
+  const [unwrapped, setUnwrapped] = useState<Set<string>>(new Set());
 
-  if (rows.length === 0) return null;
+  const subDoc = (m: PrepMember): MeetingSubmission | undefined =>
+    submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
 
-  const sectionLabel = kind === 'gratitudes' ? 'Filled in advance · Gratitudes'
-    : kind === 'appreciations' ? 'Filled in advance · Appreciations'
-    : 'Filled in advance · Goals';
+  // Per-line view for this section. For appreciations each line carries
+  // its own @-tag name (PR "3-lines"); other sections have no tags.
+  const linesFor = (m: PrepMember): Array<{ text: string; tag?: string }> => {
+    const s = subDoc(m);
+    if (!s) return [];
+    return (s[section] || [])
+      .map((text, i) => ({ text, tag: section === 'appreciations' ? (appreciationTagLabelForLine(s, i) || undefined) : undefined }))
+      .filter((r) => !!r.text && r.text.trim().length > 0);
+  };
+
+  const filled = roster
+    .map((m) => ({ m, lines: linesFor(m), live: (liveValues[m.id] || '').trim() }))
+    .filter((r) => r.lines.length > 0 || r.live.length > 0);
+  const missing = roster.filter((m) => linesFor(m).length === 0 && !(liveValues[m.id] || '').trim());
+
+  const sectionLabel = section === 'gratitudes' ? 'Gratitudes'
+    : section === 'appreciations' ? 'Appreciations' : 'Goals';
+  const filledHead = filledHeader ?? `📨 Filled in advance · ${sectionLabel}`;
+  const missingHead = missingHeader ?? 'Still to add';
 
   return (
-    <div className="mb-5 lg:mb-7 rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
-      <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
-        📨 {sectionLabel}
-      </p>
-      <ul className="space-y-2">
-        {rows.map((r) => (
-          <li key={r.submitter.uid} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
-            <span className="text-base lg:text-lg" aria-hidden>
-              {r.submitter.emoji || (r.submitter.role === 'kid' ? '🧒' : '👤')}
-            </span>
-            <div className="flex-1 min-w-0">
-              <p className="font-display font-extrabold text-white">{r.submitter.name}</p>
-              <ul className="text-white/80 leading-snug">
-                {r.lines.map((line, i) => (
-                  <li key={i} className="italic">&ldquo;{line}&rdquo;</li>
-                ))}
-              </ul>
+    <div className="space-y-4 lg:space-y-5">
+      {filled.length > 0 && (
+        <div className="rounded-kaya-lg border border-purple-400/30 bg-purple-500/[0.06] p-4 lg:p-5">
+          <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.18em] font-extrabold text-purple-200/85 mb-3">
+            {filledHead}
+          </p>
+          <ul className="space-y-2">
+            {filled.map(({ m, lines, live }) => {
+              // 💌 Sealed gift: if ANY appreciation line is tagged, the
+              // member's set stays wrapped until tapped, then unwraps with
+              // a little pop. Each line keeps its own @chip on reveal.
+              const hasTag = lines.some((l) => !!l.tag);
+              const sealed = hasTag && !unwrapped.has(m.id);
+              const tagNames = lines.filter((l) => l.tag).map((l) => l.tag).join(' · ');
+              if (sealed) {
+                return (
+                  <li key={m.id}>
+                    <button
+                      type="button"
+                      onClick={() => setUnwrapped((prev) => new Set(prev).add(m.id))}
+                      className="w-full flex items-center gap-3 text-left rounded-kaya border border-purple-300/40 bg-purple-500/15 hover:bg-purple-500/25 px-3 py-2.5 transition-colors"
+                    >
+                      <span className="text-2xl" aria-hidden>🎁</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-display font-extrabold text-white text-[13px]">
+                          {lines.length > 1 ? 'Appreciations' : 'An appreciation'} for {tagNames}
+                        </span>
+                        <span className="block text-[11px] text-purple-100/80">Tap to unwrap 💛</span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              }
+              return (
+                <li key={m.id} className="flex items-start gap-2.5 text-[13px] lg:text-[14px]">
+                  <span className="text-base lg:text-lg" aria-hidden>{m.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-display font-extrabold text-white">
+                      {m.name}
+                      {hasTag && unwrapped.has(m.id) && (
+                        <span className="ml-1.5 text-[12px]" aria-hidden>🎉</span>
+                      )}
+                    </p>
+                    <ul className="text-white/80 leading-snug">
+                      {lines.map((l, i) => (
+                        <li key={i} className="italic">
+                          {l.tag && (
+                            <span className="not-italic mr-1.5 inline-flex items-center rounded-full bg-purple-500/30 border border-purple-300/40 px-2 py-0.5 text-[10px] font-extrabold text-purple-100">
+                              💛 {l.tag}
+                            </span>
+                          )}
+                          &ldquo;{l.text}&rdquo;
+                        </li>
+                      ))}
+                      {live && (
+                        <li className="italic">
+                          &ldquo;{live}&rdquo;{' '}
+                          <span className="not-italic text-[10px] font-bold uppercase tracking-wide text-kaya-gold-light/80">· added live</span>
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {missing.length > 0 && (
+        <div className="rounded-kaya-lg border border-dashed border-white/20 bg-white/[0.04] p-4 lg:p-5">
+          <p className="text-[10px] uppercase tracking-[0.16em] font-extrabold text-white/45 mb-1">
+            Still to add
+          </p>
+          <p className="text-[11px] text-white/45 mb-3">
+            They can fill from their own <strong className="text-white/70">My Day / Workplan</strong> — it appears here live.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {missing.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setOpenId(openId === m.id ? null : m.id)}
+                className={`inline-flex items-center gap-1.5 h-9 px-3 rounded-full text-xs font-bold border transition-colors ${
+                  openId === m.id
+                    ? 'bg-white/15 border-white/40 text-white'
+                    : 'bg-white/[0.06] border-white/15 text-white/70 hover:bg-white/10'
+                }`}
+              >
+                <span aria-hidden>{m.emoji}</span>
+                <span>{m.name}</span>
+                <span className="text-kaya-gold-light/80 font-extrabold">{openId === m.id ? '✕' : '+ add here'}</span>
+              </button>
+            ))}
+          </div>
+
+          {openId && (
+            <div className="mt-3">
+              <input
+                autoFocus
+                value={liveValues[openId] || ''}
+                onChange={(e) => onChangeLive(openId, e.target.value)}
+                placeholder={placeholder}
+                className="w-full bg-white/10 border border-white/15 rounded-kaya-sm px-4 py-3 text-[14px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+              />
+              <p className="mt-1.5 text-[10.5px] text-white/40">
+                Optional — the meeting is for reading &amp; celebrating. Best if {roster.find((r) => r.id === openId)?.name || 'they'} fills from their own My Day.
+              </p>
             </div>
-          </li>
-        ))}
-      </ul>
+          )}
+        </div>
+      )}
+
+      {filled.length === 0 && missing.length === 0 && (
+        <EmptyHint>Nobody has added a {section === 'gratitudes' ? 'gratitude' : 'appreciation'} yet — they can fill from My Day / Workplan and it shows here live.</EmptyHint>
+      )}
+    </div>
+  );
+}
+
+function EmptyHint({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-kaya-lg border border-white/10 bg-white/[0.04] p-6 text-center text-white/55 text-[13px]">
+      {children}
     </div>
   );
 }
@@ -1413,56 +1646,6 @@ function LeaderWheel({
   );
 }
 
-function PerKidTextInputs({
-  childrenList,
-  values,
-  onChange,
-  placeholder,
-  multiline = false,
-}: {
-  childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
-  values: Record<string, string>;
-  onChange: (next: Record<string, string>) => void;
-  placeholder: string;
-  multiline?: boolean;
-}) {
-  if (childrenList.length === 0) {
-    return (
-      <div className="bg-white/5 border border-white/10 rounded-kaya p-8 text-center text-white/60">
-        Add kids to your family in <Link href="/profiles" className="underline">profiles</Link> first.
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-4">
-      {childrenList.map((c) => (
-        <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya p-4 lg:p-5">
-          <label className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold text-kaya-gold-light mb-2">
-            <span className="text-2xl">{c.avatarEmoji || '👧'}</span>
-            <span>{c.name}</span>
-          </label>
-          {multiline ? (
-            <textarea
-              value={values[c.id] || ''}
-              onChange={(e) => onChange({ ...values, [c.id]: e.target.value })}
-              placeholder={placeholder}
-              rows={3}
-              className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[15px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none"
-            />
-          ) : (
-            <input
-              value={values[c.id] || ''}
-              onChange={(e) => onChange({ ...values, [c.id]: e.target.value })}
-              placeholder={placeholder}
-              className="w-full h-12 lg:h-14 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[15px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
-            />
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function CelebrateStep() {
   return (
     <div className="bg-gradient-to-br from-kaya-gold/20 via-kaya-gold-light/10 to-transparent border border-kaya-gold/30 rounded-kaya-lg p-6 lg:p-10 text-center">
@@ -1765,6 +1948,8 @@ function AttendanceStep({
 // drops off the recent-N window).
 function GoalsStep({
   childrenList,
+  submissions,
+  roster,
   recentMeetings,
   reviewedGoalsDone,
   onToggleHistoricalGoalDone,
@@ -1772,6 +1957,8 @@ function GoalsStep({
   onChangeGoals,
 }: {
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  submissions: MeetingSubmission[];
+  roster: PrepMember[];
   recentMeetings: Meeting[];
   reviewedGoalsDone: Record<string, Record<string, boolean>>;
   onToggleHistoricalGoalDone: (meetingId: string, kidId: string, done: boolean) => void;
@@ -1819,12 +2006,36 @@ function GoalsStep({
 
   return (
     <div className="space-y-7">
-      {/* Multi-week review */}
+      {/* ① This week — our commitments (forward-looking, shown FIRST per
+          Elia). Read from each member's prep submission (live-synced),
+          with a "still to set" nudge + optional in-meeting capture. */}
+      <section>
+        <StepSubmissions
+          section="goals"
+          submissions={submissions}
+          roster={roster}
+          liveValues={goals}
+          onChangeLive={(id, v) => onChangeGoals({ ...goals, [id]: v })}
+          placeholder="This week I want to…"
+          filledHeader="🎯 This week — our commitments"
+          missingHeader="Still to set this week"
+        />
+        <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
+          Keep it small and specific — "read every night before bed" beats "do better at school."
+        </p>
+      </section>
+
+      {/* ② Last week — tick what's done. Ticked goals are saved done (and
+          land in history); unticked ones carry forward to next week,
+          flagged with ↻. */}
       {goalsByMeeting.length > 0 && (
         <section>
-          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-3 px-1">
-            ✅ Outstanding goals — check off what we did
+          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-1 px-1">
+            ✅ Last week — tick what's done
           </h3>
+          <p className="text-[11px] text-white/45 mb-3 px-1">
+            Unticked goals <span className="font-bold text-amber-300">↻ carry</span> into next week so nothing drops.
+          </p>
           <div className="space-y-5">
             {goalsByMeeting.map(({ meeting, index, kids }) => (
               <div key={meeting.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4 lg:p-5">
@@ -1855,6 +2066,11 @@ function GoalsStep({
                           <div className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold">
                             <span className="text-xl">{child.avatarEmoji || '👧'}</span>
                             <span>{child.name}</span>
+                            {!done && (
+                              <span className="ml-auto text-[9px] font-extrabold uppercase tracking-wide text-amber-300 bg-amber-400/15 rounded-full px-2 py-0.5">
+                                ↻ carries
+                              </span>
+                            )}
                           </div>
                           <p className={`mt-1 text-[14px] lg:text-base leading-snug ${done ? 'text-white/50 line-through' : 'text-white/85'}`}>
                             {goal}
@@ -1869,27 +2085,6 @@ function GoalsStep({
           </div>
         </section>
       )}
-
-      {/* This week's goals */}
-      <section>
-        <div className="flex items-baseline justify-between mb-3 px-1">
-          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light">
-            🎯 This week — what do we commit to?
-          </h3>
-          <span className="text-[9px] lg:text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded-full bg-white/10 text-white/50">
-            AI assist · Soon
-          </span>
-        </div>
-        <PerKidTextInputs
-          childrenList={childrenList}
-          values={goals}
-          onChange={onChangeGoals}
-          placeholder="Next week I will…"
-        />
-        <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
-          Keep it small and specific — "read every night before bed" beats "do better at school."
-        </p>
-      </section>
     </div>
   );
 }

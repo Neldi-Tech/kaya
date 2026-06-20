@@ -24,11 +24,20 @@ import { subscribeToSubscriptions, type Subscription } from '@/lib/subscriptions
 import { subscribeToContributions, type Contribution } from '@/lib/contributions';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import PerParentTotals from '@/components/household/PerParentTotals';
+import TimeRangeFilter from '@/components/finance/TimeRangeFilter';
+import FinanceTrends from '@/components/finance/FinanceTrends';
+import FinanceInsights from '@/components/finance/FinanceInsights';
+import BudgetHealthBadge from '@/components/finance/BudgetHealthBadge';
+import WhatIfSimulator from '@/components/finance/WhatIfSimulator';
+import {
+  type TimeRange, currentMonthRange, monthKeysInRange, monthSpan,
+  rangeLabel, rangePeriodWord, rangeEndMonthKey, lastNMonthKeys, elapsedFraction,
+} from '@/lib/timeRange';
+import { buildModuleSeries, activeModulesIn, monthlyAverages, headlineSignal } from '@/lib/financeSeries';
+import { budgetHealth } from '@/lib/budgetHealth';
 
 const monthKey = (d: Date = new Date()) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-const monthLabel = (d: Date = new Date()) =>
-  d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
 // Every Household money bucket rolled up here. Pantry/Outdoor/Drivers/
 // Utility/Payroll/Dine Out/Home come from purchaseRequests; Subscriptions
@@ -104,25 +113,30 @@ export default function FinancesPage() {
     return () => { u1(); u2(); u3(); u4(); alive = false; };
   }, [profile?.familyId, profile?.role]);
 
-  const thisMonth = monthKey();
-  const closedThisMonth = useMemo(
+  // Time range — default the current month; parent can switch to a
+  // quarter / year / custom span. Everything below filters by the SET of
+  // month keys the range spans (see lib/timeRange).
+  const [range, setRange] = useState<TimeRange>(() => currentMonthRange());
+  const monthSet = useMemo(() => new Set(monthKeysInRange(range)), [range]);
+  const closedInRange = useMemo(
     () => recent.filter((r) => {
       if (r.status !== 'closed') return false;
-      return budgetMonthKeyFor(r) === thisMonth;
+      const k = budgetMonthKeyFor(r);
+      return !!k && monthSet.has(k);
     }),
-    [recent, thisMonth],
+    [recent, monthSet],
   );
 
-  // Ledger entries that fall in the current month, EXCLUDING anything
-  // tagged isProfessionalExpense — per spec §5 those are work expenses
-  // and shouldn't pollute household roll-ups.
-  const ledgerThisMonth = useMemo(
+  // Ledger entries that fall in the range, EXCLUDING anything tagged
+  // isProfessionalExpense — per spec §5 those are work expenses and
+  // shouldn't pollute household roll-ups.
+  const ledgerInRange = useMemo(
     () => ledger.filter((e) => {
       if (e.isProfessionalExpense) return false;
       const at = e.occurredOn?.toDate?.();
-      return at && monthKey(at) === thisMonth;
+      return !!at && monthSet.has(monthKey(at));
     }),
-    [ledger, thisMonth],
+    [ledger, monthSet],
   );
 
   // Per-module roll-up — purchaseRequests for the existing 7 modules,
@@ -139,13 +153,13 @@ export default function FinancesPage() {
       subscriptions:  { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
       contributions:  { spent: 0, cap: 0, count: 0, over: false, pct: 0 },
     };
-    for (const r of closedThisMonth) {
+    for (const r of closedInRange) {
       const m = (r.module ?? 'pantry') as PurchaseModule;
       if (!result[m]) continue;
       result[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
       result[m].count += 1;
     }
-    for (const e of ledgerThisMonth) {
+    for (const e of ledgerInRange) {
       const m = e.sourceModule as PurchaseModule;
       if (!result[m]) continue;
       result[m].spent += e.amountHousehold || 0;
@@ -162,7 +176,7 @@ export default function FinancesPage() {
       result[m].pct = cap > 0 ? Math.min(100, Math.round((spent / cap) * 100)) : 0;
     }
     return result;
-  }, [closedThisMonth, ledgerThisMonth, family?.householdBudgets]);
+  }, [closedInRange, ledgerInRange, family?.householdBudgets]);
 
   // NOTE (2026-05-17): The "Utility Bills · Monthly" rollup card was
   // removed from this page. It double-surfaced utility spend alongside
@@ -179,9 +193,10 @@ export default function FinancesPage() {
   // a paidByUid (null = Shared). Subs contribute their monthly-equivalent
   // (the recurring commitment); contributions + purchases their actuals.
   type AttribItem = { id: string; label: string; sub: string; cents: number; paidByUid: string | null };
+  const months = monthSpan(range);
   const attributable = useMemo<AttribItem[]>(() => {
     const out: AttribItem[] = [];
-    for (const r of closedThisMonth) {
+    for (const r of closedInRange) {
       out.push({
         id: `p_${r.id}`,
         label: r.name || 'Purchase',
@@ -193,17 +208,18 @@ export default function FinancesPage() {
     for (const s of subs) {
       if (s.status === 'cancelled' || s.status === 'paused') continue;
       if (s.isProfessionalExpense) continue;
+      // Monthly commitment × number of months in the range.
       out.push({
         id: `s_${s.id}`,
         label: s.name,
-        sub: 'Subscription · monthly equiv.',
-        cents: s.monthlyEquivalent || 0,
+        sub: months > 1 ? `Subscription · ${months}× monthly equiv.` : 'Subscription · monthly equiv.',
+        cents: (s.monthlyEquivalent || 0) * months,
         paidByUid: s.paidByUid ?? null,
       });
     }
     for (const c of contribs) {
       const at = c.dateGiven?.toDate?.();
-      if (!at || monthKey(at) !== thisMonth) continue;
+      if (!at || !monthSet.has(monthKey(at))) continue;
       out.push({
         id: `c_${c.id}`,
         label: c.recipientName || 'Contribution',
@@ -213,7 +229,7 @@ export default function FinancesPage() {
       });
     }
     return out;
-  }, [closedThisMonth, subs, contribs, thisMonth]);
+  }, [closedInRange, subs, contribs, monthSet, months]);
 
   const byUid = useMemo(() => {
     const m: Record<string, number> = { shared: 0 };
@@ -236,6 +252,26 @@ export default function FinancesPage() {
   const totalCap = LIVE_MODULES.reduce((acc, m) => acc + perModule[m].cap, 0);
   const totalPct = totalCap > 0 ? Math.min(100, Math.round((totalSpent / totalCap) * 100)) : 0;
   const totalOver = totalCap > 0 && totalSpent > totalCap;
+
+  // ── Tabs + trends series (PR 2) ──────────────────────────────────
+  const [tab, setTab] = useState<'overview' | 'trends' | 'insights'>('overview');
+  // Trends are inherently multi-month: a trailing 6-month window ending at
+  // the selected range's most recent month.
+  const trendMonths = useMemo(() => lastNMonthKeys(rangeEndMonthKey(range), 6), [range]);
+  const series = useMemo(
+    () => buildModuleSeries(LIVE_MODULES, recent, ledger, trendMonths),
+    [recent, ledger, trendMonths],
+  );
+  const trendModules = useMemo(() => activeModulesIn(series, LIVE_MODULES), [series]);
+
+  // Surprises (PR 4): health score, headline "Kaya noticed" signal, what-if averages.
+  const overCount = useMemo(() => LIVE_MODULES.filter((m) => perModule[m].over).length, [perModule]);
+  const health = useMemo(
+    () => budgetHealth(totalSpent, totalCap, elapsedFraction(range), overCount),
+    [totalSpent, totalCap, range, overCount],
+  );
+  const averages = useMemo(() => monthlyAverages(series, trendModules), [series, trendModules]);
+  const signal = useMemo(() => headlineSignal(series, trendModules, (m) => MODULE_LABEL[m]), [series, trendModules]);
 
   // Polite blocker for non-parents who reach this URL before redirect.
   if (profile && profile.role !== 'parent') {
@@ -260,13 +296,78 @@ export default function FinancesPage() {
           Household · Finances
         </p>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
-          {monthLabel()}
+          {rangeLabel(range)}
         </h1>
         <p className="text-hive-muted text-sm mt-1">
-          Every closed request this month, rolled up across Household modules.
+          Every closed request {rangePeriodWord(range)}, rolled up across Household modules.
         </p>
       </div>
 
+      {/* Time-range filter — month (default) · quarter · year · custom. */}
+      <div className="mb-1">
+        <TimeRangeFilter
+          value={range}
+          onChange={setRange}
+          countLabel={`${closedInRange.length} closed request${closedInRange.length === 1 ? '' : 's'}`}
+        />
+      </div>
+
+      {/* Tabs — Overview (roll-up) · Trends (charts). AI Insights lands next. */}
+      <div className="flex gap-1.5 bg-hive-paper border border-hive-line rounded-hive p-1 mt-3">
+        {([['overview', '📊 Overview'], ['trends', '📈 Trends'], ['insights', '🤖 AI']] as const).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTab(k)}
+            className={`flex-1 font-nunito font-black text-[13.5px] py-2.5 rounded-[12px] transition-colors ${
+              tab === k ? 'bg-hive-navy text-white' : 'text-hive-muted'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'trends' && (
+        <div className="mt-4">
+          <FinanceTrends series={series} modules={trendModules} currency={currency} />
+        </div>
+      )}
+
+      {tab === 'insights' && profile?.familyId && (
+        <div className="mt-4">
+          <FinanceInsights
+            familyId={profile.familyId}
+            series={series}
+            modules={trendModules}
+            perModule={perModule}
+            currency={currency}
+            periodLabel={rangeLabel(range)}
+            monthKey={rangeEndMonthKey(range)}
+          />
+          {/* ✨ Surprise 3 — What-if savings simulator */}
+          <WhatIfSimulator averages={averages} modules={trendModules} currency={currency} />
+        </div>
+      )}
+
+      {tab === 'overview' && (
+      <>
+      {/* ✨ Surprise 2 — "Kaya noticed" quiet anomaly banner */}
+      {signal && (
+        <button
+          type="button"
+          onClick={() => setTab('insights')}
+          className="mt-3 w-full flex items-center gap-2.5 text-left rounded-hive border border-hive-line bg-hive-paper px-3.5 py-2.5"
+        >
+          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{
+            background: signal.tone === 'hi' ? '#E8806B' : signal.tone === 'win' ? '#7FCF97' : '#D4A847',
+          }} />
+          <span className="text-[12.5px] font-bold text-hive-ink leading-snug">
+            <span className="font-nunito font-black">{signal.emoji} Kaya noticed</span>{' — '}{signal.text}.
+          </span>
+          <span className="ml-auto text-[11px] font-nunito font-black text-hive-muted flex-shrink-0">AI →</span>
+        </button>
+      )}
       {/* Family total */}
       <div className={`mt-4 rounded-hive border p-4 ${
         totalOver ? 'bg-[#FCEAEA] border-[#E8B5B5]' : 'bg-pantry-leaf-soft border-pantry-leaf'
@@ -294,8 +395,12 @@ export default function FinancesPage() {
           </div>
         )}
         <p className="text-[11px] text-hive-muted mt-2 font-bold">
-          {closedThisMonth.length} closed request{closedThisMonth.length === 1 ? '' : 's'} this month
+          {closedInRange.length} closed request{closedInRange.length === 1 ? '' : 's'} {rangePeriodWord(range)}
         </p>
+        {/* ✨ Surprise 1 — Budget Health Score */}
+        <div className="mt-3 pt-3 border-t border-pantry-leaf/40">
+          <BudgetHealthBadge health={health} />
+        </div>
       </div>
 
       {/* Per-parent attribution card — stacked bar + tappable rows.
@@ -310,7 +415,7 @@ export default function FinancesPage() {
             format={(c) => formatCentsBudgetNeat(c, currency)}
             selected={paidByFilter}
             onSelect={setPaidByFilter}
-            monthLabel={monthLabel()}
+            monthLabel={rangeLabel(range)}
           />
           {/* Drill-down — the selected parent's / shared items, biggest
               first. The cost-cutting view: see exactly what's driving
@@ -392,15 +497,15 @@ export default function FinancesPage() {
       {/* Recent closed across all modules */}
       <div className="mt-6">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-muted mb-2">
-          Recent · all modules · {closedThisMonth.length}
+          Recent · all modules · {closedInRange.length}
         </p>
-        {closedThisMonth.length === 0 ? (
+        {closedInRange.length === 0 ? (
           <div className="bg-hive-paper border border-hive-line rounded-hive p-5 text-center text-hive-muted text-sm">
-            No closed requests this month yet. They'll appear here as soon as helpers reconcile shops.
+            No closed requests {rangePeriodWord(range)} yet. They'll appear here as soon as helpers reconcile shops.
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {closedThisMonth.slice(0, 10).map((r) => {
+            {closedInRange.slice(0, 10).map((r) => {
               const m = (r.module ?? 'pantry') as PurchaseModule;
               const total = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
               return (
@@ -432,6 +537,8 @@ export default function FinancesPage() {
         Subscriptions + Contributions feed in from the new Household modules.
         Professional-tagged subs are excluded from the household roll-up.
       </p>
+      </>
+      )}
     </div>
   );
 }

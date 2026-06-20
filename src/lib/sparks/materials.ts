@@ -64,6 +64,17 @@ export function subjectMeta(key: string): SubjectMeta {
 /** What kind of upload a material represents. */
 export type MaterialKind = 'file' | 'link';
 
+/** Parent's rating + feedback on a material — mirrors the Sparks Projects
+ *  rating (⭐1–5 + a feedback note), so a scanned doc a kid reads can be
+ *  rated + commented on by a parent and the kid sees it. */
+export interface MaterialRating {
+  stars: number;            // 1–5
+  note?: string;            // parent feedback the kid reads
+  rated_by: string;         // parent (or sparks-act helper) uid
+  rated_by_name: string;    // display name at rating time
+  rated_at: number;         // ms epoch
+}
+
 export interface SparksMaterial {
   id: string;
   /** Required — kid-readable short title. */
@@ -99,6 +110,9 @@ export interface SparksMaterial {
   uploaded_by_name: string;  // display name at upload time
   created_at: Timestamp;
   updated_at: Timestamp;
+
+  /** Parent rating + feedback (absent until a parent rates it). */
+  rating?: MaterialRating;
 }
 
 /** Materials feed visible to a given kid — applies the sharing filter

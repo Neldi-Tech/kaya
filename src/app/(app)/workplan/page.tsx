@@ -27,6 +27,7 @@ import { updateFamily, readWorkplanProofMode } from '@/lib/firestore';
 import { useLocale } from '@/lib/useLocale';
 import PauseSheet from '@/components/workplan/PauseSheet';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
@@ -92,6 +93,7 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
   userUid: string;
   avatarEmoji?: string;
 }) {
+  const [tab, setTab] = useState<'workplan' | 'submissions'>('workplan');
   const [offset, setOffset] = useState(0);
   const date = useMemo(() => {
     const d = new Date();
@@ -118,27 +120,49 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
         avatarEmoji={avatarEmoji}
       />
 
-      <p className="text-[11px] font-black uppercase tracking-[3px] mb-2" style={{ color: PURPLE }}>My Workplan</p>
-
-      {/* Day navigator — default today, scroll back/forward */}
-      <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
-        <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>‹</button>
-        <button type="button" onClick={() => setOffset(0)} className="flex-1 text-center leading-tight">
-          <span className="block font-black text-[14px]" style={{ color: '#2D1B5E' }}>{rel ?? dlabel}</span>
-          {rel && <span className="block text-[10px] font-bold" style={{ color: '#9B8AA8' }}>{dlabel}</span>}
-        </button>
-        <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next day"
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>›</button>
+      {/* Tabs — Workplan vs My Submissions (PR F). Keeps the meeting
+          submission history out of the to-do list so neither crowds the
+          other. */}
+      <div className="flex gap-1.5 mb-3 rounded-full p-1" style={{ background: '#F0EBE3' }}>
+        {([['workplan', '🗓️ Workplan'], ['submissions', '📒 My Submissions']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setTab(key)}
+            className="flex-1 text-center font-black text-[12px] py-2 rounded-full transition-colors"
+            style={tab === key
+              ? { background: '#fff', color: '#1E120B', boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }
+              : { color: '#9B8A72' }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {offset !== 0 && (
-        <button type="button" onClick={() => setOffset(0)}
-          className="mb-3 text-[11px] font-black px-3 py-1 rounded-full" style={{ background: '#F0E8FF', color: PURPLE }}>
-          ↩ Back to today
-        </button>
-      )}
 
-      <KidWorkplanToday familyId={familyId} childId={childId} childName={name} date={date} />
+      {tab === 'workplan' ? (
+        <>
+          {/* Day navigator — default today, scroll back/forward */}
+          <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
+            <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>‹</button>
+            <button type="button" onClick={() => setOffset(0)} className="flex-1 text-center leading-tight">
+              <span className="block font-black text-[14px]" style={{ color: '#2D1B5E' }}>{rel ?? dlabel}</span>
+              {rel && <span className="block text-[10px] font-bold" style={{ color: '#9B8AA8' }}>{dlabel}</span>}
+            </button>
+            <button type="button" onClick={() => setOffset((o) => o + 1)} aria-label="Next day"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-[20px] font-black active:scale-95" style={{ color: PURPLE }}>›</button>
+          </div>
+          {offset !== 0 && (
+            <button type="button" onClick={() => setOffset(0)}
+              className="mb-3 text-[11px] font-black px-3 py-1 rounded-full" style={{ background: '#F0E8FF', color: PURPLE }}>
+              ↩ Back to today
+            </button>
+          )}
+          <KidWorkplanToday familyId={familyId} childId={childId} childName={name} date={date} />
+        </>
+      ) : (
+        <SubmissionHistoryView familyId={familyId} uid={userUid} />
+      )}
     </div>
   );
 }

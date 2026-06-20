@@ -18,7 +18,8 @@ import {
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
-import { PulseHeader, PulseHero } from '@/components/pulse/ui';
+import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
+import { toDisplayDate } from '@/lib/dates';
 import {
   type PulseReading, type Trackable,
   subscribeToReadingsInMonth, subscribeToTrackables,
@@ -26,7 +27,7 @@ import {
 } from '@/lib/pulse';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-const VALID_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home'];
+const VALID_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home', 'subscriptions', 'contributions'];
 
 export default function BucketDrillDownPage() {
   const router = useRouter();
@@ -94,6 +95,20 @@ export default function BucketDrillDownPage() {
     return bars.map((b) => ({ ...b, pct: Math.round((b.cents / max) * 100) }));
   }, [byDay, avgPerDay, dayOfMonth, daysInMonth]);
 
+  // Closed transactions in this bucket this month — feeds the new
+  // tap-to-drill list at the bottom of the page (→ /pulse/txn/[id]).
+  const txns = useMemo(() => {
+    const out: PurchaseRequest[] = [];
+    for (const r of recent) {
+      if (r.status !== 'closed') continue;
+      if ((r.module ?? 'pantry') !== moduleKey) continue;
+      const at = r.closedAt?.toDate?.();
+      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      out.push(r);
+    }
+    return out.sort((a, b) => (b.closedAt?.toMillis?.() ?? 0) - (a.closedAt?.toMillis?.() ?? 0));
+  }, [recent, moduleKey, thisMonth]);
+
   // Metered trackables in this module (consumption lens for context).
   const metered = useMemo(() => {
     const tks = trackables.filter((t) => t.module === moduleKey);
@@ -116,8 +131,8 @@ export default function BucketDrillDownPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+      <PulseBreadcrumb trail={[]} current={MODULE_LABEL[moduleKey]} />
       <PulseHeader
-        back={{ href: '/pulse', label: 'Dashboard' }}
         eyebrow="Budget bucket"
         title={`${MODULE_EMOJI[moduleKey]} ${MODULE_LABEL[moduleKey]}`}
         subtitle="Cash spend · this month"
@@ -191,6 +206,45 @@ export default function BucketDrillDownPage() {
           </div>
           <div className={`text-[11px] font-black mt-2 ${paceTone}`}>● {pacingLabel(pace.flag)}</div>
         </div>
+      )}
+
+      {/* Transactions this month — tap a row for the full receipt + AI insight (PR 2 + PR 3). */}
+      {txns.length > 0 && (
+        <>
+          <div className="flex items-center justify-between mt-5 mb-2">
+            <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">Transactions · {txns.length}</div>
+            <span className="text-[10px] text-hive-muted font-bold">tap to drill</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {txns.map((t) => {
+              const at = t.closedAt?.toDate?.();
+              const dayKey = at ? `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}` : '';
+              const cents = t.actualTotalCents ?? t.estimatedTotalCents ?? 0;
+              return (
+                <Link
+                  key={t.id}
+                  href={`/pulse/txn/${t.id}`}
+                  className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40"
+                >
+                  <div className="w-11 shrink-0 text-center">
+                    <div className="font-nunito font-black text-pulse-navy text-base leading-none">{at ? at.getDate() : '?'}</div>
+                    <div className="text-[8.5px] font-black tracking-[0.5px] text-hive-muted uppercase mt-0.5">{at ? at.toLocaleDateString('en-US', { month: 'short' }) : ''}</div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-nunito font-black text-sm text-pulse-navy truncate">{t.name || (dayKey ? toDisplayDate(dayKey) : 'Purchase')}</div>
+                    <div className="text-[10.5px] text-hive-muted font-bold">
+                      {(t.items?.length ?? 0) > 0 && <span>{t.items.length} item{t.items.length === 1 ? '' : 's'}</span>}
+                      {t.receiptUrl && <span> · 🧾</span>}
+                      {t.createdByRole === 'helper' && <span> · helper</span>}
+                    </div>
+                  </div>
+                  <div className="text-[13px] font-black text-pulse-navy shrink-0">{formatCents(cents, currency)}</div>
+                  <span className="text-pulse-gold-dk text-sm shrink-0">›</span>
+                </Link>
+              );
+            })}
+          </div>
+        </>
       )}
 
       {/* Metered trackables (consumption lens) */}

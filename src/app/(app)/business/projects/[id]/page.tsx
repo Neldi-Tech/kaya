@@ -17,6 +17,7 @@ import { readBusinessConfig } from '@/lib/business';
 import { uploadProjectPhoto, uploadProjectPhotoFromDataUrl, deleteBusinessPhoto } from '@/lib/businessPhoto';
 import AICoachCard from '@/components/business/AICoachCard';
 import AIImageButton from '@/components/business/AIImageButton';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 
 export default function ProjectDetailPage() {
   const params = useParams();
@@ -32,6 +33,7 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [scanOpen, setScanOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -68,6 +70,24 @@ export default function ProjectDetailPage() {
     if (!familyId) return;
     const url = await uploadProjectPhotoFromDataUrl(familyId, projectId, dataUrl);
     if (url) await addProjectPhotoUrl(familyId, projectId, url);
+  };
+
+  // Scan camera (AI auto-frame · crop · enhance · multi-page) — the same
+  // CameraCaptureSheet kids use in Sparks. Each confirmed page is already
+  // the enhanced variant; upload them through the normal project-photo path.
+  const onScanConfirm = async (files: File[]) => {
+    if (!familyId || files.length === 0) return;
+    setError(''); setUploading(true);
+    try {
+      for (const f of files) {
+        const url = await uploadProjectPhoto(familyId, projectId, f);
+        if (url) await addProjectPhotoUrl(familyId, projectId, url);
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Could not add the scan.');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const removePhoto = async (url: string) => {
@@ -158,10 +178,22 @@ export default function ProjectDetailPage() {
         {canEdit && (
           <div className="space-y-2">
             <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={pickPhoto} className="hidden" />
-            <button onClick={() => fileRef.current?.click()} disabled={uploading}
-              className="w-full h-11 rounded-hive border-2 border-dashed border-hive-honey bg-[#FFFBEE] text-[13px] font-nunito font-bold text-[#B25E16] disabled:opacity-50">
-              {uploading ? 'Adding…' : '📷 Add a photo'}
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setScanOpen(true)} disabled={uploading}
+                className="h-11 rounded-hive border-2 border-dashed border-hive-honey bg-[#FFFBEE] text-[13px] font-nunito font-bold text-[#B25E16] disabled:opacity-50">
+                📄 Scan
+              </button>
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                className="h-11 rounded-hive border-2 border-dashed border-hive-line bg-hive-paper text-[13px] font-nunito font-bold text-hive-muted disabled:opacity-50">
+                {uploading ? 'Adding…' : '📷 Photo'}
+              </button>
+            </div>
+            <CameraCaptureSheet
+              open={scanOpen}
+              mode="scan"
+              onClose={() => setScanOpen(false)}
+              onConfirm={onScanConfirm}
+            />
             {/* AI product image — off until OPENAI_API_KEY is set. */}
             <AIImageButton
               kind="product"

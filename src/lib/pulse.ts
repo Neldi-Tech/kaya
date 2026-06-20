@@ -88,6 +88,9 @@ export interface TrackableDoc {
   serviceIntervalUnits?: number;
   /** Reading at the last service — "to next service" = serviceIntervalUnits − (latest − this). */
   serviceBaselineUnits?: number;
+  /** Helper-of-record uid — who Kaya auto-pings when this meter drops below
+   *  threshold (Auto-buddy, PR 5). Picker in trackable admin lands in PR 5. */
+  helperOfRecord?: string;
   active: boolean;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
@@ -105,6 +108,7 @@ export interface Trackable {
   module: PurchaseModule;
   balanceUnits?: number;
   minUnitsThreshold?: number;
+  helperOfRecord?: string;
   active: boolean;
 }
 
@@ -542,6 +546,7 @@ export function meterToTrackable(m: UtilityMeter): Trackable {
     module: 'utility',
     balanceUnits: m.balanceUnits,
     minUnitsThreshold: m.minUnitsThreshold,
+    helperOfRecord: m.helperOfRecord,
     active: m.active,
   };
 }
@@ -558,6 +563,7 @@ export function trackableDocToTrackable(t: TrackableDoc): Trackable {
     module: t.module,
     balanceUnits: t.balanceUnits,
     minUnitsThreshold: t.minUnitsThreshold,
+    helperOfRecord: t.helperOfRecord,
     active: t.active,
   };
 }

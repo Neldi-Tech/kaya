@@ -24,7 +24,7 @@ const TYPE_ICONS: Record<string, string> = {
   'purchase-approved':           '✅',
   'purchase-rejected':           '⚠️',
   'purchase-reconciled':         '💰',
-  reminder:                      '📅',
+  reminder:                      '🔔',
 };
 
 const TYPE_LABELS: Record<string, string> = {

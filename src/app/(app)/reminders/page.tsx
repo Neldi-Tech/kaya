@@ -17,6 +17,7 @@ import {
   fetchReminders, saveReminder, deleteReminder, decideReminder,
   occurrencesInRange, autoImportedEvents, isAutoImported,
   describeRepeat, formatTime, relativeDays, typeMeta,
+  nextOccurrenceOnOrAfter, diffDaysKey,
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
@@ -31,6 +32,14 @@ const CAL_DK = '#3E4DA0';
 const CAL_SOFT = '#E7EAFA';
 
 const MONTH_DAY_CHIPS: MonthDay[] = [1, 5, 10, 15, 20, 25, 'last'];
+
+// "2026-06" → "June 2026" for the All-reminders month groups.
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function monthLabel(monthKey: string): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(monthKey);
+  if (!m) return monthKey;
+  return `${MONTH_NAMES[parseInt(m[2], 10) - 1] || ''} ${m[1]}`;
+}
 
 interface FormState {
   id?: string;
@@ -113,6 +122,11 @@ export default function RemindersPage() {
   const [form, setForm] = useState<FormState>(blankForm());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // "All reminders" by-month list (approved 2026-06-14): search + which
+  // month groups are expanded. Soonest month opens once on first load.
+  const [search, setSearch] = useState('');
+  const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
+  const [monthsSeeded, setMonthsSeeded] = useState(false);
 
   const load = useCallback(async () => {
     if (!user || !profile?.familyId) return;
@@ -156,6 +170,39 @@ export default function RemindersPage() {
     () => (role === 'parent' ? events.filter((e) => e.status === 'pending_parent') : []),
     [events, role],
   );
+
+  // "All reminders" — every event (manual + Auto birthdays) filed by the
+  // month of its NEXT occurrence, so a saved reminder is always findable.
+  // Past one-offs fall back to their own date's month.
+  const searchQ = search.trim().toLowerCase();
+  const monthGroups = useMemo(() => {
+    const map = new Map<string, { ev: ReminderEvent; dateKey: string }[]>();
+    for (const ev of allEvents) {
+      if (searchQ && !ev.title.toLowerCase().includes(searchQ)) continue;
+      const dateKey = nextOccurrenceOnOrAfter(ev, today, 800) || ev.date;
+      const mk = dateKey.slice(0, 7);
+      if (!map.has(mk)) map.set(mk, []);
+      map.get(mk)!.push({ ev, dateKey });
+    }
+    return Array.from(map.entries())
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([key, items]) => ({
+        key,
+        label: monthLabel(key),
+        items: items.sort((a, b) => (a.dateKey < b.dateKey ? -1 : 1)),
+      }));
+  }, [allEvents, searchQ, today]);
+
+  // Open the soonest month once on first load; user toggles take over after.
+  useEffect(() => {
+    if (!monthsSeeded && monthGroups.length > 0) {
+      setOpenMonths(new Set([monthGroups[0].key]));
+      setMonthsSeeded(true);
+    }
+  }, [monthsSeeded, monthGroups]);
+
+  const toggleMonth = (key: string) =>
+    setOpenMonths((s) => { const n = new Set(s); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
   function openNew() { setForm(blankForm()); setError(''); setEditorOpen(true); }
   function openEdit(ev: ReminderEvent) {
@@ -222,7 +269,7 @@ export default function RemindersPage() {
       <div className="flex items-center justify-between gap-3 mb-5">
         <div>
           <h1 className="text-2xl font-display font-extrabold text-kaya-chocolate flex items-center gap-2">
-            <span>📅</span> Reminders
+            <span>🔔</span> Reminders
           </h1>
           <p className="text-sm text-kaya-sand mt-1">
             Birthdays, anniversaries, appointments &amp; special days — private or shared with the family.
@@ -284,6 +331,62 @@ export default function RemindersPage() {
               upcoming.map((o) => <Row key={`${o.event.id}-${o.dateKey}`} o={o} onTap={() => openEdit(o.event)} />)
             )}
           </Section>
+
+          {/* All reminders — the complete list, grouped by month + collapsible
+              (approved 2026-06-14), so a saved reminder is never out of sight.
+              Tap a row to edit/delete (same editor); Auto birthdays are read-only. */}
+          {allEvents.length > 0 && (
+            <div className="mb-5">
+              <div className="flex items-center justify-between gap-2 mb-2 px-1">
+                <div className="text-[11px] font-extrabold uppercase tracking-wider text-kaya-sand">📋 All reminders</div>
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="🔎 Search…"
+                  className="text-xs rounded-kaya-sm border border-kaya-warm-dark bg-white px-2.5 py-1.5 w-32 focus:w-44 transition-all text-kaya-chocolate"
+                />
+              </div>
+              {monthGroups.length === 0 ? (
+                <div className="text-sm text-kaya-sand px-1 py-2">No reminders match “{search}”.</div>
+              ) : (
+                <div className="rounded-kaya border border-kaya-warm-dark bg-white overflow-hidden">
+                  {monthGroups.map((g) => {
+                    const open = !!searchQ || openMonths.has(g.key);
+                    return (
+                      <div key={g.key} className="border-b border-kaya-warm-dark last:border-b-0">
+                        <button
+                          onClick={() => toggleMonth(g.key)}
+                          className="w-full flex items-center gap-2.5 px-3.5 py-3 text-left"
+                          style={open ? { background: CAL_SOFT } : undefined}
+                          aria-expanded={open}
+                        >
+                          <span className="text-[11px] w-3.5 shrink-0" style={{ color: CAL_DK, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                          <span className="text-[13.5px] font-extrabold text-kaya-chocolate">{g.label}</span>
+                          <span
+                            className="ml-auto text-[10.5px] font-extrabold rounded-full px-2 py-0.5 border"
+                            style={open ? { background: CAL, color: '#fff', borderColor: CAL } : { color: CAL_DK, borderColor: CAL }}
+                          >
+                            {g.items.length}
+                          </span>
+                        </button>
+                        {open && (
+                          <div className="px-2.5 pb-2.5 space-y-2">
+                            {g.items.map(({ ev, dateKey }) => (
+                              <Row
+                                key={`${ev.id}-${dateKey}`}
+                                o={{ event: ev, dateKey, daysAway: diffDaysKey(today, dateKey) }}
+                                onTap={() => openEdit(ev)}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 
@@ -349,7 +452,7 @@ function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; o
 function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="text-center py-12">
-      <div className="text-4xl mb-2">📅</div>
+      <div className="text-4xl mb-2">🔔</div>
       <div className="font-bold text-kaya-chocolate">No reminders yet</div>
       <div className="text-sm text-kaya-sand mt-1 mb-4">Never miss a birthday, appointment or special day.</div>
       <button onClick={onNew} className="rounded-kaya px-5 py-2.5 text-white font-bold text-sm" style={{ background: CAL }}>+ Add your first reminder</button>
@@ -392,6 +495,14 @@ function Editor({
   }
 
   const [extInput, setExtInput] = useState('');
+  // Manual lead time — any number of days beyond the presets.
+  const [customLead, setCustomLead] = useState('');
+  function addCustomLead() {
+    const n = Math.round(Number(customLead));
+    if (!Number.isFinite(n) || n < 1 || n > 60) return;
+    setForm((f) => (f.leadDays.includes(n) ? f : { ...f, leadDays: [...f.leadDays, n] }));
+    setCustomLead('');
+  }
   function addExternal() {
     const email = extInput.trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return;
@@ -556,7 +667,7 @@ function Editor({
             )}
           </Field>
 
-          {/* Remind me — lead times */}
+          {/* Remind me — lead times (presets + any custom number of days) */}
           <Field label="Remind me">
             <div className="flex flex-wrap gap-2">
               {LEAD_PRESETS.map((p) => (
@@ -564,6 +675,29 @@ function Editor({
                   {p.label}
                 </Chip>
               ))}
+              {/* Custom lead days the user added — tap to remove. */}
+              {form.leadDays
+                .filter((d) => !LEAD_PRESETS.some((p) => p.days === d))
+                .sort((a, b) => a - b)
+                .map((d) => (
+                  <Chip key={`custom-${d}`} on onClick={() => set('leadDays', toggleArr(form.leadDays, d))}>
+                    {d} days before ✕
+                  </Chip>
+                ))}
+            </div>
+            {/* Manual entry — set your own number of days beyond the presets. */}
+            <div className="flex items-center gap-2 mt-2">
+              <span className="text-[11px] text-kaya-sand">or set your own</span>
+              <input
+                type="number" min={1} max={60} inputMode="numeric"
+                value={customLead}
+                onChange={(e) => setCustomLead(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomLead(); } }}
+                placeholder="#"
+                className="w-16 rounded-kaya-sm border border-kaya-warm-dark bg-white px-2.5 py-1.5 text-sm text-center font-bold text-kaya-chocolate"
+              />
+              <span className="text-[11px] text-kaya-sand">days before</span>
+              <button onClick={addCustomLead} className="rounded-kaya-sm px-3 py-1.5 text-xs font-extrabold text-white" style={{ background: CAL }}>+ Add</button>
             </div>
           </Field>
 

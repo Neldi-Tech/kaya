@@ -257,6 +257,19 @@ service cloud.firestore {
         allow delete: if isParentInFamily(familyId);
       }
 
+      // ── Sunday-Meeting v2 (PR F) · Submission history ────────
+      // Per-member archive of past meeting submissions (one doc per
+      // member, id = uid). Members read their own; parents/helpers read
+      // everyone's (for the read-only view + the Gratitude Jar). Written
+      // family-wide because the meeting leader (any member) archives
+      // everyone's submissions at submit time. No deletes.
+      match /meetingSubmissionHistory/{memberUid} {
+        allow read: if isParentOrHelper(familyId)
+          || (belongsToFamily(familyId) && request.auth.uid == memberUid);
+        allow create, update: if belongsToFamily(familyId);
+        allow delete: if false;
+      }
+
       // ── Sunday-Meeting v2 (b7) · Family Time Capsule ─────────
       // Sealed one-line notes that surface on a meeting ~1 year later
       // (or at the family's chosen lock window). Family members read
@@ -1397,6 +1410,18 @@ service cloud.firestore {
             );
         allow create, update: if isParentInFamily(familyId);
         allow delete: if isParentInFamily(familyId);
+      }
+
+      // sparks_email_queue · pending parent email rows (Slice 7q).
+      // Written ONLY by /api/sparks/notify-submission and the digest
+      // cron, both via Admin SDK (bypass rules). Read = the parent the
+      // queue row is for; delete = same. Clients never write here.
+      match /sparks_email_queue/{docId} {
+        allow read:   if isParentInFamily(familyId)
+                      && resource.data.forParentUid == request.auth.uid;
+        allow delete: if isParentInFamily(familyId)
+                      && resource.data.forParentUid == request.auth.uid;
+        allow create, update: if false;
       }
 
       // sparks_tasks · workplan-wired tasks. Mirrors workplanItems —
