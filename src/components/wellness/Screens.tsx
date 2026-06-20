@@ -59,7 +59,7 @@ export function Home({ name }: { name: string }) {
         <div className="focus">
           <div className="stars" />
           <div className="ringrow">
-            <div className="ring">
+            <div className="wl-ring">
               <svg viewBox="0 0 112 112">
                 <circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="9" />
                 {ritualStreak > 0 && <circle cx="56" cy="56" r="47" fill="none" stroke="#F9A826" strokeWidth="9" strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} transform="rotate(-90 56 56)" />}
@@ -591,19 +591,68 @@ export function Library({ go }: { go: (v: View) => void }) {
     </>
   );
 }
+type GymVenue = { id: string; name: string; type: string; emoji: string; primary: boolean; visits: number };
+const GYM_TYPES2 = [{ t: "Gym", e: "🏋️" }, { t: "Pool", e: "🏊" }, { t: "Studio", e: "🧘" }, { t: "Other", e: "🥊" }];
 export function Gyms({ go }: { go: (v: View) => void }) {
-  const [gyms, setGyms] = useState<{ n: string; ico: string; bg: string }[]>([]);
+  const [gyms, setGyms] = useState<GymVenue[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [type, setType] = useState(0);
+  const [primary, setPrimary] = useState(true);
+
+  const save = () => {
+    const nm = name.trim();
+    if (!nm) return;
+    const t = GYM_TYPES2[type];
+    setGyms((prev) => {
+      const next = primary ? prev.map((g) => ({ ...g, primary: false })) : [...prev];
+      return [...next, { id: `${nm}-${next.length}`, name: nm, type: t.t, emoji: t.e, primary: primary || prev.length === 0, visits: 0 }];
+    });
+    celebrate("🏋️", "Gym registered!", `${nm} added — now tracking your visits.`);
+    setName(""); setType(0); setPrimary(true); setAdding(false);
+  };
+  const remove = (id: string) => setGyms((prev) => prev.filter((g) => g.id !== id));
+
   return (
     <>
       <Head title="My gyms" sub="KEEP TRACK OF VISITS" go={go} />
       <p style={{ fontSize: 12.5, color: "var(--w-grey)", fontWeight: 600, paddingTop: 6 }}>Register where you train so Kaya can track your visits.</p>
+
       <div className="sec"><h3>Registered</h3></div>
-      {gyms.length === 0
-        ? <div className="card" style={{ textAlign: "center", color: "var(--w-grey)", fontWeight: 600, fontSize: 12.5 }}>No gyms yet — add the place you train.</div>
-        : gyms.map((g) => <div className="listitem" key={g.n}><div className="ico" style={{ background: g.bg }}>{g.ico}</div><div className="m"><b>{g.n}</b><small>just added</small></div></div>)}
-      <div style={{ padding: "12px 0 0" }}>
-        <button className="btn btn-coral" style={{ width: "100%", padding: 13, fontSize: 14 }} onClick={() => { setGyms((g) => [...g, { n: "My gym", ico: "🏋️", bg: "#FF6B6B" }]); celebrate("🏋️", "Gym added!", "Now tracking your visits there."); }}>+ Register a gym</button>
-      </div>
+      {gyms.length === 0 && !adding && (
+        <div className="card" style={{ textAlign: "center", color: "var(--w-grey)", fontWeight: 600, fontSize: 12.5 }}>No gyms yet — add the place you train.</div>
+      )}
+      {gyms.map((g) => (
+        <div className="listitem" key={g.id}>
+          <div className="ico" style={{ background: "rgba(216,90,48,.14)" }}>{g.emoji}</div>
+          <div className="m"><b>{g.name}</b><small>{g.type} · 🔥 {g.visits} visits</small></div>
+          {g.primary && <span className="tag easy" style={{ marginRight: 6 }}>Primary</span>}
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "6px 10px", fontSize: 11 }} onClick={() => remove(g.id)}>Remove</button>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="card">
+          <div style={{ fontSize: 12.5, fontWeight: 800 }}>Register a gym</div>
+          <div className="selrow" style={{ marginTop: 9 }}>
+            <button className="opt" onClick={() => celebrate("📸", "Coming soon", "Brochure scan activates once the AI key is set.")}>📸 Scan brochure</button>
+            <button className="opt" onClick={() => celebrate("🔎", "Coming soon", "Online venue search activates once the places key is set.")}>🔎 Search online</button>
+          </div>
+          <input className="wInput" style={{ textAlign: "left", fontSize: 13, fontWeight: 600, marginTop: 9, width: "100%" }} placeholder="Gym name (e.g. FitZone Masaki)" value={name} onChange={(e) => setName(e.target.value)} />
+          <div style={{ fontSize: 11, fontWeight: 800, marginTop: 10 }}>Type</div>
+          <div className="selrow">{GYM_TYPES2.map((g, i) => <button key={g.t} className={`opt${type === i ? " on" : ""}`} onClick={() => setType(i)}>{g.e} {g.t}</button>)}</div>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 11, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+            <button type="button" className={`gtick${primary ? " done" : ""}`} style={{ width: 22, height: 22, fontSize: 12 }} onClick={() => setPrimary(!primary)} aria-label="primary">{primary ? "✓" : ""}</button>
+            Set as my primary gym
+          </label>
+          <button className="btn btn-coral" style={{ width: "100%", padding: 12, marginTop: 11, opacity: name.trim() ? 1 : 0.5 }} onClick={save}>Save gym</button>
+          <button className="btn btn-ghost" style={{ marginTop: 8 }} onClick={() => { setAdding(false); setName(""); }}>Cancel</button>
+        </div>
+      ) : (
+        <div style={{ padding: "12px 0 0" }}>
+          <button className="btn btn-coral" style={{ width: "100%", padding: 13, fontSize: 14 }} onClick={() => setAdding(true)}>+ Register a gym</button>
+        </div>
+      )}
     </>
   );
 }
