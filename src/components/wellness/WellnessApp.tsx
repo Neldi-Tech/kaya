@@ -4,22 +4,30 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useFamily } from "@/contexts/FamilyContext";
 import CelebrateHost from "./CelebrateHost";
 import { WellnessProvider } from "./state";
+import { NavCtx } from "./nav";
 import KidWellness from "./KidWellness";
 import KidsAccess from "./KidsAccess";
 import {
   View, Home, Weight, WeightSettings, Goals, Program, Circle,
   More, Onboard, Plan, Library, Gyms, Spark, Achievements, Impact, Reminders,
 } from "./Screens";
+import { PillarSessions, MoodHistory, EditHome, GymLog, Sports, SportSetup, Analytics } from "./screensV2";
 
 const TABS: { id: View; icon: string; label: string }[] = [
-  { id: "home", icon: "🏠", label: "Home" },
+  { id: "home", icon: "☀️", label: "Today" },
   { id: "weight", icon: "⚖️", label: "Weight" },
   { id: "goals", icon: "🎯", label: "Goals" },
+  { id: "sports", icon: "🎾", label: "Sports" },
   { id: "program", icon: "📋", label: "Program" },
-  { id: "circle", icon: "👥", label: "Circle" },
   { id: "more", icon: "⋯", label: "More" },
 ];
-const MORE_VIEWS: View[] = ["more", "onboard", "plan", "library", "gyms", "spark", "achievements", "impact", "reminders", "kidsaccess"];
+const TAB_OF: Partial<Record<View, View>> = {
+  home: "home", pillar: "home", moodhistory: "home", edithome: "home", spark: "home",
+  weight: "weight", "weight-settings": "weight",
+  goals: "goals", gymlog: "goals",
+  sports: "sports", sportsetup: "sports",
+  program: "program",
+};
 
 function Notice({ emoji, title, body }: { emoji: string; title: string; body: string }) {
   return (
@@ -38,37 +46,53 @@ function AdultApp() {
   const { profile } = useAuth();
   const firstName = (profile?.displayName || "there").split(" ")[0];
   const [view, setView] = useState<View>("home");
-  const activeTab: View = view === "weight-settings" ? "weight" : MORE_VIEWS.includes(view) ? "more" : view;
+  const [history, setHistory] = useState<View[]>([]);
+  const [param, setParam] = useState("");
+
+  const go = (v: View) => { setHistory((h) => [...h, view]); setParam(""); setView(v); };
+  const goWith = (v: View, p: string) => { setHistory((h) => [...h, view]); setParam(p); setView(v); };
+  const back = () => { if (!history.length) return; setView(history[history.length - 1]); setHistory(history.slice(0, -1)); };
+  const tab = (v: View) => { setHistory([]); setParam(""); setView(v); };
+  const activeTab = TAB_OF[view] ?? "more";
 
   return (
-    <div className="wl">
-      <div className="scroll" key={view}>
-        {view === "home" && <Home go={setView} name={firstName} />}
-        {view === "weight" && <Weight go={setView} />}
-        {view === "weight-settings" && <WeightSettings go={setView} />}
-        {view === "goals" && <Goals name={firstName} />}
-        {view === "program" && <Program />}
-        {view === "circle" && <Circle />}
-        {view === "more" && <More go={setView} />}
-        {view === "onboard" && <Onboard go={setView} />}
-        {view === "plan" && <Plan go={setView} />}
-        {view === "library" && <Library go={setView} />}
-        {view === "gyms" && <Gyms go={setView} />}
-        {view === "spark" && <Spark go={setView} />}
-        {view === "achievements" && <Achievements go={setView} />}
-        {view === "impact" && <Impact go={setView} />}
-        {view === "reminders" && <Reminders go={setView} />}
-        {view === "kidsaccess" && <KidsAccess go={setView} />}
-        <div className="pageend" />
+    <NavCtx.Provider value={{ go, goWith, back, canBack: history.length > 0, param }}>
+      <div className="wl">
+        <div className="scroll" key={view}>
+          {view === "home" && <Home name={firstName} />}
+          {view === "weight" && <Weight go={go} />}
+          {view === "weight-settings" && <WeightSettings go={go} />}
+          {view === "goals" && <Goals name={firstName} />}
+          {view === "program" && <Program />}
+          {view === "circle" && <Circle />}
+          {view === "more" && <More go={go} />}
+          {view === "onboard" && <Onboard go={go} />}
+          {view === "plan" && <Plan go={go} />}
+          {view === "library" && <Library go={go} />}
+          {view === "gyms" && <Gyms go={go} />}
+          {view === "spark" && <Spark go={go} />}
+          {view === "achievements" && <Achievements go={go} />}
+          {view === "impact" && <Impact go={go} />}
+          {view === "reminders" && <Reminders go={go} />}
+          {view === "kidsaccess" && <KidsAccess go={go} />}
+          {view === "pillar" && <PillarSessions />}
+          {view === "moodhistory" && <MoodHistory />}
+          {view === "edithome" && <EditHome />}
+          {view === "gymlog" && <GymLog />}
+          {view === "sports" && <Sports />}
+          {view === "sportsetup" && <SportSetup />}
+          {view === "analytics" && <Analytics />}
+          <div className="pageend" />
+        </div>
+        <div className="tabbar">
+          {TABS.map((t) => (
+            <button key={t.id} className={`tb${activeTab === t.id ? " on" : ""}`} onClick={() => tab(t.id)}>
+              <span className="i">{t.icon}</span>{t.label}
+            </button>
+          ))}
+        </div>
       </div>
-      <div className="tabbar">
-        {TABS.map((t) => (
-          <button key={t.id} className={`tb${activeTab === t.id ? " on" : ""}`} onClick={() => setView(t.id)}>
-            <span className="i">{t.icon}</span>{t.label}
-          </button>
-        ))}
-      </div>
-    </div>
+    </NavCtx.Provider>
   );
 }
 
@@ -77,20 +101,13 @@ function WellnessInner() {
   const { children } = useFamily();
 
   if (profile && profile.role === "kid") {
-    const kid =
-      children.find((c) => c.id === profile.childId) ||
-      children.find((c) => c.id === profile.uid) ||
-      null;
-    if (!kid) {
-      return <Notice emoji="🌱" title="Setting up your wellness…" body="We couldn't find your profile yet. Ask a parent to finish setting up your family — then your Kaya Wellness will appear." />;
-    }
+    const kid = children.find((c) => c.id === profile.childId) || children.find((c) => c.id === profile.uid) || null;
+    if (!kid) return <Notice emoji="🌱" title="Setting up your wellness…" body="We couldn't find your profile yet. Ask a parent to finish setting up your family — then your Kaya Wellness will appear." />;
     return <KidWellness child={{ id: kid.id, name: kid.name, gender: kid.gender, birthday: kid.birthday }} />;
   }
-
   if (profile && profile.role === "helper") {
     return <Notice emoji="🌿" title="Kaya Wellness is personal" body="Wellness is just for family members. Helpers don't see this space." />;
   }
-
   return <AdultApp />;
 }
 

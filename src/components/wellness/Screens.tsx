@@ -2,80 +2,147 @@
 import { useMemo, useState } from "react";
 import { celebrate } from "./fx";
 import { bmi, bmiBand, bodyFatPct, weeklyPace, weeksToGoal, aiAnalysis, Gender } from "./calc";
-import { useWellness, Goal } from "./state";
+import { useWellness, Goal, todayStr } from "./state";
+import { useNav } from "./nav";
 
 export type View =
   | "home" | "weight" | "weight-settings" | "goals" | "program" | "circle" | "more"
   | "onboard" | "plan" | "library" | "gyms" | "spark" | "achievements" | "impact" | "reminders" | "juniors"
-  | "kidsaccess";
+  | "kidsaccess"
+  | "pillar" | "moodhistory" | "edithome" | "gymlog" | "sports" | "sportsetup" | "analytics";
 
 const SPARK_QUOTE = "You don't have to be extreme. Just consistent.";
 
-/* ============ HOME ============ */
+/* ============ HOME (personalized) ============ */
 const PILLARS = [
-  { cls: "gym", e: "🏋️", n: "Gym" }, { cls: "home", e: "🏠", n: "Home" },
-  { cls: "breathe", e: "🌬️", n: "Breathe" }, { cls: "reflect", e: "📓", n: "Reflect" },
+  { id: "gym", cls: "gym", e: "🏋️", n: "Gym" }, { id: "home", cls: "home", e: "🤸", n: "At-home" },
+  { id: "breathe", cls: "breathe", e: "🌬️", n: "Breathe" }, { id: "reflect", cls: "reflect", e: "📓", n: "Reflect" },
 ];
 const MOODS = [
   { e: "😣", t: "Drained" }, { e: "😕", t: "Low" }, { e: "🙂", t: "OK" }, { e: "😄", t: "Good" }, { e: "🤩", t: "Great" },
 ];
-export function Home({ go, name }: { go: (v: View) => void; name: string }) {
-  const { ritualStreak, bumpRitualStreak } = useWellness();
-  const [mood, setMood] = useState<number | null>(null);
+export function Home({ name }: { name: string }) {
+  const { ritualStreak, bumpRitualStreak, goals, setGoals, logMood, moods, homeCards, sports, weights } = useWellness();
+  const { go, goWith } = useNav();
+  const todayMood = moods.find((m) => m.date === todayStr());
   const pct = Math.min(ritualStreak, 30) / 30;
   const dash = 295, offset = dash * (1 - pct);
+  const on = (id: string) => homeCards.find((c) => c.id === id)?.on;
+
+  const tickGoal = (i: number) => setGoals((gs) => gs.map((g, j) => {
+    if (j !== i || g.todayDone) return g;
+    const streak = g.streak + 1;
+    celebrate("✅", "Nice!", `${g.wish} — streak ${streak} 🔥`);
+    return { ...g, todayDone: true, streak };
+  }));
+  const saveMood = (level: number) => {
+    const period = new Date().getHours() < 17 ? "morning" : "evening";
+    logMood(level, period);
+    celebrate("🙂", "Saved", "Your check-in is in Mood history.");
+  };
+
   return (
     <>
       <div className="top">
         <div className="t">Good morning, {name}<small>WELLNESS · TODAY</small></div>
-        {ritualStreak > 0 && <div className="mscore">🌱 {ritualStreak}</div>}
+        <button className="mscore" onClick={() => go("edithome")}>✏️ Edit</button>
       </div>
 
-      {/* Daily Spark — surfaced on Home */}
-      <div className="sparkcard" onClick={() => go("spark")}>
-        <div className="sparkcard-row">
-          <span className="se">✨</span>
-          <div><div className="sk">YOUR DAILY SPARK</div><div className="sq">&ldquo;{SPARK_QUOTE}&rdquo;</div></div>
+      {on("spark") && (
+        <div className="sparkcard" onClick={() => go("spark")}>
+          <div className="sparkcard-row"><span className="se">✨</span>
+            <div><div className="sk">YOUR DAILY SPARK</div><div className="sq">&ldquo;{SPARK_QUOTE}&rdquo;</div></div></div>
         </div>
-      </div>
+      )}
 
-      <div className="focus">
-        <div className="stars" />
-        <div className="ringrow">
-          <div className="ring">
-            <svg viewBox="0 0 112 112">
-              <circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="9" />
-              {ritualStreak > 0 && (
-                <circle cx="56" cy="56" r="47" fill="none" stroke="#F9A826" strokeWidth="9" strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} transform="rotate(-90 56 56)" />
-              )}
-            </svg>
-            <div className="c"><div className="n">{ritualStreak}</div><div className="d">{ritualStreak === 1 ? "DAY" : "DAYS"} 🔥</div></div>
-          </div>
-          <div className="meta">
-            <div className="k">⭐ Your momentum</div>
-            <div style={{ marginTop: 6 }}>
-              {ritualStreak === 0
+      {on("streak") && (
+        <div className="focus">
+          <div className="stars" />
+          <div className="ringrow">
+            <div className="ring">
+              <svg viewBox="0 0 112 112">
+                <circle cx="56" cy="56" r="47" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="9" />
+                {ritualStreak > 0 && <circle cx="56" cy="56" r="47" fill="none" stroke="#F9A826" strokeWidth="9" strokeLinecap="round" strokeDasharray={dash} strokeDashoffset={offset} transform="rotate(-90 56 56)" />}
+              </svg>
+              <div className="c"><div className="n">{ritualStreak}</div><div className="d">{ritualStreak === 1 ? "DAY" : "DAYS"} 🔥</div></div>
+            </div>
+            <div className="meta"><div className="k">⭐ Your momentum</div>
+              <div style={{ marginTop: 6 }}>{ritualStreak === 0
                 ? <>Begin your streak today 🌱<br />Complete a ritual — Never Zero keeps it alive.</>
-                : <>{30 - ritualStreak > 0 ? <>{30 - ritualStreak} days to a <b>30-day streak</b> 🌱</> : <><b>30-day streak!</b> 🌱</>}<br />Never Zero: a hard day spends a shield, not your streak.</>}
+                : <>Consistent {ritualStreak} {ritualStreak === 1 ? "day" : "days"} — nice rhythm. 🌱<br />Never Zero: a hard day spends a shield, not your streak.</>}</div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="pillars">
-        {PILLARS.map((p) => <button key={p.n} className={`pill ${p.cls}`}><div className="pe">{p.e}</div><span className="pn">{p.n}</span></button>)}
+        {PILLARS.map((p) => <button key={p.id} className={`pill ${p.cls}`} onClick={() => goWith("pillar", p.id)}><div className="pe">{p.e}</div><span className="pn">{p.n}</span></button>)}
       </div>
 
       <div className="moodcard">
-        <div className="q">How&apos;s your energy today?</div>
+        <div className="q" style={{ display: "flex", justifyContent: "space-between" }}>
+          How&apos;s your energy today?
+          <button onClick={() => go("moodhistory")} style={{ border: "none", background: "none", color: "var(--violet)", fontWeight: 800, fontSize: 11, cursor: "pointer" }}>history ›</button>
+        </div>
         <div className="moodbar">
           {MOODS.map((m, i) => (
-            <button key={m.t} className={`mood${mood === i ? " sel" : ""}`} onClick={() => setMood(i)}>
+            <button key={m.t} className={`mood${todayMood?.level === i ? " sel" : ""}`} onClick={() => saveMood(i)}>
               <div className="e">{m.e}</div><div className="t">{m.t}</div>
             </button>
           ))}
         </div>
       </div>
+
+      {on("goals") && (
+        <>
+          <div className="sec"><h3>Your goals today</h3><div className="hint">tap to tick</div></div>
+          <div className="card">
+            {goals.map((g, i) => (
+              <div className="rowline" key={i}>
+                <button className={`gtick${g.todayDone ? " done" : ""}`} onClick={() => tickGoal(i)} aria-label="tick">{g.todayDone ? "✓" : ""}</button>
+                <div className="m"><b>{g.wish}</b><small>{g.tiny}{g.streak > 0 ? ` · 🔥 ${g.streak}` : ""}</small></div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {on("gymlog") && (
+        <div className="card" onClick={() => go("gymlog")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ic" style={{ width: 40, height: 40, borderRadius: 12, display: "grid", placeItems: "center", fontSize: 19, background: "#ffeef0", flex: "none" }}>🏋️</div>
+          <div style={{ flex: 1 }}><b style={{ fontSize: 13 }}>Gym log</b><div className="note">Tap to record today — fast</div></div>
+          <span className="tag easy">Log</span>
+        </div>
+      )}
+
+      {on("sports") && sports.length > 0 && (
+        <>
+          <div className="sec"><h3>Sports today</h3></div>
+          <div className="card">
+            {sports.slice(0, 3).map((s) => (
+              <div className="rowline" key={s.id} onClick={() => go("sports")} style={{ cursor: "pointer" }}>
+                <div className="ic" style={{ width: 36, height: 36, borderRadius: 11, display: "grid", placeItems: "center", fontSize: 17, background: "#e8f8f5", flex: "none" }}>{s.emoji}</div>
+                <div className="m"><b>{s.name} · {s.time}</b><small>{s.venue || "Tap to set venue"}</small></div>
+                <span className="tag tv">My Day</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {on("weight") && weights.length > 0 && (
+        <div className="card" onClick={() => go("weight")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10 }}>
+          <div className="ic" style={{ width: 40, height: 40, borderRadius: 12, display: "grid", placeItems: "center", fontSize: 19, background: "#e8f8f5", flex: "none" }}>⚖️</div>
+          <div style={{ flex: 1 }}><b style={{ fontSize: 13 }}>{weights[weights.length - 1].toFixed(1)} kg</b><div className="note">Weight snapshot · tap for detail</div></div>
+        </div>
+      )}
+
+      {on("news") && (
+        <div className="card" onClick={() => go("sports")} style={{ cursor: "pointer" }}>
+          <div className="note" style={{ fontWeight: 800, color: "var(--violet)" }}>📰 SPORTS NEWS</div>
+          <div style={{ fontSize: 12.5, fontWeight: 700, marginTop: 4 }}>Padel surges across East Africa as new courts open</div>
+        </div>
+      )}
 
       <div className="ritual">
         <div className="rt"><div><b>Today&apos;s ritual</b><small>A gentle 10-minute reset to start</small></div><span className="tag easy">Easy · 10 min</span></div>
@@ -83,10 +150,6 @@ export function Home({ go, name }: { go: (v: View) => void; name: string }) {
           onClick={() => { bumpRitualStreak(); celebrate("🔥", "Ritual done!", "Streak kept alive. Small rituals, real change."); }}>
           Start ritual
         </button>
-      </div>
-
-      <div style={{ padding: "14px 0 0" }}>
-        <button className="btn btn-ghost" onClick={() => go("weight")}>⚖️ Log today&apos;s weight →</button>
       </div>
     </>
   );
@@ -256,9 +319,20 @@ function Chain({ streak, todayDone }: { streak: number; todayDone: boolean }) {
     </div>
   );
 }
+const WELLNESS_PRESETS: { wish: string; tiny: string; pill: string; pcol: string }[] = [
+  { wish: "Read", tiny: "20 minutes today", pill: "📖", pcol: "#6C4AB6" },
+  { wish: "10k steps", tiny: "Move through the day", pill: "🚶", pcol: "#1FB6A6" },
+  { wish: "Meditate", tiny: "5 quiet minutes", pill: "🧘", pcol: "#FF6B6B" },
+  { wish: "Sleep by 10", tiny: "Lights out on time", pill: "😴", pcol: "#F9A826" },
+];
 export function Goals({ name }: { name: string }) {
-  const { goals, setGoals } = useWellness();
+  const { goals, setGoals, addGoal } = useWellness();
+  const { go } = useNav();
   const initial = (name || "Y").charAt(0).toUpperCase();
+  const addPreset = (p: typeof WELLNESS_PRESETS[number]) => {
+    addGoal({ ...p, streak: 0, todayDone: false, cheers: 0, target: 7 });
+    celebrate("🎯", "Goal added!", `${p.wish} is now a daily wellness goal.`);
+  };
   const markDone = (i: number) =>
     setGoals((gs) => gs.map((g, j) => {
       if (j !== i) return g;
@@ -296,6 +370,11 @@ export function Goals({ name }: { name: string }) {
             </div>
           );
         })}
+      </div>
+      <button className="btn btn-ghost" style={{ marginTop: 2 }} onClick={() => go("gymlog")}>🏋️ Log a gym session →</button>
+      <div className="sec"><h3>Add a wellness goal</h3><div className="hint">not just gym</div></div>
+      <div className="selrow" style={{ padding: "0 2px" }}>
+        {WELLNESS_PRESETS.map((p) => <button key={p.wish} className="opt" onClick={() => addPreset(p)}>{p.pill} {p.wish}</button>)}
       </div>
     </>
   );
@@ -393,8 +472,9 @@ function Head({ title, sub, go }: { title: string; sub: string; go: (v: View) =>
 const MORE_ITEMS: { v: View; e: string; n: string }[] = [
   { v: "onboard", e: "🪄", n: "My profile" }, { v: "plan", e: "🗓️", n: "Suggested plan" },
   { v: "library", e: "📚", n: "Exercise library" }, { v: "gyms", e: "🏋️", n: "My gyms" },
-  { v: "spark", e: "✨", n: "Daily spark" }, { v: "achievements", e: "🏅", n: "Achievements" },
-  { v: "impact", e: "🌍", n: "Move for good" }, { v: "reminders", e: "🔔", n: "Reminders" },
+  { v: "spark", e: "✨", n: "Daily spark" }, { v: "analytics", e: "📊", n: "Analytics & badges" },
+  { v: "achievements", e: "🏅", n: "Achievements" }, { v: "impact", e: "🌍", n: "Move for good" },
+  { v: "reminders", e: "🔔", n: "Reminders" }, { v: "circle", e: "👥", n: "Community" },
   { v: "kidsaccess", e: "🧒", n: "Kids' access" },
 ];
 export function More({ go }: { go: (v: View) => void }) {

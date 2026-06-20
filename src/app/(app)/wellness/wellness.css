@@ -196,6 +196,28 @@
 .wl .gendertag{display:inline-block;font-size:9.5px;font-weight:800;padding:3px 8px;border-radius:8px}
 .wl .hardfloor{font-size:9.5px;color:#d4455a;font-weight:800;margin-top:6px;line-height:1.4}
 
+/* v2: nav crumb, segmented, sports, analytics, gym log */
+.wl .crumb{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;color:var(--violet);background:#f3effb;border:none;border-radius:20px;padding:5px 11px;margin-bottom:8px;cursor:pointer}
+.wl .seg{display:flex;border:1.5px solid var(--w-line);border-radius:11px;overflow:hidden;font-size:11px;font-weight:800;margin-top:8px}
+.wl .seg div{flex:1;text-align:center;padding:8px 4px;color:var(--w-grey);cursor:pointer}
+.wl .seg div.sel{background:var(--violet);color:#fff}
+.wl .seg div.selt{background:var(--teal);color:#fff}
+.wl .trow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--w-line)}
+.wl .trow:last-child{border-bottom:none}.wl .trow .m{flex:1}.wl .trow .m b{font-size:12.5px}.wl .trow .m small{display:block;color:var(--w-grey);font-size:10.5px;font-weight:600}
+.wl .gtick{width:30px;height:30px;border-radius:9px;border:2px solid var(--teal);background:#fff;display:grid;place-items:center;font-size:15px;color:var(--teal);flex:none;font-weight:800;cursor:pointer}
+.wl .gtick.done{background:var(--teal);color:#fff}
+.wl .tag.tv{background:#f3effb;color:var(--violet)}
+.wl .sportgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.wl .sport{border:1.5px solid var(--w-line);background:#fff;border-radius:14px;padding:11px 4px;text-align:center;font-size:10px;font-weight:800;cursor:pointer;color:var(--w-ink)}
+.wl .sport .e{font-size:22px;display:block;margin-bottom:3px}
+.wl .barchart{display:flex;align-items:flex-end;gap:6px;height:64px;margin-top:8px}
+.wl .barchart div{flex:1;background:var(--teal);border-radius:5px 5px 0 0;opacity:.85}
+.wl .badgewrap{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:8px}
+.wl .news{display:flex;gap:9px;padding:9px 0;border-bottom:1px solid var(--w-line)}
+.wl .news:last-child{border-bottom:none}
+.wl .news .th{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#1FB6A6,#6C4AB6);flex:none;display:grid;place-items:center;font-size:18px}
+.wl .news .b{flex:1}.wl .news .b b{font-size:11.5px;line-height:1.3;display:block}.wl .news .b small{color:var(--w-grey);font-size:9.5px;font-weight:600}
+
 /* Profile setup prompt on Weight */
 .wl .setupcard{margin:12px 0 0;width:100%;display:flex;align-items:center;gap:11px;text-align:left;background:#f7f4fd;border:1.5px solid #d9ccf5;border-radius:16px;padding:14px;cursor:pointer}
 .wl .setupcard b{font-size:13px;display:block}
