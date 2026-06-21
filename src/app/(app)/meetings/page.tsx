@@ -7,6 +7,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import SongLibraryView from '@/components/meetings/SongLibraryView';
 import { createMeeting, getMeetings, Meeting, todayString, updateFamily } from '@/lib/firestore';
 import { meetingCycleKey } from '@/lib/meetingSubmissions';
 import BackButton from '@/components/ui/BackButton';
@@ -97,21 +98,48 @@ export default function MeetingsPage() {
     return s;
   }, [family?.meetingSetup?.closingSong, family?.meetingSetup?.schedule?.dayOfWeek]);
 
-  const handleSetSong = async () => {
-    if (!profile?.familyId || !songInput.trim().startsWith('http')) return;
-    setSongSaving(true);
+  // Who may set today's closing song: any PARENT, or the meeting LEADER of
+  // the day (the leader pool is parents + kids, so in practice a parent or
+  // the kid leading today). Helpers are excluded unless they're the leader
+  // (which they currently can't be). (v4, per Elia 2026-06-21.)
+  const isLeaderOfDay = useMemo(() => {
+    const leader = family?.nextMeetingLeader;
+    if (!leader || !profile) return false;
+    if (leader.id === profile.uid) return true;
+    return !!(myPrep && 'childId' in myPrep && myPrep.childId && leader.id === myPrep.childId);
+  }, [family?.nextMeetingLeader, profile, myPrep]);
+  const canSetSong = profile?.role === 'parent' || isLeaderOfDay;
+
+  const [showLibrary, setShowLibrary] = useState(false);
+
+  // Shared setter — used by both the paste flow and "pick from library".
+  const setClosingSong = async (url: string) => {
+    if (!profile?.familyId || !url.trim().startsWith('http')) return;
     const scheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
     await updateFamily(profile.familyId, {
       meetingSetup: {
         ...(family?.meetingSetup || {}),
         closingSong: {
-          url: songInput.trim(),
+          url: url.trim(),
           setByName: profile.displayName?.split(' ')[0] || 'you',
           cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
         },
       },
     } as any);
+  };
+
+  const handleSetSong = async () => {
+    if (!profile?.familyId || !songInput.trim().startsWith('http')) return;
+    setSongSaving(true);
+    await setClosingSong(songInput);
     setSongInput('');
+    setSongSaving(false);
+  };
+
+  const handleUseFromLibrary = async (url: string) => {
+    setSongSaving(true);
+    await setClosingSong(url);
+    setShowLibrary(false);
     setSongSaving(false);
   };
 
@@ -253,10 +281,10 @@ export default function MeetingsPage() {
         {/* Prep card — fill your Gratitude/Appreciation/Goal here too (PR B). */}
         {myPrep && <MeetingPrepCard {...myPrep} />}
 
-        {/* Song setter — parents/helpers paste the closing song URL ahead
-            of the meeting. Visible only to non-kids; the presenter picks
-            it up and plays it as a 5-4-3-2-1 countdown surprise. */}
-        {profile?.role !== 'kid' && (
+        {/* Song setter — a PARENT or the meeting LEADER of the day pastes the
+            closing song URL (or picks from the library) ahead of the meeting;
+            the presenter reveals it as a 5-4-3-2-1 countdown surprise. */}
+        {canSetSong && (
           <div className="mb-4 bg-kaya-chocolate/5 border border-kaya-chocolate/15 rounded-kaya-lg p-4">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xl">🎵</span>
@@ -289,28 +317,42 @@ export default function MeetingsPage() {
                 </button>
               </div>
             ) : (
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={songInput}
-                  onChange={(e) => setSongInput(e.target.value)}
-                  placeholder="Paste YouTube / Spotify link…"
-                  className="flex-1 h-10 px-3 bg-white border border-kaya-chocolate/20 rounded-kaya-sm text-[13px] text-kaya-chocolate placeholder-kaya-sand/60 focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                />
+              <>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={songInput}
+                    onChange={(e) => setSongInput(e.target.value)}
+                    placeholder="Paste YouTube / Spotify link…"
+                    className="flex-1 h-10 px-3 bg-white border border-kaya-chocolate/20 rounded-kaya-sm text-[13px] text-kaya-chocolate placeholder-kaya-sand/60 focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSetSong}
+                    disabled={songSaving || !songInput.trim().startsWith('http')}
+                    className="h-10 px-4 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-extrabold text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {songSaving ? '…' : 'Set'}
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={handleSetSong}
-                  disabled={songSaving || !songInput.trim().startsWith('http')}
-                  className="h-10 px-4 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-extrabold text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => setShowLibrary((v) => !v)}
+                  className="mt-2 w-full h-9 rounded-kaya-sm bg-white border border-kaya-chocolate/20 text-kaya-chocolate font-extrabold text-[12px] hover:bg-kaya-warm transition-colors"
                 >
-                  {songSaving ? '…' : 'Set'}
+                  📚 {showLibrary ? 'Hide library' : 'Pick from Song Library'}
                 </button>
-              </div>
+                {showLibrary && profile?.familyId && (
+                  <div className="mt-3">
+                    <SongLibraryView familyId={profile.familyId} onUse={(e) => handleUseFromLibrary(e.url)} compact />
+                  </div>
+                )}
+              </>
             )}
             <p className="mt-1.5 text-[10px] text-kaya-sand">
               {activeSong
                 ? '🎶 Ready — the presenter will reveal it as a surprise with a 5-4-3-2-1 countdown.'
-                : 'Paste a link and during the meeting the family gets a 5-4-3-2-1 countdown surprise.'}
+                : 'Paste a link or pick from the library — during the meeting the family gets a 5-4-3-2-1 countdown surprise.'}
             </p>
           </div>
         )}
@@ -489,7 +531,7 @@ export default function MeetingsPage() {
         {myPrep && <div className="max-w-xl"><MeetingPrepCard {...myPrep} /></div>}
 
         {/* Song setter — desktop. Same logic as mobile; constrained to max-xl. */}
-        {profile?.role !== 'kid' && (
+        {canSetSong && (
           <div className="mb-4 max-w-xl bg-kaya-chocolate/5 border border-kaya-chocolate/15 rounded-kaya-lg p-4">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-xl">🎵</span>
@@ -522,28 +564,42 @@ export default function MeetingsPage() {
                 </button>
               </div>
             ) : (
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  value={songInput}
-                  onChange={(e) => setSongInput(e.target.value)}
-                  placeholder="Paste YouTube / Spotify link…"
-                  className="flex-1 h-10 px-3 bg-white border border-kaya-chocolate/20 rounded-kaya-sm text-[13px] text-kaya-chocolate placeholder-kaya-sand/60 focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
-                />
+              <>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={songInput}
+                    onChange={(e) => setSongInput(e.target.value)}
+                    placeholder="Paste YouTube / Spotify link…"
+                    className="flex-1 h-10 px-3 bg-white border border-kaya-chocolate/20 rounded-kaya-sm text-[13px] text-kaya-chocolate placeholder-kaya-sand/60 focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSetSong}
+                    disabled={songSaving || !songInput.trim().startsWith('http')}
+                    className="h-10 px-4 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-extrabold text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {songSaving ? '…' : 'Set'}
+                  </button>
+                </div>
                 <button
                   type="button"
-                  onClick={handleSetSong}
-                  disabled={songSaving || !songInput.trim().startsWith('http')}
-                  className="h-10 px-4 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-extrabold text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  onClick={() => setShowLibrary((v) => !v)}
+                  className="mt-2 w-full h-9 rounded-kaya-sm bg-white border border-kaya-chocolate/20 text-kaya-chocolate font-extrabold text-[12px] hover:bg-kaya-warm transition-colors"
                 >
-                  {songSaving ? '…' : 'Set'}
+                  📚 {showLibrary ? 'Hide library' : 'Pick from Song Library'}
                 </button>
-              </div>
+                {showLibrary && profile?.familyId && (
+                  <div className="mt-3">
+                    <SongLibraryView familyId={profile.familyId} onUse={(e) => handleUseFromLibrary(e.url)} compact />
+                  </div>
+                )}
+              </>
             )}
             <p className="mt-1.5 text-[10px] text-kaya-sand">
               {activeSong
                 ? '🎶 Ready — the presenter will reveal it as a surprise with a 5-4-3-2-1 countdown.'
-                : 'Paste a link and during the meeting the family gets a 5-4-3-2-1 countdown surprise.'}
+                : 'Paste a link or pick from the library — during the meeting the family gets a 5-4-3-2-1 countdown surprise.'}
             </p>
           </div>
         )}

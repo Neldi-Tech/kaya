@@ -270,6 +270,17 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      // ── Sunday-Meeting v4 · Song Library ─────────────────────
+      // Every song used to close a meeting is saved here. Any family
+      // member reads (to browse + replay) and may create/update (the
+      // reveal upserts the song + playCount; ratings are per-member
+      // writes that recompute the average). Deletes are parents-only.
+      match /meetingSongLibrary/{songId} {
+        allow read: if belongsToFamily(familyId);
+        allow create, update: if belongsToFamily(familyId);
+        allow delete: if isParentInFamily(familyId);
+      }
+
       // ── Sunday-Meeting v2 (b7) · Family Time Capsule ─────────
       // Sealed one-line notes that surface on a meeting ~1 year later
       // (or at the family's chosen lock window). Family members read
