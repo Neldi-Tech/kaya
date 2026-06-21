@@ -68,10 +68,11 @@ export interface MeetingSubmission {
    *  "finished" or who led it (which the delete-rule gated on). */
   cycleKey?: string;
   /** Goals self-reflection (PR3 2026-06-21): before the meeting the
-   *  member reviews LAST week's goals and marks each done/not-done.
-   *  Archived with the history entry so the Goal Register can show the
-   *  full cycle: goal set → accomplished or carried. */
-  goalsReflection?: Array<{ text: string; done: boolean }>;
+   *  member reviews LAST week's goals and marks each done/not-done, and
+   *  (v4) can attach a short NOTE either way — how it went, what made it
+   *  hard or easy. Archived with the history entry so the Goal Register
+   *  can show the full cycle: goal set → accomplished/carried + the story. */
+  goalsReflection?: Array<{ text: string; done: boolean; note?: string }>;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
@@ -114,14 +115,22 @@ export function meetingCycleStartMs(scheduleDow: number | undefined, now: Date =
 
 /** Is this submission part of the CURRENT meeting cycle (so it should
  *  show in the card + presenter)? No schedule → no gating (legacy
- *  behaviour). Stamped submissions match by cycleKey; legacy ones
- *  (no cycleKey) fall back to "saved since the last meeting". */
+ *  behaviour). Stamped submissions match by cycleKey.
+ *
+ *  v4 fix (2026-06-21): the old legacy fallback (`updatedAt >= cycleStart`)
+ *  could not tell THIS cycle from the PREVIOUS one — a submission saved on
+ *  last week's meeting day still passed, so last week's prep pre-filled the
+ *  new week's card. The robust fix: for a legacy submission (no cycleKey),
+ *  recompute which cycle its OWN save time falls in and compare that to the
+ *  current cycle. Saved last week → its computed key differs → not current. */
 export function isCurrentCycle(s: MeetingSubmission, scheduleDow: number | undefined, now: Date = new Date()): boolean {
   if (typeof scheduleDow !== 'number') return true;
   const key = meetingCycleKey(scheduleDow, now);
   if (s.cycleKey) return s.cycleKey === key;
-  const startMs = meetingCycleStartMs(scheduleDow, now);
-  return startMs == null ? true : (s.updatedAt ?? 0) >= startMs;
+  // Legacy (pre-cycleKey) submission: derive its cycle from when it was
+  // saved and require it to match this cycle. No timestamp → treat as stale.
+  if (!s.updatedAt) return false;
+  return meetingCycleKey(scheduleDow, new Date(s.updatedAt)) === key;
 }
 
 /** Resolve the full multi-tag for an appreciation line, with back-compat:
