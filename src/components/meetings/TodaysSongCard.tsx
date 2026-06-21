@@ -14,7 +14,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { meetingCycleKey } from '@/lib/meetingSubmissions';
 import {
-  setTodaysSong, subscribeTodaysSong, clearTodaysSong, type SongLibraryEntry,
+  setTodaysSong, subscribeTodaysSong, clearTodaysSong, approveTodaysSong, type SongLibraryEntry,
 } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
 import SongLibraryView from './SongLibraryView';
@@ -45,6 +45,8 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
     return !!(myChildId && leader.id === myChildId);
   }, [family?.nextMeetingLeader, profile, myChildId]);
   const canSetSong = profile?.role === 'parent' || isLeaderOfDay;
+  const isParent = profile?.role === 'parent';
+  const requiresApproval = family?.meetingSetup?.kidSongLinkRequiresApproval ?? true;
 
   const [songInput, setSongInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -77,6 +79,10 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
         cycleKey,
         setByName: profile?.displayName?.split(' ')[0] || 'you',
         setByUid: profile?.uid,
+        setByRole: (profile?.role === 'kid' ? 'kid' : profile?.role === 'helper' ? 'helper' : 'parent'),
+        // Parent-set → auto-approved. Kid-set → pending unless the family's
+        // kid-song approval gate is off.
+        pickApproved: isParent ? true : !requiresApproval,
       });
       setSongInput('');
       setShowLibrary(false);
@@ -95,6 +101,14 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
     try { await clearTodaysSong(familyId, cycleKey); } catch { setActive(null); }
   };
 
+  const doApprove = async () => {
+    setError(null);
+    try { await approveTodaysSong(familyId, cycleKey); }
+    catch { setError('Could not approve — please try again.'); }
+  };
+
+  const pendingApproval = !!active && active.pickApproved === false;
+
   return (
     <div className={`bg-kaya-chocolate/5 border border-kaya-chocolate/15 rounded-kaya-lg p-4 ${className}`}>
       <div className="flex items-center gap-2 mb-2">
@@ -106,6 +120,7 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
       </div>
 
       {active ? (
+        <>
         <div className="flex items-start gap-3">
           {/* Video thumbnail — reads as a video, not a long URL */}
           <a
@@ -138,6 +153,27 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
           <button type="button" onClick={doClear}
             className="shrink-0 text-[11px] text-kaya-sand hover:text-red-500 font-bold transition-colors">✕ Clear</button>
         </div>
+
+        {/* 🛡️ Kid-set song awaiting a parent's OK */}
+        {pendingApproval && (
+          <div className="mt-3 rounded-kaya-sm border border-kaya-gold/50 bg-kaya-gold/10 p-3">
+            <p className="text-[12px] font-bold text-kaya-chocolate">
+              🛡️ {active.pickedByName || 'A kid'} chose this song — it needs a parent’s OK before it plays.
+            </p>
+            {isParent ? (
+              <button
+                type="button"
+                onClick={doApprove}
+                className="mt-2 inline-flex items-center gap-2 h-9 px-4 rounded-kaya-sm bg-emerald-500 hover:bg-emerald-400 text-emerald-950 font-extrabold text-[12px] transition-colors"
+              >
+                ✓ Approve this song
+              </button>
+            ) : (
+              <p className="mt-1.5 text-[11px] text-kaya-chocolate/60">⏳ Waiting for a parent to approve — hand them the phone for one tap.</p>
+            )}
+          </div>
+        )}
+        </>
       ) : (
         <>
           <div className="flex gap-2">
