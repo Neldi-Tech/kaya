@@ -40,6 +40,8 @@ import {
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
 import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
+import { resolveSongEmbed } from '@/lib/songEmbed';
+import { upsertSong, rateSong } from '@/lib/meetingSongLibrary';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -760,6 +762,8 @@ export default function MeetingPresenterPage() {
                     kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
                     songLinkApprovedBy={songLinkApprovedBy}
                     onApproveSongLink={(uid) => setSongLinkApprovedBy(uid)}
+                    familyId={profile?.familyId || ''}
+                    viewerName={(profile?.displayName || 'Family').split(' ')[0]}
                   />
                   {/* Time Capsule sealer — last beat of the meeting. */}
                   {profile?.familyId && profile?.uid && (
@@ -2180,6 +2184,8 @@ function ReflectionStep({
   kidSongLinkRequiresApproval,
   songLinkApprovedBy,
   onApproveSongLink,
+  familyId,
+  viewerName,
 }: {
   /** Which of the 3 closings the parent enabled in /settings/meetings.
    *  Disabled modes simply don't render. */
@@ -2198,6 +2204,9 @@ function ReflectionStep({
   kidSongLinkRequiresApproval?: boolean;
   songLinkApprovedBy?: string | null;
   onApproveSongLink?: (uid: string) => void;
+  /** v4 song library — the reveal saves the played song + lets the family rate it. */
+  familyId?: string;
+  viewerName?: string;
 }) {
   const allChoices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
     { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story, a verse, or a link to read together.' },
@@ -2287,7 +2296,15 @@ function ReflectionStep({
                 // 🎵 Songs open as a SURPRISE — a 5-4-3-2-1 countdown, then
                 // the link opens. Story just opens in a new tab.
                 if (isSongs) {
-                  return <SongReveal url={content.trim()} approved={!!songLinkApprovedBy} />;
+                  return (
+                    <SongReveal
+                      url={content.trim()}
+                      approved={!!songLinkApprovedBy}
+                      familyId={familyId}
+                      viewerUid={viewerUid}
+                      viewerName={viewerName}
+                    />
+                  );
                 }
                 return (
                   <div className="mt-4 flex items-center gap-2 flex-wrap">
@@ -2344,9 +2361,15 @@ function ReflectionStep({
 //   counting  → large animated digits 5→4→3→2→1 (1 s each)
 //   open      → "▶ Now playing — enjoy!" + a reopen link
 // The URL opens in a new tab at the end of the countdown.
-function SongReveal({ url, approved }: { url: string; approved: boolean }) {
+function SongReveal({ url, approved, familyId, viewerUid, viewerName }: {
+  url: string; approved: boolean;
+  familyId?: string; viewerUid?: string; viewerName?: string;
+}) {
   const [phase, setPhase] = useState<'idle' | 'counting' | 'open'>('idle');
   const [count, setCount] = useState(5);
+  const [songId, setSongId] = useState<string | null>(null);
+  const [myRating, setMyRating] = useState(0);
+  const embed = useMemo(() => resolveSongEmbed(url, { autoplay: true }), [url]);
 
   const startCountdown = () => {
     setPhase('counting');
@@ -2356,12 +2379,24 @@ function SongReveal({ url, approved }: { url: string; approved: boolean }) {
       c -= 1;
       if (c <= 0) {
         clearInterval(iv);
-        window.open(url, '_blank', 'noopener,noreferrer');
+        // Not embeddable → keep the old behaviour (open in a new tab).
+        if (!embed.embeddable) window.open(url, '_blank', 'noopener,noreferrer');
         setPhase('open');
+        // Save to the family song library (best-effort).
+        if (familyId) {
+          upsertSong(familyId, { url, addedByName: viewerName, addedByUid: viewerUid })
+            .then((id) => setSongId(id))
+            .catch(() => {});
+        }
       } else {
         setCount(c);
       }
     }, 1000);
+  };
+
+  const rate = (n: number) => {
+    setMyRating(n);
+    if (familyId && songId && viewerUid) rateSong(familyId, songId, viewerUid, n).catch(() => {});
   };
 
   if (phase === 'idle') {
@@ -2387,7 +2422,7 @@ function SongReveal({ url, approved }: { url: string; approved: boolean }) {
   if (phase === 'counting') {
     return (
       <div className="mt-5 flex flex-col items-center gap-4">
-        <p className="text-[11px] uppercase tracking-widest font-bold text-kaya-gold-light/70">Opening in…</p>
+        <p className="text-[11px] uppercase tracking-widest font-bold text-kaya-gold-light/70">Playing in…</p>
         <div
           key={count}
           className="text-[7rem] lg:text-[9rem] font-display font-black text-kaya-gold leading-none"
@@ -2408,19 +2443,58 @@ function SongReveal({ url, approved }: { url: string; approved: boolean }) {
     );
   }
 
-  // open
+  // open — play inline (embeddable) or confirm the new-tab open (fallback)
   return (
     <div className="mt-5 flex flex-col items-center gap-3">
-      <div className="text-5xl">🎶</div>
-      <p className="font-display font-extrabold text-xl text-kaya-gold-light">Now playing — enjoy!</p>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer noopener"
-        className="text-[12px] text-white/50 underline underline-offset-2 hover:text-white/80 transition-colors"
-      >
-        ▶ Reopen song
-      </a>
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-kaya-gold text-kaya-chocolate text-[10.5px] font-display font-black uppercase tracking-wider">
+        <span className="w-2 h-2 rounded-full bg-red-700 animate-pulse" /> Now Playing
+      </span>
+
+      {embed.embeddable ? (
+        <div className="w-full max-w-[520px] rounded-kaya-lg overflow-hidden border border-kaya-gold/40 shadow-[0_14px_30px_-8px_rgba(212,160,23,0.6)] bg-black">
+          <div className="relative w-full" style={{ aspectRatio: '16 / 9' }}>
+            <iframe
+              src={embed.embedUrl as string}
+              title="Closing song"
+              className="absolute inset-0 w-full h-full"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-5xl">🎶</div>
+          <p className="font-display font-extrabold text-xl text-kaya-gold-light">Now playing in a new tab — enjoy!</p>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-2 h-11 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[13px] transition-colors"
+          >
+            🎵 Open again
+          </a>
+        </div>
+      )}
+
+      {/* ⭐ rate it — feeds the Song Library ranking */}
+      <div className="flex items-center gap-3 mt-1">
+        <span className="text-[12px] text-white/60 font-bold">Love it? Rate it</span>
+        <div className="flex gap-1">
+          {[1, 2, 3, 4, 5].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => rate(n)}
+              aria-label={`Rate ${n} stars`}
+              className={`text-[26px] leading-none transition-transform hover:scale-110 ${n <= myRating ? 'text-kaya-gold' : 'text-white/25'}`}
+            >★</button>
+          ))}
+        </div>
+      </div>
+      {myRating > 0 && (
+        <p className="text-[11.5px] text-kaya-gold-light/80 font-bold">✓ Saved to your 🎵 Song Library</p>
+      )}
     </div>
   );
 }
