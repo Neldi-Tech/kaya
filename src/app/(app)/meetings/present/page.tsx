@@ -41,7 +41,7 @@ import {
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
 import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import { resolveSongEmbed } from '@/lib/songEmbed';
-import { upsertSong, rateSong, getTodaysSong } from '@/lib/meetingSongLibrary';
+import { upsertSong, rateSong, getTodaysSong, getSongLibrary, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -223,6 +223,45 @@ export default function MeetingPresenterPage() {
   // `goalsDone` map, falling back to legacy `lastWeekGoalsDone` of the
   // NEXT meeting for goals set before the v2 schema).
   const [recentMeetings, setRecentMeetings] = useState<Meeting[]>([]);
+
+  // 📅 On This Day (v4.2 surprise) — a memory from a past meeting that lands
+  // on today's day-of-month (≥25 days ago). Prefers a goal that was later
+  // marked DONE (proof the ritual works), then a gratitude, then an
+  // appreciation. Pure client-side over the already-loaded recentMeetings.
+  const onThisDay = useMemo(() => {
+    if (!recentMeetings.length || !children.length) return null;
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const dom = today.getDate();
+    const parseLocal = (s: string) => {
+      const [y, mo, d] = (s || '').split('-').map(Number);
+      return (y && mo && d) ? new Date(y, mo - 1, d) : null;
+    };
+    const cands = recentMeetings
+      .map((m) => ({ m, d: parseLocal(m.date) }))
+      .filter((x): x is { m: Meeting; d: Date } => !!x.d && x.d.getDate() === dom && (today.getTime() - x.d.getTime()) >= 25 * 864e5)
+      .sort((a, b) => a.d.getTime() - b.d.getTime()); // oldest = most nostalgic
+    for (const { m, d } of cands) {
+      let who = ''; let line = ''; let kind: 'goal' | 'grateful' | 'appreciate' = 'grateful'; let done = false;
+      for (const c of children) {
+        const g = (m.goals?.[c.id] || '').trim();
+        if (g && m.goalsDone?.[c.id]) { who = c.name; line = g; kind = 'goal'; done = true; break; }
+      }
+      if (!line) for (const c of children) {
+        const gr = (m.gratitude?.[c.id] || '').trim();
+        if (gr) { who = c.name; line = gr; kind = 'grateful'; break; }
+      }
+      if (!line) for (const c of children) {
+        const ap = (m.appreciations?.[c.id] || '').trim();
+        if (ap) { who = c.name; line = ap; kind = 'appreciate'; break; }
+      }
+      if (!line) continue;
+      const months = Math.round((today.getTime() - d.getTime()) / (30 * 864e5));
+      const yrs = Math.round(months / 12);
+      const dateLabel = months >= 12 ? `${yrs} year${yrs > 1 ? 's' : ''} ago` : months <= 1 ? '1 month ago' : `${months} months ago`;
+      return { who, line, kind, done, dateLabel };
+    }
+    return null;
+  }, [recentMeetings, children]);
 
   // Guest suggestions — unique (name, relationship) pairs pulled from
   // recent meetings' guestAttendees. One-tap re-add so a parent doesn't
@@ -638,6 +677,7 @@ export default function MeetingPresenterPage() {
               {/* Step body */}
               {step.id === 'open' && (
                 <>
+                  {onThisDay && <OnThisDayBanner memory={onThisDay} />}
                   {dueCapsulesList.length > 0 && (
                     <CapsuleReveal
                       capsules={dueCapsulesList}
@@ -761,6 +801,7 @@ export default function MeetingPresenterPage() {
 
               {step.id === 'reflection' && (
                 <>
+                  {profile?.familyId && <AnthemCard familyId={profile.familyId} />}
                   <ReflectionStep
                     enabledModes={enabledClosingModes}
                     contents={reflectionContents}
@@ -2643,6 +2684,84 @@ function SongReveal({ url, approved, familyId, viewerUid, viewerName }: {
       {myRating > 0 && (
         <p className="text-[11.5px] text-kaya-gold-light/80 font-bold">✓ Saved to your 🎵 Song Library</p>
       )}
+    </div>
+  );
+}
+
+// 📅 On This Day banner (v4.2 surprise) — a warm "remember when" memory
+// surfaced at the very start of the meeting from a past meeting on today's
+// day-of-month. Pure presentational; the memory is computed upstream.
+function OnThisDayBanner({ memory }: {
+  memory: { who: string; line: string; kind: 'goal' | 'grateful' | 'appreciate'; done: boolean; dateLabel: string };
+}) {
+  const lead = memory.kind === 'goal'
+    ? `${memory.dateLabel}, ${memory.who} set this goal…`
+    : memory.kind === 'appreciate'
+      ? `${memory.dateLabel}, ${memory.who} appreciated…`
+      : `${memory.dateLabel}, ${memory.who} was thankful for…`;
+  return (
+    <div
+      className="mb-4 rounded-kaya-lg border border-kaya-gold/30 p-4 lg:p-5"
+      style={{ background: 'linear-gradient(180deg, rgba(245,230,184,.10), rgba(255,255,255,.02))', animation: 'gr-pop .6s ease-out' }}
+    >
+      <style>{`@keyframes gr-pop{0%{opacity:0;transform:translateY(8px) scale(.98)}60%{opacity:1;transform:translateY(0) scale(1.01)}100%{transform:scale(1)}}`}</style>
+      <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.2em] font-bold text-kaya-gold-light/80">📅 On this day</p>
+      <p className="mt-1 text-[12.5px] lg:text-sm text-white/60">{lead}</p>
+      <p className="mt-1 text-[15px] lg:text-lg font-display font-extrabold text-white/90 leading-snug">
+        &ldquo;{memory.line}&rdquo;
+      </p>
+      {memory.kind === 'goal' && memory.done && (
+        <p className="mt-1.5 inline-flex items-center gap-1.5 text-[12px] font-extrabold text-emerald-300">
+          ✅ …and you DID it!
+        </p>
+      )}
+    </div>
+  );
+}
+
+// 🏆 Family Anthem of the Year (v4.2 surprise) — crowns the family's top
+// Song Library track (by rating, then plays) in the Closing step, turning
+// months of ⭐ ratings into a shared family hymn. Client-side over the
+// already-stored library; renders nothing until a song earns it.
+function AnthemCard({ familyId }: { familyId: string }) {
+  const [anthem, setAnthem] = useState<SongLibraryEntry | null>(null);
+  useEffect(() => {
+    if (!familyId) return;
+    let cancelled = false;
+    getSongLibrary(familyId)
+      .then((rows) => {
+        if (cancelled) return;
+        // rows arrive sorted top-rated → top-played. Crown #1 once it has
+        // earned it (any rating, or played more than once).
+        const top = rows[0];
+        if (top && (top.ratingCount > 0 || (top.playCount || 0) > 1)) setAnthem(top);
+      })
+      .catch(() => { /* offline — skip */ });
+    return () => { cancelled = true; };
+  }, [familyId]);
+
+  if (!anthem) return null;
+  const title = anthem.title?.trim()
+    || (anthem.provider === 'youtube' ? 'our YouTube song' : anthem.provider === 'spotify' ? 'our Spotify track' : 'our family song');
+  return (
+    <div
+      className="mb-5 rounded-kaya-lg border border-kaya-gold/40 p-5 text-center"
+      style={{ background: 'radial-gradient(420px 200px at 50% 0%, rgba(212,160,23,.18), transparent 70%)', boxShadow: '0 14px 30px -10px rgba(212,160,23,.5)', animation: 'gr-pop .6s ease-out' }}
+    >
+      <div className="text-4xl" style={{ filter: 'drop-shadow(0 4px 10px rgba(212,160,23,.6))' }}>🏆</div>
+      <p className="mt-1 text-[10px] uppercase tracking-[0.2em] font-bold text-kaya-gold-light/80">This year&apos;s Family Anthem</p>
+      <p className="mt-1 font-display font-black text-xl text-kaya-gold-light leading-tight">{title}</p>
+      <p className="mt-1 text-[12.5px] text-white/60">
+        {anthem.ratingCount > 0 ? `⭐ ${anthem.avgRating.toFixed(1)} · ` : ''}played {anthem.playCount || 1}×
+      </p>
+      <a
+        href={anthem.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="mt-3 inline-flex items-center gap-2 h-10 px-5 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[12.5px] transition-colors"
+      >
+        🎵 Play our anthem
+      </a>
     </div>
   );
 }

@@ -92,8 +92,9 @@ export default function SongLibraryView({
           return (
             <div key={s.id} className="flex items-center gap-2.5 bg-white border rounded-2xl p-2.5" style={{ borderColor: '#E8E0D4' }}>
               {sort === 'rated' && (
-                <div className="shrink-0 w-6 text-center font-black text-[15px]" style={{ color: '#B8860B' }}>
-                  {idx === 0 ? '①' : idx === 1 ? '②' : idx === 2 ? '③' : idx + 1}
+                <div className="shrink-0 w-6 text-center font-black text-[15px]" style={{ color: '#B8860B' }}
+                  title={idx === 0 && (s.ratingCount > 0 || (s.playCount || 0) > 1) ? 'Family Anthem' : undefined}>
+                  {idx === 0 && (s.ratingCount > 0 || (s.playCount || 0) > 1) ? '🏆' : idx === 0 ? '①' : idx === 1 ? '②' : idx === 2 ? '③' : idx + 1}
                 </div>
               )}
               <div className="shrink-0 w-11 h-11 rounded-xl grid place-items-center text-[20px]"
