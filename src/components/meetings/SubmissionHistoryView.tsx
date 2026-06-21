@@ -81,16 +81,33 @@ export default function SubmissionHistoryView({ familyId, uid }: { familyId: str
     );
   }
 
-  const Row = ({ emoji, label, lines, tags }: { emoji: string; label: string; lines: string[]; tags?: (string | null)[] }) => {
+  const Row = ({ emoji, label, lines, tags, reflection }: {
+    emoji: string; label: string; lines: string[];
+    tags?: (string | null)[];
+    reflection?: Array<{ text: string; done: boolean }>;
+  }) => {
     if (!lines || lines.length === 0) return null;
     const hasTags = !!tags && tags.some(Boolean);
+    const hasReflection = !!reflection && reflection.length > 0;
     return (
       <div className="flex gap-2 text-[12.5px] mb-1.5">
         <span className="font-black uppercase tracking-wide text-[9.5px] w-[78px] flex-shrink-0 pt-[2px]" style={{ color: '#9B8A72' }}>
           {emoji} {label}
         </span>
         <span className="flex-1" style={{ color: '#3D241A' }}>
-          {hasTags ? (
+          {hasReflection ? (
+            lines.map((ln, i) => {
+              const r = reflection?.[i];
+              return (
+                <span key={i} className="flex items-start gap-1.5 mb-0.5">
+                  <span className={`shrink-0 mt-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-black ${r?.done ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-500'}`}>
+                    {r?.done ? '✓' : '↻'}
+                  </span>
+                  <span className={r?.done ? 'line-through text-[#9B8A72]' : ''}>{ln}</span>
+                </span>
+              );
+            })
+          ) : hasTags ? (
             lines.map((ln, i) => (
               <span key={i} className="block">
                 {tags?.[i] && <span className="font-extrabold" style={{ color: PURPLE }}>💛 {tags[i]} · </span>}
@@ -105,8 +122,50 @@ export default function SubmissionHistoryView({ familyId, uid }: { familyId: str
     );
   };
 
+  // Build the goal register: all past goals across all entries, newest first.
+  const goalRegister = entries
+    .flatMap((e) => (e.goals || []).map((g, i) => ({
+      date: e.date,
+      goal: g,
+      done: e.goalsReflection?.[i]?.done,
+    })))
+    .filter((r) => r.goal);
+
   return (
     <div className="space-y-3">
+      {/* 🎯 Goal Register — compact list of all past goals + accomplished status */}
+      {goalRegister.length > 0 && (
+        <div className="rounded-2xl border-2 p-4" style={{ borderColor: '#E8E0FF', background: 'linear-gradient(180deg,#F5F0FF,#fff)' }}>
+          <p className="font-black text-[11px] uppercase tracking-wide mb-3" style={{ color: PURPLE }}>
+            🎯 Goal Register
+          </p>
+          <div className="space-y-1.5">
+            {goalRegister.map((r, i) => (
+              <div key={i} className="flex items-start gap-2">
+                <span className={`shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
+                  r.done === true ? 'bg-emerald-100 text-emerald-600' :
+                  r.done === false ? 'bg-amber-100 text-amber-500' :
+                  'bg-white/60 text-[#9B8A72] border border-dashed border-[#9B8A72]/40'
+                }`}>
+                  {r.done === true ? '✓' : r.done === false ? '↻' : '·'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <span className={`text-[12.5px] leading-snug ${r.done ? 'line-through text-[#9B8A72]' : ''}`} style={{ color: r.done ? undefined : '#3D241A' }}>
+                    {r.goal}
+                  </span>
+                  <span className="ml-1.5 text-[10px]" style={{ color: '#9B8A72' }}>
+                    {toDisplayDate(r.date) || r.date}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 text-[10px]" style={{ color: '#9B8A72' }}>
+            ✓ accomplished · ↻ carried · · not yet reviewed
+          </p>
+        </div>
+      )}
+
       {jar.length > 0 && (
         <div className="rounded-2xl border-2 p-4 text-center" style={{ borderColor: '#D4A017', background: 'linear-gradient(180deg,#FFF8E7,#fff)' }}>
           <p className="font-black text-[11px] uppercase tracking-wide" style={{ color: '#B8860B' }}>
@@ -149,7 +208,7 @@ export default function SubmissionHistoryView({ familyId, uid }: { familyId: str
             lines={e.appreciations}
             tags={e.appreciationTagNames ?? (e.appreciationTagName ? [e.appreciationTagName] : [])}
           />
-          <Row emoji="🎯" label="Goal" lines={e.goals} />
+          <Row emoji="🎯" label="Goal" lines={e.goals} reflection={e.goalsReflection} />
         </div>
       ))}
     </div>

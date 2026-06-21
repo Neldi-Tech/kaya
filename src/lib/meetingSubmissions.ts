@@ -67,6 +67,11 @@ export interface MeetingSubmission {
    *  and the card asks fresh — independent of whether the meeting was
    *  "finished" or who led it (which the delete-rule gated on). */
   cycleKey?: string;
+  /** Goals self-reflection (PR3 2026-06-21): before the meeting the
+   *  member reviews LAST week's goals and marks each done/not-done.
+   *  Archived with the history entry so the Goal Register can show the
+   *  full cycle: goal set → accomplished or carried. */
+  goalsReflection?: Array<{ text: string; done: boolean }>;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
@@ -272,6 +277,8 @@ export async function setMeetingSubmission(
     // meeting's key) so it ages out after that meeting. Keep the prior
     // key when none is passed.
     cycleKey: payload.cycleKey ?? prev?.cycleKey,
+    // Self-reflection: keep whatever the card saved (or preserve prior).
+    goalsReflection: payload.goalsReflection ?? prev?.goalsReflection,
     updatedAt: Date.now(),
   };
   await setDoc(ref, merged, { merge: true });

@@ -29,6 +29,7 @@ import {
   setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES, MAX_APPRECIATION_LINES,
   appreciationTagsForLine, isCurrentCycle, meetingCycleKey, type AppreciationTag,
 } from '@/lib/meetingSubmissions';
+import { getMeetingSubmissionHistory } from '@/lib/meetingSubmissionHistory';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
 
@@ -76,6 +77,10 @@ export default function MeetingPrepCard({
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
+  // Self-reflection: last week's goals from history + member's ✅/❌ state.
+  const [priorGoals, setPriorGoals] = useState<string[]>([]);
+  const [reflection, setReflection] = useState<boolean[]>([]); // aligned with priorGoals
+
   // Hydrate from the saved submission so the boxes show what was already
   // written (data-loss fix), now restoring all lines + per-line tags.
   useEffect(() => {
@@ -96,12 +101,39 @@ export default function MeetingPrepCard({
         setGoals(go);
         // Rebuild per-line multi-tags (handles old single-tag shape too).
         setApprTags(a.map((_, i) => appreciationTagsForLine(sub, i)));
+        // Restore any self-reflection already saved this cycle.
+        if (sub.goalsReflection?.length) {
+          setReflection(sub.goalsReflection.map((r) => r.done));
+        }
         if (sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length) {
           setSavedAt(sub.updatedAt || Date.now());
         }
       })
       .catch(() => { /* tolerate offline — fall back to blank */ })
       .finally(() => { if (!cancelled) setHydrated(true); });
+    return () => { cancelled = true; };
+  }, [familyId, meId]);
+
+  // Fetch the most recent submission history entry to surface prior goals
+  // for self-reflection. Only runs when the card opens near meeting day.
+  useEffect(() => {
+    if (!familyId || !meId) return;
+    let cancelled = false;
+    getMeetingSubmissionHistory(familyId, meId)
+      .then((hist) => {
+        if (cancelled || !hist) return;
+        const latest = hist.entries.find((e) => (e.goals || []).length > 0);
+        if (!latest) return;
+        const goals = latest.goals.filter(Boolean);
+        setPriorGoals(goals);
+        // Pre-fill done from the archived reflection if any, else all false.
+        setReflection((prev) => {
+          // Don't overwrite if already restored from the live submission.
+          if (prev.length > 0) return prev;
+          return goals.map((_, i) => latest.goalsReflection?.[i]?.done ?? false);
+        });
+      })
+      .catch(() => { /* offline — skip */ });
     return () => { cancelled = true; };
   }, [familyId, meId]);
 
@@ -202,6 +234,10 @@ export default function MeetingPrepCard({
         appreciationTags: apprTags,
         // Stamp the cycle this prep is for so it ages out next meeting.
         cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
+        // Save self-reflection so the archive can back-fill the prior entry.
+        goalsReflection: priorGoals.length > 0
+          ? priorGoals.map((text, i) => ({ text, done: reflection[i] ?? false }))
+          : undefined,
       });
       setSavedAt(Date.now());
     } catch (e: any) {
@@ -339,6 +375,44 @@ export default function MeetingPrepCard({
               </div>
               <AddAnother count={appreciations.length} onAdd={addApprLine} unlimited />
             </div>
+
+            {/* 🔍 Self-reflection: how did last week's goals go? */}
+            {priorGoals.length > 0 && (
+              <div className="rounded-[12px] border border-dashed border-purple-300/60 bg-purple-50/50 p-3">
+                <p className="text-[11px] font-extrabold uppercase tracking-wider text-purple-600 mb-2">
+                  🔍 How did last week&apos;s goals go?
+                </p>
+                <div className="space-y-1.5">
+                  {priorGoals.map((g, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        const next = [...reflection];
+                        next[i] = !next[i];
+                        setReflection(next);
+                        dirty();
+                      }}
+                      className="w-full flex items-start gap-2.5 text-left rounded-[8px] px-2 py-1.5 transition-colors hover:bg-purple-100/60"
+                    >
+                      <span className={`mt-0.5 shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center text-[11px] font-black transition-colors ${
+                        reflection[i]
+                          ? 'bg-emerald-400 border-emerald-400 text-white'
+                          : 'border-purple-300 text-transparent'
+                      }`}>
+                        ✓
+                      </span>
+                      <span className={`flex-1 text-[13px] leading-snug ${reflection[i] ? 'text-emerald-700 line-through decoration-emerald-400' : 'text-purple-900'}`}>
+                        {g}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-[10px] text-purple-500">
+                  Tap to mark accomplished — shared in the Goals review at the meeting.
+                </p>
+              </div>
+            )}
 
             {/* 🎯 Goal */}
             <SectionLines

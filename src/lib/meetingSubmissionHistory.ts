@@ -31,6 +31,11 @@ export interface SubmissionHistoryEntry {
   /** @deprecated single-tag from the first ship — read as fallback. */
   appreciationTagName?: string;
   goals: string[];
+  /** Self-reflection from the FOLLOWING cycle: did the member mark each
+   *  goal accomplished before the next meeting? Archived from the NEXT
+   *  cycle's goalsReflection, aligned by index with `goals`. Undefined
+   *  = not yet reviewed (still in progress or no next meeting yet). */
+  goalsReflection?: Array<{ text: string; done: boolean }>;
 }
 
 export interface SubmissionHistoryDoc {
@@ -84,10 +89,22 @@ export async function archiveMeetingSubmissions(
     try {
       const existing = await getDoc(ref);
       const prev = existing.exists() ? (existing.data() as SubmissionHistoryDoc) : null;
+
+      // If this member filled in a self-reflection on their prior goals,
+      // stamp it on the PREVIOUS entry (the one whose goals they reviewed).
+      // This closes the loop: goal set → accomplishment recorded.
+      let prevEntries = (prev?.entries || []).filter((e) => e.date !== meetingDate);
+      const reflection = s.goalsReflection;
+      if (reflection && reflection.length > 0 && prevEntries.length > 0) {
+        prevEntries = [
+          { ...prevEntries[0], goalsReflection: reflection },
+          ...prevEntries.slice(1),
+        ];
+      }
+
       // Replace any same-date entry (idempotent if a meeting is re-saved),
       // then prepend the new one and cap.
-      const kept = (prev?.entries || []).filter((e) => e.date !== meetingDate);
-      const entries = [entry, ...kept].slice(0, MAX_ENTRIES);
+      const entries = [entry, ...prevEntries].slice(0, MAX_ENTRIES);
       await setDoc(ref, {
         uid: s.uid,
         name: s.name || prev?.name || '',
