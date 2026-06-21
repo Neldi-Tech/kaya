@@ -32,10 +32,11 @@ export interface SubmissionHistoryEntry {
   appreciationTagName?: string;
   goals: string[];
   /** Self-reflection from the FOLLOWING cycle: did the member mark each
-   *  goal accomplished before the next meeting? Archived from the NEXT
-   *  cycle's goalsReflection, aligned by index with `goals`. Undefined
-   *  = not yet reviewed (still in progress or no next meeting yet). */
-  goalsReflection?: Array<{ text: string; done: boolean }>;
+   *  goal accomplished before the next meeting, and (v4) a short NOTE on
+   *  how it went? Archived from the NEXT cycle's goalsReflection, aligned
+   *  by index with `goals`. Undefined = not yet reviewed (still in
+   *  progress or no next meeting yet). */
+  goalsReflection?: Array<{ text: string; done: boolean; note?: string }>;
 }
 
 export interface SubmissionHistoryDoc {
