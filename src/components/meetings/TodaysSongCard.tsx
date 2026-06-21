@@ -16,6 +16,7 @@ import { meetingCycleKey } from '@/lib/meetingSubmissions';
 import {
   setTodaysSong, subscribeTodaysSong, clearTodaysSong, type SongLibraryEntry,
 } from '@/lib/meetingSongLibrary';
+import { songThumbnailUrl } from '@/lib/songEmbed';
 import SongLibraryView from './SongLibraryView';
 
 export default function TodaysSongCard({ className = '' }: { className?: string }) {
@@ -105,13 +106,34 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
       </div>
 
       {active ? (
-        <div className="flex items-start gap-2">
+        <div className="flex items-start gap-3">
+          {/* Video thumbnail — reads as a video, not a long URL */}
+          <a
+            href={active.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="shrink-0 relative w-[92px] aspect-video rounded-lg overflow-hidden group bg-cover bg-center"
+            style={songThumbnailUrl(active.url)
+              ? { backgroundImage: `url(${songThumbnailUrl(active.url)})` }
+              : { background: 'linear-gradient(150deg,#3a2710,#caa12f)' }}
+            title="Open the video"
+          >
+            {!songThumbnailUrl(active.url) && (
+              <span className="absolute inset-0 grid place-items-center text-2xl">🎬</span>
+            )}
+            <span className="absolute inset-0 grid place-items-center">
+              <span className="w-7 h-5 rounded-[5px] bg-red-600/90 grid place-items-center group-hover:scale-110 transition-transform">
+                <span className="w-0 h-0 ml-0.5" style={{ borderStyle: 'solid', borderWidth: '5px 0 5px 8px', borderColor: 'transparent transparent transparent #fff' }} />
+              </span>
+            </span>
+          </a>
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {active.pickedByName || active.addedByName || 'leader'}</p>
+            <p className="text-[12px] font-extrabold text-kaya-chocolate truncate">
+              🎬 {active.title?.trim() || 'Tonight’s song'}
+            </p>
+            <p className="text-[11px] text-kaya-chocolate/60 mt-0.5">Set by {active.pickedByName || active.addedByName || 'leader'}</p>
             <a href={active.url} target="_blank" rel="noreferrer noopener"
-              className="text-[12px] font-bold text-kaya-chocolate underline underline-offset-2 break-all">
-              {active.title?.trim() || (active.url.length > 52 ? active.url.slice(0, 52) + '…' : active.url)}
-            </a>
+              className="inline-block mt-1 text-[11px] font-bold text-kaya-gold-dark underline underline-offset-2">▶ Open / preview</a>
           </div>
           <button type="button" onClick={doClear}
             className="shrink-0 text-[11px] text-kaya-sand hover:text-red-500 font-bold transition-colors">✕ Clear</button>

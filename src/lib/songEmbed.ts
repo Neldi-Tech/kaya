@@ -94,3 +94,11 @@ export function resolveSongEmbed(url: string, opts?: { autoplay?: boolean }): So
 export function isEmbeddableSong(url: string): boolean {
   return resolveSongEmbed(url).embeddable;
 }
+
+/** A thumbnail image for a song link so it reads as a VIDEO card, not a raw
+ *  URL. YouTube has stable thumbnail URLs; Spotify/others have none → null
+ *  (callers fall back to a music-note tile). */
+export function songThumbnailUrl(url: string): string | null {
+  const id = parseYouTubeId(url);
+  return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null;
+}
