@@ -33,6 +33,12 @@ export interface SongLibraryEntry {
   ratings?: Record<string, number>;
   avgRating: number;   // 0 when unrated
   ratingCount: number;
+  /** v4.1 — when set, this song is the chosen closing song for that meeting
+   *  cycle (YYYY-MM-DD of the meeting day, or 'always' for no-schedule
+   *  families). Lives here (family-writable) instead of on the parents-only
+   *  family doc, so the meeting LEADER of the day — even a kid — can set it. */
+  pickedForCycle?: string;
+  pickedByName?: string;
 }
 
 /** Stable id for a link so the same song collapses to one library entry.
@@ -156,4 +162,76 @@ function sortSongs(a: SongLibraryEntry, b: SongLibraryEntry): number {
   if ((b.avgRating || 0) !== (a.avgRating || 0)) return (b.avgRating || 0) - (a.avgRating || 0);
   if ((b.playCount || 0) !== (a.playCount || 0)) return (b.playCount || 0) - (a.playCount || 0);
   return (b.lastPlayedAt || b.addedAt || 0) - (a.lastPlayedAt || a.addedAt || 0);
+}
+
+// ── Today's closing song (v4.1) ──────────────────────────────────────
+// The chosen closing song for the current meeting cycle lives in the
+// family-writable library (tagged `pickedForCycle`) — NOT on the
+// parents-only family doc — so a kid LEADER of the day can set it too.
+
+/** Set (or replace) today's closing song: upsert the song, tag it for this
+ *  cycle, and clear the tag off any other song that held it. Returns the
+ *  song id. Best-effort — the song still plays even if a write fails. */
+export async function setTodaysSong(
+  familyId: string,
+  song: { url: string; cycleKey: string; setByName?: string; setByUid?: string; title?: string; now?: number },
+): Promise<string> {
+  const id = await upsertSong(familyId, {
+    url: song.url, title: song.title, addedByName: song.setByName, addedByUid: song.setByUid, now: song.now,
+  });
+  try {
+    // Clear the tag off any previously-picked song for this cycle.
+    const snap = await getDocs(collection(db, 'families', familyId, COL));
+    await Promise.all(snap.docs.map((d) => {
+      const data = d.data() as SongLibraryEntry;
+      if (d.id !== id && data.pickedForCycle === song.cycleKey) {
+        return setDoc(d.ref, { pickedForCycle: '' }, { merge: true });
+      }
+      return Promise.resolve();
+    }));
+    // Tag the chosen one.
+    await setDoc(doc(db, 'families', familyId, COL, id),
+      { pickedForCycle: song.cycleKey, pickedByName: song.setByName || '' }, { merge: true });
+  } catch {
+    /* best-effort */
+  }
+  return id;
+}
+
+/** The song chosen for a given cycle, or null. */
+export async function getTodaysSong(familyId: string, cycleKey: string): Promise<SongLibraryEntry | null> {
+  try {
+    const snap = await getDocs(collection(db, 'families', familyId, COL));
+    const hit = snap.docs.map((d) => d.data() as SongLibraryEntry).find((s) => s.pickedForCycle === cycleKey);
+    return hit || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Live subscription to today's chosen song. Returns an unsubscribe fn. */
+export function subscribeTodaysSong(
+  familyId: string,
+  cycleKey: string,
+  cb: (song: SongLibraryEntry | null) => void,
+): () => void {
+  return onSnapshot(
+    collection(db, 'families', familyId, COL),
+    (snap) => cb(snap.docs.map((d) => d.data() as SongLibraryEntry).find((s) => s.pickedForCycle === cycleKey) || null),
+    () => cb(null),
+  );
+}
+
+/** Remove today's pick (clears the tag off whatever held it for this cycle). */
+export async function clearTodaysSong(familyId: string, cycleKey: string): Promise<void> {
+  try {
+    const snap = await getDocs(collection(db, 'families', familyId, COL));
+    await Promise.all(snap.docs.map((d) => {
+      const data = d.data() as SongLibraryEntry;
+      if (data.pickedForCycle === cycleKey) return setDoc(d.ref, { pickedForCycle: '' }, { merge: true });
+      return Promise.resolve();
+    }));
+  } catch {
+    /* best-effort */
+  }
 }

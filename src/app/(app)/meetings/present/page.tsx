@@ -41,7 +41,7 @@ import {
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
 import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import { resolveSongEmbed } from '@/lib/songEmbed';
-import { upsertSong, rateSong } from '@/lib/meetingSongLibrary';
+import { upsertSong, rateSong, getTodaysSong } from '@/lib/meetingSongLibrary';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -385,21 +385,35 @@ export default function MeetingPresenterPage() {
       }
     }
 
-    // Seed the song URL from the pre-pasted closingSong (set on the hub
-    // ahead of the meeting). Only use it if it matches the current cycle
-    // (or has no cycleKey = legacy/no-schedule families).
-    const closingSong = family.meetingSetup?.closingSong;
-    if (closingSong?.url) {
-      const scheduleDow = family.meetingSetup?.schedule?.dayOfWeek;
-      const currentKey = meetingCycleKey(scheduleDow);
-      const matchesCycle = !closingSong.cycleKey || !currentKey || closingSong.cycleKey === currentKey;
-      if (matchesCycle) {
-        setReflectionContents((prev) => ({ ...prev, songs: prev.songs || closingSong.url }));
-      }
-    }
-
     setReflectionSeeded(true);
   }, [family, preloadedPrayer, reflectionSeeded]);
+
+  // Seed today's closing song (v4.1) — read from the family-writable Song
+  // Library (set by a parent OR the kid leader), so it shows for EVERYONE
+  // running the meeting + drives the countdown reveal. Falls back to a
+  // legacy parents-set family-doc closingSong if one exists.
+  const [songSeeded, setSongSeeded] = useState(false);
+  useEffect(() => {
+    if (songSeeded || !family || !profile?.familyId) return;
+    const scheduleDow = family.meetingSetup?.schedule?.dayOfWeek;
+    const cycleKey = meetingCycleKey(scheduleDow) ?? 'always';
+    let cancelled = false;
+    getTodaysSong(profile.familyId, cycleKey)
+      .then((s) => {
+        if (cancelled) return;
+        let url = s?.url || '';
+        if (!url) {
+          // Legacy fallback: a parent-set closingSong on the family doc.
+          const legacy = family.meetingSetup?.closingSong;
+          const currentKey = meetingCycleKey(scheduleDow);
+          if (legacy?.url && (!legacy.cycleKey || !currentKey || legacy.cycleKey === currentKey)) url = legacy.url;
+        }
+        if (url) setReflectionContents((prev) => ({ ...prev, songs: prev.songs || url }));
+        setSongSeeded(true);
+      })
+      .catch(() => { if (!cancelled) setSongSeeded(true); });
+    return () => { cancelled = true; };
+  }, [family, profile?.familyId, songSeeded]);
 
   // ── Save handler ─────────────────────────────────────────────────
   // Two writes happen on finish:

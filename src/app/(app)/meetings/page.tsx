@@ -8,8 +8,11 @@ import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import SongLibraryView from '@/components/meetings/SongLibraryView';
-import { createMeeting, getMeetings, Meeting, todayString, updateFamily } from '@/lib/firestore';
+import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
 import { meetingCycleKey } from '@/lib/meetingSubmissions';
+import {
+  setTodaysSong, subscribeTodaysSong, clearTodaysSong, type SongLibraryEntry,
+} from '@/lib/meetingSongLibrary';
 import BackButton from '@/components/ui/BackButton';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
@@ -39,11 +42,17 @@ export default function MeetingsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  // Song setter (parents/helpers only): paste-ahead URL for the closing
-  // song, stored on family.meetingSetup.closingSong so the presenter
-  // picks it up automatically when the Songs closing step appears.
+  // Song setter (parent or LEADER of the day): paste-ahead URL for the
+  // closing song. v4.1 — stored in the family-WRITABLE Song Library (tagged
+  // pickedForCycle) instead of the parents-only family doc, so a kid leader
+  // can set it too; the presenter picks it up for everyone.
   const [songInput, setSongInput] = useState('');
   const [songSaving, setSongSaving] = useState(false);
+  const [todaysSong, setTodaysSongState] = useState<SongLibraryEntry | null>(null);
+  const songCycleKey = useMemo(
+    () => meetingCycleKey(family?.meetingSetup?.schedule?.dayOfWeek) ?? 'always',
+    [family?.meetingSetup?.schedule?.dayOfWeek],
+  );
 
   // Points Review used to be its own filtered step here; it's now
   // merged into "Celebrate the wins" in presenter mode (link to the
@@ -88,20 +97,9 @@ export default function MeetingsPage() {
     };
   }, [family?.meetingSetup?.schedule]);
 
-  // Active song for this cycle — only parents/helpers see/set it.
-  const activeSong = useMemo(() => {
-    const s = family?.meetingSetup?.closingSong;
-    if (!s?.url) return null;
-    const scheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
-    const currentKey = meetingCycleKey(scheduleDow);
-    if (s.cycleKey && currentKey && s.cycleKey !== currentKey) return null;
-    return s;
-  }, [family?.meetingSetup?.closingSong, family?.meetingSetup?.schedule?.dayOfWeek]);
-
   // Who may set today's closing song: any PARENT, or the meeting LEADER of
   // the day (the leader pool is parents + kids, so in practice a parent or
-  // the kid leading today). Helpers are excluded unless they're the leader
-  // (which they currently can't be). (v4, per Elia 2026-06-21.)
+  // the kid leading today). Helpers are excluded. (v4, per Elia 2026-06-21.)
   const isLeaderOfDay = useMemo(() => {
     const leader = family?.nextMeetingLeader;
     if (!leader || !profile) return false;
@@ -110,22 +108,36 @@ export default function MeetingsPage() {
   }, [family?.nextMeetingLeader, profile, myPrep]);
   const canSetSong = profile?.role === 'parent' || isLeaderOfDay;
 
+  // Today's chosen song — live from the family-writable library (v4.1), so a
+  // kid leader's pick persists and the whole family (incl. the presenter)
+  // sees it. Falls back to a legacy family-doc closingSong if one exists.
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    const unsub = subscribeTodaysSong(profile.familyId, songCycleKey, (s) => {
+      if (s) { setTodaysSongState(s); return; }
+      const legacy = family?.meetingSetup?.closingSong;
+      const legacyKey = legacy?.cycleKey;
+      const stillCurrent = legacy?.url && (!legacyKey || legacyKey === meetingCycleKey(family?.meetingSetup?.schedule?.dayOfWeek));
+      setTodaysSongState(stillCurrent
+        ? ({ id: '', url: legacy!.url, provider: 'other', addedAt: 0, playCount: 0, avgRating: 0, ratingCount: 0, pickedByName: legacy!.setByName } as SongLibraryEntry)
+        : null);
+    });
+    return () => unsub();
+  }, [profile?.familyId, songCycleKey, family?.meetingSetup?.closingSong, family?.meetingSetup?.schedule?.dayOfWeek]);
+  const activeSong = todaysSong;
+
   const [showLibrary, setShowLibrary] = useState(false);
 
   // Shared setter — used by both the paste flow and "pick from library".
+  // Writes to the family-writable library (kid-leader friendly).
   const setClosingSong = async (url: string) => {
     if (!profile?.familyId || !url.trim().startsWith('http')) return;
-    const scheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
-    await updateFamily(profile.familyId, {
-      meetingSetup: {
-        ...(family?.meetingSetup || {}),
-        closingSong: {
-          url: url.trim(),
-          setByName: profile.displayName?.split(' ')[0] || 'you',
-          cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
-        },
-      },
-    } as any);
+    await setTodaysSong(profile.familyId, {
+      url: url.trim(),
+      cycleKey: songCycleKey,
+      setByName: profile.displayName?.split(' ')[0] || 'you',
+      setByUid: profile.uid,
+    });
   };
 
   const handleSetSong = async () => {
@@ -145,9 +157,7 @@ export default function MeetingsPage() {
 
   const handleClearSong = async () => {
     if (!profile?.familyId) return;
-    await updateFamily(profile.familyId, {
-      meetingSetup: { ...(family?.meetingSetup || {}), closingSong: undefined },
-    } as any);
+    await clearTodaysSong(profile.familyId, songCycleKey);
   };
 
   useEffect(() => {
@@ -298,7 +308,7 @@ export default function MeetingsPage() {
             {activeSong ? (
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {activeSong.setByName || 'leader'}</p>
+                  <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {activeSong.pickedByName || activeSong.addedByName || 'leader'}</p>
                   <a
                     href={activeSong.url}
                     target="_blank"
@@ -545,7 +555,7 @@ export default function MeetingsPage() {
             {activeSong ? (
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {activeSong.setByName || 'leader'}</p>
+                  <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {activeSong.pickedByName || activeSong.addedByName || 'leader'}</p>
                   <a
                     href={activeSong.url}
                     target="_blank"
