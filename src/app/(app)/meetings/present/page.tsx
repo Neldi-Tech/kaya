@@ -2029,8 +2029,32 @@ function GoalsStep({
     return dateStr;
   };
 
+  // 🔥 Streak Flames (v4) — consecutive most-recent weeks a kid KEPT a goal.
+  // Walks the newest-first goal history; updates live as goals are ticked.
+  const streakFor = (kidId: string): number => {
+    let n = 0;
+    for (const { index, kids } of goalsByMeeting) {
+      if (!kids.some((k) => k.child.id === kidId)) continue; // no goal that week → skip
+      if (effectiveDone(index, kidId)) n += 1; else break;
+    }
+    return n;
+  };
+
+  // ⚡ Family Combo (v4) — fraction of LAST week's goals ticked done this
+  // round. 100% = everyone kept their goal → a family-wide celebration.
+  const lastWeek = goalsByMeeting[0];
+  const comboTotal = lastWeek ? lastWeek.kids.length : 0;
+  const comboDone = lastWeek ? lastWeek.kids.filter((k) => effectiveDone(lastWeek.index, k.child.id)).length : 0;
+  const comboPct = comboTotal ? Math.round((comboDone / comboTotal) * 100) : 0;
+  const comboComplete = comboTotal > 0 && comboDone === comboTotal;
+
   return (
     <div className="space-y-7">
+      <style>{`
+        @keyframes gr-flick { 0%,100%{transform:scale(1) rotate(-3deg)} 50%{transform:scale(1.14) rotate(3deg)} }
+        @keyframes gr-twinkle { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.18);opacity:.8} }
+        @keyframes gr-pop { 0%{transform:scale(.4);opacity:0} 60%{transform:scale(1.15);opacity:1} 100%{transform:scale(1)} }
+      `}</style>
       {/* 🔍 Self-reflection summary — who pre-marked their prior goals?
           Shows each submission's goalsReflection so the family sees how
           everyone felt BEFORE the meeting (no tick interaction needed). */}
@@ -2107,6 +2131,33 @@ function GoalsStep({
           <p className="text-[11px] text-white/45 mb-3 px-1">
             Unticked goals <span className="font-bold text-amber-300">↻ carry</span> into next week so nothing drops.
           </p>
+
+          {/* ⚡ Family Combo Meter — climbs as last week's goals get ticked. */}
+          {comboTotal > 0 && (
+            <div className={`mb-4 rounded-kaya-lg border p-4 transition-colors ${comboComplete ? 'border-kaya-gold bg-kaya-gold/10' : 'border-white/10 bg-white/5'}`}>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-display font-black text-[13px] lg:text-sm text-kaya-gold-light">⚡ Family Combo</span>
+                <span className="font-display font-black text-[13px] text-white/70">{comboDone} / {comboTotal} kept</span>
+              </div>
+              <div className="h-4 rounded-full bg-white/10 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500 ease-out"
+                  style={{
+                    width: `${comboPct}%`,
+                    background: comboComplete
+                      ? 'linear-gradient(90deg,#5BA88C,#D4A017)'
+                      : 'linear-gradient(90deg,#5BA88C,#9BB36A)',
+                  }}
+                />
+              </div>
+              {comboComplete && (
+                <p className="mt-2 text-center font-display font-black text-sm text-kaya-gold-light" style={{ animation: 'gr-pop .6s ease-out' }}>
+                  ⚡ FAMILY COMBO! Everyone kept their goal 🎉
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-5">
             {goalsByMeeting.map(({ meeting, index, kids }) => (
               <div key={meeting.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-4 lg:p-5">
@@ -2116,10 +2167,15 @@ function GoalsStep({
                 <div className="space-y-2">
                   {kids.map(({ child, goal }) => {
                     const done = effectiveDone(index, child.id);
+                    const streak = done ? streakFor(child.id) : 0;
+                    // 🌟 Comeback Star — an OLD goal (2+ weeks ago) finally done.
+                    const comeback = done && index >= 1;
                     return (
                       <div
                         key={child.id}
-                        className="bg-white/5 border border-white/10 rounded-kaya p-3 lg:p-4 flex items-start gap-3"
+                        className={`border rounded-kaya p-3 lg:p-4 flex items-start gap-3 transition-colors ${
+                          comeback ? 'bg-kaya-gold/10 border-kaya-gold/40' : 'bg-white/5 border-white/10'
+                        }`}
                       >
                         <button
                           type="button"
@@ -2137,6 +2193,18 @@ function GoalsStep({
                           <div className="flex items-center gap-2 text-[13px] lg:text-base font-display font-extrabold">
                             <span className="text-xl">{child.avatarEmoji || '👧'}</span>
                             <span>{child.name}</span>
+                            {/* 🔥 Streak Flames */}
+                            {streak >= 1 && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-black text-kaya-gold-light bg-kaya-gold/15 rounded-full px-2 py-0.5"
+                                title={`${streak} week${streak === 1 ? '' : 's'} in a row`}
+                              >
+                                <span style={{ animation: 'gr-flick 1.4s ease-in-out infinite' }}>
+                                  {streak >= 5 ? '🏆' : '🔥'}
+                                </span>
+                                {streak}
+                              </span>
+                            )}
                             {!done && (
                               <span className="ml-auto text-[9px] font-extrabold uppercase tracking-wide text-amber-300 bg-amber-400/15 rounded-full px-2 py-0.5">
                                 ↻ carries
@@ -2146,6 +2214,15 @@ function GoalsStep({
                           <p className={`mt-1 text-[14px] lg:text-base leading-snug ${done ? 'text-white/50 line-through' : 'text-white/85'}`}>
                             {goal}
                           </p>
+                          {/* 🌟 Comeback Star — persistence pays off */}
+                          {comeback && (
+                            <div className="mt-2 flex items-center gap-2" style={{ animation: 'gr-pop .6s ease-out' }}>
+                              <span className="text-lg" style={{ animation: 'gr-twinkle 2.4s ease-in-out infinite' }}>🌟</span>
+                              <span className="text-[11.5px] font-black text-kaya-gold-light">
+                                Comeback Star — {index + 1} weeks in the making, you never gave up!
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
