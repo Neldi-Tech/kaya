@@ -25,6 +25,7 @@ import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
+import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -142,9 +143,11 @@ export default function MyDayPage() {
 
   // 🎵 Today's closing song — self-gates to a parent or the leader of the
   // day, so it surfaces here too (not only on the Meetings hub). v4.3.
+  // Plus the post-meeting "rate the song" prompt for EVERY member (v4.6).
   const songStrip = (
-    <div className="mx-auto max-w-md w-full px-4 pt-4">
+    <div className="mx-auto max-w-md w-full px-4 pt-4 space-y-4">
       <TodaysSongCard />
+      <RateClosingSongCard />
     </div>
   );
 

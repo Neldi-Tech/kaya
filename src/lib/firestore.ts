@@ -1429,7 +1429,11 @@ export interface Notification {
     // Sunday Meeting — someone @-tagged you in their appreciation; revealed
     // to you on meeting day (kept sealed until the meeting is submitted).
     // Links to /meetings.
-    | 'appreciation';
+    | 'appreciation'
+    // Sunday Meeting — a kid leader chose a closing song that needs a
+    // parent's OK before it plays. Sent to all parents; links to /my-day
+    // where they can tap Approve. (v4.6)
+    | 'song-approval';
   title: string;
   message: string;
   read: boolean;
