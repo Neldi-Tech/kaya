@@ -29,6 +29,7 @@ import PauseSheet from '@/components/workplan/PauseSheet';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
+import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
@@ -142,6 +143,9 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
 
       {tab === 'workplan' ? (
         <>
+          {/* 🎵 Today's closing song — shows only if this kid is leading
+              today (self-gates); lets a kid leader set it from Workplan. */}
+          <TodaysSongCard className="mb-3" />
           {/* Day navigator — default today, scroll back/forward */}
           <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
             <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
@@ -189,6 +193,9 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
       <p className="text-[12px] text-hive-muted mt-1 mb-4">
         Build a repeatable weekly plan for each child — with real times (school schedule), play, chores &amp; homework. Kids tick tasks off in their own playful view and earn any points you set.
       </p>
+
+      {/* 🎵 Today's closing song — a parent can set it from here too (v4.3). */}
+      <TodaysSongCard className="mb-4" />
 
       {children.length === 0 ? (
         <div className="rounded-hive-lg border border-hive-line bg-hive-paper p-8 text-center">
