@@ -35,7 +35,7 @@ import {
 } from '@/lib/firestore';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions,
-  appreciationTagsForLine, appreciationTagLabelForLine,
+  appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
@@ -292,12 +292,19 @@ export default function MeetingPresenterPage() {
   // here mid-meeting without a refresh. The meeting screen itself is for
   // reading + celebrating — see StepSubmissions for the "still to add"
   // nudge + optional in-meeting capture fallback.
-  const [submissions, setSubmissions] = useState<MeetingSubmission[]>([]);
+  const [submissionsRaw, setSubmissions] = useState<MeetingSubmission[]>([]);
   useEffect(() => {
     if (!profile?.familyId) return;
     const unsub = subscribeMeetingSubmissions(profile.familyId, setSubmissions);
     return () => unsub();
   }, [profile?.familyId]);
+  // Cycle gating: only THIS meeting cycle's prep is shown/used — last
+  // week's (a passed meeting) is ignored even if it wasn't cleared.
+  const meetingScheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
+  const submissions = useMemo(
+    () => submissionsRaw.filter((s) => isCurrentCycle(s, meetingScheduleDow)),
+    [submissionsRaw, meetingScheduleDow],
+  );
 
   // Roster of everyone expected to prep — kids + present parents. Used by
   // StepSubmissions to compute "who's still to add" for each section.

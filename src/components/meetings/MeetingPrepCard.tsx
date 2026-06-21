@@ -27,7 +27,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
   setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES, MAX_APPRECIATION_LINES,
-  appreciationTagsForLine, type AppreciationTag,
+  appreciationTagsForLine, isCurrentCycle, meetingCycleKey, type AppreciationTag,
 } from '@/lib/meetingSubmissions';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
@@ -84,6 +84,10 @@ export default function MeetingPrepCard({
     getMeetingSubmission(familyId, meId)
       .then((sub) => {
         if (cancelled || !sub) return;
+        // Cycle reset: only pre-fill if this prep is for the CURRENT
+        // meeting cycle. Last week's (a passed meeting) is left blank so
+        // the card asks fresh — it already lives in My Submissions.
+        if (!isCurrentCycle(sub, scheduleDow)) return;
         const g = sub.gratitudes?.length ? sub.gratitudes : [''];
         const a = sub.appreciations?.length ? sub.appreciations : [''];
         const go = sub.goals?.length ? sub.goals : [''];
@@ -196,6 +200,8 @@ export default function MeetingPrepCard({
         goals,
         // Per-line multi-tag; the lib drops tags on empty-text lines.
         appreciationTags: apprTags,
+        // Stamp the cycle this prep is for so it ages out next meeting.
+        cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
       });
       setSavedAt(Date.now());
     } catch (e: any) {
