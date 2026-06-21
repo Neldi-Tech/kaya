@@ -122,50 +122,10 @@ export default function SubmissionHistoryView({ familyId, uid }: { familyId: str
     );
   };
 
-  // Build the goal register: all past goals across all entries, newest first.
-  const goalRegister = entries
-    .flatMap((e) => (e.goals || []).map((g, i) => ({
-      date: e.date,
-      goal: g,
-      done: e.goalsReflection?.[i]?.done,
-    })))
-    .filter((r) => r.goal);
-
   return (
     <div className="space-y-3">
-      {/* 🎯 Goal Register — compact list of all past goals + accomplished status */}
-      {goalRegister.length > 0 && (
-        <div className="rounded-2xl border-2 p-4" style={{ borderColor: '#E8E0FF', background: 'linear-gradient(180deg,#F5F0FF,#fff)' }}>
-          <p className="font-black text-[11px] uppercase tracking-wide mb-3" style={{ color: PURPLE }}>
-            🎯 Goal Register
-          </p>
-          <div className="space-y-1.5">
-            {goalRegister.map((r, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <span className={`shrink-0 mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
-                  r.done === true ? 'bg-emerald-100 text-emerald-600' :
-                  r.done === false ? 'bg-amber-100 text-amber-500' :
-                  'bg-white/60 text-[#9B8A72] border border-dashed border-[#9B8A72]/40'
-                }`}>
-                  {r.done === true ? '✓' : r.done === false ? '↻' : '·'}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <span className={`text-[12.5px] leading-snug ${r.done ? 'line-through text-[#9B8A72]' : ''}`} style={{ color: r.done ? undefined : '#3D241A' }}>
-                    {r.goal}
-                  </span>
-                  <span className="ml-1.5 text-[10px]" style={{ color: '#9B8A72' }}>
-                    {toDisplayDate(r.date) || r.date}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-[10px]" style={{ color: '#9B8A72' }}>
-            ✓ accomplished · ↻ carried · · not yet reviewed
-          </p>
-        </div>
-      )}
-
+      {/* Goal Register moved to its own 🎯 Goals Review tab (v4). My
+          Submissions keeps the per-meeting goal rows below. */}
       {jar.length > 0 && (
         <div className="rounded-2xl border-2 p-4 text-center" style={{ borderColor: '#D4A017', background: 'linear-gradient(180deg,#FFF8E7,#fff)' }}>
           <p className="font-black text-[11px] uppercase tracking-wide" style={{ color: '#B8860B' }}>
