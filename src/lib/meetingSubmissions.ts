@@ -60,6 +60,13 @@ export interface MeetingSubmission {
    *  fallback for line 0 only. */
   appreciationTagId?: string;
   appreciationTagName?: string;
+  /** Sunday-Meeting (cycle reset, 2026-06-21): the meeting this prep was
+   *  written FOR — the YYYY-MM-DD of the upcoming meeting day at save
+   *  time. The card + presenter only show submissions for the CURRENT
+   *  cycle, so once a meeting passes, last week's prep stops appearing
+   *  and the card asks fresh — independent of whether the meeting was
+   *  "finished" or who led it (which the delete-rule gated on). */
+  cycleKey?: string;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
@@ -71,6 +78,46 @@ export interface AppreciationTag {
 }
 
 const SUBS = 'upcomingMeetingSubmissions';
+
+// ── Meeting cycle helpers (cycle reset, 2026-06-21) ──────────────────
+// A submission belongs to the cycle of one specific upcoming meeting.
+// Local-time YYYY-MM-DD (helpers worldwide — never UTC, per the date rule).
+function isoLocal(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** YYYY-MM-DD of the NEXT meeting day (today counts) for a weekly
+ *  schedule. null when the family has no schedule. */
+export function meetingCycleKey(scheduleDow: number | undefined, now: Date = new Date()): string | null {
+  if (typeof scheduleDow !== 'number') return null;
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  const ahead = (scheduleDow - d.getDay() + 7) % 7; // 0 = today
+  d.setDate(d.getDate() + ahead);
+  return isoLocal(d);
+}
+
+/** Epoch ms of the PREVIOUS meeting day at 00:00 (today→7 days back).
+ *  Used to age out legacy submissions that predate `cycleKey`. */
+export function meetingCycleStartMs(scheduleDow: number | undefined, now: Date = new Date()): number | null {
+  if (typeof scheduleDow !== 'number') return null;
+  const d = new Date(now); d.setHours(0, 0, 0, 0);
+  let back = (d.getDay() - scheduleDow + 7) % 7;
+  if (back === 0) back = 7; // today is the meeting day → previous is a week ago
+  d.setDate(d.getDate() - back);
+  return d.getTime();
+}
+
+/** Is this submission part of the CURRENT meeting cycle (so it should
+ *  show in the card + presenter)? No schedule → no gating (legacy
+ *  behaviour). Stamped submissions match by cycleKey; legacy ones
+ *  (no cycleKey) fall back to "saved since the last meeting". */
+export function isCurrentCycle(s: MeetingSubmission, scheduleDow: number | undefined, now: Date = new Date()): boolean {
+  if (typeof scheduleDow !== 'number') return true;
+  const key = meetingCycleKey(scheduleDow, now);
+  if (s.cycleKey) return s.cycleKey === key;
+  const startMs = meetingCycleStartMs(scheduleDow, now);
+  return startMs == null ? true : (s.updatedAt ?? 0) >= startMs;
+}
 
 /** Resolve the full multi-tag for an appreciation line, with back-compat:
  *  prefer `appreciationTags`, else the per-line single arrays, else the
@@ -221,6 +268,10 @@ export async function setMeetingSubmission(
     appreciationTagNames: legacyNames,
     appreciationTagId: legacyIds[0] || undefined,
     appreciationTagName: legacyNames[0] || undefined,
+    // Stamp the cycle this prep is for (the card passes the upcoming
+    // meeting's key) so it ages out after that meeting. Keep the prior
+    // key when none is passed.
+    cycleKey: payload.cycleKey ?? prev?.cycleKey,
     updatedAt: Date.now(),
   };
   await setDoc(ref, merged, { merge: true });
