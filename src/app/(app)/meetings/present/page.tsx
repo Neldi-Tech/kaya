@@ -187,6 +187,8 @@ export default function MeetingPresenterPage() {
   const [gratitude, setGratitude] = useState<Record<string, string>>({});
   const [appreciations, setAppreciations] = useState<Record<string, string>>({});
   const [goals, setGoals] = useState<Record<string, string>>({});           // this week
+  // 🤝 Pinky-Promise (v4) — childIds who sealed their goal this meeting.
+  const [pinkyPromised, setPinkyPromised] = useState<Set<string>>(new Set());
 
   // Multi-week Goals Review — per-meeting per-kid done toggles. Keyed
   // by meeting id → kid id → done. Persisted at finish time by patching
@@ -469,6 +471,7 @@ export default function MeetingPresenterPage() {
       appreciations,
       presentation,
       reflection,
+      ...(pinkyPromised.size > 0 ? { pinkyPromised: Array.from(pinkyPromised) } : {}),
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
@@ -733,6 +736,12 @@ export default function MeetingPresenterPage() {
                   onToggleHistoricalGoalDone={toggleHistoricalGoalDone}
                   goals={goals}
                   onChangeGoals={setGoals}
+                  pinkyPromised={pinkyPromised}
+                  onTogglePinky={(kidId) => setPinkyPromised((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(kidId)) next.delete(kidId); else next.add(kidId);
+                    return next;
+                  })}
                 />
               )}
 
@@ -1980,6 +1989,8 @@ function GoalsStep({
   onToggleHistoricalGoalDone,
   goals,
   onChangeGoals,
+  pinkyPromised,
+  onTogglePinky,
 }: {
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
   submissions: MeetingSubmission[];
@@ -1989,6 +2000,9 @@ function GoalsStep({
   onToggleHistoricalGoalDone: (meetingId: string, kidId: string, done: boolean) => void;
   goals: Record<string, string>;
   onChangeGoals: (next: Record<string, string>) => void;
+  /** 🤝 Pinky-Promise (v4): childIds sealed this meeting + a toggle. */
+  pinkyPromised: Set<string>;
+  onTogglePinky: (kidId: string) => void;
 }) {
   // Resolve effective done state — local toggle wins; otherwise fall
   // back to whatever the meeting already had stored. v2 uses
@@ -2047,6 +2061,11 @@ function GoalsStep({
   const comboDone = lastWeek ? lastWeek.kids.filter((k) => effectiveDone(lastWeek.index, k.child.id)).length : 0;
   const comboPct = comboTotal ? Math.round((comboDone / comboTotal) * 100) : 0;
   const comboComplete = comboTotal > 0 && comboDone === comboTotal;
+
+  // 🤝 Pinky-Promise (v4) — kids who committed a goal this week can seal it.
+  const committedKids = childrenList.filter((c) =>
+    (goals[c.id] || '').trim().length > 0
+    || (submissions.find((s) => s.childId === c.id)?.goals || []).some((g) => g.trim()));
 
   return (
     <div className="space-y-7">
@@ -2118,6 +2137,36 @@ function GoalsStep({
         <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
           Keep it small and specific — "read every night before bed" beats "do better at school."
         </p>
+
+        {/* 🤝 Pinky-Promise — seal a commitment; next week we see if we kept it. */}
+        {committedKids.length > 0 && (
+          <div className="mt-4 rounded-kaya-lg border border-white/10 bg-white/5 p-4">
+            <p className="font-display font-black text-[13px] lg:text-sm text-kaya-gold-light mb-0.5">🤝 Seal it with a pinky promise</p>
+            <p className="text-[11px] text-white/45 mb-3">A promise made tonight — next week Kaya remembers who pinky-promised.</p>
+            <div className="flex flex-wrap gap-2">
+              {committedKids.map((c) => {
+                const sealed = pinkyPromised.has(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onTogglePinky(c.id)}
+                    aria-pressed={sealed}
+                    className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-[12px] font-display font-extrabold border transition-colors ${
+                      sealed
+                        ? 'bg-kaya-gold text-kaya-chocolate border-kaya-gold'
+                        : 'bg-white/5 text-white/70 border-white/15 hover:bg-white/10'
+                    }`}
+                  >
+                    <span style={sealed ? { animation: 'gr-pop .5s ease-out' } : undefined}>{sealed ? '🤝' : '🤙'}</span>
+                    <span>{c.avatarEmoji || '🧒'} {c.name}</span>
+                    {sealed && <span className="text-[10px] uppercase tracking-wide">· promised</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ② Last week — tick what's done. Ticked goals are saved done (and
@@ -2170,6 +2219,8 @@ function GoalsStep({
                     const streak = done ? streakFor(child.id) : 0;
                     // 🌟 Comeback Star — an OLD goal (2+ weeks ago) finally done.
                     const comeback = done && index >= 1;
+                    // 🤝 Pinky-Promise — was this goal sealed when it was set?
+                    const wasPromised = (meeting.pinkyPromised || []).includes(child.id);
                     return (
                       <div
                         key={child.id}
@@ -2214,6 +2265,12 @@ function GoalsStep({
                           <p className={`mt-1 text-[14px] lg:text-base leading-snug ${done ? 'text-white/50 line-through' : 'text-white/85'}`}>
                             {goal}
                           </p>
+                          {/* 🤝 Pinky-Promise callback — the ribbon + "kept!" beat */}
+                          {wasPromised && (
+                            <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-kaya-gold/15 border border-kaya-gold/30 px-2.5 py-1 text-[11px] font-extrabold text-kaya-gold-light">
+                              🤝 {done ? 'Pinky promise kept! 🎉' : 'You pinky-promised this'}
+                            </div>
+                          )}
                           {/* 🌟 Comeback Star — persistence pays off */}
                           {comeback && (
                             <div className="mt-2 flex items-center gap-2" style={{ animation: 'gr-pop .6s ease-out' }}>

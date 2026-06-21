@@ -1129,6 +1129,10 @@ export interface Meeting {
    *  via `updateMeeting()`, so a goal can be reviewed and marked done
    *  even weeks later (not just the immediate next week). */
   goalsDone?: Record<string, boolean>;
+  /** v4 — childIds who 🤝 pinky-promised the goal they committed to in this
+   *  meeting. Next meeting's Goals Review surfaces a "you pinky-promised
+   *  this" ribbon on those goals (and a "promise kept!" beat when done). */
+  pinkyPromised?: string[];
   /** Optional "anyone presenting tonight?" capture during the new
    *  attendance step. */
   presentation?: {
