@@ -30,6 +30,7 @@ import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
+import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
 import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
@@ -146,6 +147,8 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
           {/* 🎵 Today's closing song — shows only if this kid is leading
               today (self-gates); lets a kid leader set it from Workplan. */}
           <TodaysSongCard className="mb-3" />
+          {/* 🎵 Post-meeting: rate the song the family just played (v4.6). */}
+          <RateClosingSongCard className="mb-3" />
           {/* Day navigator — default today, scroll back/forward */}
           <div className="flex items-center gap-2 mb-2 rounded-2xl bg-white border-2 p-1.5" style={{ borderColor: '#F0E8FF' }}>
             <button type="button" onClick={() => setOffset((o) => o - 1)} aria-label="Previous day"
@@ -196,6 +199,8 @@ function ParentWorkplan({ familyId, parentUid }: { familyId: string; parentUid: 
 
       {/* 🎵 Today's closing song — a parent can set it from here too (v4.3). */}
       <TodaysSongCard className="mb-4" />
+      {/* 🎵 Post-meeting: rate the song the family just played (v4.6). */}
+      <RateClosingSongCard className="mb-4" />
 
       {children.length === 0 ? (
         <div className="rounded-hive-lg border border-hive-line bg-hive-paper p-8 text-center">

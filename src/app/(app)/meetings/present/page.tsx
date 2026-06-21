@@ -41,7 +41,7 @@ import {
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
 import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import { resolveSongEmbed } from '@/lib/songEmbed';
-import { upsertSong, rateSong, getTodaysSong, getSongLibrary, approveTodaysSong, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
+import { upsertSong, rateSong, getTodaysSong, getSongLibrary, approveTodaysSong, markSongRevealed, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -2607,10 +2607,11 @@ function SongReveal({ url, approved, familyId, viewerUid, viewerName }: {
         // Not embeddable → keep the old behaviour (open in a new tab).
         if (!embed.embeddable) window.open(url, '_blank', 'noopener,noreferrer');
         setPhase('open');
-        // Save to the family song library (best-effort).
+        // Save to the family song library + mark it PLAYED so every member
+        // gets a post-meeting "rate it" prompt (best-effort).
         if (familyId) {
           upsertSong(familyId, { url, addedByName: viewerName, addedByUid: viewerUid })
-            .then((id) => setSongId(id))
+            .then((id) => { setSongId(id); return markSongRevealed(familyId, id); })
             .catch(() => {});
         }
       } else {

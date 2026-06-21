@@ -17,6 +17,7 @@ import {
   setTodaysSong, subscribeTodaysSong, clearTodaysSong, approveTodaysSong, type SongLibraryEntry,
 } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
+import { createNotification, getFamilyMembers } from '@/lib/firestore';
 import SongLibraryView from './SongLibraryView';
 
 export default function TodaysSongCard({ className = '' }: { className?: string }) {
@@ -86,6 +87,23 @@ export default function TodaysSongCard({ className = '' }: { className?: string 
       });
       setSongInput('');
       setShowLibrary(false);
+      // Kid-set + needs approval → alert every parent in the bell so the
+      // approval is part of the normal flow (not buried). Best-effort.
+      if (!isParent && requiresApproval) {
+        const kidName = profile?.displayName?.split(' ')[0] || 'A kid';
+        getFamilyMembers(familyId)
+          .then((members) => Promise.all(
+            members.filter((m) => m.role === 'parent').map((m) =>
+              createNotification(familyId, {
+                type: 'song-approval',
+                title: '🎵 Approve tonight’s song',
+                message: `${kidName} chose a closing song — tap to approve before the meeting.`,
+                read: false,
+                forUserId: m.uid,
+                link: '/my-day',
+              } as any).catch(() => {}))))
+          .catch(() => {});
+      }
     } catch (e: any) {
       const msg = (e?.code === 'permission-denied' || /permission/i.test(e?.message || ''))
         ? 'Could not save — the song library isn’t enabled yet. Ask a parent to deploy the latest Kaya update.'

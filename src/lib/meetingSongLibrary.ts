@@ -44,6 +44,10 @@ export interface SongLibraryEntry {
    *  parent approves (when the family's kid-song approval gate is on). */
   pickedByRole?: 'parent' | 'kid' | 'helper';
   pickApproved?: boolean;
+  /** v4.6 — epoch ms when this song was actually PLAYED in a meeting (the
+   *  presenter revealed it). Drives the post-meeting "rate the song" prompt
+   *  shown to every family member on their own device. */
+  revealedAt?: number;
 }
 
 /** Stable id for a link so the same song collapses to one library entry.
@@ -136,6 +140,16 @@ export async function rateSong(
     const ratings = { ...(prev?.ratings || {}), [uid]: Math.max(1, Math.min(5, Math.round(stars))) };
     const { avgRating, ratingCount } = recompute(ratings);
     await setDoc(ref, { ratings, avgRating, ratingCount }, { merge: true });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Mark a song as PLAYED in a meeting (stamps revealedAt) so every family
+ *  member gets a post-meeting "rate it" prompt. Best-effort. */
+export async function markSongRevealed(familyId: string, songId: string): Promise<void> {
+  try {
+    await setDoc(doc(db, 'families', familyId, COL, songId), { revealedAt: Date.now() }, { merge: true });
   } catch {
     /* best-effort */
   }
