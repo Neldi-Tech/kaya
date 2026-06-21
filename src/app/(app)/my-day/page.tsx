@@ -24,6 +24,7 @@ import { listHelpers } from '@/lib/helpers';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
+import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -139,16 +140,24 @@ export default function MyDayPage() {
     <RemindersInline wrapClassName="mx-auto max-w-md w-full px-4 pt-4" />
   );
 
+  // 🎵 Today's closing song — self-gates to a parent or the leader of the
+  // day, so it surfaces here too (not only on the Meetings hub). v4.3.
+  const songStrip = (
+    <div className="mx-auto max-w-md w-full px-4 pt-4">
+      <TodaysSongCard />
+    </div>
+  );
+
   if (role === 'kid') {
     if (!profile.childId) return null;
     const me = children.find((c) => c.id === profile.childId);
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
-    return <>{tabBar}{wishCard}{remindersStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}{songStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
   if (role === 'helper') {
     const first = (profile.displayName ?? 'there').split(' ')[0];
-    return <>{tabBar}{wishCard}{remindersStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}{songStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
   }
 
   // Parent
@@ -158,6 +167,7 @@ export default function MyDayPage() {
       {tabBar}
       {wishCard}
       {remindersStrip}
+      {songStrip}
       <MyDayParent
         familyId={family.id}
         parentUid={profile.uid}

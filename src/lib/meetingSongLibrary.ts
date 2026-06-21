@@ -171,30 +171,51 @@ function sortSongs(a: SongLibraryEntry, b: SongLibraryEntry): number {
 
 /** Set (or replace) today's closing song: upsert the song, tag it for this
  *  cycle, and clear the tag off any other song that held it. Returns the
- *  song id. Best-effort — the song still plays even if a write fails. */
+ *  song id.
+ *
+ *  Unlike the reveal-path helpers, this DOES throw on failure — the hub
+ *  setter surfaces the error so a permission-denied (e.g. rules not yet
+ *  deployed) is visible instead of silently doing nothing. */
 export async function setTodaysSong(
   familyId: string,
   song: { url: string; cycleKey: string; setByName?: string; setByUid?: string; title?: string; now?: number },
 ): Promise<string> {
-  const id = await upsertSong(familyId, {
-    url: song.url, title: song.title, addedByName: song.setByName, addedByUid: song.setByUid, now: song.now,
-  });
-  try {
-    // Clear the tag off any previously-picked song for this cycle.
-    const snap = await getDocs(collection(db, 'families', familyId, COL));
-    await Promise.all(snap.docs.map((d) => {
-      const data = d.data() as SongLibraryEntry;
-      if (d.id !== id && data.pickedForCycle === song.cycleKey) {
-        return setDoc(d.ref, { pickedForCycle: '' }, { merge: true });
-      }
-      return Promise.resolve();
-    }));
-    // Tag the chosen one.
-    await setDoc(doc(db, 'families', familyId, COL, id),
-      { pickedForCycle: song.cycleKey, pickedByName: song.setByName || '' }, { merge: true });
-  } catch {
-    /* best-effort */
+  const url = (song.url || '').trim();
+  const id = songIdFromUrl(url);
+  const ref = doc(db, 'families', familyId, COL, id);
+  const now = song.now ?? Date.now();
+
+  // Upsert the song (throws on permission error — caller surfaces it).
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const prev = snap.data() as SongLibraryEntry;
+    await setDoc(ref, {
+      playCount: (prev.playCount || 0) + 1,
+      lastPlayedAt: now,
+      ...(song.title && !prev.title ? { title: song.title } : {}),
+    }, { merge: true });
+  } else {
+    const entry: SongLibraryEntry = {
+      id, url, title: song.title, provider: providerOf(url),
+      addedByName: song.setByName, addedByUid: song.setByUid,
+      addedAt: now, playCount: 1, lastPlayedAt: now,
+      ratings: {}, avgRating: 0, ratingCount: 0,
+    };
+    await setDoc(ref, entry);
   }
+
+  // Clear the tag off any previously-picked song for this cycle.
+  const all = await getDocs(collection(db, 'families', familyId, COL));
+  await Promise.all(all.docs.map((d) => {
+    const data = d.data() as SongLibraryEntry;
+    if (d.id !== id && data.pickedForCycle === song.cycleKey) {
+      return setDoc(d.ref, { pickedForCycle: '' }, { merge: true });
+    }
+    return Promise.resolve();
+  }));
+
+  // Tag the chosen one.
+  await setDoc(ref, { pickedForCycle: song.cycleKey, pickedByName: song.setByName || '' }, { merge: true });
   return id;
 }
 
