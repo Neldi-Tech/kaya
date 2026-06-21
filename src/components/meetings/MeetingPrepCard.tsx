@@ -29,7 +29,7 @@ import {
   setMeetingSubmission, getMeetingSubmission, MAX_SUBMISSION_LINES, MAX_APPRECIATION_LINES,
   appreciationTagsForLine, isCurrentCycle, meetingCycleKey, type AppreciationTag,
 } from '@/lib/meetingSubmissions';
-import { getMeetingSubmissionHistory } from '@/lib/meetingSubmissionHistory';
+import { getMeetingSubmissionHistory, archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import { getFamilyMembers } from '@/lib/firestore';
 import { ChevronRight } from 'lucide-react';
 
@@ -81,6 +81,12 @@ export default function MeetingPrepCard({
   const [priorGoals, setPriorGoals] = useState<string[]>([]);
   const [reflection, setReflection] = useState<boolean[]>([]); // aligned with priorGoals
 
+  // v4: when last week's prep is detected (a passed cycle), we tidy it into
+  // My Submissions and show a gentle confirmation banner so the new week's
+  // card opens empty without the member fearing their old answers vanished.
+  const [movedBanner, setMovedBanner] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
   // Hydrate from the saved submission so the boxes show what was already
   // written (data-loss fix), now restoring all lines + per-line tags.
   useEffect(() => {
@@ -92,7 +98,27 @@ export default function MeetingPrepCard({
         // Cycle reset: only pre-fill if this prep is for the CURRENT
         // meeting cycle. Last week's (a passed meeting) is left blank so
         // the card asks fresh — it already lives in My Submissions.
-        if (!isCurrentCycle(sub, scheduleDow)) return;
+        if (!isCurrentCycle(sub, scheduleDow)) {
+          // Tidy last week's answers into My Submissions (best-effort) and
+          // reset the doc to an empty CURRENT-cycle stamp so it self-heals
+          // and won't re-archive on the next mount. Card stays empty.
+          const hasContent = !!(sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length);
+          if (hasContent) {
+            const staleDate = sub.cycleKey
+              || meetingCycleKey(scheduleDow, new Date(sub.updatedAt || Date.now()))
+              || '';
+            archiveMeetingSubmissions(familyId, [sub], staleDate)
+              .then(() => setMeetingSubmission(familyId, meId, {
+                name, emoji: avatarEmoji, childId, role,
+                gratitudes: [], appreciations: [], goals: [], appreciationTags: [],
+                goalsReflection: [],
+                cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
+              }, { allowClear: true }))
+              .catch(() => { /* offline — retry on next mount */ });
+            if (!cancelled) setMovedBanner(true);
+          }
+          return;
+        }
         const g = sub.gratitudes?.length ? sub.gratitudes : [''];
         const a = sub.appreciations?.length ? sub.appreciations : [''];
         const go = sub.goals?.length ? sub.goals : [''];
@@ -301,6 +327,26 @@ export default function MeetingPrepCard({
 
         {open && (
           <div className="px-3.5 pb-3.5 space-y-3">
+            {/* v4: gentle reassurance that last week's answers were tidied
+                away (not lost) so this week's card opens fresh. */}
+            {movedBanner && !bannerDismissed && (
+              <div
+                className="flex items-center gap-2 rounded-xl px-3 py-2.5 text-[12px] font-semibold"
+                style={{ background: 'rgba(91,168,140,.13)', border: '1px solid rgba(91,168,140,.45)', color: '#2f6b54' }}
+                role="status"
+              >
+                <span aria-hidden>✅</span>
+                <span className="flex-1">Last week&apos;s answers were saved — find them in <b>📒 My Submissions</b>.</span>
+                <button
+                  type="button"
+                  onClick={() => setBannerDismissed(true)}
+                  aria-label="Dismiss"
+                  className="shrink-0 font-black opacity-60"
+                  style={{ color: '#2f6b54' }}
+                >×</button>
+              </div>
+            )}
+
             {/* 🙏 Gratitude */}
             <SectionLines
               emoji="🙏" label="Gratitude" placeholder="I'm thankful for…"
