@@ -35,7 +35,7 @@ import {
 } from '@/lib/firestore';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions,
-  appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle,
+  appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle, meetingCycleKey,
   type MeetingSubmission,
 } from '@/lib/meetingSubmissions';
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
@@ -380,6 +380,20 @@ export default function MeetingPresenterPage() {
         setReflectionContents((prev) => ({ ...prev, prayer: prev.prayer || preloadedPrayer }));
       }
     }
+
+    // Seed the song URL from the pre-pasted closingSong (set on the hub
+    // ahead of the meeting). Only use it if it matches the current cycle
+    // (or has no cycleKey = legacy/no-schedule families).
+    const closingSong = family.meetingSetup?.closingSong;
+    if (closingSong?.url) {
+      const scheduleDow = family.meetingSetup?.schedule?.dayOfWeek;
+      const currentKey = meetingCycleKey(scheduleDow);
+      const matchesCycle = !closingSong.cycleKey || !currentKey || closingSong.cycleKey === currentKey;
+      if (matchesCycle) {
+        setReflectionContents((prev) => ({ ...prev, songs: prev.songs || closingSong.url }));
+      }
+    }
+
     setReflectionSeeded(true);
   }, [family, preloadedPrayer, reflectionSeeded]);
 
@@ -2224,6 +2238,11 @@ function ReflectionStep({
                 && !songLinkApprovedBy;
               const playable = isLink && !needsApproval;
               if (playable) {
+                // 🎵 Songs open as a SURPRISE — a 5-4-3-2-1 countdown, then
+                // the link opens. Story just opens in a new tab.
+                if (isSongs) {
+                  return <SongReveal url={content.trim()} approved={!!songLinkApprovedBy} />;
+                }
                 return (
                   <div className="mt-4 flex items-center gap-2 flex-wrap">
                     <a
@@ -2234,11 +2253,6 @@ function ReflectionStep({
                     >
                       {ctaLabel}
                     </a>
-                    {isSongs && songLinkApprovedBy && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-[10.5px] font-extrabold uppercase tracking-wider">
-                        ✓ Parent OK
-                      </span>
-                    )}
                   </div>
                 );
               }
@@ -2273,6 +2287,94 @@ function ReflectionStep({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// 🎵 Song Reveal — 5-4-3-2-1 countdown then opens YouTube/Spotify as a
+// SURPRISE moment during the Songs closing.
+// States:
+//   idle      → "🎵 Reveal today's song" button
+//   counting  → large animated digits 5→4→3→2→1 (1 s each)
+//   open      → "▶ Now playing — enjoy!" + a reopen link
+// The URL opens in a new tab at the end of the countdown.
+function SongReveal({ url, approved }: { url: string; approved: boolean }) {
+  const [phase, setPhase] = useState<'idle' | 'counting' | 'open'>('idle');
+  const [count, setCount] = useState(5);
+
+  const startCountdown = () => {
+    setPhase('counting');
+    setCount(5);
+    let c = 5;
+    const iv = setInterval(() => {
+      c -= 1;
+      if (c <= 0) {
+        clearInterval(iv);
+        window.open(url, '_blank', 'noopener,noreferrer');
+        setPhase('open');
+      } else {
+        setCount(c);
+      }
+    }, 1000);
+  };
+
+  if (phase === 'idle') {
+    return (
+      <div className="mt-5 flex flex-col items-center gap-3">
+        {approved && (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-[10.5px] font-extrabold uppercase tracking-wider">
+            ✓ Parent OK
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={startCountdown}
+          className="h-14 px-8 rounded-kaya bg-gradient-to-br from-kaya-gold to-kaya-gold-dark hover:brightness-110 text-kaya-chocolate font-display font-extrabold text-base lg:text-lg transition-all shadow-lg shadow-kaya-gold/30 animate-pulse-slow"
+        >
+          🎵 Reveal today&apos;s song
+        </button>
+        <p className="text-[11px] text-white/40">Tap to begin the countdown — a surprise is waiting!</p>
+      </div>
+    );
+  }
+
+  if (phase === 'counting') {
+    return (
+      <div className="mt-5 flex flex-col items-center gap-4">
+        <p className="text-[11px] uppercase tracking-widest font-bold text-kaya-gold-light/70">Opening in…</p>
+        <div
+          key={count}
+          className="text-[7rem] lg:text-[9rem] font-display font-black text-kaya-gold leading-none"
+          style={{ animation: 'pingOnce 0.9s ease-out forwards' }}
+        >
+          {count}
+        </div>
+        <p className="text-[12px] text-white/50">Get ready — the song is about to start! 🎶</p>
+        <style>{`
+          @keyframes pingOnce {
+            0%   { transform: scale(1.5); opacity: 0; }
+            30%  { transform: scale(1);   opacity: 1; }
+            85%  { transform: scale(1);   opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  // open
+  return (
+    <div className="mt-5 flex flex-col items-center gap-3">
+      <div className="text-5xl">🎶</div>
+      <p className="font-display font-extrabold text-xl text-kaya-gold-light">Now playing — enjoy!</p>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="text-[12px] text-white/50 underline underline-offset-2 hover:text-white/80 transition-colors"
+      >
+        ▶ Reopen song
+      </a>
     </div>
   );
 }

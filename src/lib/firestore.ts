@@ -488,6 +488,17 @@ export interface Family {
      *  Default = 1 year. The capsule's openOn lands on the nearest
      *  scheduled meeting day within ±3 days of that anniversary. */
     timeCapsuleLockYears?: 0.5 | 1 | 3;
+    /** Sunday-Meeting (song reveal, 2026-06-21): the closing song set
+     *  AHEAD of the meeting by the leader or a parent. During the meeting
+     *  the Closing step opens it as a surprise (5-4-3-2-1 countdown →
+     *  open the link). `cycleKey` scopes it to one meeting so it doesn't
+     *  carry over; parents can override the leader's pick. */
+    closingSong?: {
+      url: string;
+      setByName?: string;
+      cycleKey?: string;      // YYYY-MM-DD of the meeting it's for
+      approvedBy?: string;    // parent uid, when a kid set it + approval is on
+    };
   };
   // ── Sunday-Meeting v2: leader queue ─────────────────────────
   // The person queued to *run* the next meeting. Set by the current

@@ -7,7 +7,8 @@ import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
-import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
+import { createMeeting, getMeetings, Meeting, todayString, updateFamily } from '@/lib/firestore';
+import { meetingCycleKey } from '@/lib/meetingSubmissions';
 import BackButton from '@/components/ui/BackButton';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
@@ -36,6 +37,12 @@ export default function MeetingsPage() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Song setter (parents/helpers only): paste-ahead URL for the closing
+  // song, stored on family.meetingSetup.closingSong so the presenter
+  // picks it up automatically when the Songs closing step appears.
+  const [songInput, setSongInput] = useState('');
+  const [songSaving, setSongSaving] = useState(false);
 
   // Points Review used to be its own filtered step here; it's now
   // merged into "Celebrate the wins" in presenter mode (link to the
@@ -79,6 +86,41 @@ export default function MeetingsPage() {
       dayName: ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][sch.dayOfWeek],
     };
   }, [family?.meetingSetup?.schedule]);
+
+  // Active song for this cycle — only parents/helpers see/set it.
+  const activeSong = useMemo(() => {
+    const s = family?.meetingSetup?.closingSong;
+    if (!s?.url) return null;
+    const scheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
+    const currentKey = meetingCycleKey(scheduleDow);
+    if (s.cycleKey && currentKey && s.cycleKey !== currentKey) return null;
+    return s;
+  }, [family?.meetingSetup?.closingSong, family?.meetingSetup?.schedule?.dayOfWeek]);
+
+  const handleSetSong = async () => {
+    if (!profile?.familyId || !songInput.trim().startsWith('http')) return;
+    setSongSaving(true);
+    const scheduleDow = family?.meetingSetup?.schedule?.dayOfWeek;
+    await updateFamily(profile.familyId, {
+      meetingSetup: {
+        ...(family?.meetingSetup || {}),
+        closingSong: {
+          url: songInput.trim(),
+          setByName: profile.displayName?.split(' ')[0] || 'you',
+          cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
+        },
+      },
+    } as any);
+    setSongInput('');
+    setSongSaving(false);
+  };
+
+  const handleClearSong = async () => {
+    if (!profile?.familyId) return;
+    await updateFamily(profile.familyId, {
+      meetingSetup: { ...(family?.meetingSetup || {}), closingSong: undefined },
+    } as any);
+  };
 
   useEffect(() => {
     if (!profile?.familyId) return;
@@ -210,6 +252,68 @@ export default function MeetingsPage() {
 
         {/* Prep card — fill your Gratitude/Appreciation/Goal here too (PR B). */}
         {myPrep && <MeetingPrepCard {...myPrep} />}
+
+        {/* Song setter — parents/helpers paste the closing song URL ahead
+            of the meeting. Visible only to non-kids; the presenter picks
+            it up and plays it as a 5-4-3-2-1 countdown surprise. */}
+        {profile?.role !== 'kid' && (
+          <div className="mb-4 bg-kaya-chocolate/5 border border-kaya-chocolate/15 rounded-kaya-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xl">🎵</span>
+              <h3 className="font-display font-extrabold text-[13px] text-kaya-chocolate">
+                Today&apos;s closing song
+              </h3>
+              <span className="ml-auto text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-kaya-gold/20 text-kaya-chocolate/70">
+                Surprise reveal
+              </span>
+            </div>
+            {activeSong ? (
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {activeSong.setByName || 'leader'}</p>
+                  <a
+                    href={activeSong.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-[12px] font-bold text-kaya-chocolate underline underline-offset-2 break-all"
+                  >
+                    {activeSong.url.length > 48 ? activeSong.url.slice(0, 48) + '…' : activeSong.url}
+                  </a>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearSong}
+                  className="shrink-0 text-[11px] text-kaya-sand hover:text-red-500 font-bold transition-colors"
+                >
+                  ✕ Clear
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={songInput}
+                  onChange={(e) => setSongInput(e.target.value)}
+                  placeholder="Paste YouTube / Spotify link…"
+                  className="flex-1 h-10 px-3 bg-white border border-kaya-chocolate/20 rounded-kaya-sm text-[13px] text-kaya-chocolate placeholder-kaya-sand/60 focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                />
+                <button
+                  type="button"
+                  onClick={handleSetSong}
+                  disabled={songSaving || !songInput.trim().startsWith('http')}
+                  className="h-10 px-4 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-extrabold text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {songSaving ? '…' : 'Set'}
+                </button>
+              </div>
+            )}
+            <p className="mt-1.5 text-[10px] text-kaya-sand">
+              {activeSong
+                ? '🎶 Ready — the presenter will reveal it as a surprise with a 5-4-3-2-1 countdown.'
+                : 'Paste a link and during the meeting the family gets a 5-4-3-2-1 countdown surprise.'}
+            </p>
+          </div>
+        )}
 
         {/* Schedule reminder banner — only on the family's meeting day. */}
         {scheduleReminder && (
@@ -383,6 +487,66 @@ export default function MeetingsPage() {
         {/* Prep card — desktop (PR B). Constrained width so it doesn't
             sprawl across the full meeting canvas. */}
         {myPrep && <div className="max-w-xl"><MeetingPrepCard {...myPrep} /></div>}
+
+        {/* Song setter — desktop. Same logic as mobile; constrained to max-xl. */}
+        {profile?.role !== 'kid' && (
+          <div className="mb-4 max-w-xl bg-kaya-chocolate/5 border border-kaya-chocolate/15 rounded-kaya-lg p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xl">🎵</span>
+              <h3 className="font-display font-extrabold text-[13px] text-kaya-chocolate">
+                Today&apos;s closing song
+              </h3>
+              <span className="ml-auto text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-kaya-gold/20 text-kaya-chocolate/70">
+                Surprise reveal
+              </span>
+            </div>
+            {activeSong ? (
+              <div className="flex items-start gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-kaya-chocolate/60 mb-0.5">Set by {activeSong.setByName || 'leader'}</p>
+                  <a
+                    href={activeSong.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="text-[12px] font-bold text-kaya-chocolate underline underline-offset-2 break-all"
+                  >
+                    {activeSong.url.length > 60 ? activeSong.url.slice(0, 60) + '…' : activeSong.url}
+                  </a>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleClearSong}
+                  className="shrink-0 text-[11px] text-kaya-sand hover:text-red-500 font-bold transition-colors"
+                >
+                  ✕ Clear
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={songInput}
+                  onChange={(e) => setSongInput(e.target.value)}
+                  placeholder="Paste YouTube / Spotify link…"
+                  className="flex-1 h-10 px-3 bg-white border border-kaya-chocolate/20 rounded-kaya-sm text-[13px] text-kaya-chocolate placeholder-kaya-sand/60 focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+                />
+                <button
+                  type="button"
+                  onClick={handleSetSong}
+                  disabled={songSaving || !songInput.trim().startsWith('http')}
+                  className="h-10 px-4 rounded-kaya-sm bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-extrabold text-[12px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {songSaving ? '…' : 'Set'}
+                </button>
+              </div>
+            )}
+            <p className="mt-1.5 text-[10px] text-kaya-sand">
+              {activeSong
+                ? '🎶 Ready — the presenter will reveal it as a surprise with a 5-4-3-2-1 countdown.'
+                : 'Paste a link and during the meeting the family gets a 5-4-3-2-1 countdown surprise.'}
+            </p>
+          </div>
+        )}
 
         {/* Schedule reminder banner — desktop, only on meeting day. */}
         {scheduleReminder && (
