@@ -41,7 +41,7 @@ import {
 import { sendMeetingRecapEmail } from '@/lib/meetingRecap';
 import { archiveMeetingSubmissions } from '@/lib/meetingSubmissionHistory';
 import { resolveSongEmbed } from '@/lib/songEmbed';
-import { upsertSong, rateSong, getTodaysSong, getSongLibrary, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
+import { upsertSong, rateSong, getTodaysSong, getSongLibrary, approveTodaysSong, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import {
   listFamilyCapsules, dueCapsules, sealCapsule,
   reflectOnCapsule,
@@ -432,6 +432,10 @@ export default function MeetingPresenterPage() {
   // running the meeting + drives the countdown reveal. Falls back to a
   // legacy parents-set family-doc closingSong if one exists.
   const [songSeeded, setSongSeeded] = useState(false);
+  // Whether today's pick is pre-approved (parent-set, or kid-set with the gate
+  // off, or a parent approved it). When false, the presenter shows the
+  // approve prompt to whoever's running the meeting (v4.5).
+  const [songPreApproved, setSongPreApproved] = useState(true);
   useEffect(() => {
     if (songSeeded || !family || !profile?.familyId) return;
     const scheduleDow = family.meetingSetup?.schedule?.dayOfWeek;
@@ -441,6 +445,7 @@ export default function MeetingPresenterPage() {
       .then((s) => {
         if (cancelled) return;
         let url = s?.url || '';
+        if (s) setSongPreApproved(s.pickApproved !== false);
         if (!url) {
           // Legacy fallback: a parent-set closingSong on the family doc.
           const legacy = family.meetingSetup?.closingSong;
@@ -818,14 +823,18 @@ export default function MeetingPresenterPage() {
                       setPrayerOnStage((reflectionContents.prayer || '').trim() || ' ');
                     }}
                     prayerLibraryCount={prayerLibrary.length}
-                    // Sunday-Meeting v2 (b5): kid-attached song approval.
-                    // 'guest' carries no meeting role — pass undefined so the
-                    // kid-song-approval gate never treats a guest as a kid.
-                    viewerRole={profile?.role === 'guest' ? undefined : (profile?.role || 'parent')}
                     viewerUid={profile?.uid || ''}
                     kidSongLinkRequiresApproval={family?.meetingSetup?.kidSongLinkRequiresApproval ?? true}
                     songLinkApprovedBy={songLinkApprovedBy}
-                    onApproveSongLink={(uid) => setSongLinkApprovedBy(uid)}
+                    songPreApproved={songPreApproved}
+                    onApproveSongLink={(uid) => {
+                      setSongLinkApprovedBy(uid);
+                      setSongPreApproved(true);
+                      // Persist the approval on the pick so it sticks + clears
+                      // the prompt for everyone else.
+                      const dow = family?.meetingSetup?.schedule?.dayOfWeek;
+                      if (profile?.familyId) approveTodaysSong(profile.familyId, meetingCycleKey(dow) ?? 'always').catch(() => {});
+                    }}
                     familyId={profile?.familyId || ''}
                     viewerName={(profile?.displayName || 'Family').split(' ')[0]}
                   />
@@ -2368,10 +2377,10 @@ function ReflectionStep({
   onContentChange,
   onCelebratePrayer,
   prayerLibraryCount,
-  viewerRole,
   viewerUid,
   kidSongLinkRequiresApproval,
   songLinkApprovedBy,
+  songPreApproved,
   onApproveSongLink,
   familyId,
   viewerName,
@@ -2388,10 +2397,13 @@ function ReflectionStep({
   /** Sunday-Meeting v2 (b5): kid-attached song approval. Defaults are
    *  conservative — if any of these are missing or off, the play
    *  button works as before with no gate. */
-  viewerRole?: 'parent' | 'kid' | 'helper';
   viewerUid?: string;
   kidSongLinkRequiresApproval?: boolean;
   songLinkApprovedBy?: string | null;
+  /** v4.5 — today's pick is already approved (parent-set / gate off / a
+   *  parent OK'd it). When false, show the approve prompt to anyone running
+   *  the meeting (not just the kid). */
+  songPreApproved?: boolean;
   onApproveSongLink?: (uid: string) => void;
   /** v4 song library — the reveal saves the played song + lets the family rate it. */
   familyId?: string;
@@ -2436,6 +2448,12 @@ function ReflectionStep({
         const isStory = c.id === 'story';
         const isLink = (isSongs || isStory) && content.trim().startsWith('http');
         const ctaLabel = isSongs ? '▶ Play in new tab' : '🔗 Open link';
+        // v4.5 — a kid-set song needs a parent's OK. Shown to WHOEVER runs
+        // the meeting (not just the kid) so it's never stuck.
+        const needsApproval = isSongs && isLink
+          && (kidSongLinkRequiresApproval ?? true)
+          && !songPreApproved
+          && !songLinkApprovedBy;
         return (
           <div key={c.id} className="bg-white/5 border border-white/10 rounded-kaya-lg p-5 lg:p-6">
             <div className="flex items-center gap-3 mb-3 flex-wrap">
@@ -2458,9 +2476,11 @@ function ReflectionStep({
                 surprise) — show a "song is ready" chip + a quiet Change. */}
             {isSongs && isLink && !editSong ? (
               <div className="flex items-center gap-2 rounded-kaya-sm bg-white/5 border border-white/10 px-4 py-3">
-                <span className="text-lg">🎁</span>
+                <span className="text-lg">{needsApproval ? '🛡️' : '🎁'}</span>
                 <span className="flex-1 text-[13px] lg:text-sm text-white/70 font-bold">
-                  Tonight&apos;s song is set — it&apos;s a surprise! Tap reveal below.
+                  {needsApproval
+                    ? 'A song is set — waiting for a parent’s OK (below).'
+                    : 'Tonight’s song is set — it’s a surprise! Tap reveal below.'}
                 </span>
                 <button
                   type="button"
@@ -2492,15 +2512,10 @@ function ReflectionStep({
             )}
 
             {(isSongs || isStory) && (() => {
-              // Song-link approval gate (Sunday-Meeting v2 b5). Applies
-              // only to Songs mode. Story mode is exempt — text/verse
-              // links are routinely shared by adults and don't have the
-              // same "kid pasted something we didn't vet" risk profile.
-              const needsApproval = isSongs
-                && isLink
-                && (kidSongLinkRequiresApproval ?? true)
-                && viewerRole === 'kid'
-                && !songLinkApprovedBy;
+              // Song-link approval gate. Story mode is exempt. v4.5: the gate
+              // keys off the pick's approval state (songPreApproved), so the
+              // approve prompt shows to whoever runs the meeting — not only
+              // the kid — and a parent can OK it on the spot.
               const playable = isLink && !needsApproval;
               if (playable) {
                 // 🎵 Songs open as a SURPRISE — a 5-4-3-2-1 countdown, then

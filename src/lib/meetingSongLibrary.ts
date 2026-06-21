@@ -39,6 +39,11 @@ export interface SongLibraryEntry {
    *  family doc, so the meeting LEADER of the day — even a kid — can set it. */
   pickedForCycle?: string;
   pickedByName?: string;
+  /** v4.5 — role of whoever set the pick + whether a parent has OK'd it.
+   *  A parent-set pick is auto-approved; a kid-set pick is pending until a
+   *  parent approves (when the family's kid-song approval gate is on). */
+  pickedByRole?: 'parent' | 'kid' | 'helper';
+  pickApproved?: boolean;
 }
 
 /** Stable id for a link so the same song collapses to one library entry.
@@ -178,7 +183,7 @@ function sortSongs(a: SongLibraryEntry, b: SongLibraryEntry): number {
  *  deployed) is visible instead of silently doing nothing. */
 export async function setTodaysSong(
   familyId: string,
-  song: { url: string; cycleKey: string; setByName?: string; setByUid?: string; title?: string; now?: number },
+  song: { url: string; cycleKey: string; setByName?: string; setByUid?: string; setByRole?: 'parent' | 'kid' | 'helper'; pickApproved?: boolean; title?: string; now?: number },
 ): Promise<string> {
   const url = (song.url || '').trim();
   const id = songIdFromUrl(url);
@@ -214,9 +219,28 @@ export async function setTodaysSong(
     return Promise.resolve();
   }));
 
-  // Tag the chosen one.
-  await setDoc(ref, { pickedForCycle: song.cycleKey, pickedByName: song.setByName || '' }, { merge: true });
+  // Tag the chosen one (with who set it + whether it's pre-approved).
+  await setDoc(ref, {
+    pickedForCycle: song.cycleKey,
+    pickedByName: song.setByName || '',
+    pickedByRole: song.setByRole || 'parent',
+    pickApproved: song.pickApproved !== false,
+  }, { merge: true });
   return id;
+}
+
+/** A parent approves the kid-set song for this cycle (sets pickApproved). */
+export async function approveTodaysSong(familyId: string, cycleKey: string): Promise<void> {
+  try {
+    const snap = await getDocs(collection(db, 'families', familyId, COL));
+    await Promise.all(snap.docs.map((d) => {
+      const data = d.data() as SongLibraryEntry;
+      if (data.pickedForCycle === cycleKey) return setDoc(d.ref, { pickApproved: true }, { merge: true });
+      return Promise.resolve();
+    }));
+  } catch {
+    /* best-effort */
+  }
 }
 
 /** The song chosen for a given cycle, or null. */
