@@ -2397,6 +2397,9 @@ function ReflectionStep({
   familyId?: string;
   viewerName?: string;
 }) {
+  // v4.4: keep the pre-set song link HIDDEN behind the reveal (a surprise,
+  // not a long URL). A subtle "Change song" toggle re-opens the input.
+  const [editSong, setEditSong] = useState(false);
   const allChoices: Array<{ id: ReflectionMode; emoji: string; title: string; sub: string }> = [
     { id: 'story',  emoji: '📖', title: 'Inspiring Story', sub: 'Paste a story, a verse, or a link to read together.' },
     { id: 'songs',  emoji: '🎵', title: 'Songs',            sub: 'Paste a YouTube / Spotify link to open in a new tab.' },
@@ -2451,13 +2454,31 @@ function ReflectionStep({
                 </span>
               )}
             </div>
-            <textarea
-              value={content}
-              onChange={(e) => onContentChange(c.id, e.target.value)}
-              placeholder={placeholderFor(c.id)}
-              rows={isPrayer ? 7 : 4}
-              className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
-            />
+            {/* For Songs with a link set, HIDE the raw URL (keep the
+                surprise) — show a "song is ready" chip + a quiet Change. */}
+            {isSongs && isLink && !editSong ? (
+              <div className="flex items-center gap-2 rounded-kaya-sm bg-white/5 border border-white/10 px-4 py-3">
+                <span className="text-lg">🎁</span>
+                <span className="flex-1 text-[13px] lg:text-sm text-white/70 font-bold">
+                  Tonight&apos;s song is set — it&apos;s a surprise! Tap reveal below.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setEditSong(true)}
+                  className="shrink-0 text-[11px] font-extrabold text-kaya-gold-light/80 hover:text-kaya-gold-light underline underline-offset-2"
+                >
+                  ✎ Change
+                </button>
+              </div>
+            ) : (
+              <textarea
+                value={content}
+                onChange={(e) => onContentChange(c.id, e.target.value)}
+                placeholder={placeholderFor(c.id)}
+                rows={isPrayer ? 7 : 4}
+                className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
+              />
+            )}
 
             {isPrayer && (
               <button
