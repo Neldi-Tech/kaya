@@ -28,6 +28,7 @@ import { useLocale } from '@/lib/useLocale';
 import PauseSheet from '@/components/workplan/PauseSheet';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
+import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import { PauseCircle } from 'lucide-react';
 
 export default function WorkplanPage() {
@@ -93,7 +94,7 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
   userUid: string;
   avatarEmoji?: string;
 }) {
-  const [tab, setTab] = useState<'workplan' | 'submissions'>('workplan');
+  const [tab, setTab] = useState<'workplan' | 'submissions' | 'goals'>('workplan');
   const [offset, setOffset] = useState(0);
   const date = useMemo(() => {
     const d = new Date();
@@ -124,12 +125,12 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
           submission history out of the to-do list so neither crowds the
           other. */}
       <div className="flex gap-1.5 mb-3 rounded-full p-1" style={{ background: '#F0EBE3' }}>
-        {([['workplan', '🗓️ Workplan'], ['submissions', '📒 My Submissions']] as const).map(([key, label]) => (
+        {([['workplan', '🗓️ Workplan'], ['submissions', '📒 Submissions'], ['goals', '🎯 Goals']] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
             onClick={() => setTab(key)}
-            className="flex-1 text-center font-black text-[12px] py-2 rounded-full transition-colors"
+            className="flex-1 text-center font-black text-[12px] py-2 rounded-full transition-colors whitespace-nowrap"
             style={tab === key
               ? { background: '#fff', color: '#1E120B', boxShadow: '0 2px 6px rgba(0,0,0,0.08)' }
               : { color: '#9B8A72' }}
@@ -160,8 +161,10 @@ function KidWorkplanView({ familyId, childId, name, userUid, avatarEmoji }: {
           )}
           <KidWorkplanToday familyId={familyId} childId={childId} childName={name} date={date} />
         </>
-      ) : (
+      ) : tab === 'submissions' ? (
         <SubmissionHistoryView familyId={familyId} uid={userUid} />
+      ) : (
+        <GoalsReviewView />
       )}
     </div>
   );

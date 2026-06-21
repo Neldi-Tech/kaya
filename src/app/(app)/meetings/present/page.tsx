@@ -2046,7 +2046,7 @@ function GoalsStep({
                   <p className="text-[11px] lg:text-[12px] font-extrabold text-white/70 mb-2">
                     {s.emoji || '🧒'} {s.name}
                   </p>
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     {(s.goalsReflection || []).map((r, i) => (
                       <div key={i} className="flex items-start gap-2">
                         <span className={`mt-0.5 shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
@@ -2054,9 +2054,16 @@ function GoalsStep({
                         }`}>
                           {r.done ? '✓' : '·'}
                         </span>
-                        <span className={`text-[13px] lg:text-sm leading-snug ${r.done ? 'text-emerald-300 line-through decoration-emerald-500/50' : 'text-white/70'}`}>
-                          {r.text}
-                        </span>
+                        <div className="min-w-0">
+                          <span className={`text-[13px] lg:text-sm leading-snug ${r.done ? 'text-emerald-300 line-through decoration-emerald-500/50' : 'text-white/70'}`}>
+                            {r.text}
+                          </span>
+                          {r.note && (
+                            <p className="mt-0.5 text-[12px] lg:text-[12.5px] italic text-kaya-gold-light/90 border-l-2 border-kaya-gold/50 pl-2">
+                              “{r.note}”
+                            </p>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>
