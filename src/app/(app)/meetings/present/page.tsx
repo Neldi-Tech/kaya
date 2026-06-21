@@ -2027,6 +2027,45 @@ function GoalsStep({
 
   return (
     <div className="space-y-7">
+      {/* 🔍 Self-reflection summary — who pre-marked their prior goals?
+          Shows each submission's goalsReflection so the family sees how
+          everyone felt BEFORE the meeting (no tick interaction needed). */}
+      {submissions.some((s) => s.goalsReflection && s.goalsReflection.length > 0) && (
+        <section className="mb-2">
+          <h3 className="font-display font-black text-base lg:text-lg text-kaya-gold-light mb-1 px-1">
+            🔍 Self-reflection — before tonight
+          </h3>
+          <p className="text-[11px] text-white/45 mb-3 px-1">
+            How each person felt about last week&apos;s goals, filled in before the meeting.
+          </p>
+          <div className="space-y-3">
+            {submissions
+              .filter((s) => s.goalsReflection && s.goalsReflection.length > 0)
+              .map((s) => (
+                <div key={s.uid} className="bg-white/5 border border-white/10 rounded-kaya p-3 lg:p-4">
+                  <p className="text-[11px] lg:text-[12px] font-extrabold text-white/70 mb-2">
+                    {s.emoji || '🧒'} {s.name}
+                  </p>
+                  <div className="space-y-1">
+                    {(s.goalsReflection || []).map((r, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <span className={`mt-0.5 shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
+                          r.done ? 'bg-emerald-500 text-white' : 'bg-white/15 text-white/30'
+                        }`}>
+                          {r.done ? '✓' : '·'}
+                        </span>
+                        <span className={`text-[13px] lg:text-sm leading-snug ${r.done ? 'text-emerald-300 line-through decoration-emerald-500/50' : 'text-white/70'}`}>
+                          {r.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </section>
+      )}
+
       {/* ① This week — our commitments (forward-looking, shown FIRST per
           Elia). Read from each member's prep submission (live-synced),
           with a "still to set" nudge + optional in-meeting capture. */}
