@@ -505,30 +505,60 @@ export default function FinancesPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
-            {closedInRange.slice(0, 10).map((r) => {
-              const m = (r.module ?? 'pantry') as PurchaseModule;
-              const total = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
-              return (
-                <Link
-                  key={r.id}
-                  href={`/pantry/purchase/${r.id}`}
-                  className="bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base">
-                    {MODULE_EMOJI[m] ?? '🧾'}
+            {(() => {
+              // Pulse-style scannability — sort newest-first, then drop a
+              // day-group header (Today / Yesterday / This week / Earlier) when
+              // the bucket changes, and stamp each row with a clear date chip.
+              const startToday = (() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()).getTime(); })();
+              const DAY = 86400000;
+              const groupOf = (d?: Date): { key: string; label: string } => {
+                if (!d) return { key: 'earlier', label: 'Earlier' };
+                const t = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+                if (t >= startToday) return { key: 'today', label: 'Today' };
+                if (t >= startToday - DAY) return { key: 'yesterday', label: 'Yesterday' };
+                if (t >= startToday - 6 * DAY) return { key: 'week', label: 'This week' };
+                return { key: 'earlier', label: 'Earlier' };
+              };
+              const rows = [...closedInRange]
+                .sort((a, b) => (b.closedAt?.toMillis?.() ?? 0) - (a.closedAt?.toMillis?.() ?? 0))
+                .slice(0, 10);
+              let lastGroup = '';
+              return rows.map((r) => {
+                const m = (r.module ?? 'pantry') as PurchaseModule;
+                const total = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
+                const cd = r.closedAt?.toDate?.();
+                const g = groupOf(cd);
+                const showHeader = g.key !== lastGroup;
+                lastGroup = g.key;
+                return (
+                  <div key={r.id}>
+                    {showHeader && (
+                      <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mt-3 mb-1.5 first:mt-0">{g.label}</p>
+                    )}
+                    <Link
+                      href={`/pantry/purchase/${r.id}`}
+                      className="bg-hive-paper border border-hive-line rounded-hive p-3.5 flex items-center gap-3 no-underline"
+                    >
+                      <div className="w-10 h-10 rounded-xl bg-pantry-leaf-soft flex items-center justify-center text-base">
+                        {MODULE_EMOJI[m] ?? '🧾'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{r.name}</div>
+                        <div className="text-[11px] text-hive-muted font-bold mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-block text-[10px] font-black text-pantry-leaf-dk bg-pantry-leaf-soft rounded-md px-1.5 py-0.5">
+                            {cd ? cd.toLocaleDateString('en-US', { day: 'numeric', month: 'short' }) : '—'}
+                          </span>
+                          <span>{MODULE_LABEL[m] ?? 'Pantry'} · {r.items.length} items</span>
+                        </div>
+                      </div>
+                      <div className="font-nunito font-black text-sm text-hive-navy">
+                        {formatCents(total, currency)}
+                      </div>
+                    </Link>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{r.name}</div>
-                    <div className="text-[11px] text-hive-muted font-bold mt-0.5">
-                      {MODULE_LABEL[m] ?? 'Pantry'} · {r.items.length} items · closed {r.closedAt?.toDate?.().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </div>
-                  </div>
-                  <div className="font-nunito font-black text-sm text-hive-navy">
-                    {formatCents(total, currency)}
-                  </div>
-                </Link>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
       </div>
