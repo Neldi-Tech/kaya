@@ -8,7 +8,7 @@
 // Parent-only.
 
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -17,6 +17,7 @@ import {
   type PurchaseRequest, type PurchaseModule,
   subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL, budgetMonthKeyFor,
 } from '@/lib/purchase';
+import { rangeFromQuery, monthKeysInRange, monthSpan, rangeLabel, type TimeRange } from '@/lib/timeRange';
 import { formatCents } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
 import { toDisplayDate } from '@/lib/dates';
@@ -47,7 +48,14 @@ export default function BucketDrillDownPage() {
   const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
-  const thisMonth = monthKeyOf();
+  const thisMonth = monthKeyOf();   // current month — drives the consumption readings sub
+  const searchParams = useSearchParams();
+  const range = useMemo<TimeRange>(() => rangeFromQuery(searchParams), [searchParams]);
+  const monthSet = useMemo(() => new Set(monthKeysInRange(range)), [range]);
+  const months = monthSpan(range);
+  const isLiveMonth = range.kind === 'month'
+    && range.year === new Date().getFullYear()
+    && range.month === new Date().getMonth();
 
   useEffect(() => {
     if (profile && profile.role !== 'parent') router.replace('/pulse/today');
@@ -69,6 +77,7 @@ export default function BucketDrillDownPage() {
   const dayOfMonth = now.getDate();
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const cap = ((family?.householdBudgets ?? {}) as Record<string, number | undefined>)[moduleKey] ?? 0;
+  const capForView = isLiveMonth ? cap : cap * months;   // period budget for a multi-month range
 
   // CASH spend this month for this module + per-day series.
   const { spent, byDay } = useMemo(() => {
@@ -77,20 +86,21 @@ export default function BucketDrillDownPage() {
     for (const r of recent) {
       if (r.status !== 'closed') continue;
       if ((r.module ?? 'pantry') !== moduleKey) continue;
-      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
+      if (!monthSet.has(budgetMonthKeyFor(r) ?? '')) continue;   // payroll → work-period month
       const cents = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
       total += cents;
       const d = countDateOf(r)?.getDate() ?? 0;
       if (d >= 1 && d <= daysInMonth) series[d] += cents;
     }
     return { spent: total, byDay: series };
-  }, [recent, moduleKey, thisMonth, daysInMonth]);
+  }, [recent, moduleKey, monthSet, daysInMonth]);
 
   const avgPerDay = dayOfMonth > 0 ? Math.round(spent / dayOfMonth) : 0;
   const projected = projectMonthSpendCents(spent, dayOfMonth, daysInMonth);
   const pace = pacing(spent, cap, dayOfMonth, daysInMonth);
   const savings = cap - projected;
   const overBy = projected - cap;
+  const capPctForView = capForView > 0 ? Math.min(100, Math.round((spent / capForView) * 100)) : 0;
 
   // Daily bars: actual for elapsed days, flat run-rate for the rest.
   const chart = useMemo(() => {
@@ -110,11 +120,11 @@ export default function BucketDrillDownPage() {
     for (const r of recent) {
       if (r.status !== 'closed') continue;
       if ((r.module ?? 'pantry') !== moduleKey) continue;
-      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
+      if (!monthSet.has(budgetMonthKeyFor(r) ?? '')) continue;   // payroll → work-period month
       out.push(r);
     }
     return out.sort((a, b) => (b.closedAt?.toMillis?.() ?? 0) - (a.closedAt?.toMillis?.() ?? 0));
-  }, [recent, moduleKey, thisMonth]);
+  }, [recent, moduleKey, monthSet]);
 
   // Metered trackables in this module (consumption lens for context).
   const metered = useMemo(() => {
@@ -142,35 +152,39 @@ export default function BucketDrillDownPage() {
       <PulseHeader
         eyebrow="Budget bucket"
         title={`${MODULE_EMOJI[moduleKey]} ${MODULE_LABEL[moduleKey]}`}
-        subtitle="Cash spend · this month"
+        subtitle={`Cash spend · ${rangeLabel(range)}`}
       />
 
       {/* Hero — spend vs cap + run-rate */}
       <div className="mt-4">
         <PulseHero>
-          <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent this month</div>
+          <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent · {rangeLabel(range)}</div>
           <div className="text-3xl font-nunito font-black mt-1">
             {formatCents(spent, currency)}
-            <span className="text-sm opacity-80 font-bold"> / {cap > 0 ? formatCents(cap, currency) : '—'}</span>
+            <span className="text-sm opacity-80 font-bold"> / {capForView > 0 ? formatCents(capForView, currency) : '—'}</span>
           </div>
           <div className="text-[12px] opacity-90 mt-1">
-            avg {formatCents(avgPerDay, currency)}/day · Day {dayOfMonth}/{daysInMonth}
+            {isLiveMonth
+              ? `avg ${formatCents(avgPerDay, currency)}/day · Day ${dayOfMonth}/${daysInMonth}`
+              : `${months} month${months === 1 ? '' : 's'}`}
           </div>
-          {cap > 0 && (
+          {capForView > 0 && (
             <>
               <div className="h-2 bg-white/20 rounded-full mt-3 overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${Math.min(100, pace.capPct)}%`, background: '#D4A847' }} />
+                <div className="h-full rounded-full" style={{ width: `${isLiveMonth ? Math.min(100, pace.capPct) : capPctForView}%`, background: '#D4A847' }} />
               </div>
               <div className="flex justify-between text-[10px] font-black mt-2 opacity-90">
-                <span>{pace.capPct}% of cap</span>
-                <span>{pace.monthPct}% of month</span>
+                <span>{isLiveMonth ? pace.capPct : capPctForView}% of cap</span>
+                {isLiveMonth && <span>{pace.monthPct}% of month</span>}
               </div>
             </>
           )}
         </PulseHero>
       </div>
 
-      {/* Daily trend + projection */}
+      {isLiveMonth && (<>
+      {/* Daily trend + projection — live month only (a multi-month period has
+          no single day-of-month axis or "rest of month" to project). */}
       <div className="bg-white border border-pulse-gold/30 rounded-2xl p-4 mt-3 shadow-[0_4px_16px_rgba(15,31,68,0.06)]">
         <div className="text-[11px] font-nunito font-black text-pulse-navy mb-2">Daily spend + projection</div>
         {spent === 0 ? (
@@ -215,7 +229,9 @@ export default function BucketDrillDownPage() {
         </div>
       )}
 
-      {/* Transactions this month — tap a row for the full receipt + AI insight (PR 2 + PR 3). */}
+      </>)}
+
+      {/* Transactions in this period — tap a row for the full receipt + AI insight (PR 2 + PR 3). */}
       {txns.length > 0 && (
         <>
           <div className="flex items-center justify-between mt-5 mb-2">

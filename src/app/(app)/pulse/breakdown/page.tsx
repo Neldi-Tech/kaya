@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -21,6 +21,7 @@ import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
 import { projectMonthSpendCents } from '@/lib/pulse';
+import { rangeFromQuery, monthKeysInRange, monthSpan, rangeLabel, type TimeRange } from '@/lib/timeRange';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -47,7 +48,13 @@ export default function PulseBreakdownPage() {
   const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
-  const thisMonth = monthKeyOf();
+  const searchParams = useSearchParams();
+  const range = useMemo<TimeRange>(() => rangeFromQuery(searchParams), [searchParams]);
+  const monthSet = useMemo(() => new Set(monthKeysInRange(range)), [range]);
+  const months = monthSpan(range);
+  const isLiveMonth = range.kind === 'month'
+    && range.year === new Date().getFullYear()
+    && range.month === new Date().getMonth();
 
   useEffect(() => {
     if (profile && profile.role !== 'parent') router.replace('/pulse/today');
@@ -68,25 +75,25 @@ export default function PulseBreakdownPage() {
     LIVE_MODULES.forEach((m) => { acc[m] = { spent: 0, cap: 0 }; });
     for (const r of recent) {
       if (r.status !== 'closed') continue;
-      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
+      if (!monthSet.has(budgetMonthKeyFor(r) ?? '')) continue;   // payroll → work-period month
       const m = (r.module ?? 'pantry') as PurchaseModule;
       if (acc[m]) acc[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
     }
     for (const e of ledger) {
       if (e.isProfessionalExpense) continue;
       const at = e.occurredOn?.toDate?.();
-      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      if (!at || !monthSet.has(monthKeyOf(at))) continue;
       const m = e.sourceModule as PurchaseModule;
       if (acc[m]) acc[m].spent += e.amountHousehold || 0;
     }
     const budgets = (family?.householdBudgets ?? {}) as Record<string, number | undefined>;
-    LIVE_MODULES.forEach((m) => { acc[m].cap = budgets[m] ?? 0; });
+    LIVE_MODULES.forEach((m) => { acc[m].cap = (budgets[m] ?? 0) * months; });
     return {
       per: acc,
       totalSpent: LIVE_MODULES.reduce((s, m) => s + acc[m].spent, 0),
       totalCap: LIVE_MODULES.reduce((s, m) => s + acc[m].cap, 0),
     };
-  }, [recent, ledger, family?.householdBudgets, thisMonth]);
+  }, [recent, ledger, family?.householdBudgets, monthSet, months]);
 
   const sorted = useMemo(() => {
     return LIVE_MODULES
@@ -118,8 +125,8 @@ export default function PulseBreakdownPage() {
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
-      <PulseBreadcrumb trail={[]} current="Spent this month" />
-      <PulseHeader eyebrow="Composition" title="Spent this month" subtitle={monthLabel()} />
+      <PulseBreadcrumb trail={[]} current={`Spent · ${rangeLabel(range)}`} />
+      <PulseHeader eyebrow="Composition" title="Spent" subtitle={rangeLabel(range)} />
 
       {/* Hero */}
       <div className="mt-4">
@@ -139,7 +146,7 @@ export default function PulseBreakdownPage() {
               </div>
               <div className="flex justify-between text-[10px] font-black mt-2 opacity-90">
                 <span>{capPct}% of cap</span>
-                <span>Day {dayOfMonth} / {daysInMonth}</span>
+                <span>{isLiveMonth ? `Day ${dayOfMonth} / ${daysInMonth}` : `${months} month${months === 1 ? '' : 's'}`}</span>
               </div>
             </>
           )}
@@ -150,7 +157,7 @@ export default function PulseBreakdownPage() {
       <div className="mt-3 bg-white border border-pulse-gold/30 rounded-2xl p-4">
         <div className="text-[10px] font-nunito font-black uppercase tracking-[1.4px] text-pulse-gold-dk mb-2">📐 Composition</div>
         {totalSpent === 0 ? (
-          <p className="text-hive-muted text-sm py-6 text-center">No closed spend yet this month.</p>
+          <p className="text-hive-muted text-sm py-6 text-center">No closed spend in {rangeLabel(range)}.</p>
         ) : (
           <>
             <svg viewBox="0 0 36 36" className="w-32 h-32 mx-auto mb-3" role="img" aria-label="Spend composition donut">
@@ -189,8 +196,9 @@ export default function PulseBreakdownPage() {
         )}
       </div>
 
-      {/* Future Self — pure projection. Only when there's positive monthly save. */}
-      {totalCap > 0 && totalSpent > 0 && (() => {
+      {/* Future Self — pure projection; live month only (a past/multi-month
+          range has no "rest of month" left to project). */}
+      {isLiveMonth && totalCap > 0 && totalSpent > 0 && (() => {
         const projected = projectMonthSpendCents(totalSpent, dayOfMonth, daysInMonth);
         const monthlySave = totalCap - projected;
         if (monthlySave <= 0) return null;
