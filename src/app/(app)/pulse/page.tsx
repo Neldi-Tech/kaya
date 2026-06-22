@@ -49,6 +49,19 @@ const LIVE_MODULES: PurchaseModule[] = [
   'subscriptions', 'contributions',
 ];
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+// The date a CLOSED request is counted on for DAY-level views. Payroll belongs
+// to the work period — a May salary paid out on 7 Jun is May spend, not June —
+// so payroll buckets by payrollCycle.periodStart; everything else by its close
+// (cash-out) date. MONTH-level bucketing uses budgetMonthKeyFor(), which applies
+// the same rule plus an explicit budgetMonth override.
+const countDateOf = (r: PurchaseRequest): Date | null => {
+  if (r.module === 'payroll' && r.payrollCycle?.periodStart) {
+    const d = new Date(r.payrollCycle.periodStart);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return r.closedAt?.toDate?.() ?? null;
+};
 const monthLabel = (d: Date = new Date()) => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
 // Daily scrubber — the new Daily card on top of Metered Consumption lets a
@@ -160,8 +173,7 @@ export default function PulseDashboardPage() {
     // purchaseRequests → 7 existing modules
     for (const r of recent) {
       if (r.status !== 'closed') continue;
-      const at = r.closedAt?.toDate?.();
-      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
       const m = (r.module ?? 'pantry') as PurchaseModule;
       if (per[m]) per[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
     }
@@ -224,13 +236,12 @@ export default function PulseDashboardPage() {
     LIVE_MODULES.forEach((m) => { per[m] = { spent: 0, byDay: Array(lastMonthDaysInMonth + 1).fill(0) }; });
     for (const r of recent) {
       if (r.status !== 'closed') continue;
-      const at = r.closedAt?.toDate?.();
-      if (!at || monthKeyOf(at) !== lastMonthKey) continue;
+      if (budgetMonthKeyFor(r) !== lastMonthKey) continue;   // payroll → work-period month
       const m = (r.module ?? 'pantry') as PurchaseModule;
       if (!per[m]) continue;
       const cents = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
       per[m].spent += cents;
-      const d = at.getDate();
+      const d = countDateOf(r)?.getDate() ?? 0;
       if (d >= 1 && d <= lastMonthDaysInMonth) per[m].byDay[d] += cents;
     }
     for (const e of ledger) {
@@ -285,7 +296,7 @@ export default function PulseDashboardPage() {
     const keyFor = (at: Date) => `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
     for (const r of recent) {
       if (r.status !== 'closed') continue;
-      const at = r.closedAt?.toDate?.();
+      const at = countDateOf(r);
       if (!at) continue;
       const k = keyFor(at);
       const i = day7keys.indexOf(k);

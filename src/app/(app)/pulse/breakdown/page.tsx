@@ -15,7 +15,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule,
-  subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
+  subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL, budgetMonthKeyFor,
 } from '@/lib/purchase';
 import { subscribeToSpendLedger, type SpendLedgerEntry } from '@/lib/spendLedger';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
@@ -68,8 +68,7 @@ export default function PulseBreakdownPage() {
     LIVE_MODULES.forEach((m) => { acc[m] = { spent: 0, cap: 0 }; });
     for (const r of recent) {
       if (r.status !== 'closed') continue;
-      const at = r.closedAt?.toDate?.();
-      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
       const m = (r.module ?? 'pantry') as PurchaseModule;
       if (acc[m]) acc[m].spent += r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
     }

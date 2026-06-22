@@ -15,7 +15,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest, type PurchaseModule,
-  subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL,
+  subscribeToRecentRequests, MODULE_EMOJI, MODULE_LABEL, budgetMonthKeyFor,
 } from '@/lib/purchase';
 import { formatCents } from '@/components/pantry/format';
 import { PulseHeader, PulseHero, PulseBreadcrumb } from '@/components/pulse/ui';
@@ -27,6 +27,15 @@ import {
 } from '@/lib/pulse';
 
 const monthKeyOf = (d: Date = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+// Payroll counts on its work period (a May salary paid 7 Jun is May spend), not
+// the pay-out day; everything else on its close date. Mirrors budgetMonthKeyFor.
+const countDateOf = (r: PurchaseRequest): Date | null => {
+  if (r.module === 'payroll' && r.payrollCycle?.periodStart) {
+    const d = new Date(r.payrollCycle.periodStart);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return r.closedAt?.toDate?.() ?? null;
+};
 const VALID_MODULES: PurchaseModule[] = ['pantry', 'outdoor', 'drivers', 'utility', 'payroll', 'dineOut', 'home', 'subscriptions', 'contributions'];
 
 export default function BucketDrillDownPage() {
@@ -68,11 +77,10 @@ export default function BucketDrillDownPage() {
     for (const r of recent) {
       if (r.status !== 'closed') continue;
       if ((r.module ?? 'pantry') !== moduleKey) continue;
-      const at = r.closedAt?.toDate?.();
-      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
       const cents = r.actualTotalCents ?? r.estimatedTotalCents ?? 0;
       total += cents;
-      const d = at.getDate();
+      const d = countDateOf(r)?.getDate() ?? 0;
       if (d >= 1 && d <= daysInMonth) series[d] += cents;
     }
     return { spent: total, byDay: series };
@@ -102,8 +110,7 @@ export default function BucketDrillDownPage() {
     for (const r of recent) {
       if (r.status !== 'closed') continue;
       if ((r.module ?? 'pantry') !== moduleKey) continue;
-      const at = r.closedAt?.toDate?.();
-      if (!at || monthKeyOf(at) !== thisMonth) continue;
+      if (budgetMonthKeyFor(r) !== thisMonth) continue;   // payroll → work-period month
       out.push(r);
     }
     return out.sort((a, b) => (b.closedAt?.toMillis?.() ?? 0) - (a.closedAt?.toMillis?.() ?? 0));
