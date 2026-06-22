@@ -29,7 +29,7 @@ import FinanceInsights from '@/components/finance/FinanceInsights';
 import WhatIfSimulator from '@/components/finance/WhatIfSimulator';
 import {
   type TimeRange, currentMonthRange, monthKeysInRange,
-  rangeLabel, rangeEndMonthKey, lastNMonthKeys,
+  rangeLabel, rangeEndMonthKey, lastNMonthKeys, rangeToQuery, monthSpan,
 } from '@/lib/timeRange';
 import { buildModuleSeries, activeModulesIn, monthlyAverages } from '@/lib/financeSeries';
 import {
@@ -195,6 +195,11 @@ export default function PulseDashboardPage() {
 
   // ── Analytics (Trends + AI tabs) — reuses the shared finance components.
   const monthSet = useMemo(() => new Set(monthKeysInRange(range)), [range]);
+  // Overview default = the live calendar month → keep the rich day-N hero. Any
+  // other selection (past month, quarter, half, year, custom) → period view.
+  const isLiveMonth = range.kind === 'month'
+    && range.year === new Date().getFullYear()
+    && range.month === new Date().getMonth();
   const trendMonths = useMemo(() => lastNMonthKeys(rangeEndMonthKey(range), 6), [range]);
   const series = useMemo(() => buildModuleSeries(LIVE_MODULES, recent, ledger, trendMonths), [recent, ledger, trendMonths]);
   const trendModules = useMemo(() => activeModulesIn(series, LIVE_MODULES), [series]);
@@ -616,6 +621,12 @@ export default function PulseDashboardPage() {
 
       {activeTab === 'overview' && (
       <>
+      {/* Period picker — default = live month (rich hero below). Any other
+          selection → the period view, carried through every drill-down. */}
+      <div className="mt-4"><TimeRangeFilter value={range} onChange={setRange} /></div>
+
+      {isLiveMonth && (
+      <>
       {/* Hero — cash lens (savings basis). Clickable → /pulse/breakdown for
           the composition drill-down (PR 2). */}
       <div className="mt-4">
@@ -838,6 +849,83 @@ export default function PulseDashboardPage() {
           })}
         </div>
       )}
+      </>
+      )}
+
+      {/* Period view — any selection other than the live month. Reuses the
+          range-aware rangePerModule (payroll already bucketed by work-period)
+          and carries the range into the breakdown + bucket drill-downs. */}
+      {!isLiveMonth && (() => {
+        const periodSpent = LIVE_MODULES.reduce((s, m) => s + (rangePerModule[m]?.spent ?? 0), 0);
+        const months = monthSpan(range);
+        const periodCap = LIVE_MODULES.reduce((s, m) => s + (rangePerModule[m]?.cap ?? 0), 0) * months;
+        const ppct = periodCap > 0 ? Math.min(100, Math.round((periodSpent / periodCap) * 100)) : 0;
+        const q = rangeToQuery(range);
+        const periodBuckets = LIVE_MODULES
+          .map((m) => ({ m, spent: rangePerModule[m]?.spent ?? 0, cap: rangePerModule[m]?.cap ?? 0 }))
+          .filter((b) => b.spent > 0)
+          .sort((a, b) => b.spent - a.spent);
+        return (
+          <>
+            <div className="mt-4">
+              <Link href={`/pulse/breakdown?${q}`} className="block no-underline">
+                <PulseHero>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="text-[10px] uppercase tracking-[1px] font-black opacity-85">Spent · {rangeLabel(range)}</div>
+                    <span className="text-[9px] font-black uppercase tracking-[0.4px] bg-pulse-gold/20 text-pulse-gold px-2 py-0.5 rounded-full">→ tap to drill</span>
+                  </div>
+                  <div className="text-3xl font-nunito font-black mt-1">
+                    {formatCentsBudgetNeat(periodSpent, currency)}
+                    <span className="text-sm opacity-80 font-bold"> / {periodCap > 0 ? formatCentsBudgetNeat(periodCap, currency) : '—'}</span>
+                  </div>
+                  {periodCap > 0 ? (
+                    <>
+                      <div className="relative h-2 bg-white/20 rounded-full mt-3 overflow-hidden">
+                        <div className="h-full rounded-full" style={{ width: `${ppct}%`, background: ppct >= 100 ? '#D46A4F' : '#D4A847' }} />
+                      </div>
+                      <div className="flex justify-between text-[10px] font-black mt-2 opacity-90">
+                        <span>{ppct}% of cap</span>
+                        <span>{months} month{months === 1 ? '' : 's'}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-[12px] opacity-90 mt-1">Set caps in <Link href="/pantry/budget" className="underline">Budget</Link> to track savings.</div>
+                  )}
+                </PulseHero>
+              </Link>
+            </div>
+
+            <div className="flex items-center justify-between mt-6 mb-2">
+              <div className="text-[11px] font-nunito font-black text-pulse-navy uppercase tracking-[1px]">Buckets · {rangeLabel(range)}</div>
+              <Link href="/pantry/finances" className="text-[10px] text-pulse-gold-dk font-bold">Finances ›</Link>
+            </div>
+            {periodBuckets.length === 0 ? (
+              <div className="bg-white border border-pulse-gold/30 rounded-2xl p-5 text-center text-sm text-hive-muted">No spend in {rangeLabel(range)}.</div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {periodBuckets.map((b) => {
+                  const capForPeriod = b.cap * months;
+                  const over = capForPeriod > 0 && b.spent > capForPeriod;
+                  const bpct = capForPeriod > 0 ? Math.min(100, Math.round((b.spent / capForPeriod) * 100)) : 0;
+                  return (
+                    <Link key={b.m} href={`/pulse/bucket/${b.m}?${q}`} className="bg-white border border-pulse-gold/30 rounded-2xl p-3 flex items-center gap-3 no-underline hover:bg-pulse-cream/40">
+                      <div className="w-9 h-9 rounded-xl bg-pulse-cream flex items-center justify-center text-base">{MODULE_EMOJI[b.m]}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-nunito font-black text-sm text-pulse-navy">{MODULE_LABEL[b.m]}</div>
+                        <div className="text-[11px] text-hive-muted font-bold">{formatCents(b.spent, currency)}{capForPeriod > 0 ? ` / ${formatCents(capForPeriod, currency)}` : ''}</div>
+                      </div>
+                      {capForPeriod > 0 && (
+                        <span className={`text-[9px] font-black px-2 py-0.5 rounded-lg ${over ? 'bg-[#fde6e6] text-pulse-coral' : 'bg-[#e3f2e6] text-pulse-green'}`}>{bpct}%</span>
+                      )}
+                      <span className="text-pulse-gold-dk text-sm">›</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        );
+      })()}
       </>
       )}
 

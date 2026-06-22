@@ -7,7 +7,7 @@
 // simple `set.has(monthKeyFor(entry))`, identical to the old single-month
 // filter, which keeps the roll-ups honest and cheap.
 
-export type TimeRangeKind = 'month' | 'quarter' | 'year' | 'custom';
+export type TimeRangeKind = 'month' | 'quarter' | 'half' | 'year' | 'custom';
 
 export interface TimeRange {
   kind: TimeRangeKind;
@@ -16,6 +16,8 @@ export interface TimeRange {
   month?: number;
   /** 1-4, for kind === 'quarter'. */
   quarter?: number;
+  /** 1-2, for kind === 'half' (H1 = Jan–Jun, H2 = Jul–Dec). */
+  half?: number;
   /** ISO 'YYYY-MM-DD', for kind === 'custom'. */
   start?: string;
   /** ISO 'YYYY-MM-DD', for kind === 'custom'. */
@@ -44,6 +46,10 @@ export function monthKeysInRange(r: TimeRange): string[] {
     case 'quarter': {
       const start = ((r.quarter ?? 1) - 1) * 3;
       return [0, 1, 2].map((i) => monthKeyOf(r.year, start + i));
+    }
+    case 'half': {
+      const start = ((r.half ?? 1) - 1) * 6;
+      return Array.from({ length: 6 }, (_, i) => monthKeyOf(r.year, start + i));
     }
     case 'year':
       return Array.from({ length: 12 }, (_, i) => monthKeyOf(r.year, i));
@@ -104,6 +110,8 @@ export function rangeLabel(r: TimeRange): string {
       return new Date(r.year, r.month ?? 0, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
     case 'quarter':
       return `Q${r.quarter ?? 1} ${r.year}`;
+    case 'half':
+      return `H${r.half ?? 1} ${r.year}`;
     case 'year':
       return `${r.year}`;
     case 'custom': {
@@ -141,7 +149,37 @@ export function rangePeriodWord(r: TimeRange): string {
   switch (r.kind) {
     case 'month': return 'this month';
     case 'quarter': return 'this quarter';
+    case 'half': return 'this half';
     case 'year': return 'this year';
     case 'custom': return 'in this range';
+  }
+}
+
+/** Compact query string for threading the selected range through drill-down
+ *  links (Overview → breakdown / bucket detail → costs). */
+export function rangeToQuery(r: TimeRange): string {
+  const p = new URLSearchParams();
+  p.set('k', r.kind);
+  p.set('y', String(r.year));
+  if (r.kind === 'month' && r.month != null) p.set('m', String(r.month));
+  if (r.kind === 'quarter' && r.quarter != null) p.set('q', String(r.quarter));
+  if (r.kind === 'half' && r.half != null) p.set('h', String(r.half));
+  if (r.kind === 'custom') { if (r.start) p.set('s', r.start); if (r.end) p.set('e', r.end); }
+  return p.toString();
+}
+
+/** Parse a range from drill-down query params; falls back to the current month
+ *  so a directly-opened drill-down page still works. */
+export function rangeFromQuery(sp: { get(key: string): string | null }): TimeRange {
+  const k = sp.get('k') as TimeRangeKind | null;
+  const y = Number(sp.get('y'));
+  if (!k || !Number.isFinite(y) || y < 2000) return currentMonthRange();
+  switch (k) {
+    case 'month': return { kind: 'month', year: y, month: Number(sp.get('m')) || 0 };
+    case 'quarter': return { kind: 'quarter', year: y, quarter: Number(sp.get('q')) || 1 };
+    case 'half': return { kind: 'half', year: y, half: Number(sp.get('h')) || 1 };
+    case 'year': return { kind: 'year', year: y };
+    case 'custom': return { kind: 'custom', year: y, start: sp.get('s') || undefined, end: sp.get('e') || undefined };
+    default: return currentMonthRange();
   }
 }

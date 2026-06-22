@@ -18,6 +18,7 @@ const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
 const KINDS: { k: TimeRangeKind; label: string }[] = [
   { k: 'month', label: 'This month' },
   { k: 'quarter', label: 'Quarter' },
+  { k: 'half', label: 'Half' },
   { k: 'year', label: 'Year' },
   { k: 'custom', label: 'Custom range' },
 ];
@@ -38,6 +39,7 @@ export default function TimeRangeFilter({
     switch (k) {
       case 'month': onChange({ kind: 'month', year: now.getFullYear(), month: now.getMonth() }); break;
       case 'quarter': onChange({ kind: 'quarter', year: now.getFullYear(), quarter: quarterOfMonth(now.getMonth()) }); break;
+      case 'half': onChange({ kind: 'half', year: now.getFullYear(), half: now.getMonth() < 6 ? 1 : 2 }); break;
       case 'year': onChange({ kind: 'year', year: now.getFullYear() }); break;
       case 'custom': onChange({
         kind: 'custom',
@@ -114,6 +116,24 @@ export default function TimeRangeFilter({
                     on ? 'bg-hive-honey border-hive-honey text-[#3a2c06]' : 'bg-hive-paper border-hive-line text-hive-ink'
                   }`}>
                   Q{q} · {months}
+                </button>
+              );
+            })}
+            <span className="text-hive-muted font-bold text-[13px]">{value.year}</span>
+          </>
+        )}
+
+        {value.kind === 'half' && (
+          <>
+            {[1, 2].map((h) => {
+              const months = h === 1 ? 'Jan–Jun' : 'Jul–Dec';
+              const on = (value.half ?? 1) === h;
+              return (
+                <button key={h} type="button" onClick={() => onChange({ kind: 'half', year: value.year, half: h })}
+                  className={`rounded-[11px] px-3 py-2 font-nunito font-extrabold text-[12.5px] border ${
+                    on ? 'bg-hive-honey border-hive-honey text-[#3a2c06]' : 'bg-hive-paper border-hive-line text-hive-ink'
+                  }`}>
+                  H{h} · {months}
                 </button>
               );
             })}
