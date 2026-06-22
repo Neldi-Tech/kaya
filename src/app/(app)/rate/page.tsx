@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { submitRating, getTodayRatings, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
+import { submitRating, getTodayRatings, getRatingsByDate, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
 import { notifyRating } from '@/lib/notify';
 import { fmt } from '@/lib/format';
 import BackButton from '@/components/ui/BackButton';
@@ -51,6 +51,9 @@ export default function RatePage() {
   const [period, setPeriod] = useState<'morning' | 'evening'>(
     (searchParams.get('period') as 'morning' | 'evening') || 'morning'
   );
+  // Date stepper — defaults to today; stepping back shows a past day's ratings
+  // read-only (history). Only today is editable.
+  const [selectedDate, setSelectedDate] = useState<string>(() => todayString());
   const [ratings, setRatings] = useState<Record<string, RatingValue>>({});
   // Per-item notes — required on 'bad' (so meetings can address what went
   // wrong), optional on 'excellent' (so wins get context). Keyed by
@@ -74,6 +77,8 @@ export default function RatePage() {
 
   const routines = (family?.routines || []).filter((r) => r.period === period && r.active);
   const child = children[selectedChild];
+  const isToday = selectedDate === todayString();
+  const readOnly = !isToday;   // past days are review-only
 
   // Load the currently selected child's rating + repopulate the form.
   // If there's no submitted rating yet, restore an auto-saved draft so
@@ -85,14 +90,14 @@ export default function RatePage() {
     setHydrated(false);
     setDraftRestored(false);
     (async () => {
-      const existing = await getTodayRatings(fid, cid, period);
+      const existing = await getRatingsByDate(fid, cid, period, selectedDate);
       if (existing) {
         setRatings(existing.ratings);
         setRatingNotes(existing.ratingNotes || {});
         setOverallComment(existing.comment || '');
         setAlreadyRated(true);
       } else {
-        const draft = readDraft(draftKey(fid, cid, period));
+        const draft = selectedDate === todayString() ? readDraft(draftKey(fid, cid, period)) : null;
         if (draft && (Object.keys(draft.ratings || {}).length > 0 || (draft.comment || '').trim())) {
           setRatings(draft.ratings || {});
           setRatingNotes(draft.ratingNotes || {});
@@ -109,13 +114,13 @@ export default function RatePage() {
       // empty starting state and wipe the draft we just restored.
       setHydrated(true);
     })();
-  }, [profile?.familyId, child?.id, period]);
+  }, [profile?.familyId, child?.id, period, selectedDate]);
 
   // Auto-save the in-progress ticks/notes to the device as they change.
   // Gated on `hydrated` (post-load) + skipped once submitted. Removes the
   // draft when the form is emptied so stale drafts don't linger.
   useEffect(() => {
-    if (!hydrated || alreadyRated || !profile?.familyId || !child) return;
+    if (!hydrated || alreadyRated || readOnly || !profile?.familyId || !child) return;
     const key = draftKey(profile.familyId, child.id, period);
     const hasContent =
       Object.keys(ratings).length > 0 ||
@@ -123,7 +128,7 @@ export default function RatePage() {
       overallComment.trim().length > 0;
     if (hasContent) writeDraft(key, { ratings, ratingNotes, comment: overallComment });
     else clearDraft(key);
-  }, [hydrated, alreadyRated, profile?.familyId, child?.id, period, ratings, ratingNotes, overallComment]);
+  }, [hydrated, alreadyRated, readOnly, profile?.familyId, child?.id, period, ratings, ratingNotes, overallComment]);
 
   // Refresh the per-kid "already rated this period today" map for the kid list.
   useEffect(() => {
@@ -143,7 +148,7 @@ export default function RatePage() {
   }, [profile?.familyId, children, period, saved]);
 
   const setRating = (routineId: string, value: RatingValue) => {
-    if (alreadyRated) return;
+    if (alreadyRated || readOnly) return;
     setRatings((prev) => ({ ...prev, [routineId]: value }));
     // Clear stale note when rating drops to 'good' — only 'bad' /
     // 'excellent' surface the note input, so a leftover note would just
@@ -157,7 +162,7 @@ export default function RatePage() {
     }
   };
   const setNote = (routineId: string, text: string) => {
-    if (alreadyRated) return;
+    if (alreadyRated || readOnly) return;
     setRatingNotes((prev) => ({ ...prev, [routineId]: text }));
   };
 
@@ -187,31 +192,47 @@ export default function RatePage() {
     const isBad = r === 'bad';
     const text = ratingNotes[routineId] || '';
     const missing = isBad && !text.trim();
+    const disabled = alreadyRated || readOnly;
+    if (isBad) {
+      // Strengthened "Bad" prompt — a clear red callout that invites real
+      // detail (roomy textarea + example) so the family meeting has context.
+      return (
+        <div className="mt-2 rounded-kaya-sm border border-red-300 bg-red-50/60 p-2.5">
+          <p className="text-[11px] font-extrabold text-red-700 mb-1.5">
+            👎 What happened? Add a detail for the family meeting <span className="font-bold">(required)</span>
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setNote(routineId, e.target.value)}
+            disabled={disabled}
+            rows={2}
+            placeholder="e.g. Rushed out for school and didn't make the bed — reminded for tomorrow."
+            className={`w-full px-3 py-2 text-xs rounded-kaya-sm border bg-white focus:outline-none focus:ring-2 resize-none ${
+              missing ? 'border-red-400 focus:ring-red-300' : 'border-red-300 focus:ring-red-200'
+            } ${disabled ? 'opacity-60' : ''}`}
+          />
+          {missing && (
+            <p className="text-[10px] text-red-600 mt-1">Tell us why — needed for the family meeting review.</p>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="mt-2">
         <input
           type="text"
           value={text}
           onChange={(e) => setNote(routineId, e.target.value)}
-          disabled={alreadyRated}
-          placeholder={isBad ? 'What went wrong? (required)' : 'Add detail (optional) — what made it stand out?'}
-          className={`w-full h-9 px-3 text-xs rounded-kaya-sm border bg-white focus:outline-none focus:ring-2 ${
-            isBad
-              ? (missing
-                  ? 'border-red-400 focus:ring-red-300'
-                  : 'border-red-300 focus:ring-red-200')
-              : 'border-emerald-300 focus:ring-emerald-200'
-          } ${alreadyRated ? 'opacity-60' : ''}`}
+          disabled={disabled}
+          placeholder="Add detail (optional) — what made it stand out?"
+          className={`w-full h-9 px-3 text-xs rounded-kaya-sm border bg-white focus:outline-none focus:ring-2 border-emerald-300 focus:ring-emerald-200 ${disabled ? 'opacity-60' : ''}`}
         />
-        {missing && (
-          <p className="text-[10px] text-red-600 mt-1">Tell us why — needed for the family meeting review.</p>
-        )}
       </div>
     );
   };
 
   const handleSubmit = async () => {
-    if (!profile?.familyId || !child || !allRated || alreadyRated) return;
+    if (!profile?.familyId || !child || !allRated || alreadyRated || readOnly) return;
     if (submitBlockedByNotes) return;
     setSaving(true);
     // Only include `ratingNotes` / `comment` when non-empty — keeps
@@ -275,9 +296,6 @@ export default function RatePage() {
     );
   }
 
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', month: 'long', day: 'numeric',
-  });
   const submitLabel = saving
     ? 'Saving…'
     : saved
@@ -305,6 +323,25 @@ export default function RatePage() {
     </div>
   );
 
+  // ── Date stepper — step back to any past day (read-only); today is editable.
+  const stepDate = (delta: number) => {
+    const d = new Date(`${selectedDate}T00:00:00`);
+    d.setDate(d.getDate() + delta);
+    const next = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (next > todayString()) return;   // never the future
+    setSelectedDate(next); setRatings({}); setRatingNotes({}); setOverallComment(''); setAlreadyRated(false);
+  };
+  const goToday = () => { setSelectedDate(todayString()); setRatings({}); setRatingNotes({}); setOverallComment(''); setAlreadyRated(false); };
+  const selectedDateLabel = new Date(`${selectedDate}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  const dateStepper = () => (
+    <div className="inline-flex items-center gap-1 bg-kaya-warm rounded-kaya-sm p-1">
+      <button type="button" onClick={() => stepDate(-1)} aria-label="Previous day" className="w-8 h-8 rounded-kaya-sm bg-white text-kaya-chocolate font-black">‹</button>
+      <span className="font-semibold text-[13px] px-2 min-w-[120px] text-center">📅 {isToday ? 'Today' : selectedDateLabel}</span>
+      <button type="button" onClick={() => stepDate(1)} disabled={isToday} aria-label="Next day" className="w-8 h-8 rounded-kaya-sm bg-white text-kaya-chocolate font-black disabled:opacity-40">›</button>
+      {!isToday && <button type="button" onClick={goToday} className="text-[11px] font-bold text-kaya-chocolate px-2">Today</button>}
+    </div>
+  );
+
   return (
     <>
       {/* ─────────────────────────────────────────────────────────── */}
@@ -313,10 +350,16 @@ export default function RatePage() {
       <div className="lg:hidden mx-auto max-w-md w-full px-4 pt-4">
         <BackButton />
         <div className="mb-4">
-          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{todayString()}</p>
+          <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider">{selectedDateLabel}</p>
           <h1 className="font-display text-2xl font-black">Rate Routines</h1>
         </div>
 
+        <div className="mb-3">{dateStepper()}</div>
+        {!isToday && (
+          <div className="mb-3 rounded-kaya-sm bg-kaya-warm/60 border border-kaya-warm-dark px-3 py-2 text-[12px] font-semibold text-kaya-chocolate">
+            👀 Viewing a past day — read-only. Step to Today to rate.
+          </div>
+        )}
         {periodToggle()}
 
         <div className="flex gap-2 mt-4 mb-5 overflow-x-auto pb-1">
@@ -421,12 +464,20 @@ export default function RatePage() {
         {/* Page header */}
         <div className="flex items-end justify-between gap-6 mb-7">
           <div>
-            <p className="text-xs text-kaya-sand font-bold uppercase tracking-[0.14em] mb-1">{today}</p>
+            <p className="text-xs text-kaya-sand font-bold uppercase tracking-[0.14em] mb-1">{selectedDateLabel}</p>
             <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Rate routines</h1>
             <p className="text-sm text-kaya-sand mt-1">Pick a child, mark each routine, submit. Done in under a minute.</p>
           </div>
-          {periodToggle('lg')}
+          <div className="flex flex-col items-end gap-2">
+            {dateStepper()}
+            {periodToggle('lg')}
+          </div>
         </div>
+        {!isToday && (
+          <div className="mb-6 rounded-kaya bg-kaya-warm/60 border border-kaya-warm-dark px-4 py-2.5 text-[13px] font-semibold text-kaya-chocolate">
+            👀 Viewing {selectedDateLabel} — past days are read-only. Step to Today to rate.
+          </div>
+        )}
 
         <div className="grid grid-cols-12 gap-6">
           {/* Kid list (left) */}

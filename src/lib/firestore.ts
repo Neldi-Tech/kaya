@@ -2375,6 +2375,22 @@ export async function getTodayRatings(familyId: string, childId: string, period:
   return { id: d.id, ...d.data() } as DailyRating;
 }
 
+// Same as getTodayRatings but for any YYYY-MM-DD — powers the date stepper on
+// /rate so parents can step back and see a past day's ratings (read-only).
+export async function getRatingsByDate(familyId: string, childId: string, period: string, date: string): Promise<DailyRating | null> {
+  if (isGuestActive()) return MOCK_RATINGS.find(r => r.childId === childId && r.period === period && r.date === date) || null;
+  const q = query(
+    collection(db, 'families', familyId, 'ratings'),
+    where('childId', '==', childId),
+    where('date', '==', date),
+    where('period', '==', period)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return null;
+  const d = snap.docs[0];
+  return { id: d.id, ...d.data() } as DailyRating;
+}
+
 export async function getRecentRatings(familyId: string, days: number = 7): Promise<DailyRating[]> {
   if (isGuestActive()) return MOCK_RATINGS;
   const since = new Date();
