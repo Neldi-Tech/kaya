@@ -396,6 +396,106 @@ export async function autoFrameScan(
   return { ...cleaned, framed: false };
 }
 
+// ── Content-tight crop (trim blank margins to the writing) ─────────
+//
+// Page-detect + warp crops to the PAPER edge — but a half-filled
+// handwritten note still leaves a big blank lower half. trimToContent
+// measures the INK bounding-box (dark pixels on the paper) and crops
+// the canvas down to the writing + a small breathing margin, so the
+// saved scan is the notes, not the notes-plus-empty-page.
+//
+// Degrades safely: if it can't find a confident ink box (blank page,
+// or writing already fills the frame), it returns the source unchanged.
+
+/** Crop `src` to its ink bounding-box + margin. Returns a NEW canvas, or
+ *  the same canvas when there's nothing worth trimming. */
+export function trimToContent(
+  src: HTMLCanvasElement,
+  opts: { marginFrac?: number; minKeepFrac?: number } = {},
+): HTMLCanvasElement {
+  const w = src.width, h = src.height;
+  if (w < 32 || h < 32) return src;
+  const ctx = src.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return src;
+
+  // Analyse a downscaled copy for speed (ink box is resolution-independent).
+  const aw = Math.min(w, 700);
+  const scale = aw / w;
+  const ah = Math.max(1, Math.round(h * scale));
+  const ac = document.createElement('canvas'); ac.width = aw; ac.height = ah;
+  const actx = ac.getContext('2d', { willReadFrequently: true });
+  if (!actx) return src;
+  actx.drawImage(src, 0, 0, aw, ah);
+  const d = actx.getImageData(0, 0, aw, ah).data;
+
+  // Per-pixel luminance + an estimate of paper-white (95th percentile),
+  // so "ink" is anything meaningfully darker than the page — robust to
+  // cream paper + uneven exposure.
+  const lum = new Float32Array(aw * ah);
+  const hist = new Uint32Array(256);
+  for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+    const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    lum[p] = l; hist[Math.min(255, Math.max(0, l | 0))]++;
+  }
+  let acc = 0; const total = aw * ah; let paper = 240;
+  for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc >= total * 0.05) { paper = i; break; } }
+  const inkThresh = Math.max(40, paper - 45); // darker than this = ink
+
+  // Row/column ink counts → bounding box of rows/cols that carry real ink.
+  const rowInk = new Uint32Array(ah), colInk = new Uint32Array(aw);
+  for (let y = 0; y < ah; y++) {
+    for (let x = 0; x < aw; x++) {
+      if (lum[y * aw + x] < inkThresh) { rowInk[y]++; colInk[x]++; }
+    }
+  }
+  // A row/col "has content" when ≥ ~0.6% of its length is ink — filters
+  // out JPEG speckle + a single stray dot.
+  const rowMin = Math.max(2, Math.round(aw * 0.006));
+  const colMin = Math.max(2, Math.round(ah * 0.006));
+  let top = 0; while (top < ah && rowInk[top] < rowMin) top++;
+  let bot = ah - 1; while (bot > top && rowInk[bot] < rowMin) bot--;
+  let left = 0; while (left < aw && colInk[left] < colMin) left++;
+  let right = aw - 1; while (right > left && colInk[right] < colMin) right--;
+  if (right <= left || bot <= top) return src; // no ink found → leave as-is
+
+  // Margin around the writing so it isn't cropped flush to the strokes.
+  const margin = opts.marginFrac ?? 0.04;
+  const mx = Math.round((right - left) * margin) + Math.round(aw * 0.012);
+  const my = Math.round((bot - top) * margin) + Math.round(ah * 0.012);
+  left = Math.max(0, left - mx); right = Math.min(aw - 1, right + mx);
+  top = Math.max(0, top - my); bot = Math.min(ah - 1, bot + my);
+
+  // If the box already covers most of the page there's nothing to gain —
+  // skip (avoids a pointless re-encode + a 1px nudge).
+  const boxFrac = ((right - left) * (bot - top)) / (aw * ah);
+  if (boxFrac > 0.9) return src;
+  // Refuse a suspiciously tiny box (likely a smudge, not the notes).
+  const minKeep = opts.minKeepFrac ?? 0.04;
+  if (boxFrac < minKeep) return src;
+
+  // Map the analysis box back to full resolution + crop.
+  const X = Math.round(left / scale), Y = Math.round(top / scale);
+  const CW = Math.round((right - left) / scale), CH = Math.round((bot - top) / scale);
+  const out = document.createElement('canvas'); out.width = CW; out.height = CH;
+  const octx = out.getContext('2d');
+  if (!octx) return src;
+  octx.drawImage(src, X, Y, CW, CH, 0, 0, CW, CH);
+  return out;
+}
+
+/** Tighten an already-cleaned scan File to its writing → { file, previewUrl }.
+ *  Returns null when there's nothing to trim (caller keeps the full page). */
+export async function tightenScanFile(
+  file: File, options: EnhanceOptions = {},
+): Promise<{ file: File; previewUrl: string } | null> {
+  const img = await loadImage(file);
+  const { canvas } = drawToCanvas(img, options.maxLongSide ?? 1700);
+  const trimmed = trimToContent(canvas);
+  if (trimmed === canvas) return null;
+  const out = await canvasToFile(trimmed, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+  return { file: out, previewUrl: trimmed.toDataURL('image/jpeg', options.quality ?? 0.92) };
+}
+
 /** Rotate a File 90° clockwise → a new JPEG File. Lets the crop editor fix
  *  a sideways capture (common when a landscape page is shot in portrait). */
 export async function rotateFile90(file: File): Promise<File> {
@@ -594,14 +694,17 @@ export async function detectUprightRotation(
 export async function cropCleanScan(
   img: HTMLImageElement,
   corners: DocCorners,
-  options: EnhanceOptions = {},
+  options: EnhanceOptions & { contentTrim?: boolean } = {},
 ): Promise<{ file: File; previewUrl: string; width: number; height: number } | null> {
   const warped = warpToDocument(img, corners, options.maxLongSide ?? 1700);
   if (!warped) return null;
   documentClean(warped);
-  const file = await canvasToFile(warped, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
-  const previewUrl = warped.toDataURL('image/jpeg', options.quality ?? 0.92);
-  return { file, previewUrl, width: warped.width, height: warped.height };
+  // Optional content-tight pass — trims blank margins to the writing so a
+  // half-filled handwritten page doesn't save as mostly empty paper.
+  const out = options.contentTrim ? trimToContent(warped) : warped;
+  const file = await canvasToFile(out, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
+  const previewUrl = out.toDataURL('image/jpeg', options.quality ?? 0.92);
+  return { file, previewUrl, width: out.width, height: out.height };
 }
 
 /** Auto scan (no prompt): detect the page with the supplied detector (CV →
@@ -611,7 +714,7 @@ export async function cropCleanScan(
 export async function autoScanWithDetector(
   source: File,
   detect: (f: File) => Promise<DocCorners | null>,
-  options: EnhanceOptions & { autoRotate?: boolean } = {},
+  options: EnhanceOptions & { autoRotate?: boolean; contentTrim?: boolean } = {},
 ): Promise<AutoFrameResult> {
   try {
     const corners = await detect(source);
@@ -625,12 +728,23 @@ export async function autoScanWithDetector(
           out = rotateCanvasDegrees(warped, rot);
         }
         documentClean(out);
+        // Optional content-tight pass — crop blank margins to the writing.
+        if (options.contentTrim) out = trimToContent(out);
         const file = await canvasToFile(out, options.fileName ?? 'scan.jpg', options.quality ?? 0.92);
         const previewUrl = out.toDataURL('image/jpeg', options.quality ?? 0.92);
         return { file, previewUrl, width: out.width, height: out.height, framed: true };
       }
     }
   } catch { /* fall through to clean-only */ }
+  // Clean-only fallback (no page detected): still tighten to the writing
+  // when asked, so even an un-framed capture loses its blank margins.
   const cleaned = await enhanceScan(source, options);
+  if (options.contentTrim) {
+    const tight = await tightenScanFile(cleaned.file, options).catch(() => null);
+    if (tight) {
+      const img = await loadImage(tight.file);
+      return { file: tight.file, previewUrl: tight.previewUrl, width: img.naturalWidth, height: img.naturalHeight, framed: false };
+    }
+  }
   return { ...cleaned, framed: false };
 }

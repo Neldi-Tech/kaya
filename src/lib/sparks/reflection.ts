@@ -57,13 +57,28 @@ export interface ReflectionAIRead {
 
 /** Slice 7r · Parent rating + written feedback on a reflection. Mirrors
  *  the Home Project review pattern: stars (1-5) + free-text notes the
- *  kid sees. Re-rating overwrites the prior values. */
+ *  kid sees. Re-rating overwrites the prior values.
+ *
+ *  2026-06-23 · % scoring — parents grade TWO dimensions on 0-100 sliders
+ *  (the coral→green bar used on Home Projects): `soundness_percent` (how
+ *  thoughtful/complete the reflection is) and `handwriting_percent` (how
+ *  neat + legible the page is). Stars + notes stay optional alongside. */
 export interface ReflectionParentRating {
-  stars?: number;          // 1-5
-  notes?: string;          // free-text feedback for the kid
-  ratedBy: string;         // uid
-  ratedByName: string;     // display name
+  stars?: number;               // 1-5 (optional, legacy + quick tap)
+  soundness_percent?: number;   // 0-100 · quality of the reflection
+  handwriting_percent?: number; // 0-100 · neatness / legibility
+  notes?: string;               // free-text feedback for the kid
+  ratedBy: string;              // uid
+  ratedByName: string;          // display name
   ratedAt: Timestamp;
+}
+
+/** 2026-06-23 · AI soundness read. Kaya scores how thoughtful + complete
+ *  the reflection is (0-100) the moment it's saved — display-only feedback
+ *  (never points), shown as a coral→green bar with a 1-line rationale. */
+export interface ReflectionAIScore {
+  soundness: number;   // 0-100
+  rationale: string;   // 1 short sentence, kid-readable
 }
 
 export interface ReflectionEntry {
@@ -81,6 +96,8 @@ export interface ReflectionEntry {
   parent_rating?: ReflectionParentRating;
   /** Slice 7p · post-scan AI read (mood + theme + Kaya response). */
   ai_read?: ReflectionAIRead;
+  /** 2026-06-23 · AI soundness score (display-only feedback). */
+  ai_score?: ReflectionAIScore;
   createdAt: Timestamp;
   createdBy: string;            // uid (kid or parent)
   updatedAt: Timestamp;
@@ -264,11 +281,26 @@ export async function saveReflectionFeedback(
   pingReflection(familyId, kidId);
 }
 
+/** 2026-06-23 · Attach Kaya's AI soundness score to a saved reflection. */
+export async function saveReflectionAIScore(
+  familyId: string, kidId: string, date: string, ai_score: ReflectionAIScore,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await reflectionApi('aiscore', { kidId, date, ai_score });
+  pingReflection(familyId, kidId);
+}
+
 /** Slice 7r · Parent rating + written feedback. Parents only — the API
  *  enforces the role check. ratedAt is stamped server-side. */
 export async function saveReflectionParentRating(
   familyId: string, kidId: string, date: string,
-  rating: { stars?: number; notes?: string; ratedByName: string },
+  rating: {
+    stars?: number;
+    soundness_percent?: number;
+    handwriting_percent?: number;
+    notes?: string;
+    ratedByName: string;
+  },
 ): Promise<void> {
   if (isGuestActive()) return;
   await reflectionApi('rating', { kidId, date, rating });

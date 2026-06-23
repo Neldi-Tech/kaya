@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
 // (matches Kaya Pulse's daily generators). Reflections are day-granular.
 const TZ = 'Africa/Dar_es_Salaam';
 
-type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating';
+type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating' | 'aiscore';
 
 /** Whole-day difference between two YYYY-MM-DD keys (a - b). */
 function dayDiff(a: string, b: string): number {
@@ -69,11 +69,15 @@ export async function POST(req: NextRequest) {
 
   let body: {
     action?: Action; kidId?: string; date?: string; text?: string;
-    source?: string; scanUrl?: string; feedback?: unknown; ai_read?: unknown; max?: number;
-    rating?: { stars?: number; notes?: string; ratedByName?: string };
+    source?: string; scanUrl?: string; feedback?: unknown; ai_read?: unknown;
+    ai_score?: unknown; max?: number;
+    rating?: {
+      stars?: number; soundness_percent?: number; handwriting_percent?: number;
+      notes?: string; ratedByName?: string;
+    };
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
+  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating', 'aiscore'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
   const kidId = typeof body.kidId === 'string' ? body.kidId : '';
   if (!kidId) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
 
@@ -103,7 +107,7 @@ export async function POST(req: NextRequest) {
   const col = db.collection('families').doc(familyId).collection('sparks_reflections');
 
   // ── Writes (parent or owner kid; rating is parent-only) ────────────────
-  if (action === 'save' || action === 'airead' || action === 'feedback' || action === 'rating') {
+  if (action === 'save' || action === 'airead' || action === 'feedback' || action === 'rating' || action === 'aiscore') {
     if (action === 'rating') {
       if (!isParent) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
     } else if (!isParent && !isOwnerKid) {
@@ -135,14 +139,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === 'aiscore') {
+      const raw = body.ai_score && typeof body.ai_score === 'object'
+        ? body.ai_score as { soundness?: unknown; rationale?: unknown } : null;
+      const soundness = raw && typeof raw.soundness === 'number' && isFinite(raw.soundness)
+        ? Math.max(0, Math.min(100, Math.round(raw.soundness))) : null;
+      if (soundness === null) return NextResponse.json({ error: 'bad-aiscore' }, { status: 400 });
+      const rationale = typeof raw?.rationale === 'string' ? raw.rationale.trim().slice(0, 400) : '';
+      await ref.set(
+        { ai_score: { soundness, rationale }, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === 'rating') {
       const r = body.rating || {};
       const stars = typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 5
         ? Math.round(r.stars) : undefined;
+      const pct = (v: unknown): number | undefined =>
+        typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : undefined;
+      const soundness_percent = pct(r.soundness_percent);
+      const handwriting_percent = pct(r.handwriting_percent);
       const notes = typeof r.notes === 'string' ? r.notes.trim().slice(0, 800) : '';
       const ratedByName = typeof r.ratedByName === 'string' && r.ratedByName.trim().length > 0
         ? r.ratedByName.trim().slice(0, 80) : 'Parent';
-      if (stars === undefined && notes.length === 0) {
+      if (stars === undefined && soundness_percent === undefined
+          && handwriting_percent === undefined && notes.length === 0) {
         return NextResponse.json({ error: 'empty-rating' }, { status: 400 });
       }
       const parent_rating: Record<string, unknown> = {
@@ -150,8 +173,10 @@ export async function POST(req: NextRequest) {
         ratedByName,
         ratedAt: FieldValue.serverTimestamp(),
       };
-      if (stars !== undefined) parent_rating.stars = stars;
-      if (notes.length > 0)    parent_rating.notes = notes;
+      if (stars !== undefined)              parent_rating.stars = stars;
+      if (soundness_percent !== undefined)  parent_rating.soundness_percent = soundness_percent;
+      if (handwriting_percent !== undefined) parent_rating.handwriting_percent = handwriting_percent;
+      if (notes.length > 0)                 parent_rating.notes = notes;
       await ref.set({ parent_rating, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
       return NextResponse.json({ ok: true });
     }
