@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { celebrate } from "./fx";
-import { useWellness, todayStr, GymEntry, Period } from "./state";
+import { useWellness, todayStr, GymEntry, Period, DietApproach } from "./state";
 import { useNav } from "./nav";
 
 function Crumb({ label }: { label: string }) {
@@ -290,6 +290,94 @@ export function Analytics() {
       <div className="badgewrap">
         {badges.map((b) => <div className={`badge${b.got ? "" : " lock"}`} key={b.n}>{b.e}<small>{b.n}</small></div>)}
       </div>
+    </>
+  );
+}
+
+/* ---- Diet & fasting (PR C) — Food + Movement + Exercise ---- */
+const APPROACHES: { key: DietApproach; emoji: string; name: string; desc: string; caution?: boolean }[] = [
+  { key: "none", emoji: "🍽️", name: "No fasting", desc: "Just eat well across the day" },
+  { key: "if168", emoji: "🕗", name: "Intermittent Fasting · 16:8", desc: "Eat in an 8-hour window, fast 16h — popular & flexible" },
+  { key: "windows", emoji: "⏱️", name: "Eating Windows", desc: "Pick your own window — Kaya reminds you to open & close it" },
+  { key: "water", emoji: "💧", name: "Water Fasting", desc: "Advanced · short & supervised", caution: true },
+];
+const DIET_GUIDE = [
+  "🥩 Protein every meal (~2 g/kg)",
+  "🥗 Veg + measured carbs, timed around training",
+  "💧 3–4 L water/day — first glass on waking",
+  "🚫 Cut sugary drinks & fried snacks first",
+];
+const REMINDER_DEFS: { id: string; emoji: string; label: string; sub: string }[] = [
+  { id: "weighIn", emoji: "⚖️", label: "Daily weigh-in", sub: "First thing, after waking" },
+  { id: "windowOpen", emoji: "🕗", label: "Eating window opens", sub: "Start of your window" },
+  { id: "windowClose", emoji: "🌙", label: "Window closes / fast starts", sub: "End of your window" },
+  { id: "hydration", emoji: "💧", label: "Hydration nudges", sub: "A few times through the day" },
+  { id: "training", emoji: "🏋️", label: "Training reminder", sub: "On your gym days" },
+  { id: "weeklyReview", emoji: "📅", label: "Weekly review", sub: "Sun · photo · waist · weight" },
+];
+export function Diet() {
+  const { dietApproach, setDietApproach, eatingWindow, setEatingWindow, reminders, toggleReminder } = useWellness();
+  const windowed = dietApproach === "if168" || dietApproach === "windows";
+  return (
+    <>
+      <Crumb label="Weight" />
+      <div className="top"><div className="t">Food &amp; fasting<small>FOOD + MOVEMENT + EXERCISE</small></div></div>
+      <div className="card" style={{ marginTop: 0, background: "#fff8ec", border: "1px solid #fbe6bd" }}>
+        <p className="note" style={{ color: "#8a5e12" }}>⚠️ General wellness guidance — <b style={{ color: "#7a4d00" }}>not medical advice</b>. Talk to a doctor before fasting or a big deficit. Fasting is for adults.</p>
+      </div>
+
+      <div className="card" style={{ display: "flex", justifyContent: "space-around", textAlign: "center" }}>
+        <div><div style={{ fontSize: 28 }}>🍎</div><div style={{ fontSize: 11, fontWeight: 800 }}>Food</div><div className="note">~70%</div></div>
+        <div style={{ alignSelf: "center", color: "#c7bfe0", fontWeight: 800 }}>+</div>
+        <div><div style={{ fontSize: 28 }}>🏃</div><div style={{ fontSize: 11, fontWeight: 800 }}>Movement</div><div className="note">daily</div></div>
+        <div style={{ alignSelf: "center", color: "#c7bfe0", fontWeight: 800 }}>+</div>
+        <div><div style={{ fontSize: 28 }}>💪</div><div style={{ fontSize: 11, fontWeight: 800 }}>Exercise</div><div className="note">shape</div></div>
+      </div>
+
+      <div className="sec"><h3>Your guidance</h3><div className="hint">high-level</div></div>
+      <div className="card">
+        <ul style={{ listStyle: "none", fontSize: 12.5, fontWeight: 600, color: "#5a4660", lineHeight: 2 }}>
+          {DIET_GUIDE.map((g) => <li key={g}>{g}</li>)}
+        </ul>
+        <p className="note" style={{ marginTop: 4 }}>Scales with your pace plan — Aggressive tightens the deficit, Relaxed loosens it.</p>
+      </div>
+
+      <div className="sec"><h3>Eating approach</h3><div className="hint">adults · optional</div></div>
+      {APPROACHES.map((a) => (
+        <div key={a.key} className="card" style={{ marginTop: 8, cursor: "pointer", borderColor: dietApproach === a.key ? "var(--teal)" : undefined, background: dietApproach === a.key ? "#f1fbf9" : undefined }} onClick={() => { setDietApproach(a.key); if (a.key !== "none") celebrate(a.emoji, "Approach set", a.name); }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+            <div style={{ width: 40, height: 40, borderRadius: 12, display: "grid", placeItems: "center", fontSize: 19, flex: "none", background: a.caution ? "#ffeef0" : "#e8f1ff" }}>{a.emoji}</div>
+            <div style={{ flex: 1 }}><b style={{ fontSize: 12.5 }}>{a.name}</b><div className="note">{a.desc}</div></div>
+            {dietApproach === a.key && <span className="tag easy">on</span>}
+          </div>
+          {a.caution && dietApproach === a.key && <p className="note" style={{ color: "#d4455a", marginTop: 8 }}>⚠️ Check with a doctor first. Keep fasts short and stop if you feel unwell.</p>}
+        </div>
+      ))}
+
+      {windowed && (
+        <div className="card">
+          <div style={{ fontSize: 12, fontWeight: 800 }}>Your eating window</div>
+          <div className="selrow" style={{ marginTop: 8, alignItems: "center" }}>
+            <input className="wInput" type="time" style={{ fontSize: 14, fontWeight: 700, width: "auto", flex: 1 }} value={eatingWindow.start} onChange={(e) => setEatingWindow({ ...eatingWindow, start: e.target.value })} />
+            <span style={{ fontWeight: 800, color: "var(--w-grey)" }}>→</span>
+            <input className="wInput" type="time" style={{ fontSize: 14, fontWeight: 700, width: "auto", flex: 1 }} value={eatingWindow.end} onChange={(e) => setEatingWindow({ ...eatingWindow, end: e.target.value })} />
+          </div>
+          <p className="note" style={{ marginTop: 6 }}>Turn on the window reminders below to be nudged to open &amp; close it.</p>
+        </div>
+      )}
+
+      <div className="sec"><h3>Reminders</h3><div className="hint">in-app + email</div></div>
+      <div className="card">
+        {REMINDER_DEFS.map((r) => (
+          <div className="trow" key={r.id}>
+            <div className="ic" style={{ background: "#f3effb" }}>{r.emoji}</div>
+            <div className="m"><b>{r.label}</b><small>{r.sub}</small></div>
+            <button className={`toggle${reminders[r.id] ? "" : " off"}`} aria-label={r.label} onClick={() => toggleReminder(r.id)} />
+          </div>
+        ))}
+      </div>
+      <p className="note" style={{ textAlign: "center", marginTop: 8 }}>Reminders save now; they start firing once the scheduled-reminders service is switched on.</p>
+      <div className="pageend" />
     </>
   );
 }

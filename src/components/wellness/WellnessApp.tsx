@@ -11,7 +11,7 @@ import {
   View, Home, Weight, WeightSettings, Goals, Program, Circle,
   More, Onboard, Plan, Library, Gyms, Spark, Achievements, Impact, Reminders,
 } from "./Screens";
-import { PillarSessions, MoodHistory, EditHome, GymLog, Sports, SportSetup, Analytics } from "./screensV2";
+import { PillarSessions, MoodHistory, EditHome, GymLog, Sports, SportSetup, Analytics, Diet } from "./screensV2";
 
 const TABS: { id: View; icon: string; label: string }[] = [
   { id: "home", icon: "☀️", label: "Today" },
@@ -82,6 +82,7 @@ function AdultApp() {
           {view === "sports" && <Sports />}
           {view === "sportsetup" && <SportSetup />}
           {view === "analytics" && <Analytics />}
+          {view === "diet" && <Diet />}
           <div className="pageend" />
         </div>
         <div className="tabbar">

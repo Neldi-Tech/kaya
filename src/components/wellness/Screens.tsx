@@ -9,7 +9,7 @@ export type View =
   | "home" | "weight" | "weight-settings" | "goals" | "program" | "circle" | "more"
   | "onboard" | "plan" | "library" | "gyms" | "spark" | "achievements" | "impact" | "reminders" | "juniors"
   | "kidsaccess"
-  | "pillar" | "moodhistory" | "edithome" | "gymlog" | "sports" | "sportsetup" | "analytics";
+  | "pillar" | "moodhistory" | "edithome" | "gymlog" | "sports" | "sportsetup" | "analytics" | "diet";
 
 const SPARK_QUOTE = "You don't have to be extreme. Just consistent.";
 
@@ -303,7 +303,8 @@ export function Weight({ go }: { go: (v: View) => void }) {
       </div>
 
       <div style={{ padding: "14px 0 0" }}>
-        <button className="btn btn-ghost" onClick={() => go("weight-settings")}>⚙️ Tracking settings &amp; import old data →</button>
+        <button className="btn btn-ghost" onClick={() => go("diet")}>🍎 Food &amp; fasting →</button>
+        <button className="btn btn-ghost" style={{ marginTop: 8 }} onClick={() => go("weight-settings")}>⚙️ Tracking settings &amp; import old data →</button>
       </div>
     </>
   );
@@ -554,7 +555,8 @@ function Head({ title, sub, go }: { title: string; sub: string; go: (v: View) =>
 const MORE_ITEMS: { v: View; e: string; n: string }[] = [
   { v: "onboard", e: "🪄", n: "My profile" }, { v: "plan", e: "🗓️", n: "Suggested plan" },
   { v: "library", e: "📚", n: "Exercise library" }, { v: "gyms", e: "🏋️", n: "My gyms" },
-  { v: "spark", e: "✨", n: "Daily spark" }, { v: "analytics", e: "📊", n: "Analytics & badges" },
+  { v: "diet", e: "🍎", n: "Food & fasting" }, { v: "spark", e: "✨", n: "Daily spark" },
+  { v: "analytics", e: "📊", n: "Analytics & badges" },
   { v: "achievements", e: "🏅", n: "Achievements" }, { v: "impact", e: "🌍", n: "Move for good" },
   { v: "reminders", e: "🔔", n: "Reminders" }, { v: "circle", e: "👥", n: "Community" },
   { v: "kidsaccess", e: "🧒", n: "Kids' access" },
