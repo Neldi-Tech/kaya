@@ -792,6 +792,50 @@ function ReflectionStreakRewardsCard({
               + Add milestone
             </button>
           </div>
+
+          {/* 2026-06-23 · Award mode — auto-fire, or queue for the parent to
+              confirm/adjust. Default 'approval'. */}
+          <div className="pt-3 mt-1 border-t border-[#ECE4D3]">
+            <div className="text-[11px] font-extrabold uppercase tracking-wider text-[#5A6488] mb-1.5">
+              When a milestone is hit
+            </div>
+            <div className="flex gap-2">
+              {([
+                { id: 'auto', label: '⚡ Auto-award', hint: 'Points land instantly' },
+                { id: 'approval', label: '👤 Parent approves', hint: 'You confirm + can adjust' },
+              ] as const).map((opt) => {
+                const on = (effective.award_mode ?? 'approval') === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => patch({ award_mode: opt.id })}
+                    disabled={saving}
+                    className={`flex-1 text-left rounded-xl border px-3 py-2 disabled:opacity-50 ${on ? 'border-[#5A3CB8] bg-[#EFE7FF]' : 'border-[#ECE4D3] bg-white'}`}
+                    aria-pressed={on}
+                  >
+                    <span className={`block font-nunito font-extrabold text-[12.5px] ${on ? 'text-[#5A3CB8]' : 'text-[#0F1F44]'}`}>{opt.label}</span>
+                    <span className="block text-[10.5px] text-[#5A6488]">{opt.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {(effective.award_mode ?? 'approval') === 'approval' && (
+              <div className="flex items-center justify-between gap-2 mt-2.5 bg-[#FBF7EE] border border-[#ECE4D3] rounded-xl px-3 py-2">
+                <span className="text-[12px] font-bold text-[#0F1F44]">Parent can adjust points by</span>
+                <div className="inline-flex items-center border border-[#ECE4D3] rounded-lg overflow-hidden bg-white">
+                  <button type="button" disabled={saving || (effective.points_override_cap ?? 5) <= 0}
+                    onClick={() => patch({ points_override_cap: Math.max(0, (effective.points_override_cap ?? 5) - 1) })}
+                    className="px-2.5 py-1 font-black text-[#5A3CB8] disabled:opacity-30">–</button>
+                  <span className="px-2.5 py-1 font-black text-[13px] text-[#0F1F44]">± {effective.points_override_cap ?? 5}</span>
+                  <button type="button" disabled={saving || (effective.points_override_cap ?? 5) >= 50}
+                    onClick={() => patch({ points_override_cap: Math.min(50, (effective.points_override_cap ?? 5) + 1) })}
+                    className="px-2.5 py-1 font-black text-[#5A3CB8] disabled:opacity-30">+</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

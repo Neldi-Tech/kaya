@@ -231,10 +231,33 @@ export interface ReflectionStreakAward {
   awarded_on: string;
 }
 
+/** 2026-06-23 · A milestone hit waiting for a parent to confirm/adjust the
+ *  points (approval mode). Cleared once approved or skipped. */
+export interface ReflectionStreakPending {
+  days: number;
+  /** Suggested points (the milestone's value); parent may nudge ±cap. */
+  points: number;
+  label: string;
+  /** Local-day key the milestone was hit (YYYY-MM-DD). */
+  suggested_on: string;
+}
+
+/** How streak-milestone points are granted.
+ *   'auto'     → fire immediately on hit (legacy behaviour).
+ *   'approval' → queue a pending reward the parent confirms/adjusts. */
+export type ReflectionStreakAwardMode = 'auto' | 'approval';
+
 export interface ReflectionStreakRewards {
   enabled: boolean;
   milestones: ReflectionStreakMilestone[];
   award_history: ReflectionStreakAward[];
+  /** 2026-06-23 · default 'approval' (parent confirms) when unset. */
+  award_mode?: ReflectionStreakAwardMode;
+  /** How far (±) a parent may nudge the suggested points on approval.
+   *  Default 5. 0 locks the suggestion. */
+  points_override_cap?: number;
+  /** Milestone hits awaiting parent confirmation (approval mode). */
+  pending?: ReflectionStreakPending[];
 }
 
 // ── Slice 7o · Daily Reflection · weekly review ─────────────────────
@@ -319,6 +342,9 @@ export const DEFAULT_REFLECTION_STREAK_REWARDS: ReflectionStreakRewards = {
     { days: 30, points: 75, label: 'Month of mirrors' },
   ],
   award_history: [],
+  award_mode: 'approval',
+  points_override_cap: 5,
+  pending: [],
 };
 
 export const DEFAULT_REFLECTION_REMINDERS: ReflectionReminderSettings = {
