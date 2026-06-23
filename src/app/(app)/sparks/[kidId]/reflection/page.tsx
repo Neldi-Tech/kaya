@@ -81,8 +81,12 @@ export default function ReflectionPage() {
    *  day to the streak (or hits a milestone). */
   const [celebrate, setCelebrate] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
-  /** Slice 7r · parent rate + feedback sheet open state. */
-  const [rateOpen, setRateOpen] = useState(false);
+  /** 2026-06-23 · the day whose detail/score sheet is open (any past day,
+   *  not only today). Null = closed. The live entry is derived by date so
+   *  it refreshes after a write. */
+  const [scoreDate, setScoreDate] = useState<string | null>(null);
+  /** On-demand AI soundness scoring in-flight (past entries). */
+  const [scoringAI, setScoringAI] = useState(false);
   /** Slice 7r · "view scanned page" lightbox open state. */
   const [scanViewOpen, setScanViewOpen] = useState(false);
 
@@ -123,6 +127,14 @@ export default function ReflectionPage() {
   );
   /** Open an arbitrary set of scanned pages in the shared lightbox. */
   const [scanGallery, setScanGallery] = useState<{ urls: string[]; index: number; caption: string } | null>(null);
+
+  // The live entry behind the open day-detail sheet — derived by date so it
+  // reflects writes (rating / AI score) without re-opening the sheet.
+  const scoreEntry = useMemo<ReflectionEntry | null>(() => {
+    if (!scoreDate) return null;
+    if (todayEntry?.date === scoreDate) return todayEntry;
+    return recent.find((r) => r.date === scoreDate) ?? null;
+  }, [scoreDate, todayEntry, recent]);
 
   const isParent = authProfile?.role === 'parent';
   const canWrite = !isParent || authProfile?.role === 'parent'; // kid (own) or parent
@@ -272,6 +284,25 @@ export default function ReflectionPage() {
 
   const startTyping = () => { setSource('typed'); setDraft(todayEntry?.text || ''); setMode('review'); };
 
+  // 2026-06-23 · Run the AI soundness pass for ANY entry on demand (past days
+  // that never got a score, or a re-score). Best-effort; refreshes via the bus.
+  const scoreEntryWithAI = async (entry: ReflectionEntry) => {
+    if (!familyId || !entry.text.trim()) return;
+    setScoringAI(true);
+    try {
+      const res = await fetch('/api/sparks/ai/reflection-score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: entry.text.trim(), firstName: kidName.split(' ')[0] }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data && !data.skipped && !data.error && typeof data.soundness === 'number') {
+        await saveReflectionAIScore(familyId, kidId, entry.date, data as ReflectionAIScore);
+      }
+    } catch { /* best-effort */ }
+    finally { setScoringAI(false); }
+  };
+
   const heroSub = streak.current > 0
     ? (sw ? `🔥 Mfululizo wa siku ${streak.current}` : `🔥 ${streak.current}-day streak`)
     : (sw ? 'Anza mfululizo wako leo' : 'Start your streak today');
@@ -415,7 +446,7 @@ export default function ReflectionPage() {
               {isParent && (
                 <button
                   type="button"
-                  onClick={() => setRateOpen(true)}
+                  onClick={() => setScoreDate(today)}
                   className="mt-2 text-[11px] font-extrabold text-[#5A3CB8] underline underline-offset-2"
                 >
                   ✏️ {sw ? 'Hariri ukaguzi' : 'Edit review'}
@@ -430,7 +461,7 @@ export default function ReflectionPage() {
           {isParent && !todayEntry.parent_rating && (
             <button
               type="button"
-              onClick={() => setRateOpen(true)}
+              onClick={() => setScoreDate(today)}
               className="w-full rounded-2xl border-2 border-dashed border-[#D4A847] bg-[#FFFAEB] hover:bg-[#FFF1C9] transition-colors py-3 px-4 text-center"
             >
               <div className="text-[18px]" aria-hidden>⭐</div>
@@ -554,19 +585,25 @@ export default function ReflectionPage() {
             ✍️ {sw ? 'Mwandiko wa hivi karibuni' : 'Recent handwriting'}
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {recentScans.map((r, i) => (
-              <button
-                key={r.date}
-                type="button"
-                onClick={() => setScanGallery({ urls: recentScans.map((s) => s.scanUrl as string), index: i, caption: toDisplayDate(r.date) })}
-                className="flex-none w-[78px] rounded-lg overflow-hidden border border-[#ECE4D3] bg-white cursor-zoom-in"
-                aria-label={`${sw ? 'Fungua ukurasa' : 'Open scan'} ${toDisplayDate(r.date)}`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={r.scanUrl} alt="" className="w-full h-[96px] object-cover bg-white" />
-                <div className="text-[8.5px] font-extrabold text-[#5A6488] text-center py-1">{toDisplayDate(r.date)}</div>
-              </button>
-            ))}
+            {recentScans.map((r) => {
+              const rated = !!r.parent_rating || typeof r.ai_score?.soundness === 'number';
+              return (
+                <button
+                  key={r.date}
+                  type="button"
+                  onClick={() => setScoreDate(r.date)}
+                  className="flex-none w-[78px] rounded-lg overflow-hidden border border-[#ECE4D3] bg-white relative"
+                  aria-label={`${isParent ? (sw ? 'Pima' : 'Score') : (sw ? 'Fungua' : 'Open')} ${toDisplayDate(r.date)}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={r.scanUrl} alt="" className="w-full h-[96px] object-cover bg-white" />
+                  <span className={`absolute top-1 right-1 text-[8px] font-extrabold rounded-full px-1.5 py-0.5 ${rated ? 'bg-[#DDF5E4] text-[#0a7a43]' : 'bg-[#FFF1C9] text-[#8A6800]'}`}>
+                    {rated ? '✓' : (isParent ? '✨' : '·')}
+                  </span>
+                  <div className="text-[8.5px] font-extrabold text-[#5A6488] text-center py-1">{toDisplayDate(r.date)}</div>
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -601,24 +638,31 @@ export default function ReflectionPage() {
         />
       )}
 
-      {/* Slice 7r · Parent rate + feedback sheet. */}
-      {rateOpen && todayEntry && (
+      {/* Day-detail / score sheet — opens for ANY day (today or a past
+          entry). Parents score; kids see it read-only. */}
+      {scoreEntry && (
         <ReflectionRatingSheet
-          open={rateOpen}
-          onClose={() => setRateOpen(false)}
-          entry={todayEntry}
+          open={!!scoreEntry}
+          onClose={() => setScoreDate(null)}
+          entry={scoreEntry}
+          isParent={isParent}
+          scoringAI={scoringAI}
+          onScoreAI={() => scoreEntryWithAI(scoreEntry)}
+          onOpenScan={scoreEntry.scanUrl
+            ? () => setScanGallery({ urls: [scoreEntry.scanUrl as string], index: 0, caption: toDisplayDate(scoreEntry.date) })
+            : undefined}
           kidName={kidName}
           authorName={authProfile?.displayName || 'Parent'}
           onSave={async ({ stars, soundness_percent, handwriting_percent, notes }) => {
             if (!familyId || !authProfile?.uid) return;
-            await saveReflectionParentRating(familyId, kidId, today, {
+            await saveReflectionParentRating(familyId, kidId, scoreEntry.date, {
               stars,
               soundness_percent,
               handwriting_percent,
               notes,
               ratedByName: authProfile.displayName || 'Parent',
             });
-            setRateOpen(false);
+            setScoreDate(null);
           }}
         />
       )}
@@ -931,6 +975,7 @@ function AIReadCard({ read, text }: { read: ReflectionAIRead; text: string }) {
 
 function ReflectionRatingSheet({
   open, onClose, entry, kidName, authorName, onSave,
+  isParent, scoringAI, onScoreAI, onOpenScan,
 }: {
   open: boolean;
   onClose: () => void;
@@ -940,6 +985,14 @@ function ReflectionRatingSheet({
   onSave: (args: {
     stars?: number; soundness_percent?: number; handwriting_percent?: number; notes?: string;
   }) => Promise<void>;
+  /** Parent → full scoring controls; kid → read-only view. */
+  isParent: boolean;
+  /** On-demand AI soundness scoring in-flight. */
+  scoringAI: boolean;
+  /** Run the AI soundness pass for this entry (past days / re-score). */
+  onScoreAI: () => void;
+  /** Open the full scanned page (lightbox), when there's a scan. */
+  onOpenScan?: () => void;
 }) {
   const [stars, setStars] = useState<number | null>(entry.parent_rating?.stars ?? null);
   // 2026-06-23 · two 0-100 sliders — soundness (of the reflection) +
@@ -997,32 +1050,72 @@ function ReflectionRatingSheet({
         className="relative w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl"
       >
         <div className="px-5 pt-5 pb-4 text-white" style={{ background: 'linear-gradient(135deg,#1B1547 0%,#5A3CB8 100%)' }}>
-          <div className="text-[12px] opacity-85">📔 Daily Reflection</div>
+          <div className="text-[12px] opacity-85">📔 {toDisplayDate(entry.date)}</div>
           <h2 className="font-display font-extrabold text-[18px] m-0 mt-0.5">
-            Rate · {kidName}
+            {isParent ? 'Score' : 'Reflection'} · {kidName}
           </h2>
         </div>
 
         <div className="p-5 space-y-4">
           {entry.scanUrl && (
-            <div className="rounded-2xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3]">
+            <button
+              type="button"
+              onClick={onOpenScan}
+              disabled={!onOpenScan}
+              className="block w-full rounded-2xl overflow-hidden bg-[#FBF7EE] border border-[#ECE4D3] p-0 cursor-zoom-in disabled:cursor-default"
+            >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={entry.scanUrl} alt="" className="w-full max-h-48 object-contain bg-white" />
-            </div>
+            </button>
           )}
 
           <div className="rounded-xl bg-[#FBF7EE] border border-[#ECE4D3] p-3 text-[12.5px] text-[#0F1F44] leading-snug whitespace-pre-wrap max-h-32 overflow-y-auto">
             {entry.text}
           </div>
 
-          {/* 2026-06-23 · % scoring — soundness + handwriting on coral→green
-              sliders (the Home Projects pattern). Parents check both. */}
-          {entry.ai_score && (
-            <div className="rounded-xl bg-[#F6EFFF] border border-[#cdbdf0] px-3 py-2 text-[11.5px] text-[#2c2056]">
-              🤖 Kaya scored soundness <b>{entry.ai_score.soundness}%</b>
-              {entry.ai_score.rationale ? ` — ${entry.ai_score.rationale}` : ''}
+          {/* AI soundness — show the score, or (parent) a one-tap button to
+              run it on demand for a past day that never got scored. */}
+          {entry.ai_score ? (
+            <div className="rounded-xl bg-[#F6EFFF] border border-[#cdbdf0] px-3 py-2.5">
+              <ScoreBar label="🤖 Soundness" tone="ai" percent={entry.ai_score.soundness} />
+              {entry.ai_score.rationale && (
+                <div className="mt-1.5 text-[11.5px] text-[#2c2056] leading-snug">{entry.ai_score.rationale}</div>
+              )}
+              {isParent && (
+                <button type="button" onClick={onScoreAI} disabled={scoringAI}
+                  className="mt-1.5 text-[11px] font-extrabold text-[#5A3CB8] underline underline-offset-2 disabled:opacity-40">
+                  {scoringAI ? 'Re-scoring…' : '↻ Re-score with Kaya'}
+                </button>
+              )}
+            </div>
+          ) : isParent ? (
+            <button type="button" onClick={onScoreAI} disabled={scoringAI}
+              className="w-full rounded-xl bg-[#5A3CB8] text-white font-extrabold text-[13px] py-2.5 disabled:opacity-50">
+              {scoringAI ? '✨ Kaya is scoring…' : '✨ Score with Kaya (AI soundness)'}
+            </button>
+          ) : null}
+
+          {/* Kid view ends here — read-only score summary, no controls. */}
+          {!isParent && entry.parent_rating && (
+            <div className="rounded-xl bg-[#FFFAEB] border border-[#D4A847] px-3 py-2.5 space-y-1.5">
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-[#8A6800]">
+                👤 {entry.parent_rating.ratedByName} reviewed
+              </div>
+              {typeof entry.parent_rating.soundness_percent === 'number' && (
+                <ScoreBar label="Soundness" tone="parent" percent={entry.parent_rating.soundness_percent} />
+              )}
+              {typeof entry.parent_rating.handwriting_percent === 'number' && (
+                <ScoreBar label="✍️ Handwriting" tone="parent" percent={entry.parent_rating.handwriting_percent} />
+              )}
+              {entry.parent_rating.notes && (
+                <div className="text-[12px] text-[#0F1F44] leading-snug whitespace-pre-wrap">{entry.parent_rating.notes}</div>
+              )}
             </div>
           )}
+
+          {/* Parent scoring controls — % sliders + stars + notes. */}
+          {isParent && (
+          <>
           <div>
             <label htmlFor="refl-sound" className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] flex items-center justify-between mb-2">
               <span>Soundness · the reflection</span>
@@ -1085,6 +1178,8 @@ function ReflectionRatingSheet({
             />
             <div className="text-[10.5px] text-[#5A6488] mt-1">From: {authorName}</div>
           </div>
+          </>
+          )}
 
           {error && (
             <div className="bg-[#FFE7E0] border border-[#E85C5C]/40 text-[#A33A2A] rounded-xl px-3.5 py-2.5 text-[12.5px]">
@@ -1098,17 +1193,19 @@ function ReflectionRatingSheet({
               onClick={onClose}
               className="px-4 py-2.5 rounded-xl text-[13px] font-bold text-[#5A6488] hover:bg-[#FBF7EE]"
             >
-              Cancel
+              {isParent ? 'Cancel' : 'Close'}
             </button>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!canSave}
-              className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold disabled:opacity-40"
-              style={{ background: '#D4A847', color: '#0F1F44' }}
-            >
-              {saving ? 'Saving…' : 'Save rating'}
-            </button>
+            {isParent && (
+              <button
+                type="button"
+                onClick={submit}
+                disabled={!canSave}
+                className="px-4 py-2.5 rounded-xl text-[13px] font-extrabold disabled:opacity-40"
+                style={{ background: '#D4A847', color: '#0F1F44' }}
+              >
+                {saving ? 'Saving…' : 'Save score'}
+              </button>
+            )}
           </div>
         </div>
       </div>
