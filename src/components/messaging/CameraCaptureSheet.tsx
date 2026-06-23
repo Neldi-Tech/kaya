@@ -17,7 +17,7 @@
 // quick clean-only enhancePhoto.
 
 import { useEffect, useRef, useState } from 'react';
-import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview, applyColorMode, type ScanColorMode } from '@/lib/photoEnhance';
+import { enhancePhoto, autoScanWithDetector, rotateFile90WithPreview, applyColorMode, tightenScanFile, type ScanColorMode } from '@/lib/photoEnhance';
 import { detectCornersBest } from '@/lib/scan/cvDetect';
 import DocumentCropEditor from '@/components/scan/DocumentCropEditor';
 
@@ -34,6 +34,12 @@ type Page = {
    *  Color/Grayscale/B&W re-derives without re-warping). */
   mode: ScanColorMode;
   colorBase: File;
+  /** Content-tight crop (handwriting flow): the full cleaned page, the
+   *  margin-trimmed version (null when there's nothing to trim), and which
+   *  one is active. `colorBase` always tracks the active choice. */
+  colorBaseFull: File;
+  colorBaseTight: File | null;
+  tight: boolean;
 };
 
 const MODES: { id: ScanColorMode; label: string }[] = [
@@ -41,7 +47,7 @@ const MODES: { id: ScanColorMode; label: string }[] = [
 ];
 
 export default function CameraCaptureSheet({
-  open, mode, onClose, onConfirm,
+  open, mode, onClose, onConfirm, contentTight = false,
 }: {
   open: boolean;
   mode: 'photo' | 'scan';
@@ -49,6 +55,10 @@ export default function CameraCaptureSheet({
   /** Caller persists the chosen files (`useEnhanced` is already applied
    *  here — each File is the variant the kid picked). */
   onConfirm: (files: File[]) => void | Promise<void>;
+  /** Scan mode · auto-crop tight to the writing by default (handwriting
+   *  notes). Each page keeps a one-tap "Whole page" opt-out. Off for the
+   *  generic document scanners so their margins are preserved. */
+  contentTight?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [pages, setPages] = useState<Page[]>([]);
@@ -93,24 +103,36 @@ export default function CameraCaptureSheet({
       // Scan → AUTO: detect the page (on-device CV → AI) → warp flat + crop →
       // auto-rotate upright → clean. No prompt (fast for bulk); the page gets
       // an "✂️ Adjust crop" for the rare miss. Photo → quick clean only.
-      let enhancedFile: File, previewUrl: string, framed = false;
+      let fullFile: File, fullPreview: string, framed = false;
       if (mode === 'scan') {
         const r = await autoScanWithDetector(file, detectCornersBest);
-        enhancedFile = r.file; previewUrl = r.previewUrl; framed = r.framed;
+        fullFile = r.file; fullPreview = r.previewUrl; framed = r.framed;
       } else {
         const r = await enhancePhoto(file);
-        enhancedFile = r.file; previewUrl = r.previewUrl;
+        fullFile = r.file; fullPreview = r.previewUrl;
+      }
+      // Handwriting flow → also compute a margin-trimmed version and make it
+      // the default, keeping the full page so "Whole page" restores it 1-tap.
+      let colorBaseTight: File | null = null;
+      let tight = false;
+      let activeFile = fullFile, activePreview = fullPreview;
+      if (mode === 'scan' && contentTight) {
+        const t = await tightenScanFile(fullFile).catch(() => null);
+        if (t) { colorBaseTight = t.file; tight = true; activeFile = t.file; activePreview = t.previewUrl; }
       }
       const page: Page = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         original: file,
-        enhanced: enhancedFile,
-        enhancedUrl: previewUrl,
+        enhanced: activeFile,
+        enhancedUrl: activePreview,
         originalUrl: URL.createObjectURL(file),
         useEnhanced: true,
         framed,
         mode: 'color',
-        colorBase: enhancedFile,
+        colorBase: activeFile,
+        colorBaseFull: fullFile,
+        colorBaseTight,
+        tight,
       };
       setPages((prev) => [...prev, page]);
     } catch (err) {
@@ -130,12 +152,12 @@ export default function CameraCaptureSheet({
         return prev.map((p) => {
           if (p.id !== recropId) return p;
           URL.revokeObjectURL(p.originalUrl);
-          return { ...p, original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true, mode: 'color', colorBase: result.file };
+          return { ...p, original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true, mode: 'color', colorBase: result.file, colorBaseFull: result.file, colorBaseTight: null, tight: false };
         });
       }
       return [...prev, {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true, mode: 'color', colorBase: result.file,
+        original: raw, originalUrl, enhanced: result.file, enhancedUrl: result.previewUrl, useEnhanced: true, framed: true, mode: 'color', colorBase: result.file, colorBaseFull: result.file, colorBaseTight: null, tight: false,
       }];
     });
     setCropFile(null);
@@ -150,19 +172,49 @@ export default function CameraCaptureSheet({
     if (!page) return;
     setBusy(true); setError('');
     try {
-      // Rotate the COLOR base, then re-apply the current mode → the chosen
-      // Color/Gray/B&W stays consistent after a rotate.
-      const rotated = await rotateFile90WithPreview(page.colorBase);
-      let enhanced = rotated.file, previewUrl = rotated.previewUrl;
+      // Rotate the FULL color base, re-derive the tight crop from it (so the
+      // "Whole page"/"Tight" toggle stays valid), then re-apply the current
+      // Color/Gray/B&W mode to whichever base is active.
+      const rotatedFull = await rotateFile90WithPreview(page.colorBaseFull);
+      const tightFile = page.colorBaseTight
+        ? (await tightenScanFile(rotatedFull.file).catch(() => null))
+        : null;
+      const active = page.tight && tightFile ? tightFile : rotatedFull;
+      let enhanced = active.file, previewUrl = active.previewUrl;
       if (page.mode !== 'color') {
-        const m = await applyColorMode(rotated.file, page.mode);
+        const m = await applyColorMode(active.file, page.mode);
         enhanced = m.file; previewUrl = m.previewUrl;
       }
       setPages((prev) => prev.map((p) => (p.id === id
-        ? { ...p, colorBase: rotated.file, enhanced, enhancedUrl: previewUrl, useEnhanced: true }
+        ? { ...p, colorBaseFull: rotatedFull.file, colorBaseTight: tightFile ? tightFile.file : null, colorBase: active.file, tight: page.tight && !!tightFile, enhanced, enhancedUrl: previewUrl, useEnhanced: true }
         : p)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not rotate.');
+    } finally { setBusy(false); }
+  };
+
+  // Toggle between the margin-trimmed crop (writing fills the frame) and the
+  // whole page. Re-applies the current Color/Gray/B&W mode to the new base.
+  const toggleTight = async (id: string) => {
+    const page = pages.find((p) => p.id === id);
+    if (!page || !page.colorBaseTight) return;
+    setBusy(true); setError('');
+    try {
+      const nextTight = !page.tight;
+      const base = nextTight ? page.colorBaseTight : page.colorBaseFull;
+      let enhanced = base, previewUrl = URL.createObjectURL(base);
+      if (page.mode !== 'color') {
+        const m = await applyColorMode(base, page.mode);
+        enhanced = m.file; previewUrl = m.previewUrl;
+      } else {
+        const r = await applyColorMode(base, 'color'); // normalise → data-URL preview
+        enhanced = r.file; previewUrl = r.previewUrl;
+      }
+      setPages((prev) => prev.map((p) => (p.id === id
+        ? { ...p, tight: nextTight, colorBase: base, enhanced, enhancedUrl: previewUrl, useEnhanced: true }
+        : p)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change crop.');
     } finally { setBusy(false); }
   };
 
@@ -273,6 +325,12 @@ export default function CameraCaptureSheet({
                       </button>
                     ))}
                   </div>
+                  {p.colorBaseTight && (
+                    <button type="button" onClick={() => toggleTight(p.id)} disabled={busy}
+                      className={`mt-2 w-full h-9 rounded-kaya border font-bold text-[12px] disabled:opacity-40 ${p.tight ? 'border-kaya-chocolate bg-kaya-chocolate/10 text-kaya-chocolate' : 'border-kaya-warm-dark text-kaya-sand'}`}>
+                      {p.tight ? '✂️ Cropped to writing · tap for whole page' : '🗒 Whole page · tap to crop tight'}
+                    </button>
+                  )}
                   <div className="mt-2 flex items-center gap-2">
                     <button type="button" onClick={() => reCrop(p)} disabled={busy}
                       className="flex-1 h-9 rounded-kaya border border-kaya-warm-dark text-kaya-chocolate font-bold text-[12px] disabled:opacity-40">✂️ Adjust crop</button>

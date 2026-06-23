@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kaya Sparks · Handwritten Reflections — design proposal (2026-06-23)</title>
+<style>
+  :root{
+    --cream:#FFFBF5; --paper:#FFFFFF; --tile:#FBF7EE; --line:#ECE4D3;
+    --navy:#0F1F44; --muted:#5A6488;
+    --violet:#5A3CB8; --violet-bg:#EFE7FF; --violet-soft:#E5D6FF;
+    --gold:#D4A847; --gold-dk:#8A6800; --gold-bg:#FFF1C9; --gold-paper:#FFFAEB;
+    --coral:#FF6B6B; --green:#6BCB77; --rose:#E36F6F;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#E7E0D2;color:var(--navy);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Nunito,system-ui,sans-serif;padding:22px 0 60px}
+  .head{max-width:1180px;margin:0 auto 6px;padding:0 18px}
+  .head h1{font-weight:900;font-size:23px;margin:0 0 4px;letter-spacing:-.4px}
+  .head p{margin:0;color:#6c6052;font-size:13px;font-weight:600;line-height:1.5}
+  .legend{max-width:1180px;margin:10px auto 22px;padding:0 18px;display:flex;gap:14px;flex-wrap:wrap}
+  .legend span{font-size:11px;font-weight:800;color:#6c6052;display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .grid{max-width:1180px;margin:0 auto;padding:0 18px;display:grid;grid-template-columns:1fr;gap:40px}
+  @media(min-width:780px){.grid{grid-template-columns:1fr 1fr 1fr;gap:26px}}
+  .col h2{font-size:13px;font-weight:900;color:var(--navy);margin:0 0 3px}
+  .col .tag{display:inline-block;font-size:10px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--violet);background:var(--violet-soft);border-radius:999px;padding:3px 9px;margin-bottom:10px}
+  .col .note{font-size:11.5px;color:#6c6052;font-weight:600;line-height:1.5;margin:12px 4px 0}
+  .col .note b{color:var(--navy)}
+
+  /* phone */
+  .phone{background:#0B1119;border-radius:36px;padding:11px;box-shadow:0 24px 46px -18px rgba(11,17,25,.5);max-width:340px;margin:0 auto}
+  .screen{background:var(--cream);border-radius:26px;overflow:hidden;position:relative}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:9px 18px 3px;font-weight:800;font-size:10.5px;color:var(--navy)}
+  .app{padding:8px 13px 16px}
+
+  /* generic bits */
+  .eyebrow{font-size:9.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:18px;overflow:hidden;margin-bottom:11px}
+  .pad{padding:13px}
+  .scrim{background:var(--tile)}
+  .new-badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:900;color:#0a7a43;background:#DDF5E4;border:1px solid #9fe0b8;border-radius:999px;padding:2px 7px;vertical-align:middle}
+
+  /* week review header */
+  .wk-head{padding:13px 14px;color:#5A4500;background:linear-gradient(135deg,#FFB627,#FFD93D)}
+  .wk-head .k{font-size:10.5px;font-weight:800;opacity:.85}
+  .wk-head .t{font-weight:900;font-size:17px;margin-top:1px}
+  .sect{background:var(--tile);border-radius:13px;padding:10px 11px;margin:10px 11px 0}
+  .sect .lbl{font-size:9.5px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+
+  /* handwriting rail */
+  .rail{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
+  .scan{flex:0 0 auto;width:78px;border-radius:10px;overflow:hidden;border:1px solid var(--line);background:#fff;position:relative}
+  .scan .img{height:96px;background-size:cover;background-position:center}
+  .scan .day{font-size:8.5px;font-weight:800;color:var(--muted);text-align:center;padding:3px 2px}
+  .scan .zoom{position:absolute;top:4px;right:4px;font-size:9px;background:rgba(15,31,68,.8);color:#fff;border-radius:6px;padding:1px 4px}
+
+  /* highlight w/ thumb */
+  .hl{display:flex;gap:9px;background:#fff;border-left:3px solid var(--gold);border-radius:0 8px 8px 0;padding:8px 9px;margin-bottom:7px}
+  .hl .thmb{flex:0 0 auto;width:46px;height:58px;border-radius:7px;background-size:cover;background-position:center;border:1px solid var(--line)}
+  .hl .q{font-size:11.5px;font-style:italic;line-height:1.35;color:var(--navy)}
+  .hl .d{font-size:9px;font-weight:800;color:var(--muted);margin-top:3px;font-style:normal}
+
+  /* paper texture (fake handwriting) */
+  .paper-a{background:repeating-linear-gradient(0deg,#fffdf6,#fffdf6 11px,#dfe7f0 12px),linear-gradient(#fffdf6,#fffdf6)}
+  .ink{position:absolute;left:8px;right:8px;height:3px;background:#3a4a78;border-radius:3px;opacity:.82}
+
+  /* score bar */
+  .scorebar{height:7px;background:#fff;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:1}
+  .scorebar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--coral),var(--green))}
+  .pct{font-size:10px;font-weight:900;color:var(--violet);background:var(--violet-soft);border-radius:999px;padding:2px 7px}
+  .rowline{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .rowline .nm{font-size:10.5px;font-weight:800;color:var(--navy);width:88px;flex:0 0 auto}
+
+  /* AI card */
+  .ai{border:1.5px solid var(--violet);background:var(--violet-bg);border-radius:16px;padding:12px;margin-bottom:11px}
+  .ai .h{font-weight:900;font-size:12.5px;display:flex;align-items:center;gap:6px}
+  .disc{font-size:9px;color:var(--muted);line-height:1.4;margin-top:8px}
+
+  /* parent review card */
+  .pr{border:1px solid var(--gold);background:var(--gold-paper);border-radius:16px;padding:12px;margin-bottom:11px}
+  .pr .who{font-size:9.5px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;color:var(--gold-dk)}
+
+  /* sliders sheet */
+  .sheet{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#fff;margin-bottom:11px}
+  .sheet .sh-head{padding:12px 14px;color:#fff;background:linear-gradient(135deg,#1B1547,#5A3CB8)}
+  .sheet .sh-head .k{font-size:10px;opacity:.85}
+  .sheet .sh-head .t{font-weight:900;font-size:15px;margin-top:1px}
+  .slabel{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin:12px 0 5px;display:flex;justify-content:space-between}
+  .slider{height:9px;border-radius:999px;background:linear-gradient(90deg,var(--coral),#ffd36b,var(--green));position:relative}
+  .slider .knob{position:absolute;top:50%;width:20px;height:20px;border-radius:50%;background:#fff;border:2.5px solid var(--violet);transform:translate(-50%,-50%);box-shadow:0 2px 5px rgba(0,0,0,.2)}
+  .btnrow{display:flex;gap:8px;margin-top:14px}
+  .btn{flex:1;text-align:center;border-radius:12px;padding:10px;font-weight:900;font-size:12px}
+  .btn.primary{background:var(--gold);color:var(--navy)}
+  .btn.ghost{background:var(--tile);color:var(--muted)}
+
+  /* scan capture screen */
+  .cam{background:#0B0B10;border-radius:20px;overflow:hidden;position:relative;margin-bottom:11px}
+  .cam .frame{position:relative;height:300px;display:flex;align-items:center;justify-content:center}
+  .pagephoto{position:absolute;width:170px;height:230px;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);overflow:hidden}
+  .crop-page{border:2px dashed rgba(255,255,255,.5);position:absolute;width:170px;height:230px;border-radius:6px}
+  .crop-tight{border:2.5px solid var(--green);position:absolute;border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.45)}
+  .crop-tight .ch{position:absolute;width:13px;height:13px;border-radius:50%;background:var(--green);border:2px solid #fff}
+  .cam .cap{position:absolute;bottom:0;left:0;right:0;padding:10px 12px;color:#fff;font-size:10px;font-weight:700;background:linear-gradient(transparent,rgba(0,0,0,.7))}
+  .toggle{display:flex;gap:6px;margin-bottom:11px}
+  .toggle .t{flex:1;text-align:center;border-radius:10px;padding:7px 4px;font-size:10.5px;font-weight:900;border:1.4px solid var(--line);background:#fff;color:var(--muted)}
+  .toggle .t.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+
+  .ba{display:flex;gap:9px}
+  .ba .b{flex:1}
+  .ba .lab{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:5px;text-align:center}
+  .mini{border-radius:9px;overflow:hidden;border:1px solid var(--line);position:relative;height:120px;background:#fff}
+  .mini.before .ink{opacity:.82}
+  .badge-space{position:absolute;left:0;right:0;bottom:0;height:46%;background:repeating-linear-gradient(135deg,rgba(227,111,111,.10),rgba(227,111,111,.10) 6px,transparent 6px,transparent 12px);border-top:1px dashed var(--rose)}
+  .tagx{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:900;color:var(--rose);background:#fff;border:1px solid var(--rose);border-radius:6px;padding:1px 5px}
+  .tagok{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:8px;font-weight:900;color:#0a7a43;background:#fff;border:1px solid #9fe0b8;border-radius:6px;padding:1px 5px}
+  .cta{display:block;text-align:center;border-radius:13px;padding:11px;font-weight:900;font-size:12.5px;background:var(--violet);color:#fff;margin-top:11px}
+  .secondary{display:block;text-align:center;font-size:10.5px;font-weight:900;color:var(--violet);margin-top:8px;text-decoration:underline}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Kaya Sparks · Daily Reflection — handwritten notes, % scoring &amp; tighter scans</h1>
+    <p>Design proposal · 2026-06-23 · three changes to the kid Reflection flow. Green chips mark <b>new</b> elements; everything else mirrors the live build.</p>
+  </div>
+  <div class="legend">
+    <span><span class="dot" style="background:#6BCB77"></span>New in this proposal</span>
+    <span><span class="dot" style="background:#D4A847"></span>Parent-only</span>
+    <span><span class="dot" style="background:#5A3CB8"></span>AI-generated</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- ───────────── COLUMN 1 — Handwriting in the post ───────────── -->
+    <div class="col">
+      <span class="tag">Ask 1</span>
+      <h2>See the handwritten notes in the reflection post</h2>
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>7:04</span><span>Kaya ⚡</span></div>
+        <div class="app">
+
+          <div class="card">
+            <div class="wk-head">
+              <div class="k">📅 Week of 15–21 Jun 2026 · Earlnathan</div>
+              <div class="t">Your week in reflection</div>
+            </div>
+
+            <!-- NEW handwriting rail -->
+            <div class="sect">
+              <div class="lbl">✍️ Handwritten this week <span class="new-badge">NEW</span></div>
+              <div class="rail">
+                <div class="scan"><div class="img paper-a" style="position:relative">
+                  <div class="ink" style="top:16px;width:60%"></div><div class="ink" style="top:30px;width:80%"></div><div class="ink" style="top:44px;width:50%"></div><div class="ink" style="top:58px;width:72%"></div>
+                  <span class="zoom">🔍</span></div><div class="day">Mon 15</div></div>
+                <div class="scan"><div class="img paper-a" style="position:relative">
+                  <div class="ink" style="top:18px;width:72%"></div><div class="ink" style="top:32px;width:54%"></div><div class="ink" style="top:46px;width:66%"></div>
+                  <span class="zoom">🔍</span></div><div class="day">Tue 16</div></div>
+                <div class="scan"><div class="img paper-a" style="position:relative">
+                  <div class="ink" style="top:16px;width:48%"></div><div class="ink" style="top:30px;width:78%"></div><div class="ink" style="top:44px;width:60%"></div><div class="ink" style="top:58px;width:40%"></div>
+                  <span class="zoom">🔍</span></div><div class="day">Thu 18</div></div>
+              </div>
+            </div>
+
+            <!-- highlights now each carry their scan -->
+            <div class="sect">
+              <div class="lbl">🌟 Highlights · your own words</div>
+              <div class="hl">
+                <div class="thmb paper-a"></div>
+                <div><div class="q">“Today I went to school and I graduated from primary school…”</div><div class="d">15 Jun 2026 · 📷 from the scan</div></div>
+              </div>
+              <div class="hl">
+                <div class="thmb paper-a"></div>
+                <div><div class="q">“One time I went to the slide on one go, then I got 4 cramps.”</div><div class="d">16 Jun 2026 · 📷 from the scan</div></div>
+              </div>
+            </div>
+
+            <div class="sect" style="margin-bottom:12px">
+              <div class="lbl">📊 Themes Kaya read</div>
+              <span class="pct" style="margin-right:5px">🎓 Big Transitions · 2</span>
+              <span class="pct" style="background:#DDF5E4;color:#0a7a43">⚽ Fun · 3</span>
+            </div>
+          </div>
+
+        </div>
+      </div></div>
+      <p class="note"><b>What changes:</b> the weekly post gains a <b>“Handwritten this week”</b> rail of the actual scanned pages, and every highlight quote shows the <b>thumbnail of the page it came from</b> (tap → full-screen lightbox). The transcribed text stays — we just put the real handwriting next to it so the post genuinely <b>shows the notes</b>, not only the typed version.<br><br>Same treatment added to the daily entry’s “recent days” list.</p>
+    </div>
+
+    <!-- ───────────── COLUMN 2 — % scoring ───────────── -->
+    <div class="col">
+      <span class="tag">Ask 2</span>
+      <h2>Rate the work — % scoring (AI soundness + Parent)</h2>
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>7:04</span><span>Kaya ⚡</span></div>
+        <div class="app">
+
+          <div class="eyebrow" style="margin-bottom:7px">📔 Mon 15 Jun · today’s reflection</div>
+
+          <!-- AI soundness -->
+          <div class="ai">
+            <div class="h">✨ Kaya read your reflection <span class="new-badge">NEW</span></div>
+            <div class="rowline">
+              <span class="nm">🤖 Soundness</span>
+              <span class="scorebar"><i style="width:82%"></i></span>
+              <span class="pct">82%</span>
+            </div>
+            <div class="disc">How thoughtful &amp; complete the reflection is — not spelling. ⚠️ Kaya’s score is a guess; your words are the truth.</div>
+          </div>
+
+          <!-- Parent review -->
+          <div class="pr">
+            <div class="who">👤 Mum reviewed <span class="new-badge">NEW</span></div>
+            <div class="rowline">
+              <span class="nm">Soundness</span>
+              <span class="scorebar"><i style="width:90%"></i></span>
+              <span class="pct" style="color:var(--gold-dk);background:var(--gold-bg)">90%</span>
+            </div>
+            <div class="rowline">
+              <span class="nm">✍️ Handwriting</span>
+              <span class="scorebar"><i style="width:75%"></i></span>
+              <span class="pct" style="color:var(--gold-dk);background:var(--gold-bg)">75%</span>
+            </div>
+            <div style="font-size:11px;line-height:1.4;margin-top:9px;color:var(--navy)">“Lovely honest entry — keep your letters sitting on the line and it’ll be perfect. So proud of you graduating! 💛”</div>
+          </div>
+
+          <!-- Parent rating sheet -->
+          <div class="sheet">
+            <div class="sh-head"><div class="k">📔 Daily Reflection</div><div class="t">Rate · Earlnathan</div></div>
+            <div class="pad" style="padding-top:4px">
+              <div class="slabel"><span>Soundness of reflection</span><span class="pct" style="color:var(--gold-dk);background:var(--gold-bg)">90%</span></div>
+              <div class="slider"><span class="knob" style="left:90%"></span></div>
+
+              <div class="slabel"><span>✍️ Handwriting</span><span class="pct" style="color:var(--gold-dk);background:var(--gold-bg)">75%</span></div>
+              <div class="slider"><span class="knob" style="left:75%"></span></div>
+
+              <div class="slabel" style="margin-top:13px"><span>Notes · what Earlnathan sees</span></div>
+              <div class="scrim" style="border:1px solid var(--line);border-radius:10px;padding:8px;font-size:10.5px;color:var(--muted)">Keep your letters on the line…</div>
+
+              <div class="btnrow"><span class="btn ghost">Cancel</span><span class="btn primary">Save rating</span></div>
+            </div>
+          </div>
+
+        </div>
+      </div></div>
+      <p class="note"><b>What changes:</b> mirrors the Home-Projects pattern (coral→green % bar) and the Revisions AI score. <b>Kaya (AI)</b> auto-scores one dimension — <b>soundness</b> of the reflection (depth/honesty/completeness). <b>Parents</b> score <b>two</b>: soundness <i>and</i> handwriting, on 0–100 sliders. Stars/notes stay optional. Read-only for kids, with the usual “AI can be wrong” caveat.</p>
+    </div>
+
+    <!-- ───────────── COLUMN 3 — tighter auto-crop ───────────── -->
+    <div class="col">
+      <span class="tag">Ask 3</span>
+      <h2>Auto-crop to the writing — cleaner, less empty space</h2>
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>7:04</span><span>Kaya ⚡</span></div>
+        <div class="app">
+
+          <div class="cam">
+            <div class="frame">
+              <div class="pagephoto paper-a">
+                <div class="ink" style="top:30px;width:64%"></div>
+                <div class="ink" style="top:50px;width:82%"></div>
+                <div class="ink" style="top:70px;width:54%"></div>
+                <div class="ink" style="top:90px;width:74%"></div>
+              </div>
+              <!-- old page-edge crop (loose) -->
+              <div class="crop-page"></div>
+              <!-- new content-tight crop -->
+              <div class="crop-tight" style="left:85px;top:42px;width:170px;height:84px">
+                <span class="ch" style="left:-6px;top:-6px"></span>
+                <span class="ch" style="right:-6px;top:-6px"></span>
+                <span class="ch" style="left:-6px;bottom:-6px"></span>
+                <span class="ch" style="right:-6px;bottom:-6px"></span>
+              </div>
+            </div>
+            <div class="cap">Auto-cropped to the handwriting · drag the green corners to adjust</div>
+          </div>
+
+          <div class="toggle">
+            <div class="t on">Auto-tight ✓ <span class="new-badge">NEW</span></div>
+            <div class="t">Whole page</div>
+            <div class="t">Clean B&amp;W</div>
+          </div>
+
+          <div class="ba">
+            <div class="b"><div class="lab">Before</div>
+              <div class="mini before paper-a">
+                <div class="ink" style="top:14px;width:60%"></div><div class="ink" style="top:26px;width:78%"></div><div class="ink" style="top:38px;width:50%"></div>
+                <div class="badge-space"></div><span class="tagx">~50% blank</span>
+              </div>
+            </div>
+            <div class="b"><div class="lab">After</div>
+              <div class="mini paper-a">
+                <div class="ink" style="top:18px;width:64%"></div><div class="ink" style="top:38px;width:86%"></div><div class="ink" style="top:58px;width:54%"></div><div class="ink" style="top:78px;width:80%"></div><div class="ink" style="top:98px;width:48%"></div>
+                <span class="tagok">writing fills frame</span>
+              </div>
+            </div>
+          </div>
+
+          <span class="cta">Use this scan ✓</span>
+          <span class="secondary">↻ Re-scan · ✎ Adjust crop</span>
+
+        </div>
+      </div></div>
+      <p class="note"><b>What changes:</b> after the existing page-detect + flatten + clean steps, a new <b>content-trim</b> pass measures the ink bounding-box and tightens the crop to the writing (with a small margin) — killing the empty lower half. The <b>Adjust crop</b> editor (draggable corners, already built) is surfaced so a kid/parent can nudge it. A stronger <b>Clean B&amp;W</b> mode makes faint pencil read crisply.</p>
+    </div>
+
+  </div>
+</body>
+</html>

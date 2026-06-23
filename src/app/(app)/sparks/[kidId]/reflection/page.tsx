@@ -19,10 +19,11 @@ import { uploadSparksPhoto } from '@/lib/sparks/uploadPhoto';
 import type { SparksProfile } from '@/lib/sparks/schema';
 import {
   type ReflectionEntry, type ReflectionFeedback, type ReflectionAIRead,
+  type ReflectionAIScore,
   reflectionDayKey, readReflectionSettings, typingAllowedOn,
   subscribeToReflection, subscribeToReflections,
   saveReflection, saveReflectionFeedback, saveReflectionAIRead,
-  saveReflectionParentRating,
+  saveReflectionParentRating, saveReflectionAIScore,
   computeReflectionStreak,
   maybeAwardStreakMilestone, type StreakAwardResult,
   subscribeToWeeklyReviews,
@@ -100,6 +101,29 @@ export default function ReflectionPage() {
   const settings = readReflectionSettings(profile);
   const canType = typingAllowedOn(settings, today);
   const streak = useMemo(() => computeReflectionStreak(recent), [recent]);
+
+  // 2026-06-23 · scanned handwriting, indexed by day, so the weekly post +
+  // recent list can show the real page next to the transcribed words.
+  const scanByDate = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const r of recent) if (r.source === 'scan' && r.scanUrl) m[r.date] = r.scanUrl;
+    return m;
+  }, [recent]);
+  const weekReview = weeklyReviews[0];
+  const weekScans = useMemo(() => {
+    if (!weekReview) return [] as Array<{ date: string; url: string }>;
+    return recent
+      .filter((r) => r.source === 'scan' && r.scanUrl && r.date >= weekReview.weekStart && r.date <= weekReview.weekEnd)
+      .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      .map((r) => ({ date: r.date, url: r.scanUrl as string }));
+  }, [recent, weekReview]);
+  const recentScans = useMemo(
+    () => recent.filter((r) => r.source === 'scan' && r.scanUrl && r.date !== today).slice(0, 8),
+    [recent, today],
+  );
+  /** Open an arbitrary set of scanned pages in the shared lightbox. */
+  const [scanGallery, setScanGallery] = useState<{ urls: string[]; index: number; caption: string } | null>(null);
+
   const isParent = authProfile?.role === 'parent';
   const canWrite = !isParent || authProfile?.role === 'parent'; // kid (own) or parent
 
@@ -209,6 +233,22 @@ export default function ReflectionPage() {
         } catch { /* best-effort */ }
       })();
 
+      // 2026-06-23 · AI soundness score (display-only % feedback). Best-effort,
+      // parallel — degrades silently when the AI key is absent.
+      void (async () => {
+        try {
+          const res = await fetch('/api/sparks/ai/reflection-score', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: draft.trim(), firstName: kidName.split(' ')[0] }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data && !data.skipped && !data.error && typeof data.soundness === 'number') {
+            await saveReflectionAIScore(familyId, kidId, today, data as ReflectionAIScore);
+          }
+        } catch { /* best-effort */ }
+      })();
+
       // Best-effort structured feedback (degrades silently if AI off).
       setFeedbackBusy(true);
       try {
@@ -246,7 +286,14 @@ export default function ReflectionPage() {
           generated at least one review for the kid. Renders the most
           recent week at the top of the page. */}
       {weeklyReviews.length > 0 && (
-        <WeeklyReviewCard review={weeklyReviews[0]} kidFirstName={kidName.split(' ')[0]} />
+        <WeeklyReviewCard
+          review={weeklyReviews[0]}
+          kidFirstName={kidName.split(' ')[0]}
+          weekScans={weekScans}
+          scanByDate={scanByDate}
+          onOpenScan={(urls, index, caption) => setScanGallery({ urls, index, caption })}
+          sw={sw}
+        />
       )}
 
       {/* Slice 7n · streak milestone reward chip — sits at the top of
@@ -315,10 +362,28 @@ export default function ReflectionPage() {
             )}
           </div>
 
+          {/* 2026-06-23 · AI soundness score — display-only % feedback (like
+              Home Projects' AI read), shown to parent + kid. */}
+          {todayEntry.ai_score && (
+            <div className="rounded-2xl border border-[#cdbdf0] bg-[#F6EFFF] px-4 py-3">
+              <ScoreBar
+                label={sw ? '🤖 Uimara wa tafakari' : '🤖 Reflection soundness'}
+                tone="ai"
+                percent={todayEntry.ai_score.soundness}
+              />
+              {todayEntry.ai_score.rationale && (
+                <div className="mt-1.5 text-[12px] text-[#2c2056] leading-snug">{todayEntry.ai_score.rationale}</div>
+              )}
+              <div className="mt-1.5 text-[10px] text-[#5A6488] leading-snug">
+                ⚠️ {sw ? 'Alama ya Kaya ni kadirio — maneno yako ndiyo ukweli.' : 'Kaya’s score is a guess — your own words are the truth.'}
+              </div>
+            </div>
+          )}
+
           {/* Slice 7r · Parent rating + feedback display.
-              When a parent has rated, both parent + kid see this chip
-              with the stars and the parent's written feedback. Parent
-              re-tap opens the sheet to edit. */}
+              When a parent has rated, both parent + kid see this card
+              with the % scores (soundness + handwriting) + written
+              feedback. Parent re-tap opens the sheet to edit. */}
           {todayEntry.parent_rating && (
             <div className="rounded-2xl border border-[#D4A847] bg-[#FFFAEB] px-4 py-3">
               <div className="flex items-center gap-2 flex-wrap">
@@ -331,6 +396,17 @@ export default function ReflectionPage() {
                   </span>
                 )}
               </div>
+              {(typeof todayEntry.parent_rating.soundness_percent === 'number'
+                || typeof todayEntry.parent_rating.handwriting_percent === 'number') && (
+                <div className="mt-2 space-y-1.5">
+                  {typeof todayEntry.parent_rating.soundness_percent === 'number' && (
+                    <ScoreBar label={sw ? 'Uimara' : 'Soundness'} tone="parent" percent={todayEntry.parent_rating.soundness_percent} />
+                  )}
+                  {typeof todayEntry.parent_rating.handwriting_percent === 'number' && (
+                    <ScoreBar label={sw ? '✍️ Mwandiko' : '✍️ Handwriting'} tone="parent" percent={todayEntry.parent_rating.handwriting_percent} />
+                  )}
+                </div>
+              )}
               {todayEntry.parent_rating.notes && (
                 <div className="mt-2 text-[13px] text-[#0F1F44] leading-snug whitespace-pre-wrap">
                   {todayEntry.parent_rating.notes}
@@ -465,9 +541,35 @@ export default function ReflectionPage() {
       <CameraCaptureSheet
         open={scanOpen}
         mode="scan"
+        contentTight
         onClose={() => setScanOpen(false)}
         onConfirm={(files) => { if (files[0]) return processScanFile(files[0]); }}
       />
+
+      {/* 2026-06-23 · Recent handwriting — the actual scanned pages from
+          earlier days, so the kid's notes are browsable, not just today's. */}
+      {recentScans.length > 0 && (
+        <div className="mt-4 rounded-2xl border border-[#ECE4D3] bg-white p-3">
+          <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488] mb-2">
+            ✍️ {sw ? 'Mwandiko wa hivi karibuni' : 'Recent handwriting'}
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {recentScans.map((r, i) => (
+              <button
+                key={r.date}
+                type="button"
+                onClick={() => setScanGallery({ urls: recentScans.map((s) => s.scanUrl as string), index: i, caption: toDisplayDate(r.date) })}
+                className="flex-none w-[78px] rounded-lg overflow-hidden border border-[#ECE4D3] bg-white cursor-zoom-in"
+                aria-label={`${sw ? 'Fungua ukurasa' : 'Open scan'} ${toDisplayDate(r.date)}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={r.scanUrl} alt="" className="w-full h-[96px] object-cover bg-white" />
+                <div className="text-[8.5px] font-extrabold text-[#5A6488] text-center py-1">{toDisplayDate(r.date)}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
@@ -486,6 +588,19 @@ export default function ReflectionPage() {
         />
       )}
 
+      {/* 2026-06-23 · shared scanned-page gallery (weekly post + recent
+          handwriting strip). Mounts only when a thumbnail is tapped. */}
+      {scanGallery && scanGallery.urls.length > 0 && (
+        <PhotoLightbox
+          photos={scanGallery.urls}
+          index={scanGallery.index}
+          onIndexChange={(i) => setScanGallery((g) => (g ? { ...g, index: i } : g))}
+          onClose={() => setScanGallery(null)}
+          caption={scanGallery.caption}
+          subCaption={sw ? 'Mwandiko' : 'Handwritten note'}
+        />
+      )}
+
       {/* Slice 7r · Parent rate + feedback sheet. */}
       {rateOpen && todayEntry && (
         <ReflectionRatingSheet
@@ -494,10 +609,12 @@ export default function ReflectionPage() {
           entry={todayEntry}
           kidName={kidName}
           authorName={authProfile?.displayName || 'Parent'}
-          onSave={async ({ stars, notes }) => {
+          onSave={async ({ stars, soundness_percent, handwriting_percent, notes }) => {
             if (!familyId || !authProfile?.uid) return;
             await saveReflectionParentRating(familyId, kidId, today, {
               stars,
+              soundness_percent,
+              handwriting_percent,
               notes,
               ratedByName: authProfile.displayName || 'Parent',
             });
@@ -506,6 +623,24 @@ export default function ReflectionPage() {
         />
       )}
     </AreaScreen>
+  );
+}
+
+// 2026-06-23 · coral→green % bar (mirrors RatingDisplay on Home Projects).
+// `tone` only tints the % chip — AI reads violet, parent reads gold.
+function ScoreBar({ label, percent, tone }: { label: string; percent: number; tone: 'ai' | 'parent' }) {
+  const pct = Math.max(0, Math.min(100, Math.round(percent)));
+  const chip = tone === 'ai'
+    ? 'text-[#5A3CB8] bg-[#E5D6FF]'
+    : 'text-[#8A6800] bg-[#FFF1C9]';
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-[10.5px] font-extrabold text-[#0F1F44] w-[112px] flex-none">{label}</span>
+      <div className="flex-1 h-1.5 bg-white border border-[#ECE4D3] rounded-full overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #FF6B6B, #6BCB77)' }} />
+      </div>
+      <span className={`text-[10px] font-extrabold rounded-full px-1.5 py-0.5 ${chip}`}>{pct}%</span>
+    </div>
   );
 }
 
@@ -584,10 +719,22 @@ function WeekStrip({ byDate, sw }: { byDate: Record<string, boolean>; sw: boolea
 // arc, verbatim highlights, Kaya's tip for next week, and a quiet
 // AI-can-be-wrong disclaimer at the bottom.
 
-function WeeklyReviewCard({ review, kidFirstName }: { review: ReflectionWeekReview; kidFirstName: string }) {
+function WeeklyReviewCard({
+  review, kidFirstName, weekScans, scanByDate, onOpenScan, sw,
+}: {
+  review: ReflectionWeekReview;
+  kidFirstName: string;
+  /** Scanned handwriting pages from this week, oldest → newest. */
+  weekScans: Array<{ date: string; url: string }>;
+  /** date → scanUrl, so a highlight can show the page it came from. */
+  scanByDate: Record<string, string>;
+  onOpenScan: (urls: string[], index: number, caption: string) => void;
+  sw: boolean;
+}) {
   const themes = Array.isArray(review.themes) ? review.themes.slice(0, 4) : [];
   const highlights = Array.isArray(review.highlights) ? review.highlights.slice(0, 3) : [];
   const moods = Array.isArray(review.mood_by_day) ? review.mood_by_day : [];
+  const railUrls = weekScans.map((s) => s.url);
 
   return (
     <div className="mb-3 rounded-2xl overflow-hidden border border-[#ECE4D3] bg-white">
@@ -597,6 +744,33 @@ function WeeklyReviewCard({ review, kidFirstName }: { review: ReflectionWeekRevi
       </div>
 
       <div className="p-4 space-y-3">
+        {/* 2026-06-23 · Handwritten notes from this week — the real scanned
+            pages, so the post shows the handwriting, not only the words. */}
+        {weekScans.length > 0 && (
+          <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
+            <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1.5">
+              ✍️ {sw ? 'Mwandiko wa wiki hii' : 'Handwritten this week'}
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {weekScans.map((s, i) => (
+                <button
+                  key={s.date}
+                  type="button"
+                  onClick={() => onOpenScan(railUrls, i, toDisplayDate(s.date))}
+                  className="flex-none w-[78px] rounded-lg overflow-hidden border border-[#ECE4D3] bg-white cursor-zoom-in"
+                  aria-label={`${sw ? 'Fungua ukurasa' : 'Open scan'} ${toDisplayDate(s.date)}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={s.url} alt="" className="w-full h-[96px] object-cover bg-white" />
+                  <div className="text-[8.5px] font-extrabold text-[#5A6488] text-center py-1">
+                    {toDisplayDate(s.date)}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
           <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1">🔥 Streak</div>
           <div className="text-[13px] font-extrabold text-[#0F1F44]">
@@ -623,12 +797,30 @@ function WeeklyReviewCard({ review, kidFirstName }: { review: ReflectionWeekRevi
           <div className="bg-[#FBF7EE] rounded-xl px-3 py-2.5">
             <div className="text-[10.5px] font-extrabold uppercase tracking-[0.6px] text-[#5A6488] mb-1.5">🌟 Highlights · your own words</div>
             <ul className="m-0 p-0 list-none space-y-1.5">
-              {highlights.map((h, idx) => (
-                <li key={idx} className="bg-white border-l-[3px] border-[#D4A847] rounded-r px-2.5 py-1.5 text-[12.5px] italic text-[#0F1F44] leading-snug">
-                  &ldquo;{h.quote}&rdquo;
-                  <span className="not-italic text-[#5A6488] text-[10.5px] font-bold block mt-0.5">{toDisplayDate(h.date)}</span>
-                </li>
-              ))}
+              {highlights.map((h, idx) => {
+                const scan = scanByDate[h.date];
+                return (
+                  <li key={idx} className="bg-white border-l-[3px] border-[#D4A847] rounded-r px-2.5 py-1.5 flex gap-2.5">
+                    {scan && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenScan([scan], 0, toDisplayDate(h.date))}
+                        className="flex-none w-[44px] h-[56px] rounded overflow-hidden border border-[#ECE4D3] bg-white cursor-zoom-in"
+                        aria-label={sw ? 'Fungua mwandiko' : 'Open handwritten page'}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={scan} alt="" className="w-full h-full object-cover" />
+                      </button>
+                    )}
+                    <div className="text-[12.5px] italic text-[#0F1F44] leading-snug">
+                      &ldquo;{h.quote}&rdquo;
+                      <span className="not-italic text-[#5A6488] text-[10.5px] font-bold block mt-0.5">
+                        {toDisplayDate(h.date)}{scan ? ` · 📷 ${sw ? 'kutoka mwandiko' : 'from the scan'}` : ''}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}
@@ -745,9 +937,18 @@ function ReflectionRatingSheet({
   entry: ReflectionEntry;
   kidName: string;
   authorName: string;
-  onSave: (args: { stars?: number; notes?: string }) => Promise<void>;
+  onSave: (args: {
+    stars?: number; soundness_percent?: number; handwriting_percent?: number; notes?: string;
+  }) => Promise<void>;
 }) {
   const [stars, setStars] = useState<number | null>(entry.parent_rating?.stars ?? null);
+  // 2026-06-23 · two 0-100 sliders — soundness (of the reflection) +
+  // handwriting (neatness). Seed from the prior rating, else the AI
+  // soundness read (a sensible starting point the parent can nudge).
+  const [soundness, setSoundness] = useState<number>(
+    entry.parent_rating?.soundness_percent ?? entry.ai_score?.soundness ?? 70,
+  );
+  const [handwriting, setHandwriting] = useState<number>(entry.parent_rating?.handwriting_percent ?? 70);
   const [notes, setNotes] = useState<string>(entry.parent_rating?.notes ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -755,14 +956,16 @@ function ReflectionRatingSheet({
   useEffect(() => {
     if (!open) return;
     setStars(entry.parent_rating?.stars ?? null);
+    setSoundness(entry.parent_rating?.soundness_percent ?? entry.ai_score?.soundness ?? 70);
+    setHandwriting(entry.parent_rating?.handwriting_percent ?? 70);
     setNotes(entry.parent_rating?.notes ?? '');
     setSaving(false);
     setError(null);
-  }, [open, entry.parent_rating?.stars, entry.parent_rating?.notes]);
+  }, [open, entry.parent_rating, entry.ai_score?.soundness]);
 
   if (!open) return null;
 
-  const canSave = !saving && (stars !== null || notes.trim().length > 0);
+  const canSave = !saving;
 
   const submit = async () => {
     if (!canSave) return;
@@ -770,6 +973,8 @@ function ReflectionRatingSheet({
     try {
       await onSave({
         stars: stars ?? undefined,
+        soundness_percent: soundness,
+        handwriting_percent: handwriting,
         notes: notes.trim() || undefined,
       });
     } catch (e) {
@@ -810,9 +1015,36 @@ function ReflectionRatingSheet({
             {entry.text}
           </div>
 
+          {/* 2026-06-23 · % scoring — soundness + handwriting on coral→green
+              sliders (the Home Projects pattern). Parents check both. */}
+          {entry.ai_score && (
+            <div className="rounded-xl bg-[#F6EFFF] border border-[#cdbdf0] px-3 py-2 text-[11.5px] text-[#2c2056]">
+              🤖 Kaya scored soundness <b>{entry.ai_score.soundness}%</b>
+              {entry.ai_score.rationale ? ` — ${entry.ai_score.rationale}` : ''}
+            </div>
+          )}
+          <div>
+            <label htmlFor="refl-sound" className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] flex items-center justify-between mb-2">
+              <span>Soundness · the reflection</span>
+              <span className="text-[12px] font-extrabold text-[#8A6800] bg-[#FFF1C9] rounded-full px-2.5 py-0.5">{soundness}%</span>
+            </label>
+            <input id="refl-sound" type="range" min={0} max={100} value={soundness}
+              onChange={(e) => setSoundness(Number(e.target.value))}
+              className="w-full accent-[#5A3CB8]" />
+          </div>
+          <div>
+            <label htmlFor="refl-hand" className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] flex items-center justify-between mb-2">
+              <span>✍️ Handwriting · neatness</span>
+              <span className="text-[12px] font-extrabold text-[#8A6800] bg-[#FFF1C9] rounded-full px-2.5 py-0.5">{handwriting}%</span>
+            </label>
+            <input id="refl-hand" type="range" min={0} max={100} value={handwriting}
+              onChange={(e) => setHandwriting(Number(e.target.value))}
+              className="w-full accent-[#5A3CB8]" />
+          </div>
+
           <div>
             <label className="text-[11px] font-bold uppercase tracking-wider text-[#5A6488] block mb-2">
-              Stars · self-reflection quality
+              Stars · overall (optional)
             </label>
             <div className="flex items-center gap-1.5">
               {[1, 2, 3, 4, 5].map((n) => {
