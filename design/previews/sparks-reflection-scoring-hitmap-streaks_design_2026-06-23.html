@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Kaya Sparks · Reflection — score past days, hit-map &amp; streak points (2026-06-23)</title>
+<style>
+  :root{
+    --cream:#FFFBF5; --paper:#FFFFFF; --tile:#FBF7EE; --line:#ECE4D3;
+    --navy:#0F1F44; --muted:#5A6488;
+    --violet:#5A3CB8; --violet-bg:#EFE7FF; --violet-soft:#E5D6FF;
+    --gold:#D4A847; --gold-dk:#8A6800; --gold-bg:#FFF1C9; --gold-paper:#FFFAEB;
+    --coral:#FF6B6B; --green:#6BCB77; --green-dk:#1f7a44; --rose:#E36F6F;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:#E7E0D2;color:var(--navy);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Nunito,system-ui,sans-serif;padding:22px 0 60px}
+  .head{max-width:1180px;margin:0 auto 6px;padding:0 18px}
+  .head h1{font-weight:900;font-size:23px;margin:0 0 4px;letter-spacing:-.4px}
+  .head p{margin:0;color:#6c6052;font-size:13px;font-weight:600;line-height:1.5}
+  .legend{max-width:1180px;margin:10px auto 22px;padding:0 18px;display:flex;gap:14px;flex-wrap:wrap}
+  .legend span{font-size:11px;font-weight:800;color:#6c6052;display:inline-flex;align-items:center;gap:6px}
+  .dot{width:11px;height:11px;border-radius:50%}
+  .grid{max-width:1180px;margin:0 auto;padding:0 18px;display:grid;grid-template-columns:1fr;gap:40px}
+  @media(min-width:780px){.grid{grid-template-columns:1fr 1fr 1fr;gap:26px}}
+  .col h2{font-size:13px;font-weight:900;color:var(--navy);margin:0 0 3px}
+  .col .tag{display:inline-block;font-size:10px;font-weight:900;letter-spacing:.5px;text-transform:uppercase;
+    color:var(--violet);background:var(--violet-soft);border-radius:999px;padding:3px 9px;margin-bottom:10px}
+  .col .note{font-size:11.5px;color:#6c6052;font-weight:600;line-height:1.5;margin:12px 4px 0}
+  .col .note b{color:var(--navy)}
+
+  .phone{background:#0B1119;border-radius:36px;padding:11px;box-shadow:0 24px 46px -18px rgba(11,17,25,.5);max-width:340px;margin:0 auto}
+  .screen{background:var(--cream);border-radius:26px;overflow:hidden;position:relative}
+  .statusbar{display:flex;justify-content:space-between;align-items:center;padding:9px 18px 3px;font-weight:800;font-size:10.5px;color:var(--navy)}
+  .app{padding:8px 13px 16px}
+  .new-badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:900;color:#0a7a43;background:#DDF5E4;border:1px solid #9fe0b8;border-radius:999px;padding:2px 7px;vertical-align:middle}
+  .eyebrow{font-size:9.5px;font-weight:900;letter-spacing:1px;text-transform:uppercase;color:var(--muted)}
+  .paper-a{background:repeating-linear-gradient(0deg,#fffdf6,#fffdf6 11px,#dfe7f0 12px)}
+  .ink{position:absolute;height:3px;background:#3a4a78;border-radius:3px;opacity:.82}
+
+  /* score bar */
+  .scorebar{height:7px;background:#fff;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:1}
+  .scorebar i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--coral),var(--green))}
+  .pct{font-size:10px;font-weight:900;border-radius:999px;padding:2px 7px}
+  .pct.ai{color:var(--violet);background:var(--violet-soft)}
+  .pct.par{color:var(--gold-dk);background:var(--gold-bg)}
+  .rowline{display:flex;align-items:center;gap:8px;margin-top:8px}
+  .rowline .nm{font-size:10.5px;font-weight:800;color:var(--navy);width:96px;flex:0 0 auto}
+  .slider{height:9px;border-radius:999px;background:linear-gradient(90deg,var(--coral),#ffd36b,var(--green));position:relative;margin:5px 0 2px}
+  .slider .knob{position:absolute;top:50%;width:18px;height:18px;border-radius:50%;background:#fff;border:2.5px solid var(--violet);transform:translate(-50%,-50%);box-shadow:0 2px 5px rgba(0,0,0,.2)}
+
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:12px;margin-bottom:11px}
+  .sheet-head{padding:12px 14px;color:#fff;background:linear-gradient(135deg,#1B1547,#5A3CB8);border-radius:14px 14px 0 0;margin:-12px -12px 10px}
+  .sheet-head .k{font-size:10px;opacity:.85}
+  .sheet-head .t{font-weight:900;font-size:15px;margin-top:1px}
+  .slabel{font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);display:flex;justify-content:space-between;align-items:center;margin-top:10px}
+  .btn{display:inline-block;text-align:center;border-radius:11px;padding:9px 12px;font-weight:900;font-size:12px}
+  .btn.primary{background:var(--gold);color:var(--navy)}
+  .btn.violet{background:var(--violet);color:#fff}
+  .btn.ghost{background:var(--tile);color:var(--muted);border:1px solid var(--line)}
+
+  /* hit-map */
+  .filters{display:flex;gap:6px;margin:4px 0 10px;flex-wrap:wrap}
+  .fchip{font-size:11px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.4px solid var(--line);background:#fff;color:var(--muted)}
+  .fchip.on{background:var(--navy);color:#fff;border-color:var(--navy)}
+  .monthnav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .monthnav b{font-weight:900;font-size:14px}
+  .monthnav .arw{font-weight:900;color:var(--muted);font-size:16px;padding:0 6px}
+  .dow{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:5px}
+  .dow span{text-align:center;font-size:9px;font-weight:900;color:var(--muted)}
+  .cells{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+  .cell{aspect-ratio:1;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;border:1px solid transparent}
+  .c-hi{background:#1f7a44;color:#fff}            /* logged · strong */
+  .c-mid{background:#9ad9ad;color:#11502f}        /* logged · ok */
+  .c-low{background:#dff0e2;color:#3a6b4c}        /* logged · low */
+  .c-miss{background:#FFE0DA;color:#b23b2a;border-color:#f3b4a8}  /* missed school day */
+  .c-off{background:#F1ECE0;color:#b9ad95}        /* weekend / inactive */
+  .c-fut{background:#fff;color:#cfc7b5;border:1px dashed var(--line)} /* future */
+  .c-today{box-shadow:0 0 0 2px var(--violet)}
+  .summ{display:flex;gap:8px;margin-top:10px}
+  .stat{flex:1;background:var(--tile);border-radius:10px;padding:8px;text-align:center}
+  .stat .n{font-weight:900;font-size:16px}
+  .stat .l{font-size:9px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+
+  /* streak */
+  .flame{border-radius:16px;padding:13px 14px;color:#5A4500;background:linear-gradient(135deg,#FFB627,#FFD93D);margin-bottom:11px}
+  .flame .big{font-weight:900;font-size:22px;display:flex;align-items:center;gap:8px}
+  .flame .nx{font-size:11px;font-weight:800;margin-top:4px;opacity:.9}
+  . prog{height:8px;background:rgba(255,255,255,.55);border-radius:999px;overflow:hidden;margin-top:7px}
+  .prog{height:8px;background:rgba(255,255,255,.55);border-radius:999px;overflow:hidden;margin-top:7px}
+  .prog i{display:block;height:100%;background:#5A4500;border-radius:999px}
+  .pend{border:1.5px solid var(--gold);background:var(--gold-paper);border-radius:16px;padding:12px;margin-bottom:11px}
+  .pend .h{font-weight:900;font-size:13px;color:var(--gold-dk);display:flex;align-items:center;gap:6px}
+  .stepper{display:inline-flex;align-items:center;gap:0;border:1.4px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  .stepper b{padding:6px 12px;font-weight:900;font-size:13px}
+  .stepper span{padding:6px 11px;font-weight:900;color:var(--violet);background:var(--tile)}
+  .toggle{display:flex;gap:6px;margin-top:6px}
+  .toggle .t{flex:1;text-align:center;border-radius:10px;padding:8px 4px;font-size:10.5px;font-weight:900;border:1.4px solid var(--line);background:#fff;color:var(--muted)}
+  .toggle .t.on{background:var(--violet);color:#fff;border-color:var(--violet)}
+  .mile{display:flex;align-items:center;gap:8px;background:var(--tile);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:12px;font-weight:800}
+  .mile .pp{margin-left:auto;color:var(--gold-dk);background:var(--gold-bg);border-radius:999px;padding:2px 8px;font-size:11px}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Kaya Reflection · score past days · weekly/monthly hit-map · streak points</h1>
+    <p>Design proposal · 2026-06-23 · three follow-ups, all on the Daily Reflection surface. Green chips mark <b>new</b>; rest mirrors the just-shipped build.</p>
+  </div>
+  <div class="legend">
+    <span><span class="dot" style="background:#1f7a44"></span>Logged (darker = higher score)</span>
+    <span><span class="dot" style="background:#FFE0DA;border:1px solid #f3b4a8"></span>Missed school day</span>
+    <span><span class="dot" style="background:#F1ECE0"></span>Weekend / off</span>
+    <span><span class="dot" style="background:#5A3CB8"></span>Today</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- ───────── COLUMN 1 — Score past submissions ───────── -->
+    <div class="col">
+      <span class="tag">Ask 1</span>
+      <h2>Score past submissions — open any day</h2>
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>7:04</span><span>Kaya ⚡</span></div>
+        <div class="app">
+          <div class="eyebrow" style="margin-bottom:7px">✍️ Recent handwriting · tap a day to score</div>
+          <div style="display:flex;gap:8px;overflow-x:auto;margin-bottom:11px">
+            <div style="flex:0 0 auto;width:74px">
+              <div class="paper-a" style="height:90px;border-radius:8px;border:1px solid var(--line);position:relative">
+                <div class="ink" style="top:16px;left:8px;width:60%"></div><div class="ink" style="top:30px;left:8px;width:78%"></div><div class="ink" style="top:44px;left:8px;width:50%"></div>
+                <span class="new-badge" style="position:absolute;bottom:4px;left:4px">unscored</span>
+              </div>
+              <div style="font-size:9px;font-weight:800;color:var(--muted);text-align:center;margin-top:3px">Mon 15</div>
+            </div>
+            <div style="flex:0 0 auto;width:74px">
+              <div class="paper-a" style="height:90px;border-radius:8px;border:1px solid var(--line);position:relative">
+                <div class="ink" style="top:18px;left:8px;width:70%"></div><div class="ink" style="top:32px;left:8px;width:54%"></div>
+                <span class="pct par" style="position:absolute;bottom:4px;left:4px">88%</span>
+              </div>
+              <div style="font-size:9px;font-weight:800;color:var(--muted);text-align:center;margin-top:3px">Tue 16</div>
+            </div>
+          </div>
+
+          <!-- day-detail / score sheet for a PAST day -->
+          <div class="card">
+            <div class="sheet-head"><div class="k">📔 Mon 15 Jun · past entry</div><div class="t">Score · Earlnathan</div></div>
+            <div style="display:flex;gap:9px;margin-bottom:8px">
+              <div class="paper-a" style="width:60px;height:78px;border-radius:8px;border:1px solid var(--line);flex:0 0 auto;position:relative">
+                <div class="ink" style="top:12px;left:6px;width:64%"></div><div class="ink" style="top:26px;left:6px;width:80%"></div><div class="ink" style="top:40px;left:6px;width:52%"></div>
+              </div>
+              <div style="font-size:11.5px;line-height:1.4;color:var(--navy)">“Today I graduated from primary school and I felt proud but also nervous…”</div>
+            </div>
+
+            <button class="btn violet" style="width:100%;margin-bottom:8px">✨ Score with Kaya (AI soundness)</button>
+            <div class="rowline"><span class="nm">🤖 Soundness</span><span class="scorebar"><i style="width:0%;background:#cdbdf0"></i></span><span class="pct ai">— </span></div>
+
+            <div class="slabel"><span>Soundness · the reflection</span><span class="pct par">90%</span></div>
+            <div class="slider"><span class="knob" style="left:90%"></span></div>
+            <div class="slabel"><span>✍️ Handwriting</span><span class="pct par">75%</span></div>
+            <div class="slider"><span class="knob" style="left:75%"></span></div>
+
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <span class="btn ghost" style="flex:1">Cancel</span>
+              <span class="btn primary" style="flex:1">Save score</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note"><b>What changes:</b> tapping <b>any</b> past day (from the strip or the hit-map) opens a <b>day-detail sheet</b> bound to that date — same scan + transcript + two parent sliders as today. For old entries with no AI read, a <b>“Score with Kaya”</b> button runs the soundness pass on demand. Parents can backfill scores for the whole history; kids stay read-only.</p>
+    </div>
+
+    <!-- ───────── COLUMN 2 — Hit-map ───────── -->
+    <div class="col">
+      <span class="tag">Ask 2</span>
+      <h2>Hit-map — spot missing submissions</h2>
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>7:04</span><span>Kaya ⚡</span></div>
+        <div class="app">
+          <div class="eyebrow" style="margin-bottom:6px">📅 Reflection hit-map <span class="new-badge">NEW</span></div>
+          <div class="filters">
+            <span class="fchip">Week</span>
+            <span class="fchip on">Month</span>
+            <span class="fchip">3 months</span>
+            <span class="fchip">Custom</span>
+          </div>
+          <div class="card" style="margin-bottom:11px">
+            <div class="monthnav"><span class="arw">‹</span><b>June 2026</b><span class="arw">›</span></div>
+            <div class="dow"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+            <div class="cells">
+              <div class="cell c-off">1</div><div class="cell c-hi">2</div><div class="cell c-mid">3</div><div class="cell c-hi">4</div><div class="cell c-low">5</div><div class="cell c-off">6</div><div class="cell c-off">7</div>
+              <div class="cell c-hi">8</div><div class="cell c-miss">9</div><div class="cell c-mid">10</div><div class="cell c-hi">11</div><div class="cell c-hi">12</div><div class="cell c-off">13</div><div class="cell c-off">14</div>
+              <div class="cell c-hi">15</div><div class="cell c-mid">16</div><div class="cell c-miss">17</div><div class="cell c-hi">18</div><div class="cell c-hi">19</div><div class="cell c-off">20</div><div class="cell c-off">21</div>
+              <div class="cell c-hi c-today">22</div><div class="cell c-fut">23</div><div class="cell c-fut">24</div><div class="cell c-fut">25</div><div class="cell c-fut">26</div><div class="cell c-off">27</div><div class="cell c-off">28</div>
+              <div class="cell c-fut">29</div><div class="cell c-fut">30</div><div class="cell c-fut" style="visibility:hidden"></div><div class="cell c-fut" style="visibility:hidden"></div><div class="cell c-fut" style="visibility:hidden"></div><div class="cell c-fut" style="visibility:hidden"></div><div class="cell c-fut" style="visibility:hidden"></div>
+            </div>
+            <div class="summ">
+              <div class="stat"><div class="n" style="color:var(--green-dk)">14</div><div class="l">logged</div></div>
+              <div class="stat"><div class="n" style="color:var(--rose)">2</div><div class="l">missed</div></div>
+              <div class="stat"><div class="n">88%</div><div class="l">avg score</div></div>
+            </div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);font-weight:700;text-align:center">Tap a missed day → nudge · tap a logged day → score it</div>
+        </div>
+      </div></div>
+      <p class="note"><b>What changes:</b> a calendar <b>hit-map</b> on the reflection page (parent-forward) coloured by day: logged (green, darker = higher score), <b>missed school day</b> (coral), weekend/off (muted, from the active-days mask), future (blank). Filter by <b>Week / Month / 3 months / custom range</b>, page month-to-month. Footer tallies logged · missed · avg score. Tapping a cell opens that day (ties into Ask 1).</p>
+    </div>
+
+    <!-- ───────── COLUMN 3 — Streak points ───────── -->
+    <div class="col">
+      <span class="tag">Ask 3</span>
+      <h2>Highlight streak · points w/ approval</h2>
+      <div class="phone"><div class="screen">
+        <div class="statusbar"><span>7:04</span><span>Kaya ⚡</span></div>
+        <div class="app">
+          <!-- highlighted streak -->
+          <div class="flame">
+            <div class="big">🔥 7-day streak</div>
+            <div class="nx">3 more school days → <b>Two-week climber</b> (+30 pts)</div>
+            <div class="prog"><i style="width:50%"></i></div>
+          </div>
+
+          <!-- pending approval (parent) -->
+          <div class="pend">
+            <div class="h">🎉 Streak reward to confirm <span class="new-badge">NEW</span></div>
+            <div style="font-size:12px;font-weight:700;color:var(--navy);margin:6px 0 9px">
+              Earlnathan hit a <b>7-day streak</b> — “Week strong”.
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px">
+              <span class="stepper"><span>–</span><b>15</b><span>+</span></span>
+              <span style="font-size:10.5px;color:var(--muted);font-weight:700">adjust within ±5</span>
+            </div>
+            <div style="display:flex;gap:7px">
+              <span class="btn primary" style="flex:1">Award 15 ✓</span>
+              <span class="btn ghost" style="flex:0 0 auto">Skip</span>
+            </div>
+          </div>
+
+          <!-- settings card -->
+          <div class="card">
+            <div class="eyebrow" style="margin-bottom:4px">⚙️ Streak rewards · settings</div>
+            <div class="slabel" style="margin-top:4px"><span>When a milestone is hit</span></div>
+            <div class="toggle">
+              <span class="t">Auto-award</span>
+              <span class="t on">Parent approves <span class="new-badge">NEW</span></span>
+            </div>
+            <div class="slabel"><span>Parent can adjust by</span><span class="pct ai">± 5 pts</span></div>
+            <div class="mile">🔥 3-day · Spark streak <span class="pp">+5</span></div>
+            <div class="mile">🔥 7-day · Week strong <span class="pp">+15</span></div>
+            <div class="mile">🔥 14-day · Two-week climber <span class="pp">+30</span></div>
+            <div class="mile">🔥 30-day · Month of mirrors <span class="pp">+75</span></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note"><b>What changes:</b> the current streak is <b>highlighted</b> (flame banner + progress to the next milestone). Milestone points already exist — this adds an <b>award mode</b>: <b>Auto-award</b> (today’s behaviour) or <b>Parent approves</b>. In approve-mode a hit creates a <b>pending reward</b> the parent confirms or nudges ±cap (mirrors the Revisions points flow) before Kaya Points land. All set per-kid in settings.</p>
+    </div>
+
+  </div>
+</body>
+</html>
