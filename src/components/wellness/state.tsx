@@ -1,7 +1,10 @@
 "use client";
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import type { Gender, WellnessProfile } from "./calc";
 import type { ChildGates, GateConfig } from "./gating";
+import { ageFromBirthday } from "./gating";
+import { useAuth } from "@/contexts/AuthContext";
+import { loadWellness, saveWellness } from "./persist";
 
 export interface Goal {
   wish: string; tiny: string; pill: string; pcol: string;
@@ -12,6 +15,7 @@ export interface WeightEntry { date: string; kg: number; bodyFat?: number; note?
 export interface MoodEntry { date: string; level: number; period: Period }
 export interface GymEntry { date: string; place: "gym" | "home" | "rest"; type: string; period: Period; details?: string }
 export interface Sport { id: string; name: string; emoji: string; venue: string; days: string[]; time: string; myDay: boolean; email: boolean }
+export interface GymVenue { id: string; name: string; type: string; emoji: string; primary: boolean; visits: number }
 export interface HomeCard { id: string; label: string; on: boolean }
 
 export function todayStr(): string {
@@ -23,8 +27,8 @@ interface WellnessState {
   profile: WellnessProfile;
   setProfile: (p: WellnessProfile) => void;
   profileReady: boolean;
-  weights: number[];          // derived, oldest→newest (kg only) — back-compat
-  weightLog: WeightEntry[];   // dated entries, oldest→newest
+  weights: number[];
+  weightLog: WeightEntry[];
   logWeight: (w: number) => void;
   importWeights: (entries: WeightEntry[]) => void;
   weightStreak: number;
@@ -38,19 +42,22 @@ interface WellnessState {
   gatesByChild: Record<string, ChildGates>;
   gatesFor: (childId: string) => ChildGates;
   setGate: (childId: string, sectionId: string, cfg: GateConfig) => void;
-  // v2: logging + sports + home prefs (local until persistence PR)
   moods: MoodEntry[];
   logMood: (level: number, period: Period, date?: string) => void;
   gymLogs: GymEntry[];
   logGym: (e: GymEntry) => void;
-  recordDays: string[];           // weekday short names the user wants reminded
+  recordDays: string[];
   setRecordDays: (d: string[]) => void;
   sports: Sport[];
   addSport: (s: Sport) => void;
   removeSport: (id: string) => void;
+  gyms: GymVenue[];
+  addGym: (g: GymVenue) => void;
+  removeGym: (id: string) => void;
   homeCards: HomeCard[];
   toggleHomeCard: (id: string) => void;
-  activityStreak: number;         // consecutive days with any gym log / done goal
+  activityStreak: number;
+  syncState: "local" | "saving" | "saved";
 }
 
 const Ctx = createContext<WellnessState | null>(null);
@@ -60,7 +67,6 @@ const STARTER_GOALS: Goal[] = [
   { wish: "Hydrate", tiny: "First glass of water on waking", pill: "💧", pcol: "#F9A826", streak: 0, todayDone: false, cheers: 0, target: 7 },
   { wish: "Calmer evenings", tiny: "3 deep breaths before bed", pill: "🧘", pcol: "#FF6B6B", streak: 0, todayDone: false, cheers: 0, target: 7 },
 ];
-
 const DEFAULT_HOME_CARDS: HomeCard[] = [
   { id: "spark", label: "✨ Daily Spark", on: true },
   { id: "streak", label: "🔥 Streak & momentum", on: true },
@@ -72,6 +78,10 @@ const DEFAULT_HOME_CARDS: HomeCard[] = [
 ];
 
 export function WellnessProvider({ children }: { children: ReactNode }) {
+  const { profile: account } = useAuth();
+  const familyId = account?.familyId;
+  const uid = account?.uid;
+
   const [profile, setProfile] = useState<WellnessProfile>({});
   const [weightLog, setWeightLog] = useState<WeightEntry[]>([]);
   const [ritualStreak, setRitualStreak] = useState(0);
@@ -82,17 +92,16 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
   const [gymLogs, setGymLogs] = useState<GymEntry[]>([]);
   const [recordDays, setRecordDays] = useState<string[]>(["Mon", "Wed", "Fri"]);
   const [sports, setSports] = useState<Sport[]>([]);
+  const [gyms, setGyms] = useState<GymVenue[]>([]);
   const [homeCards, setHomeCards] = useState<HomeCard[]>(DEFAULT_HOME_CARDS);
+  const [syncState, setSyncState] = useState<"local" | "saving" | "saved">("local");
 
   const gatesFor = (childId: string) => gatesByChild[childId] ?? {};
   const setGate = (childId: string, sectionId: string, cfg: GateConfig) =>
     setGatesByChild((prev) => ({ ...prev, [childId]: { ...(prev[childId] ?? {}), [sectionId]: cfg } }));
 
   const sortLog = (l: WeightEntry[]) => [...l].sort((a, b) => (a.date < b.date ? -1 : 1));
-  const logWeight = (w: number) => setWeightLog((prev) => {
-    const today = todayStr();
-    return sortLog([...prev.filter((e) => e.date !== today), { date: today, kg: w }]);
-  });
+  const logWeight = (w: number) => setWeightLog((prev) => sortLog([...prev.filter((e) => e.date !== todayStr()), { date: todayStr(), kg: w }]));
   const importWeights = (entries: WeightEntry[]) => setWeightLog((prev) => {
     const byDate = new Map(prev.map((e) => [e.date, e]));
     for (const e of entries) byDate.set(e.date, { ...byDate.get(e.date), ...e });
@@ -106,10 +115,64 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
   const toggleHomeCard = (id: string) => setHomeCards((prev) => prev.map((c) => (c.id === id ? { ...c, on: !c.on } : c)));
   const addSport = (s: Sport) => setSports((prev) => [...prev, s]);
   const removeSport = (id: string) => setSports((prev) => prev.filter((s) => s.id !== id));
+  const addGym = (g: GymVenue) => setGyms((prev) => (g.primary ? [...prev.map((x) => ({ ...x, primary: false })), g] : [...prev, g]));
+  const removeGym = (id: string) => setGyms((prev) => prev.filter((g) => g.id !== id));
 
-  const profileReady = !!(profile.heightCm && profile.age && profile.gender);
+  // ── Profile auto-pull from the Kaya account ──
+  const accountGender: Gender | undefined =
+    account?.gender === "male" ? "man" : account?.gender === "female" ? "woman" : undefined;
+  const accountAge = ageFromBirthday(account?.birthday) ?? undefined;
+  const mergedProfile: WellnessProfile = {
+    ...profile,
+    gender: accountGender ?? profile.gender,
+    age: accountAge ?? profile.age,
+  };
+  const profileReady = !!(mergedProfile.heightCm && mergedProfile.age && mergedProfile.gender);
 
-  // Activity streak: count back from today over days that have a non-rest gym log or a done goal today.
+  // ── Persistence: load once, then debounced save ──
+  const loaded = useRef(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!familyId || !uid || loaded.current) return;
+    let cancelled = false;
+    (async () => {
+      const data = await loadWellness(familyId, uid);
+      if (!cancelled && data) {
+        if (data.profile) setProfile(data.profile as WellnessProfile);
+        if (Array.isArray(data.weightLog)) setWeightLog(data.weightLog as WeightEntry[]);
+        if (Array.isArray(data.goals) && (data.goals as Goal[]).length) setGoals(data.goals as Goal[]);
+        if (Array.isArray(data.moods)) setMoods(data.moods as MoodEntry[]);
+        if (Array.isArray(data.gymLogs)) setGymLogs(data.gymLogs as GymEntry[]);
+        if (Array.isArray(data.sports)) setSports(data.sports as Sport[]);
+        if (Array.isArray(data.gyms)) setGyms(data.gyms as GymVenue[]);
+        if (Array.isArray(data.homeCards) && (data.homeCards as HomeCard[]).length) setHomeCards(data.homeCards as HomeCard[]);
+        if (Array.isArray(data.recordDays)) setRecordDays(data.recordDays as string[]);
+        if (data.gatesByChild) setGatesByChild(data.gatesByChild as Record<string, ChildGates>);
+        if (typeof data.ritualStreak === "number") setRitualStreak(data.ritualStreak);
+        if (typeof data.programStarted === "boolean") setProgramStarted(data.programStarted);
+        setSyncState(data === null ? "local" : "saved");
+      }
+      loaded.current = true;
+    })();
+    return () => { cancelled = true; };
+  }, [familyId, uid]);
+
+  useEffect(() => {
+    if (!loaded.current || !familyId || !uid) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSyncState("saving");
+    saveTimer.current = setTimeout(async () => {
+      const ok = await saveWellness(familyId, uid, {
+        profile, weightLog, goals, moods, gymLogs, sports, gyms, homeCards, recordDays, gatesByChild, ritualStreak, programStarted,
+      });
+      setSyncState(ok ? "saved" : "local");
+    }, 800);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile, weightLog, goals, moods, gymLogs, sports, gyms, homeCards, recordDays, gatesByChild, ritualStreak, programStarted, familyId, uid]);
+
+  // Activity streak
   const loggedDays = new Set(gymLogs.filter((g) => g.place !== "rest").map((g) => g.date));
   let activityStreak = 0;
   const cur = new Date();
@@ -120,8 +183,7 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
     else if (i > 0) break;
     cur.setDate(cur.getDate() - 1);
   }
-
-  // Weight streak: consecutive days up to today with a logged weight.
+  // Weight streak
   const weighDays = new Set(weightLog.map((e) => e.date));
   let weightStreak = 0;
   const wc = new Date();
@@ -134,14 +196,15 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider value={{
-      profile, setProfile, profileReady,
+      profile: mergedProfile, setProfile, profileReady,
       weights, weightLog, logWeight, importWeights, weightStreak,
       ritualStreak, bumpRitualStreak: () => setRitualStreak((s) => s + 1),
       goals, setGoals, addGoal,
       programStarted, startProgram: () => setProgramStarted(true),
       gatesByChild, gatesFor, setGate,
       moods, logMood, gymLogs, logGym, recordDays, setRecordDays,
-      sports, addSport, removeSport, homeCards, toggleHomeCard, activityStreak,
+      sports, addSport, removeSport, gyms, addGym, removeGym,
+      homeCards, toggleHomeCard, activityStreak, syncState,
     }}>
       {children}
     </Ctx.Provider>
