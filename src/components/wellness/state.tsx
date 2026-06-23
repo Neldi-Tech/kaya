@@ -58,7 +58,19 @@ interface WellnessState {
   toggleHomeCard: (id: string) => void;
   activityStreak: number;
   syncState: "local" | "saving" | "saved";
+  // PR C: diet + fasting + reminders
+  dietApproach: DietApproach;
+  setDietApproach: (a: DietApproach) => void;
+  eatingWindow: { start: string; end: string };
+  setEatingWindow: (w: { start: string; end: string }) => void;
+  reminders: Record<string, boolean>;
+  toggleReminder: (id: string) => void;
 }
+
+export type DietApproach = "none" | "if168" | "windows" | "water";
+const DEFAULT_REMINDERS: Record<string, boolean> = {
+  weighIn: true, windowOpen: false, windowClose: false, hydration: true, training: true, weeklyReview: false,
+};
 
 const Ctx = createContext<WellnessState | null>(null);
 
@@ -94,6 +106,9 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
   const [sports, setSports] = useState<Sport[]>([]);
   const [gyms, setGyms] = useState<GymVenue[]>([]);
   const [homeCards, setHomeCards] = useState<HomeCard[]>(DEFAULT_HOME_CARDS);
+  const [dietApproach, setDietApproach] = useState<DietApproach>("none");
+  const [eatingWindow, setEatingWindow] = useState<{ start: string; end: string }>({ start: "12:00", end: "20:00" });
+  const [reminders, setReminders] = useState<Record<string, boolean>>(DEFAULT_REMINDERS);
   const [syncState, setSyncState] = useState<"local" | "saving" | "saved">("local");
 
   const gatesFor = (childId: string) => gatesByChild[childId] ?? {};
@@ -117,6 +132,7 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
   const removeSport = (id: string) => setSports((prev) => prev.filter((s) => s.id !== id));
   const addGym = (g: GymVenue) => setGyms((prev) => (g.primary ? [...prev.map((x) => ({ ...x, primary: false })), g] : [...prev, g]));
   const removeGym = (id: string) => setGyms((prev) => prev.filter((g) => g.id !== id));
+  const toggleReminder = (id: string) => setReminders((prev) => ({ ...prev, [id]: !prev[id] }));
 
   // ── Profile auto-pull from the Kaya account ──
   const accountGender: Gender | undefined =
@@ -151,6 +167,9 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
         if (data.gatesByChild) setGatesByChild(data.gatesByChild as Record<string, ChildGates>);
         if (typeof data.ritualStreak === "number") setRitualStreak(data.ritualStreak);
         if (typeof data.programStarted === "boolean") setProgramStarted(data.programStarted);
+        if (typeof data.dietApproach === "string") setDietApproach(data.dietApproach as DietApproach);
+        if (data.eatingWindow) setEatingWindow(data.eatingWindow as { start: string; end: string });
+        if (data.reminders) setReminders({ ...DEFAULT_REMINDERS, ...(data.reminders as Record<string, boolean>) });
         setSyncState(data === null ? "local" : "saved");
       }
       loaded.current = true;
@@ -165,12 +184,13 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
     saveTimer.current = setTimeout(async () => {
       const ok = await saveWellness(familyId, uid, {
         profile, weightLog, goals, moods, gymLogs, sports, gyms, homeCards, recordDays, gatesByChild, ritualStreak, programStarted,
+        dietApproach, eatingWindow, reminders,
       });
       setSyncState(ok ? "saved" : "local");
     }, 800);
     return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile, weightLog, goals, moods, gymLogs, sports, gyms, homeCards, recordDays, gatesByChild, ritualStreak, programStarted, familyId, uid]);
+  }, [profile, weightLog, goals, moods, gymLogs, sports, gyms, homeCards, recordDays, gatesByChild, ritualStreak, programStarted, dietApproach, eatingWindow, reminders, familyId, uid]);
 
   // Activity streak
   const loggedDays = new Set(gymLogs.filter((g) => g.place !== "rest").map((g) => g.date));
@@ -205,6 +225,7 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
       moods, logMood, gymLogs, logGym, recordDays, setRecordDays,
       sports, addSport, removeSport, gyms, addGym, removeGym,
       homeCards, toggleHomeCard, activityStreak, syncState,
+      dietApproach, setDietApproach, eatingWindow, setEatingWindow, reminders, toggleReminder,
     }}>
       {children}
     </Ctx.Provider>
