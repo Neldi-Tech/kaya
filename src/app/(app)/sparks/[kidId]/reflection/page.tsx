@@ -20,7 +20,7 @@ import type { SparksProfile } from '@/lib/sparks/schema';
 import {
   type ReflectionEntry, type ReflectionFeedback, type ReflectionAIRead,
   type ReflectionAIScore,
-  reflectionDayKey, readReflectionSettings, typingAllowedOn,
+  reflectionDayKey, dowOf, readReflectionSettings, typingAllowedOn,
   subscribeToReflection, subscribeToReflections,
   saveReflection, saveReflectionFeedback, saveReflectionAIRead,
   saveReflectionParentRating, saveReflectionAIScore,
@@ -29,6 +29,7 @@ import {
   subscribeToWeeklyReviews,
 } from '@/lib/sparks/reflection';
 import type { ReflectionWeekReview } from '@/lib/sparks/schema';
+import type { DayOfWeek } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
@@ -97,7 +98,7 @@ export default function ReflectionPage() {
     if (!familyId || !kidId) return;
     const u1 = subscribeToSparksProfile(familyId, kidId, setProfile);
     const u2 = subscribeToReflection(familyId, kidId, today, setTodayEntry);
-    const u3 = subscribeToReflections(familyId, kidId, setRecent);
+    const u3 = subscribeToReflections(familyId, kidId, setRecent, 220); // hit-map needs ~7-8 months of history
     const u4 = subscribeToWeeklyReviews(familyId, kidId, setWeeklyReviews);
     return () => { u1(); u2(); u3(); u4(); };
   }, [familyId, kidId, today]);
@@ -611,6 +612,20 @@ export default function ReflectionPage() {
       {/* This-week strip */}
       <WeekStrip byDate={streak.byDate} sw={sw} />
 
+      {/* 2026-06-23 · Reflection hit-map — filterable calendar to spot missing
+          submissions, shaded by score, taps open the day. */}
+      <ReflectionHitMap
+        entries={recent}
+        activeDays={
+          profile?.reflection_reminders?.active_days?.length
+            ? new Set(profile.reflection_reminders.active_days)
+            : new Set<DayOfWeek>(['mon', 'tue', 'wed', 'thu', 'fri', 'sat'])
+        }
+        onOpenDay={(date) => setScoreDate(date)}
+        hasEntry={(date) => recent.some((r) => r.date === date)}
+        sw={sw}
+      />
+
       {/* Slice 7r · scanned-page lightbox. Shows the original handwriting
           full-screen so the parent can verify what was uploaded vs the
           transcript. Only mounts when there's a scan to show. */}
@@ -714,6 +729,189 @@ function ReflectionFeedbackCard({ feedback, busy, sw }: { feedback?: ReflectionF
       <div>
         <div className="font-nunito font-black text-[12px] flex items-center gap-1.5">👏 {sw ? 'Hongera' : 'Cheer'}</div>
         <p className="text-[12.5px] leading-snug mt-0.5">{feedback.cheer}</p>
+      </div>
+    </div>
+  );
+}
+
+// ─── 2026-06-23 · Reflection hit-map ───────────────────────────────
+//
+// A filterable calendar that surfaces MISSING submissions at a glance.
+// Range filter (week · month · 3 months), month paging, cells shaded by
+// score (darker green = higher) so quality + gaps read together. A day
+// counts as "missed" only when it's an expected (active) day with no
+// entry — Sundays/off-days are neutral. Taps open that day's sheet.
+
+/** A day's overall score 0-100, or null when logged-but-unscored. Parent
+ *  rating (avg of the two %s) wins; else the AI soundness read. */
+function entryScore(e: ReflectionEntry): number | null {
+  const pr = e.parent_rating;
+  const ps: number[] = [];
+  if (pr && typeof pr.soundness_percent === 'number') ps.push(pr.soundness_percent);
+  if (pr && typeof pr.handwriting_percent === 'number') ps.push(pr.handwriting_percent);
+  if (ps.length) return Math.round(ps.reduce((a, b) => a + b, 0) / ps.length);
+  if (typeof e.ai_score?.soundness === 'number') return e.ai_score.soundness;
+  return null;
+}
+
+type HitRange = 'week' | 'month' | '3mo';
+
+function ReflectionHitMap({
+  entries, activeDays, onOpenDay, hasEntry, sw,
+}: {
+  entries: ReflectionEntry[];
+  activeDays: Set<DayOfWeek>;
+  onOpenDay: (date: string) => void;
+  hasEntry: (date: string) => boolean;
+  sw: boolean;
+}) {
+  const [range, setRange] = useState<HitRange>('month');
+  // Month cursor (0 = current month, -1 = last month, …) for paging.
+  const [monthOffset, setMonthOffset] = useState(0);
+
+  const today = new Date();
+  const todayKey = reflectionDayKey(today);
+  const scoreByDate = useMemo(() => {
+    const m: Record<string, number | null> = {};
+    for (const e of entries) m[e.date] = entryScore(e);
+    return m;
+  }, [entries]);
+
+  // Build the list of day-keys to render for the active range.
+  const { gridDays, label } = useMemo(() => {
+    const days: string[] = [];
+    if (range === 'week') {
+      const mon = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+      for (let i = 0; i < 7; i++) { const d = new Date(mon); d.setDate(mon.getDate() + i); days.push(reflectionDayKey(d)); }
+      return { gridDays: days, label: sw ? 'Wiki hii' : 'This week' };
+    }
+    if (range === '3mo') {
+      const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
+      const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(reflectionDayKey(new Date(d)));
+      return { gridDays: days, label: sw ? 'Miezi 3' : 'Last 3 months' };
+    }
+    // month
+    const first = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
+    const last = new Date(today.getFullYear(), today.getMonth() + monthOffset + 1, 0);
+    // pad to Monday-start grid
+    const lead = (first.getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) days.push('');
+    for (let d = 1; d <= last.getDate(); d++) days.push(reflectionDayKey(new Date(first.getFullYear(), first.getMonth(), d)));
+    const lbl = first.toLocaleDateString(sw ? 'sw' : 'en', { month: 'long', year: 'numeric' });
+    return { gridDays: days, label: lbl };
+  }, [range, monthOffset, sw, today]);
+
+  // Tally logged / missed / avg-score over the real (non-pad) days.
+  const stats = useMemo(() => {
+    let logged = 0, missed = 0, sum = 0, scored = 0;
+    for (const k of gridDays) {
+      if (!k) continue;
+      const future = k > todayKey;
+      if (hasEntry(k)) {
+        logged++;
+        const s = scoreByDate[k];
+        if (typeof s === 'number') { sum += s; scored++; }
+      } else if (!future && activeDays.has(dowOf(k))) {
+        missed++;
+      }
+    }
+    return { logged, missed, avg: scored ? Math.round(sum / scored) : null };
+  }, [gridDays, scoreByDate, hasEntry, activeDays, todayKey]);
+
+  const cellClass = (k: string): string => {
+    if (!k) return 'invisible';
+    const future = k > todayKey;
+    if (hasEntry(k)) {
+      const s = scoreByDate[k];
+      if (s === null || s === undefined) return 'bg-[#dff0e2] text-[#3a6b4c] border-transparent';
+      if (s >= 85) return 'bg-[#1f7a44] text-white border-transparent';
+      if (s >= 60) return 'bg-[#9ad9ad] text-[#11502f] border-transparent';
+      return 'bg-[#cfe5d6] text-[#2f6b46] border-transparent';
+    }
+    if (future) return 'bg-white text-[#cfc7b5] border-dashed border-[#ECE4D3]';
+    if (activeDays.has(dowOf(k))) return 'bg-[#FFE0DA] text-[#b23b2a] border-[#f3b4a8]';
+    return 'bg-[#F1ECE0] text-[#b9ad95] border-transparent';
+  };
+
+  const dow = sw ? ['J2', 'J3', 'J4', 'J5', 'I', 'J', 'JP'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+  const ranges: Array<{ id: HitRange; label: string }> = [
+    { id: 'week', label: sw ? 'Wiki' : 'Week' },
+    { id: 'month', label: sw ? 'Mwezi' : 'Month' },
+    { id: '3mo', label: sw ? 'Miezi 3' : '3 mo' },
+  ];
+
+  return (
+    <div className="mt-4 rounded-2xl border border-[#ECE4D3] bg-white p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488]">
+          {sw ? '📅 Ramani ya tafakari' : '📅 Reflection hit-map'}
+        </div>
+        <div className="flex gap-1">
+          {ranges.map((r) => (
+            <button key={r.id} type="button"
+              onClick={() => { setRange(r.id); if (r.id === 'month') setMonthOffset(0); }}
+              className={`text-[10.5px] font-extrabold rounded-full px-2.5 py-1 border ${range === r.id ? 'bg-[#0F1F44] text-white border-[#0F1F44]' : 'bg-white text-[#5A6488] border-[#ECE4D3]'}`}>
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {range === 'month' ? (
+        <div className="flex items-center justify-between mb-2">
+          <button type="button" onClick={() => setMonthOffset((o) => o - 1)} className="text-[16px] font-black text-[#5A6488] px-2" aria-label="Previous month">‹</button>
+          <span className="font-nunito font-black text-[13px] text-[#0F1F44] capitalize">{label}</span>
+          <button type="button" onClick={() => setMonthOffset((o) => Math.min(0, o + 1))} disabled={monthOffset >= 0}
+            className="text-[16px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label="Next month">›</button>
+        </div>
+      ) : (
+        <div className="text-center font-nunito font-black text-[13px] text-[#0F1F44] mb-2">{label}</div>
+      )}
+
+      {range !== 'week' && (
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {dow.map((d, i) => <span key={i} className="text-center text-[8.5px] font-black text-[#5A6488]">{d}</span>)}
+        </div>
+      )}
+      <div className="grid grid-cols-7 gap-1">
+        {gridDays.map((k, i) => {
+          if (!k) return <span key={`p${i}`} className="invisible aspect-square" />;
+          const day = Number(k.slice(8, 10));
+          const isToday = k === todayKey;
+          const tappable = hasEntry(k);
+          return (
+            <button
+              key={k}
+              type="button"
+              disabled={!tappable}
+              onClick={() => onOpenDay(k)}
+              title={`${toDisplayDate(k)}${typeof scoreByDate[k] === 'number' ? ` · ${scoreByDate[k]}%` : ''}`}
+              className={`aspect-square rounded-md grid place-items-center text-[10px] font-nunito font-extrabold border ${cellClass(k)} ${isToday ? 'ring-2 ring-[#5A3CB8]' : ''} ${tappable ? 'cursor-pointer' : 'cursor-default'}`}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-2 mt-3">
+        <div className="flex-1 bg-[#FBF7EE] rounded-lg py-1.5 text-center">
+          <div className="font-black text-[15px] text-[#1f7a44]">{stats.logged}</div>
+          <div className="text-[8.5px] font-extrabold uppercase tracking-[0.4px] text-[#5A6488]">{sw ? 'Imeandikwa' : 'Logged'}</div>
+        </div>
+        <div className="flex-1 bg-[#FBF7EE] rounded-lg py-1.5 text-center">
+          <div className="font-black text-[15px] text-[#E36F6F]">{stats.missed}</div>
+          <div className="text-[8.5px] font-extrabold uppercase tracking-[0.4px] text-[#5A6488]">{sw ? 'Imekoswa' : 'Missed'}</div>
+        </div>
+        <div className="flex-1 bg-[#FBF7EE] rounded-lg py-1.5 text-center">
+          <div className="font-black text-[15px] text-[#0F1F44]">{stats.avg === null ? '—' : `${stats.avg}%`}</div>
+          <div className="text-[8.5px] font-extrabold uppercase tracking-[0.4px] text-[#5A6488]">{sw ? 'Wastani' : 'Avg score'}</div>
+        </div>
+      </div>
+      <div className="text-[9.5px] text-[#5A6488] mt-2 leading-snug">
+        {sw ? 'Kijani = imeandikwa (kikolezo = alama). Nyekundu = siku ya shule iliyokoswa.' : 'Green = logged (darker = higher score). Coral = a missed school day. Tap a logged day to score it.'}
       </div>
     </div>
   );
