@@ -8,6 +8,7 @@ export interface Goal {
   streak: number; todayDone: boolean; cheers: number; target: number;
 }
 export type Period = "morning" | "evening";
+export interface WeightEntry { date: string; kg: number; bodyFat?: number; note?: string }
 export interface MoodEntry { date: string; level: number; period: Period }
 export interface GymEntry { date: string; place: "gym" | "home" | "rest"; type: string; period: Period; details?: string }
 export interface Sport { id: string; name: string; emoji: string; venue: string; days: string[]; time: string; myDay: boolean; email: boolean }
@@ -22,8 +23,10 @@ interface WellnessState {
   profile: WellnessProfile;
   setProfile: (p: WellnessProfile) => void;
   profileReady: boolean;
-  weights: number[];
+  weights: number[];          // derived, oldest→newest (kg only) — back-compat
+  weightLog: WeightEntry[];   // dated entries, oldest→newest
   logWeight: (w: number) => void;
+  importWeights: (entries: WeightEntry[]) => void;
   weightStreak: number;
   ritualStreak: number;
   bumpRitualStreak: () => void;
@@ -70,8 +73,7 @@ const DEFAULT_HOME_CARDS: HomeCard[] = [
 
 export function WellnessProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<WellnessProfile>({});
-  const [weights, setWeights] = useState<number[]>([]);
-  const [weightStreak, setWeightStreak] = useState(0);
+  const [weightLog, setWeightLog] = useState<WeightEntry[]>([]);
   const [ritualStreak, setRitualStreak] = useState(0);
   const [goals, setGoals] = useState<Goal[]>(STARTER_GOALS);
   const [programStarted, setProgramStarted] = useState(false);
@@ -86,7 +88,17 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
   const setGate = (childId: string, sectionId: string, cfg: GateConfig) =>
     setGatesByChild((prev) => ({ ...prev, [childId]: { ...(prev[childId] ?? {}), [sectionId]: cfg } }));
 
-  const logWeight = (w: number) => { setWeights((prev) => [...prev, w].slice(-30)); setWeightStreak((s) => s + 1); };
+  const sortLog = (l: WeightEntry[]) => [...l].sort((a, b) => (a.date < b.date ? -1 : 1));
+  const logWeight = (w: number) => setWeightLog((prev) => {
+    const today = todayStr();
+    return sortLog([...prev.filter((e) => e.date !== today), { date: today, kg: w }]);
+  });
+  const importWeights = (entries: WeightEntry[]) => setWeightLog((prev) => {
+    const byDate = new Map(prev.map((e) => [e.date, e]));
+    for (const e of entries) byDate.set(e.date, { ...byDate.get(e.date), ...e });
+    return sortLog([...byDate.values()]);
+  });
+  const weights = weightLog.map((e) => e.kg);
   const addGoal = (g: Goal) => setGoals((prev) => [...prev, g]);
   const logMood = (level: number, period: Period, date = todayStr()) =>
     setMoods((prev) => [{ date, level, period }, ...prev.filter((m) => !(m.date === date && m.period === period))]);
@@ -109,10 +121,21 @@ export function WellnessProvider({ children }: { children: ReactNode }) {
     cur.setDate(cur.getDate() - 1);
   }
 
+  // Weight streak: consecutive days up to today with a logged weight.
+  const weighDays = new Set(weightLog.map((e) => e.date));
+  let weightStreak = 0;
+  const wc = new Date();
+  for (let i = 0; i < 400; i++) {
+    const ds = `${wc.getFullYear()}-${String(wc.getMonth() + 1).padStart(2, "0")}-${String(wc.getDate()).padStart(2, "0")}`;
+    if (weighDays.has(ds)) weightStreak++;
+    else if (i > 0) break;
+    wc.setDate(wc.getDate() - 1);
+  }
+
   return (
     <Ctx.Provider value={{
       profile, setProfile, profileReady,
-      weights, logWeight, weightStreak,
+      weights, weightLog, logWeight, importWeights, weightStreak,
       ritualStreak, bumpRitualStreak: () => setRitualStreak((s) => s + 1),
       goals, setGoals, addGoal,
       programStarted, startProgram: () => setProgramStarted(true),

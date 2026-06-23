@@ -1,7 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, ChangeEvent } from "react";
 import { celebrate } from "./fx";
-import { bmi, bmiBand, bodyFatPct, weeklyPace, weeksToGoal, aiAnalysis, Gender } from "./calc";
+import { bmi, bmiBand, bodyFatPct, weeklyPace, weeksToGoal, aiAnalysis, Gender, paceTiers, goalDateLabel, actualPaceKgPerWk, recommendTier, parseBetterCsv, ParseResult } from "./calc";
 import { useWellness, Goal, todayStr } from "./state";
 import { useNav } from "./nav";
 
@@ -174,8 +174,55 @@ function WeightSpark({ weights }: { weights: number[] }) {
   );
 }
 const Dash = "—";
+
+function Projection({ current, goalKg, actual }: { current: number; goalKg?: number; actual: number | null }) {
+  const tiers = paceTiers(current, goalKg);
+  const rec = recommendTier(actual);
+  if (!goalKg) {
+    return (
+      <>
+        <div className="grouphdr ai">🎯 Projection</div>
+        <div className="card" style={{ marginTop: 0 }}><p className="note">Set a goal weight in your profile to see your projected date across 3 pace plans.</p></div>
+      </>
+    );
+  }
+  if (current <= goalKg) {
+    return (
+      <>
+        <div className="grouphdr ai">🎯 Projection</div>
+        <div className="card" style={{ marginTop: 0 }}><b style={{ fontSize: 13 }}>Goal reached 🎉</b><p className="note" style={{ marginTop: 4 }}>You&apos;re at or below {goalKg} kg — shift to maintenance.</p></div>
+      </>
+    );
+  }
+  const tagWord = (t: string) => (t === "rec" ? "recommended" : t === "hard" ? "demanding" : "easiest");
+  const tagCls = (t: string) => (t === "rec" ? "easy" : t);
+  return (
+    <>
+      <div className="grouphdr ai">🎯 Project your goal date · −{(current - goalKg).toFixed(1)} kg to go</div>
+      {actual != null && (
+        <div className="card" style={{ marginTop: 0, background: "#f7f4fd", border: "none" }}>
+          <p className="note">Your recent pace ≈ <b style={{ color: "var(--violet)" }}>{Math.abs(actual).toFixed(1)} kg/wk</b> → you&apos;re tracking <b style={{ color: "#138f81" }}>{tiers.find((t) => t.key === rec)?.name}</b>.</p>
+        </div>
+      )}
+      {tiers.map((t) => (
+        <div className="card" key={t.key} style={{ marginTop: 10, borderColor: t.key === rec ? "var(--teal)" : undefined, background: t.key === rec ? "#f1fbf9" : undefined }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 14, fontWeight: 800 }}>{t.emoji} {t.name}</span>
+            <span className={`tag ${tagCls(t.tag)}`}>{tagWord(t.tag)}</span>
+          </div>
+          <div style={{ fontSize: 19, fontWeight: 800, marginTop: 5 }}>
+            ~{t.weeks} wk <small style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 700 }}>· {goalDateLabel(t.weeks)} · {t.ratePerWk} kg/wk</small>
+          </div>
+          <div className="note" style={{ marginTop: 4 }}>{t.deficit} · {t.sessions} · {t.note}</div>
+        </div>
+      ))}
+      <p className="note" style={{ textAlign: "center", marginTop: 8 }}>Logged gym sessions &amp; consistency speed this up — Kaya re-projects automatically.</p>
+    </>
+  );
+}
+
 export function Weight({ go }: { go: (v: View) => void }) {
-  const { weights, logWeight, weightStreak, profile, profileReady } = useWellness();
+  const { weights, weightLog, logWeight, weightStreak, profile, profileReady } = useWellness();
   const [input, setInput] = useState("");
   const has = weights.length > 0;
   const cur = has ? weights[weights.length - 1] : null;
@@ -236,6 +283,8 @@ export function Weight({ go }: { go: (v: View) => void }) {
         <div className="stat"><span className="autotag">AUTO</span><div className="sl">Goal date</div><div className="sv">{!profile.goalKg ? Dash : cur != null && cur <= profile.goalKg ? "reached 🎉" : wks == null ? Dash : `~${wks} wk`}</div></div>
       </div>
 
+      {cur != null && <Projection current={cur} goalKg={profile.goalKg} actual={actualPaceKgPerWk(weightLog)} />}
+
       <div className="grouphdr you">📝 You log</div>
       <div className="logcard">
         <h4>Today&apos;s weight</h4>
@@ -264,9 +313,32 @@ export function Weight({ go }: { go: (v: View) => void }) {
 const FREQ = ["Weekly", "2× / month", "3× / month", "Monthly"];
 const WEIGH = ["Daily", "Every other day", "Weekly"];
 export function WeightSettings({ go }: { go: (v: View) => void }) {
+  const { importWeights, profile, setProfile } = useWellness();
   const [freq, setFreq] = useState(1);
   const [weigh, setWeigh] = useState(0);
-  const [parsed, setParsed] = useState(false);
+  const [res, setRes] = useState<ParseResult | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [showPaste, setShowPaste] = useState(false);
+  const [paste, setPaste] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const onFile = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setFileName(f.name);
+    const reader = new FileReader();
+    reader.onload = () => setRes(parseBetterCsv(String(reader.result || "")));
+    reader.readAsText(f);
+  };
+  const approve = () => {
+    if (!res || !res.entries.length) return;
+    importWeights(res.entries);
+    if (!profile.heightCm && res.inferredHeightCm) setProfile({ ...profile, heightCm: res.inferredHeightCm });
+    celebrate("📈", "Imported!", `${res.total} entries added — your trend & projection are live.`);
+    go("weight");
+  };
+  const minDate = res?.entries[0]?.date, maxDate = res?.entries[res.entries.length - 1]?.date;
+
   return (
     <>
       <div className="top"><div className="t">Tracking settings<small>WEIGHT MANAGEMENT</small></div><button className="mscore" onClick={() => go("weight")}>← Back</button></div>
@@ -280,24 +352,34 @@ export function WeightSettings({ go }: { go: (v: View) => void }) {
         <p>Daily weigh-in nudge — first thing, after waking.</p>
         <div className="selrow">{WEIGH.map((f, i) => <button key={f} className={`opt${weigh === i ? " on" : ""}`} onClick={() => setWeigh(i)}>{f}</button>)}</div>
       </div>
-      <div className="sec"><h3>Import old data</h3><div className="hint">backfill</div></div>
+      <div className="sec"><h3>Import old data</h3><div className="hint">from other apps</div></div>
       <div className="uploadzone">
-        <div className="e">📄</div><div className="ut">Upload an Excel / CSV</div>
-        <div className="us">Drag your old weight log here — Kaya AI reads it and fills in the past for you.</div>
-        <button className="btn btn-ghost" style={{ marginTop: 12, width: "auto", padding: "10px 18px" }} onClick={() => setParsed(true)}>Choose file</button>
+        <div className="e">📄</div><div className="ut">Upload a CSV / export</div>
+        <div className="us">Works with Better, Apple Health &amp; most weight apps. Kaya reads it and fills your trend.</div>
+        <input ref={fileRef} type="file" accept=".csv,.txt,text/csv" style={{ display: "none" }} onChange={onFile} />
+        <div className="selrow" style={{ justifyContent: "center", marginTop: 12 }}>
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "10px 18px" }} onClick={() => fileRef.current?.click()}>Choose file</button>
+          <button className="btn btn-ghost" style={{ width: "auto", padding: "10px 18px" }} onClick={() => setShowPaste((s) => !s)}>Paste data</button>
+        </div>
       </div>
-      {parsed && (
+      {showPaste && (
+        <div className="card">
+          <textarea className="wInput" style={{ textAlign: "left", fontSize: 12, fontWeight: 600, minHeight: 80, width: "100%" }} placeholder={'Paste rows, e.g.\n2026-02-23;82.1\n2026-02-18;82.9'} value={paste} onChange={(e) => setPaste(e.target.value)} />
+          <button className="btn btn-ghost" style={{ marginTop: 8 }} onClick={() => { setFileName("pasted data"); setRes(parseBetterCsv(paste)); }}>Parse pasted data</button>
+        </div>
+      )}
+      {res && (
         <>
           <div className="parsed">
-            <div className="ph"><span>🤖 KAYA AI PARSED · weights.xlsx</span><span>34 rows</span></div>
-            <div className="prow"><span>01–14 May · 14 entries</span><span className="ok">✓ clean</span></div>
-            <div className="prow"><span>15–28 May · 14 entries</span><span className="ok">✓ clean</span></div>
-            <div className="prow"><span>29–31 May · 3 entries</span><span className="warn">⚠ units? (lb→kg)</span></div>
-            <div className="prow"><span>03 Jun · duplicate</span><span className="warn">⚠ skip</span></div>
+            <div className="ph"><span>🤖 KAYA AI PARSED · {fileName}</span><span>{res.total} entries</span></div>
+            {res.total > 0 && <div className="prow"><span>{minDate} → {maxDate}</span><span className="ok">✓ {res.total} clean</span></div>}
+            {res.lbConverted > 0 && <div className="prow"><span>{res.lbConverted} rows in lb</span><span className="warn">→ converted to kg</span></div>}
+            {res.skipped > 0 && <div className="prow"><span>{res.skipped} rows skipped</span><span className="warn">⚠ blank / duplicate</span></div>}
+            {res.inferredHeightCm && !profile.heightCm && <div className="prow"><span>Height inferred</span><span className="ok">✓ {res.inferredHeightCm} cm</span></div>}
           </div>
-          <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, margin: "10px 0 0", textAlign: "center" }}>Review the flags, then approve — nothing is saved until you confirm.</p>
+          <p style={{ fontSize: 11, color: "var(--w-grey)", fontWeight: 600, margin: "10px 0 0", textAlign: "center" }}>Review, then approve — nothing is saved until you confirm.</p>
           <div style={{ padding: "10px 0 0" }}>
-            <button className="btn btn-primary" onClick={() => celebrate("📈", "Imported!", "Your past entries are added — history complete.")}>✓ Approve &amp; import</button>
+            <button className="btn btn-primary" disabled={!res.total} style={{ opacity: res.total ? 1 : 0.5 }} onClick={approve}>✓ Approve &amp; import {res.total || ""} entries</button>
           </div>
         </>
       )}
