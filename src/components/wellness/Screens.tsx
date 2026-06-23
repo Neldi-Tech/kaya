@@ -673,10 +673,9 @@ export function Library({ go }: { go: (v: View) => void }) {
     </>
   );
 }
-type GymVenue = { id: string; name: string; type: string; emoji: string; primary: boolean; visits: number };
 const GYM_TYPES2 = [{ t: "Gym", e: "🏋️" }, { t: "Pool", e: "🏊" }, { t: "Studio", e: "🧘" }, { t: "Other", e: "🥊" }];
 export function Gyms({ go }: { go: (v: View) => void }) {
-  const [gyms, setGyms] = useState<GymVenue[]>([]);
+  const { gyms, addGym, removeGym } = useWellness();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [type, setType] = useState(0);
@@ -686,14 +685,11 @@ export function Gyms({ go }: { go: (v: View) => void }) {
     const nm = name.trim();
     if (!nm) return;
     const t = GYM_TYPES2[type];
-    setGyms((prev) => {
-      const next = primary ? prev.map((g) => ({ ...g, primary: false })) : [...prev];
-      return [...next, { id: `${nm}-${next.length}`, name: nm, type: t.t, emoji: t.e, primary: primary || prev.length === 0, visits: 0 }];
-    });
+    addGym({ id: `${nm}-${Date.now()}`, name: nm, type: t.t, emoji: t.e, primary: primary || gyms.length === 0, visits: 0 });
     celebrate("🏋️", "Gym registered!", `${nm} added — now tracking your visits.`);
     setName(""); setType(0); setPrimary(true); setAdding(false);
   };
-  const remove = (id: string) => setGyms((prev) => prev.filter((g) => g.id !== id));
+  const remove = (id: string) => removeGym(id);
 
   return (
     <>

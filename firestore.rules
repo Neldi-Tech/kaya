@@ -222,6 +222,15 @@ service cloud.firestore {
 
     // ── Families ───────────────────────────────────
     match /families/{familyId} {
+      // Kaya Wellness — personal data, one private doc per member.
+      // Each member reads/writes their own; parents may write a member's doc
+      // (to set kids' section gates). Operators bypass for support.
+      match /wellness/{wuid} {
+        allow read:  if belongsToFamily(familyId)
+                     && (request.auth.uid == wuid || isParentInFamily(familyId) || isOperator());
+        allow write: if belongsToFamily(familyId)
+                     && (request.auth.uid == wuid || isParentInFamily(familyId) || isOperator());
+      }
       // Family members can read
       allow read: if belongsToFamily(familyId);
       // Closed beta (2026-05-24): a signed-in user may create a family
