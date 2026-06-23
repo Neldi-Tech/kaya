@@ -19,13 +19,14 @@
 // so `auth` is here for the ID token.
 import {
   collection, doc, query, where, onSnapshot,
-  serverTimestamp, Timestamp, updateDoc, arrayUnion,
+  serverTimestamp, Timestamp, updateDoc, arrayUnion, arrayRemove,
 } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { isGuestActive } from '../mockFamily';
 import {
   type ReflectionSettings, DEFAULT_REFLECTION_SETTINGS,
   type ReflectionStreakRewards, type ReflectionStreakMilestone,
+  type ReflectionStreakPending,
   DEFAULT_REFLECTION_STREAK_REWARDS,
 } from './schema';
 import { giveAward } from '../firestore';
@@ -444,11 +445,33 @@ export async function maybeAwardStreakMilestone(args: {
     .sort((a, b) => a.days - b.days);
 
   const profileRef = doc(db, 'families', args.familyId, 'sparks_profiles', args.kidId);
+  // 2026-06-23 · approval is the default when unset. In approval mode a hit is
+  // QUEUED for the parent to confirm/adjust instead of auto-awarding.
+  const mode = cfg.award_mode ?? 'approval';
+  const pending = Array.isArray(cfg.pending) ? cfg.pending : [];
 
   for (const m of sortedMilestones) {
     if (args.streakCurrent < m.days) continue;
     const alreadyToday = history.some((h) => h.days === m.days && h.awarded_on === today);
     if (alreadyToday) continue;
+
+    if (mode === 'approval') {
+      // Queue once per milestone per day — the parent confirms later.
+      const alreadyPending = pending.some((p) => p.days === m.days && p.suggested_on === today);
+      if (alreadyPending) continue;
+      try {
+        const item: ReflectionStreakPending = { days: m.days, points: m.points, label: m.label, suggested_on: today };
+        await updateDoc(profileRef, {
+          'reflection_streak.pending': arrayUnion(item),
+          'reflection_streak.enabled': cfg.enabled,
+          'reflection_streak.milestones': cfg.milestones,
+          updatedAt: serverTimestamp(),
+        });
+      } catch { /* best-effort — reflection already saved */ }
+      continue;
+    }
+
+    // Auto mode — fire immediately (legacy behaviour).
     try {
       await giveAward(args.familyId, {
         childId: args.kidId,
@@ -472,4 +495,53 @@ export async function maybeAwardStreakMilestone(args: {
     }
   }
   return fired;
+}
+
+// ── 2026-06-23 · Parent confirm / skip a pending streak reward ───────
+//
+// Approval mode queues milestone hits on the profile. A parent then
+// confirms (optionally nudging the points within the override cap) — which
+// fires the award + logs award_history — or skips it. Either way the item
+// is removed from `pending`, and award_history is stamped so the same
+// milestone doesn't re-queue the same day.
+
+/** Approve a pending streak reward → grant `finalPoints` + clear it. */
+export async function approveStreakReward(
+  familyId: string, kidId: string,
+  item: ReflectionStreakPending,
+  finalPoints: number,
+  awardedBy: string, awardedByName: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const points = Math.max(0, Math.round(finalPoints));
+  await giveAward(familyId, {
+    childId: kidId,
+    kind: 'regular',
+    points,
+    reason: `${item.label} · ${item.days}-day reflection streak`,
+    category: 'sparks-reflection-streak',
+    awardedBy,
+    awardedByName: awardedByName || 'Parent',
+    senderRole: 'parent',
+  });
+  const profileRef = doc(db, 'families', familyId, 'sparks_profiles', kidId);
+  await updateDoc(profileRef, {
+    'reflection_streak.pending': arrayRemove(item),
+    'reflection_streak.award_history': arrayUnion({ days: item.days, awarded_on: item.suggested_on }),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/** Skip a pending streak reward → no points, just clear it (and stamp the
+ *  history so it doesn't immediately re-queue today). */
+export async function dismissStreakReward(
+  familyId: string, kidId: string, item: ReflectionStreakPending,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const profileRef = doc(db, 'families', familyId, 'sparks_profiles', kidId);
+  await updateDoc(profileRef, {
+    'reflection_streak.pending': arrayRemove(item),
+    'reflection_streak.award_history': arrayUnion({ days: item.days, awarded_on: item.suggested_on }),
+    updatedAt: serverTimestamp(),
+  });
 }

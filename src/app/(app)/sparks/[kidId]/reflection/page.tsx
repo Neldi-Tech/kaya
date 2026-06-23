@@ -26,9 +26,10 @@ import {
   saveReflectionParentRating, saveReflectionAIScore,
   computeReflectionStreak,
   maybeAwardStreakMilestone, type StreakAwardResult,
+  approveStreakReward, dismissStreakReward,
   subscribeToWeeklyReviews,
 } from '@/lib/sparks/reflection';
-import type { ReflectionWeekReview } from '@/lib/sparks/schema';
+import type { ReflectionWeekReview, ReflectionStreakPending } from '@/lib/sparks/schema';
 import type { DayOfWeek } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
@@ -313,6 +314,34 @@ export default function ReflectionPage() {
       {/* Slice 7p · streak fire confetti — fires once when the kid
           adds a new day to the streak or hits a milestone. */}
       {celebrate && <CelebrationBurst onDone={() => setCelebrate(false)} />}
+
+      {/* 2026-06-23 · Highlighted streak + next-milestone progress. */}
+      {streak.current > 0 && (
+        <StreakHighlight
+          current={streak.current}
+          milestones={profile?.reflection_streak?.milestones ?? []}
+          sw={sw}
+        />
+      )}
+
+      {/* 2026-06-23 · Pending streak rewards. Parents confirm/adjust/skip;
+          kids see a quiet "waiting on a grown-up" note. */}
+      {(profile?.reflection_streak?.pending?.length ?? 0) > 0 && (
+        <PendingStreakRewards
+          pending={profile!.reflection_streak!.pending!}
+          cap={profile?.reflection_streak?.points_override_cap ?? 5}
+          kidFirstName={kidName.split(' ')[0]}
+          isParent={isParent}
+          onApprove={async (item, pts) => {
+            if (!familyId || !authProfile?.uid) return;
+            await approveStreakReward(familyId, kidId, item, pts, authProfile.uid, authProfile.displayName || 'Parent');
+          }}
+          onSkip={async (item) => {
+            if (!familyId) return;
+            await dismissStreakReward(familyId, kidId, item);
+          }}
+        />
+      )}
 
       {/* Slice 7o · Weekly review card — only when the Sunday cron has
           generated at least one review for the kid. Renders the most
@@ -699,6 +728,123 @@ function ScoreBar({ label, percent, tone }: { label: string; percent: number; to
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'linear-gradient(90deg, #FF6B6B, #6BCB77)' }} />
       </div>
       <span className={`text-[10px] font-extrabold rounded-full px-1.5 py-0.5 ${chip}`}>{pct}%</span>
+    </div>
+  );
+}
+
+// ─── 2026-06-23 · Streak highlight + pending streak rewards ─────────
+
+function StreakHighlight({
+  current, milestones, sw,
+}: {
+  current: number;
+  milestones: Array<{ days: number; points: number; label: string }>;
+  sw: boolean;
+}) {
+  const sorted = [...milestones].filter((m) => m.days > 0).sort((a, b) => a.days - b.days);
+  const next = sorted.find((m) => m.days > current);
+  const prevDays = sorted.filter((m) => m.days <= current).pop()?.days ?? 0;
+  const pct = next ? Math.round(((current - prevDays) / (next.days - prevDays)) * 100) : 100;
+
+  return (
+    <div className="mb-3 rounded-2xl px-4 py-3" style={{ background: 'linear-gradient(135deg,#FFB627,#FFD93D)', color: '#5A4500' }}>
+      <div className="font-display font-extrabold text-[22px] flex items-center gap-2">
+        🔥 {sw ? `Mfululizo wa siku ${current}` : `${current}-day streak`}
+      </div>
+      {next ? (
+        <>
+          <div className="text-[11.5px] font-bold mt-1 opacity-90">
+            {sw
+              ? `Siku ${next.days - current} zaidi → ${next.label} (+${next.points})`
+              : `${next.days - current} more school ${next.days - current === 1 ? 'day' : 'days'} → ${next.label} (+${next.points} pts)`}
+          </div>
+          <div className="h-2 rounded-full mt-2 overflow-hidden" style={{ background: 'rgba(255,255,255,0.55)' }}>
+            <div className="h-full rounded-full" style={{ width: `${Math.max(4, Math.min(100, pct))}%`, background: '#5A4500' }} />
+          </div>
+        </>
+      ) : sorted.length > 0 ? (
+        <div className="text-[11.5px] font-bold mt-1 opacity-90">
+          {sw ? 'Umefikia kila hatua — endelea hivyo! 🏆' : 'Every milestone reached — keep it blazing! 🏆'}
+        </div>
+      ) : (
+        <div className="text-[11.5px] font-bold mt-1 opacity-90">
+          {sw ? 'Endelea hivyo! 🔥' : 'Keep it going! 🔥'}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PendingStreakRewards({
+  pending, cap, kidFirstName, isParent, onApprove, onSkip,
+}: {
+  pending: ReflectionStreakPending[];
+  cap: number;
+  kidFirstName: string;
+  isParent: boolean;
+  onApprove: (item: ReflectionStreakPending, points: number) => Promise<void>;
+  onSkip: (item: ReflectionStreakPending) => Promise<void>;
+}) {
+  // Local per-item adjusted points + busy state.
+  const [pts, setPts] = useState<Record<string, number>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const keyOf = (p: ReflectionStreakPending) => `${p.days}_${p.suggested_on}`;
+
+  if (!isParent) {
+    return (
+      <div className="mb-3 rounded-2xl border border-[#D4A847] bg-[#FFFAEB] px-4 py-3">
+        <div className="text-[13px] font-display font-extrabold text-[#8A6800]">🎉 Streak reward on the way!</div>
+        <div className="text-[12px] text-[#5A4500] mt-1 leading-snug">
+          You hit a {pending.map((p) => `${p.days}-day`).join(' & ')} streak — a grown-up will confirm your points soon.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-2xl border-2 border-[#D4A847] bg-gradient-to-br from-[#FFF1C9] to-[#FFFAEB] px-4 py-3">
+      <div className="text-[13px] font-display font-extrabold text-[#8A6800] flex items-center gap-2">
+        <span className="text-xl">🎉</span> Streak reward to confirm
+      </div>
+      <div className="space-y-2.5 mt-2">
+        {pending.map((p) => {
+          const k = keyOf(p);
+          const val = pts[k] ?? p.points;
+          const lo = Math.max(0, p.points - cap), hi = p.points + cap;
+          const isBusy = busy === k;
+          return (
+            <div key={k} className="bg-white border border-[#D4A847] rounded-xl px-3 py-2.5">
+              <div className="text-[12.5px] font-extrabold text-[#0F1F44]">
+                🔥 {p.days}-day · {p.label}
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <div className="inline-flex items-center border border-[#ECE4D3] rounded-lg overflow-hidden bg-white">
+                  <button type="button" disabled={isBusy || val <= lo || cap === 0}
+                    onClick={() => setPts((s) => ({ ...s, [k]: Math.max(lo, val - 1) }))}
+                    className="px-3 py-1.5 font-black text-[#5A3CB8] disabled:opacity-30">–</button>
+                  <span className="px-3 py-1.5 font-black text-[13px] text-[#0F1F44]">{val}</span>
+                  <button type="button" disabled={isBusy || val >= hi || cap === 0}
+                    onClick={() => setPts((s) => ({ ...s, [k]: Math.min(hi, val + 1) }))}
+                    className="px-3 py-1.5 font-black text-[#5A3CB8] disabled:opacity-30">+</button>
+                </div>
+                {cap > 0 && <span className="text-[10px] font-bold text-[#5A6488]">adjust within ±{cap}</span>}
+                <button type="button" disabled={isBusy}
+                  onClick={async () => { setBusy(k); try { await onApprove(p, val); } finally { setBusy(null); } }}
+                  className="ml-auto px-3 py-1.5 rounded-lg text-[12px] font-extrabold disabled:opacity-50"
+                  style={{ background: '#D4A847', color: '#0F1F44' }}>
+                  {isBusy ? '…' : `Award ${val} ✓`}
+                </button>
+                <button type="button" disabled={isBusy}
+                  onClick={async () => { setBusy(k); try { await onSkip(p); } finally { setBusy(null); } }}
+                  className="px-2.5 py-1.5 rounded-lg text-[12px] font-bold text-[#5A6488] hover:bg-[#FBF7EE] disabled:opacity-50">
+                  Skip
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="text-[10px] text-[#5A4500] mt-2">{kidFirstName} sees the points the moment you award them.</div>
     </div>
   );
 }
