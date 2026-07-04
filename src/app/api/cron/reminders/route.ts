@@ -16,7 +16,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import { dayKeyInTZ } from '@/lib/dates';
 import {
-  leadFiringsForToday, firedKeyFor, type ReminderEvent, type TimeCapsule,
+  leadFiringsForToday, firedKeyFor, displayTitle, type ReminderEvent, type TimeCapsule,
 } from '@/lib/reminders';
 import { renderReminderEmail } from '@/lib/reminderEmail';
 
@@ -79,7 +79,7 @@ async function handle(req: NextRequest) {
               if (!uid || uid === 'system') continue;
               await famDoc.ref.collection('notifications').add({
                 type: 'reminder',
-                title: `${emojiFor(meta)} ${whenWord(f.lead)}: ${ev.title}`,
+                title: `${emojiFor(meta)} ${whenWord(f.lead)}: ${displayTitle(ev, f.occurrenceKey)}`,
                 message: reminderLine(ev, f.lead),
                 read: false,
                 forUserId: uid,

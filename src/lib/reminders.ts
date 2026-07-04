@@ -514,6 +514,29 @@ export function displayTitle(ev: ReminderEvent, occurrenceKey: string): string {
   return `${ev.title} · ${ordinal(n)} ${word}`;
 }
 
+/** Classic anniversary milestone names (approved v4 table). Diamond at 60
+ *  reuses Kaya's existing Diamond motif. */
+export const ANNIVERSARY_MILESTONES: Record<number, { label: string; emoji: string }> = {
+  1: { label: 'Paper', emoji: '📜' }, 5: { label: 'Wood', emoji: '🌳' },
+  10: { label: 'Tin', emoji: '🥫' }, 15: { label: 'Crystal', emoji: '🔮' },
+  20: { label: 'China', emoji: '🏺' }, 25: { label: 'Silver', emoji: '🥈' },
+  30: { label: 'Pearl', emoji: '🫧' }, 40: { label: 'Ruby', emoji: '❤️' },
+  50: { label: 'Golden', emoji: '🥇' }, 60: { label: 'Diamond', emoji: '💎' },
+};
+
+/** Milestone for an anniversary occurrence — {n, Silver, 🥈} on the classic
+ *  years, null otherwise (non-milestone years stay clean). */
+export function anniversaryMilestone(
+  ev: ReminderEvent,
+  occurrenceKey: string,
+): { n: number; label: string; emoji: string } | null {
+  if (ev.type !== 'anniversary') return null;
+  const n = nthFor(ev, occurrenceKey);
+  if (!n) return null;
+  const m = ANNIVERSARY_MILESTONES[n];
+  return m ? { n, ...m } : null;
+}
+
 /** Sub-line flourish for an Nth occurrence — "turning 8 🎈" / "12 years ·
  *  since 2015 💕". Null when there's no N (sub-line renders as before). */
 export function nthSubLabel(ev: ReminderEvent, occurrenceKey: string): string | null {
