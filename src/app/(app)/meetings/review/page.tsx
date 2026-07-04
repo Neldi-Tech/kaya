@@ -30,6 +30,8 @@ import {
   WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry, BeltChampion, StarStanding,
 } from '@/lib/meetingReview';
 import StarRulesCard from '@/components/meetings/StarRulesCard';
+import { buildKidQuiz, quizCountForBads, type QuizQuestion } from '@/lib/meetingQuiz';
+import { auth as fbAuth } from '@/lib/firebase';
 import { fmt } from '@/lib/format';
 
 // Quick-pick chips. Months + Custom are not in this list — they're rendered
@@ -239,6 +241,8 @@ export default function MeetingReviewPage() {
             dayScores={dayScores!}
             routines={routines}
             childById={childById}
+            familyId={profile?.familyId || ''}
+            range={{ from: range.from, to: range.to }}
           />
         )}
 
@@ -622,11 +626,15 @@ function BehaviourTab({
   dayScores,
   routines,
   childById,
+  familyId,
+  range,
 }: {
   comments: CommentEntry[];
   dayScores: DayScore[];
   routines: Routine[];
   childById: Map<string, Child>;
+  familyId: string;
+  range: { from: string; to: string };
 }) {
   // Filter chip — All / Excellent comments only / Bad comments only.
   // Resets to All whenever the window changes so a parent who picked
@@ -669,6 +677,95 @@ function BehaviourTab({
     }
     return m;
   }, [dayScores]);
+
+  // ── 🎓 Learn & Grow (SM3.1 · #4) ────────────────────────────────────
+  // Memory-check quiz BEFORE the reveal — question count scales with the
+  // Bads: min(3, ceil(bads/2)); 0 Bads → 🎉 celebration instead. Questions
+  // are deterministic from the kid's real week (lib/meetingQuiz); the AI
+  // route only warms the wording (falls back to templates silently).
+  const templateQuiz = useMemo(() => {
+    const m = new Map<string, QuizQuestion[]>();
+    for (const [childId, stats] of perKid.entries()) {
+      const count = quizCountForBads(stats.badCount);
+      if (count === 0) continue;
+      const kidScores = dayScores.filter((d) => d.childId === childId);
+      const qs = buildKidQuiz(childById.get(childId)?.name || 'this kid', kidScores, routineNameById, count);
+      if (qs.length > 0) m.set(childId, qs);
+    }
+    return m;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [perKid, dayScores, routineNameById]);
+  const [aiQuiz, setAiQuiz] = useState<Map<string, QuizQuestion[]>>(new Map());
+  const [quizPicked, setQuizPicked] = useState<Record<string, Record<number, number>>>({});
+  const [quizDone, setQuizDone] = useState<Set<string>>(new Set());
+  useEffect(() => { setQuizPicked({}); setQuizDone(new Set()); setAiQuiz(new Map()); }, [comments]);
+  useEffect(() => {
+    if (templateQuiz.size === 0) return;
+    let off = false;
+    (async () => {
+      try {
+        const token = await fbAuth.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await fetch('/api/meetings/behaviour-quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            kids: Array.from(templateQuiz.entries()).map(([kidId, questions]) => ({
+              kidId, kidName: childById.get(kidId)?.name || 'the kid', questions,
+            })),
+          }),
+        });
+        const data = await res.json().catch(() => null) as { ok?: boolean; kids?: Array<{ kidId: string; questions: QuizQuestion[] }> } | null;
+        if (off || !data?.ok || !Array.isArray(data.kids)) return;
+        setAiQuiz(new Map(data.kids.map((k) => [k.kidId, k.questions])));
+      } catch { /* templates are fine */ }
+    })();
+    return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateQuiz]);
+
+  // 📈 Trend vs the PREVIOUS window of the same length — "3 fewer Bads than
+  // last window" beats a bare number. Best-effort; hidden when no prev data.
+  const [prevBads, setPrevBads] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (!familyId || !range.from || !range.to) { setPrevBads(null); return; }
+    const fromD = new Date(`${range.from}T00:00:00`);
+    const toD = new Date(`${range.to}T00:00:00`);
+    if (Number.isNaN(fromD.getTime()) || Number.isNaN(toD.getTime())) { setPrevBads(null); return; }
+    const lenDays = Math.max(1, Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1);
+    const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const prevTo = new Date(fromD); prevTo.setDate(prevTo.getDate() - 1);
+    const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - (lenDays - 1));
+    let off = false;
+    getRatingsInDateRange(familyId, iso(prevFrom), iso(prevTo)).then((rows) => {
+      if (off) return;
+      if (!rows || rows.length === 0) { setPrevBads(null); return; }
+      const per: Record<string, number> = {};
+      for (const r of rows) {
+        let bads = 0;
+        for (const v of Object.values(r.ratings || {})) if (v === 'bad') bads += 1;
+        per[r.childId] = (per[r.childId] || 0) + bads;
+      }
+      setPrevBads(per);
+    }).catch(() => { if (!off) setPrevBads(null); });
+    return () => { off = true; };
+  }, [familyId, range.from, range.to]);
+
+  // ✍️ Commitments (SM3.1 · #4c) — one line per kid with Bads; saved to the
+  // device and pre-filled into that kid's Goal in tonight's presenter.
+  const [commitDrafts, setCommitDrafts] = useState<Record<string, string>>({});
+  const [commitSaved, setCommitSaved] = useState<Set<string>>(new Set());
+  const saveCommitment = (childId: string, textRaw: string) => {
+    const text = textRaw.trim();
+    if (!text || !familyId) return;
+    try {
+      const key = `kaya:meeting:commitments:${familyId}`;
+      const cur = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, { text: string; at: number }>;
+      cur[childId] = { text, at: Date.now() };
+      localStorage.setItem(key, JSON.stringify(cur));
+      setCommitSaved((prev) => new Set(prev).add(childId));
+    } catch { /* private mode — nothing to do */ }
+  };
 
   // Filter comments by tone first, THEN bucket by kid — so the
   // per-kid sections show only the comments matching the active chip.
@@ -816,6 +913,14 @@ function BehaviourTab({
         const worstReasonRoutines = worst
           ? worst.badRoutineIds.map((id) => routineNameById.get(id) || id).filter(Boolean)
           : [];
+        // 🎓 Learn & Grow locals — quiz gates the reveal; 0 Bads celebrates.
+        const bads = stats?.badCount || 0;
+        const kidQuiz = aiQuiz.get(childId) ?? templateQuiz.get(childId) ?? [];
+        const revealedNow = bads === 0 || kidQuiz.length === 0 || quizDone.has(childId);
+        const picked = quizPicked[childId] || {};
+        const answeredAll = kidQuiz.length > 0 && kidQuiz.every((_, i) => picked[i] !== undefined);
+        const worstRoutineName = worstReasonRoutines[0] || '';
+        const prevForKid = prevBads?.[childId];
         // If the tone filter is narrowing, only render kids that still
         // have anything to show under that filter (otherwise the
         // section is just an empty header).
@@ -838,9 +943,101 @@ function BehaviourTab({
               )}
             </div>
 
+            {/* 🎉 Clean week — no Bads, no quiz needed. Celebrate. */}
+            {bads === 0 && (stats?.totalRated || 0) > 0 && (
+              <div className="bg-emerald-500/10 border-l-2 border-emerald-400/70 rounded-kaya-sm p-3 lg:p-4 mb-3">
+                <p className="text-[13px] lg:text-sm text-emerald-100 font-semibold">
+                  🎉 A clean week — zero &ldquo;Bad&rdquo; ratings, {stats?.excellentCount || 0} Excellents. Take a bow, {child.name}!
+                </p>
+              </div>
+            )}
+
+            {/* 🎓 Memory check — the quiz comes FIRST; the reveal follows. */}
+            {!revealedNow && (
+              <div className="bg-kaya-gold/[0.07] border border-dashed border-kaya-gold/50 rounded-kaya-sm p-3 lg:p-4 mb-3">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-kaya-gold mb-2">
+                  🎓 Memory check — {kidQuiz.length} question{kidQuiz.length === 1 ? '' : 's'} · let&rsquo;s remember together
+                </p>
+                <div className="space-y-3">
+                  {kidQuiz.map((qq, qi) => {
+                    const pick = picked[qi];
+                    return (
+                      <div key={qi}>
+                        <p className="text-[13px] lg:text-sm font-display font-extrabold text-white/90 mb-1.5">
+                          Q{qi + 1} · {qq.q}
+                        </p>
+                        <div className="space-y-1.5">
+                          {qq.options.map((opt, oi) => {
+                            const chosen = pick === oi;
+                            const isRight = oi === qq.correctIndex;
+                            const showState = pick !== undefined;
+                            return (
+                              <button
+                                key={oi}
+                                type="button"
+                                disabled={pick !== undefined}
+                                onClick={() => setQuizPicked((prev) => ({
+                                  ...prev,
+                                  [childId]: { ...(prev[childId] || {}), [qi]: oi },
+                                }))}
+                                className={`w-full text-left px-3 py-2 rounded-kaya-sm border text-[12.5px] lg:text-[13px] font-semibold transition-colors ${
+                                  showState && isRight
+                                    ? 'border-emerald-400/80 bg-emerald-500/15 text-emerald-100'
+                                    : showState && chosen
+                                    ? 'border-rose-400/80 bg-rose-500/10 text-rose-100'
+                                    : 'border-white/15 bg-black/20 text-white/80 hover:bg-white/10'
+                                }`}
+                              >
+                                {String.fromCharCode(65 + oi)} · {opt}
+                                {showState && isRight ? ' ✓' : ''}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {pick !== undefined && (
+                          <p className={`text-[12px] mt-1.5 font-semibold ${pick === qq.correctIndex ? 'text-emerald-200' : 'text-white/70'}`}>
+                            {pick === qq.correctIndex ? '✓ You remembered! ' : '💛 Close — '}{qq.explain}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="flex items-center justify-between mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setQuizDone((prev) => new Set(prev).add(childId))}
+                    className="text-[11px] font-bold text-white/45 hover:text-white/80 underline underline-offset-2"
+                  >
+                    Skip to the reveal
+                  </button>
+                  {answeredAll && (
+                    <button
+                      type="button"
+                      onClick={() => setQuizDone((prev) => new Set(prev).add(childId))}
+                      className="h-9 px-4 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate text-[12px] font-display font-extrabold"
+                    >
+                      See the week →
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 📈 Trend vs the previous window — positives lead. */}
+            {revealedNow && typeof prevForKid === 'number' && (stats?.totalRated || 0) > 0 && (
+              <p className={`text-[12px] font-semibold mb-2 ${bads <= prevForKid ? 'text-emerald-200' : 'text-white/65'}`}>
+                {bads < prevForKid
+                  ? `📉 ${prevForKid - bads} fewer Bad${prevForKid - bads === 1 ? '' : 's'} than the previous window — improving 👏`
+                  : bads === prevForKid
+                  ? `➡️ Same Bads as the previous window (${bads}) — steady.`
+                  : `📈 ${bads - prevForKid} more Bad${bads - prevForKid === 1 ? '' : 's'} than the previous window — a reset week, we've got this.`}
+              </p>
+            )}
+
             {/* Worst day callout — only when viewing All or Bad, since
                 it's about Bad ratings. Hide on the Excellent filter. */}
-            {filter !== 'excellent' && worst && worst.badCount > 0 && (
+            {revealedNow && filter !== 'excellent' && worst && worst.badCount > 0 && (
               <div className="bg-rose-500/10 border-l-2 border-rose-400/70 rounded-kaya-sm p-3 lg:p-4 mb-3">
                 <div className="text-[10px] lg:text-[11px] uppercase tracking-wider font-bold text-rose-300 mb-1">
                   Lowest day · {formatShort(worst.date)}
@@ -858,7 +1055,7 @@ function BehaviourTab({
 
             {/* Comments — each tagged with its tone so a parent can
                 spot Excellent moments and dips at a glance. */}
-            {entries.length > 0 ? (
+            {revealedNow && (entries.length > 0 ? (
               <ul className="space-y-3">
                 {entries.map((e) => {
                   const isExcellent = e.tone === 'excellent';
@@ -903,6 +1100,41 @@ function BehaviourTab({
                   ? 'No notes left this window.'
                   : `No ${filter} notes this window.`}
               </p>
+            ))}
+
+            {/* ✍️ Commitment (SM3.1 · #4c) — a plan, not a punishment. Saved
+                here → pre-fills this kid's Goal in tonight's presenter. */}
+            {revealedNow && bads > 0 && (
+              <div className="mt-3 bg-kaya-gold/[0.06] border border-kaya-gold/40 rounded-kaya-sm p-3 lg:p-4">
+                <p className="text-[10px] uppercase tracking-wider font-bold text-kaya-gold mb-1.5">
+                  ✍️ {child.name}&rsquo;s commitment — goes to Goals
+                </p>
+                {commitSaved.has(childId) ? (
+                  <p className="text-[12.5px] text-emerald-200 font-semibold">
+                    🎯 Saved — it will pre-fill {child.name}&rsquo;s Goal in tonight&rsquo;s meeting.
+                  </p>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      value={commitDrafts[childId] ?? (worstRoutineName ? `I'll take extra care with ${worstRoutineName} this week.` : '')}
+                      onChange={(e) => setCommitDrafts((prev) => ({ ...prev, [childId]: e.target.value }))}
+                      maxLength={160}
+                      placeholder={`One small plan for next week…`}
+                      className="flex-1 h-10 bg-black/25 border border-white/15 rounded-kaya-sm px-3 text-[12.5px] text-white placeholder-white/35 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveCommitment(
+                        childId,
+                        commitDrafts[childId] ?? (worstRoutineName ? `I'll take extra care with ${worstRoutineName} this week.` : ''),
+                      )}
+                      className="h-10 px-4 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate text-[12px] font-display font-extrabold shrink-0"
+                    >
+                      🎯 Save
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </section>
         );
