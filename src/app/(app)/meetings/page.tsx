@@ -30,7 +30,7 @@ const BASE_AGENDA = [
 export default function MeetingsPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
-  const [tab, setTab] = useState<'new' | 'past'>('new');
+  const [tab, setTab] = useState<'new' | 'past' | 'highlights'>('new');
   const [meetingType, setMeetingType] = useState<'weekly' | 'kid-led'>('weekly');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeStep, setActiveStep] = useState(0);
@@ -222,7 +222,7 @@ export default function MeetingsPage() {
   // ── Tabs (shared markup) ──────────────────────────────────
   const Tabs = () => (
     <div className="flex gap-2">
-      {(['new', 'past'] as const).map((t) => (
+      {(['new', 'past', 'highlights'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
@@ -230,7 +230,7 @@ export default function MeetingsPage() {
             tab === t ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'
           }`}
         >
-          {t === 'new' ? '✨ New meeting' : `📁 Past (${meetings.length})`}
+          {t === 'new' ? '✨ New meeting' : t === 'past' ? `📁 Past (${meetings.length})` : '🔥 Highlights'}
         </button>
       ))}
     </div>
@@ -378,7 +378,7 @@ export default function MeetingsPage() {
               </div>
             </div>
           )
-        ) : (
+        ) : tab === 'past' ? (
           <div className="space-y-3">
             {/* SM3.1 (#5b) — status filter */}
             <div className="flex gap-2 mb-1">
@@ -438,6 +438,12 @@ export default function MeetingsPage() {
               ))
             ))}
           </div>
+        ) : (
+          <HighlightsPane
+            meetings={meetings}
+            childrenList={children}
+            scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
+          />
         )}
       </div>
 
@@ -628,7 +634,7 @@ export default function MeetingsPage() {
               </section>
             </div>
           )
-        ) : (
+        ) : tab === 'past' ? (
           // Past meetings (desktop) — chips + 🟡 unfinished weeks + 🟢 report cards (SM3.1 · #5)
           <div>
             <div className="flex gap-2 mb-4">
@@ -706,6 +712,12 @@ export default function MeetingsPage() {
             </div>
           )}
           </div>
+        ) : (
+          <HighlightsPane
+            meetings={meetings}
+            childrenList={children}
+            scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
+          />
         )}
         <NextUp from="meetings" />
       </div>
@@ -724,5 +736,155 @@ export default function MeetingsPage() {
         body="Plan twenty minutes for Sunday. Three things you noticed, two to shape next week. The single most powerful family habit."
       />
     </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// 🔥 HIGHLIGHTS (SM3.1 · #6) — the meeting streak the family protects
+// together + ✨ memories resurfaced from the record. A week "counts" when a
+// finished meeting doc lands in it (amber/unfinished weeks break the streak
+// — a streak means FINISHED meetings). Memories rotate daily but stay
+// stable within a day, so the family sees fresh gems each Sunday.
+// ─────────────────────────────────────────────────────────────────────────
+
+function HighlightsPane({ meetings, childrenList, scheduleDow }: {
+  meetings: Meeting[];
+  childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
+  scheduleDow?: number;
+}) {
+  const [span, setSpan] = useState<'year' | '6mo' | 'month'>('year');
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  // Week key = the calendar date of that week's meeting day (defaults Sunday).
+  const weekKeyOf = (dateStr: string): string => {
+    const d = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return dateStr;
+    const dow = typeof scheduleDow === 'number' ? scheduleDow : 0;
+    const delta = (d.getDay() - dow + 7) % 7;
+    d.setDate(d.getDate() - delta);
+    return isoOf(d);
+  };
+  const stepWeeks = (key: string, weeks: number): string => {
+    const d = new Date(`${key}T00:00:00`);
+    d.setDate(d.getDate() + weeks * 7);
+    return isoOf(d);
+  };
+
+  const { currentStreak, longestStreak, yearCount, dots } = useMemo(() => {
+    const have = new Set(meetings.map((m) => weekKeyOf(m.date)));
+    const now = new Date();
+    const thisWeek = weekKeyOf(isoOf(now));
+    // Current streak — grace for a this-week meeting that hasn't happened yet.
+    let cur = 0;
+    let cursor = have.has(thisWeek) ? thisWeek : stepWeeks(thisWeek, -1);
+    while (have.has(cursor)) { cur += 1; cursor = stepWeeks(cursor, -1); }
+    // Longest run ever.
+    const keys = Array.from(have).sort();
+    let longest = 0; let run = 0; let prev = '';
+    for (const k of keys) {
+      run = prev && stepWeeks(prev, 1) === k ? run + 1 : 1;
+      if (run > longest) longest = run;
+      prev = k;
+    }
+    const yearCount = keys.filter((k) => k.startsWith(String(now.getFullYear()))).length;
+    const n = span === 'year' ? 52 : span === '6mo' ? 26 : 5;
+    const dots: Array<{ key: string; on: boolean }> = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const k = stepWeeks(thisWeek, -i);
+      dots.push({ key: k, on: have.has(k) });
+    }
+    return { currentStreak: cur, longestStreak: longest, yearCount, dots };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meetings, span, scheduleDow]);
+
+  const memories = useMemo(() => {
+    const kidName = (id: string) => childrenList.find((c) => c.id === id)?.name || 'Someone';
+    const out: Array<{ emoji: string; title: string; text: string; date: string }> = [];
+    for (const m of meetings) {
+      for (const [cid, txt] of Object.entries(m.gratitude || {})) {
+        if ((txt || '').trim()) out.push({ emoji: '🙏', title: `${kidName(cid)}'s gratitude`, text: txt, date: m.date });
+      }
+      for (const [cid, txt] of Object.entries(m.appreciations || {})) {
+        if ((txt || '').trim()) out.push({ emoji: '💛', title: `${kidName(cid)} appreciated`, text: txt, date: m.date });
+      }
+      for (const [cid, txt] of Object.entries(m.goals || {})) {
+        if ((txt || '').trim() && m.goalsDone?.[cid] === true) {
+          out.push({ emoji: '🎯', title: `Goal kept by ${kidName(cid)}`, text: txt, date: m.date });
+        }
+      }
+      if (m.openingWord?.note) out.push({ emoji: '🕊️', title: 'An opening word', text: m.openingWord.note, date: m.date });
+    }
+    const now = new Date();
+    const yearAgo = new Date(now); yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+    const near = meetings.find((m) => {
+      const d = new Date(`${m.date}T00:00:00`);
+      return !Number.isNaN(d.getTime()) && Math.abs(d.getTime() - yearAgo.getTime()) <= 10 * 86400000;
+    });
+    if (near) out.unshift({ emoji: '🕰️', title: 'A year ago this week', text: `You met on ${fmtMeetingDay(near.date)} — the ritual holds.`, date: near.date });
+    if (out.length === 0) return [];
+    const dayOfYear = Math.floor((now.getTime() - new Date(now.getFullYear(), 0, 0).getTime()) / 86400000);
+    const start = dayOfYear % out.length;
+    const picks: typeof out = [];
+    for (let i = 0; i < Math.min(4, out.length); i++) picks.push(out[(start + i) % out.length]);
+    return picks;
+  }, [meetings, childrenList]);
+
+  const nextMilestone = [5, 10, 25, 52].find((m) => m > currentStreak);
+
+  return (
+    <div className="space-y-4">
+      {/* 🔥 Streak card */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+        <div className="flex items-baseline justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand">🔥 Meeting streak</p>
+            <p className="font-display font-black text-2xl mt-0.5">
+              {currentStreak} week{currentStreak === 1 ? '' : 's'} in a row
+            </p>
+            <p className="text-[12px] text-kaya-sand font-semibold mt-0.5">
+              Longest ever: {longestStreak} · This year: {yearCount} meeting{yearCount === 1 ? '' : 's'}
+              {nextMilestone ? ` · next milestone: ${nextMilestone} 🎉` : ' · every milestone hit 🏆'}
+            </p>
+          </div>
+          <div className="flex gap-1.5">
+            {([['year', 'Year'], ['6mo', '6 months'], ['month', 'Month']] as const).map(([k, label]) => (
+              <button key={k} type="button" onClick={() => setSpan(k)}
+                className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors ${span === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-[3px] mt-4" aria-label="Weeks with a held meeting">
+          {dots.map((d) => (
+            <span key={d.key} title={fmtMeetingDay(d.key)}
+              className={`w-2.5 h-2.5 rounded-[3px] ${d.on ? 'bg-emerald-500' : 'bg-kaya-warm'}`} />
+          ))}
+        </div>
+        <p className="text-[10.5px] text-kaya-sand mt-2">
+          A week counts when its meeting was held &amp; closed — unfinished weeks break the streak.
+        </p>
+      </div>
+
+      {/* ✨ Memories */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">✨ From your meetings — today&rsquo;s picks</p>
+        {memories.length === 0 ? (
+          <p className="text-[13px] text-kaya-sand">Hold a few meetings and the gems will start appearing here — gratitude, kept goals, opening words, anniversaries.</p>
+        ) : (
+          <div className="space-y-2.5">
+            {memories.map((mm, i) => (
+              <div key={`${mm.date}-${i}`} className="rounded-kaya bg-kaya-cream/60 border border-kaya-warm-dark/60 p-3.5">
+                <p className="text-[13px] text-kaya-chocolate leading-relaxed">
+                  {mm.emoji} <span className="font-bold">{mm.title}:</span> &ldquo;{mm.text}&rdquo;
+                </p>
+                <p className="text-[10.5px] text-kaya-sand font-semibold mt-1">{fmtMeetingDay(mm.date)}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
