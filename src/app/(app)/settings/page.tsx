@@ -1053,10 +1053,6 @@ export default function SettingsPage() {
           {/* Language (i18n) — everyone picks their own; parents set the family default. */}
           <LanguageCard />
 
-          {/* 📮 Email groups (Reminders v4) — parents bundle recipients once,
-              pick them as one-tap chips in every reminder. */}
-          {isParent && <EmailGroupsCard />}
-
           {/* Profile card · anchored at #profile so deep links from the
               Family Tree land directly on it. */}
           <div id="profile" className="scroll-mt-24 bg-white border border-kaya-warm-dark rounded-kaya p-4">
@@ -2927,6 +2923,11 @@ export default function SettingsPage() {
               <p className="text-[11px] text-kaya-sand-light mt-3 leading-relaxed">
                 Emails are sent from <strong>noreply@ourkaya.com</strong>. Toggle these any time.
               </p>
+
+              {/* 📮 Email groups (Reminders v4) — parents bundle recipients
+                  once, pick them as one-tap chips in every reminder. Lives
+                  here with the rest of the email settings (Elia, 04-Jul). */}
+              {isParent && <div className="mt-3"><EmailGroupsCard /></div>}
             </CollapsibleSection>
           )}
 
