@@ -179,6 +179,10 @@ export interface Family {
   //   absent → resolved against DEFAULT_GAMES_CONFIG. Family-readable,
   //   parent-writable (rides the family doc — no extra rule).
   gamesConfig?: Partial<import('./games').GamesConfig>;
+  // ── 📮 Reminder email groups (v4) · named recipient bundles built in
+  //   Settings, surfaced as one-tap chips in the reminder "EMAIL TO" panel.
+  //   Rides the family doc like gamesConfig — no extra rule.
+  emailGroups?: import('./reminders').EmailGroup[];
   // ── Location ──
   // Where this family lives. Optional — when set, the country code
   // drives currency auto-detection (`countryToCurrency()` in

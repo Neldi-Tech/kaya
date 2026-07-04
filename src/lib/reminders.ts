@@ -73,6 +73,49 @@ export interface ReminderChannels {
   whatsapp?: boolean;
 }
 
+// ── 📮 Email groups (v4) ───────────────────────────────────────────────────
+// Named recipient bundles (Family / Grandparents / Helpers…) parents build
+// once in Settings and reuse as one-tap chips in every "EMAIL TO — PICK +
+// ADD" panel. Stored on the family doc (`family.emailGroups`) — parent-
+// writable like gamesConfig, so NO rules change/deploy is needed.
+
+export interface EmailGroup {
+  id: string;
+  name: string;
+  emoji?: string;
+  /** Family/helper member UIDs — resolved to their live Kaya email at render
+   *  time, so a changed email never breaks the group. */
+  memberUids: string[];
+  /** Outside addresses (grandma@…). */
+  externalEmails: string[];
+}
+
+/** Resolve a group to concrete recipients against the live member list.
+ *  Members without an email are skipped gracefully; duplicates collapse. */
+export function resolveGroupRecipients(
+  group: EmailGroup,
+  members: Array<{ uid: string; email?: string; displayName?: string }>,
+): ReminderRecipient[] {
+  const out: ReminderRecipient[] = [];
+  const seen = new Set<string>();
+  for (const uid of group.memberUids || []) {
+    const m = members.find((x) => x.uid === uid);
+    const email = (m?.email || '').trim().toLowerCase();
+    if (!m || !email || seen.has(email)) continue;
+    seen.add(email);
+    const rec: ReminderRecipient = { kind: 'member', email, uid: m.uid };
+    if (m.displayName) rec.name = m.displayName;
+    out.push(rec);
+  }
+  for (const raw of group.externalEmails || []) {
+    const email = (raw || '').trim().toLowerCase();
+    if (!email || seen.has(email)) continue;
+    seen.add(email);
+    out.push({ kind: 'external', email });
+  }
+  return out;
+}
+
 /** Kid-created shared events need a parent nod before they go family-wide.
  *  Private kid events (and anything an adult creates) are 'active'. */
 export type ReminderStatus = 'active' | 'pending_parent';
