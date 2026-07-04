@@ -10,6 +10,8 @@ import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
+import MeetingReportSheet, { fmtMeetingDay } from '@/components/meetings/MeetingReportSheet';
+import { subscribeMeetingSubmissions, isCurrentCycle, type MeetingSubmission } from '@/lib/meetingSubmissions';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
 // mode's 6-step flow so what families see in the sidebar matches.
@@ -37,6 +39,12 @@ export default function MeetingsPage() {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // SM3.1 (#5) — 📖 report sheet + 🟢/🟡 status. A meeting doc only exists
+  // once a meeting FINISHED, so doc = 🟢 held & closed; a week with prep
+  // submissions but no doc = 🟡 started · never closed.
+  const [reportMeeting, setReportMeeting] = useState<Meeting | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'green' | 'amber'>('all');
+  const [staleSubs, setStaleSubs] = useState<MeetingSubmission[]>([]);
 
   // Points Review used to be its own filtered step here; it's now
   // merged into "Celebrate the wins" in presenter mode (link to the
@@ -85,6 +93,37 @@ export default function MeetingsPage() {
     if (!profile?.familyId) return;
     getMeetings(profile.familyId).then(setMeetings);
   }, [profile?.familyId]);
+
+  // Stale prep = a PAST cycle whose submissions were filled but whose
+  // meeting never closed → the 🟡 cards. Current-cycle submissions are not
+  // stale (that meeting simply hasn't happened yet).
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    const dow = family?.meetingSetup?.schedule?.dayOfWeek;
+    return subscribeMeetingSubmissions(profile.familyId, (subs) => {
+      setStaleSubs(subs.filter((s) => !isCurrentCycle(s, dow)));
+    });
+  }, [profile?.familyId, family?.meetingSetup?.schedule?.dayOfWeek]);
+
+  // Group stale prep into weeks; skip any cycle that DID end in a saved
+  // meeting within ±3 days (it closed — just maybe a day late).
+  const amberWeeks = useMemo(() => {
+    const near = (a: string, b: string) => {
+      const ta = new Date(`${a}T00:00:00`).getTime();
+      const tb = new Date(`${b}T00:00:00`).getTime();
+      return Number.isFinite(ta) && Number.isFinite(tb) && Math.abs(ta - tb) <= 3 * 86400000;
+    };
+    const groups = new Map<string, { key: string; names: string[] }>();
+    for (const s of staleSubs) {
+      const key = s.cycleKey || 'earlier';
+      const g = groups.get(key) || { key, names: [] };
+      if (s.name && !g.names.includes(s.name)) g.names.push(s.name);
+      groups.set(key, g);
+    }
+    return Array.from(groups.values())
+      .filter((g) => g.key === 'earlier' || !meetings.some((m) => near(m.date, g.key)))
+      .sort((a, b) => b.key.localeCompare(a.key));
+  }, [staleSubs, meetings]);
 
   const handleSave = async () => {
     if (!profile?.familyId) return;
@@ -341,16 +380,45 @@ export default function MeetingsPage() {
           )
         ) : (
           <div className="space-y-3">
-            {meetings.length === 0 ? (
+            {/* SM3.1 (#5b) — status filter */}
+            <div className="flex gap-2 mb-1">
+              {([['all', 'All'], ['green', '🟢 Held'], ['amber', '🟡 Unfinished']] as const).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setStatusFilter(k)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${statusFilter === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {statusFilter !== 'green' && amberWeeks.map((w) => (
+              <div key={w.key} className="bg-amber-50 border-2 border-amber-300 rounded-kaya p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="font-bold text-sm">{w.key === 'earlier' ? 'An earlier week' : fmtMeetingDay(w.key)}</p>
+                  <span className="text-base" aria-label="Started, never closed">🟡</span>
+                </div>
+                <p className="text-xs text-amber-800 font-semibold">
+                  Started · never closed{w.names.length > 0 ? ` — prep by ${w.names.join(', ')}` : ''}
+                </p>
+                <Link href="/meetings/present" className="inline-block mt-2 text-xs font-black text-kaya-chocolate underline underline-offset-2">
+                  Resume in presenter →
+                </Link>
+              </div>
+            ))}
+            {statusFilter === 'amber' && amberWeeks.length === 0 && (
+              <div className="bg-white border border-kaya-warm-dark rounded-kaya p-6 text-center">
+                <p className="text-kaya-sand text-sm">No unfinished weeks 🎉</p>
+              </div>
+            )}
+            {statusFilter !== 'amber' && (meetings.length === 0 ? (
               <div className="bg-white border border-kaya-warm-dark rounded-kaya p-6 text-center">
                 <p className="text-3xl mb-2">📝</p>
                 <p className="text-kaya-sand text-sm">No meetings logged yet</p>
               </div>
             ) : (
               meetings.map((m) => (
-                <div key={m.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+                <button type="button" key={m.id} onClick={() => setReportMeeting(m)}
+                  className="w-full text-left bg-white border-2 border-emerald-300/70 rounded-kaya p-4 hover:border-emerald-400 transition-colors">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-sm">{m.date}</p>
+                    <p className="font-bold text-sm">🟢 {fmtMeetingDay(m.date)}</p>
                     <span className={`text-xs px-2 py-1 rounded-full font-semibold ${m.type === 'kid-led' ? 'bg-orange-50 text-orange-600' : 'bg-kaya-warm text-kaya-sand'}`}>
                       {m.type === 'kid-led' ? '🧒 Kid-Led' : '👨‍👩‍👧‍👦 Weekly'}
                     </span>
@@ -365,9 +433,10 @@ export default function MeetingsPage() {
                       })}
                     </div>
                   )}
-                </div>
+                  <p className="mt-2 text-[11px] font-black text-kaya-chocolate/70">📖 Open report →</p>
+                </button>
               ))
-            )}
+            ))}
           </div>
         )}
       </div>
@@ -560,18 +629,42 @@ export default function MeetingsPage() {
             </div>
           )
         ) : (
-          // Past meetings (desktop) — grid of cards
-          meetings.length === 0 ? (
+          // Past meetings (desktop) — chips + 🟡 unfinished weeks + 🟢 report cards (SM3.1 · #5)
+          <div>
+            <div className="flex gap-2 mb-4">
+              {([['all', 'All'], ['green', '🟢 Held'], ['amber', '🟡 Unfinished']] as const).map(([k, label]) => (
+                <button key={k} type="button" onClick={() => setStatusFilter(k)}
+                  className={`px-3.5 py-2 rounded-full text-[12px] font-bold transition-colors ${statusFilter === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {meetings.length === 0 && amberWeeks.length === 0 ? (
             <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-12 text-center max-w-xl mx-auto">
               <p className="text-4xl mb-3">📝</p>
               <p className="text-kaya-sand text-sm">No meetings logged yet. Start a new one to build a record.</p>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-4">
-              {meetings.map((m) => (
-                <div key={m.id} className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
+              {statusFilter !== 'green' && amberWeeks.map((w) => (
+                <div key={w.key} className="bg-amber-50 border-2 border-amber-300 rounded-kaya-lg p-5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-display font-bold text-base">{w.key === 'earlier' ? 'An earlier week' : fmtMeetingDay(w.key)}</p>
+                    <span aria-label="Started, never closed">🟡</span>
+                  </div>
+                  <p className="text-[12px] text-amber-800 font-semibold">
+                    Started · never closed{w.names.length > 0 ? ` — prep by ${w.names.join(', ')}` : ''}
+                  </p>
+                  <Link href="/meetings/present" className="inline-block mt-3 text-[12px] font-black text-kaya-chocolate underline underline-offset-2">
+                    Resume in presenter →
+                  </Link>
+                </div>
+              ))}
+              {statusFilter !== 'amber' && meetings.map((m) => (
+                <button type="button" key={m.id} onClick={() => setReportMeeting(m)}
+                  className="text-left bg-white border-2 border-emerald-300/70 rounded-kaya-lg p-5 hover:border-emerald-400 transition-colors">
                   <div className="flex items-center justify-between mb-3">
-                    <p className="font-display font-bold text-base">{m.date}</p>
+                    <p className="font-display font-bold text-base">🟢 {fmtMeetingDay(m.date)}</p>
                     <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wider ${m.type === 'kid-led' ? 'bg-orange-50 text-orange-600' : 'bg-kaya-warm text-kaya-sand'}`}>
                       {m.type === 'kid-led' ? 'Kid-led' : 'Weekly'}
                     </span>
@@ -607,13 +700,23 @@ export default function MeetingsPage() {
                       <p className="text-[12px] text-kaya-chocolate leading-snug">{m.notes}</p>
                     </div>
                   )}
-                </div>
+                  <p className="mt-3 text-[11px] font-black text-kaya-chocolate/70">📖 Open report →</p>
+                </button>
               ))}
             </div>
-          )
+          )}
+          </div>
         )}
         <NextUp from="meetings" />
       </div>
+      {reportMeeting && profile?.familyId && (
+        <MeetingReportSheet
+          meeting={reportMeeting}
+          childrenList={children}
+          familyId={profile.familyId}
+          onClose={() => setReportMeeting(null)}
+        />
+      )}
       <CoachMark
         pageId="meetings"
         uid={profile?.uid || ''}
