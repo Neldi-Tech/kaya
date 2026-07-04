@@ -503,6 +503,14 @@ export interface Family {
     openingWordEnabled?: boolean;
     openingWordRequired?: boolean;
     openingWordShowLibrary?: boolean;
+    /** SM3.1 (#7): 🎁 Sunday Surprise — the shared moment that ends the
+     *  meeting. `sundaySurpriseEnabled` shows/hides the step (default ON).
+     *  `surprises` overrides per-type enablement (absent = registry
+     *  defaults in lib/meetingSurprises). `goldenTickets` is the parent-
+     *  stocked treat list for the 🍬 Golden Ticket surprise. */
+    sundaySurpriseEnabled?: boolean;
+    surprises?: Record<string, boolean>;
+    goldenTickets?: string[];
     /** Sunday-Meeting (song reveal, 2026-06-21): the closing song set
      *  AHEAD of the meeting by the leader or a parent. During the meeting
      *  the Closing step opens it as a surprise (5-4-3-2-1 countdown →
@@ -1155,6 +1163,18 @@ export interface Meeting {
     mode: 'prayer' | 'wisdom' | 'verse' | 'own';
     note?: string;
     doneAt?: number;   // epoch ms
+  };
+  /** SM3.1 (#7) — 🎁 tonight's Sunday Surprise as it happened. `postId`
+   *  links the Moments post for photo/video surprises. `missions` (Secret
+   *  Mission) stays sealed until NEXT meeting's check-in writes
+   *  `checkedMissions` back onto this doc. */
+  surprise?: {
+    id: string;
+    promptText?: string;
+    note?: string;
+    postId?: string;
+    missions?: Record<string, string>;
+    checkedMissions?: Record<string, boolean>;
   };
   /** Optional "anyone presenting tonight?" capture during the new
    *  attendance step. */

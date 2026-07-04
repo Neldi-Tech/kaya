@@ -26,6 +26,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import { updateFamily, ReflectionMode } from '@/lib/firestore';
+import { SURPRISE_REGISTRY } from '@/lib/meetingSurprises';
 import BackButton from '@/components/ui/BackButton';
 
 // Canonical agenda steps — kept in lockstep with `STEPS` in
@@ -77,6 +78,12 @@ export default function MeetingSetupPage() {
   const [openingWordEnabled, setOpeningWordEnabled] = useState<boolean>(true);
   const [openingWordRequired, setOpeningWordRequired] = useState<boolean>(false);
   const [openingWordShowLibrary, setOpeningWordShowLibrary] = useState<boolean>(false);
+  // SM3.1 (#7): 🎁 Sunday Surprise — master step toggle + per-type overrides
+  // (absent = registry defaults) + the parent-stocked Golden Ticket list.
+  const [sundaySurpriseEnabled, setSundaySurpriseEnabled] = useState<boolean>(true);
+  const [surpriseToggles, setSurpriseToggles] = useState<Record<string, boolean>>({});
+  const [goldenTickets, setGoldenTickets] = useState<string[]>([]);
+  const [ticketDraft, setTicketDraft] = useState('');
   const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
   // Per-step display-name override. Empty / missing entry = use the
   // canonical default title from AGENDA_STEPS.
@@ -111,6 +118,9 @@ export default function MeetingSetupPage() {
     if (typeof s?.openingWordEnabled === 'boolean') setOpeningWordEnabled(s.openingWordEnabled);
     if (typeof s?.openingWordRequired === 'boolean') setOpeningWordRequired(s.openingWordRequired);
     if (typeof s?.openingWordShowLibrary === 'boolean') setOpeningWordShowLibrary(s.openingWordShowLibrary);
+    if (typeof s?.sundaySurpriseEnabled === 'boolean') setSundaySurpriseEnabled(s.sundaySurpriseEnabled);
+    if (s?.surprises) setSurpriseToggles(s.surprises);
+    if (Array.isArray(s?.goldenTickets)) setGoldenTickets(s.goldenTickets);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
     if (s?.stepLabels) setStepLabels(s.stepLabels);
     if (s?.schedule) {
@@ -213,6 +223,9 @@ export default function MeetingSetupPage() {
         openingWordEnabled,
         openingWordRequired,
         openingWordShowLibrary,
+        sundaySurpriseEnabled,
+        surprises: surpriseToggles,
+        goldenTickets,
       },
     });
     setSaving(false);
@@ -419,6 +432,70 @@ export default function MeetingSetupPage() {
               </p>
             </div>
           </label>
+        </div>
+      </section>
+
+      {/* ── 🎁 Sunday Surprise (SM3.1 · #7) ──────────────────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">🎁 Sunday Surprise</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {sundaySurpriseEnabled ? 'On' : 'Off'}
+          </span>
+        </div>
+        <p className="text-[12.5px] lg:text-sm text-kaya-sand leading-snug mb-4">
+          One shared moment to end the meeting — Kaya picks a surprise from the ones you enable
+          (the leader can swap on the night). Photos &amp; videos post to Moments automatically.
+        </p>
+        <label className="flex items-start gap-3 cursor-pointer rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4 mb-3">
+          <input type="checkbox" checked={sundaySurpriseEnabled}
+            onChange={(e) => setSundaySurpriseEnabled(e.target.checked)}
+            className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer" />
+          <div className="flex-1 min-w-0">
+            <p className="font-display font-extrabold text-sm text-kaya-chocolate">Include the Sunday Surprise step</p>
+            <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">The final step of the meeting. Default: on.</p>
+          </div>
+        </label>
+        <div className={`grid grid-cols-1 lg:grid-cols-2 gap-2 ${sundaySurpriseEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+          {SURPRISE_REGISTRY.map((sd) => {
+            const on = typeof surpriseToggles[sd.id] === 'boolean' ? surpriseToggles[sd.id] : sd.defaultEnabled;
+            return (
+              <label key={sd.id} className="flex items-start gap-3 cursor-pointer rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-3.5">
+                <input type="checkbox" checked={on}
+                  onChange={(e) => setSurpriseToggles((prev) => ({ ...prev, [sd.id]: e.target.checked }))}
+                  className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-display font-extrabold text-[13px] text-kaya-chocolate">{sd.emoji} {sd.name}</p>
+                  <p className="text-[12px] text-kaya-chocolate/70 leading-snug mt-0.5">{sd.blurb}</p>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        <div className={`mt-4 ${sundaySurpriseEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+          <p className="font-display font-extrabold text-sm text-kaya-chocolate mb-1">🍬 Golden Ticket jar</p>
+          <p className="text-[12px] text-kaya-sand mb-2">Small real-world treats the ticket can land on — e.g. &ldquo;choose Sunday dessert&rdquo;, &ldquo;car music for a week&rdquo;.</p>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {goldenTickets.map((t, i) => (
+              <span key={`${t}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-kaya-warm text-[12px] font-bold text-kaya-chocolate">
+                {t}
+                <button type="button" aria-label={`Remove ${t}`}
+                  onClick={() => setGoldenTickets((prev) => prev.filter((_, j) => j !== i))}
+                  className="text-kaya-chocolate/50 hover:text-rose-600 font-black">✕</button>
+              </span>
+            ))}
+            {goldenTickets.length === 0 && <span className="text-[12px] text-kaya-sand italic">The jar is empty.</span>}
+          </div>
+          <div className="flex gap-2">
+            <input value={ticketDraft} onChange={(e) => setTicketDraft(e.target.value)}
+              placeholder="Add a treat…" maxLength={60}
+              className="flex-1 h-10 border border-kaya-warm-dark rounded-kaya-sm px-3 text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-kaya-gold/60" />
+            <button type="button"
+              onClick={() => { const t = ticketDraft.trim(); if (t) { setGoldenTickets((prev) => [...prev, t]); setTicketDraft(''); } }}
+              className="h-10 px-4 rounded-kaya-sm bg-kaya-chocolate text-white text-[13px] font-display font-extrabold">
+              Add
+            </button>
+          </div>
         </div>
       </section>
 

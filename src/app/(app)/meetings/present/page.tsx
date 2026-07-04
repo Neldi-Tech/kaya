@@ -33,6 +33,7 @@ import {
   updateFamily,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
+import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions,
   appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle, meetingCycleKey,
@@ -68,6 +69,7 @@ const STEPS = [
   { id: 'appreciations', title: 'Appreciations',      emoji: '💛', sub: 'Something kind, helpful, or brave you noticed this week.' },
   { id: 'goals',         title: 'Goals Review',       emoji: '🎯', sub: 'Mark last week\'s goals done, revisit older outstanding ones, then commit for next week.' },
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
+  { id: 'surprise',      title: 'Sunday Surprise',    emoji: '🎁', sub: 'One shared moment to end the night — tonight\'s pick is a surprise.' },
 ] as const;
 
 // Structural type — looser than `typeof STEPS[number]` (which keeps
@@ -108,9 +110,12 @@ export default function MeetingPresenterPage() {
     // agendaSteps list — families who saved their step list before this
     // feature existed still get it by default (flag absent = on).
     const openingWordOn = family?.meetingSetup?.openingWordEnabled !== false;
+    // 🎁 Sunday Surprise (SM3.1 · #7) — own flag too, same migration logic.
+    const surpriseOn = family?.meetingSetup?.sundaySurpriseEnabled !== false;
     const enabledSet = new Set(enabled || []);
     const filteredRest = rest.filter((s) => {
       if (s.id === 'openingword') return openingWordOn;
+      if (s.id === 'surprise') return surpriseOn;
       if (!enabled || enabled.length === 0) return true;
       return enabledSet.has(s.id);
     });
@@ -121,7 +126,7 @@ export default function MeetingPresenterPage() {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -197,6 +202,8 @@ export default function MeetingPresenterPage() {
   const [openingWordMode, setOpeningWordMode] = useState<'prayer' | 'wisdom' | 'verse' | 'own'>('prayer');
   const [openingWordNote, setOpeningWordNote] = useState('');
   const [openingWordDone, setOpeningWordDone] = useState(false);
+  // 🎁 Sunday Surprise (SM3.1 · #7) — tonight's captured surprise.
+  const [surpriseRecord, setSurpriseRecord] = useState<SurpriseRecord | null>(null);
   const openingWordRequired = family?.meetingSetup?.openingWordRequired === true;
   const openingWordShowLibrary = family?.meetingSetup?.openingWordShowLibrary === true;
 
@@ -594,12 +601,48 @@ export default function MeetingPresenterPage() {
           doneAt: Date.now(),
         },
       } : {}),
+      ...(surpriseRecord ? {
+        surprise: {
+          id: surpriseRecord.id,
+          ...(surpriseRecord.promptText ? { promptText: surpriseRecord.promptText } : {}),
+          ...(surpriseRecord.note ? { note: surpriseRecord.note } : {}),
+          ...(surpriseRecord.postId ? { postId: surpriseRecord.postId } : {}),
+          ...(surpriseRecord.missions ? { missions: surpriseRecord.missions } : {}),
+        },
+      } : {}),
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
 
     // Commitments are folded into tonight's goals now — clear the handoff.
     try { localStorage.removeItem(`kaya:meeting:commitments:${profile.familyId}`); } catch { /* ignore */ }
+
+    // 🔥 Streak milestone (SM3.1 · #6) — tonight included, do consecutive
+    // meeting-weeks hit 5/10/25/52? Fire-and-forget chat post from Kaya.
+    try {
+      const dow = family?.meetingSetup?.schedule?.dayOfWeek ?? 0;
+      const weekKey = (dateStr: string) => {
+        const d = new Date(`${dateStr}T00:00:00`);
+        const delta = (d.getDay() - dow + 7) % 7;
+        d.setDate(d.getDate() - delta);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+      const have = new Set(meetingHistory.map((m) => weekKey(m.date)));
+      have.add(weekKey(todayString()));
+      let streak = 0;
+      let cursor = weekKey(todayString());
+      const stepBack = (k: string) => {
+        const d = new Date(`${k}T00:00:00`); d.setDate(d.getDate() - 7);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+      while (have.has(cursor)) { streak += 1; cursor = stepBack(cursor); }
+      if ([5, 10, 25, 52].includes(streak)) {
+        void fetch('/api/meetings/milestone', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ familyId: profile.familyId, byUid: profile.uid, streak }),
+        }).catch(() => {});
+      }
+    } catch { /* celebration is best-effort */ }
 
     // Sunday-Meeting v2 (multi-tag): reveal @-tagged appreciations on
     // meeting day. A line can tag SEVERAL people or "All" — notify each
@@ -884,6 +927,27 @@ export default function MeetingPresenterPage() {
                     if (next.has(kidId)) next.delete(kidId); else next.add(kidId);
                     return next;
                   })}
+                />
+              )}
+
+              {step.id === 'surprise' && profile?.familyId && (
+                <SundaySurpriseStep
+                  familyId={profile.familyId}
+                  meUid={profile.uid}
+                  meName={profile.displayName || 'Kaya parent'}
+                  childrenList={children}
+                  presentPeople={[
+                    ...children.filter((c) => attendees.has(c.id)).map((c) => ({ key: c.id, name: c.name })),
+                    ...householdParents.filter((p) => parentAttendees.has(p.uid)).map((p) => ({ key: p.uid, name: p.name })),
+                  ]}
+                  guestSuggestion={guestSuggestions[0]?.name}
+                  surpriseOverrides={family?.meetingSetup?.surprises}
+                  goldenTickets={family?.meetingSetup?.goldenTickets}
+                  dateKey={todayString()}
+                  record={surpriseRecord}
+                  onRecord={setSurpriseRecord}
+                  missionMeeting={meetingHistory.find((m) => m.surprise?.missions && Object.keys(m.surprise.missions).length > 0 && !m.surprise.checkedMissions) || null}
+                  meetingsForQuiz={meetingHistory}
                 />
               )}
 
