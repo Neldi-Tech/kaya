@@ -506,11 +506,15 @@ function LoadingState() {
 // May 3 (or vice-versa for the rest of the world). One unambiguous
 // format keeps the meeting talk friction-free.
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DAY_ABBR = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
 function formatPretty(yyyyMmDd: string): string {
   const [y, m, d] = yyyyMmDd.split('-').map(Number);
   if (!y || !m || !d) return yyyyMmDd;
-  return `${String(d).padStart(2, '0')}-${MONTH_ABBR[m - 1]}-${y}`;
+  // Day-of-week leads (SM3.1 · 4b) — kids anchor memories to days, not
+  // numbers, so "Mon · 29-Jun-2026" lands where "29-Jun-2026" doesn't.
+  const dow = DAY_ABBR[new Date(y, m - 1, d).getDay()];
+  return `${dow} · ${String(d).padStart(2, '0')}-${MONTH_ABBR[m - 1]}-${y}`;
 }
 
 // Same format — kept as a separate name so future call sites can diverge
