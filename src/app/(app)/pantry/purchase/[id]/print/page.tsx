@@ -23,6 +23,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
+import { auth } from '@/lib/firebase';
 import { getFamilyMembers } from '@/lib/firestore';
 import { notifyPurchaseShared } from '@/lib/notify';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
@@ -64,13 +65,18 @@ export default function PurchasePrintPage() {
 
   const [req, setReq] = useState<PurchaseRequest | null>(null);
   const [loading, setLoading] = useState(true);
-  const [members, setMembers] = useState<{ uid: string; displayName?: string; role?: string }[]>([]);
+  const [members, setMembers] = useState<{ uid: string; displayName?: string; role?: string; email?: string }[]>([]);
 
-  // Share-via-Kaya sheet
+  // Share sheet
   const [shareOpen, setShareOpen] = useState(false);
+  const [channel, setChannel] = useState<'kaya' | 'email'>('kaya');
   const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState(false);
   const [sentTo, setSentTo] = useState<number | null>(null);
+  // Email channel
+  const [emailPicked, setEmailPicked] = useState<Record<string, boolean>>({});
+  const [externalEmails, setExternalEmails] = useState<string[]>([]);
+  const [emailDraft, setEmailDraft] = useState('');
 
   const [mode, setMode] = useState<Mode>('shop');
 
@@ -93,7 +99,7 @@ export default function PurchasePrintPage() {
   useEffect(() => {
     if (!profile?.familyId) return;
     getFamilyMembers(profile.familyId)
-      .then((m) => setMembers(m as { uid: string; displayName?: string; role?: string }[]))
+      .then((m) => setMembers(m as { uid: string; displayName?: string; role?: string; email?: string }[]))
       .catch(() => {});
   }, [profile?.familyId]);
 
@@ -176,6 +182,55 @@ export default function PurchasePrintPage() {
     } finally {
       setSending(false);
     }
+  }
+
+  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+  const emailRecipients = [
+    ...shareMembers.filter((mm) => emailPicked[mm.uid] && mm.email).map((mm) => mm.email as string),
+    ...externalEmails,
+  ];
+
+  function addExternalEmail() {
+    const e = emailDraft.trim().toLowerCase();
+    if (EMAIL_RE.test(e) && !externalEmails.includes(e)) setExternalEmails((x) => [...x, e]);
+    setEmailDraft('');
+  }
+
+  async function sendByEmail() {
+    if (!req || emailRecipients.length === 0) return;
+    setSending(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/purchase/share-email', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          requestId: req.id,
+          mode,
+          currency,
+          recipients: emailRecipients,
+          senderName: profile?.displayName || 'A family member',
+          senderEmail: profile?.email,
+          note: req.note || '',
+        }),
+      });
+      const data = await res.json().catch(() => ({} as { sent?: number; skipped?: boolean }));
+      if (res.ok && data.sent) { setSentTo(emailRecipients.length); setEmailPicked({}); setExternalEmails([]); }
+      else if (res.ok && data.skipped) { setSentTo(-2); }
+      else { setSentTo(-1); }
+    } catch {
+      setSentTo(-1);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function shareWhatsApp() {
+    if (!req) return;
+    const lines = req.items.slice(0, 40).map((it, i) => `${i + 1}. ${it.name}${it.name2 ? ` (${it.name2})` : ''} — ${it.qty}×`);
+    const head = `🧾 ${MODE_META[mode].kind} · ${typeof req.seq === 'number' ? formatRequestSeq(req.module, req.seq) : req.name}`;
+    const text = `${head}\n${lines.join('\n')}${req.items.length > 40 ? `\n…+${req.items.length - 40} more` : ''}\n\n— via Kaya`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   }
 
   return (
@@ -381,43 +436,96 @@ export default function PurchasePrintPage() {
             {sentTo != null && sentTo > 0 ? (
               <div className="px-5 py-8 text-center">
                 <div className="text-4xl mb-2">✅</div>
-                <div className="font-nunito font-black text-hive-ink">Shared with {sentTo} {sentTo === 1 ? 'person' : 'people'}</div>
-                <div className="text-sm text-hive-muted mt-1">They&apos;ll see it in their Kaya bell.</div>
-                <button onClick={() => setShareOpen(false)} className="mt-5 inline-flex items-center gap-1.5 text-sm font-nunito font-extrabold px-5 py-2.5 rounded-hive-pill bg-[#17223C] text-white">Done</button>
+                <div className="font-nunito font-black text-hive-ink">{channel === 'email' ? 'Emailed' : 'Shared'} to {sentTo} {sentTo === 1 ? 'recipient' : 'recipients'}</div>
+                <div className="text-sm text-hive-muted mt-1">{channel === 'email' ? 'It’s on its way to their inbox.' : 'They’ll see it in their Kaya bell.'}</div>
+                <button onClick={() => { setShareOpen(false); setSentTo(null); }} className="mt-5 inline-flex items-center gap-1.5 text-sm font-nunito font-extrabold px-5 py-2.5 rounded-hive-pill bg-[#17223C] text-white">Done</button>
               </div>
             ) : (
               <>
-                <div className="px-5 pb-2 text-[10px] uppercase tracking-wider text-hive-muted font-extrabold">Who to send to</div>
-                <div className="px-3 pb-2">
-                  {shareMembers.length === 0 && <div className="px-2 py-4 text-sm text-hive-muted text-center">No other family members to share with yet.</div>}
-                  {shareMembers.map((mm) => {
-                    const on = !!picked[mm.uid];
-                    return (
-                      <button
-                        key={mm.uid}
-                        onClick={() => setPicked((p) => ({ ...p, [mm.uid]: !p[mm.uid] }))}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-hive text-left transition ${on ? 'bg-[#EEF4E9]' : 'hover:bg-hive-cream'}`}
-                      >
-                        <span className={`w-5 h-5 rounded-md grid place-items-center text-white text-xs ${on ? 'bg-[#3E7C4B]' : 'bg-white border border-hive-line'}`}>{on ? '✓' : ''}</span>
-                        <span className="flex-1">
-                          <span className="block font-bold text-sm text-hive-ink leading-tight">{mm.displayName || 'Family member'}</span>
-                          <span className="block text-[11px] text-hive-muted capitalize">{mm.role || 'member'}</span>
-                        </span>
+                <div className="px-5 flex gap-2 pb-3">
+                  {(['kaya', 'email'] as const).map((c) => (
+                    <button key={c} onClick={() => { setChannel(c); setSentTo(null); }}
+                      className={`flex-1 text-xs font-nunito font-extrabold px-3 py-2 rounded-hive-pill border ${channel === c ? 'bg-[#17223C] text-white border-[#17223C]' : 'bg-white text-hive-muted border-hive-line'}`}>
+                      {c === 'kaya' ? '🟢 Via Kaya' : '📧 By email'}
+                    </button>
+                  ))}
+                </div>
+
+                {channel === 'kaya' ? (
+                  <>
+                    <div className="px-5 pb-2 text-[10px] uppercase tracking-wider text-hive-muted font-extrabold">Family members</div>
+                    <div className="px-3 pb-2">
+                      {shareMembers.length === 0 && <div className="px-2 py-4 text-sm text-hive-muted text-center">No other family members yet.</div>}
+                      {shareMembers.map((mm) => {
+                        const on = !!picked[mm.uid];
+                        return (
+                          <button key={mm.uid} onClick={() => setPicked((p) => ({ ...p, [mm.uid]: !p[mm.uid] }))}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-hive text-left transition ${on ? 'bg-[#EEF4E9]' : 'hover:bg-hive-cream'}`}>
+                            <span className={`w-5 h-5 rounded-md grid place-items-center text-white text-xs ${on ? 'bg-[#3E7C4B]' : 'bg-white border border-hive-line'}`}>{on ? '✓' : ''}</span>
+                            <span className="flex-1">
+                              <span className="block font-bold text-sm text-hive-ink leading-tight">{mm.displayName || 'Family member'}</span>
+                              <span className="block text-[11px] text-hive-muted capitalize">{mm.role || 'member'}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {sentTo === -1 && <div className="px-5 text-xs text-rose-600 font-bold">Couldn&apos;t send — please try again.</div>}
+                    <div className="px-5 py-4 sticky bottom-0 bg-white border-t border-hive-line">
+                      <button onClick={sendViaKaya} disabled={sending || pickedUids.length === 0}
+                        className="w-full inline-flex items-center justify-center gap-2 text-sm font-nunito font-extrabold px-5 py-3 rounded-hive-pill bg-[#17223C] text-white disabled:opacity-40">
+                        {sending ? 'Sending…' : `🟢 Send via Kaya${pickedUids.length ? ` (${pickedUids.length})` : ''}`}
                       </button>
-                    );
-                  })}
-                </div>
-                {sentTo === -1 && <div className="px-5 text-xs text-rose-600 font-bold">Couldn&apos;t send — please try again.</div>}
-                <div className="px-5 py-4 sticky bottom-0 bg-white border-t border-hive-line">
-                  <button
-                    onClick={sendViaKaya}
-                    disabled={sending || pickedUids.length === 0}
-                    className="w-full inline-flex items-center justify-center gap-2 text-sm font-nunito font-extrabold px-5 py-3 rounded-hive-pill bg-[#17223C] text-white disabled:opacity-40"
-                  >
-                    {sending ? 'Sending…' : `🟢 Send via Kaya${pickedUids.length ? ` (${pickedUids.length})` : ''}`}
-                  </button>
-                  <p className="text-[11px] text-hive-muted text-center mt-2">📧 Email &amp; external recipients coming next.</p>
-                </div>
+                      <button onClick={shareWhatsApp} className="w-full mt-2 inline-flex items-center justify-center gap-2 text-sm font-nunito font-extrabold px-5 py-2.5 rounded-hive-pill bg-white border border-[#25D366] text-[#128C4B]">💬 Share via WhatsApp</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="px-5 pb-1 text-[10px] uppercase tracking-wider text-hive-muted font-extrabold">Family (with email)</div>
+                    <div className="px-3 pb-1">
+                      {shareMembers.filter((mm) => mm.email).length === 0 && <div className="px-2 py-2 text-xs text-hive-muted">No family emails on file — add an address below.</div>}
+                      {shareMembers.filter((mm) => mm.email).map((mm) => {
+                        const on = !!emailPicked[mm.uid];
+                        return (
+                          <button key={mm.uid} onClick={() => setEmailPicked((p) => ({ ...p, [mm.uid]: !p[mm.uid] }))}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-hive text-left transition ${on ? 'bg-[#EEF4E9]' : 'hover:bg-hive-cream'}`}>
+                            <span className={`w-5 h-5 rounded-md grid place-items-center text-white text-xs ${on ? 'bg-[#3E7C4B]' : 'bg-white border border-hive-line'}`}>{on ? '✓' : ''}</span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block font-bold text-sm text-hive-ink leading-tight">{mm.displayName || 'Family member'}</span>
+                              <span className="block text-[11px] text-hive-muted truncate">{mm.email}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="px-5 pt-2 pb-1 text-[10px] uppercase tracking-wider text-hive-muted font-extrabold">Add an outside address (supplier / shop)</div>
+                    <div className="px-5 flex gap-2">
+                      <input value={emailDraft} onChange={(e) => setEmailDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExternalEmail(); } }}
+                        type="email" inputMode="email" placeholder="supplier@example.com"
+                        className="flex-1 text-sm px-3 py-2 rounded-hive border border-hive-line focus:outline-none" />
+                      <button onClick={addExternalEmail} className="text-sm font-nunito font-extrabold px-3 py-2 rounded-hive bg-hive-cream border border-hive-line">＋ Add</button>
+                    </div>
+                    {externalEmails.length > 0 && (
+                      <div className="px-5 pt-2 flex flex-wrap gap-1.5">
+                        {externalEmails.map((e) => (
+                          <span key={e} className="inline-flex items-center gap-1 text-[11px] font-bold bg-[#EEF4E9] text-[#2E6B39] rounded-full px-2.5 py-1">
+                            {e}<button onClick={() => setExternalEmails((x) => x.filter((y) => y !== e))} className="ml-0.5">✕</button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {sentTo === -1 && <div className="px-5 pt-2 text-xs text-rose-600 font-bold">Couldn&apos;t send — please try again.</div>}
+                    {sentTo === -2 && <div className="px-5 pt-2 text-xs text-amber-600 font-bold">Email isn&apos;t switched on for this workspace yet. Use “Via Kaya” or WhatsApp meanwhile.</div>}
+                    <div className="px-5 py-4 mt-1 sticky bottom-0 bg-white border-t border-hive-line">
+                      <button onClick={sendByEmail} disabled={sending || emailRecipients.length === 0}
+                        className="w-full inline-flex items-center justify-center gap-2 text-sm font-nunito font-extrabold px-5 py-3 rounded-hive-pill bg-[#17223C] text-white disabled:opacity-40">
+                        {sending ? 'Sending…' : `📧 Send by email${emailRecipients.length ? ` (${emailRecipients.length})` : ''}`}
+                      </button>
+                      <p className="text-[11px] text-hive-muted text-center mt-2">Sends as “{profile?.displayName || 'you'} via Kaya” · replies go to you. The cap is never included.</p>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
