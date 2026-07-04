@@ -48,6 +48,7 @@ import { KayaCoin } from '@/components/referral/KayaCoin';
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
 import LanguageCard from '@/components/settings/LanguageCard';
+import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
 import NotificationSettings from '@/components/settings/NotificationSettings';
@@ -1051,6 +1052,10 @@ export default function SettingsPage() {
 
           {/* Language (i18n) — everyone picks their own; parents set the family default. */}
           <LanguageCard />
+
+          {/* 📮 Email groups (Reminders v4) — parents bundle recipients once,
+              pick them as one-tap chips in every reminder. */}
+          {isParent && <EmailGroupsCard />}
 
           {/* Profile card · anchored at #profile so deep links from the
               Family Tree land directly on it. */}
