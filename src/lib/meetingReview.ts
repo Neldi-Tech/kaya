@@ -489,3 +489,92 @@ export function extractComments(ratings: DailyRating[]): CommentEntry[] {
     }))
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// ⭐ STAR PODIUM (SM3.1 · #3) — one podium per selected timeframe, with
+// rules a kid can verify against their own week:
+//
+//   Star Score = 2×Excellent + 1×Good − 2×Bad   (over the window)
+//   Qualify    = rated on ≥70% of the window's ACTIVE days (days where
+//                anyone in the family was rated) — fair to everyone,
+//                nobody wins by being away.
+//   Ties       = fewer Bads wins; still tied → share the podium step.
+//
+// The old per-day "most Excellents" star lives on as the small daily-stars
+// history strip (dailyStarWinners) — a record, not a ceremony.
+// ─────────────────────────────────────────────────────────────────────────
+
+export const STAR_WEIGHTS = { excellent: 2, good: 1, bad: -2 } as const;
+export const STAR_QUALIFY_FRACTION = 0.7;
+
+export interface StarStanding {
+  childId: string;
+  score: number;
+  excellent: number;
+  good: number;
+  bad: number;
+  daysRated: number;
+  qualifies: boolean;
+}
+
+export function computeStarStandings(dayScores: DayScore[]): {
+  standings: StarStanding[];   // sorted best → worst (every kid with a rating)
+  activeDays: number;          // distinct dates ANY kid was rated
+  daysNeeded: number;          // qualification threshold for this window
+} {
+  const dates = new Set(dayScores.map((d) => d.date));
+  const activeDays = dates.size;
+  const daysNeeded = Math.max(1, Math.ceil(activeDays * STAR_QUALIFY_FRACTION));
+  const per = new Map<string, StarStanding>();
+  for (const ds of dayScores) {
+    const cur = per.get(ds.childId)
+      ?? { childId: ds.childId, score: 0, excellent: 0, good: 0, bad: 0, daysRated: 0, qualifies: false };
+    const good = Math.max(0, ds.totalRated - ds.excellentCount - ds.badCount);
+    cur.excellent += ds.excellentCount;
+    cur.good += good;
+    cur.bad += ds.badCount;
+    cur.daysRated += 1;
+    per.set(ds.childId, cur);
+  }
+  const standings = Array.from(per.values())
+    .map((s) => ({
+      ...s,
+      score: STAR_WEIGHTS.excellent * s.excellent + STAR_WEIGHTS.good * s.good + STAR_WEIGHTS.bad * s.bad,
+      qualifies: s.daysRated >= daysNeeded,
+    }))
+    .sort((a, b) => b.score - a.score || a.bad - b.bad || b.excellent - a.excellent);
+  return { standings, activeDays, daysNeeded };
+}
+
+/** Podium ranks (1–3) over the QUALIFYING standings. Exact ties on
+ *  (score, bads, excellents) SHARE the step — 1,1,3 style. */
+export function starPodiumRanks(standings: StarStanding[]): Map<string, number> {
+  const ranks = new Map<string, number>();
+  let rank = 0;
+  let seen = 0;
+  let prevKey = '';
+  for (const s of standings.filter((x) => x.qualifies)) {
+    seen += 1;
+    const key = `${s.score}|${s.bad}|${s.excellent}`;
+    if (key !== prevKey) { rank = seen; prevKey = key; }
+    if (rank > 3) break;
+    ranks.set(s.childId, rank);
+  }
+  return ranks;
+}
+
+/** The kid with the most Excellents on each active day — the daily-stars
+ *  history strip under the podium (record only, no ceremony). */
+export function dailyStarWinners(
+  dayScores: DayScore[],
+): Array<{ date: string; childId: string; excellentCount: number }> {
+  const byDate = new Map<string, DayScore>();
+  for (const ds of dayScores) {
+    const cur = byDate.get(ds.date);
+    if (!cur || ds.excellentCount > cur.excellentCount) byDate.set(ds.date, ds);
+  }
+  return Array.from(byDate.values())
+    .filter((d) => d.excellentCount > 0)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((d) => ({ date: d.date, childId: d.childId, excellentCount: d.excellentCount }));
+}
