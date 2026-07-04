@@ -17,7 +17,7 @@ import {
   fetchReminders, saveReminder, deleteReminder, decideReminder,
   occurrencesInRange, autoImportedEvents, isAutoImported,
   describeRepeat, formatTime, relativeDays, typeMeta,
-  nextOccurrenceOnOrAfter, diffDaysKey, nthFor, displayTitle, nthSubLabel,
+  nextOccurrenceOnOrAfter, diffDaysKey, nthFor, displayTitle, nthSubLabel, anniversaryMilestone,
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
@@ -429,7 +429,10 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; onTap: () => void }) {
   const ev = o.event;
   const meta = typeMeta(ev.type);
-  const nth = nthSubLabel(ev, o.dateKey);
+  // Milestone years swap the sub-flourish for the approved "a milestone
+  // year ✨" line — the badge pill already carries the count.
+  const milestone = anniversaryMilestone(ev, o.dateKey);
+  const nth = milestone ? 'a milestone year ✨' : nthSubLabel(ev, o.dateKey);
   const sub = [
     [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ') || describeRepeat(ev.repeat),
     nth,
@@ -444,6 +447,11 @@ function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; o
       <div className="flex-1 min-w-0">
         <div className="text-sm font-bold text-kaya-chocolate truncate flex items-center gap-1.5">
           {displayTitle(ev, o.dateKey)}
+          {milestone && (
+            <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={milestoneStyle(milestone.label)}>
+              {milestone.emoji} {milestone.label.toUpperCase()}
+            </span>
+          )}
           {ev.visibility === 'shared'
             ? <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#E1F3E8', color: '#3FAF6C' }}>FAMILY</span>
             : <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#EFEAFB', color: '#6B4FC0' }}>PRIVATE</span>}
@@ -855,6 +863,17 @@ function ChannelRow({ on, onToggle, label }: { on: boolean; onToggle: () => void
       <span className="text-sm font-bold text-kaya-chocolate">{label}</span>
     </button>
   );
+}
+
+/** Badge tints for the classic milestone years (approved v4 mock) — Silver,
+ *  Golden and Diamond get their own hue; the rest share the warm gold tint. */
+function milestoneStyle(label: string): React.CSSProperties {
+  switch (label) {
+    case 'Silver': return { background: '#EEF1F6', color: '#5F6B80' };
+    case 'Golden': return { background: '#FBF3DC', color: '#A07C1F' };
+    case 'Diamond': return { background: '#E9F6F7', color: '#1D7A85' };
+    default: return { background: '#F5E9D2', color: '#8A6D1F' };
+  }
 }
 
 function roleEmoji(role: string | undefined): string {
