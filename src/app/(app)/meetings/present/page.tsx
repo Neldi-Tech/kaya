@@ -206,6 +206,28 @@ export default function MeetingPresenterPage() {
   // 🤝 Pinky-Promise (v4) — childIds who sealed their goal this meeting.
   const [pinkyPromised, setPinkyPromised] = useState<Set<string>>(new Set());
 
+  // 🎯 SM3.1 (#4c) — Behaviour commitments captured during the Points Review
+  // pre-fill tonight's Goals (only where the kid has no live goal yet).
+  // Saved by the review's "✍️ Commitment" box; cleared at finish.
+  useEffect(() => {
+    if (!profile?.familyId || children.length === 0) return;
+    try {
+      const raw = localStorage.getItem(`kaya:meeting:commitments:${profile.familyId}`);
+      if (!raw) return;
+      const stored = JSON.parse(raw) as Record<string, { text?: string; at?: number }>;
+      const cutoff = Date.now() - 7 * 86400000;   // stale commitments never carry
+      setGoals((prev) => {
+        const next = { ...prev };
+        for (const c of children) {
+          const s = stored[c.id];
+          if (s?.text && (s.at || 0) > cutoff && !(next[c.id] || '').trim()) next[c.id] = s.text;
+        }
+        return next;
+      });
+    } catch { /* private mode / bad JSON — nothing to prefill */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.familyId, children.length]);
+
   // Multi-week Goals Review — per-meeting per-kid done toggles. Keyed
   // by meeting id → kid id → done. Persisted at finish time by patching
   // each touched meeting's `goalsDone` map (so a goal set 3 weeks ago
@@ -575,6 +597,9 @@ export default function MeetingPresenterPage() {
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+
+    // Commitments are folded into tonight's goals now — clear the handoff.
+    try { localStorage.removeItem(`kaya:meeting:commitments:${profile.familyId}`); } catch { /* ignore */ }
 
     // Sunday-Meeting v2 (multi-tag): reveal @-tagged appreciations on
     // meeting day. A line can tag SEVERAL people or "All" — notify each
