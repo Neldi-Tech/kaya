@@ -17,7 +17,7 @@ import {
   fetchReminders, saveReminder, deleteReminder, decideReminder,
   occurrencesInRange, autoImportedEvents, isAutoImported,
   describeRepeat, formatTime, relativeDays, typeMeta,
-  nextOccurrenceOnOrAfter, diffDaysKey,
+  nextOccurrenceOnOrAfter, diffDaysKey, nthFor, displayTitle, nthSubLabel,
   REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
@@ -46,6 +46,7 @@ interface FormState {
   type: ReminderType;
   title: string;
   date: string;       // YYYY-MM-DD
+  originDate: string; // YYYY-MM-DD or '' — actual DOB / wedding day (v4 Nth)
   time: string;       // HH:MM or ''
   withWho: string;
   location: string;
@@ -67,7 +68,7 @@ interface FormState {
 
 function blankForm(): FormState {
   return {
-    type: 'reminder', title: '', date: todayKey(), time: '', withWho: '', location: '', note: '',
+    type: 'reminder', title: '', date: todayKey(), originDate: '', time: '', withWho: '', location: '', note: '',
     visibility: 'shared', freq: 'none', weekdays: [], monthDays: [], customCount: 3, customPer: 'week',
     endMode: 'never', endOn: '', endAfter: 10, leadDays: [1, 0], channelInApp: true, channelEmail: false,
     recipients: [],
@@ -76,9 +77,15 @@ function blankForm(): FormState {
 
 function formFromEvent(ev: ReminderEvent): FormState {
   const r = ev.repeat || { freq: 'none' };
+  // Pre-fill the origin from the anchor when the anchor's year is already in
+  // the past — "the Date you entered is already the true original date"
+  // (approved v4 design). Visible in the field + ✨ preview before saving.
+  const inferredOrigin = (ev.type === 'birthday' || ev.type === 'anniversary')
+    && ev.date.slice(0, 4) < todayKey().slice(0, 4)
+    ? ev.date : '';
   return {
     id: ev.id,
-    type: ev.type, title: ev.title, date: ev.date, time: ev.time || '',
+    type: ev.type, title: ev.title, date: ev.date, originDate: ev.originDate || inferredOrigin, time: ev.time || '',
     withWho: ev.withWho || '', location: ev.location || '', note: ev.note || '',
     visibility: ev.visibility,
     freq: r.freq || 'none',
@@ -222,6 +229,7 @@ export default function RemindersPage() {
         type: form.type,
         title: form.title.trim(),
         date: form.date,
+        originDate: form.originDate || undefined,
         time: form.time || undefined,
         withWho: form.withWho.trim(),
         location: form.location.trim(),
@@ -421,7 +429,11 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; onTap: () => void }) {
   const ev = o.event;
   const meta = typeMeta(ev.type);
-  const sub = [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ');
+  const nth = nthSubLabel(ev, o.dateKey);
+  const sub = [
+    [ev.withWho && `with ${ev.withWho}`, ev.location].filter(Boolean).join(' · ') || describeRepeat(ev.repeat),
+    nth,
+  ].filter(Boolean).join(' · ');
   const auto = isAutoImported(ev);
   return (
     <button
@@ -431,14 +443,14 @@ function Row({ o, onTap }: { o: ReturnType<typeof occurrencesInRange>[number]; o
       <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-bold text-kaya-chocolate truncate flex items-center gap-1.5">
-          {ev.title}
+          {displayTitle(ev, o.dateKey)}
           {ev.visibility === 'shared'
             ? <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#E1F3E8', color: '#3FAF6C' }}>FAMILY</span>
             : <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5" style={{ background: '#EFEAFB', color: '#6B4FC0' }}>PRIVATE</span>}
           {auto && <span className="text-[8.5px] font-extrabold rounded px-1.5 py-0.5 text-kaya-sand bg-kaya-warm">AUTO</span>}
         </div>
         <div className="text-[11px] text-kaya-sand truncate">
-          {sub || describeRepeat(ev.repeat)}
+          {sub}
         </div>
       </div>
       <div className="text-right shrink-0">
@@ -478,6 +490,26 @@ function Editor({
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   const toggleArr = <T,>(arr: T[], v: T): T[] => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+
+  // ── v4 Nth Birthday/Anniversary — origin date + live ✨ preview ─────────
+  const showOrigin = form.type === 'birthday' || form.type === 'anniversary';
+  // Picking a past-year Date = "you entered the true original date" → pre-fill
+  // the origin (approved v4 design). Never overwrites one already set.
+  function setDate(v: string) {
+    setForm((f) => {
+      const canInfer = (f.type === 'birthday' || f.type === 'anniversary')
+        && !f.originDate && /^\d{4}-\d{2}-\d{2}$/.test(v) && v.slice(0, 4) < todayKey().slice(0, 4);
+      return { ...f, date: v, ...(canInfer ? { originDate: v } : {}) };
+    });
+  }
+  const previewEvent: ReminderEvent | null = showOrigin && form.originDate && form.title.trim() ? {
+    id: 'preview', familyId: '', ownerUid: '',
+    type: form.type, title: form.title.trim(), date: form.date, originDate: form.originDate,
+    visibility: form.visibility, repeat: buildRepeat(form), leadDays: [0],
+    channels: { inApp: true, email: false }, emailRecipients: [], status: 'active',
+  } : null;
+  const previewOcc = previewEvent ? (nextOccurrenceOnOrAfter(previewEvent, todayKey(), 800) || form.date) : '';
+  const previewTitle = previewEvent && nthFor(previewEvent, previewOcc) ? displayTitle(previewEvent, previewOcc) : '';
 
   // Recipient checklist state derived from members + the saved external list.
   const memberEmails = new Set(members.map((m) => (m.email || '').toLowerCase()));
@@ -551,7 +583,7 @@ function Editor({
           {/* Date + time */}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Date">
-              <input type="date" value={form.date} onChange={(e) => set('date', e.target.value)}
+              <input type="date" value={form.date} onChange={(e) => setDate(e.target.value)}
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
               {form.date && <div className="text-[11px] text-kaya-sand mt-1">{dayOfWeek(form.date)} · {toDisplayDate(form.date)}</div>}
             </Field>
@@ -560,6 +592,23 @@ function Editor({
                 className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
             </Field>
           </div>
+
+          {/* v4 — actual event date (only 🎂/💍): powers "Nth Birthday". */}
+          {showOrigin && (
+            <Field label="Actual date of the event (optional)">
+              <input type="date" value={form.originDate} onChange={(e) => set('originDate', e.target.value)}
+                className="w-full rounded-kaya border border-kaya-warm-dark bg-white px-3 py-2.5 text-sm font-medium text-kaya-chocolate" />
+              <div className="text-[11px] text-kaya-sand mt-1">
+                {form.type === 'birthday' ? 'The day they were born.' : 'The wedding day (or when it all began).'} Kaya uses the year to count.
+              </div>
+              {previewTitle && (
+                <div className="mt-2 rounded-kaya-sm border border-dashed px-3 py-2 text-[12.5px] font-bold"
+                  style={{ background: '#F5E9D2', borderColor: '#E8C989', color: '#3D2E08' }}>
+                  ✨ Will read: {previewTitle} {form.type === 'birthday' ? '🎂' : '💍'}
+                </div>
+              )}
+            </Field>
+          )}
 
           {/* With / Where */}
           <div className="grid grid-cols-2 gap-3">
