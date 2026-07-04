@@ -223,6 +223,11 @@ export default function MeetingPresenterPage() {
   // `goalsDone` map, falling back to legacy `lastWeekGoalsDone` of the
   // NEXT meeting for goals set before the v2 schema).
   const [recentMeetings, setRecentMeetings] = useState<Meeting[]>([]);
+  // Longer meeting history (~a year) — feeds guest suggestions only, so the
+  // goals-review window above stays exactly as-is. (SM3.1 · #1)
+  const [meetingHistory, setMeetingHistory] = useState<Meeting[]>([]);
+  // Household helpers — standing guest suggestions (name-only is enough).
+  const [householdHelpers, setHouseholdHelpers] = useState<Array<{ name: string }>>([]);
 
   // 📅 On This Day (v4.2 surprise) — a memory from a past meeting that lands
   // on today's day-of-month (≥25 days ago). Prefers a goal that was later
@@ -263,13 +268,14 @@ export default function MeetingPresenterPage() {
     return null;
   }, [recentMeetings, children]);
 
-  // Guest suggestions — unique (name, relationship) pairs pulled from
-  // recent meetings' guestAttendees. One-tap re-add so a parent doesn't
-  // have to retype "Bibi Asha · Grandma" every week. Filters out anyone
-  // already on tonight's guest list to avoid duplicates.
+  // Guest suggestions — unique (name, relationship) pairs pulled from the
+  // meeting HISTORY (up to ~a year back, SM3.1 · #1), plus the family's
+  // helpers as standing suggestions even if they've never attended. One-tap
+  // re-add so a parent doesn't have to retype "Bibi Asha · Grandma" every
+  // week. Filters out anyone already on tonight's guest list.
   const guestSuggestions = useMemo(() => {
     const seen = new Map<string, { name: string; relationship?: string; lastSeen: string }>();
-    for (const m of recentMeetings) {
+    for (const m of meetingHistory) {
       for (const g of (m.guestAttendees || [])) {
         const key = `${(g.name || '').trim().toLowerCase()}|${(g.relationship || '').toLowerCase()}`;
         if (!seen.has(key) || (seen.get(key)?.lastSeen || '') < m.date) {
@@ -277,19 +283,26 @@ export default function MeetingPresenterPage() {
         }
       }
     }
-    // Exclude anyone already added to tonight's list.
-    const tonightKeys = new Set(
-      guestAttendees.map((g) => `${g.name.trim().toLowerCase()}|${(g.relationship || '').toLowerCase()}`)
-    );
+    // Standing suggestions — household helpers (nanny/tutor/…), deduped by
+    // NAME against past guests so the same person never shows twice.
+    const namesSeen = new Set(Array.from(seen.values()).map((s) => s.name.trim().toLowerCase()));
+    for (const h of householdHelpers) {
+      const nm = h.name.trim();
+      if (!nm || namesSeen.has(nm.toLowerCase())) continue;
+      seen.set(`${nm.toLowerCase()}|helper`, { name: nm, relationship: 'Helper', lastSeen: '0000-00-00' });
+    }
+    // Exclude anyone already added to tonight's list (by name).
+    const tonightNames = new Set(guestAttendees.map((g) => g.name.trim().toLowerCase()));
     return Array.from(seen.values())
-      .filter((s) => !tonightKeys.has(`${s.name.trim().toLowerCase()}|${(s.relationship || '').toLowerCase()}`))
+      .filter((s) => !tonightNames.has(s.name.trim().toLowerCase()))
       .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
-      .slice(0, 6);
-  }, [recentMeetings, guestAttendees]);
+      .slice(0, 8);
+  }, [meetingHistory, householdHelpers, guestAttendees]);
   useEffect(() => {
     if (!profile?.familyId) return;
     getMeetings(profile.familyId).then((ms) => {
       setRecentMeetings(ms.slice(0, GOALS_REVIEW_WEEKS_BACK));
+      setMeetingHistory(ms.slice(0, 60));   // ~a year of Sundays for guest suggestions
     });
   }, [profile?.familyId]);
 
@@ -318,6 +331,12 @@ export default function MeetingPresenterPage() {
           name: p.displayName || 'Parent',
           avatarEmoji: (p as { avatarEmoji?: string }).avatarEmoji,
         }))
+      );
+      // Helpers → standing guest suggestions on the Attendance step.
+      setHouseholdHelpers(
+        members.filter((m) => m.role === 'helper')
+          .map((h) => ({ name: h.displayName || '' }))
+          .filter((h) => h.name)
       );
       const map: Record<string, string> = {};
       for (const m of members) {
@@ -1932,7 +1951,7 @@ function AttendanceStep({
                 <span className="flex-1 min-w-0">
                   <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{g.name}</span>
                   <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold text-kaya-gold-light/80">
-                    {g.relationship || 'Guest'} · re-add
+                    {g.relationship || 'Guest'} · tap to add
                   </span>
                 </span>
                 <span className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black bg-kaya-gold/30 text-kaya-gold-light">＋</span>
