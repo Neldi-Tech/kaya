@@ -62,6 +62,7 @@ import {
 const STEPS = [
   { id: 'open',          title: 'Meeting Opens',      emoji: '✨', sub: 'A moment to mark that we\'re here — and that today is our day.' },
   { id: 'attendance',    title: 'Attendance',         emoji: '👋', sub: 'Who is here tonight, and is anyone presenting?' },
+  { id: 'openingword',   title: 'Opening Word',       emoji: '🙏', sub: 'The leader opens the night — a prayer or a short word, from the heart.' },
   { id: 'gratitude',     title: 'Gratitude Circle',   emoji: '🙏', sub: 'What is each of us thankful for today?' },
   { id: 'celebrate',     title: 'Celebrate the Wins', emoji: '🎉', sub: 'Look back at the week — points, badges, moments worth a cheer.' },
   { id: 'appreciations', title: 'Appreciations',      emoji: '💛', sub: 'Something kind, helpful, or brave you noticed this week.' },
@@ -103,9 +104,16 @@ export default function MeetingPresenterPage() {
     // the parent's enabled-steps list.
     const openStep = STEPS[0];
     const rest = STEPS.slice(1);
-    const filteredRest = !enabled || enabled.length === 0
-      ? rest
-      : rest.filter((s) => new Set(enabled).has(s.id));
+    // 'openingword' (SM3.1 · #2) is governed by its OWN flag, not the saved
+    // agendaSteps list — families who saved their step list before this
+    // feature existed still get it by default (flag absent = on).
+    const openingWordOn = family?.meetingSetup?.openingWordEnabled !== false;
+    const enabledSet = new Set(enabled || []);
+    const filteredRest = rest.filter((s) => {
+      if (s.id === 'openingword') return openingWordOn;
+      if (!enabled || enabled.length === 0) return true;
+      return enabledSet.has(s.id);
+    });
     const base = [openStep, ...filteredRest];
     // Apply per-step display-name overrides. `title` falls back to the
     // canonical default when the parent hasn't customised it.
@@ -113,7 +121,7 @@ export default function MeetingPresenterPage() {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -183,6 +191,14 @@ export default function MeetingPresenterPage() {
   const [householdParents, setHouseholdParents] = useState<Array<{ uid: string; name: string; avatarEmoji?: string }>>([]);
   const [presentBy, setPresentBy] = useState('');
   const [presentTopic, setPresentTopic] = useState('');
+
+  // 🙏 Opening Word (SM3.1 · #2) — how the leader opens the night. From the
+  // heart by default; `done` gates Next when the family set it as required.
+  const [openingWordMode, setOpeningWordMode] = useState<'prayer' | 'wisdom' | 'verse' | 'own'>('prayer');
+  const [openingWordNote, setOpeningWordNote] = useState('');
+  const [openingWordDone, setOpeningWordDone] = useState(false);
+  const openingWordRequired = family?.meetingSetup?.openingWordRequired === true;
+  const openingWordShowLibrary = family?.meetingSetup?.openingWordShowLibrary === true;
 
   const [gratitude, setGratitude] = useState<Record<string, string>>({});
   const [appreciations, setAppreciations] = useState<Record<string, string>>({});
@@ -549,6 +565,13 @@ export default function MeetingPresenterPage() {
       presentation,
       reflection,
       ...(pinkyPromised.size > 0 ? { pinkyPromised: Array.from(pinkyPromised) } : {}),
+      ...(openingWordDone ? {
+        openingWord: {
+          mode: openingWordMode,
+          ...(openingWordNote.trim() ? { note: openingWordNote.trim() } : {}),
+          doneAt: Date.now(),
+        },
+      } : {}),
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
@@ -778,6 +801,22 @@ export default function MeetingPresenterPage() {
                 />
               )}
 
+              {step.id === 'openingword' && (
+                <OpeningWordStep
+                  leaderName={family?.nextMeetingLeader?.name || profile?.displayName || 'The leader'}
+                  mode={openingWordMode}
+                  onMode={setOpeningWordMode}
+                  note={openingWordNote}
+                  onNote={setOpeningWordNote}
+                  done={openingWordDone}
+                  onDone={() => { setOpeningWordDone(true); setStepIdx(safeStepIdx + 1); }}
+                  required={openingWordRequired}
+                  onSkip={() => setStepIdx(safeStepIdx + 1)}
+                  showLibrary={openingWordShowLibrary}
+                  prayers={prayerLibrary}
+                />
+              )}
+
               {step.id === 'gratitude' && (
                 <StepSubmissions
                   section="gratitudes"
@@ -892,7 +931,10 @@ export default function MeetingPresenterPage() {
               <button
                 type="button"
                 onClick={() => setStepIdx(safeStepIdx + 1)}
-                className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors"
+                disabled={step?.id === 'openingword' && openingWordRequired && !openingWordDone}
+                title={step?.id === 'openingword' && openingWordRequired && !openingWordDone
+                  ? 'Mark the Opening Word done to continue (set in Meeting settings)' : undefined}
+                className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 Next →
               </button>
@@ -1802,6 +1844,109 @@ const GUEST_RELATIONSHIPS = [
   'Family Friend', 'Grandpa', 'Grandma', 'Uncle', 'Aunt', 'Cousin',
   'Nanny', 'Tutor', 'Helper', 'Neighbour', 'Other',
 ] as const;
+
+// ── 🙏 Opening Word (SM3.1 · #2) ─────────────────────────────────────────
+// The leader opens the night — a prayer, a word of wisdom, a verse, or their
+// own words, spoken FROM THE HEART (nothing to read by default). Marking it
+// done stamps the meeting record and moves on; when the family's settings
+// make it required, the footer Next stays locked until then. The saved
+// prayers library only appears when the family switched it on in settings.
+const OPENING_MODES: Array<{ id: 'prayer' | 'wisdom' | 'verse' | 'own'; label: string; emoji: string; hint: string }> = [
+  { id: 'prayer', label: 'Prayer',         emoji: '🙏', hint: 'Spoken from the heart — no reading needed.' },
+  { id: 'wisdom', label: 'Word of wisdom', emoji: '💡', hint: 'A short thought to carry into the week.' },
+  { id: 'verse',  label: 'Verse',          emoji: '📖', hint: 'A verse that speaks to this week.' },
+  { id: 'own',    label: 'My own words',   emoji: '🗣️', hint: 'Whatever the night needs — your words.' },
+];
+
+function OpeningWordStep({
+  leaderName, mode, onMode, note, onNote, done, onDone, required, onSkip, showLibrary, prayers,
+}: {
+  leaderName: string;
+  mode: 'prayer' | 'wisdom' | 'verse' | 'own';
+  onMode: (m: 'prayer' | 'wisdom' | 'verse' | 'own') => void;
+  note: string;
+  onNote: (v: string) => void;
+  done: boolean;
+  onDone: () => void;
+  required: boolean;
+  onSkip: () => void;
+  showLibrary: boolean;
+  prayers: Array<{ id: string; title: string; body: string }>;
+}) {
+  const active = OPENING_MODES.find((m) => m.id === mode) || OPENING_MODES[0];
+  return (
+    <div className="max-w-2xl mx-auto w-full">
+      <p className="text-center text-white/70 text-sm lg:text-base mb-4">
+        <span className="font-display font-extrabold text-kaya-gold-light">{leaderName}</span> opens the meeting.
+      </p>
+
+      {/* Mode chips */}
+      <div className="flex flex-wrap justify-center gap-2 mb-4">
+        {OPENING_MODES.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => onMode(m.id)}
+            aria-pressed={mode === m.id}
+            className={`px-4 py-2.5 rounded-kaya font-display font-extrabold text-[13px] lg:text-sm transition-colors ${
+              mode === m.id
+                ? 'bg-kaya-gold text-kaya-chocolate'
+                : 'bg-white/10 text-white/75 hover:bg-white/20'
+            }`}
+          >
+            {m.emoji} {m.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-center text-white/55 text-[12.5px] lg:text-sm mb-4">{active.hint}</p>
+
+      {/* Prayer library — optional equipment, per family settings. */}
+      {showLibrary && mode === 'prayer' && prayers.length > 0 && (
+        <div className="rounded-kaya bg-white/5 border border-white/10 p-4 mb-4 max-h-44 overflow-y-auto">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold-light mb-2">📖 From your prayer library (optional)</p>
+          {prayers.slice(0, 3).map((p) => (
+            <div key={p.id} className="mb-2 last:mb-0">
+              {p.title && <p className="text-[12px] font-display font-extrabold text-white/85">{p.title}</p>}
+              <p className="text-[12.5px] text-white/70 leading-relaxed whitespace-pre-wrap">{p.body}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Optional note — lands on the meeting record + report. */}
+      <input
+        value={note}
+        onChange={(e) => onNote(e.target.value)}
+        placeholder="(Optional) note what was shared — it goes into the meeting record"
+        maxLength={300}
+        className="w-full h-12 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[13.5px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 mb-4"
+      />
+
+      {done ? (
+        <p className="text-center font-display font-extrabold text-kaya-gold-light">✓ Opening done — thank you, {leaderName}.</p>
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-12 lg:h-14 px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors"
+          >
+            ✓ Opening done — continue →
+          </button>
+          {!required && (
+            <button
+              type="button"
+              onClick={onSkip}
+              className="text-[12px] font-bold text-white/50 hover:text-white/80 underline underline-offset-2"
+            >
+              Skip for tonight
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function AttendanceStep({
   childrenList,

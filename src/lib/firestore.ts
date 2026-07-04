@@ -492,6 +492,17 @@ export interface Family {
      *  Default = 1 year. The capsule's openOn lands on the nearest
      *  scheduled meeting day within ±3 days of that anniversary. */
     timeCapsuleLockYears?: 0.5 | 1 | 3;
+    /** SM3.1 (#2): 🙏 Opening Word — the leader opens the night with a
+     *  prayer / word of wisdom / verse, spoken FROM THE HEART by default.
+     *  `openingWordEnabled` shows/hides the step (default true — its own
+     *  flag, NOT part of agendaSteps, so families with saved step lists
+     *  still get it). `openingWordRequired` locks "Next" until the leader
+     *  marks the opening done. `openingWordShowLibrary` surfaces the saved
+     *  prayers library as an optional read-from card (default false —
+     *  heart-first). */
+    openingWordEnabled?: boolean;
+    openingWordRequired?: boolean;
+    openingWordShowLibrary?: boolean;
     /** Sunday-Meeting (song reveal, 2026-06-21): the closing song set
      *  AHEAD of the meeting by the leader or a parent. During the meeting
      *  the Closing step opens it as a surprise (5-4-3-2-1 countdown →
@@ -1137,6 +1148,14 @@ export interface Meeting {
    *  meeting. Next meeting's Goals Review surfaces a "you pinky-promised
    *  this" ribbon on those goals (and a "promise kept!" beat when done). */
   pinkyPromised?: string[];
+  /** SM3.1 (#2) — 🙏 Opening Word: how the leader opened the night.
+   *  Stamped when the leader marks the opening done; absent when the
+   *  step was skipped (or disabled). Shows in the meeting report. */
+  openingWord?: {
+    mode: 'prayer' | 'wisdom' | 'verse' | 'own';
+    note?: string;
+    doneAt?: number;   // epoch ms
+  };
   /** Optional "anyone presenting tonight?" capture during the new
    *  attendance step. */
   presentation?: {

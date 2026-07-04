@@ -71,6 +71,12 @@ export default function MeetingSetupPage() {
   const [recapBookIncludeSong, setRecapBookIncludeSong] = useState<boolean>(true);
   // Sunday-Meeting v2 (b7): how long a Time Capsule stays sealed.
   const [timeCapsuleLockYears, setTimeCapsuleLockYears] = useState<0.5 | 1 | 3>(1);
+  // SM3.1 (#2): 🙏 Opening Word — step on/off (default ON), required-to-
+  // continue gate (default OFF), and whether the saved prayers library
+  // surfaces during the step (default OFF — prayer comes from the heart).
+  const [openingWordEnabled, setOpeningWordEnabled] = useState<boolean>(true);
+  const [openingWordRequired, setOpeningWordRequired] = useState<boolean>(false);
+  const [openingWordShowLibrary, setOpeningWordShowLibrary] = useState<boolean>(false);
   const [prayers, setPrayers] = useState<SavedPrayer[]>([]);
   // Per-step display-name override. Empty / missing entry = use the
   // canonical default title from AGENDA_STEPS.
@@ -102,6 +108,9 @@ export default function MeetingSetupPage() {
     if (s?.timeCapsuleLockYears === 0.5 || s?.timeCapsuleLockYears === 1 || s?.timeCapsuleLockYears === 3) {
       setTimeCapsuleLockYears(s.timeCapsuleLockYears);
     }
+    if (typeof s?.openingWordEnabled === 'boolean') setOpeningWordEnabled(s.openingWordEnabled);
+    if (typeof s?.openingWordRequired === 'boolean') setOpeningWordRequired(s.openingWordRequired);
+    if (typeof s?.openingWordShowLibrary === 'boolean') setOpeningWordShowLibrary(s.openingWordShowLibrary);
     if (s?.prayers && s.prayers.length > 0) setPrayers(s.prayers);
     if (s?.stepLabels) setStepLabels(s.stepLabels);
     if (s?.schedule) {
@@ -201,6 +210,9 @@ export default function MeetingSetupPage() {
         recapBookEmailEnabled,
         recapBookIncludeSong,
         timeCapsuleLockYears,
+        openingWordEnabled,
+        openingWordRequired,
+        openingWordShowLibrary,
       },
     });
     setSaving(false);
@@ -342,6 +354,68 @@ export default function MeetingSetupPage() {
                 When a kid pastes a YouTube/Spotify link in the closing reflection,
                 Kaya asks a parent to tap &ldquo;approve&rdquo; before the play button works.
                 Parent-pasted links are always cleared. Default: on.
+              </p>
+            </div>
+          </label>
+        </div>
+      </section>
+
+      {/* ── 🙏 Opening Word (SM3.1 · #2) ─────────────────────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">🙏 Opening Word</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {openingWordEnabled ? (openingWordRequired ? 'Required' : 'On') : 'Off'}
+          </span>
+        </div>
+        <p className="text-[12.5px] lg:text-sm text-kaya-sand leading-snug mb-4">
+          The leader opens the night with a prayer, a word of wisdom, or a verse —
+          spoken from the heart. Marking it done stamps the meeting record.
+        </p>
+        <div className="space-y-3">
+          <label className="flex items-start gap-3 cursor-pointer rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4">
+            <input
+              type="checkbox"
+              checked={openingWordEnabled}
+              onChange={(e) => setOpeningWordEnabled(e.target.checked)}
+              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-sm text-kaya-chocolate">Include the Opening Word step</p>
+              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">
+                Shows right after Attendance. Default: on.
+              </p>
+            </div>
+          </label>
+          <label className={`flex items-start gap-3 rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4 ${openingWordEnabled ? 'cursor-pointer' : 'opacity-50'}`}>
+            <input
+              type="checkbox"
+              checked={openingWordRequired}
+              disabled={!openingWordEnabled}
+              onChange={(e) => setOpeningWordRequired(e.target.checked)}
+              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-sm text-kaya-chocolate">Must be completed to continue</p>
+              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">
+                When on, the meeting can&rsquo;t move past this step until the leader marks the opening done.
+                When off, a &ldquo;Skip for tonight&rdquo; link appears. Default: off.
+              </p>
+            </div>
+          </label>
+          <label className={`flex items-start gap-3 rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4 ${openingWordEnabled ? 'cursor-pointer' : 'opacity-50'}`}>
+            <input
+              type="checkbox"
+              checked={openingWordShowLibrary}
+              disabled={!openingWordEnabled}
+              onChange={(e) => setOpeningWordShowLibrary(e.target.checked)}
+              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="font-display font-extrabold text-sm text-kaya-chocolate">📖 Show the prayer library during the step</p>
+              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">
+                Prayer comes from the heart by default — nothing to read. Switch this on if your
+                family likes reading a saved prayer out loud. Default: off.
               </p>
             </div>
           </label>
