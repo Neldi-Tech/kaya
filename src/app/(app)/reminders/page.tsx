@@ -18,9 +18,10 @@ import {
   occurrencesInRange, autoImportedEvents, isAutoImported,
   describeRepeat, formatTime, relativeDays, typeMeta,
   nextOccurrenceOnOrAfter, diffDaysKey, nthFor, displayTitle, nthSubLabel, anniversaryMilestone,
-  REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey,
+  REMINDER_TYPES, WEEKDAY_LABELS, LEAD_PRESETS, todayKey, resolveGroupRecipients,
   type ReminderEvent, type ReminderType, type ReminderVisibility,
   type RepeatRule, type RepeatFreq, type MonthDay, type ReminderRecipient,
+  type EmailGroup,
 } from '@/lib/reminders';
 import GiftBrain from '@/components/reminders/GiftBrain';
 import TimeCapsule from '@/components/reminders/TimeCapsule';
@@ -403,6 +404,7 @@ export default function RemindersPage() {
           form={form}
           setForm={setForm}
           members={members}
+          groups={family?.emailGroups || []}
           ownUid={uid}
           saving={saving}
           error={error}
@@ -483,11 +485,12 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ── Editor ───────────────────────────────────────────────────────────────
 
 function Editor({
-  form, setForm, members, ownUid, saving, error, onClose, onSave, onDelete,
+  form, setForm, members, groups, ownUid, saving, error, onClose, onSave, onDelete,
 }: {
   form: FormState;
   setForm: React.Dispatch<React.SetStateAction<FormState>>;
   members: UserProfile[];
+  groups: EmailGroup[];
   ownUid: string;
   saving: boolean;
   error: string;
@@ -532,6 +535,32 @@ function Editor({
       if (has) return { ...f, recipients: f.recipients.filter((r) => r.email.toLowerCase() !== email) };
       return { ...f, recipients: [...f.recipients, { kind: 'member', email, uid: m.uid, name: m.displayName }] };
     });
+  }
+
+  // ── v4 Email-group chips — truthful tri-state, additive toggles. ───────
+  // full → tap clears ITS members only; empty/partial → tap selects all its
+  // members. Never touches ticks that belong to other groups or singles.
+  const groupInfos = groups
+    .map((g) => {
+      const recips = resolveGroupRecipients(g, members);
+      const selected = recips.filter((r) => form.recipients.some((x) => x.email.toLowerCase() === r.email)).length;
+      const state: 'empty' | 'partial' | 'full' = !recips.length || selected === 0 ? 'empty'
+        : selected === recips.length ? 'full' : 'partial';
+      return { g, recips, selected, state };
+    })
+    .filter((info) => info.recips.length > 0);
+
+  function toggleGroup(info: { recips: ReminderRecipient[]; state: 'empty' | 'partial' | 'full' }) {
+    if (info.state === 'full') {
+      const emails = new Set(info.recips.map((r) => r.email));
+      setForm((f) => ({ ...f, recipients: f.recipients.filter((r) => !emails.has(r.email.toLowerCase())) }));
+    } else {
+      setForm((f) => {
+        const have = new Set(f.recipients.map((r) => r.email.toLowerCase()));
+        const add = info.recips.filter((r) => !have.has(r.email));
+        return { ...f, recipients: [...f.recipients, ...add] };
+      });
+    }
   }
 
   const [extInput, setExtInput] = useState('');
@@ -774,6 +803,34 @@ function Editor({
           {/* Email recipients */}
           {form.channelEmail && (
             <Field label="Email to — pick + add">
+              {groupInfos.length > 0 && (
+                <>
+                  <div className="flex flex-wrap gap-2 mb-1.5">
+                    {groupInfos.map((info) => (
+                      <button
+                        key={info.g.id}
+                        onClick={() => toggleGroup(info)}
+                        className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-extrabold border transition"
+                        style={info.state === 'full'
+                          ? { background: CAL, borderColor: CAL, color: '#fff' }
+                          : info.state === 'partial'
+                            ? { background: CAL_SOFT, borderColor: CAL, color: CAL_DK }
+                            : { background: '#fff', borderColor: '#E8DEC9', color: '#5C6975' }}
+                      >
+                        {info.state === 'full' && (
+                          <span className="w-3.5 h-3.5 rounded-[4px] bg-white text-[9px] font-extrabold flex items-center justify-center" style={{ color: CAL }}>✓</span>
+                        )}
+                        {info.state === 'partial' && (
+                          <span className="w-3.5 h-3.5 rounded-[4px] text-white text-[10px] font-extrabold flex items-center justify-center" style={{ background: CAL }}>−</span>
+                        )}
+                        {info.g.emoji || '👨‍👩‍👧'} {info.g.name}
+                        <span className="font-bold opacity-75">({info.state === 'partial' ? `${info.selected}/${info.recips.length}` : info.recips.length})</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-[11px] text-kaya-sand mb-2">One tap picks the whole group · tap again clears it · untick anyone below and the chip turns “partial”.</div>
+                </>
+              )}
               <div className="bg-white border border-kaya-warm-dark rounded-kaya px-3 py-2.5">
                 {members.length === 0 && <div className="text-[11px] text-kaya-sand py-1">No family emails on file yet.</div>}
                 {members.map((m) => {
@@ -810,7 +867,7 @@ function Editor({
                   </div>
                 )}
               </div>
-              <div className="text-[11px] text-kaya-sand mt-1.5">Tick family members (their Kaya email is pre-filled) and add any outside address. Saved on this reminder for re-use.</div>
+              <div className="text-[11px] text-kaya-sand mt-1.5">Tick family members (their Kaya email is pre-filled) and add any outside address. Saved on this reminder for re-use. Parents can build one-tap groups in Settings → 📮 Email groups.</div>
             </Field>
           )}
 
