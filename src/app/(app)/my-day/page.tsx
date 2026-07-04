@@ -13,6 +13,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
+import WeekThemeCard from '@/components/meetings/WeekThemeCard';
 import { useTodaysBirthdays } from '@/components/birthdays/useTodaysBirthdays';
 import KidAvatar from '@/components/ui/KidAvatar';
 import RemindersInline from '@/components/reminders/RemindersInline';
@@ -127,12 +128,15 @@ export default function MyDayPage() {
   // 🎂 Birthday wish card — every role sees it on the day (B1). Renders
   // nothing (no spacing) when nobody's celebrating.
   const wishCard = (
+    <>
+    <WeekThemeCard className="mx-auto max-w-md w-full px-4 pt-4 mb-0" />
     <BirthdayWishCard
       familyId={family.id}
       viewerUid={profile.uid}
       viewerChildId={profile.childId}
       wrapClassName="mx-auto max-w-md w-full px-4 pt-4 -mb-6"
     />
+    </>
   );
 
   // 🔔 Reminders surface on My Day for every role: today's reminders inline +

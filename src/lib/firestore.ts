@@ -433,6 +433,16 @@ export interface Family {
   /** All-kids workplan pause (holidays). Applies to every child's plan on
    *  covered days — streak-safe. Set via setFamilyWorkplanPause. */
   workplanPause?: WorkplanPause;
+  /** SM3.1 (H·A): 📖 Theme of the Week — a short verse/quote the leader
+   *  sets at the meeting close. Shows on Home + My Day all week; next
+   *  meeting's opener asks "who remembers it?". `weekOf` = that week's
+   *  meeting-day key (YYYY-MM-DD). */
+  weekTheme?: {
+    text: string;
+    by?: string;
+    weekOf: string;
+    setAt?: number;
+  };
   // ── Meeting setup ────────────────────────────────────────────
   // Parent-controlled configuration the presenter reads on meeting
   // night. Optional — absent = sensible defaults (every step in the
@@ -1175,6 +1185,15 @@ export interface Meeting {
     postId?: string;
     missions?: Record<string, string>;
     checkedMissions?: Record<string, boolean>;
+  };
+  /** SM3.1 (H·B): 🎭 tonight's co-host roles — roleId → childId. The Wheel
+   *  deals them at Attendance; each role-kid earns +1 HP at finish. */
+  roles?: Record<string, string>;
+  /** SM3.1 (H·C): 🗳️ tonight's Family Vote as it closed. */
+  vote?: {
+    question: string;
+    winner: string;
+    counts: Record<string, number>;
   };
   /** Optional "anyone presenting tonight?" capture during the new
    *  attendance step. */
