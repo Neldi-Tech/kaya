@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { useReminders } from './useReminders';
-import { typeMeta, relativeDays } from '@/lib/reminders';
+import { typeMeta, relativeDays, displayTitle } from '@/lib/reminders';
 
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
@@ -34,7 +34,7 @@ export default function RemindersChip({ className = '' }: { className?: string }
           Reminders · {total} coming up
         </div>
         <div className="text-sm font-bold text-kaya-chocolate truncate">
-          {meta.icon} {next.event.title}
+          {meta.icon} {displayTitle(next.event, next.dateKey)}
         </div>
       </div>
       <div className="text-right shrink-0">

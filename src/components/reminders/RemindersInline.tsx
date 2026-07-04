@@ -8,7 +8,7 @@
 
 import Link from 'next/link';
 import { useReminders } from './useReminders';
-import { typeMeta, formatTime, relativeDays, type ReminderOccurrence } from '@/lib/reminders';
+import { typeMeta, formatTime, relativeDays, displayTitle, type ReminderOccurrence } from '@/lib/reminders';
 
 const CAL = '#5B6CC8';
 const CAL_DK = '#3E4DA0';
@@ -37,7 +37,7 @@ export default function RemindersInline({ wrapClassName = '' }: { wrapClassName?
             {upcoming.slice(0, 4).map((o) => (
               <div key={`${o.event.id}-${o.dateKey}`} className="flex items-center gap-2 text-[12px] font-bold text-kaya-chocolate">
                 <span>{typeMeta(o.event.type).icon}</span>
-                <span className="truncate">{o.event.title}</span>
+                <span className="truncate">{displayTitle(o.event, o.dateKey)}</span>
                 <VisBadge shared={o.event.visibility === 'shared'} />
                 <span className="ml-auto text-[11px] font-extrabold shrink-0" style={{ color: CAL_DK }}>{relativeDays(o.daysAway, o.dateKey)}</span>
               </div>
@@ -62,7 +62,7 @@ function TodayRow({ o }: { o: ReminderOccurrence }) {
       <span className="w-9 h-9 rounded-kaya-sm flex items-center justify-center text-lg shrink-0" style={{ background: CAL_SOFT }}>{meta.icon}</span>
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-extrabold text-kaya-chocolate truncate flex items-center gap-1.5">
-          {ev.title}
+          {displayTitle(ev, o.dateKey)}
           <span className="text-[8.5px] font-extrabold rounded px-1 py-0.5" style={{ background: '#fff', border: `1px solid ${CAL}`, color: CAL_DK }}>REMINDER</span>
           <VisBadge shared={ev.visibility === 'shared'} />
         </div>

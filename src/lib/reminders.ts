@@ -87,6 +87,11 @@ export interface ReminderEvent {
   title: string;
   /** First/anchor occurrence — canonical YYYY-MM-DD. */
   date: string;
+  /** v4 — the ACTUAL event date (date of birth / wedding day), used only to
+   *  count "Nth Birthday / Nth Anniversary". Optional; absent = plain copy.
+   *  Only meaningful for type birthday|anniversary. Auto-imported mirrors
+   *  stamp it from the profile DOB / family anniversary. */
+  originDate?: string;
   /** "HH:MM" 24h, optional (absent = all-day). */
   time?: string;
   withWho?: string;
@@ -422,6 +427,9 @@ export function autoImportedEvents(
 function synthEvent(familyId: string, id: string, type: ReminderType, title: string, date: string): ReminderEvent {
   return {
     id, familyId, ownerUid: 'system', ownerName: 'Kaya', type, title, date,
+    // The profile DOB / family anniversary IS the true origin, so mirrors
+    // get "Nth Birthday" counting for free.
+    originDate: date,
     visibility: 'shared',
     repeat: { freq: 'yearly' },
     leadDays: [7, 1, 0],
@@ -469,10 +477,50 @@ function withEnd(base: string, rule: RepeatRule): string {
   return base;
 }
 
-function ordinal(n: number): string {
+export function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+// ── Nth Birthday / Anniversary (v4) ────────────────────────────────────────
+// Counting anchors ONLY on the explicit originDate — never inferred from the
+// anchor date on stored events, so a reminder created "for next June" can
+// never mislabel itself a 1st birthday. Auto-imported mirrors stamp
+// originDate from the real DOB/anniversary, so they light up for free.
+
+/** N = occurrence year − origin year, for birthday/anniversary events with a
+ *  known origin. Null (= render plain, exactly as v3) when the origin is
+ *  missing, malformed, in the future, or the same year. */
+export function nthFor(ev: ReminderEvent, occurrenceKey: string): number | null {
+  if (ev.type !== 'birthday' && ev.type !== 'anniversary') return null;
+  if (!ev.originDate || !/^\d{4}-\d{2}-\d{2}$/.test(ev.originDate)) return null;
+  const originYear = parseInt(ev.originDate.slice(0, 4), 10);
+  const occYear = parseInt(occurrenceKey.slice(0, 4), 10);
+  if (!Number.isFinite(originYear) || !Number.isFinite(occYear)) return null;
+  const n = occYear - originYear;
+  return n > 0 ? n : null;
+}
+
+/** The spoken title for an occurrence — "Daniella's 8th Birthday" — used by
+ *  the list, My Day, Home chip, notification and email. Falls back to the
+ *  stored title whenever there's no N. */
+export function displayTitle(ev: ReminderEvent, occurrenceKey: string): string {
+  const n = nthFor(ev, occurrenceKey);
+  if (!n) return ev.title;
+  const word = ev.type === 'birthday' ? 'Birthday' : 'Anniversary';
+  const re = new RegExp(`${word}\\s*$`, 'i');
+  if (re.test(ev.title)) return ev.title.replace(re, `${ordinal(n)} ${word}`);
+  return `${ev.title} · ${ordinal(n)} ${word}`;
+}
+
+/** Sub-line flourish for an Nth occurrence — "turning 8 🎈" / "12 years ·
+ *  since 2015 💕". Null when there's no N (sub-line renders as before). */
+export function nthSubLabel(ev: ReminderEvent, occurrenceKey: string): string | null {
+  const n = nthFor(ev, occurrenceKey);
+  if (!n) return null;
+  if (ev.type === 'birthday') return `turning ${n} 🎈`;
+  return `${n} years · since ${ev.originDate!.slice(0, 4)} 💕`;
 }
 
 /** "3:00 PM" from "15:00". */

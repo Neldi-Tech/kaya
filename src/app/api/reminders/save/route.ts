@@ -199,6 +199,12 @@ export async function POST(req: NextRequest) {
   const leadDays = sanitizeLeadDays(ev.leadDays);
   const timeRaw = clampStr(ev.time, 5);
   const time = /^\d{2}:\d{2}$/.test(timeRaw) ? timeRaw : undefined;
+  // v4 — optional origin date (DOB / wedding day) powering "Nth Birthday".
+  // Only meaningful on birthday/anniversary; silently dropped elsewhere.
+  const originRaw = clampStr(ev.originDate, 10);
+  const originDate = (type === 'birthday' || type === 'anniversary') && /^\d{4}-\d{2}-\d{2}$/.test(originRaw)
+    ? originRaw
+    : undefined;
 
   const base = {
     type, title, date,
@@ -207,6 +213,9 @@ export async function POST(req: NextRequest) {
     // with no time. Clearing a previously-set time on EDIT is handled in the
     // update branch below.
     ...(time ? { time } : {}),
+    // Same create-vs-edit contract as `time`: only set when present here;
+    // clearing on edit is a FieldValue.delete() in the update branch.
+    ...(originDate ? { originDate } : {}),
     withWho: clampStr(ev.withWho, 120),
     location: clampStr(ev.location, 160),
     note: clampStr(ev.note, 500),
@@ -233,7 +242,7 @@ export async function POST(req: NextRequest) {
     // Clear a previously-set time when the editor removed it (legal on a
     // merge:true set, unlike create).
     await ref.set(
-      pruneUndefined({ ...base, ...(time ? {} : { time: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] }),
+      pruneUndefined({ ...base, ...(time ? {} : { time: FieldValue.delete() }), ...(originDate ? {} : { originDate: FieldValue.delete() }), status: nextStatus, firedKeys: cur.firedKeys || [] }),
       { merge: true },
     );
     if (nextStatus === 'pending_parent') {
