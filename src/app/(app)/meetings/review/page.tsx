@@ -24,10 +24,12 @@ import {
   PointSystemConfig,
 } from '@/lib/firestore';
 import {
-  computeReview, computeWindowRange, computeDayScores, topDays,
+  computeReview, computeWindowRange, computeDayScores,
   computeLadderRows, extractComments, recentMonths, beltChampions,
-  WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry, BeltChampion,
+  computeStarStandings, starPodiumRanks, dailyStarWinners,
+  WindowKey, KidReviewStats, DayScore, LadderRow, CommentEntry, BeltChampion, StarStanding,
 } from '@/lib/meetingReview';
+import StarRulesCard from '@/components/meetings/StarRulesCard';
 import { fmt } from '@/lib/format';
 
 // Quick-pick chips. Months + Custom are not in this list — they're rendered
@@ -331,11 +333,11 @@ function ReviewGuide({ onClose }: { onClose: () => void }) {
           </div>
 
           <div className="rounded-2xl border border-white/15 bg-white/[0.04] p-4">
-            <p className="font-display text-lg font-black flex items-center gap-2">⭐ Excellent Star of the Day</p>
+            <p className="font-display text-lg font-black flex items-center gap-2">⭐ Excellent Star — the Podium</p>
             <p className="text-white/85 mt-1">
-              <b>Whoever had the most Excellents that day</b> — even without a perfect sweep.
-              A lighter daily &ldquo;well done&rdquo; (default <b>1 pt</b>) so the kid who scored 18/20 isn&apos;t invisible
-              behind a perfect-day winner.
+              <b>One podium for the whole window</b> — 🥇 Winner · 🥈 2nd · 🥉 3rd, ranked by an open
+              Star Score kids can verify: <b>+2</b> per Excellent, <b>+1</b> per Good, <b>−2</b> per Bad.
+              Qualify by being rated on most days (70%+). Daily stars stay visible as a small history strip.
             </p>
           </div>
 
@@ -361,7 +363,7 @@ function ReviewGuide({ onClose }: { onClose: () => void }) {
             <p className="text-[11px] uppercase tracking-wider font-bold text-white/55 mb-1">Ties &amp; bonuses</p>
             <p className="text-white/75 text-[13.5px]">
               Belt ties = multiple champions; you choose whether to split the bonus.
-              Star ties = use &ldquo;Reveal Next&rdquo; to honour each day in turn.
+              Star ties = fewer Bads wins; an exact tie shares the podium step 🤝.
             </p>
           </div>
         </div>
@@ -1091,92 +1093,162 @@ function BeltTab({
   onAwardBonus: (child: Child, points: number, reason: string) => Promise<void>;
   rangeLabel: string;
 }) {
-  // Star is purely about excellence. Default bonus is 1 pt — a "well
-  // done" sticker — much lighter than the Belt's Diamond-tier reward.
-  const [index, setIndex] = useState(0);
-  const [bonus, setBonus] = useState(1);
-  const [awardedKeys, setAwardedKeys] = useState<Set<string>>(new Set());
-  const [awardingKey, setAwardingKey] = useState<string | null>(null);
+  // ⭐ SM3.1 (#3) — ONE podium per selected timeframe (no more a-star-every-
+  // day). Open Star Score kids can verify; qualification gate; ties share
+  // the step. Daily stars remain below as a history strip, not a ceremony.
+  void routines;
+  void pointSystem;
+  const [bonusByRank, setBonusByRank] = useState<Record<number, number>>({ 1: 3, 2: 2, 3: 1 });
+  const [awardedIds, setAwardedIds] = useState<Set<string>>(new Set());
+  const [awardingId, setAwardingId] = useState<string | null>(null);
 
-  const ranked = useMemo(() => topDays(dayScores, 'excellent'), [dayScores]);
-
-  // Reset the cycle when the underlying ranking changes.
-  const rankKey = useMemo(
-    () => ranked.map((r) => `${r.childId}:${r.date}:${r.excellentCount}`).join(','),
-    [ranked],
+  const { standings, activeDays, daysNeeded } = useMemo(
+    () => computeStarStandings(dayScores), [dayScores],
   );
-  useEffect(() => {
-    setIndex(0);
-  }, [rankKey]);
+  const ranks = useMemo(() => starPodiumRanks(standings), [standings]);
+  const daily = useMemo(() => dailyStarWinners(dayScores), [dayScores]);
+  const nonQualifiers = useMemo(
+    () => standings.filter((s) => !s.qualifies && s.daysRated > 0), [standings],
+  );
 
-  const champion = ranked[index];
-
-  const routineById = useMemo(() => {
-    const m = new Map<string, Routine>();
-    for (const r of routines) m.set(r.id, r);
+  // Podium groups — rank → kids on that step (exact ties share).
+  const byRank = useMemo(() => {
+    const m = new Map<number, StarStanding[]>();
+    for (const s of standings) {
+      const r = ranks.get(s.childId);
+      if (!r) continue;
+      m.set(r, [...(m.get(r) || []), s]);
+    }
     return m;
-  }, [routines]);
+  }, [standings, ranks]);
+
+  const rankKey = useMemo(
+    () => standings.map((s) => `${s.childId}:${s.score}:${s.qualifies ? 1 : 0}`).join(','),
+    [standings],
+  );
+
+  const MEDAL: Record<number, { emoji: string; label: string }> = {
+    1: { emoji: '🥇', label: 'Winner' },
+    2: { emoji: '🥈', label: '2nd' },
+    3: { emoji: '🥉', label: '3rd' },
+  };
+
+  const award = async (s: StarStanding, rank: number) => {
+    const child = childById.get(s.childId);
+    if (!child) return;
+    setAwardingId(s.childId);
+    try {
+      const pts = Math.max(1, bonusByRank[rank] ?? 1);
+      await onAwardBonus(child, pts, `⭐ Star podium ${MEDAL[rank].emoji} ${MEDAL[rank].label} — ${rangeLabel}`);
+      setAwardedIds((prev) => new Set(prev).add(s.childId));
+    } finally {
+      setAwardingId(null);
+    }
+  };
+
+  const podiumCol = (rank: number) => {
+    const kids = byRank.get(rank) || [];
+    if (kids.length === 0) return null;
+    const boxH = rank === 1 ? 'h-24 lg:h-28' : rank === 2 ? 'h-16 lg:h-20' : 'h-12 lg:h-16';
+    const boxBg = rank === 1
+      ? 'bg-gradient-to-b from-kaya-gold to-kaya-gold-dark text-kaya-chocolate'
+      : rank === 2 ? 'bg-white/30 text-white' : 'bg-[#d9a877]/70 text-kaya-chocolate';
+    return (
+      <div key={rank} className="flex-1 max-w-[180px] flex flex-col items-center">
+        <div className="mb-2 text-center">
+          {kids.map((s) => {
+            const child = childById.get(s.childId);
+            return (
+              <div key={s.childId} className="mb-1.5">
+                <div className="text-3xl">{child?.avatarEmoji || '🧒'}</div>
+                <p className="font-display font-black text-sm lg:text-base leading-tight">{child?.name || '—'}</p>
+                <p className="text-[11px] text-white/70 font-bold">
+                  score <span className="text-kaya-gold-light font-black">{s.score}</span>
+                </p>
+                <p className="text-[10px] text-white/50">{s.excellent}🌟 · {s.good}👍 · {s.bad}👎 · {s.daysRated}d</p>
+                {awardedIds.has(s.childId) ? (
+                  <p className="text-[11px] font-bold text-emerald-300 mt-1">✓ awarded</p>
+                ) : (
+                  <div className="flex items-center justify-center gap-1 mt-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={bonusByRank[rank] ?? 1}
+                      onChange={(e) => setBonusByRank((prev) => ({ ...prev, [rank]: Number(e.target.value) || 1 }))}
+                      className="w-12 h-7 rounded bg-white/10 border border-white/20 text-center text-[12px] font-bold text-white"
+                      aria-label={`Bonus points for ${MEDAL[rank].label}`}
+                    />
+                    <button
+                      type="button"
+                      disabled={awardingId === s.childId}
+                      onClick={() => award(s, rank)}
+                      className="h-7 px-2.5 rounded bg-kaya-gold text-kaya-chocolate text-[11px] font-black disabled:opacity-50"
+                    >
+                      {awardingId === s.childId ? '…' : `+${bonusByRank[rank] ?? 1} →`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className={`w-full ${boxH} ${boxBg} rounded-t-xl flex items-start justify-center pt-1.5 font-display font-black text-lg`}>
+          {MEDAL[rank].emoji}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4 lg:space-y-5">
       {/* Title + by-line */}
       <div className="text-center">
         <h2 className="font-display text-2xl lg:text-3xl font-black flex items-center justify-center gap-2">
-          <span aria-hidden>⭐</span> Excellent Star of the Day
+          <span aria-hidden>⭐</span> Excellent Star — the Podium
         </h2>
         <p className="text-xs lg:text-sm text-white/60 mt-1">
-          Whoever logged the most <span className="font-semibold text-white">&ldquo;Excellent&rdquo;</span> on a day
-          {' · '}<span className="italic">a lighter daily &ldquo;well done&rdquo;</span>
+          One podium for <span className="font-semibold text-white">{rangeLabel}</span>
+          {' · '}<span className="italic">open rules below — kids can check the math</span>
         </p>
       </div>
 
-      <Reveal dataKey={rankKey} hiddenLabel="Tap to reveal the Star of the Day">
-        {ranked.length === 0 ? (
-          <EmptyState>No Excellent ratings recorded this window.</EmptyState>
-        ) : champion ? (
-          <ChampionCard
-            score={champion.excellentCount}
-            scoreLabel="Excellents"
-            child={childById.get(champion.childId)}
-            date={champion.date}
-            routineIds={champion.excellentRoutineIds}
-            routineById={routineById}
-            rank={index + 1}
-            totalRanked={ranked.length}
-            kind="excellent"
-            championLabel="Star of the Day"
-            championEmoji="⭐"
-            bonus={bonus}
-            onBonusChange={setBonus}
-            awarded={awardedKeys.has(`${champion.childId}|${champion.date}`)}
-            awarding={awardingKey === `${champion.childId}|${champion.date}`}
-            onAward={async () => {
-              const child = childById.get(champion.childId);
-              if (!child) return;
-              const key = `${champion.childId}|${champion.date}`;
-              setAwardingKey(key);
-              try {
-                await onAwardBonus(child, bonus, `Excellent Star — ${formatShort(champion.date)} · ${rangeLabel}`);
-                setAwardedKeys((prev) => new Set(prev).add(key));
-              } finally {
-                setAwardingKey(null);
-              }
-            }}
-            allowBonus
-            diamondMinPoints={pointSystem.diamondMinPoints}
-          />
-        ) : null}
+      <Reveal dataKey={rankKey} hiddenLabel="Tap to reveal the Star podium">
+        {standings.length === 0 ? (
+          <EmptyState>No ratings recorded this window.</EmptyState>
+        ) : byRank.size === 0 ? (
+          <EmptyState>
+            Nobody qualified this window — you need ratings on {daysNeeded} of {activeDays} days. Next week!
+          </EmptyState>
+        ) : (
+          <div className="flex items-end justify-center gap-3 lg:gap-5 pt-2">
+            {[2, 1, 3].map((r) => podiumCol(r))}
+          </div>
+        )}
 
-        {ranked.length > 1 && (
-          <div className="flex justify-center mt-5 lg:mt-6">
-            <button
-              onClick={() => setIndex((i) => (i + 1) % ranked.length)}
-              className="inline-flex items-center gap-2 h-11 lg:h-12 px-6 rounded-kaya-sm border-2 border-kaya-gold/70 text-kaya-gold font-bold text-sm lg:text-base hover:bg-kaya-gold/10 transition-colors"
-            >
-              <span aria-hidden>✨</span>
-              <span>Reveal Next</span>
-              <span aria-hidden>✨</span>
-            </button>
+        {nonQualifiers.length > 0 && (
+          <p className="text-center text-[11.5px] text-white/45 mt-4">
+            Not enough rated days this window:{' '}
+            {nonQualifiers.map((s) => `${childById.get(s.childId)?.name || '—'} (${s.daysRated}/${daysNeeded})`).join(' · ')}
+          </p>
+        )}
+
+        <div className="mt-5">
+          <StarRulesCard activeDays={activeDays} daysNeeded={daysNeeded} />
+        </div>
+
+        {daily.length > 0 && (
+          <div className="mt-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-white/45 mb-1.5">
+              Daily stars — the history strip
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {daily.map((d) => (
+                <span key={d.date} className="text-[11px] font-bold px-2 py-1 rounded-full bg-white/[0.07] border border-white/10 text-white/75">
+                  {formatShort(d.date)} · {childById.get(d.childId)?.name || '—'} ({d.excellentCount}🌟)
+                </span>
+              ))}
+            </div>
           </div>
         )}
       </Reveal>
