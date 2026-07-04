@@ -884,7 +884,17 @@ export default function PurchaseDetailPage() {
         >
           ‹ {reqModule === 'pantry' ? 'Purchase' : reqModule === 'utility' ? 'Utility' : reqModule === 'outdoor' ? 'Outdoor' : reqModule === 'drivers' ? 'Drivers' : reqModule === 'payroll' ? 'Payroll' : 'Back'}
         </Link>
-        <StatusChip status={req.status} />
+        <div className="flex items-center gap-2">
+          {['approved', 'reconciling', 'pending_close', 'closed'].includes(req.status) && (
+            <Link
+              href={`/pantry/purchase/${req.id}/print`}
+              className="inline-flex items-center gap-1 text-[11px] font-nunito font-extrabold px-3 py-1.5 rounded-hive-pill bg-[#17223C] text-white no-underline"
+            >
+              🖨 Print / Share
+            </Link>
+          )}
+          <StatusChip status={req.status} />
+        </div>
       </div>
       <div className="mb-4">
         {editable ? (
