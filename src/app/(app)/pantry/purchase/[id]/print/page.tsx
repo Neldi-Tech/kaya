@@ -24,6 +24,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { getFamilyMembers } from '@/lib/firestore';
+import { notifyPurchaseShared } from '@/lib/notify';
 import BudgetBalanceMeter from '@/components/pantry/BudgetBalanceMeter';
 import {
   subscribeToRequest, sumEstimated, sumActual,
@@ -64,6 +65,12 @@ export default function PurchasePrintPage() {
   const [req, setReq] = useState<PurchaseRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [members, setMembers] = useState<{ uid: string; displayName?: string; role?: string }[]>([]);
+
+  // Share-via-Kaya sheet
+  const [shareOpen, setShareOpen] = useState(false);
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [sending, setSending] = useState(false);
+  const [sentTo, setSentTo] = useState<number | null>(null);
 
   const [mode, setMode] = useState<Mode>('shop');
 
@@ -145,6 +152,32 @@ export default function PurchasePrintPage() {
   const familyName = (family as { name?: string } | null)?.name || 'Your Family';
   const approvedByUid = req.approvedBy?.[0] || req.createdBy;
 
+  const shareMembers = members.filter((mm) => mm.role !== 'kid' && mm.uid !== profile?.uid);
+  const pickedUids = Object.keys(picked).filter((k) => picked[k]);
+
+  async function sendViaKaya() {
+    if (!profile?.familyId || !req || pickedUids.length === 0) return;
+    setSending(true);
+    try {
+      await notifyPurchaseShared({
+        familyId: profile.familyId,
+        requestId: req.id,
+        recipientUids: pickedUids,
+        senderName: profile.displayName || 'A family member',
+        refLabel: typeof req.seq === 'number' ? formatRequestSeq(req.module, req.seq) : req.name,
+        kindLabel: MODE_META[mode].kind,
+        mode,
+        note: req.note,
+      });
+      setSentTo(pickedUids.length);
+      setPicked({});
+    } catch {
+      setSentTo(-1);
+    } finally {
+      setSending(false);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-3xl w-full px-4 lg:px-8 pt-4 lg:pt-8 pb-24">
       <style>{`
@@ -171,7 +204,8 @@ export default function PurchasePrintPage() {
           <Link href={`/pantry/purchase/${req.id}`} className="text-hive-muted text-sm no-underline">‹ Back to purchase</Link>
           <div className="flex gap-2">
             <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 text-xs font-nunito font-extrabold px-3.5 py-2 rounded-hive-pill bg-white border border-hive-line text-hive-ink">⬇︎ Download PDF</button>
-            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 text-xs font-nunito font-extrabold px-3.5 py-2 rounded-hive-pill bg-[#17223C] text-white">🖨 Print</button>
+            <button onClick={() => window.print()} className="inline-flex items-center gap-1.5 text-xs font-nunito font-extrabold px-3.5 py-2 rounded-hive-pill bg-white border border-hive-line text-hive-ink">🖨 Print</button>
+            <button onClick={() => { setSentTo(null); setShareOpen(true); }} className="inline-flex items-center gap-1.5 text-xs font-nunito font-extrabold px-3.5 py-2 rounded-hive-pill bg-[#17223C] text-white">📤 Share</button>
           </div>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -330,6 +364,65 @@ export default function PurchasePrintPage() {
       <p className="no-print text-center text-[12px] text-hive-muted mt-4">
         Tip: “Download PDF” opens your print dialog — choose <b>Save as PDF</b> as the destination. The parent-only cap never appears in the printed/exported sheet.
       </p>
+
+      {/* ── Share via Kaya sheet (screen only) ───────────────────── */}
+      {shareOpen && (
+        <div className="no-print fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShareOpen(false)} />
+          <div className="relative bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-hive border border-hive-line shadow-xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 pt-5 pb-3">
+              <div>
+                <div className="font-nunito font-black text-lg text-hive-ink">📤 Share via Kaya</div>
+                <div className="text-xs text-hive-muted font-bold">Sends the <b>{MODE_META[mode].kind}</b> to your family — they get a bell + can print or shop.</div>
+              </div>
+              <button onClick={() => setShareOpen(false)} className="text-hive-muted text-xl leading-none px-2">✕</button>
+            </div>
+
+            {sentTo != null && sentTo > 0 ? (
+              <div className="px-5 py-8 text-center">
+                <div className="text-4xl mb-2">✅</div>
+                <div className="font-nunito font-black text-hive-ink">Shared with {sentTo} {sentTo === 1 ? 'person' : 'people'}</div>
+                <div className="text-sm text-hive-muted mt-1">They&apos;ll see it in their Kaya bell.</div>
+                <button onClick={() => setShareOpen(false)} className="mt-5 inline-flex items-center gap-1.5 text-sm font-nunito font-extrabold px-5 py-2.5 rounded-hive-pill bg-[#17223C] text-white">Done</button>
+              </div>
+            ) : (
+              <>
+                <div className="px-5 pb-2 text-[10px] uppercase tracking-wider text-hive-muted font-extrabold">Who to send to</div>
+                <div className="px-3 pb-2">
+                  {shareMembers.length === 0 && <div className="px-2 py-4 text-sm text-hive-muted text-center">No other family members to share with yet.</div>}
+                  {shareMembers.map((mm) => {
+                    const on = !!picked[mm.uid];
+                    return (
+                      <button
+                        key={mm.uid}
+                        onClick={() => setPicked((p) => ({ ...p, [mm.uid]: !p[mm.uid] }))}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-hive text-left transition ${on ? 'bg-[#EEF4E9]' : 'hover:bg-hive-cream'}`}
+                      >
+                        <span className={`w-5 h-5 rounded-md grid place-items-center text-white text-xs ${on ? 'bg-[#3E7C4B]' : 'bg-white border border-hive-line'}`}>{on ? '✓' : ''}</span>
+                        <span className="flex-1">
+                          <span className="block font-bold text-sm text-hive-ink leading-tight">{mm.displayName || 'Family member'}</span>
+                          <span className="block text-[11px] text-hive-muted capitalize">{mm.role || 'member'}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {sentTo === -1 && <div className="px-5 text-xs text-rose-600 font-bold">Couldn&apos;t send — please try again.</div>}
+                <div className="px-5 py-4 sticky bottom-0 bg-white border-t border-hive-line">
+                  <button
+                    onClick={sendViaKaya}
+                    disabled={sending || pickedUids.length === 0}
+                    className="w-full inline-flex items-center justify-center gap-2 text-sm font-nunito font-extrabold px-5 py-3 rounded-hive-pill bg-[#17223C] text-white disabled:opacity-40"
+                  >
+                    {sending ? 'Sending…' : `🟢 Send via Kaya${pickedUids.length ? ` (${pickedUids.length})` : ''}`}
+                  </button>
+                  <p className="text-[11px] text-hive-muted text-center mt-2">📧 Email &amp; external recipients coming next.</p>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

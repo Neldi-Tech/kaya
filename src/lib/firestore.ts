@@ -1438,6 +1438,10 @@ export interface Notification {
     | 'purchase-approved'
     | 'purchase-rejected'
     | 'purchase-reconciled'
+    //   `purchase-shared` — a parent/helper shared an approved purchase's
+    //                       printable form with a family member via Kaya.
+    //                       Links to /pantry/purchase/{id}/print.
+    | 'purchase-shared'
     | 'utility-topup-reminder'
     // Kaya Business → daily stock-take nudge (Phase 2 · A2). Links to the
     // business's stock-take screen; sent to the owner kid + parents.

@@ -239,6 +239,46 @@ export async function notifyAdhocAssigned(args: AdhocAssignedNotify): Promise<vo
   });
 }
 
+interface PurchaseSharedNotify {
+  familyId: string;
+  requestId: string;
+  recipientUids: string[];   // family members the sharer picked
+  senderName: string;
+  /** e.g. "PNT-0057" — the audit serial, for a scannable title. */
+  refLabel: string;
+  /** "Shopping List" / "Request for Quote" / "Approved Order". */
+  kindLabel: string;
+  /** which print mode to open (shop | quote | record). */
+  mode: 'shop' | 'quote' | 'record';
+  note?: string;
+}
+
+/** Share an approved purchase's printable form with family members via
+ *  Kaya — in-app bell (always) + web push (best-effort). Fire-and-forget;
+ *  never throws. Deep-links straight to the print/share view in the
+ *  chosen mode so the recipient can print, save, or shop from it. */
+export async function notifyPurchaseShared(args: PurchaseSharedNotify): Promise<void> {
+  const recipients = Array.from(new Set(args.recipientUids)).filter(Boolean);
+  if (recipients.length === 0) return;
+  const title = `🧾 ${args.senderName} shared a ${args.kindLabel}`;
+  const bodyBase = `${args.refLabel} · tap to print or shop`;
+  const body = args.note ? `${bodyBase} — “${args.note}”` : bodyBase;
+  const link = `/pantry/purchase/${args.requestId}/print?mode=${args.mode}`;
+  for (const uid of recipients) {
+    try {
+      await createNotification(args.familyId, {
+        type: 'purchase-shared',
+        title,
+        message: body,
+        read: false,
+        forUserId: uid,
+        link,
+      } as Parameters<typeof createNotification>[1]);
+    } catch { /* swallow — bell is best-effort */ }
+    await pushToUid({ uid, title, body, url: link, tag: `purchase-share-${args.requestId}` });
+  }
+}
+
 interface NewMessageNotify {
   familyId: string;
   threadId: string;
