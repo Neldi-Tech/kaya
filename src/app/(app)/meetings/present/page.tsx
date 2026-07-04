@@ -34,6 +34,9 @@ import {
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
+import { giveAward } from '@/lib/firestore';
+import { sendMessage } from '@/lib/messaging';
+import { auth as fbAuth } from '@/lib/firebase';
 import {
   subscribeMeetingSubmissions, clearMeetingSubmissions,
   appreciationTagsForLine, appreciationTagLabelForLine, isCurrentCycle, meetingCycleKey,
@@ -204,6 +207,13 @@ export default function MeetingPresenterPage() {
   const [openingWordDone, setOpeningWordDone] = useState(false);
   // 🎁 Sunday Surprise (SM3.1 · #7) — tonight's captured surprise.
   const [surpriseRecord, setSurpriseRecord] = useState<SurpriseRecord | null>(null);
+  // 📖 Theme of the Week + 🗳️ Family Vote (SM3.1 · H).
+  const [weekThemeText, setWeekThemeText] = useState('');
+  const [voteQuestion, setVoteQuestion] = useState('');
+  const [voteOptionDraft, setVoteOptionDraft] = useState('');
+  const [voteOptions, setVoteOptions] = useState<string[]>([]);
+  const [voteCounts, setVoteCounts] = useState<Record<string, number>>({});
+  const [voteStage, setVoteStage] = useState<'setup' | 'voting' | 'done'>('setup');
   const openingWordRequired = family?.meetingSetup?.openingWordRequired === true;
   const openingWordShowLibrary = family?.meetingSetup?.openingWordShowLibrary === true;
 
@@ -350,6 +360,45 @@ export default function MeetingPresenterPage() {
       setMeetingHistory(ms.slice(0, 60));   // ~a year of Sundays for guest suggestions
     });
   }, [profile?.familyId]);
+
+  // Week key of a date for the family's meeting day — shared by the theme
+  // recall + theme save (SM3.1 · H·A).
+  const weekKeyFor = (dateStr: string): string => {
+    const dow = family?.meetingSetup?.schedule?.dayOfWeek ?? 0;
+    const d = new Date(`${dateStr}T00:00:00`);
+    const delta = (d.getDay() - dow + 7) % 7;
+    d.setDate(d.getDate() - delta);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  // Last week's theme → the opener asks "who remembers it?".
+  const lastWeekTheme = useMemo(() => {
+    const t = family?.weekTheme;
+    if (!t?.text) return null;
+    const thisWeek = weekKeyFor(todayString());
+    if (t.weekOf === thisWeek) return null;           // set tonight/this week — nothing to recall yet
+    const d = new Date(`${t.weekOf}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return null;
+    const ageDays = (Date.now() - d.getTime()) / 86400000;
+    return ageDays <= 13 ? t : null;                  // recall only the immediately-previous week
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [family?.weekTheme, family?.meetingSetup?.schedule?.dayOfWeek]);
+  const [themeRevealed, setThemeRevealed] = useState(false);
+  const [themeAwarded, setThemeAwarded] = useState<Set<string>>(new Set());
+
+  // 🎭 Deal tonight's roles over the PRESENT kids — seeded by date so the
+  // deal is stable across re-renders; rotates week to week.
+  const roleEntries = useMemo(() => {
+    const kids = children.filter((c) => attendees.has(c.id));
+    if (kids.length === 0) return [] as Array<{ id: string; emoji: string; name: string; hint: string; childId: string; kidName: string }>;
+    let seed = 0;
+    const key = todayString();
+    for (let i = 0; i < key.length; i++) seed = (seed * 31 + key.charCodeAt(i)) >>> 0;
+    return MEETING_ROLES.map((r, i) => {
+      const kid = kids[(seed + i) % kids.length];
+      return { ...r, childId: kid.id, kidName: kid.name };
+    });
+  }, [children, attendees]);
+
 
   // Fetch parent profiles for the household so attendance lists adults
   // alongside kids. Falls back to just the signed-in profile if the
@@ -610,6 +659,11 @@ export default function MeetingPresenterPage() {
           ...(surpriseRecord.missions ? { missions: surpriseRecord.missions } : {}),
         },
       } : {}),
+      ...(roleEntries.length > 0 ? { roles: Object.fromEntries(roleEntries.map((r) => [r.id, r.childId])) } : {}),
+      ...(voteStage === 'done' && voteOptions.length > 0 ? (() => {
+        const winner = voteOptions.reduce((best, o) => ((voteCounts[o] || 0) > (voteCounts[best] || 0) ? o : best), voteOptions[0]);
+        return { vote: { question: voteQuestion.trim() || 'Family vote', winner, counts: voteCounts } };
+      })() : {}),
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
@@ -643,6 +697,52 @@ export default function MeetingPresenterPage() {
         }).catch(() => {});
       }
     } catch { /* celebration is best-effort */ }
+
+    // 📖 Theme of the Week → family doc (Home + My Day read it all week).
+    if (weekThemeText.trim()) {
+      void updateFamily(profile.familyId, {
+        weekTheme: {
+          text: weekThemeText.trim().slice(0, 140),
+          by: family?.nextMeetingLeader?.name || profile.displayName || 'The leader',
+          weekOf: weekKeyFor(todayString()),
+          setAt: Date.now(),
+        },
+      }).catch(() => {});
+    }
+
+    // 🎭 Role rewards — +1 HP per role-kid for a job well done.
+    for (const r of roleEntries) {
+      void giveAward(profile.familyId, {
+        childId: r.childId, kind: 'regular', points: 1,
+        reason: `🎭 Meeting role: ${r.name}`,
+        category: 'Family Meeting',
+        awardedBy: profile.uid, awardedByName: profile.displayName || 'Parent',
+        senderRole: 'parent',
+      }).catch(() => {});
+    }
+
+    // 🗳️ Vote follow-through — a shared Reminder next Saturday + a chat post.
+    if (voteStage === 'done' && voteOptions.length > 0) {
+      const winner = voteOptions.reduce((best, o) => ((voteCounts[o] || 0) > (voteCounts[best] || 0) ? o : best), voteOptions[0]);
+      try {
+        const d = new Date();
+        const ahead = (6 - d.getDay() + 7) % 7 || 7;   // next Saturday
+        d.setDate(d.getDate() + ahead);
+        const dateIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const token = await fbAuth.currentUser?.getIdToken();
+        if (token) {
+          void fetch('/api/reminders/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ action: 'save', event: { title: `🗳️ Family choice: ${winner}`, date: dateIso, visibility: 'shared', leadDays: [1] } }),
+          }).catch(() => {});
+        }
+        void sendMessage(profile.familyId, 'group',
+          { text: `🗳️ Family Vote — “${voteQuestion.trim() || 'our vote'}” → ${winner}! 🎉` },
+          { uid: profile.uid, name: profile.displayName || 'Parent', role: 'parent' },
+        ).catch(() => {});
+      } catch { /* follow-through is best-effort */ }
+    }
 
     // Sunday-Meeting v2 (multi-tag): reveal @-tagged appreciations on
     // meeting day. A line can tag SEVERAL people or "All" — notify each
@@ -818,6 +918,41 @@ export default function MeetingPresenterPage() {
                 </>
               )}
 
+              {step.id === 'open' && lastWeekTheme && (
+                <div className="max-w-xl mx-auto mt-6 rounded-kaya bg-white/5 border border-dashed border-kaya-gold/50 p-4 text-center">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold mb-1">📖 Last week's theme — who remembers it?</p>
+                  {!themeRevealed ? (
+                    <button type="button" onClick={() => setThemeRevealed(true)}
+                      className="mt-1 h-10 px-5 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-sm">
+                      Reveal the theme
+                    </button>
+                  ) : (
+                    <>
+                      <p className="font-display font-extrabold text-kaya-gold-light text-lg">“{lastWeekTheme.text}”</p>
+                      <div className="flex flex-wrap justify-center gap-1.5 mt-2">
+                        {children.map((c) => (
+                          <button key={c.id} type="button" disabled={themeAwarded.has(c.id)}
+                            onClick={() => {
+                              if (!profile?.familyId) return;
+                              setThemeAwarded((prev) => new Set(prev).add(c.id));
+                              void giveAward(profile.familyId, {
+                                childId: c.id, kind: 'regular', points: 1,
+                                reason: '📖 Remembered the theme of the week',
+                                category: 'Family Meeting',
+                                awardedBy: profile.uid, awardedByName: profile.displayName || 'Parent',
+                                senderRole: 'parent',
+                              }).catch(() => {});
+                            }}
+                            className={`px-3 py-1.5 rounded-full text-[12px] font-black ${themeAwarded.has(c.id) ? 'bg-emerald-500/80 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20'}`}>
+                            {themeAwarded.has(c.id) ? `✓ ${c.name} +1` : `${c.name} remembered! +1`}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
               {step.id === 'attendance' && profile?.familyId && (
                 <>
                   <LeaderPicker
@@ -867,6 +1002,23 @@ export default function MeetingPresenterPage() {
                   onChangePresentBy={setPresentBy}
                   onChangePresentTopic={setPresentTopic}
                 />
+              )}
+
+              {step.id === 'attendance' && roleEntries.length > 0 && (
+                <div className="max-w-2xl mx-auto mt-6 rounded-kaya bg-white/5 border border-white/15 p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold mb-2">🎭 Tonight's roles — dealt by the Wheel · +1 HP for a job well done</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {roleEntries.map((r) => (
+                      <div key={r.id} className="flex items-center gap-2.5 bg-black/20 rounded-kaya-sm p-3">
+                        <span className="text-xl">{r.emoji}</span>
+                        <div className="min-w-0">
+                          <p className="text-[13px] font-display font-extrabold text-white/90">{r.name}: <span className="text-kaya-gold-light">{r.kidName}</span></p>
+                          <p className="text-[11px] text-white/50">{r.hint}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
 
               {step.id === 'openingword' && (
@@ -954,6 +1106,90 @@ export default function MeetingPresenterPage() {
               {step.id === 'reflection' && (
                 <>
                   {profile?.familyId && <AnthemCard familyId={profile.familyId} />}
+
+                  {/* 📖 Theme of the Week (SM3.1 · H·A) — set at the close. */}
+                  <div className="max-w-2xl mx-auto mt-4 rounded-kaya bg-white/5 border border-white/15 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold mb-1.5">📖 Theme of the week (optional)</p>
+                    <input
+                      value={weekThemeText}
+                      onChange={(e) => setWeekThemeText(e.target.value)}
+                      maxLength={140}
+                      placeholder="A verse or line to carry this week — shows on Home + My Day"
+                      className="w-full h-11 bg-white/10 border border-white/10 rounded-kaya-sm px-3.5 text-[13px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+                    />
+                    <p className="text-[10.5px] text-white/40 mt-1.5">Next Sunday's opener asks “who remembers it?” (+1 point).</p>
+                  </div>
+
+                  {/* 🗳️ Family Vote (SM3.1 · H·C) — one real decision to end on. */}
+                  <div className="max-w-2xl mx-auto mt-3 rounded-kaya bg-white/5 border border-white/15 p-4">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold mb-1.5">🗳️ Family Vote (optional)</p>
+                    {voteStage === 'setup' && (
+                      <>
+                        <input
+                          value={voteQuestion}
+                          onChange={(e) => setVoteQuestion(e.target.value)}
+                          maxLength={100}
+                          placeholder="The question — e.g. Where do we dine out next?"
+                          className="w-full h-11 bg-white/10 border border-white/10 rounded-kaya-sm px-3.5 text-[13px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+                        />
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {voteOptions.map((o, i) => (
+                            <span key={`${o}-${i}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 text-[12px] font-bold text-white/85">
+                              {o}
+                              <button type="button" aria-label={`Remove ${o}`}
+                                onClick={() => setVoteOptions((prev) => prev.filter((_, j) => j !== i))}
+                                className="text-white/40 hover:text-rose-300 font-black">✕</button>
+                            </span>
+                          ))}
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                          <input
+                            value={voteOptionDraft}
+                            onChange={(e) => setVoteOptionDraft(e.target.value)}
+                            maxLength={40}
+                            placeholder="Add an option…"
+                            className="flex-1 h-10 bg-white/10 border border-white/10 rounded-kaya-sm px-3 text-[12.5px] text-white placeholder-white/40 focus:outline-none"
+                          />
+                          <button type="button"
+                            onClick={() => { const t = voteOptionDraft.trim(); if (t && voteOptions.length < 4) { setVoteOptions((p) => [...p, t]); setVoteOptionDraft(''); } }}
+                            className="h-10 px-4 rounded-kaya-sm bg-white/15 text-white text-[12px] font-black">Add</button>
+                          {voteQuestion.trim() && voteOptions.length >= 2 && (
+                            <button type="button" onClick={() => { setVoteCounts({}); setVoteStage('voting'); }}
+                              className="h-10 px-4 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate text-[12px] font-display font-extrabold">▶ Vote!</button>
+                          )}
+                        </div>
+                      </>
+                    )}
+                    {voteStage === 'voting' && (
+                      <>
+                        <p className="font-display font-extrabold text-white/90 text-[14px] mb-2">“{voteQuestion}” — tap once per hand raised ✋</p>
+                        <div className="space-y-2">
+                          {voteOptions.map((o) => (
+                            <button key={o} type="button"
+                              onClick={() => setVoteCounts((prev) => ({ ...prev, [o]: (prev[o] || 0) + 1 }))}
+                              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-kaya-sm bg-black/20 border border-white/15 text-white/85 text-[13px] font-bold hover:bg-white/10">
+                              <span>{o}</span>
+                              <span className="font-display font-black text-kaya-gold-light">{voteCounts[o] || 0}</span>
+                            </button>
+                          ))}
+                        </div>
+                        <button type="button"
+                          onClick={() => setVoteStage('done')}
+                          disabled={Object.values(voteCounts).reduce((a, b) => a + b, 0) === 0}
+                          className="mt-2.5 w-full h-10 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate text-[12.5px] font-display font-extrabold disabled:opacity-40">
+                          Close the vote →
+                        </button>
+                      </>
+                    )}
+                    {voteStage === 'done' && (() => {
+                      const winner = voteOptions.reduce((best, o) => ((voteCounts[o] || 0) > (voteCounts[best] || 0) ? o : best), voteOptions[0] || '');
+                      return (
+                        <p className="font-display font-extrabold text-kaya-gold-light text-[15px] text-center py-1">
+                          🎉 The family chose: {winner}! <span className="text-white/50 text-[11.5px] font-bold">(saved + a reminder lands on Saturday)</span>
+                        </p>
+                      );
+                    })()}
+                  </div>
                   <ReflectionStep
                     enabledModes={enabledClosingModes}
                     contents={reflectionContents}
@@ -1929,6 +2165,15 @@ function CelebrateStep() {
 // are tolerant of being left empty so a family can move on quickly.
 // Relationship chip palette for the "+ Add guest" dialog. Plain English,
 // covers the common household guests; "Other…" surfaces a free-text input.
+// 🎭 Meeting roles (SM3.1 · H·B) — co-host jobs the Wheel deals to the kids
+// at Attendance. Each role-kid earns +1 HP at finish for doing their job.
+const MEETING_ROLES = [
+  { id: 'timekeeper',   emoji: '⏱️', name: 'Timekeeper',    hint: 'keeps every step snappy' },
+  { id: 'photographer', emoji: '📸', name: 'Photographer',  hint: 'owns the Sunday Surprise shot' },
+  { id: 'prayer',       emoji: '🙏', name: 'Prayer starter', hint: 'leads the opening/closing prayer' },
+  { id: 'announcer',    emoji: '📣', name: 'Announcer',     hint: 'announces each step like a show' },
+] as const;
+
 const GUEST_RELATIONSHIPS = [
   'Family Friend', 'Grandpa', 'Grandma', 'Uncle', 'Aunt', 'Cousin',
   'Nanny', 'Tutor', 'Helper', 'Neighbour', 'Other',

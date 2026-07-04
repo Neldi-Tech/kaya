@@ -10,6 +10,7 @@ import KidAvatar from '@/components/ui/KidAvatar';
 import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import BirthdayHero from '@/components/birthdays/BirthdayHero';
+import WeekThemeCard from '@/components/meetings/WeekThemeCard';
 import RemindersChip from '@/components/reminders/RemindersChip';
 
 type ActivityItem = {
@@ -111,7 +112,10 @@ export default function DashboardPage() {
 
         {/* 🎂 Birthday hero — renders only on someone's day (B1). */}
         {profile && family && (
-          <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
+          <>
+            <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
+            <WeekThemeCard className="mb-4" />
+          </>
         )}
 
         {/* 🔔 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
@@ -267,7 +271,10 @@ export default function DashboardPage() {
 
         {/* 🎂 Birthday hero — renders only on someone's day (B1). */}
         {profile && family && (
-          <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
+          <>
+            <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
+            <WeekThemeCard className="mb-4" />
+          </>
         )}
 
         {/* 🔔 Reminders chip — next reminder + count (R1). Renders nothing when empty. */}
