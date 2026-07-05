@@ -105,6 +105,8 @@ export default function VehicleInsightPage() {
     intervalMonths: vehicle.serviceIntervalMonths,
     baselineKm: vehicle.serviceBaselineKm,
     baselineDate: vehicle.serviceBaselineDate,
+    nextKmOverride: vehicle.nextServiceKm,
+    nextDateOverride: vehicle.nextServiceDate,
     latestKm: stats?.lastKm ?? null,
     kmPerDay: stats?.kmPerDay ?? null,
     todayIso: localTodayIso(),
@@ -177,8 +179,19 @@ export default function VehicleInsightPage() {
     );
   }
 
-  const pct = due?.configured ? Math.min(1, due.pctUsed) : 0;
-  const ringColor = due?.overdue ? '#DC2626' : (due?.pctUsed ?? 0) >= 0.75 ? '#D97706' : '#4C7C59';
+  const pct = due?.configured && due.pctComputable ? Math.min(1, due.pctUsed) : 0;
+  const ringColor = due?.overdue ? '#DC2626' : due?.pctComputable && due.pctUsed >= 0.75 ? '#D97706' : '#4C7C59';
+  // v2.1 — sticker targets without interval/history: show the countdown
+  // in the ring instead of a fake percent.
+  const ringBadge = (() => {
+    if (!due?.configured || due.pctComputable) return null;
+    if (due.kmLeft != null) {
+      const n = kmToDisplay(Math.max(0, due.kmLeft), distU);
+      return { top: n >= 1000 ? `~${(n / 1000).toFixed(1)}k` : `~${n}`, bottom: `${distU.toUpperCase()} LEFT` };
+    }
+    if (due.daysToHardStop != null) return { top: String(Math.max(0, due.daysToHardStop)), bottom: 'DAYS LEFT' };
+    return { top: '🎯', bottom: 'SET' };
+  })();
   const fuelWord = vehicle.fuel ? vehicleFuelLabel(vehicle.fuel) : 'Fuel';
 
   // Fleet cost/km — this month, per active vehicle with distance data.
@@ -226,9 +239,11 @@ export default function VehicleInsightPage() {
                       {due.expectedIso ? ` · exp. ${toDisplayDate(due.expectedIso)}` : ''}
                     </>}
                 </p>
-                {due.hardStopIso && (
+                {(due.hardStopIso || due.explicitTargets) && (
                   <p className="text-[11px] text-hive-muted font-bold mt-0.5">
-                    ⛔ hard stop {toDisplayDate(due.hardStopIso)}
+                    {due.hardStopIso ? <>⛔ hard stop {toDisplayDate(due.hardStopIso)}</> : null}
+                    {due.hardStopIso && due.explicitTargets ? ' · ' : null}
+                    {due.explicitTargets ? '🎯 from the workshop sticker' : null}
                   </p>
                 )}
               </>
@@ -245,8 +260,8 @@ export default function VehicleInsightPage() {
               style={{ background: `conic-gradient(${ringColor} 0 ${pct * 100}%, #E8E2D2 ${pct * 100}% 100%)` }}
             >
               <div className="w-[54px] h-[54px] rounded-full bg-hive-paper flex flex-col items-center justify-center">
-                <span className="font-nunito font-black text-[14px] leading-none">{Math.round(due.pctUsed * 100)}%</span>
-                <span className="text-[8px] font-nunito font-extrabold text-hive-muted tracking-wide">USED</span>
+                <span className="font-nunito font-black text-[14px] leading-none">{ringBadge ? ringBadge.top : `${Math.round(due.pctUsed * 100)}%`}</span>
+                <span className="text-[8px] font-nunito font-extrabold text-hive-muted tracking-wide text-center leading-tight">{ringBadge ? ringBadge.bottom : 'USED'}</span>
               </div>
             </div>
           )}

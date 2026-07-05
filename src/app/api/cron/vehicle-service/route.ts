@@ -95,6 +95,8 @@ interface VehicleDocLite {
   serviceIntervalMonths?: unknown;
   serviceBaselineKm?: unknown;
   serviceBaselineDate?: unknown;
+  nextServiceKm?: unknown;
+  nextServiceDate?: unknown;
   remindKmLeft?: unknown;
   remindDaysLeft?: unknown;
   remindRecipients?: unknown;
@@ -204,6 +206,8 @@ async function handle(req: NextRequest) {
           intervalMonths: typeof v.serviceIntervalMonths === 'number' ? v.serviceIntervalMonths : undefined,
           baselineKm: typeof v.serviceBaselineKm === 'number' ? v.serviceBaselineKm : undefined,
           baselineDate: typeof v.serviceBaselineDate === 'string' ? v.serviceBaselineDate : undefined,
+          nextKmOverride: typeof v.nextServiceKm === 'number' ? v.nextServiceKm : undefined,
+          nextDateOverride: typeof v.nextServiceDate === 'string' ? v.nextServiceDate : undefined,
           latestKm, kmPerDay, todayIso: today,
         });
         const reminderState = serviceReminderState(due, {

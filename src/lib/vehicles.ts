@@ -20,7 +20,7 @@
 // adapter and the call sites stay the same.
 
 import {
-  collection, doc, addDoc, updateDoc, deleteDoc,
+  collection, doc, addDoc, updateDoc, deleteDoc, deleteField,
   Timestamp, serverTimestamp, onSnapshot, query, orderBy,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -136,6 +136,15 @@ export interface Vehicle {
   serviceBaselineKm?: number;
   /** Date of the last service (YYYY-MM-DD, local). */
   serviceBaselineDate?: string;
+  // ── v2.1 explicit next-service targets (2026-07-05) ─────────────
+  // The workshop-sticker numbers, typed directly by the parent. Each
+  // WINS over its derived (baseline + interval) counterpart whenever
+  // set; both auto-clear when a Service-kind request closes (the
+  // sticker is consumed). Either one alone arms the countdown.
+  /** Next service at this odometer (canonical km). */
+  nextServiceKm?: number;
+  /** Next service by this date (YYYY-MM-DD, local). */
+  nextServiceDate?: string;
   // ── Service reminders (per-vehicle; Setup Screen F) ─────────────
   /** Remind when ≤ N km left to due (default 500). */
   remindKmLeft?: number;
@@ -211,6 +220,26 @@ export async function updateVehicle(
     ...patch,
     updatedAt: serverTimestamp(),
   });
+}
+
+/** v2.1 — set or CLEAR the explicit next-service targets (null =
+ *  clear via deleteField; undefined = leave untouched). Separate from
+ *  updateVehicle because the typed patch can't carry FieldValue
+ *  sentinels. */
+export async function setVehicleNextService(
+  familyId: string,
+  vehicleId: string,
+  args: { nextServiceKm?: number | null; nextServiceDate?: string | null },
+): Promise<void> {
+  if (isGuestActive()) return;
+  const patch: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  if (args.nextServiceKm !== undefined) {
+    patch.nextServiceKm = args.nextServiceKm === null ? deleteField() : args.nextServiceKm;
+  }
+  if (args.nextServiceDate !== undefined) {
+    patch.nextServiceDate = args.nextServiceDate === null ? deleteField() : args.nextServiceDate;
+  }
+  await updateDoc(vehicleDoc(familyId, vehicleId), patch);
 }
 
 export async function removeVehicle(familyId: string, vehicleId: string): Promise<void> {
