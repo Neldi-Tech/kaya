@@ -39,6 +39,7 @@ import {
 } from '@/lib/purchase';
 import { fetchVehicleOdometer, fetchOdometerStats, logOdometerReading } from '@/lib/driversOdometer';
 import { computeServiceDue, localTodayIso } from '@/lib/vehicleService';
+import { readFamilyUnits, kmToDisplay, displayToKm, formatDistance, type DistanceUnit, type FuelVolumeUnit } from '@/lib/units';
 import type { EditActor, PayrollEditLogEntry } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
@@ -186,7 +187,7 @@ export default function PurchaseDetailPage() {
   useEffect(() => {
     if (!req || req.module !== 'drivers') return;
     if (!odoSeeded) {
-      if (typeof req.odometerKm === 'number' && req.odometerKm > 0) setOdoValue(String(req.odometerKm));
+      if (typeof req.odometerKm === 'number' && req.odometerKm > 0) setOdoValue(String(kmToDisplay(req.odometerKm, readFamilyUnits(family).distance)));
       setOdoSeeded(true);
     }
   }, [req, odoSeeded]);
@@ -240,10 +241,13 @@ export default function PurchaseDetailPage() {
 
   // ── Drivers v2 — odometer validation (Screen B2 guardrails) ───────
   const driversCfg = readDriversConfig(family);
+  const famUnits = readFamilyUnits(family);
+  const distU = famUnits.distance;
   const isDrivers = req.module === 'drivers';
+  // Typed in the FAMILY unit (Setup → Units); canonical km for math.
   const odoNum = (() => {
     const n = parseFloat(odoValue);
-    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+    return Number.isFinite(n) && n > 0 ? displayToKm(n, distU) : null;
   })();
   const odoLastKm = odoLast?.lastKm ?? null;
   // Below the last ledger reading → hard block (readings only go up).
@@ -274,7 +278,8 @@ export default function PurchaseDetailPage() {
     const fuelName = req.fuelType
       ? `⛽ Fuel — ${vehicleFuelLabel(req.fuelType as VehicleFuel)}`
       : '⛽ Fuel';
-    const unit = fuelUnitFor(req.fuelType);
+    const baseUnit = fuelUnitFor(req.fuelType);
+    const unit = baseUnit === 'L' && famUnits.fuelVolume === 'gal' ? 'gal' : baseUnit;
     const existing = req.items.find((i) => i.isFuelLine);
     const next: PurchaseRequestItem[] = existing
       ? req.items.map((i) => (i.isFuelLine
@@ -1227,6 +1232,7 @@ export default function PurchaseDetailPage() {
           req={req}
           currency={currency}
           sw={sw}
+          volumeUnit={famUnits.fuelVolume}
           onCommit={commitFuelLine}
         />
       )}
@@ -1259,30 +1265,30 @@ export default function PurchaseDetailPage() {
                 void updateRequestMeta(profile.familyId, req.id, { odometerKm: odoNum });
               }
             }}
-            placeholder={sw ? 'Usomaji (km)' : 'Reading (km)'}
+            placeholder={sw ? `Usomaji (${distU})` : `Reading (${distU})`}
             className={`w-full border rounded-xl px-3 py-2.5 font-nunito font-extrabold text-base bg-white ${
               odoBelowLast || odoBigJump ? 'border-hive-honey' : 'border-hive-line'
             }`}
           />
           <p className="text-[11px] text-hive-muted font-bold mt-1.5">
             {odoLastKm != null
-              ? <>{sw ? 'Mwisho' : 'Last'}: <b>{odoLastKm.toLocaleString()} km</b>{odoLast?.capturedAtMs ? ` · ${toDisplayDate(new Date(odoLast.capturedAtMs).toLocaleDateString('en-CA'))}` : ''}</>
+              ? <>{sw ? 'Mwisho' : 'Last'}: <b>{formatDistance(odoLastKm, distU)}</b>{odoLast?.capturedAtMs ? ` · ${toDisplayDate(new Date(odoLast.capturedAtMs).toLocaleDateString('en-CA'))}` : ''}</>
               : (sw ? 'Hakuna usomaji uliopita bado.' : 'No previous reading yet.')}
             {' '}{sw ? 'Inasaidia ratiba ya service.' : 'Feeds the service schedule.'}
           </p>
           {odoBelowLast && (
             <p className="text-[11px] text-hive-rose font-bold mt-1.5">
               {sw
-                ? `Usomaji hauwezi kuwa chini ya ${odoLastKm!.toLocaleString()} km iliyorekodiwa.`
-                : `Reading can't be below the last recorded ${odoLastKm!.toLocaleString()} km.`}
+                ? `Usomaji hauwezi kuwa chini ya ${formatDistance(odoLastKm!, distU)} iliyorekodiwa.`
+                : `Reading can't be below the last recorded ${formatDistance(odoLastKm!, distU)}.`}
             </p>
           )}
           {odoBigJump && (
             <div className="bg-hive-honey-soft border border-hive-honey rounded-xl p-3 mt-2">
               <p className="font-nunito font-extrabold text-[13px]">
                 🤔 {sw
-                  ? `Hiyo ni nyongeza ya km ${odoJumpKm.toLocaleString()} tangu mara ya mwisho.`
-                  : `That's a jump of ${odoJumpKm.toLocaleString()} km since the last reading.`}
+                  ? `Hiyo ni nyongeza ya ${formatDistance(odoJumpKm, distU)} tangu mara ya mwisho.`
+                  : `That's a jump of ${formatDistance(odoJumpKm, distU)} since the last reading.`}
               </p>
               <p className="text-[11px] text-hive-muted font-bold mt-1">
                 {sw
@@ -1293,10 +1299,10 @@ export default function PurchaseDetailPage() {
                 {odoSuggestion != null && (
                   <button
                     type="button"
-                    onClick={() => { setOdoValue(String(odoSuggestion)); setOdoConfirmedJump(false); }}
+                    onClick={() => { setOdoValue(String(kmToDisplay(odoSuggestion, distU))); setOdoConfirmedJump(false); }}
                     className="bg-white border border-hive-line rounded-full px-3 py-1.5 text-[12px] font-nunito font-extrabold"
                   >
-                    {sw ? 'Tumia' : 'Use'} {odoSuggestion.toLocaleString()}
+                    {sw ? 'Tumia' : 'Use'} {kmToDisplay(odoSuggestion, distU).toLocaleString()}
                   </button>
                 )}
                 <button
@@ -1312,7 +1318,7 @@ export default function PurchaseDetailPage() {
         </div>
       ) : (typeof req.odometerKm === 'number' && req.odometerKm > 0 && (
         <p className="text-[11px] text-hive-muted font-bold mb-3 -mt-1">
-          🧭 {sw ? 'Odometa' : 'Odometer'} <b>{req.odometerKm.toLocaleString()} km</b>
+          🧭 {sw ? 'Odometa' : 'Odometer'} <b>{formatDistance(req.odometerKm, distU)}</b>
         </p>
       )))}
 
@@ -3686,17 +3692,19 @@ function PayrollPaystubBanner({
 // `isFuelLine` item into the normal basket on blur, so approval,
 // reconcile, guardrails and Finances all keep working untouched.
 function FuelCard({
-  familyId, req, currency, sw, onCommit,
+  familyId, req, currency, sw, volumeUnit, onCommit,
 }: {
   familyId: string;
   req: PurchaseRequest;
   currency: string;
   sw: boolean;
+  volumeUnit: FuelVolumeUnit;
   onCommit: (units: number, priceCents: number) => void | Promise<void>;
 }) {
   const line = req.items.find((i) => i.isFuelLine);
-  const unit = fuelUnitFor(req.fuelType);
-  const unitWord = unit === 'L' ? (sw ? 'lita' : 'litre') : unit;
+  const baseUnit = fuelUnitFor(req.fuelType);
+  const unit = baseUnit === 'L' && volumeUnit === 'gal' ? 'gal' : baseUnit;
+  const unitWord = unit === 'L' ? (sw ? 'lita' : 'litre') : unit === 'gal' ? (sw ? 'galoni' : 'gallon') : unit;
   const [units, setUnits] = useState(line ? String(line.qty) : '');
   const [price, setPrice] = useState(
     line?.estimatedCents ? String(line.estimatedCents / 100) : '',
@@ -3740,7 +3748,7 @@ function FuelCard({
       <div className="flex flex-col gap-2">
         <label className="flex items-center justify-between bg-white border border-hive-line rounded-xl px-3 py-2.5 gap-3">
           <span className="text-[13px] text-hive-muted font-bold">
-            {unit === 'L' ? (sw ? 'Lita' : 'Litres') : unit}
+            {unit === 'L' ? (sw ? 'Lita' : 'Litres') : unit === 'gal' ? (sw ? 'Galoni' : 'Gallons') : unit}
           </span>
           <input
             type="number"
@@ -3791,7 +3799,7 @@ function FuelCard({
         <p className="text-[10px] text-hive-muted font-bold">
           🔢 {sw
             ? `Kiasi ni ${unitWord} × bei kila mara — hakuna kuandika jumla.`
-            : `Amount is always ${unit === 'L' ? 'litres' : unit} × price — no typing totals, no typo-inflation.`}
+            : `Amount is always ${unit === 'L' ? 'litres' : unit === 'gal' ? 'gallons' : unit} × price — no typing totals, no typo-inflation.`}
         </p>
       </div>
     </div>
@@ -3810,6 +3818,8 @@ function ServiceStatusCard({
   vehicleId: string;
   sw: boolean;
 }) {
+  const { family: svcFamily } = useFamily();
+  const svcDistU: DistanceUnit = readFamilyUnits(svcFamily).distance;
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [stats, setStats] = useState<{ lastKm: number | null; kmPerDay: number | null } | null>(null);
 
@@ -3854,7 +3864,7 @@ function ServiceStatusCard({
   const pctDisplay = Math.round(due.pctUsed * 100);
   const ringColor = due.overdue ? '#DC2626' : due.pctUsed >= 0.75 ? '#D97706' : '#4C7C59';
   const dueLine = [
-    due.dueKm != null ? `${due.dueKm.toLocaleString()} km` : null,
+    due.dueKm != null ? formatDistance(due.dueKm, svcDistU) : null,
     due.hardStopIso ? toDisplayDate(due.hardStopIso) : null,
   ].filter(Boolean).join(sw ? ' · au ' : ' · or ');
 
@@ -3874,12 +3884,12 @@ function ServiceStatusCard({
           </p>
           <p className="text-[11px] text-hive-muted font-bold mt-0.5">
             {sw ? 'Service ya mwisho' : 'Last service'}{' '}
-            {vehicle.serviceBaselineKm != null ? `${vehicle.serviceBaselineKm.toLocaleString()} km` : '—'}
+            {vehicle.serviceBaselineKm != null ? formatDistance(vehicle.serviceBaselineKm, svcDistU) : '—'}
             {vehicle.serviceBaselineDate ? ` · ${toDisplayDate(vehicle.serviceBaselineDate)}` : ''}
             {' · '}
             {sw ? 'kila' : 'every'}{' '}
             {[
-              vehicle.serviceIntervalKm ? `${vehicle.serviceIntervalKm.toLocaleString()} km` : null,
+              vehicle.serviceIntervalKm ? formatDistance(vehicle.serviceIntervalKm, svcDistU) : null,
               vehicle.serviceIntervalMonths ? `${vehicle.serviceIntervalMonths} ${sw ? 'miezi' : 'months'}` : null,
             ].filter(Boolean).join(' / ')}
           </p>
@@ -3906,7 +3916,7 @@ function ServiceStatusCard({
             <>📈 {sw ? 'Inakadiriwa' : 'Expected'} <b>{due.expectedIso ? toDisplayDate(due.expectedIso) : '—'}</b> {sw ? 'kwa mwendo wenu' : 'at your pace'}</>
           )}
           {due.overdueKm != null && (
-            <>🔴 <b>+{due.overdueKm.toLocaleString()} km</b> {sw ? 'zaidi ya kikomo' : 'over'}</>
+            <>🔴 <b>+{formatDistance(due.overdueKm, svcDistU)}</b> {sw ? 'zaidi ya kikomo' : 'over'}</>
           )}
         </span>
         {due.hardStopIso && !due.overdue && (

@@ -39,6 +39,8 @@ import {
   computeServiceDue, effectiveDueIso, serviceReminderState, localTodayIso,
 } from '@/lib/vehicleService';
 import { toDisplayDate } from '@/lib/dates';
+import { useFamily } from '@/contexts/FamilyContext';
+import { readFamilyUnits, formatDistance } from '@/lib/units';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
@@ -51,6 +53,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 export default function DriversHomePage() {
   const router = useRouter();
   const { profile, isGuest } = useAuth();
+  const { family } = useFamily();
   const { config } = useHive();
   const currency = config.currency;
   const role: 'parent' | 'helper' = profile?.role === 'helper' ? 'helper' : 'parent';
@@ -361,8 +364,8 @@ export default function DriversHomePage() {
               <div className="flex items-center justify-between gap-2">
                 <p className="font-nunito font-extrabold text-[13px]">
                   {kindNudge.state === 'overdue'
-                    ? <>🔴 {kindStage?.label} service OVERDUE{kindNudge.overdueKm != null ? ` · +${kindNudge.overdueKm.toLocaleString()} km over` : ''}</>
-                    : <>🛠️ {kindStage?.label} service due{kindNudge.kmLeft != null ? ` in ~${kindNudge.kmLeft.toLocaleString()} km` : ' soon'}</>}
+                    ? <>🔴 {kindStage?.label} service OVERDUE{kindNudge.overdueKm != null ? ` · +${formatDistance(kindNudge.overdueKm, readFamilyUnits(family).distance)} over` : ''}</>
+                    : <>🛠️ {kindStage?.label} service due{kindNudge.kmLeft != null ? ` in ~${formatDistance(kindNudge.kmLeft, readFamilyUnits(family).distance)}` : ' soon'}</>}
                 </p>
                 {kindNudge.expectedIso && kindNudge.state !== 'overdue' && (
                   <span className="text-[10px] font-nunito font-extrabold text-hive-honey-dk bg-white rounded-full px-2 py-0.5 flex-shrink-0">

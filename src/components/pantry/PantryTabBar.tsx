@@ -63,6 +63,10 @@ const MORE_TABS: TabDef[] = [
   { path: '/pantry/suppliers', icon: '🏪', label: 'Soko',             match: 'prefix', helperKey: 'household:suppliers',  sub: 'Suppliers' },
   { path: '/pantry/finances',  icon: '💰', label: 'Finances',         match: 'prefix', parentOnly: true,                  sub: 'Money roll-up' },
   { path: '/pantry/budget',    icon: '⚙️', label: 'Budget',           match: 'prefix', parentOnly: true,                  sub: 'Per-module caps' },
+  // Household Setup hub (Drivers v2, 2026-07-05) — one gear for every
+  // module's setup: budgets, vehicles & service, meters, guardrails,
+  // approval mode, units.
+  { path: '/pantry/setup',     icon: '🛠️', label: 'Setup',            match: 'prefix', parentOnly: true,                  sub: 'All Household setup' },
 ];
 
 const isActive = (pathname: string, path: string, match: TabMatch): boolean => {

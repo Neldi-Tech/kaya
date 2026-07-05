@@ -316,6 +316,10 @@ export interface Family {
   // plus the big-jump sanity band. Canonical shape is `DriversConfig`
   // in `src/lib/purchase.ts`; merged by `readDriversConfig(family)`.
   driversConfig?: Partial<import('./purchase').DriversConfig>;
+  // ── Family-wide units (Household Setup → Units & formats, 2026-07-05) ──
+  // Distance km/mi + fuel volume L/gal. Storage stays canonical;
+  // display converts. Canonical shape in `src/lib/units.ts`.
+  units?: Partial<import('./units').FamilyUnits>;
   // ── External email contacts ──────────────────────────────────
   // Email-only contacts (grandparents, godparents, tutors…) who get
   // the same rating / award notifications as parents/helpers in the
