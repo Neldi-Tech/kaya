@@ -249,6 +249,8 @@ const HOUSEHOLD_NAV: NavItem[] = [
     tooltip: 'All-Household money roll-up across modules. Parent-only.' },
   { path: '/pantry/budget',          icon: '⚙️', label: 'Budget',
     tooltip: 'Per-module monthly caps. Parent-only.' },
+  { path: '/pantry/setup',           icon: '🛠️', label: 'Setup',
+    tooltip: 'Household Setup hub — budgets, vehicles & service, meters, guardrails, units. Parent-only.' },
 ];
 
 // The Hive · kid's three-layer wallet plus parent controls.

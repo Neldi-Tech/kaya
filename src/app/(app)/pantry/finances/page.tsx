@@ -292,9 +292,18 @@ export default function FinancesPage() {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-3xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="mb-3">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
-          Household · Finances
-        </p>
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-pantry-leaf-dk">
+            Household · Finances
+          </p>
+          {/* Household Setup hub — the one gear (Drivers v2, 2026-07-05). */}
+          <Link
+            href="/pantry/setup"
+            className="text-[11px] font-nunito font-extrabold text-pantry-leaf-dk bg-hive-paper border border-hive-line rounded-full px-2.5 py-1 no-underline hover:border-pantry-leaf"
+          >
+            🛠️ Setup
+          </Link>
+        </div>
         <h1 className="font-nunito font-black text-2xl lg:text-[34px] tracking-tight mt-0.5">
           {rangeLabel(range)}
         </h1>
