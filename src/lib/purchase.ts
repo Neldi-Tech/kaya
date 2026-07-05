@@ -1257,13 +1257,20 @@ async function resetServiceBaselineOnClose(
 ): Promise<void> {
   if (!reqData || reqData.module !== 'drivers' || reqData.kind !== 'service' || !reqData.vehicleId) return;
   try {
-    const { updateVehicle } = await import('./vehicles');
     const todayIso = new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD
-    await updateVehicle(familyId, reqData.vehicleId, {
+    // Direct updateDoc (not updateVehicle) because the v2.1 sticker
+    // targets are CONSUMED here — deleteField() clears them so the
+    // next cycle derives from the interval until a new sticker is
+    // typed in Setup. updateVehicle's typed patch can't carry
+    // FieldValue sentinels.
+    await updateDoc(doc(db, 'families', familyId, 'vehicles', reqData.vehicleId), {
       serviceBaselineDate: todayIso,
       ...(typeof reqData.odometerKm === 'number' && reqData.odometerKm > 0
         ? { serviceBaselineKm: reqData.odometerKm }
         : {}),
+      nextServiceKm: deleteField(),
+      nextServiceDate: deleteField(),
+      updatedAt: serverTimestamp(),
     });
   } catch (e) {
     // eslint-disable-next-line no-console

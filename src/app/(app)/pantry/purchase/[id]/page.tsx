@@ -1220,7 +1220,13 @@ export default function PurchaseDetailPage() {
           expected date at the family's pace. Closing this request
           auto-resets the baseline (lib/purchase closeReconcile). */}
       {isDrivers && req.kind === 'service' && req.vehicleId && profile?.familyId && (
-        <ServiceStatusCard familyId={profile.familyId} vehicleId={req.vehicleId} sw={sw} />
+        <ServiceStatusCard
+          familyId={profile.familyId}
+          vehicleId={req.vehicleId}
+          sw={sw}
+          postCloseNudge={isClosed && role === 'parent'}
+          closedAtKm={req.odometerKm}
+        />
       )}
 
       {/* Fuel form (Screen B) — litres × price → auto-amount, price
@@ -3812,11 +3818,17 @@ function FuelCard({
 // the hard stop it must not cross. Reads the vehicle's schedule +
 // the Pulse odometer ledger; pure math in lib/vehicleService.ts.
 function ServiceStatusCard({
-  familyId, vehicleId, sw,
+  familyId, vehicleId, sw, postCloseNudge, closedAtKm,
 }: {
   familyId: string;
   vehicleId: string;
   sw: boolean;
+  /** v2.1 — parent viewing a CLOSED service request: when the vehicle
+   *  is left with no target AND no interval, show the "got the next
+   *  sticker?" nudge instead of the generic setup hint. */
+  postCloseNudge?: boolean;
+  /** Odometer stamped on the closed request (for the nudge copy). */
+  closedAtKm?: number;
 }) {
   const { family: svcFamily } = useFamily();
   const svcDistU: DistanceUnit = readFamilyUnits(svcFamily).distance;
@@ -3840,12 +3852,37 @@ function ServiceStatusCard({
     intervalMonths: vehicle.serviceIntervalMonths,
     baselineKm: vehicle.serviceBaselineKm,
     baselineDate: vehicle.serviceBaselineDate,
+    nextKmOverride: vehicle.nextServiceKm,
+    nextDateOverride: vehicle.nextServiceDate,
     latestKm: stats?.lastKm ?? null,
     kmPerDay: stats?.kmPerDay ?? null,
     todayIso: localTodayIso(),
   });
 
   if (!due.configured) {
+    // v2.1 — the sticker was consumed by this close and nothing can
+    // derive the next due: one-tap deep link to type the new sticker.
+    if (postCloseNudge) {
+      return (
+        <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3.5 mb-3">
+          <p className="font-nunito font-extrabold text-[14px]">
+            🛠️ {vehicle.label} {sw ? 'service imefungwa' : 'service closed'}
+            {typeof closedAtKm === 'number' && closedAtKm > 0 ? ` · ${formatDistance(closedAtKm, svcDistU)}` : ''}
+          </p>
+          <p className="text-[12px] text-hive-muted font-bold mt-1">
+            {sw
+              ? 'Mzunguko mpya umeanza. Umepata stika mpya? Weka lengo kwenye Setup.'
+              : 'New cycle started. Got the next sticker? Add the target so the countdown keeps running.'}
+          </p>
+          <Link
+            href="/pantry/setup/vehicles"
+            className="inline-block mt-2 bg-white border border-hive-honey text-hive-honey-dk rounded-full px-3 py-1.5 text-[12px] font-nunito font-extrabold no-underline"
+          >
+            🎯 {sw ? 'Weka lengo la service' : 'Add next service target'} →
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-3.5 mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-1">
@@ -3853,16 +3890,33 @@ function ServiceStatusCard({
         </p>
         <p className="text-[12px] text-hive-muted font-bold">
           {sw
-            ? 'Hakuna ratiba bado — weka “kila km N / miezi N” kwenye Manage vehicles ili Kaya ifuatilie na kukumbusha.'
-            : 'No schedule set for this vehicle yet — set "every N km / N months" in Manage vehicles and Kaya will track + remind.'}
+            ? 'Hakuna ratiba bado — andika lengo la stika ya gereji (odometa + tarehe) au “kila km N / miezi N” kwenye Setup → Vehicles & service.'
+            : 'No schedule yet — type the workshop-sticker target (odometer + date) or an interval in Setup → Vehicles & service and Kaya will count down + remind.'}
         </p>
       </div>
     );
   }
 
-  const pct = Math.min(1.2, due.pctUsed);
+  const pct = due.pctComputable ? Math.min(1.2, due.pctUsed) : 0;
   const pctDisplay = Math.round(due.pctUsed * 100);
-  const ringColor = due.overdue ? '#DC2626' : due.pctUsed >= 0.75 ? '#D97706' : '#4C7C59';
+  const ringColor = due.overdue ? '#DC2626' : due.pctComputable && due.pctUsed >= 0.75 ? '#D97706' : '#4C7C59';
+  // v2.1 — no fake percentages: when there's no honest denominator
+  // (sticker target, no interval/baseline), the ring badge shows the
+  // countdown instead.
+  const ringBadge = (() => {
+    if (due.pctComputable) return null;
+    if (due.kmLeft != null) {
+      const n = kmToDisplay(Math.max(0, due.kmLeft), svcDistU);
+      return {
+        top: n >= 1000 ? `~${(n / 1000).toFixed(1)}k` : `~${n}`,
+        bottom: sw ? `${svcDistU.toUpperCase()} BAKI` : `${svcDistU.toUpperCase()} LEFT`,
+      };
+    }
+    if (due.daysToHardStop != null) {
+      return { top: String(Math.max(0, due.daysToHardStop)), bottom: sw ? 'SIKU BAKI' : 'DAYS LEFT' };
+    }
+    return { top: '🎯', bottom: sw ? 'IMEWEKWA' : 'SET' };
+  })();
   const dueLine = [
     due.dueKm != null ? formatDistance(due.dueKm, svcDistU) : null,
     due.hardStopIso ? toDisplayDate(due.hardStopIso) : null,
@@ -3883,15 +3937,25 @@ function ServiceStatusCard({
               : <>{sw ? 'Inatakiwa ifikapo' : 'Due at'} {dueLine}</>}
           </p>
           <p className="text-[11px] text-hive-muted font-bold mt-0.5">
-            {sw ? 'Service ya mwisho' : 'Last service'}{' '}
-            {vehicle.serviceBaselineKm != null ? formatDistance(vehicle.serviceBaselineKm, svcDistU) : '—'}
-            {vehicle.serviceBaselineDate ? ` · ${toDisplayDate(vehicle.serviceBaselineDate)}` : ''}
-            {' · '}
-            {sw ? 'kila' : 'every'}{' '}
-            {[
-              vehicle.serviceIntervalKm ? formatDistance(vehicle.serviceIntervalKm, svcDistU) : null,
-              vehicle.serviceIntervalMonths ? `${vehicle.serviceIntervalMonths} ${sw ? 'miezi' : 'months'}` : null,
-            ].filter(Boolean).join(' / ')}
+            {due.explicitTargets ? (
+              <>🎯 {sw ? 'imewekwa kutoka stika ya gereji' : 'set from the workshop sticker'}</>
+            ) : (
+              <>
+                {sw ? 'Service ya mwisho' : 'Last service'}{' '}
+                {vehicle.serviceBaselineKm != null ? formatDistance(vehicle.serviceBaselineKm, svcDistU) : '—'}
+                {vehicle.serviceBaselineDate ? ` · ${toDisplayDate(vehicle.serviceBaselineDate)}` : ''}
+                {(vehicle.serviceIntervalKm || vehicle.serviceIntervalMonths) ? (
+                  <>
+                    {' · '}
+                    {sw ? 'kila' : 'every'}{' '}
+                    {[
+                      vehicle.serviceIntervalKm ? formatDistance(vehicle.serviceIntervalKm, svcDistU) : null,
+                      vehicle.serviceIntervalMonths ? `${vehicle.serviceIntervalMonths} ${sw ? 'miezi' : 'months'}` : null,
+                    ].filter(Boolean).join(' / ')}
+                  </>
+                ) : null}
+              </>
+            )}
           </p>
         </div>
         <div
@@ -3899,8 +3963,8 @@ function ServiceStatusCard({
           style={{ background: `conic-gradient(${ringColor} 0 ${Math.min(100, pct * 100)}%, #E8E2D2 ${Math.min(100, pct * 100)}% 100%)` }}
         >
           <div className="w-[54px] h-[54px] rounded-full bg-hive-paper flex flex-col items-center justify-center">
-            <span className="font-nunito font-black text-[14px] leading-none">{pctDisplay}%</span>
-            <span className="text-[8px] font-nunito font-extrabold text-hive-muted tracking-wide">{sw ? 'IMETUMIKA' : 'USED'}</span>
+            <span className="font-nunito font-black text-[14px] leading-none">{ringBadge ? ringBadge.top : `${pctDisplay}%`}</span>
+            <span className="text-[8px] font-nunito font-extrabold text-hive-muted tracking-wide text-center leading-tight">{ringBadge ? ringBadge.bottom : (sw ? 'IMETUMIKA' : 'USED')}</span>
           </div>
         </div>
       </div>

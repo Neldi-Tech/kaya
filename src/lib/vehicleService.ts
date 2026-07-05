@@ -25,6 +25,13 @@ export interface ServiceDueInput {
   /** "Today" as YYYY-MM-DD (caller supplies — keeps this pure and
    *  lets the cron pin the family timezone). */
   todayIso: string;
+  // ── v2.1 explicit targets (2026-07-05) — the workshop sticker ─────
+  /** Next-service odometer typed by the parent. WINS over
+   *  baseline + intervalKm whenever set. */
+  nextKmOverride?: number;
+  /** Next-service date typed by the parent (YYYY-MM-DD). WINS over
+   *  baseline + intervalMonths whenever set. */
+  nextDateOverride?: string;
 }
 
 export interface ServiceDueState {
@@ -42,6 +49,13 @@ export interface ServiceDueState {
   expectedIso?: string;
   /** 0..1+ — how much of the interval is used (max of km + time). */
   pctUsed: number;
+  /** v2.1 — false when no denominator exists for a honest % (e.g. a
+   *  sticker target with no interval and no baseline). UI shows a
+   *  plain countdown instead of a fake ring percent. */
+  pctComputable: boolean;
+  /** v2.1 — true when the due came from typed targets (sticker),
+   *  not derived from baseline + interval. */
+  explicitTargets: boolean;
   /** True once either trigger has tripped. */
   overdue: boolean;
   /** Km past due when overdue via km (positive). */
@@ -74,43 +88,58 @@ export function addMonthsIso(iso: string, months: number): string | null {
 }
 
 export function computeServiceDue(input: ServiceDueInput): ServiceDueState {
-  const { intervalKm, intervalMonths, baselineKm, baselineDate, latestKm, kmPerDay, todayIso } = input;
+  const {
+    intervalKm, intervalMonths, baselineKm, baselineDate, latestKm, kmPerDay,
+    todayIso, nextKmOverride, nextDateOverride,
+  } = input;
   const hasKmTrack = !!intervalKm && intervalKm > 0 && typeof baselineKm === 'number';
   const hasTimeTrack = !!intervalMonths && intervalMonths > 0 && !!baselineDate;
-  if (!hasKmTrack && !hasTimeTrack) return { configured: false, pctUsed: 0, overdue: false };
+  // v2.1 — explicit sticker targets. Either one alone arms a countdown,
+  // and each WINS over its derived counterpart when set.
+  const hasKmTarget = typeof nextKmOverride === 'number' && nextKmOverride > 0;
+  const hasDateTarget = !!nextDateOverride && isoToUtcMs(nextDateOverride) != null;
+  if (!hasKmTrack && !hasTimeTrack && !hasKmTarget && !hasDateTarget) {
+    return { configured: false, pctUsed: 0, pctComputable: false, explicitTargets: false, overdue: false };
+  }
 
   const todayMs = isoToUtcMs(todayIso) ?? 0;
-  let dueKm: number | undefined;
+  const dueKm: number | undefined = hasKmTarget
+    ? (nextKmOverride as number)
+    : hasKmTrack ? (baselineKm as number) + (intervalKm as number) : undefined;
   let kmLeft: number | undefined;
   let expectedIso: string | undefined;
-  let kmPct = 0;
-  if (hasKmTrack) {
-    dueKm = (baselineKm as number) + (intervalKm as number);
-    if (typeof latestKm === 'number' && latestKm > 0) {
-      kmLeft = dueKm - latestKm;
+  let kmPct: number | null = null;
+  if (dueKm != null && typeof latestKm === 'number' && latestKm > 0) {
+    kmLeft = dueKm - latestKm;
+    // Honest % only with a real denominator: the interval when known,
+    // else the km driven since last service vs the target span.
+    if (hasKmTrack) {
       kmPct = (latestKm - (baselineKm as number)) / (intervalKm as number);
-      if (kmLeft > 0 && kmPerDay && kmPerDay > 0) {
-        expectedIso = msToIso(todayMs + Math.round(kmLeft / kmPerDay) * DAY_MS);
-      } else if (kmLeft <= 0) {
-        expectedIso = todayIso;
-      }
+    } else if (typeof baselineKm === 'number' && dueKm > baselineKm) {
+      kmPct = (latestKm - baselineKm) / (dueKm - baselineKm);
+    }
+    if (kmLeft > 0 && kmPerDay && kmPerDay > 0) {
+      expectedIso = msToIso(todayMs + Math.round(kmLeft / kmPerDay) * DAY_MS);
+    } else if (kmLeft <= 0) {
+      expectedIso = todayIso;
     }
   }
 
-  let hardStopIso: string | undefined;
+  const hardStopIso: string | undefined = hasDateTarget
+    ? (nextDateOverride as string)
+    : hasTimeTrack ? addMonthsIso(baselineDate as string, intervalMonths as number) ?? undefined : undefined;
   let daysToHardStop: number | undefined;
-  let timePct = 0;
-  if (hasTimeTrack) {
-    hardStopIso = addMonthsIso(baselineDate as string, intervalMonths as number) ?? undefined;
-    if (hardStopIso) {
-      const dueMs = isoToUtcMs(hardStopIso) ?? 0;
-      daysToHardStop = Math.round((dueMs - todayMs) / DAY_MS);
-      const baseMs = isoToUtcMs(baselineDate as string) ?? dueMs;
-      const span = dueMs - baseMs;
-      timePct = span > 0 ? (todayMs - baseMs) / span : 1;
+  let timePct: number | null = null;
+  if (hardStopIso) {
+    const dueMs = isoToUtcMs(hardStopIso) ?? 0;
+    daysToHardStop = Math.round((dueMs - todayMs) / DAY_MS);
+    const baseMs = baselineDate ? isoToUtcMs(baselineDate) : null;
+    if (baseMs != null && dueMs > baseMs) {
+      timePct = (todayMs - baseMs) / (dueMs - baseMs);
     }
   }
 
+  const pcts = [kmPct, timePct].filter((p): p is number => p != null);
   const overKm = typeof kmLeft === 'number' && kmLeft < 0;
   const overTime = typeof daysToHardStop === 'number' && daysToHardStop < 0;
   return {
@@ -120,7 +149,9 @@ export function computeServiceDue(input: ServiceDueInput): ServiceDueState {
     ...(hardStopIso ? { hardStopIso } : {}),
     ...(daysToHardStop != null ? { daysToHardStop } : {}),
     ...(expectedIso ? { expectedIso } : {}),
-    pctUsed: Math.max(0, Math.max(kmPct, timePct)),
+    pctUsed: pcts.length ? Math.max(0, Math.max(...pcts)) : 0,
+    pctComputable: pcts.length > 0,
+    explicitTargets: hasKmTarget || hasDateTarget,
     overdue: overKm || overTime,
     ...(overKm ? { overdueKm: Math.abs(kmLeft as number) } : {}),
   };

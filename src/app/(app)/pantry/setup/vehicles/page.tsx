@@ -25,13 +25,18 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  type Vehicle, subscribeToVehicles, updateVehicle, vehicleEmoji,
+  type Vehicle, subscribeToVehicles, updateVehicle, setVehicleNextService, vehicleEmoji,
 } from '@/lib/vehicles';
 import { readDriversConfig, setDriversConfig } from '@/lib/purchase';
 import { readFamilyUnits, kmToDisplay, displayToKm } from '@/lib/units';
 import { toDisplayDate } from '@/lib/dates';
+import { fetchOdometerStats } from '@/lib/driversOdometer';
+import { addMonthsIso, isoToUtcMs, localTodayIso } from '@/lib/vehicleService';
 
 interface VehicleForm {
+  // v2.1 — 🎯 explicit next-service targets (the workshop sticker).
+  nextKm: string;          // in family display unit
+  nextDate: string;        // YYYY-MM-DD
   intervalKm: string;      // in family display unit
   intervalMonths: string;
   remindKmLeft: string;    // in family display unit
@@ -51,6 +56,9 @@ export default function VehiclesServiceSetupPage() {
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [forms, setForms] = useState<Record<string, VehicleForm>>({});
+  // Latest odometer per vehicle — powers the "countdown armed" preview
+  // + the already-due warning on the 🎯 targets.
+  const [odoStats, setOdoStats] = useState<Record<string, { lastKm: number | null }>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [togglingOdo, setTogglingOdo] = useState(false);
@@ -75,6 +83,8 @@ export default function VehiclesServiceSetupPage() {
         for (const v of active) {
           if (next[v.id]) continue;
           next[v.id] = {
+            nextKm: v.nextServiceKm ? String(kmToDisplay(v.nextServiceKm, distU)) : '',
+            nextDate: v.nextServiceDate ?? '',
             intervalKm: v.serviceIntervalKm ? String(kmToDisplay(v.serviceIntervalKm, distU)) : '',
             intervalMonths: v.serviceIntervalMonths ? String(v.serviceIntervalMonths) : '',
             remindKmLeft: v.remindKmLeft ? String(kmToDisplay(v.remindKmLeft, distU)) : '',
@@ -92,6 +102,19 @@ export default function VehiclesServiceSetupPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.familyId, profile?.role]);
+
+  useEffect(() => {
+    if (!profile?.familyId || vehicles.length === 0) return;
+    let cancelled = false;
+    void Promise.all(vehicles.map(async (v) => {
+      const s = await fetchOdometerStats(profile.familyId!, v.id);
+      return [v.id, { lastKm: s.lastKm }] as const;
+    })).then((entries) => {
+      if (!cancelled) setOdoStats(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.familyId, vehicles.map((v) => v.id).join(',')]);
 
   if (profile && profile.role !== 'parent') {
     return (
@@ -134,6 +157,16 @@ export default function VehiclesServiceSetupPage() {
         ...(f.resetOpen && bKm != null ? { serviceBaselineKm: displayToKm(bKm, distU) } : {}),
         ...(f.resetOpen && /^\d{4}-\d{2}-\d{2}$/.test(f.baselineDate)
           ? { serviceBaselineDate: f.baselineDate } : {}),
+      });
+      // v2.1 — 🎯 targets: set when typed, CLEAR when the field was
+      // emptied after having a value, untouched otherwise.
+      const nKm = num(f.nextKm);
+      const nDateOk = /^\d{4}-\d{2}-\d{2}$/.test(f.nextDate);
+      await setVehicleNextService(profile.familyId, v.id, {
+        nextServiceKm: nKm != null ? displayToKm(nKm, distU)
+          : (f.nextKm.trim() === '' && v.nextServiceKm != null ? null : undefined),
+        nextServiceDate: nDateOk ? f.nextDate
+          : (f.nextDate.trim() === '' && v.nextServiceDate ? null : undefined),
       });
       setSavedId(v.id);
       setTimeout(() => setSavedId((s) => (s === v.id ? null : s)), 2000);
@@ -226,8 +259,89 @@ export default function VehiclesServiceSetupPage() {
               </div>
             </div>
 
+            {/* v2.1 — 🎯 Next service: the workshop-sticker numbers.
+                WIN over the derived schedule below; auto-clear when a
+                Service request closes. Either field alone arms the
+                countdown. */}
+            {(() => {
+              const lastKm = odoStats[v.id]?.lastKm ?? null;
+              const tKmDisp = parseFloat(f.nextKm);
+              const tKm = Number.isFinite(tKmDisp) && tKmDisp > 0 ? displayToKm(tKmDisp, distU) : null;
+              const tDateOk = /^\d{4}-\d{2}-\d{2}$/.test(f.nextDate);
+              const todayIso = localTodayIso();
+              const kmAlreadyDue = tKm != null && lastKm != null && tKm <= lastKm;
+              const dateAlreadyDue = tDateOk
+                && (isoToUtcMs(f.nextDate) ?? 0) < (isoToUtcMs(todayIso) ?? 0);
+              const kmLeftDisp = tKm != null && lastKm != null && tKm > lastKm
+                ? kmToDisplay(tKm - lastKm, distU) : null;
+              const daysLeft = tDateOk
+                ? Math.round(((isoToUtcMs(f.nextDate) ?? 0) - (isoToUtcMs(todayIso) ?? 0)) / 86400000)
+                : null;
+              const armed = (tKm != null || tDateOk) && !kmAlreadyDue && !dateAlreadyDue;
+              // Greyed auto-derived values when the schedule below can
+              // derive them — shown as placeholders / captions.
+              const autoKm = v.serviceBaselineKm != null && v.serviceIntervalKm
+                ? kmToDisplay(v.serviceBaselineKm + v.serviceIntervalKm, distU) : null;
+              const autoDate = v.serviceBaselineDate && v.serviceIntervalMonths
+                ? addMonthsIso(v.serviceBaselineDate, v.serviceIntervalMonths) : null;
+              return (
+                <div className="bg-pantry-leaf-soft border border-pantry-leaf rounded-xl p-3 mb-3">
+                  <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-1.5">
+                    🎯 Next service — from the workshop sticker
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 mb-1.5">
+                    <label className={`bg-white border rounded-xl px-3 py-2 ${kmAlreadyDue ? 'border-hive-rose' : 'border-hive-line'}`}>
+                      <span className="block text-[10px] text-hive-muted font-bold">Next service odometer ({distWord})</span>
+                      <input
+                        type="number" inputMode="numeric"
+                        placeholder={autoKm != null ? `auto: ${autoKm.toLocaleString()}` : 'e.g. 90000'}
+                        value={f.nextKm}
+                        onChange={(e) => patchForm(v.id, { nextKm: e.target.value })}
+                        className="w-full font-nunito font-extrabold text-[15px] outline-none bg-transparent"
+                      />
+                    </label>
+                    <label className={`bg-white border rounded-xl px-3 py-2 ${dateAlreadyDue ? 'border-hive-rose' : 'border-hive-line'}`}>
+                      <span className="block text-[10px] text-hive-muted font-bold">Next service date</span>
+                      <input
+                        type="date"
+                        value={f.nextDate}
+                        onChange={(e) => patchForm(v.id, { nextDate: e.target.value })}
+                        className="w-full font-nunito font-extrabold text-[13px] outline-none bg-transparent"
+                      />
+                      {!f.nextDate && autoDate && (
+                        <span className="block text-[9px] text-hive-muted font-bold mt-0.5">
+                          auto: {toDisplayDate(autoDate)} — type to override
+                        </span>
+                      )}
+                    </label>
+                  </div>
+                  {kmAlreadyDue && lastKm != null && (
+                    <span className="inline-block bg-hive-rose/10 text-hive-rose rounded-full px-2.5 py-1 text-[11px] font-nunito font-extrabold mb-1">
+                      ⚠️ below current {kmToDisplay(lastKm, distU).toLocaleString()} {distU} — already due
+                    </span>
+                  )}
+                  {dateAlreadyDue && (
+                    <span className="inline-block bg-hive-rose/10 text-hive-rose rounded-full px-2.5 py-1 text-[11px] font-nunito font-extrabold mb-1 ml-1">
+                      ⚠️ date already passed — already due
+                    </span>
+                  )}
+                  {armed && (
+                    <p className="text-[11px] font-bold text-pantry-leaf-dk">
+                      ✓ countdown armed
+                      {kmLeftDisp != null ? ` · ~${kmLeftDisp.toLocaleString()} ${distU}` : ''}
+                      {daysLeft != null ? ` · ${daysLeft} days left` : ''}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-hive-muted font-bold mt-1">
+                    Whichever comes first triggers. These win over the schedule below and clear
+                    automatically when a 🛠️ Service request closes.
+                  </p>
+                </div>
+              );
+            })()}
+
             <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-1.5">
-              Service schedule
+              Service schedule — fallback when no sticker is set
             </p>
             <div className="grid grid-cols-2 gap-2 mb-1.5">
               <label className="bg-white border border-hive-line rounded-xl px-3 py-2">
