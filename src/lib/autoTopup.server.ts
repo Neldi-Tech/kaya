@@ -24,6 +24,10 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
+import {
+  resolveAlertRecipients,
+  type AlertEmailsConfig, type AlertResolveLevel,
+} from './alertEmails.shared';
 
 const resendKey = process.env.RESEND_API_KEY;
 const RESEND_FROM = process.env.RESEND_FROM || 'Kaya <noreply@ourkaya.com>';
@@ -329,9 +333,19 @@ export async function checkMeterLowBalance(
   let emailTo: { name: string; email: string }[] = [];
   const inappTo: { uid: string; name: string; role: string }[] = [];
   let chatSent = false;
+  let resolvedLevel: AlertResolveLevel = 'global';
   try {
     const { people } = await parentRecipients(db, familyId);
-    emailTo = people.filter((p2) => p2.email).map((p2) => ({ name: p2.name, email: p2.email as string }));
+    // VIS PR3 (D9): EMAIL recipients resolve Item > Category > Global with a
+    // safety floor at every level (F1). Meters = the 'utilities' category;
+    // the per-meter override threads in with VIS PR4. In-app + family chat
+    // stay unfiltered by design (D2) — this cascade is email-only.
+    const famData = (await famRef.get().catch(() => null))?.data() as { alertEmails?: AlertEmailsConfig } | undefined;
+    const resolved = resolveAlertRecipients(famData?.alertEmails, 'utilities', people.map((p2) => p2.uid), undefined);
+    resolvedLevel = resolved.level;
+    emailTo = people
+      .filter((p2) => resolved.uids.includes(p2.uid) && p2.email)
+      .map((p2) => ({ name: p2.name, email: p2.email as string }));
     if (inappOn) {
       for (const p2 of people) {
         await notifyInApp(famRef, p2.uid, title, message, link);
@@ -367,9 +381,9 @@ export async function checkMeterLowBalance(
     forecastDays,
     ...(requestId ? { requestId, amountCents, currency } : {}),
     ...(requestName ? { requestName } : {}),
-    // Which level resolved the recipients — 'category'/'item' arrive with
-    // the VIS PR3/PR4 cascade; today everything resolves at the global level.
-    resolvedBy: 'global',
+    // Which cascade level resolved the email recipients (D11) — the trace
+    // answers "why did she get it?" as well as "did she get it?".
+    resolvedBy: resolvedLevel,
     channels: {
       email: {
         on: emailOn, sent: emailOut.sent,

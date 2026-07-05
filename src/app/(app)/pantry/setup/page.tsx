@@ -25,6 +25,12 @@ import {
   readFamilyUnits, setFamilyUnits,
   type DistanceUnit, type FuelVolumeUnit,
 } from '@/lib/units';
+import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import {
+  ALERT_CATEGORIES,
+  setGlobalAlertEmails, setCategoryAlertEmails,
+  type AlertCategory, type AlertEmailsConfig,
+} from '@/lib/alertEmails';
 
 export default function HouseholdSetupHub() {
   const router = useRouter();
@@ -177,6 +183,167 @@ export default function HouseholdSetupHub() {
           raw and converted on display.
         </p>
       </div>
+
+      {/* 🔔 Alert emails — the Global → Category cascade (VIS PR3).
+          Per-item overrides live on the item's own editor (VIS PR4). */}
+      {profile?.familyId && (
+        <AlertEmailsCard familyId={profile.familyId} cfg={family?.alertEmails} />
+      )}
+    </div>
+  );
+}
+
+/* ── 🔔 Alert emails card — who receives alert EMAILS.
+      Global default + per-category detach (amber "custom" badge + reset,
+      D10). Zero-recipient saves are refused (F1). In-app + family chat are
+      unaffected — email only. ── */
+function AlertEmailsCard({ familyId, cfg }: { familyId: string; cfg?: AlertEmailsConfig }) {
+  const [parents, setParents] = useState<UserProfile[]>([]);
+  const [openCat, setOpenCat] = useState<AlertCategory | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    getFamilyMembers(familyId).then((ms) => {
+      if (alive) setParents(ms.filter((m) => m.role === 'parent'));
+    });
+    return () => { alive = false; };
+  }, [familyId]);
+
+  const allUids = parents.map((p) => p.uid);
+  const nameOf = (uid: string) => parents.find((p) => p.uid === uid)?.displayName || 'Parent';
+  // Same safety floor as the engine's resolver (F1): stored-but-empty (or
+  // only ex-parents) → everyone.
+  const storedGlobal = (cfg?.global ?? []).filter((u) => allUids.includes(u));
+  const effectiveGlobal = storedGlobal.length > 0 ? storedGlobal : allUids;
+
+  const saveGlobal = async (next: string[]) => {
+    if (busy || next.length === 0) return; // F1: never save an empty alarm list
+    setBusy(true);
+    try { await setGlobalAlertEmails(familyId, next.length === allUids.length ? undefined : next); }
+    finally { setBusy(false); }
+  };
+  const saveCategory = async (cat: AlertCategory, next: string[] | undefined) => {
+    if (busy || (next && next.length === 0)) return;
+    setBusy(true);
+    try { await setCategoryAlertEmails(familyId, cat, next); }
+    finally { setBusy(false); }
+  };
+
+  const ParentToggleRow = ({ uid, on, onToggle, blockOff }: {
+    uid: string; on: boolean; onToggle: () => void; blockOff: boolean;
+  }) => {
+    const p = parents.find((x) => x.uid === uid);
+    return (
+      <div className="flex items-center gap-2.5 py-1.5">
+        <span className="w-7 h-7 rounded-full bg-hive-navy text-white text-[10px] font-nunito font-black flex items-center justify-center shrink-0">
+          {(p?.displayName || 'P').slice(0, 1).toUpperCase()}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-nunito font-extrabold text-[13px] text-hive-navy">{p?.displayName || 'Parent'}</span>
+          <span className="block text-[11px] text-hive-muted font-bold truncate">{p?.email || '—'}</span>
+        </span>
+        <button
+          type="button"
+          aria-label={`Toggle ${p?.displayName || 'parent'}`}
+          disabled={busy}
+          onClick={() => { if (on && blockOff) return; onToggle(); }}
+          className={`w-10 h-[22px] rounded-full relative transition-colors shrink-0 ${on ? 'bg-hive-honey' : 'bg-hive-line'} ${on && blockOff ? 'opacity-50' : ''}`}
+        >
+          <span className={`absolute top-0.5 w-[18px] h-[18px] bg-white rounded-full transition-all ${on ? 'right-0.5' : 'left-0.5'}`} />
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mt-3">
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-1">
+        🔔 Alert emails
+      </p>
+      <p className="text-[12px] text-hive-muted font-bold mb-2">
+        Who receives low-balance &amp; reminder <b>emails</b>. In-app and family chat aren&apos;t
+        affected. Meters can still override per item.
+      </p>
+
+      {/* 🌍 Global default */}
+      <div className="rounded-xl border border-hive-line bg-white px-3 py-2 mb-2">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="font-nunito font-black text-[13px]">🌍 Global — all alert emails</span>
+          <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">default</span>
+        </div>
+        {parents.map((p) => {
+          const on = effectiveGlobal.includes(p.uid);
+          return (
+            <ParentToggleRow
+              key={p.uid}
+              uid={p.uid}
+              on={on}
+              blockOff={on && effectiveGlobal.length === 1}
+              onToggle={() => saveGlobal(on ? effectiveGlobal.filter((u) => u !== p.uid) : [...effectiveGlobal, p.uid])}
+            />
+          );
+        })}
+        {effectiveGlobal.length === 1 && (
+          <p className="text-[10px] text-hive-rose font-bold">At least one parent must stay on — or nobody hears the alarm.</p>
+        )}
+      </div>
+
+      {/* By category — inherit / detach */}
+      <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mb-1.5">By category</p>
+      {ALERT_CATEGORIES.map((c) => {
+        const stored = cfg?.[c.key];
+        const custom = Array.isArray(stored) && stored.filter((u) => allUids.includes(u)).length > 0;
+        const effective = custom ? stored.filter((u) => allUids.includes(u)) : effectiveGlobal;
+        const isOpen = openCat === c.key;
+        return (
+          <div key={c.key} className={`rounded-xl border px-3 py-2 mb-1.5 ${custom ? 'border-dashed border-hive-honey-soft bg-[#FEF6E8]' : 'border-hive-line bg-white'}`}>
+            <button type="button" className="w-full flex items-center gap-2 text-left" onClick={() => setOpenCat(isOpen ? null : c.key)}>
+              <span className="text-base">{c.emoji}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-nunito font-extrabold text-[13px] text-hive-navy">{c.label}</span>
+                <span className="block text-[11px] text-hive-muted font-bold truncate">{effective.map(nameOf).join(' + ') || '—'}</span>
+              </span>
+              {custom ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FFF3D9] text-hive-honey-dk border border-hive-honey/40">custom</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#EEF2FA] text-[#5B6B8C] border border-[#CCD6EA]">follows global</span>
+              )}
+              <span className="text-hive-muted font-nunito font-black">{isOpen ? '▾' : '›'}</span>
+            </button>
+            {isOpen && (
+              <div className="mt-1.5 pt-1.5 border-t border-dashed border-hive-line">
+                {parents.map((p) => {
+                  const on = effective.includes(p.uid);
+                  return (
+                    <ParentToggleRow
+                      key={p.uid}
+                      uid={p.uid}
+                      on={on}
+                      blockOff={on && effective.length === 1}
+                      onToggle={() => saveCategory(c.key, on ? effective.filter((u) => u !== p.uid) : [...effective, p.uid])}
+                    />
+                  );
+                })}
+                {custom && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => saveCategory(c.key, undefined)}
+                    className="text-[11px] font-nunito font-extrabold text-hive-honey-dk mt-1"
+                  >
+                    ↺ Reset to inherit global
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      <p className="text-[11px] text-hive-muted font-bold mt-2">
+        ⚡ Utilities is live now; 🚗 Vehicles &amp; 📄 Subscriptions apply as their reminder
+        engines adopt the cascade. The Alert log records which level resolved each send.
+      </p>
     </div>
   );
 }

@@ -124,6 +124,9 @@ export interface Family {
   id: string;
   name: string;
   createdBy: string;
+  // 🔔 Alert-email recipients — the Global → Category → Item cascade
+  // (VIS PR3). Absent field = "all parents". See lib/alertEmails.shared.
+  alertEmails?: import('./alertEmails.shared').AlertEmailsConfig;
   // Legacy single invite code. Pre-2026-05 families have only this
   // field; new families also get `inviteCodes` below with one code per
   // role. Kept on every doc for backwards compatibility — the legacy
