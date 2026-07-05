@@ -113,13 +113,17 @@ export default function MeetingNotesPage() {
     const apprTagged: Array<{ name: string; emoji?: string; line: string; tag?: string | null }> = [];
     const seenGrat = new Set<string>();
     const seenAppr = new Set<string>();
+    // Dedup by (name, text) — the same words from DIFFERENT members are
+    // both voices and must both appear (review fix, 2026-06-21).
     for (const r of histRows) {
       for (const g of r.entry.gratitudes || []) {
-        if (g && !seenGrat.has(g)) { seenGrat.add(g); gratLines.push({ name: r.name, emoji: r.emoji, line: g }); }
+        const k = `${r.name}::${g}`;
+        if (g && !seenGrat.has(k)) { seenGrat.add(k); gratLines.push({ name: r.name, emoji: r.emoji, line: g }); }
       }
       (r.entry.appreciations || []).forEach((a, i) => {
-        if (a && !seenAppr.has(a)) {
-          seenAppr.add(a);
+        const k = `${r.name}::${a}`;
+        if (a && !seenAppr.has(k)) {
+          seenAppr.add(k);
           apprTagged.push({ name: r.name, emoji: r.emoji, line: a, tag: r.entry.appreciationTagNames?.[i] ?? (i === 0 ? r.entry.appreciationTagName : null) });
         }
       });
@@ -127,12 +131,16 @@ export default function MeetingNotesPage() {
     for (const [cid, txt] of Object.entries((meeting.gratitude || {}) as Record<string, string>)) {
       const t = (txt || '').trim();
       const c = children.find((x) => x.id === cid);
-      if (t && !seenGrat.has(t)) { seenGrat.add(t); gratLines.push({ name: c?.name.split(' ')[0] || 'Kid', emoji: c?.avatarEmoji, line: t }); }
+      const nm = c?.name.split(' ')[0] || 'Kid';
+      const k = `${nm}::${t}`;
+      if (t && !seenGrat.has(k)) { seenGrat.add(k); gratLines.push({ name: nm, emoji: c?.avatarEmoji, line: t }); }
     }
     for (const [cid, txt] of Object.entries((meeting.appreciations || {}) as Record<string, string>)) {
       const t = (txt || '').trim();
       const c = children.find((x) => x.id === cid);
-      if (t && !seenAppr.has(t)) { seenAppr.add(t); apprTagged.push({ name: c?.name.split(' ')[0] || 'Kid', emoji: c?.avatarEmoji, line: t }); }
+      const nm = c?.name.split(' ')[0] || 'Kid';
+      const k = `${nm}::${t}`;
+      if (t && !seenAppr.has(k)) { seenAppr.add(k); apprTagged.push({ name: nm, emoji: c?.avatarEmoji, line: t }); }
     }
     return { gratitudes: gratLines, appreciations: apprTagged, apprTagged, gratLines };
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -84,6 +84,10 @@ interface MeetingRecapData {
   quote?: { text: string; by: string };
   rhythmLabel?: string;
   guestThanks?: string;
+  /** Review fixes (2026-06-21): 🙏 how the leader opened the night +
+   *  🎁 the night's Moments chips (Family Combo / pinky promises …). */
+  openingWordLabel?: string;
+  momentsSummary?: string[];
   closing?: RecapClosing;
   /** Where "Open in Kaya" should land. */
   openUrl: string;
@@ -631,6 +635,7 @@ function meetingRecapBody(r: MeetingRecapData): string {
   const leadBits: string[] = [];
   if (r.leaderName) leadBits.push(`🎤 <b>${esc(r.leaderEmoji || '')} ${esc(r.leaderName)}</b> led the meeting`);
   if (r.prayerLedBy) leadBits.push(`🙏 <b>${esc(r.prayerLedBy)}</b> led the family prayer`);
+  if (r.openingWordLabel) leadBits.push(`✨ Opened with ${esc(r.openingWordLabel)}`);
   if (r.nextLeaderName) leadBits.push(`➡️ <b>${esc(r.nextLeaderName)}</b> leads next week`);
   const leadership = leadBits.length === 0 ? ''
     : recapSection('leadership', '🎤 Leadership', leadBits.join('<br>'));
@@ -677,6 +682,11 @@ function meetingRecapBody(r: MeetingRecapData): string {
     ${points}
     ${goals}
     ${closing}
+    ${r.momentsSummary && r.momentsSummary.length > 0 ? `
+    <!-- 🎁 Moments -->
+    <div style="text-align:center;margin-top:14px;">
+      ${r.momentsSummary.map((m) => `<span style="display:inline-block;margin:2px 3px;background:#FFF7E2;border:1px solid #D4A017;border-radius:999px;padding:4px 11px;font-size:11px;font-weight:800;color:#1E120B;">${esc(m)}</span>`).join('')}
+    </div>` : ''}
     ${r.guestThanks ? `
     <!-- 🏅 Guest of Honour -->
     <div style="text-align:center;margin-top:14px;padding:10px 14px;background:#FFF7E2;border:1px dashed #D4A017;border-radius:12px;font-size:12px;color:#1E120B;">

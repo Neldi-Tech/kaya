@@ -648,11 +648,17 @@ export default function MeetingPresenterPage() {
     let pointsSummary: Meeting['pointsSummary'];
     try {
       const range = computeWindowRange({ kind: 'last7' }, todayString());
-      const [weekRatings, weekAwards, redemptions] = await Promise.all([
+      // Fail fast (8s) so a hung query can never stall finishing the
+      // meeting — the snapshot is a perk, not a barrier (review fix).
+      const withTimeout = <T,>(pr: Promise<T>): Promise<T> => Promise.race([
+        pr,
+        new Promise<T>((_, rej) => setTimeout(() => rej(new Error('points-snapshot timeout')), 8000)),
+      ]);
+      const [weekRatings, weekAwards, redemptions] = await withTimeout(Promise.all([
         getRatingsInDateRange(profile.familyId, range.from, range.to),
         getAwardsInDateRange(profile.familyId, range.from, range.to),
         getRedemptions(profile.familyId, 25).catch(() => []),
-      ]);
+      ]));
       const review = computeReview(children, [], weekRatings, weekAwards, range);
       const dayScores = computeDayScores(children, weekRatings, range);
       // ⭐ Star days — per date, the kid(s) with the most Excellents (>0).
@@ -680,8 +686,9 @@ export default function MeetingPresenterPage() {
           points: r.pointsSpent,
         }));
       pointsSummary = { kids: kidsSummary, ...(redeemed.length > 0 ? { redeemed } : {}) };
-    } catch {
-      /* notes stay pointless-but-valid when the snapshot can't be computed */
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[meeting-notes] points snapshot skipped (non-fatal):', e);
     }
 
     const payload: Omit<Meeting, 'id' | 'createdAt'> = {
