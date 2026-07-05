@@ -23,6 +23,12 @@
 // Utilities UI treats auto-requests like any other.
 
 import { FieldValue } from 'firebase-admin/firestore';
+import { Resend } from 'resend';
+
+const resendKey = process.env.RESEND_API_KEY;
+const RESEND_FROM = process.env.RESEND_FROM || 'Kaya <noreply@ourkaya.com>';
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
+const resend = resendKey ? new Resend(resendKey) : null;
 
 type AdminDb = FirebaseFirestore.Firestore;
 type FamRef = FirebaseFirestore.DocumentReference;
@@ -44,6 +50,7 @@ interface MeterData {
   helperOfRecord?: string;
   estimatedCents?: number;
   providerRef?: string;
+  alertChannels?: { email?: boolean; inapp?: boolean; chat?: boolean; whatsapp?: boolean };
 }
 
 export interface LowBalanceResult {
@@ -107,10 +114,62 @@ function resolveAmountCents(m: MeterData, lastCents: number | null): number {
   return lastCents ?? m.autoTopUpAmountCents ?? m.estimatedCents ?? 0;
 }
 
-async function parentUids(db: AdminDb, familyId: string): Promise<string[]> {
+async function parentRecipients(db: AdminDb, familyId: string): Promise<{ uids: string[]; emails: string[] }> {
   const snap = await db.collection('users')
     .where('familyId', '==', familyId).where('role', '==', 'parent').get();
-  return snap.docs.map((d) => d.id);
+  const uids: string[] = [];
+  const emails: string[] = [];
+  snap.docs.forEach((d) => {
+    uids.push(d.id);
+    const e = (d.data() as { email?: string }).email;
+    if (e) emails.push(e);
+  });
+  return { uids, emails: Array.from(new Set(emails)) };
+}
+
+function esc(s2: string): string {
+  return s2.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** HHR PR2 — the low-balance email (parents). Same Resend pipe as the rest
+ *  of Kaya; one email per episode (the caller already dedupes). */
+async function sendLowBalanceEmail(args: {
+  emails: string[]; label: string; balanceLine: string;
+  requestLine?: string; ctaUrl: string; ctaLabel: string;
+}) {
+  if (!resend || args.emails.length === 0) return;
+  const html = `
+  <div style="font-family:Nunito,Arial,sans-serif;max-width:520px;margin:0 auto;padding:18px">
+    <div style="border-radius:16px;padding:24px 18px;color:#fff;background:linear-gradient(135deg,#1E2A44,#2C3E60)">
+      <div style="font-size:11px;font-weight:900;letter-spacing:2px;text-transform:uppercase;color:#E8B54A">🔔 Kaya · Utilities</div>
+      <div style="font-size:19px;font-weight:900;margin-top:6px">${esc(args.label)} is running low</div>
+      <div style="font-size:13px;opacity:.92;margin-top:4px">${esc(args.balanceLine)}</div>
+    </div>
+    ${args.requestLine ? `<p style="font-size:14px;color:#26303B;margin-top:16px">${esc(args.requestLine)}</p>` : ''}
+    <div style="text-align:center;margin-top:18px">
+      <a href="${args.ctaUrl}" style="display:inline-block;background:#E0A93C;color:#3a2a08;font-weight:800;font-size:14px;border-radius:999px;padding:11px 24px;text-decoration:none">${esc(args.ctaLabel)}</a>
+      <div style="font-size:11.5px;color:#5C6975;margin-top:12px">One alert per low episode — Kaya re-arms after the top-up.</div>
+    </div>
+  </div>`;
+  await resend.emails.send({
+    from: RESEND_FROM, to: args.emails,
+    subject: `🔔 ${args.label} is running low`,
+    html,
+  }).catch(() => {});
+}
+
+/** HHR PR2 — the family-chat message, spoken by Kaya (same pattern as the
+ *  birthday kickoff + meeting-milestone posts). */
+async function postChatMessage(famRef: FamRef, text: string) {
+  const threadRef = famRef.collection('threads').doc('group');
+  if (!(await threadRef.get()).exists) return;
+  await threadRef.collection('messages').add({
+    senderUid: 'kaya', senderName: 'Kaya 🔔', text, createdAt: FieldValue.serverTimestamp(),
+  }).catch(() => {});
+  await threadRef.update({
+    lastText: text, lastSenderUid: 'kaya',
+    lastAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+  }).catch(() => {});
 }
 
 async function notifyInApp(famRef: FamRef, forUserId: string, title: string, message: string, link: string) {
@@ -173,7 +232,7 @@ export async function checkMeterLowBalance(
     amountCents = resolveAmountCents(m, await lastAmountForMeter(famRef, meterId));
     if (amountCents > 0) {
       try {
-        const parents = await parentUids(db, familyId);
+        const { uids: parents } = await parentRecipients(db, familyId);
         const seq = await nextUtilitySeq(db, famRef);
         const name = autoName(seq, `${label} top-up`);
         const item = {
@@ -200,19 +259,44 @@ export async function checkMeterLowBalance(
     }
   }
 
-  // ── 🔔 In-app notifications — parents + helper-of-record. ───────────
+  // ── 🔔 The voice (HHR PR2) — email + in-app + family chat, per the
+  // meter's channel toggles (absent = ALL on). WhatsApp is a staged slot
+  // that lights up with the Neldi integration. One episode = one voice.
   if (m.autoTopUpAlert !== false) {
     const currency = input.currency || 'TZS';
+    const ch = m.alertChannels || {};
     const title = `🔔 ${label} is running low`;
+    const balanceLine = `${Math.round(bal)}${unit} left${daysBit}`;
     const message = requestId
-      ? `${Math.round(bal)}${unit} left${daysBit}. Kaya has requested a ${fmtAmount(amountCents, currency)} top-up — approve it in Utilities.`
-      : `${Math.round(bal)}${unit} left${daysBit}. Time to plan a top-up.`;
+      ? `${balanceLine}. Kaya has requested a ${fmtAmount(amountCents, currency)} top-up — approve it in Utilities.`
+      : `${balanceLine}. Time to plan a top-up.`;
     const link = requestId ? `/pantry/purchase/${requestId}` : '/pantry/utility';
     try {
-      const parents = await parentUids(db, familyId);
-      for (const uid of parents) await notifyInApp(famRef, uid, title, message, link);
-      if (m.helperOfRecord && !parents.includes(m.helperOfRecord)) {
-        await notifyInApp(famRef, m.helperOfRecord, title, message, link);
+      const { uids: parents, emails } = await parentRecipients(db, familyId);
+      if (ch.inapp !== false) {
+        for (const uid of parents) await notifyInApp(famRef, uid, title, message, link);
+        if (m.helperOfRecord && !parents.includes(m.helperOfRecord)) {
+          await notifyInApp(famRef, m.helperOfRecord, title, message, link);
+        }
+      }
+      if (ch.email !== false) {
+        await sendLowBalanceEmail({
+          emails,
+          label,
+          balanceLine,
+          requestLine: requestId
+            ? `Kaya has already created a ${fmtAmount(amountCents, currency)} top-up request — it's waiting for a parent's approval.`
+            : undefined,
+          ctaUrl: `${APP_URL}${link}`,
+          ctaLabel: requestId ? 'Approve the top-up →' : 'Open Utilities →',
+        });
+      }
+      if (ch.chat !== false) {
+        await postChatMessage(famRef,
+          requestId
+            ? `🔔 ${label} is at ${Math.round(bal)}${unit}${daysBit}. I've asked for a ${fmtAmount(amountCents, currency)} top-up — a parent can approve it in Utilities 🙏`
+            : `🔔 ${label} is at ${Math.round(bal)}${unit}${daysBit}. Time to plan a top-up 🙏`,
+        );
       }
     } catch { /* best-effort */ }
   }
