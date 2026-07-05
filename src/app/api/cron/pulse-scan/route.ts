@@ -41,6 +41,11 @@ async function run(req: NextRequest) {
   let missed = 0;
   let lowFired = 0;
   let lowRequests = 0;
+  let lowPruned = 0;
+  // Alert-log retention (VIS PR1, F8): 90 days. The prune runs once a day —
+  // on the 03:00 UTC tick of this hourly cron — to keep the other 23 runs lean.
+  const doPrune = new Date().getUTCHours() === 3;
+  const pruneCutoff = now - 90 * 24 * 60 * 60 * 1000;
   for (const fam of families.docs) {
     let taskSnap;
     try {
@@ -96,9 +101,21 @@ async function run(req: NextRequest) {
       lowFired += r.fired;
       lowRequests += r.requests;
     } catch { /* best-effort per family */ }
+
+    if (doPrune) {
+      try {
+        const old = await fam.ref.collection('alertLog').where('firedAt', '<', pruneCutoff).limit(200).get();
+        if (!old.empty) {
+          const batch = db.batch();
+          old.docs.forEach((d) => batch.delete(d.ref));
+          await batch.commit();
+          lowPruned += old.size;
+        }
+      } catch { /* best-effort per family */ }
+    }
   }
 
-  return NextResponse.json({ ok: true, missed, lowFired, lowRequests });
+  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned });
 }
 
 export async function GET(req: NextRequest) {

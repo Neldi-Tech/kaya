@@ -249,7 +249,7 @@ export async function applyReadingLog(db: Firestore, p: ApplyReadingParams): Pro
   if (isMeter && direction === 'down') {
     try {
       const { checkMeterLowBalance } = await import('./autoTopup.server');
-      await checkMeterLowBalance(db, p.familyId, task.trackableId, { balance: p.value, avgDaily: avg });
+      await checkMeterLowBalance(db, p.familyId, task.trackableId, { balance: p.value, avgDaily: avg, trigger: 'reading' });
     } catch { /* engine is best-effort — never blocks the reading */ }
   }
 
