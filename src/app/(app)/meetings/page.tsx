@@ -46,6 +46,9 @@ export default function MeetingsPage() {
   const [reportMeeting, setReportMeeting] = useState<Meeting | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'green' | 'amber'>('all');
   const [staleSubs, setStaleSubs] = useState<MeetingSubmission[]>([]);
+  // Meetings 2.0 — closing-song picker now opens as a sheet from the
+  // Tonight strip instead of sitting permanently above the tabs.
+  const [showSong, setShowSong] = useState(false);
 
   // Points Review used to be its own filtered step here; it's now
   // merged into "Celebrate the wins" in presenter mode (link to the
@@ -221,19 +224,52 @@ export default function MeetingsPage() {
   };
 
   // ── Tabs (shared markup) ──────────────────────────────────
+  // Meetings 2.0 (2026-07-05, Elia): renamed 📝 Meeting Prep (was
+  // "Submission"), ordered Prep → New → Highlights → Past, and rendered
+  // as a full-width segmented control so nothing clips on desktop.
   const Tabs = () => (
-    <div className="flex gap-2 overflow-x-auto -mx-1 px-1">
-      {(['submission', 'new', 'past', 'highlights'] as const).map((t) => (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-kaya-warm rounded-kaya-lg p-1.5">
+      {(['submission', 'new', 'highlights', 'past'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
-          className={`flex-1 lg:flex-none lg:px-4 h-10 px-2 rounded-kaya-sm text-[13px] font-semibold whitespace-nowrap transition-colors ${
-            tab === t ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'
+          className={`h-10 px-2 rounded-kaya-sm text-[13px] font-display font-extrabold whitespace-nowrap transition-colors inline-flex items-center justify-center gap-1.5 ${
+            tab === t ? 'bg-kaya-chocolate text-white shadow-sm' : 'bg-transparent text-kaya-sand hover:text-kaya-chocolate'
           }`}
         >
-          {t === 'submission' ? '📝 Submission' : t === 'new' ? '✨ New' : t === 'past' ? `📁 Past (${meetings.length})` : '🔥 Highlights'}
+          {t === 'submission' ? '📝 Meeting Prep' : t === 'new' ? '✨ New' : t === 'highlights' ? '🔥 Highlights' : (
+            <>📁 Past <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${tab === t ? 'bg-white/20' : 'bg-kaya-warm-dark/60'}`}>{meetings.length}</span></>
+          )}
         </button>
       ))}
+    </div>
+  );
+
+  // Meetings 2.0 — the schedule banner, Presenter CTA, song card and
+  // setup link merge into ONE "Tonight" strip; the song picker opens as
+  // a sheet so the page starts at the tabs instead of a scroll of cards.
+  const TonightStrip = () => (
+    <div className="mb-4 rounded-kaya-lg bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light p-3.5 lg:px-5 flex items-center gap-2.5 flex-wrap">
+      <div className="flex items-center gap-2.5 flex-1 min-w-[190px]">
+        <span className="text-xl shrink-0" aria-hidden>{scheduleReminder ? '⏰' : '🗓️'}</span>
+        <span className="min-w-0">
+          <span className="block font-display font-extrabold text-[14px] leading-tight">
+            {scheduleReminder ? `Meeting tonight · ${scheduleReminder.time}` : 'Family meeting'}
+          </span>
+          <span className="block text-[11px] opacity-75">
+            {scheduleReminder ? `Your usual ${scheduleReminder.dayName} meeting` : 'Full-screen, one step at a time — cast it to the TV'}
+          </span>
+        </span>
+      </div>
+      <Link href="/meetings/present" className="inline-flex items-center gap-1.5 rounded-full bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[12.5px] px-4 py-2 no-underline hover:brightness-105 transition-all">
+        🎬 Start in Presenter
+      </Link>
+      <button type="button" onClick={() => setShowSong(true)} className="inline-flex items-center gap-1.5 rounded-full border border-kaya-gold-light/40 bg-white/10 text-kaya-gold-light font-display font-extrabold text-[12.5px] px-4 py-2 hover:bg-white/20 transition-colors">
+        🎵 Closing song
+      </button>
+      <Link href="/settings/meetings" className="inline-flex items-center gap-1.5 rounded-full border border-kaya-gold-light/40 bg-white/10 text-kaya-gold-light font-display font-extrabold text-[12.5px] px-4 py-2 no-underline hover:bg-white/20 transition-colors">
+        ⚙️ Setup
+      </Link>
     </div>
   );
 
@@ -249,58 +285,10 @@ export default function MeetingsPage() {
           <p className="text-kaya-sand text-sm">Weekly check-ins to grow together</p>
         </div>
 
-        {/* Prep card now lives in its own Submission tab (below). */}
-
-        {/* Today's closing song — parent or leader-of-day (shared card). */}
-        <TodaysSongCard className="mb-4" />
-
-        {/* Schedule reminder banner — only on the family's meeting day. */}
-        {scheduleReminder && (
-          <Link
-            href="/meetings/present"
-            className="mb-3 block bg-kaya-gold/15 border-2 border-kaya-gold rounded-kaya-lg p-4 hover:bg-kaya-gold/25 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="text-2xl shrink-0" aria-hidden>⏰</div>
-              <div className="flex-1 min-w-0">
-                <div className="font-display font-extrabold text-[13px] text-kaya-chocolate leading-tight">
-                  Meeting tonight at {scheduleReminder.time}
-                </div>
-                <div className="text-[11px] text-kaya-chocolate/70 mt-0.5">
-                  Your usual {scheduleReminder.dayName} family meeting. Tap to start.
-                </div>
-              </div>
-              <span className="shrink-0 text-kaya-chocolate font-extrabold text-sm">→</span>
-            </div>
-          </Link>
-        )}
-
-        {/* Presenter Mode CTA — the recommended way to run the meeting,
-            cast-friendly with the new 6-step Attendance → Gratitude →
-            Celebrate → Appreciations → Goals → Closing Reflection flow. */}
-        <Link
-          href="/meetings/present"
-          className="mb-3 block bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-5 hover:brightness-110 transition-all"
-        >
-          <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
-            Start the meeting
-          </p>
-          <h2 className="font-display font-black text-xl leading-tight mb-1">
-            🎬 Presenter Mode
-          </h2>
-          <p className="text-[12px] opacity-75 leading-relaxed">
-            Full-screen, one step at a time — cast to a TV or prop up the phone.
-          </p>
-          <span className="inline-flex items-center gap-1 mt-3 text-[12px] font-bold">
-            Open presenter →
-          </span>
-        </Link>
-        <Link
-          href="/settings/meetings"
-          className="mb-5 block text-[12px] text-kaya-sand hover:text-kaya-chocolate text-center font-bold"
-        >
-          ⚙️ Customize agenda + prayer library
-        </Link>
+        {/* Meetings 2.0 — one Tonight strip replaces the song card +
+            schedule banner + Presenter CTA + settings link, so the page
+            starts at the tabs. */}
+        <TonightStrip />
 
         <div className="mb-5"><Tabs /></div>
 
@@ -460,6 +448,7 @@ export default function MeetingsPage() {
             childrenList={children}
             scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
             familyId={profile?.familyId}
+            onOpenMeeting={setReportMeeting}
           />
         )}
       </div>
@@ -468,68 +457,17 @@ export default function MeetingsPage() {
       {/* DESKTOP (lg+) — vertical stepper + main pane                 */}
       {/* ─────────────────────────────────────────────────────────── */}
       <div className="hidden lg:block max-w-[1400px] w-full px-8 py-8">
-        <div className="flex items-end justify-between gap-6 mb-6">
-          <div>
-            <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Family meetings</h1>
-            <p className="text-sm text-kaya-sand mt-1">A 5-step weekly rhythm: gratitude, celebration, appreciations, goals, closing reflection.</p>
-          </div>
-          <Tabs />
+        <div className="mb-4">
+          <h1 className="font-display text-[34px] leading-tight font-extrabold tracking-tight">Family meetings</h1>
+          <p className="text-sm text-kaya-sand mt-1">A 5-step weekly rhythm: gratitude, celebration, appreciations, goals, closing reflection.</p>
         </div>
 
-        {/* Prep card now lives in its own Submission tab (below). */}
+        {/* Meetings 2.0 — one Tonight strip replaces the song card +
+            schedule banner + Presenter CTA + setup card; tabs get the
+            full row below so they never clip. */}
+        <TonightStrip />
 
-        {/* Today's closing song — desktop (shared card), constrained width. */}
-        <div className="max-w-xl mb-4"><TodaysSongCard /></div>
-
-        {/* Schedule reminder banner — desktop, only on meeting day. */}
-        {scheduleReminder && (
-          <Link
-            href="/meetings/present"
-            className="mb-3 flex items-center gap-4 bg-kaya-gold/15 border-2 border-kaya-gold rounded-kaya-lg px-6 py-4 hover:bg-kaya-gold/25 transition-colors"
-          >
-            <div className="text-3xl shrink-0" aria-hidden>⏰</div>
-            <div className="flex-1 min-w-0">
-              <div className="font-display font-extrabold text-base text-kaya-chocolate leading-tight">
-                Meeting tonight at {scheduleReminder.time}
-              </div>
-              <div className="text-[12px] text-kaya-chocolate/70 mt-0.5">
-                Your usual {scheduleReminder.dayName} family meeting. Tap to start in Presenter Mode.
-              </div>
-            </div>
-            <span className="shrink-0 text-kaya-chocolate font-extrabold text-base">→</span>
-          </Link>
-        )}
-
-        {/* Presenter Mode CTA — desktop. Same destination as the mobile
-            banner above; this is the recommended way to run the meeting. */}
-        <div className="mb-7 flex items-stretch gap-3">
-          <Link
-            href="/meetings/present"
-            className="flex-1 flex items-center gap-5 bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light rounded-kaya-lg p-6 hover:brightness-110 transition-all"
-          >
-            <div className="text-4xl shrink-0" aria-hidden>🎬</div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[10px] uppercase tracking-[0.18em] font-bold opacity-80 mb-1">
-                Recommended · Start the meeting
-              </p>
-              <h2 className="font-display font-black text-2xl leading-tight mb-1">
-                Open Presenter Mode
-              </h2>
-              <p className="text-[13px] opacity-75 leading-relaxed">
-                Full-screen, one step at a time — cast to a TV or prop the laptop on the table.
-              </p>
-            </div>
-            <span className="shrink-0 text-sm font-extrabold opacity-80">→</span>
-          </Link>
-          <Link
-            href="/settings/meetings"
-            className="shrink-0 w-44 flex flex-col items-center justify-center bg-white border border-kaya-warm-dark text-kaya-chocolate rounded-kaya-lg p-5 hover:border-kaya-chocolate hover:bg-kaya-warm transition-colors text-center"
-          >
-            <div className="text-2xl mb-1" aria-hidden>⚙️</div>
-            <div className="font-display font-extrabold text-[13px] leading-tight">Meeting setup</div>
-            <div className="text-[11px] text-kaya-sand mt-0.5">Agenda + prayers</div>
-          </Link>
-        </div>
+        <div className="mb-6 max-w-2xl"><Tabs /></div>
 
         {tab === 'submission' ? (
           myPrep ? (
@@ -749,6 +687,7 @@ export default function MeetingsPage() {
             childrenList={children}
             scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
             familyId={profile?.familyId}
+            onOpenMeeting={setReportMeeting}
           />
         )}
         <NextUp from="meetings" />
@@ -760,6 +699,21 @@ export default function MeetingsPage() {
           familyId={profile.familyId}
           onClose={() => setReportMeeting(null)}
         />
+      )}
+
+      {/* 🎵 Closing-song sheet — opened from the Tonight strip. */}
+      {showSong && (
+        <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={() => setShowSong(false)}>
+          <div className="w-full sm:max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-kaya-cream rounded-t-2xl sm:rounded-2xl p-4 max-h-[85vh] overflow-y-auto">
+              <div className="flex items-center justify-between mb-2">
+                <p className="font-display font-black text-base">🎵 Today&rsquo;s closing song</p>
+                <button onClick={() => setShowSong(false)} className="text-kaya-sand text-xl leading-none px-2" aria-label="Close">✕</button>
+              </div>
+              <TodaysSongCard />
+            </div>
+          </div>
+        </div>
       )}
       <CoachMark
         pageId="meetings"
@@ -779,13 +733,14 @@ export default function MeetingsPage() {
 // stable within a day, so the family sees fresh gems each Sunday.
 // ─────────────────────────────────────────────────────────────────────────
 
-function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
+function HighlightsPane({ meetings, childrenList, scheduleDow, familyId, onOpenMeeting }: {
   meetings: Meeting[];
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
   scheduleDow?: number;
   familyId?: string;
+  /** Tap a held week on the calendar → open that meeting's report. */
+  onOpenMeeting?: (m: Meeting) => void;
 }) {
-  const [span, setSpan] = useState<'year' | '6mo' | 'month'>('year');
 
   // Highlights 2.0 (2026-07-05) — the hub list caps at 20 meetings, but
   // year/month analytics need the archive. Loaded once when the tab
@@ -842,7 +797,7 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
     return isoOf(d);
   };
 
-  const { currentStreak, longestStreak, yearCount, dots, attendancePct } = useMemo(() => {
+  const { currentStreak, longestStreak, yearCount, calendar, calYear, attendancePct } = useMemo(() => {
     // Current + longest streak always run on the FULL archive — a filter
     // scopes the stats, never the streak itself.
     const have = new Set(source.map((m) => weekKeyOf(m.date)));
@@ -862,20 +817,28 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
     }
     const statYear = yearFilter === 'all' ? now.getFullYear() : yearFilter;
     const yearCount = keys.filter((k) => k.startsWith(String(statYear))).length;
-    // Streak map — a chosen year shows that year's weeks; otherwise the
-    // rolling span ending this week (as before).
-    const dots: Array<{ key: string; on: boolean }> = [];
-    if (yearFilter !== 'all') {
-      let k = weekKeyOf(`${yearFilter}-01-04`);
-      const end = yearFilter === now.getFullYear() ? thisWeek : weekKeyOf(`${yearFilter}-12-28`);
-      let guard = 0;
-      while (k <= end && guard < 54) { dots.push({ key: k, on: have.has(k) }); k = stepWeeks(k, 1); guard++; }
-    } else {
-      const n = span === 'year' ? 52 : span === '6mo' ? 26 : 5;
-      for (let i = n - 1; i >= 0; i--) {
-        const k = stepWeeks(thisWeek, -i);
-        dots.push({ key: k, on: have.has(k) });
+    // Month-labelled streak calendar for the displayed year (Meetings
+    // 2.0). States: held (green) · missed (only between the family's
+    // first-ever meeting and now) · upcoming (future) · none (pre-history).
+    const calYear = statYear;
+    const firstWeek = keys[0] ?? thisWeek;
+    type WeekCell = { key: string; state: 'held' | 'miss' | 'future' | 'none' };
+    const months: Array<{ label: string; weeks: WeekCell[] }> =
+      ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((label) => ({ label, weeks: [] }));
+    let k = weekKeyOf(`${calYear}-01-04`);
+    let guard = 0;
+    while (k.startsWith(String(calYear)) && guard < 55) {
+      const mi = Number(k.slice(5, 7)) - 1;
+      if (mi >= 0 && mi <= 11) {
+        const state: WeekCell['state'] = have.has(k)
+          ? 'held'
+          : k > thisWeek ? 'future'
+          : k >= firstWeek ? 'miss'
+          : 'none';
+        months[mi].weeks.push({ key: k, state });
       }
+      k = stepWeeks(k, 1);
+      guard++;
     }
     // Attendance — average share of the kid roster present, over the
     // scoped meetings (parents/guests tracked separately; kids are the
@@ -883,9 +846,17 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
     const roster = Math.max(1, childrenList.length);
     const rates = scoped.map((m) => Math.min(1, (m.attendees?.length ?? 0) / roster));
     const attendancePct = rates.length ? Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 100) : null;
-    return { currentStreak: cur, longestStreak: longest, yearCount, dots, attendancePct };
+    return { currentStreak: cur, longestStreak: longest, yearCount, calendar: months, calYear, attendancePct };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, scoped, span, scheduleDow, yearFilter, childrenList.length]);
+  }, [source, scoped, scheduleDow, yearFilter, childrenList.length]);
+
+  // Week key → its meeting, for tap-to-open on the calendar.
+  const meetingByWeek = useMemo(() => {
+    const map = new Map<string, Meeting>();
+    for (const m of source) map.set(weekKeyOf(m.date), m);
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, scheduleDow]);
 
   const memories = useMemo(() => {
     const kidName = (id: string) => childrenList.find((c) => c.id === id)?.name || 'Someone';
@@ -1066,87 +1037,131 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
 
   return (
     <div className="space-y-4">
-      {/* 🔥 Streak card */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
-        <div className="flex items-baseline justify-between gap-3 flex-wrap">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand">🔥 Meeting streak</p>
-            <p className="font-display font-black text-2xl mt-0.5">
-              {currentStreak} week{currentStreak === 1 ? '' : 's'} in a row
-            </p>
-            <p className="text-[12px] text-kaya-sand font-semibold mt-0.5">
-              Longest ever: {longestStreak} · {yearFilter === 'all' ? 'This year' : yearFilter}: {yearCount} meeting{yearCount === 1 ? '' : 's'}
-              {attendancePct != null ? ` · attendance ${attendancePct}%` : ''}
-              {nextMilestone ? ` · next milestone: ${nextMilestone} 🎉` : ' · every milestone hit 🏆'}
-            </p>
-          </div>
-          <div className="flex gap-1.5">
-            {([['year', 'Year'], ['6mo', '6 months'], ['month', 'Month']] as const).map(([k, label]) => (
-              <button key={k} type="button" onClick={() => setSpan(k)}
-                className={`px-3 py-1.5 rounded-full text-[11px] font-bold transition-colors ${span === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
+      {/* 🔥 Streak hero (Meetings 2.0) */}
+      <div className="rounded-kaya-lg bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light text-kaya-gold-light p-5 lg:p-6 flex items-end justify-between gap-5 flex-wrap">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.16em] font-bold opacity-85">🔥 Meeting streak</p>
+          <p className="font-display font-black text-3xl lg:text-4xl leading-tight mt-0.5 text-white">
+            {currentStreak} week{currentStreak === 1 ? '' : 's'} in a row
+          </p>
+          <p className="text-[12px] opacity-80 font-semibold mt-1">
+            {nextMilestone ? `Next milestone: ${nextMilestone} 🎉` : 'Every milestone hit 🏆'}
+            {longestStreak > currentStreak
+              ? ` · ${longestStreak - currentStreak + 1} week${longestStreak - currentStreak === 0 ? '' : 's'} to beat your all-time best`
+              : currentStreak > 1 ? ' · this IS your all-time best' : ''}
+          </p>
         </div>
-        <div className="flex flex-wrap gap-[3px] mt-4" aria-label="Weeks with a held meeting">
-          {dots.map((d) => (
-            <span key={d.key} title={fmtMeetingDay(d.key)}
-              className={`w-2.5 h-2.5 rounded-[3px] ${d.on ? 'bg-emerald-500' : 'bg-kaya-warm'}`} />
+        <div className="flex gap-6">
+          <div><p className="font-display font-black text-xl text-white leading-none">{longestStreak}</p><p className="text-[10px] uppercase tracking-wider font-bold opacity-75 mt-1">Longest</p></div>
+          <div><p className="font-display font-black text-xl text-white leading-none">{yearCount}</p><p className="text-[10px] uppercase tracking-wider font-bold opacity-75 mt-1">In {calYear}</p></div>
+          {attendancePct != null && (
+            <div><p className="font-display font-black text-xl text-white leading-none">{attendancePct}%</p><p className="text-[10px] uppercase tracking-wider font-bold opacity-75 mt-1">Attendance</p></div>
+          )}
+        </div>
+      </div>
+
+      {/* 📅 Period + person controls — chips, not selects (Meetings 2.0) */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+        <div className="flex items-center justify-between gap-2 mb-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand">📅 Choose the period &amp; person</p>
+          {(yearFilter !== 'all' || monthFilter !== 'all' || memberFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => { setYearFilter('all'); setMonthFilter('all'); setMemberFilter('all'); }}
+              className="text-[11px] font-black text-kaya-sand hover:text-kaya-chocolate"
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" onClick={() => setYearFilter('all')}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${yearFilter === 'all' ? 'bg-kaya-chocolate text-white' : 'bg-white border border-kaya-warm-dark text-kaya-sand'}`}>
+            All time
+          </button>
+          {yearsAvailable.map((y) => (
+            <button key={y} type="button" onClick={() => setYearFilter(y)}
+              className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${yearFilter === y ? 'bg-kaya-chocolate text-white' : 'bg-white border border-kaya-warm-dark text-kaya-sand'}`}>
+              {y}
+            </button>
           ))}
+        </div>
+        <div className="flex flex-wrap gap-1 mt-2">
+          <button type="button" onClick={() => setMonthFilter('all')}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-display font-extrabold transition-colors ${monthFilter === 'all' ? 'bg-kaya-gold text-kaya-chocolate' : 'bg-white border border-kaya-warm-dark text-kaya-sand'}`}>
+            All
+          </button>
+          {['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'].map((mn, i) => {
+            const now = new Date();
+            const isFuture = calYear === now.getFullYear() && i > now.getMonth() && yearFilter !== 'all';
+            return (
+              <button key={mn} type="button" disabled={isFuture}
+                onClick={() => setMonthFilter(monthFilter === i ? 'all' : i)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-display font-extrabold transition-colors ${monthFilter === i ? 'bg-kaya-gold text-kaya-chocolate' : isFuture ? 'bg-white border border-kaya-warm-dark text-kaya-sand-light opacity-40 cursor-default' : 'bg-white border border-kaya-warm-dark text-kaya-sand'}`}>
+                {mn}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2.5">
+          <button type="button" onClick={() => setMemberFilter('all')}
+            className={`inline-flex items-center gap-1.5 pl-1.5 pr-3 py-1 rounded-full text-[12px] font-display font-extrabold transition-colors ${memberFilter === 'all' ? 'bg-kaya-chocolate text-white' : 'bg-white border border-kaya-warm-dark text-kaya-sand'}`}>
+            <span className="w-6 h-6 rounded-full bg-kaya-warm grid place-items-center text-[12px]">👨‍👩‍👧‍👦</span>
+            Whole family
+          </button>
+          {memberStats.map((s) => (
+            <button key={s.id} type="button" onClick={() => setMemberFilter(memberFilter === s.id ? 'all' : s.id)}
+              className={`inline-flex items-center gap-1.5 pl-1.5 pr-3 py-1 rounded-full text-[12px] font-display font-extrabold transition-colors ${memberFilter === s.id ? 'bg-kaya-chocolate text-white' : 'bg-white border border-kaya-warm-dark text-kaya-sand'}`}>
+              <span className="w-6 h-6 rounded-full bg-kaya-warm grid place-items-center text-[12px]">{s.emoji}</span>
+              {s.name.split(' ')[0]}
+            </button>
+          ))}
+        </div>
+        {allMeetings === null && (
+          <p className="text-[10.5px] text-kaya-sand mt-2">Loading the full meeting archive…</p>
+        )}
+      </div>
+
+      {/* 🗓 Month-labelled streak calendar (Meetings 2.0) */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 lg:p-5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">🗓 {calYear} · week by week</p>
+        <div className="grid grid-cols-6 lg:grid-cols-12 gap-2.5">
+          {calendar.map((mo, mi) => (
+            <div key={mo.label} className={monthFilter !== 'all' && mi !== monthFilter ? 'opacity-30' : ''}>
+              <p className="text-[9px] font-black uppercase text-kaya-sand text-center mb-1">{mo.label}</p>
+              <div className="grid grid-cols-2 gap-[3px]">
+                {mo.weeks.map((w) => {
+                  const m = w.state === 'held' ? meetingByWeek.get(w.key) : undefined;
+                  const cls = w.state === 'held'
+                    ? 'bg-emerald-500'
+                    : w.state === 'miss' ? 'bg-rose-200'
+                    : w.state === 'future' ? 'bg-kaya-cream border border-dashed border-kaya-warm-dark'
+                    : 'bg-kaya-warm';
+                  return m && onOpenMeeting ? (
+                    <button key={w.key} type="button" onClick={() => onOpenMeeting(m)}
+                      title={`${fmtMeetingDay(w.key)} — open report`}
+                      className={`aspect-square rounded-[4px] ${cls} hover:ring-2 hover:ring-kaya-gold transition-shadow`} />
+                  ) : (
+                    <span key={w.key} title={fmtMeetingDay(w.key)} className={`aspect-square rounded-[4px] ${cls}`} />
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-[10.5px] text-kaya-sand font-bold">
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-emerald-500 inline-block" /> Held &amp; closed</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-rose-200 inline-block" /> Missed week</span>
+          <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-[3px] bg-kaya-cream border border-dashed border-kaya-warm-dark inline-block" /> Upcoming</span>
+          <span>Tap a green square → that week&rsquo;s report</span>
         </div>
         <p className="text-[10.5px] text-kaya-sand mt-2">
           A week counts when its meeting was held &amp; closed — unfinished weeks break the streak.
         </p>
       </div>
 
-      {/* 🔎 Filters — slice the stats by year / month / member */}
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2.5">🔎 Check the streak &amp; stats</p>
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={String(yearFilter)}
-            onChange={(e) => setYearFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            className="text-[13px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 bg-white text-kaya-chocolate"
-            aria-label="Filter by year"
-          >
-            <option value="all">📅 All time</option>
-            {yearsAvailable.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-          <select
-            value={String(monthFilter)}
-            onChange={(e) => setMonthFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-            className="text-[13px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 bg-white text-kaya-chocolate"
-            aria-label="Filter by month"
-          >
-            <option value="all">All months</option>
-            {['January','February','March','April','May','June','July','August','September','October','November','December'].map((mn, i) => (
-              <option key={mn} value={i}>{mn}</option>
-            ))}
-          </select>
-          <select
-            value={memberFilter}
-            onChange={(e) => setMemberFilter(e.target.value)}
-            className="text-[13px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 bg-white text-kaya-chocolate"
-            aria-label="Filter by member"
-          >
-            <option value="all">👨‍👩‍👧‍👦 Whole family</option>
-            {memberStats.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          {(yearFilter !== 'all' || monthFilter !== 'all' || memberFilter !== 'all') && (
-            <button
-              type="button"
-              onClick={() => { setYearFilter('all'); setMonthFilter('all'); setMemberFilter('all'); }}
-              className="text-[12px] font-black text-kaya-sand hover:text-kaya-chocolate px-2"
-            >
-              ✕ Clear
-            </button>
-          )}
-        </div>
-        {allMeetings === null && (
-          <p className="text-[10.5px] text-kaya-sand mt-2">Loading the full meeting archive…</p>
-        )}
-      </div>
+      <div className="grid lg:grid-cols-2 gap-4 items-start">
+      <div>
 
       {/* 👥 Per member */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
@@ -1181,6 +1196,9 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
           </div>
         )}
       </div>
+
+      </div>
+      <div className="space-y-4">
 
       {/* 📈 Trends */}
       <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
@@ -1233,6 +1251,9 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
             </div>
           ))}
         </div>
+      </div>
+
+      </div>
       </div>
 
       {/* ✨ Memories */}
