@@ -113,6 +113,34 @@ export function familyRhythmLabel(meetings: Array<Pick<Meeting, 'date'>>, uptoDa
   return `${streak} weeks in a row${milestone ? ' 🔥 milestone!' : ''}`;
 }
 
+/** 🙏 Opening Word label for the email's leadership block. */
+export function openingWordLabelOf(m: Pick<Meeting, 'openingWord'>): string | null {
+  const mode = m.openingWord?.mode;
+  if (!mode) return null;
+  return mode === 'prayer' ? '🙏 a prayer'
+    : mode === 'wisdom' ? '💡 a word of wisdom'
+    : mode === 'verse' ? '📖 a verse'
+    : '🗣️ words from the heart';
+}
+
+/** 🎁 Moments chips for the email — honest to what the record stores. */
+export function momentsSummaryOf(
+  m: Pick<Meeting, 'goals' | 'goalsDone' | 'pinkyPromised' | 'openingWord'>,
+  children: Child[],
+): string[] {
+  const out: string[] = [];
+  const goalKids = Object.keys(m.goals || {}).filter((k) => ((m.goals || {})[k] || '').trim());
+  if (goalKids.length > 0 && goalKids.every((k) => m.goalsDone?.[k])) {
+    out.push(`⚡ Family Combo ${goalKids.length}/${goalKids.length}`);
+  }
+  if ((m.pinkyPromised?.length ?? 0) > 0) {
+    const names = (m.pinkyPromised || []).map((id) => children.find((c) => c.id === id)?.name.split(' ')[0]).filter(Boolean).join(', ');
+    if (names) out.push(`🤝 Pinky promises · ${names}`);
+  }
+  if (m.openingWord) out.push('🙏 Opening Word shared');
+  return out;
+}
+
 /** 🏅 Guest of Honour — a named thank-you when guests joined the night. */
 export function guestOfHonour(meeting: Pick<Meeting, 'guestAttendees'>): string | null {
   const names = (meeting.guestAttendees || []).map((g) => g.name).filter(Boolean);
@@ -231,15 +259,21 @@ export async function sendMeetingRecapEmail({
           ...pointsFieldsFrom(payload, children),
           ...(payload.prayerLedBy ? { prayerLedBy: payload.prayerLedBy } : {}),
           ...(payload.nextLeaderName ? { nextLeaderName: payload.nextLeaderName } : {}),
-          // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour.
+          // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour · ✨ opening
+          // word · 🎁 moments (combo is unknowable at finish — goals were
+          // just set — so only promise/opening chips appear here).
           ...(() => {
             const q = quoteOfTheNight(gratitudes, appreciations);
             const rhythm = recentMeetings ? familyRhythmLabel(recentMeetings, payload.date) : null;
             const guests = guestOfHonour(payload);
+            const ow = openingWordLabelOf(payload);
+            const moments = momentsSummaryOf(payload, children);
             return {
               ...(q ? { quote: q } : {}),
               ...(rhythm ? { rhythmLabel: rhythm } : {}),
               ...(guests ? { guestThanks: guests } : {}),
+              ...(ow ? { openingWordLabel: ow } : {}),
+              ...(moments.length > 0 ? { momentsSummary: moments } : {}),
             };
           })(),
           closing,
@@ -337,21 +371,34 @@ export async function sendMeetingNotesEmailTo(args: {
           attendees,
           gratitudes: entries?.gratitudes ?? entriesFromPerKidMap(meeting.gratitude, children),
           appreciations: entries?.appreciations ?? entriesFromPerKidMap(meeting.appreciations, children),
-          goals: entriesFromPerKidMap(meeting.goals, children),
+          // Goals with their outcome today (✓ done / ↻ carried) — matches
+          // the notes page (review fix, 2026-06-21).
+          goals: children
+            .map((c) => {
+              const line = ((meeting.goals || {})[c.id] || '').trim();
+              if (!line) return null;
+              const done = meeting.goalsDone?.[c.id];
+              return { name: c.name, emoji: c.avatarEmoji || '🧒', lines: [`${line} ${done ? '· ✓ done' : '· ↻ carried'}`] };
+            })
+            .filter((x): x is RecapEntry => !!x),
           ...pointsFieldsFrom(meeting, children),
           ...(meeting.prayerLedBy ? { prayerLedBy: meeting.prayerLedBy } : {}),
           ...(meeting.nextLeaderName ? { nextLeaderName: meeting.nextLeaderName } : {}),
-          // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour.
+          // Surprises + moments (review fix, 2026-06-21).
           ...(() => {
             const q = quoteOfTheNight(
               entries?.gratitudes ?? entriesFromPerKidMap(meeting.gratitude, children),
               entries?.appreciations ?? entriesFromPerKidMap(meeting.appreciations, children),
             );
             const guests = guestOfHonour(meeting);
+            const ow = openingWordLabelOf(meeting);
+            const moments = momentsSummaryOf(meeting, children);
             return {
               ...(q ? { quote: q } : {}),
               ...(rhythmLabel ? { rhythmLabel } : {}),
               ...(guests ? { guestThanks: guests } : {}),
+              ...(ow ? { openingWordLabel: ow } : {}),
+              ...(moments.length > 0 ? { momentsSummary: moments } : {}),
             };
           })(),
           closing,
