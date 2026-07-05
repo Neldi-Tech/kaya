@@ -142,7 +142,6 @@ export async function sendMeetingRecapEmail({
     if (songLinkApprovedBy) closing.songApprovedBy = songLinkApprovedBy;
   }
 
-  const leader = family.nextMeetingLeader;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
   const includeSong = family.meetingSetup?.recapBookIncludeSong ?? true;
 
@@ -156,14 +155,18 @@ export async function sendMeetingRecapEmail({
         recap: {
           familyName: family.name || 'Your family',
           dateLabel: toDisplayDate(payload.date) || payload.date,
-          leaderName: leader?.name,
-          leaderEmoji: leader?.emoji,
+          // Meeting Notes (2026-06-21): tonight's leader is snapshotted on
+          // the payload (ledByName) — family.nextMeetingLeader has already
+          // moved on to NEXT week's pick by finish time.
+          leaderName: payload.ledByName || family.nextMeetingLeader?.name,
+          leaderEmoji: payload.ledByName ? undefined : family.nextMeetingLeader?.emoji,
           attendees,
           gratitudes,
           appreciations,
           goals,
-          // beltChampion / starSummary / hpThisWeek deferred — populate
-          // in a follow-up that fetches the meeting-review window.
+          ...pointsFieldsFrom(payload, children),
+          ...(payload.prayerLedBy ? { prayerLedBy: payload.prayerLedBy } : {}),
+          ...(payload.nextLeaderName ? { nextLeaderName: payload.nextLeaderName } : {}),
           closing,
           openUrl: `${appUrl}/meetings`,
           includeSong,
@@ -171,6 +174,99 @@ export async function sendMeetingRecapEmail({
       },
     }),
   });
+}
+
+/** Map the meeting's pointsSummary snapshot (PR1) onto the email's
+ *  belt/star/HP/redeemed fields. Shared by the finish-time recap and the
+ *  any-past-meeting share sender. */
+interface RecapPointsFields {
+  beltChampion?: { name: string; emoji: string; perfectDays: number };
+  starSummary?: string;
+  hpThisWeek?: Array<{ name: string; emoji: string; pts: number }>;
+  redeemedSummary?: string;
+}
+
+function pointsFieldsFrom(
+  m: Pick<Meeting, 'pointsSummary'>,
+  children: Child[],
+): RecapPointsFields {
+  const ps = m.pointsSummary;
+  if (!ps || ps.kids.length === 0) return {};
+  const emojiOf = (childId: string) => children.find((c) => c.id === childId)?.avatarEmoji || '🧒';
+  const out: RecapPointsFields = {};
+  const belt = ps.kids.find((k) => k.belt);
+  if (belt && belt.excellentDays > 0) {
+    out.beltChampion = { name: belt.name, emoji: emojiOf(belt.childId), perfectDays: belt.excellentDays };
+  }
+  const starKids = ps.kids.filter((k) => k.stars > 0);
+  if (starKids.length > 0) out.starSummary = starKids.map((k) => `${k.name} ×${k.stars}`).join(' · ');
+  out.hpThisWeek = ps.kids.map((k) => ({ name: k.name, emoji: emojiOf(k.childId), pts: k.hp }));
+  if (ps.redeemed && ps.redeemed.length > 0) {
+    out.redeemedSummary = ps.redeemed.map((r) => `${r.name} — ${r.reward} (${r.points} HP)`).join(' · ');
+  }
+  return out;
+}
+
+/**
+ * Share the notes of ANY saved meeting to an explicit recipient list —
+ * powers the 📤 Share sheet on the Meeting Notes page (Just me / All
+ * participants / Choose members / Other emails). Composes from the saved
+ * Meeting doc (per-kid maps) rather than live submissions. Throws on
+ * failure so the sheet can surface the error.
+ */
+export async function sendMeetingNotesEmailTo(args: {
+  family: Family;
+  meeting: Meeting;
+  children: Child[];
+  parents: Array<{ uid: string; name: string; avatarEmoji?: string }>;
+  to: string[];
+}): Promise<void> {
+  const { family, meeting, children, parents, to } = args;
+  const recipients = Array.from(new Set(to.map((e) => e.trim()).filter(Boolean)));
+  if (recipients.length === 0) throw new Error('No recipients');
+
+  const attendees: Array<{ name: string; emoji: string; isGuest?: boolean }> = [];
+  for (const c of children) {
+    if ((meeting.attendees || []).includes(c.id)) attendees.push({ name: c.name, emoji: c.avatarEmoji || '🧒' });
+  }
+  for (const p of parents) {
+    if ((meeting.parentAttendees || []).includes(p.uid)) attendees.push({ name: p.name, emoji: p.avatarEmoji || '👤' });
+  }
+  for (const g of meeting.guestAttendees || []) attendees.push({ name: g.name, emoji: '🫂', isGuest: true });
+
+  const contents = meeting.reflection?.contents || {};
+  const closing: { prayer?: string; story?: string; songUrl?: string } = {};
+  if ((contents.prayer || '').trim()) closing.prayer = (contents.prayer as string).trim();
+  if ((contents.story || '').trim()) closing.story = (contents.story as string).trim();
+  if ((contents.songs || '').trim().startsWith('http')) closing.songUrl = (contents.songs as string).trim();
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://www.ourkaya.com';
+  const res = await fetch('/api/notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'meeting-recap',
+      to: recipients,
+      data: {
+        recap: {
+          familyName: family.name || 'Your family',
+          dateLabel: toDisplayDate(meeting.date) || meeting.date,
+          leaderName: meeting.ledByName,
+          attendees,
+          gratitudes: entriesFromPerKidMap(meeting.gratitude, children),
+          appreciations: entriesFromPerKidMap(meeting.appreciations, children),
+          goals: entriesFromPerKidMap(meeting.goals, children),
+          ...pointsFieldsFrom(meeting, children),
+          ...(meeting.prayerLedBy ? { prayerLedBy: meeting.prayerLedBy } : {}),
+          ...(meeting.nextLeaderName ? { nextLeaderName: meeting.nextLeaderName } : {}),
+          closing,
+          openUrl: `${appUrl}/meetings/notes/${meeting.id}`,
+          includeSong: family.meetingSetup?.recapBookIncludeSong ?? true,
+        },
+      },
+    }),
+  });
+  if (!res.ok) throw new Error('Could not send — please try again.');
 }
 
 // Re-exported so callers don't need to know the module name.
