@@ -17,7 +17,7 @@
 
 import {
   collection, doc, addDoc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
-  query, where, orderBy, Timestamp, serverTimestamp,
+  query, where, orderBy, limit, Timestamp, serverTimestamp,
   onSnapshot, writeBatch, increment, runTransaction, deleteField, arrayUnion,
 } from 'firebase/firestore';
 import { db } from './firebase';
@@ -172,6 +172,64 @@ export const DRIVERS_CATEGORIES: { id: DriversCategory; emoji: string; label: st
   { id: 'tolls',   emoji: '🛣️',  label: 'Tolls / parking' },
   { id: 'other',   emoji: '📦',  label: 'Other' },
 ];
+
+// ── Drivers request kinds (Drivers v2 — 2026-07-05) ─────────────────
+// A Drivers request declares WHAT it is at creation: fuel (structured
+// litres × price form), maintenance (ad-hoc works), service (scheduled —
+// closing one resets the vehicle's service clock) or other. Item
+// categories keep living underneath; legacy requests without a kind
+// render as a plain mixed basket, untouched.
+export type DriversRequestKind = 'fuel' | 'maintenance' | 'service' | 'other';
+
+export const DRIVERS_KINDS: {
+  id: DriversRequestKind; emoji: string; label: string; sub: string;
+}[] = [
+  { id: 'fuel',        emoji: '⛽', label: 'Fuel',        sub: 'Litres × price, auto-amount' },
+  { id: 'maintenance', emoji: '🔧', label: 'Maintenance', sub: 'Repairs, parts, wash, tyres' },
+  { id: 'service',     emoji: '🛠️', label: 'Service',     sub: 'Scheduled — resets the clock' },
+  { id: 'other',       emoji: '📦', label: 'Other',       sub: 'Tolls, parking, anything else' },
+];
+
+export function driversKindMeta(kind: DriversRequestKind | undefined) {
+  return DRIVERS_KINDS.find((k) => k.id === kind) ?? null;
+}
+
+/** Unit label for the fuel form — follows the vehicle's fuel type
+ *  (litres for petrol/diesel, kWh for electric, kg for CNG). */
+export function fuelUnitFor(fuel: string | undefined): string {
+  if (fuel === 'electric') return 'kWh';
+  if (fuel === 'cng') return 'kg';
+  return 'L';
+}
+
+// ── Drivers config (odometer guardrails — Drivers v2, 2026-07-05) ───
+// Same family-doc partial + merge-on-read pattern as PurchaseConfig.
+export interface DriversConfig {
+  /** When true, helpers can't send a Drivers request without an
+   *  odometer reading. Parents are always nudged, never blocked. */
+  odometerMandatoryForHelpers: boolean;
+  /** A new reading more than this many km above the last one asks for
+   *  an explicit confirm (typo protection: 850,000 vs 85,000). */
+  odometerJumpBandKm: number;
+}
+
+export const DEFAULT_DRIVERS_CONFIG: DriversConfig = {
+  odometerMandatoryForHelpers: false,
+  odometerJumpBandKm: 5000,
+};
+
+export function readDriversConfig(
+  family: { driversConfig?: Partial<DriversConfig> } | null | undefined,
+): DriversConfig {
+  const f = family?.driversConfig || {};
+  return {
+    odometerMandatoryForHelpers: f.odometerMandatoryForHelpers === true,
+    odometerJumpBandKm:
+      typeof f.odometerJumpBandKm === 'number' && f.odometerJumpBandKm > 0
+        ? f.odometerJumpBandKm
+        : DEFAULT_DRIVERS_CONFIG.odometerJumpBandKm,
+  };
+}
 
 /** Categories specific to the Utility module. */
 export type UtilityRequestCategory =
@@ -354,6 +412,11 @@ export interface PurchaseRequestItem {
   priceExceptionParentNote?: string;
   /** Parent uid who resolved the exception. */
   priceExceptionResolvedBy?: string;
+  /** Drivers v2 (2026-07-05) — this line IS the structured fuel line
+   *  of a fuel-kind request (qty = litres/kWh/kg, estimatedCents =
+   *  price per unit). The FuelCard maintains it; the fuel-price
+   *  memory reads it back from closed requests. */
+  isFuelLine?: boolean;
 }
 
 export interface PurchaseRequest {
@@ -471,6 +534,22 @@ export interface PurchaseRequest {
    *  on /pantry/drivers. Finances rolls up per-vehicle spend via
    *  this field. Unused for non-drivers modules. */
   vehicleId?: string;
+
+  // ── Drivers v2 (2026-07-05) ────────────────────────────────────────
+  /** What the request IS: fuel / maintenance / service / other.
+   *  Chosen at creation on /pantry/drivers; steers the detail page
+   *  (fuel form, service card). Legacy requests have no kind and
+   *  render as a plain mixed basket. */
+  kind?: DriversRequestKind;
+  /** Snapshot of the pinned vehicle's fuel type at creation — keys the
+   *  fuel-price memory (petrol prices ≠ diesel prices) without a
+   *  vehicle join on every read. */
+  fuelType?: string;
+  /** Odometer reading captured with this request (canonical km).
+   *  Mirrored into the Pulse readings ledger via /api/drivers/odometer
+   *  at send time — THAT ledger is the source of truth; this field is
+   *  the request-local audit stamp. */
+  odometerKm?: number;
 
   /** Per-family, per-module sequence number (1, 2, 3, ...).
    *  Combined with MODULE_CODE renders as `PNT-0042`. Never resets.
@@ -749,6 +828,66 @@ export function subscribeToRecentRequestsByModule(
   });
 }
 
+// ── Fuel-price memory (Drivers v2 — 2026-07-05) ─────────────────────
+// The last RECONCILED fuel prices are the family's price memory: the
+// fuel form pre-fills from the most recent one for the same fuel type
+// and chips the deviation when the entered price moves. Reads the same
+// (module, status, closedAt) query shape as subscribeToRecentRequests-
+// ByModule so no new composite index is needed.
+export interface FuelFillRecord {
+  requestId: string;
+  vehicleId?: string;
+  fuelType?: string;
+  /** Actual per-unit price (cents) — reconciled when available, else
+   *  the approved estimate. */
+  pricePerUnitCents: number;
+  /** Litres (or kWh/kg) actually bought. */
+  units: number;
+  /** Odometer stamp on the request, when captured. */
+  odometerKm?: number;
+  closedAtMs: number;
+}
+
+/** Most-recent-first closed fuel fills. Optionally narrowed to a fuel
+ *  type (price memory) or a vehicle (sparkline + efficiency). */
+export async function fetchRecentFuelFills(
+  familyId: string,
+  opts?: { fuelType?: string; vehicleId?: string; max?: number },
+): Promise<FuelFillRecord[]> {
+  if (isGuestActive()) return [];
+  const q = query(
+    requestCol(familyId),
+    where('module', '==', 'drivers'),
+    where('status', 'in', ['closed', 'rejected']),
+    orderBy('closedAt', 'desc'),
+    limit(60),
+  );
+  const snap = await getDocs(q);
+  const fills: FuelFillRecord[] = [];
+  for (const d of snap.docs) {
+    const r = { id: d.id, ...d.data() } as PurchaseRequest;
+    if (r.status !== 'closed' || r.kind !== 'fuel') continue;
+    if (opts?.fuelType && r.fuelType && r.fuelType !== opts.fuelType) continue;
+    if (opts?.vehicleId && r.vehicleId !== opts.vehicleId) continue;
+    const line = r.items.find((i) => i.isFuelLine) ?? (r.items.length === 1 ? r.items[0] : undefined);
+    if (!line) continue;
+    const price = line.actualCents ?? line.estimatedCents;
+    const units = line.actualQty ?? line.qty;
+    if (!price || price <= 0 || !units || units <= 0) continue;
+    fills.push({
+      requestId: r.id,
+      ...(r.vehicleId ? { vehicleId: r.vehicleId } : {}),
+      ...(r.fuelType ? { fuelType: r.fuelType } : {}),
+      pricePerUnitCents: price,
+      units,
+      ...(typeof r.odometerKm === 'number' ? { odometerKm: r.odometerKm } : {}),
+      closedAtMs: r.closedAt ? r.closedAt.toMillis() : 0,
+    });
+    if (fills.length >= (opts?.max ?? 12)) break;
+  }
+  return fills;
+}
+
 /** Subscribe to payroll requests pinned to a specific helper.
  *  Required by the v3 confidentiality rule — helpers can only read
  *  payroll docs where `helperUid == their own uid`, so the query
@@ -898,6 +1037,12 @@ export async function createDraftRequest(
     meterId?: string;
     utilityId?: string;
     vehicleId?: string;
+    /** Drivers v2 — request kind picked at creation (fuel / maintenance
+     *  / service / other). Drivers module only. */
+    kind?: DriversRequestKind;
+    /** Drivers v2 — pinned vehicle's fuel type snapshot (keys the
+     *  fuel-price memory). */
+    fuelType?: string;
     /** System-generated payroll requests skip 'draft' and land
      *  directly in 'pending_approval' (parents review the auto-
      *  computed paystub). Set `initialStatus: 'pending_approval'`
@@ -941,6 +1086,8 @@ export async function createDraftRequest(
   if (args.meterId) payload.meterId = args.meterId;
   if (args.utilityId) payload.utilityId = args.utilityId;
   if (args.vehicleId) payload.vehicleId = args.vehicleId;
+  if (args.kind) payload.kind = args.kind;
+  if (args.fuelType) payload.fuelType = args.fuelType;
   if (args.generatedBy) payload.generatedBy = args.generatedBy;
   if (args.payrollCycle) payload.payrollCycle = args.payrollCycle;
   if (args.budgetMonth) payload.budgetMonth = args.budgetMonth;
@@ -978,11 +1125,22 @@ export async function setPurchaseConfig(
   await setDoc(doc(db, 'families', familyId), { purchaseConfig: patch } as Record<string, unknown>, { merge: true });
 }
 
+/** Persist the family's Drivers config (odometer guardrails —
+ *  parent-only; rules enforce the family-doc write). Stored as a
+ *  partial + merged on read by readDriversConfig. */
+export async function setDriversConfig(
+  familyId: string,
+  patch: Partial<DriversConfig>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await setDoc(doc(db, 'families', familyId), { driversConfig: patch } as Record<string, unknown>, { merge: true });
+}
+
 /** Rename + edit metadata on a draft. */
 export async function updateRequestMeta(
   familyId: string,
   requestId: string,
-  patch: { name?: string; note?: string; paidByUid?: string | null },
+  patch: { name?: string; note?: string; paidByUid?: string | null; odometerKm?: number },
 ): Promise<void> {
   if (isGuestActive()) return;
   await updateDoc(requestDoc(familyId, requestId), {
