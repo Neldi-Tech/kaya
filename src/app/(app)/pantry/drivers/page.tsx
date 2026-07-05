@@ -160,6 +160,47 @@ export default function DriversHomePage() {
     expectedIso?: string | null;
   } | null>(null);
 
+  // Smart 1 — compact Vehicle Health strip (swipeable) above the CTA;
+  // each card deep-links to /pantry/drivers/vehicle/[id]. One stats
+  // fetch per scheduled vehicle.
+  const [healthByVehicle, setHealthByVehicle] = useState<Record<string, {
+    state: 'ok' | 'upcoming' | 'overdue';
+    pct: number;
+    line: string;
+  }>>({});
+
+  useEffect(() => {
+    if (!profile?.familyId || vehicles.length === 0) return;
+    const scheduled = vehicles.filter((v) => v.serviceIntervalKm || v.serviceIntervalMonths);
+    if (scheduled.length === 0) return;
+    let cancelled = false;
+    const distU = readFamilyUnits(family).distance;
+    void Promise.all(scheduled.map(async (v) => {
+      const stats = await fetchOdometerStats(profile.familyId!, v.id);
+      const due = computeServiceDue({
+        intervalKm: v.serviceIntervalKm,
+        intervalMonths: v.serviceIntervalMonths,
+        baselineKm: v.serviceBaselineKm,
+        baselineDate: v.serviceBaselineDate,
+        latestKm: stats.lastKm,
+        kmPerDay: stats.kmPerDay,
+        todayIso: localTodayIso(),
+      });
+      const state = due.overdue ? 'overdue' as const : serviceReminderState(due, {
+        kmLeft: v.remindKmLeft ?? 500,
+        daysLeft: v.remindDaysLeft ?? 14,
+      }, localTodayIso()) === 'upcoming' ? 'upcoming' as const : 'ok' as const;
+      const line = due.overdue
+        ? `🔴 overdue${due.overdueKm != null ? ` · +${formatDistance(due.overdueKm, distU)}` : ''}`
+        : due.kmLeft != null
+          ? `🛠️ ~${formatDistance(due.kmLeft, distU)}${due.expectedIso ? ` · exp. ${toDisplayDate(due.expectedIso)}` : ''}`
+          : due.hardStopIso ? `🛠️ by ${toDisplayDate(due.hardStopIso)}` : '';
+      return [v.id, { state, pct: Math.min(1, due.pctUsed), line }] as const;
+    })).then((entries) => { if (!cancelled) setHealthByVehicle(Object.fromEntries(entries)); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.familyId, vehicles.map((v) => `${v.id}:${v.serviceBaselineKm ?? ''}:${v.serviceIntervalKm ?? ''}`).join(','), family?.units?.distance]);
+
   useEffect(() => {
     setKindNudge(null);
     const v = kindStage;
@@ -274,6 +315,40 @@ export default function DriversHomePage() {
           🚗 Manage vehicles ({vehicles.length}) →
         </Link>
       </div>
+
+      {/* Vehicle Health strip (Smart 1, 2026-07-05) — one swipeable
+          card per vehicle; taps through to the insight page (health
+          card + Efficiency Watch + fleet cost). */}
+      {vehicles.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 mb-3 -mx-4 px-4 snap-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+          {vehicles.map((v) => {
+            const h = healthByVehicle[v.id];
+            const tone = h?.state === 'overdue'
+              ? 'border-hive-rose bg-hive-rose/10'
+              : h?.state === 'upcoming'
+                ? 'border-hive-honey bg-[#FFF3D9]'
+                : 'border-hive-line bg-hive-paper';
+            return (
+              <Link
+                key={v.id}
+                href={`/pantry/drivers/vehicle/${v.id}`}
+                className={`flex-shrink-0 snap-start min-w-[210px] max-w-[240px] border rounded-hive p-3 no-underline ${tone}`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{vehicleEmoji(v.type)}</span>
+                  <p className="font-nunito font-extrabold text-[13px] text-hive-navy truncate flex-1">{v.label}</p>
+                  {h && h.state !== 'overdue' && (
+                    <span className="text-[10px] font-nunito font-black text-hive-muted">{Math.round(h.pct * 100)}%</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-hive-muted font-bold mt-1 truncate">
+                  {h?.line || '📊 Tap for costs & health'}
+                </p>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {/* Top CTA: visible without scrolling (2026-05-19). */}
       {profile?.familyId && !isGuest && (
