@@ -298,8 +298,12 @@ export async function sendMeetingNotesEmailTo(args: {
   /** 📿 Family Rhythm label, computed by the caller when it has the
    *  meetings list (the notes page does). */
   rhythmLabel?: string | null;
+  /** Full entries (archives + live) from the notes page — preferred over
+   *  the meeting doc's thin live-typed per-kid maps, so shared past
+   *  meetings carry the complete structure. */
+  entries?: { gratitudes: RecapEntry[]; appreciations: RecapEntry[] };
 }): Promise<void> {
-  const { family, meeting, children, parents, to, rhythmLabel } = args;
+  const { family, meeting, children, parents, to, rhythmLabel, entries } = args;
   const recipients = Array.from(new Set(to.map((e) => e.trim()).filter(Boolean)));
   if (recipients.length === 0) throw new Error('No recipients');
 
@@ -331,8 +335,8 @@ export async function sendMeetingNotesEmailTo(args: {
           dateLabel: toDisplayDate(meeting.date) || meeting.date,
           leaderName: meeting.ledByName,
           attendees,
-          gratitudes: entriesFromPerKidMap(meeting.gratitude, children),
-          appreciations: entriesFromPerKidMap(meeting.appreciations, children),
+          gratitudes: entries?.gratitudes ?? entriesFromPerKidMap(meeting.gratitude, children),
+          appreciations: entries?.appreciations ?? entriesFromPerKidMap(meeting.appreciations, children),
           goals: entriesFromPerKidMap(meeting.goals, children),
           ...pointsFieldsFrom(meeting, children),
           ...(meeting.prayerLedBy ? { prayerLedBy: meeting.prayerLedBy } : {}),
@@ -340,8 +344,8 @@ export async function sendMeetingNotesEmailTo(args: {
           // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour.
           ...(() => {
             const q = quoteOfTheNight(
-              entriesFromPerKidMap(meeting.gratitude, children),
-              entriesFromPerKidMap(meeting.appreciations, children),
+              entries?.gratitudes ?? entriesFromPerKidMap(meeting.gratitude, children),
+              entries?.appreciations ?? entriesFromPerKidMap(meeting.appreciations, children),
             );
             const guests = guestOfHonour(meeting);
             return {
