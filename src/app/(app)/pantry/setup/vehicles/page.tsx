@@ -31,6 +31,7 @@ import { readDriversConfig, setDriversConfig } from '@/lib/purchase';
 import { readFamilyUnits, kmToDisplay, displayToKm } from '@/lib/units';
 import { toDisplayDate } from '@/lib/dates';
 import { fetchOdometerStats } from '@/lib/driversOdometer';
+import { scanServiceCard } from '@/lib/serviceCardScan';
 import { addMonthsIso, isoToUtcMs, localTodayIso } from '@/lib/vehicleService';
 
 interface VehicleForm {
@@ -59,6 +60,41 @@ export default function VehiclesServiceSetupPage() {
   // Latest odometer per vehicle — powers the "countdown armed" preview
   // + the already-due warning on the 🎯 targets.
   const [odoStats, setOdoStats] = useState<Record<string, { lastKm: number | null }>>({});
+  // v2.2 — 📷 service-card scan, per vehicle.
+  const [scanningId, setScanningId] = useState<string | null>(null);
+  const [scanMsg, setScanMsg] = useState<Record<string, string>>({});
+
+  const scanCardFor = async (vehicleId: string, file: File) => {
+    setScanningId(vehicleId);
+    setScanMsg((m) => ({ ...m, [vehicleId]: '' }));
+    try {
+      const r = await scanServiceCard(file);
+      if (!r) {
+        setScanMsg((m) => ({ ...m, [vehicleId]: 'Scan not configured — type it in.' }));
+        return;
+      }
+      const patch: Partial<VehicleForm> = {};
+      if (r.nextServiceOdo != null) {
+        // Sticker unit wins when printed; else assume the family's unit.
+        const canonicalKm = r.odoUnit === 'mi'
+          ? Math.round(r.nextServiceOdo / 0.621371)
+          : r.odoUnit === 'km' ? r.nextServiceOdo
+          : displayToKm(r.nextServiceOdo, distU);
+        patch.nextKm = String(kmToDisplay(canonicalKm, distU));
+      }
+      if (r.nextServiceDate) patch.nextDate = r.nextServiceDate;
+      if (Object.keys(patch).length > 0) {
+        patchForm(vehicleId, patch);
+        setScanMsg((m) => ({ ...m, [vehicleId]: '✓ read from the card — check, then Save' }));
+      } else {
+        setScanMsg((m) => ({ ...m, [vehicleId]: 'Couldn’t read the card — type it in.' }));
+      }
+    } catch {
+      setScanMsg((m) => ({ ...m, [vehicleId]: 'Scan failed — type it in.' }));
+    } finally {
+      setScanningId(null);
+    }
+  };
   const [savingId, setSavingId] = useState<string | null>(null);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [togglingOdo, setTogglingOdo] = useState(false);
@@ -315,6 +351,21 @@ export default function VehiclesServiceSetupPage() {
                       )}
                     </label>
                   </div>
+                  <label className={`inline-block bg-white border border-pantry-leaf text-pantry-leaf-dk rounded-full px-3 py-1.5 text-[12px] font-nunito font-extrabold cursor-pointer mb-1.5 ${scanningId === v.id ? 'opacity-60' : ''}`}>
+                    {scanningId === v.id ? 'Reading…' : '📷 Scan service card'}
+                    <input
+                      type="file" accept="image/*" capture="environment" className="hidden"
+                      disabled={scanningId === v.id}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = '';
+                        if (file) void scanCardFor(v.id, file);
+                      }}
+                    />
+                  </label>
+                  {scanMsg[v.id] && (
+                    <p className="text-[11px] text-hive-muted font-bold mb-1">{scanMsg[v.id]}</p>
+                  )}
                   {kmAlreadyDue && lastKm != null && (
                     <span className="inline-block bg-hive-rose/10 text-hive-rose rounded-full px-2.5 py-1 text-[11px] font-nunito font-extrabold mb-1">
                       ⚠️ below current {kmToDisplay(lastKm, distU).toLocaleString()} {distU} — already due
