@@ -75,6 +75,10 @@ interface MeetingRecapData {
   beltChampion?: { name: string; emoji: string; perfectDays: number };
   starSummary?: string;             // e.g. "Diella ×3 · Earlnathan ×2"
   hpThisWeek?: Array<{ name: string; emoji: string; pts: number }>;
+  /** Meeting Notes (2026-06-21) — rewards redeemed that week + leadership. */
+  redeemedSummary?: string;         // e.g. "Diella — Movie night (120 HP)"
+  prayerLedBy?: string;
+  nextLeaderName?: string;
   closing?: RecapClosing;
   /** Where "Open in Kaya" should land. */
   openUrl: string;
@@ -612,8 +616,19 @@ function meetingRecapBody(r: MeetingRecapData): string {
   if (r.hpThisWeek && r.hpThisWeek.length > 0) {
     pointsBits.push(`📈 <b>House Points earned</b> — ${r.hpThisWeek.map((h) => `${esc(h.emoji)} ${esc(h.name)} ${h.pts} HP`).join(' · ')}`);
   }
+  if (r.redeemedSummary) {
+    pointsBits.push(`🎁 <b>Rewards redeemed</b> — ${esc(r.redeemedSummary)}`);
+  }
   const points = pointsBits.length === 0 ? ''
-    : recapSection('points', '📊 Points this week', pointsBits.join('<br>'));
+    : recapSection('points', '⭐ Points &amp; Rewards this week', pointsBits.join('<br>'));
+
+  // 🎤 Leadership — who led, who led the prayer, who leads next week.
+  const leadBits: string[] = [];
+  if (r.leaderName) leadBits.push(`🎤 <b>${esc(r.leaderEmoji || '')} ${esc(r.leaderName)}</b> led the meeting`);
+  if (r.prayerLedBy) leadBits.push(`🙏 <b>${esc(r.prayerLedBy)}</b> led the family prayer`);
+  if (r.nextLeaderName) leadBits.push(`➡️ <b>${esc(r.nextLeaderName)}</b> leads next week`);
+  const leadership = leadBits.length === 0 ? ''
+    : recapSection('leadership', '🎤 Leadership', leadBits.join('<br>'));
 
   const goals = r.goals.length === 0 ? ''
     : recapSection('goals', '🎯 Goals for the week',
@@ -625,7 +640,7 @@ function meetingRecapBody(r: MeetingRecapData): string {
       );
 
   const closingBits: string[] = [];
-  if (r.closing?.prayer) closingBits.push(`Prayer: <span style="font-style:italic;">${esc(r.closing.prayer.slice(0, 140))}${r.closing.prayer.length > 140 ? '…' : ''}</span>`);
+  if (r.closing?.prayer) closingBits.push(`Prayer${r.prayerLedBy ? ` — led by <b>${esc(r.prayerLedBy)}</b>` : ''}: <span style="font-style:italic;">${esc(r.closing.prayer.slice(0, 140))}${r.closing.prayer.length > 140 ? '…' : ''}</span>`);
   if (r.closing?.story) closingBits.push(`Story: <span style="font-style:italic;">${esc(r.closing.story.slice(0, 140))}${r.closing.story.length > 140 ? '…' : ''}</span>`);
   if (r.closing?.songUrl && r.includeSong !== false) {
     closingBits.push(`🎵 Closing song — <a href="${esc(r.closing.songUrl)}" style="color:#B8860B;font-weight:700;">▶ Open in new tab</a>${r.closing.songApprovedBy ? ' <span style="color:#3FAF6C;font-weight:700;">· parent OK ✓</span>' : ''}`);
@@ -642,14 +657,22 @@ function meetingRecapBody(r: MeetingRecapData): string {
         ${esc(r.dateLabel)}${r.leaderName ? ` · led by ${esc(r.leaderEmoji || '')} ${esc(r.leaderName)} ✨` : ''}
       </div>
     </div>
+    ${leadership}
     ${attendance}
     ${gratitudes}
     ${appreciations}
     ${points}
     ${goals}
     ${closing}
-    <div style="text-align:center;font-size:11px;color:#9B8A72;margin-top:18px;border-top:1px solid #E8E0D4;padding-top:10px;">
-      From your <b>Kaya</b> family ❤️ &nbsp;·&nbsp; <a href="${esc(r.openUrl)}" style="color:#B8860B;font-weight:700;text-decoration:none;">Open in Kaya →</a>
+    <!-- 💛 Kaya Founding sign-off -->
+    <div style="text-align:center;margin-top:20px;border-top:2px solid #E8E0D4;padding-top:14px;">
+      <div style="font-size:16px;">💛</div>
+      <div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:13px;font-weight:800;color:#1E120B;margin-top:3px;">Responsible kids. Responsible parents.</div>
+      <div style="font-size:11.5px;color:#9B8A72;font-style:italic;">Built on love, for families everywhere.</div>
+      <div style="font-size:9px;color:#9B8A72;margin-top:6px;text-transform:uppercase;letter-spacing:2px;font-weight:700;">— Kaya</div>
+      <div style="font-size:11px;color:#9B8A72;margin-top:10px;">
+        <a href="${esc(r.openUrl)}" style="color:#B8860B;font-weight:700;text-decoration:none;">Open in Kaya →</a>
+      </div>
     </div>
   `;
 }

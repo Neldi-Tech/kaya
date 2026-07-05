@@ -15,6 +15,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import { getMeeting, getFamilyMembers, type Meeting } from '@/lib/firestore';
+import { sendMeetingNotesEmailTo } from '@/lib/meetingRecap';
 import { toDisplayDate } from '@/lib/dates';
 import { getSongLibrary, songIdFromUrl, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
@@ -23,12 +24,13 @@ export default function MeetingNotesPage() {
   const params = useParams<{ id: string }>();
   const meetingId = params?.id;
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { family, children } = useFamily();
 
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [loading, setLoading] = useState(true);
-  const [parents, setParents] = useState<Array<{ uid: string; name: string }>>([]);
+  const [parents, setParents] = useState<Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>>([]);
   const [song, setSong] = useState<SongLibraryEntry | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     if (!profile?.familyId || !meetingId) return;
@@ -39,7 +41,12 @@ export default function MeetingNotesPage() {
     ]).then(([m, members]) => {
       if (cancelled) return;
       setMeeting(m);
-      setParents(members.filter((x) => x.role === 'parent').map((x) => ({ uid: x.uid, name: (x.displayName || 'Parent').split(' ')[0] })));
+      setParents(members.filter((x) => x.role === 'parent').map((x) => ({
+        uid: x.uid,
+        name: (x.displayName || 'Parent').split(' ')[0],
+        email: x.email,
+        avatarEmoji: (x as { avatarEmoji?: string }).avatarEmoji,
+      })));
       // Resolve the closing song's library entry (title + family rating).
       const url = (m?.reflection?.contents?.songs || '').trim();
       if (url.startsWith('http') && profile.familyId) {
@@ -141,6 +148,13 @@ export default function MeetingNotesPage() {
           </div>
         )}
         <div className="flex gap-2 mt-4 print:hidden">
+          <button
+            type="button"
+            onClick={() => setShareOpen(true)}
+            className="h-10 px-4 rounded-kaya bg-gradient-to-b from-kaya-gold to-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-[12px]"
+          >
+            📤 Share notes
+          </button>
           <button
             type="button"
             onClick={() => window.print()}
@@ -276,6 +290,190 @@ export default function MeetingNotesPage() {
         <p className="font-display font-extrabold text-[14px] text-kaya-chocolate mt-1">Responsible kids. Responsible parents.</p>
         <p className="text-[12px] text-kaya-sand italic">Built on love, for families everywhere.</p>
         <p className="text-[9.5px] text-kaya-sand mt-2 uppercase tracking-[0.14em] font-bold">— Kaya</p>
+      </div>
+
+      {/* 📤 Share sheet */}
+      {shareOpen && family && (
+        <ShareNotesSheet
+          family={family}
+          meeting={meeting}
+          childrenList={children}
+          parents={parents}
+          myEmail={profile?.email || ''}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── 📤 Share Meeting Notes sheet ────────────────────────────────────────
+// Recipients per the approved design: 🙋 Just me · 👨‍👩‍👧‍👦 All participants
+// (attendees with an email on file) · ☑️ Choose members · ✉️ Other emails.
+// Sends via the existing meeting-recap email route.
+function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, onClose }: {
+  family: NonNullable<ReturnType<typeof useFamily>['family']>;
+  meeting: Meeting;
+  childrenList: ReturnType<typeof useFamily>['children'];
+  parents: Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>;
+  myEmail: string;
+  onClose: () => void;
+}) {
+  type Mode = 'me' | 'all' | 'pick' | 'email';
+  const [mode, setMode] = useState<Mode>('all');
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [emailInput, setEmailInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sentTo, setSentTo] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  // Every member with an email on file — parents + kids.
+  const members = useMemo(() => ([
+    ...parents.map((p) => ({ key: `p:${p.uid}`, label: `${p.avatarEmoji || '👤'} ${p.name}`, email: (p.email || '').trim() })),
+    ...childrenList.map((c: { id: string; name: string; avatarEmoji?: string; email?: string; emailLower?: string }) => ({
+      key: `k:${c.id}`,
+      label: `${c.avatarEmoji || '🧒'} ${c.name.split(' ')[0]}`,
+      email: (c.email || c.emailLower || '').trim(),
+    })),
+  ]), [parents, childrenList]);
+
+  // "All participants" = everyone who ATTENDED this meeting with an email.
+  const participantEmails = useMemo(() => {
+    const out: string[] = [];
+    for (const c of childrenList as Array<{ id: string; email?: string; emailLower?: string }>) {
+      if ((meeting.attendees || []).includes(c.id)) {
+        const e = (c.email || c.emailLower || '').trim();
+        if (e) out.push(e);
+      }
+    }
+    for (const p of parents) {
+      if ((meeting.parentAttendees || []).includes(p.uid) && p.email) out.push(p.email.trim());
+    }
+    return Array.from(new Set(out));
+  }, [meeting, childrenList, parents]);
+
+  const typedEmails = emailInput.split(/[,\s]+/).map((e) => e.trim()).filter((e) => /\S+@\S+\.\S+/.test(e));
+
+  const recipients =
+    mode === 'me' ? (myEmail ? [myEmail] : [])
+    : mode === 'all' ? participantEmails
+    : mode === 'pick' ? members.filter((m) => picked.has(m.key) && m.email).map((m) => m.email)
+    : typedEmails;
+
+  const send = async () => {
+    setError(null);
+    if (recipients.length === 0) { setError(mode === 'email' ? 'Type at least one valid email.' : 'Nobody in that group has an email on file.'); return; }
+    setSending(true);
+    try {
+      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients });
+      setSentTo(recipients.length);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send — please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const Opt = ({ id, title, sub }: { id: Mode; title: string; sub: string }) => (
+    <button
+      type="button"
+      onClick={() => { setMode(id); setError(null); }}
+      className={`w-full flex items-center gap-3 border-2 rounded-kaya p-3 mt-2 text-left transition-colors ${
+        mode === id ? 'border-kaya-gold bg-kaya-gold/10' : 'border-kaya-warm-dark bg-white'
+      }`}
+    >
+      <span className={`w-[18px] h-[18px] rounded-full border-2 grid place-items-center shrink-0 ${mode === id ? 'border-kaya-gold-dark' : 'border-kaya-sand'}`}>
+        {mode === id && <span className="w-[9px] h-[9px] rounded-full bg-kaya-gold-dark" />}
+      </span>
+      <span>
+        <span className="block font-display font-extrabold text-[13px] text-kaya-chocolate">{title}</span>
+        <span className="block text-[11px] text-kaya-sand">{sub}</span>
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end lg:items-center justify-center bg-kaya-chocolate/50 print:hidden" onClick={onClose}>
+      <div
+        className="w-full max-w-md bg-kaya-cream rounded-t-3xl lg:rounded-3xl p-5 pb-8 max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-11 h-1.5 rounded-full bg-kaya-warm-dark mx-auto mb-3 lg:hidden" />
+        <p className="font-display font-black text-[16px] text-kaya-chocolate">📤 Share Meeting Notes · {toDisplayDate(meeting.date) || meeting.date}</p>
+        <p className="text-[11.5px] text-kaya-sand mt-0.5">Sent as Kaya&apos;s recap email.</p>
+
+        {sentTo > 0 ? (
+          <div className="mt-4 rounded-kaya bg-emerald-50 border border-emerald-300 p-4 text-center">
+            <div className="text-2xl">✅</div>
+            <p className="font-display font-extrabold text-[14px] text-emerald-800 mt-1">
+              Meeting notes sent to {sentTo} {sentTo === 1 ? 'person' : 'people'}.
+            </p>
+            <button type="button" onClick={onClose} className="mt-3 h-10 px-5 rounded-kaya bg-kaya-chocolate text-kaya-gold-light font-display font-extrabold text-[12.5px]">
+              Done
+            </button>
+          </div>
+        ) : (
+          <>
+            <Opt id="me" title="🙋 Just me" sub={myEmail || 'No email on your profile'} />
+            <Opt id="all" title="👨‍👩‍👧‍👦 All participants" sub={`Everyone who attended, with an email on file · ${participantEmails.length}`} />
+            <Opt id="pick" title="☑️ Choose members" sub="Pick exactly who receives it" />
+            {mode === 'pick' && (
+              <div className="flex flex-wrap gap-1.5 mt-2 pl-8">
+                {members.map((m) => (
+                  <button
+                    key={m.key}
+                    type="button"
+                    disabled={!m.email}
+                    onClick={() => setPicked((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(m.key)) next.delete(m.key); else next.add(m.key);
+                      return next;
+                    })}
+                    className={`rounded-full px-3 py-1.5 text-[11.5px] font-extrabold border-2 transition-colors disabled:opacity-40 ${
+                      picked.has(m.key) && m.email
+                        ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                        : 'bg-white text-kaya-chocolate border-kaya-warm-dark'
+                    }`}
+                    title={m.email || 'No email on file'}
+                  >
+                    {m.label}{!m.email && ' · no email'}
+                  </button>
+                ))}
+              </div>
+            )}
+            <Opt id="email" title="✉️ Other emails" sub="Grandma, a mentor, anyone — comma-separated" />
+            {mode === 'email' && (
+              <div className="mt-2 pl-8">
+                <input
+                  type="text"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  placeholder="bibi@example.com, uncle@example.com"
+                  className="w-full h-10 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-[12.5px]"
+                />
+                {typedEmails.length > 0 && (
+                  <p className="text-[10.5px] text-kaya-sand mt-1">→ {typedEmails.join(' · ')}</p>
+                )}
+              </div>
+            )}
+
+            {error && <p className="mt-3 text-[11.5px] font-bold text-red-500">⚠️ {error}</p>}
+
+            <div className="flex gap-2 mt-4">
+              <button type="button" onClick={onClose} className="h-11 px-4 rounded-kaya bg-white border-2 border-kaya-warm-dark text-kaya-chocolate font-display font-extrabold text-[12.5px]">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={send}
+                disabled={sending}
+                className="flex-1 h-11 rounded-kaya bg-kaya-chocolate text-kaya-gold-light font-display font-extrabold text-[13px] disabled:opacity-50"
+              >
+                {sending ? 'Sending…' : `📤 Send notes${recipients.length > 0 ? ` · ${recipients.length}` : ''}`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
