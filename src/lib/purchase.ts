@@ -1200,6 +1200,35 @@ export async function postDraftToBudget(
     postedDirect: true,
     updatedAt: now,
   });
+  // Drivers v2 — a direct-posted Service resets the clock too.
+  await resetServiceBaselineOnClose(familyId, data);
+}
+
+// ── Drivers v2 — service clock auto-reset (2026-07-05) ──────────────
+// Closing a Service-kind request IS the "service happened" signal:
+// baseline km ← the request's odometer stamp (when captured), baseline
+// date ← today. Without this the reminders would nag forever (closed
+// logic, flaw #7). Fire-and-forget AFTER the close commit — a baseline
+// hiccup must never roll back the close itself. Manual reset lives in
+// Setup → Vehicles & service for services done outside Kaya.
+async function resetServiceBaselineOnClose(
+  familyId: string,
+  reqData: Pick<PurchaseRequest, 'module' | 'kind' | 'vehicleId' | 'odometerKm'> | null,
+): Promise<void> {
+  if (!reqData || reqData.module !== 'drivers' || reqData.kind !== 'service' || !reqData.vehicleId) return;
+  try {
+    const { updateVehicle } = await import('./vehicles');
+    const todayIso = new Date().toLocaleDateString('en-CA'); // local YYYY-MM-DD
+    await updateVehicle(familyId, reqData.vehicleId, {
+      serviceBaselineDate: todayIso,
+      ...(typeof reqData.odometerKm === 'number' && reqData.odometerKm > 0
+        ? { serviceBaselineKm: reqData.odometerKm }
+        : {}),
+    });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[drivers] service baseline reset failed:', e);
+  }
 }
 
 /** YYYY-MM key for a request's BUDGET month. Priority:
@@ -1712,6 +1741,11 @@ export async function closeReconcile(
     );
   }
   await batch.commit();
+
+  // Drivers v2 — closing a Service-kind request resets the vehicle's
+  // service clock (baseline km + date). After the commit so a baseline
+  // hiccup can't roll back the close.
+  await resetServiceBaselineOnClose(familyId, reqData);
 
   // v3 — system-generated payroll requests carry a payrollCycle
   // with deductionRefs. After the close succeeds, decrement each

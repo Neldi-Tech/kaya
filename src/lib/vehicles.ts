@@ -123,6 +123,27 @@ export interface Vehicle {
   /** Photo url (Storage). Helps a new helper identify which vehicle
    *  is which when there are several. Optional. */
   photoUrl?: string;
+  // ── Service schedule (Drivers v2 — 2026-07-05) ──────────────────
+  // Due = interval km OR interval months, whichever trips first
+  // (locked decision A). Baseline = the odometer + date at the LAST
+  // service; closing a Service-kind request auto-resets both. The due
+  // math lives in lib/vehicleService.ts.
+  /** Service every N km (canonical km; display converts). */
+  serviceIntervalKm?: number;
+  /** And/or service every N months. */
+  serviceIntervalMonths?: number;
+  /** Odometer at the last service (km). */
+  serviceBaselineKm?: number;
+  /** Date of the last service (YYYY-MM-DD, local). */
+  serviceBaselineDate?: string;
+  // ── Service reminders (per-vehicle; Setup Screen F) ─────────────
+  /** Remind when ≤ N km left to due (default 500). */
+  remindKmLeft?: number;
+  /** Remind when ≤ N days left to due (default 14). */
+  remindDaysLeft?: number;
+  /** Who gets service reminders (lock C: parents + drivers by
+   *  default, adjustable per family). */
+  remindRecipients?: { parents?: boolean; drivers?: boolean; allHelpers?: boolean };
   /** Pause without deleting. Inactive vehicles don't show in the
    *  picker but their history stays for Finances. */
   active: boolean;

@@ -34,6 +34,11 @@ import {
 import {
   type Vehicle, subscribeToVehicles, vehicleEmoji,
 } from '@/lib/vehicles';
+import { fetchOdometerStats } from '@/lib/driversOdometer';
+import {
+  computeServiceDue, effectiveDueIso, serviceReminderState, localTodayIso,
+} from '@/lib/vehicleService';
+import { toDisplayDate } from '@/lib/dates';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import TemplatePicker from '@/components/pantry/TemplatePicker';
 import { ReconcileTimerChip } from '@/components/pantry/ReconcileTimer';
@@ -142,6 +147,48 @@ export default function DriversHomePage() {
   // `kindStage` holds the picked vehicle while the kind panel shows;
   // undefined = panel closed (null = "skip vehicle" was chosen).
   const [kindStage, setKindStage] = useState<Vehicle | null | undefined>(undefined);
+  // Screen A smart nudge — when the picked vehicle is near/over its
+  // service due, an amber card appears right in the kind panel so the
+  // driver is one tap from doing the right thing.
+  const [kindNudge, setKindNudge] = useState<{
+    state: 'upcoming' | 'overdue';
+    kmLeft?: number;
+    overdueKm?: number;
+    expectedIso?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    setKindNudge(null);
+    const v = kindStage;
+    if (!v || !profile?.familyId) return;
+    if (!v.serviceIntervalKm && !v.serviceIntervalMonths) return;
+    let cancelled = false;
+    void fetchOdometerStats(profile.familyId, v.id).then((stats) => {
+      if (cancelled) return;
+      const due = computeServiceDue({
+        intervalKm: v.serviceIntervalKm,
+        intervalMonths: v.serviceIntervalMonths,
+        baselineKm: v.serviceBaselineKm,
+        baselineDate: v.serviceBaselineDate,
+        latestKm: stats.lastKm,
+        kmPerDay: stats.kmPerDay,
+        todayIso: localTodayIso(),
+      });
+      const state = serviceReminderState(due, {
+        kmLeft: v.remindKmLeft ?? 500,
+        daysLeft: v.remindDaysLeft ?? 14,
+      }, localTodayIso());
+      if (state === 'none') return;
+      setKindNudge({
+        state,
+        ...(due.kmLeft != null && due.kmLeft >= 0 ? { kmLeft: due.kmLeft } : {}),
+        ...(due.overdueKm != null ? { overdueKm: due.overdueKm } : {}),
+        expectedIso: effectiveDueIso(due),
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kindStage?.id, profile?.familyId]);
 
   const startDraftWithVehicle = async (vehicle: Vehicle | null) => {
     if (!profile?.familyId || !profile.uid || isGuest) return;
@@ -305,6 +352,29 @@ export default function DriversHomePage() {
             {kindStage ? `New request · ${kindStage.label}` : 'New request'}
           </p>
           <p className="font-nunito font-black text-base mb-2">What is this for?</p>
+          {kindNudge && (
+            <div className={`border rounded-hive p-2.5 mb-2 ${
+              kindNudge.state === 'overdue'
+                ? 'bg-hive-rose/10 border-hive-rose'
+                : 'bg-[#FFF3D9] border-hive-honey'
+            }`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-nunito font-extrabold text-[13px]">
+                  {kindNudge.state === 'overdue'
+                    ? <>🔴 {kindStage?.label} service OVERDUE{kindNudge.overdueKm != null ? ` · +${kindNudge.overdueKm.toLocaleString()} km over` : ''}</>
+                    : <>🛠️ {kindStage?.label} service due{kindNudge.kmLeft != null ? ` in ~${kindNudge.kmLeft.toLocaleString()} km` : ' soon'}</>}
+                </p>
+                {kindNudge.expectedIso && kindNudge.state !== 'overdue' && (
+                  <span className="text-[10px] font-nunito font-extrabold text-hive-honey-dk bg-white rounded-full px-2 py-0.5 flex-shrink-0">
+                    expected {toDisplayDate(kindNudge.expectedIso)}
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+                Tap Service to knock it out and reset the schedule.
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-1.5">
             {DRIVERS_KINDS.map((k) => (
               <button

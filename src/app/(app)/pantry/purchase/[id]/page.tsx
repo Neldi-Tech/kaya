@@ -37,7 +37,8 @@ import {
   setRequestBudgetMonth, budgetMonthKeyFor, editPayrollPeriod, markSalaryPaid,
   readDriversConfig, driversKindMeta, fuelUnitFor, fetchRecentFuelFills,
 } from '@/lib/purchase';
-import { fetchVehicleOdometer, logOdometerReading } from '@/lib/driversOdometer';
+import { fetchVehicleOdometer, fetchOdometerStats, logOdometerReading } from '@/lib/driversOdometer';
+import { computeServiceDue, localTodayIso } from '@/lib/vehicleService';
 import type { EditActor, PayrollEditLogEntry } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
@@ -1208,6 +1209,14 @@ export default function PurchaseDetailPage() {
           </div>
         );
       })()}
+
+      {/* Service status (Screen C) — the schedule that runs itself:
+          progress ring, due km OR hard-stop date (whichever first),
+          expected date at the family's pace. Closing this request
+          auto-resets the baseline (lib/purchase closeReconcile). */}
+      {isDrivers && req.kind === 'service' && req.vehicleId && profile?.familyId && (
+        <ServiceStatusCard familyId={profile.familyId} vehicleId={req.vehicleId} sw={sw} />
+      )}
 
       {/* Fuel form (Screen B) — litres × price → auto-amount, price
           memory pre-fill + deviation chip. Draft/pending only; from
@@ -3784,6 +3793,127 @@ function FuelCard({
             ? `Kiasi ni ${unitWord} × bei kila mara — hakuna kuandika jumla.`
             : `Amount is always ${unit === 'L' ? 'litres' : unit} × price — no typing totals, no typo-inflation.`}
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Service status card (Drivers v2 — Screen C, 2026-07-05) ───────
+// "Due at 85,200 km · or 15-Aug-2026" with a progress ring, plus the
+// locked-A projection: expected date at the family's pace, pinned by
+// the hard stop it must not cross. Reads the vehicle's schedule +
+// the Pulse odometer ledger; pure math in lib/vehicleService.ts.
+function ServiceStatusCard({
+  familyId, vehicleId, sw,
+}: {
+  familyId: string;
+  vehicleId: string;
+  sw: boolean;
+}) {
+  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
+  const [stats, setStats] = useState<{ lastKm: number | null; kmPerDay: number | null } | null>(null);
+
+  useEffect(() => {
+    const unsub = subscribeToVehicles(familyId, (vs) => {
+      setVehicle(vs.find((v) => v.id === vehicleId) ?? null);
+    });
+    let cancelled = false;
+    void fetchOdometerStats(familyId, vehicleId).then((s) => {
+      if (!cancelled) setStats({ lastKm: s.lastKm, kmPerDay: s.kmPerDay });
+    });
+    return () => { cancelled = true; unsub(); };
+  }, [familyId, vehicleId]);
+
+  if (!vehicle) return null;
+  const due = computeServiceDue({
+    intervalKm: vehicle.serviceIntervalKm,
+    intervalMonths: vehicle.serviceIntervalMonths,
+    baselineKm: vehicle.serviceBaselineKm,
+    baselineDate: vehicle.serviceBaselineDate,
+    latestKm: stats?.lastKm ?? null,
+    kmPerDay: stats?.kmPerDay ?? null,
+    todayIso: localTodayIso(),
+  });
+
+  if (!due.configured) {
+    return (
+      <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-3.5 mb-3">
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-1">
+          🛠️ {sw ? 'Ratiba ya service' : 'Service schedule'}
+        </p>
+        <p className="text-[12px] text-hive-muted font-bold">
+          {sw
+            ? 'Hakuna ratiba bado — weka “kila km N / miezi N” kwenye Manage vehicles ili Kaya ifuatilie na kukumbusha.'
+            : 'No schedule set for this vehicle yet — set "every N km / N months" in Manage vehicles and Kaya will track + remind.'}
+        </p>
+      </div>
+    );
+  }
+
+  const pct = Math.min(1.2, due.pctUsed);
+  const pctDisplay = Math.round(due.pctUsed * 100);
+  const ringColor = due.overdue ? '#DC2626' : due.pctUsed >= 0.75 ? '#D97706' : '#4C7C59';
+  const dueLine = [
+    due.dueKm != null ? `${due.dueKm.toLocaleString()} km` : null,
+    due.hardStopIso ? toDisplayDate(due.hardStopIso) : null,
+  ].filter(Boolean).join(sw ? ' · au ' : ' · or ');
+
+  return (
+    <div className={`border rounded-hive p-3.5 mb-3 ${
+      due.overdue ? 'bg-hive-rose/10 border-hive-rose' : 'bg-pantry-leaf-soft border-pantry-leaf'
+    }`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-1">
+            🛠️ {sw ? 'Hali ya service' : 'Service status'}
+          </p>
+          <p className="font-nunito font-black text-[15px]">
+            {due.overdue
+              ? (sw ? '🔴 Imepitwa — fanya service sasa' : '🔴 Overdue — service now')
+              : <>{sw ? 'Inatakiwa ifikapo' : 'Due at'} {dueLine}</>}
+          </p>
+          <p className="text-[11px] text-hive-muted font-bold mt-0.5">
+            {sw ? 'Service ya mwisho' : 'Last service'}{' '}
+            {vehicle.serviceBaselineKm != null ? `${vehicle.serviceBaselineKm.toLocaleString()} km` : '—'}
+            {vehicle.serviceBaselineDate ? ` · ${toDisplayDate(vehicle.serviceBaselineDate)}` : ''}
+            {' · '}
+            {sw ? 'kila' : 'every'}{' '}
+            {[
+              vehicle.serviceIntervalKm ? `${vehicle.serviceIntervalKm.toLocaleString()} km` : null,
+              vehicle.serviceIntervalMonths ? `${vehicle.serviceIntervalMonths} ${sw ? 'miezi' : 'months'}` : null,
+            ].filter(Boolean).join(' / ')}
+          </p>
+        </div>
+        <div
+          className="w-[72px] h-[72px] rounded-full flex-shrink-0 flex items-center justify-center"
+          style={{ background: `conic-gradient(${ringColor} 0 ${Math.min(100, pct * 100)}%, #E8E2D2 ${Math.min(100, pct * 100)}% 100%)` }}
+        >
+          <div className="w-[54px] h-[54px] rounded-full bg-hive-paper flex flex-col items-center justify-center">
+            <span className="font-nunito font-black text-[14px] leading-none">{pctDisplay}%</span>
+            <span className="text-[8px] font-nunito font-extrabold text-hive-muted tracking-wide">{sw ? 'IMETUMIKA' : 'USED'}</span>
+          </div>
+        </div>
+      </div>
+      <div className="h-2 bg-white/70 rounded-full overflow-hidden mt-2.5">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${Math.min(100, pct * 100)}%`, background: ringColor }}
+        />
+      </div>
+      <div className="flex items-center justify-between mt-1.5 gap-2 flex-wrap">
+        <span className="text-[11px] text-hive-muted font-bold">
+          {due.kmLeft != null && due.kmLeft >= 0 && (
+            <>📈 {sw ? 'Inakadiriwa' : 'Expected'} <b>{due.expectedIso ? toDisplayDate(due.expectedIso) : '—'}</b> {sw ? 'kwa mwendo wenu' : 'at your pace'}</>
+          )}
+          {due.overdueKm != null && (
+            <>🔴 <b>+{due.overdueKm.toLocaleString()} km</b> {sw ? 'zaidi ya kikomo' : 'over'}</>
+          )}
+        </span>
+        {due.hardStopIso && !due.overdue && (
+          <span className="text-[11px] text-hive-muted font-bold">
+            ⛔ {sw ? 'isipite' : 'not past'} <b>{toDisplayDate(due.hardStopIso)}</b>
+          </span>
+        )}
       </div>
     </div>
   );
