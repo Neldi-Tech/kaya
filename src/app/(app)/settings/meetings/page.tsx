@@ -68,8 +68,10 @@ export default function MeetingSetupPage() {
   const [kidSongLinkRequiresApproval, setKidSongLinkRequiresApproval] = useState<boolean>(true);
   // Sunday-Meeting v2 (b6): email a one-page "Meeting Recap Book" to
   // parents + Family contacts after the meeting submits. Defaults ON.
-  const [recapBookEmailEnabled, setRecapBookEmailEnabled] = useState<boolean>(true);
   const [recapBookIncludeSong, setRecapBookIncludeSong] = useState<boolean>(true);
+  // Meeting Notes (2026-06-21): WHO gets the auto-sent notes. Replaces the
+  // old on/off toggle (saved boolean kept in sync for older readers).
+  const [recapBookRecipients, setRecapBookRecipients] = useState<'off' | 'parents' | 'all'>('parents');
   // Sunday-Meeting v2 (b7): how long a Time Capsule stays sealed.
   const [timeCapsuleLockYears, setTimeCapsuleLockYears] = useState<0.5 | 1 | 3>(1);
   // SM3.1 (#2): 🙏 Opening Word — step on/off (default ON), required-to-
@@ -110,8 +112,8 @@ export default function MeetingSetupPage() {
     if (s?.agendaSteps && s.agendaSteps.length > 0) setAgendaSteps(s.agendaSteps);
     if (s?.closingModesEnabled && s.closingModesEnabled.length > 0) setClosingEnabled(s.closingModesEnabled);
     if (typeof s?.kidSongLinkRequiresApproval === 'boolean') setKidSongLinkRequiresApproval(s.kidSongLinkRequiresApproval);
-    if (typeof s?.recapBookEmailEnabled === 'boolean') setRecapBookEmailEnabled(s.recapBookEmailEnabled);
     if (typeof s?.recapBookIncludeSong === 'boolean') setRecapBookIncludeSong(s.recapBookIncludeSong);
+    setRecapBookRecipients(s?.recapBookRecipients ?? ((s?.recapBookEmailEnabled ?? true) ? 'parents' : 'off'));
     if (s?.timeCapsuleLockYears === 0.5 || s?.timeCapsuleLockYears === 1 || s?.timeCapsuleLockYears === 3) {
       setTimeCapsuleLockYears(s.timeCapsuleLockYears);
     }
@@ -217,7 +219,8 @@ export default function MeetingSetupPage() {
         stepLabels: cleanedLabels,
         schedule,
         kidSongLinkRequiresApproval,
-        recapBookEmailEnabled,
+        recapBookEmailEnabled: recapBookRecipients !== 'off',
+        recapBookRecipients,
         recapBookIncludeSong,
         timeCapsuleLockYears,
         openingWordEnabled,
@@ -504,7 +507,7 @@ export default function MeetingSetupPage() {
         <div className="flex items-baseline justify-between mb-1">
           <h2 className="font-display text-lg lg:text-xl font-black">📨 Meeting Recap Book</h2>
           <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
-            {recapBookEmailEnabled ? 'Emailing' : 'Off'}
+            {recapBookRecipients === 'off' ? 'Off' : recapBookRecipients === 'all' ? 'All participants' : 'Parents'}
           </span>
         </div>
         <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
@@ -513,27 +516,43 @@ export default function MeetingSetupPage() {
           aunties stay close to your weekly ritual without needing to be in the room.
         </p>
         <div className="rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4 space-y-3">
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={recapBookEmailEnabled}
-              onChange={(e) => setRecapBookEmailEnabled(e.target.checked)}
-              className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer"
-            />
-            <div className="flex-1 min-w-0">
-              <p className="font-display font-extrabold text-sm text-kaya-chocolate">
-                📨 Email a recap after each meeting
-              </p>
-              <p className="text-[12.5px] text-kaya-chocolate/70 leading-snug mt-0.5">
-                Sent to parents (and Family contacts with notifications on). Default: on.
-              </p>
+          <div>
+            <p className="font-display font-extrabold text-sm text-kaya-chocolate">
+              📨 Auto-send the meeting notes to…
+            </p>
+            <div className="flex gap-2 mt-2">
+              {([
+                ['off', 'Off'],
+                ['parents', 'Parents only'],
+                ['all', 'All participants'],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setRecapBookRecipients(key)}
+                  className={`flex-1 h-10 rounded-kaya-sm font-display font-extrabold text-[12px] border-2 transition-colors ${
+                    recapBookRecipients === key
+                      ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                      : 'bg-white text-kaya-chocolate border-kaya-warm-dark hover:bg-kaya-warm'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          </label>
-          <label className={`flex items-start gap-3 cursor-pointer ${!recapBookEmailEnabled ? 'opacity-50' : ''}`}>
+            <p className="text-[11.5px] text-kaya-chocolate/60 leading-snug mt-2">
+              {recapBookRecipients === 'off'
+                ? 'No automatic email — share manually from any meeting\u2019s notes.'
+                : recapBookRecipients === 'parents'
+                  ? '\ud83d\udce8 Parents get the notes after each meeting.'
+                  : '\ud83d\udce8 Everyone who attended (with an email on file) gets the notes \u2014 kids included.'}
+            </p>
+          </div>
+          <label className={`flex items-start gap-3 cursor-pointer ${recapBookRecipients === 'off' ? 'opacity-50' : ''}`}>
             <input
               type="checkbox"
               checked={recapBookIncludeSong}
-              disabled={!recapBookEmailEnabled}
+              disabled={recapBookRecipients === 'off'}
               onChange={(e) => setRecapBookIncludeSong(e.target.checked)}
               className="mt-1 w-5 h-5 accent-kaya-gold cursor-pointer"
             />

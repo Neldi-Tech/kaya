@@ -842,23 +842,21 @@ export default function MeetingPresenterPage() {
       .catch(() => { /* non-fatal */ });
     clearMeetingSubmissions(profile.familyId).catch(() => { /* non-fatal */ });
 
-    // Sunday-Meeting v2 (b6): email the Meeting Recap Book to parents +
-    // Family contacts when the family has it switched on (default ON).
+    // Sunday-Meeting v2 (b6) + Meeting Notes (2026-06-21): email the notes
+    // per the family's auto-send choice — Off / Parents / All participants.
+    // sendMeetingRecapEmail self-gates on the mode ('off' → no send).
     // Fire-and-forget — recap is a perk, not a barrier to finishing.
-    const recapEnabled = family?.meetingSetup?.recapBookEmailEnabled ?? true;
-    if (recapEnabled) {
-      sendMeetingRecapEmail({
-        family,
-        payload,
-        submissions,
-        householdParents,
-        children,
-        songLinkApprovedBy,
-      }).catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn('[meeting-recap] send failed (non-fatal):', e);
-      });
-    }
+    sendMeetingRecapEmail({
+      family,
+      payload,
+      submissions,
+      householdParents,
+      children,
+      songLinkApprovedBy,
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.warn('[meeting-recap] send failed (non-fatal):', e);
+    });
 
     setSaving(false);
     setDone(true);

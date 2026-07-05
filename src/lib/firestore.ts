@@ -505,6 +505,11 @@ export interface Family {
      *  one-page "Meeting Recap Book" to parents + family contacts.
      *  Default = true. Toggle in /settings/meetings. */
     recapBookEmailEnabled?: boolean;
+    /** Meeting Notes (2026-06-21): WHO gets the auto-sent notes after each
+     *  meeting — 'off' (nobody) · 'parents' (today's behaviour) · 'all'
+     *  (every attendee with an email on file, kids included). Absent =
+     *  derive from recapBookEmailEnabled (true→'parents', false→'off'). */
+    recapBookRecipients?: 'off' | 'parents' | 'all';
     /** Whether the recap email includes the closing song link.
      *  Default = true; flips off independently of recapBookEmailEnabled
      *  so parents can keep the recap but drop the song. */
