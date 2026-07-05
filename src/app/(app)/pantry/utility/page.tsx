@@ -477,7 +477,16 @@ export default function UtilityHomePage() {
                     {meterEmoji(m.type)}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">{m.label}</div>
+                    <div className="font-nunito font-extrabold text-sm text-hive-navy truncate">
+                      {m.label}
+                      {/* Low-balance flag — engine stamped lowAlertAt; picker shows it so
+                          the low meter is the obvious pick when topping up. */}
+                      {m.lowAlertAt ? (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded-full text-[9px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40 align-middle">
+                          🔔 LOW
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="text-[11px] text-hive-muted font-bold mt-0.5">
                       {m.providerRef ? `# ${m.providerRef}` : ''}
                       {m.providerRef && (m.frequency || m.cadenceDays != null) && ' · '}
