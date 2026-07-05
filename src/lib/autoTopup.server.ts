@@ -61,6 +61,7 @@ interface MeterData {
   estimatedCents?: number;
   providerRef?: string;
   alertChannels?: { email?: boolean; inapp?: boolean; chat?: boolean; whatsapp?: boolean };
+  alertRecipientUids?: string[];
 }
 
 export interface LowBalanceResult {
@@ -341,7 +342,7 @@ export async function checkMeterLowBalance(
     // the per-meter override threads in with VIS PR4. In-app + family chat
     // stay unfiltered by design (D2) — this cascade is email-only.
     const famData = (await famRef.get().catch(() => null))?.data() as { alertEmails?: AlertEmailsConfig } | undefined;
-    const resolved = resolveAlertRecipients(famData?.alertEmails, 'utilities', people.map((p2) => p2.uid), undefined);
+    const resolved = resolveAlertRecipients(famData?.alertEmails, 'utilities', people.map((p2) => p2.uid), m.alertRecipientUids);
     resolvedLevel = resolved.level;
     emailTo = people
       .filter((p2) => resolved.uids.includes(p2.uid) && p2.email)
