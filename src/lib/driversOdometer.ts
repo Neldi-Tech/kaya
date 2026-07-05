@@ -60,6 +60,66 @@ export async function fetchVehicleOdometer(
   }
 }
 
+export interface OdometerStats extends VehicleOdometerInfo {
+  /** Average km/day over the recent reading window — the run-rate
+   *  that projects "expected 24-Jul at your pace". Null when fewer
+   *  than two readings exist. */
+  kmPerDay: number | null;
+}
+
+/** Latest reading + km/day run-rate for a vehicle. One extra readings
+ *  fetch vs fetchVehicleOdometer — use where the projection matters
+ *  (service card, health card, nudge). */
+export async function fetchOdometerStats(
+  familyId: string,
+  vehicleId: string,
+): Promise<OdometerStats> {
+  const empty: OdometerStats = { trackableId: null, lastKm: null, capturedAtMs: null, kmPerDay: null };
+  if (isGuestActive()) return empty;
+  try {
+    const tq = query(
+      collection(db, 'families', familyId, 'trackables'),
+      where('vehicleId', '==', vehicleId),
+    );
+    const tSnap = await getDocs(tq);
+    const odo = tSnap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as TrackableDoc))
+      .find((t) => t.type === 'odometer' && t.active !== false);
+    if (!odo) return empty;
+    const rq = query(
+      collection(db, 'families', familyId, 'readings'),
+      where('trackableId', '==', odo.id),
+    );
+    const rSnap = await getDocs(rq);
+    const readings = rSnap.docs
+      .map((d) => {
+        const data = d.data() as { value?: number; capturedAt?: { toMillis(): number }; event?: string };
+        return {
+          value: Number(data.value) || 0,
+          atMs: data.capturedAt?.toMillis?.() ?? 0,
+          event: data.event ?? 'normal',
+        };
+      })
+      .filter((r) => r.event !== 'rollback' && r.atMs > 0 && r.value > 0)
+      .sort((a, b) => a.atMs - b.atMs);
+    if (readings.length === 0) return { ...empty, trackableId: odo.id };
+    const last = readings[readings.length - 1];
+    // Run-rate over the recent window (≤90 days back from the latest
+    // reading) so an old first-ever reading doesn't dilute the pace.
+    const windowStart = last.atMs - 90 * 24 * 60 * 60 * 1000;
+    const windowed = readings.filter((r) => r.atMs >= windowStart);
+    const first = windowed[0];
+    let kmPerDay: number | null = null;
+    if (windowed.length >= 2 && last.atMs > first.atMs && last.value > first.value) {
+      const days = (last.atMs - first.atMs) / (24 * 60 * 60 * 1000);
+      if (days >= 1) kmPerDay = (last.value - first.value) / days;
+    }
+    return { trackableId: odo.id, lastKm: last.value, capturedAtMs: last.atMs, kmPerDay };
+  } catch {
+    return empty;
+  }
+}
+
 /** Append an odometer reading to the Pulse ledger via the Admin
  *  route. Fire-and-forget from the send path — a logging failure
  *  must not block the request itself. */
