@@ -31,8 +31,10 @@ import { useFamily } from '@/contexts/FamilyContext';
 import {
   createMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
   updateFamily,
+  getRatingsInDateRange, getAwardsInDateRange, getRedemptions,
   Meeting, ReflectionMode, todayString,
 } from '@/lib/firestore';
+import { computeWindowRange, computeReview, computeDayScores } from '@/lib/meetingReview';
 import SundaySurpriseStep, { type SurpriseRecord } from '@/components/meetings/SundaySurpriseStep';
 import { giveAward } from '@/lib/firestore';
 import { sendMessage } from '@/lib/messaging';
@@ -572,6 +574,18 @@ export default function MeetingPresenterPage() {
     return () => { cancelled = true; };
   }, [family, profile?.familyId, songSeeded]);
 
+  // Meeting Notes (2026-06-21) — leadership capture. Tonight's leader is
+  // the QUEUED leader when the meeting opens (snapshot before the wheel
+  // picks next week's); the prayer leader is picked in the Closing step.
+  const [ledByName, setLedByName] = useState('');
+  const [ledSeeded, setLedSeeded] = useState(false);
+  const [prayerLedBy, setPrayerLedBy] = useState('');
+  useEffect(() => {
+    if (ledSeeded || !family) return;
+    setLedByName(family.nextMeetingLeader?.name || '');
+    setLedSeeded(true);
+  }, [family, ledSeeded]);
+
   // ── Save handler ─────────────────────────────────────────────────
   // Two writes happen on finish:
   //   1. Patches to each historical meeting whose `goalsDone` was
@@ -628,6 +642,48 @@ export default function MeetingPresenterPage() {
       }
     }
 
+    // Meeting Notes — snapshot this week's Points & Rewards onto the record
+    // (last-7-days window ending tonight). Best-effort: a failure here never
+    // blocks finishing the meeting.
+    let pointsSummary: Meeting['pointsSummary'];
+    try {
+      const range = computeWindowRange({ kind: 'last7' }, todayString());
+      const [weekRatings, weekAwards, redemptions] = await Promise.all([
+        getRatingsInDateRange(profile.familyId, range.from, range.to),
+        getAwardsInDateRange(profile.familyId, range.from, range.to),
+        getRedemptions(profile.familyId, 25).catch(() => []),
+      ]);
+      const review = computeReview(children, [], weekRatings, weekAwards, range);
+      const dayScores = computeDayScores(children, weekRatings, range);
+      // ⭐ Star days — per date, the kid(s) with the most Excellents (>0).
+      const starsByKid: Record<string, number> = {};
+      for (const date of range.days) {
+        const dayRows = dayScores.filter((s) => s.date === date && s.excellentCount > 0);
+        if (dayRows.length === 0) continue;
+        const max = Math.max(...dayRows.map((s) => s.excellentCount));
+        for (const row of dayRows) if (row.excellentCount === max) starsByKid[row.childId] = (starsByKid[row.childId] || 0) + 1;
+      }
+      const startMs = new Date(`${range.from}T00:00:00`).getTime();
+      const kidsSummary = children.map((c) => ({
+        childId: c.id,
+        name: c.name,
+        hp: review.perKid[c.id]?.totalPoints ?? 0,
+        excellentDays: review.perKid[c.id]?.beltDays.length ?? 0,
+        stars: starsByKid[c.id] || 0,
+        ...(review.beltWinnerIds.includes(c.id) && review.beltWinnerCount > 0 ? { belt: true } : {}),
+      }));
+      const redeemed = (redemptions || [])
+        .filter((r) => (r.createdAt?.toMillis?.() ?? 0) >= startMs)
+        .map((r) => ({
+          name: children.find((c) => c.id === r.childId)?.name || 'Kid',
+          reward: r.rewardTitle,
+          points: r.pointsSpent,
+        }));
+      pointsSummary = { kids: kidsSummary, ...(redeemed.length > 0 ? { redeemed } : {}) };
+    } catch {
+      /* notes stay pointless-but-valid when the snapshot can't be computed */
+    }
+
     const payload: Omit<Meeting, 'id' | 'createdAt'> = {
       date: todayString(),
       type: 'weekly',
@@ -642,6 +698,11 @@ export default function MeetingPresenterPage() {
       appreciations,
       presentation,
       reflection,
+      // Meeting Notes — leadership + weekly points snapshot (2026-06-21).
+      ...(ledByName ? { ledByName } : {}),
+      ...(prayerLedBy ? { prayerLedBy } : {}),
+      ...(family?.nextMeetingLeader?.name ? { nextLeaderName: family.nextMeetingLeader.name } : {}),
+      ...(pointsSummary ? { pointsSummary } : {}),
       ...(pinkyPromised.size > 0 ? { pinkyPromised: Array.from(pinkyPromised) } : {}),
       ...(openingWordDone ? {
         openingWord: {
@@ -1220,6 +1281,12 @@ export default function MeetingPresenterPage() {
                     }}
                     familyId={profile?.familyId || ''}
                     viewerName={(profile?.displayName || 'Family').split(' ')[0]}
+                    prayerLedBy={prayerLedBy}
+                    onPrayerLedBy={setPrayerLedBy}
+                    prayerLeaderOptions={[
+                      ...householdParents.map((p) => ({ name: p.name.split(' ')[0], emoji: p.avatarEmoji || '👤' })),
+                      ...children.map((c) => ({ name: c.name.split(' ')[0], emoji: c.avatarEmoji || '🧒' })),
+                    ]}
                   />
                   {/* Time Capsule sealer — last beat of the meeting. */}
                   {profile?.familyId && profile?.uid && (
@@ -2882,6 +2949,9 @@ function ReflectionStep({
   onApproveSongLink,
   familyId,
   viewerName,
+  prayerLedBy,
+  onPrayerLedBy,
+  prayerLeaderOptions,
 }: {
   /** Which of the 3 closings the parent enabled in /settings/meetings.
    *  Disabled modes simply don't render. */
@@ -2906,6 +2976,10 @@ function ReflectionStep({
   /** v4 song library — the reveal saves the played song + lets the family rate it. */
   familyId?: string;
   viewerName?: string;
+  /** Meeting Notes — who led the prayer tonight (chips under the prayer). */
+  prayerLedBy?: string;
+  onPrayerLedBy?: (name: string) => void;
+  prayerLeaderOptions?: Array<{ name: string; emoji: string }>;
 }) {
   // v4.4: keep the pre-set song link HIDDEN behind the reveal (a surprise,
   // not a long URL). A subtle "Change song" toggle re-opens the input.
@@ -2996,6 +3070,33 @@ function ReflectionStep({
                 rows={isPrayer ? 7 : 4}
                 className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-4 py-3 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none leading-relaxed"
               />
+            )}
+
+            {/* Meeting Notes — who's leading the prayer tonight? One tap;
+                lands on the record + in the notes/email. */}
+            {isPrayer && (prayerLeaderOptions?.length ?? 0) > 0 && onPrayerLedBy && (
+              <div className="mt-3">
+                <p className="text-[10.5px] uppercase tracking-[0.14em] font-bold text-kaya-gold-light/70 mb-1.5">
+                  🙏 Who leads the prayer?
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {prayerLeaderOptions!.map((o) => (
+                    <button
+                      key={o.name}
+                      type="button"
+                      onClick={() => onPrayerLedBy(prayerLedBy === o.name ? '' : o.name)}
+                      aria-pressed={prayerLedBy === o.name}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11.5px] font-display font-extrabold border transition-colors ${
+                        prayerLedBy === o.name
+                          ? 'bg-kaya-gold text-kaya-chocolate border-kaya-gold'
+                          : 'bg-white/5 text-white/70 border-white/15 hover:bg-white/10'
+                      }`}
+                    >
+                      {o.emoji} {o.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
 
             {isPrayer && (
