@@ -163,7 +163,14 @@ export default function MeetingPrepCard({
   const showAlert = shouldOpenByDefault;
 
   // ── Line helpers ─────────────────────────────────────────────────
-  const dirty = () => setSavedAt(null);
+  // Any edit PINS the card open. Without this, the very first keystroke
+  // flipped filledCount 0→1, which turned shouldOpenByDefault off and
+  // collapsed the auto-opened card mid-typing (bug, 2026-06-21). A manual
+  // collapse (openOverride === false) is still respected.
+  const dirty = () => {
+    setSavedAt(null);
+    setOpenOverride((o) => (o === null ? true : o));
+  };
   const editLine = (
     arr: string[], setArr: (v: string[]) => void, i: number, val: string,
   ) => { const next = [...arr]; next[i] = val; setArr(next); dirty(); };
