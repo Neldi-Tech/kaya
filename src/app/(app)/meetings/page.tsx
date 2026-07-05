@@ -415,26 +415,33 @@ export default function MeetingsPage() {
               </div>
             ) : (
               meetings.map((m) => (
-                <button type="button" key={m.id} onClick={() => setReportMeeting(m)}
-                  className="w-full text-left bg-white border-2 border-emerald-300/70 rounded-kaya p-4 hover:border-emerald-400 transition-colors">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-bold text-sm">🟢 {fmtMeetingDay(m.date)}</p>
-                    <span className={`text-xs px-2 py-1 rounded-full font-semibold ${m.type === 'kid-led' ? 'bg-orange-50 text-orange-600' : 'bg-kaya-warm text-kaya-sand'}`}>
-                      {m.type === 'kid-led' ? '🧒 Kid-Led' : '👨‍👩‍👧‍👦 Weekly'}
-                    </span>
-                  </div>
-                  {m.notes && <p className="text-xs text-kaya-sand">{m.notes}</p>}
-                  {Object.keys(m.goals || {}).length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-kaya-warm-dark">
-                      <p className="text-[10px] text-kaya-sand font-semibold uppercase mb-1">Goals Set</p>
-                      {Object.entries(m.goals).map(([childId, goal]) => {
-                        const c = children.find((x) => x.id === childId);
-                        return goal ? <p key={childId} className="text-xs">{c?.avatarEmoji} {c?.name}: {goal}</p> : null;
-                      })}
+                <div key={m.id}>
+                  <button type="button" onClick={() => setReportMeeting(m)}
+                    className="w-full text-left bg-white border-2 border-emerald-300/70 rounded-kaya p-4 hover:border-emerald-400 transition-colors">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-bold text-sm">🟢 {fmtMeetingDay(m.date)}</p>
+                      <span className={`text-xs px-2 py-1 rounded-full font-semibold ${m.type === 'kid-led' ? 'bg-orange-50 text-orange-600' : 'bg-kaya-warm text-kaya-sand'}`}>
+                        {m.type === 'kid-led' ? '🧒 Kid-Led' : '👨‍👩‍👧‍👦 Weekly'}
+                      </span>
                     </div>
-                  )}
-                  <p className="mt-2 text-[11px] font-black text-kaya-chocolate/70">📖 Open report →</p>
-                </button>
+                    {m.notes && <p className="text-xs text-kaya-sand">{m.notes}</p>}
+                    {Object.keys(m.goals || {}).length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-kaya-warm-dark">
+                        <p className="text-[10px] text-kaya-sand font-semibold uppercase mb-1">Goals Set</p>
+                        {Object.entries(m.goals).map(([childId, goal]) => {
+                          const c = children.find((x) => x.id === childId);
+                          return goal ? <p key={childId} className="text-xs">{c?.avatarEmoji} {c?.name}: {goal}</p> : null;
+                        })}
+                      </div>
+                    )}
+                    <p className="mt-2 text-[11px] font-black text-kaya-chocolate/70">📖 Open report →</p>
+                  </button>
+                  {/* Meeting Notes — the full structured record (2026-06-21). */}
+                  <Link href={`/meetings/notes/${m.id}`}
+                    className="block text-right text-[11px] font-black text-kaya-gold-dark hover:underline mt-1 pr-1">
+                    🗒️ Full Meeting Notes →
+                  </Link>
+                </div>
               ))
             ))}
           </div>
@@ -667,8 +674,9 @@ export default function MeetingsPage() {
                 </div>
               ))}
               {statusFilter !== 'amber' && meetings.map((m) => (
-                <button type="button" key={m.id} onClick={() => setReportMeeting(m)}
-                  className="text-left bg-white border-2 border-emerald-300/70 rounded-kaya-lg p-5 hover:border-emerald-400 transition-colors">
+                <div key={m.id}>
+                <button type="button" onClick={() => setReportMeeting(m)}
+                  className="w-full text-left bg-white border-2 border-emerald-300/70 rounded-kaya-lg p-5 hover:border-emerald-400 transition-colors">
                   <div className="flex items-center justify-between mb-3">
                     <p className="font-display font-bold text-base">🟢 {fmtMeetingDay(m.date)}</p>
                     <span className={`text-[10px] px-2 py-1 rounded-full font-bold uppercase tracking-wider ${m.type === 'kid-led' ? 'bg-orange-50 text-orange-600' : 'bg-kaya-warm text-kaya-sand'}`}>
@@ -708,6 +716,12 @@ export default function MeetingsPage() {
                   )}
                   <p className="mt-3 text-[11px] font-black text-kaya-chocolate/70">📖 Open report →</p>
                 </button>
+                {/* Meeting Notes — the full structured record (2026-06-21). */}
+                <Link href={`/meetings/notes/${m.id}`}
+                  className="block text-right text-[11px] font-black text-kaya-gold-dark hover:underline mt-1 pr-1">
+                  🗒️ Full Meeting Notes →
+                </Link>
+                </div>
               ))}
             </div>
           )}

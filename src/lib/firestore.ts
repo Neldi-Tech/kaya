@@ -2856,6 +2856,13 @@ export async function updateMeeting(
   await updateDoc(doc(db, 'families', familyId, 'meetings', meetingId), updates as any);
 }
 
+/** Single meeting by id — the Meeting Notes page (2026-06-21). */
+export async function getMeeting(familyId: string, meetingId: string): Promise<Meeting | null> {
+  if (isGuestActive()) return null;
+  const snap = await getDoc(doc(db, 'families', familyId, 'meetings', meetingId));
+  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Meeting) : null;
+}
+
 export async function getMeetings(familyId: string): Promise<Meeting[]> {
   if (isGuestActive()) return [];
   const q = query(
