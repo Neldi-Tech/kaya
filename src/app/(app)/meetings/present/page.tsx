@@ -853,6 +853,7 @@ export default function MeetingPresenterPage() {
       householdParents,
       children,
       songLinkApprovedBy,
+      recentMeetings,
     }).catch((e) => {
       // eslint-disable-next-line no-console
       console.warn('[meeting-recap] send failed (non-fatal):', e);

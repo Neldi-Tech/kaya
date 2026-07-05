@@ -79,6 +79,11 @@ interface MeetingRecapData {
   redeemedSummary?: string;         // e.g. "Diella — Movie night (120 HP)"
   prayerLedBy?: string;
   nextLeaderName?: string;
+  /** Meeting Notes surprises — 💬 quote of the night · 📿 family rhythm
+   *  streak · 🏅 guest-of-honour thank-you. */
+  quote?: { text: string; by: string };
+  rhythmLabel?: string;
+  guestThanks?: string;
   closing?: RecapClosing;
   /** Where "Open in Kaya" should land. */
   openUrl: string;
@@ -656,7 +661,15 @@ function meetingRecapBody(r: MeetingRecapData): string {
       <div style="font-size:12px;color:#9B8A72;margin-top:2px;">
         ${esc(r.dateLabel)}${r.leaderName ? ` · led by ${esc(r.leaderEmoji || '')} ${esc(r.leaderName)} ✨` : ''}
       </div>
+      ${r.rhythmLabel ? `<div style="display:inline-block;margin-top:8px;background:#FFF7E2;border:1px solid #D4A017;border-radius:999px;padding:4px 12px;font-size:11px;font-weight:800;color:#1E120B;">📿 Family Rhythm · ${esc(r.rhythmLabel)}</div>` : ''}
     </div>
+    ${r.quote ? `
+    <!-- 💬 Quote of the Night -->
+    <div style="text-align:center;margin:0 0 16px;padding:14px 18px;background:#FAF5FF;border:1px solid #E8DDFB;border-radius:14px;">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:2.5px;font-weight:800;color:#9B5DE5;">💬 Quote of the night</div>
+      <div style="font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:15px;font-weight:800;color:#1E120B;font-style:italic;margin-top:5px;line-height:1.45;">&ldquo;${esc(r.quote.text)}&rdquo;</div>
+      <div style="font-size:11px;color:#9B8A72;font-weight:700;margin-top:4px;">— ${esc(r.quote.by)}</div>
+    </div>` : ''}
     ${leadership}
     ${attendance}
     ${gratitudes}
@@ -664,6 +677,11 @@ function meetingRecapBody(r: MeetingRecapData): string {
     ${points}
     ${goals}
     ${closing}
+    ${r.guestThanks ? `
+    <!-- 🏅 Guest of Honour -->
+    <div style="text-align:center;margin-top:14px;padding:10px 14px;background:#FFF7E2;border:1px dashed #D4A017;border-radius:12px;font-size:12px;color:#1E120B;">
+      🏅 <b>Guest of Honour</b> — thank you, <b>${esc(r.guestThanks)}</b>, for joining our family night!
+    </div>` : ''}
     <!-- 💛 Kaya Founding sign-off -->
     <div style="text-align:center;margin-top:20px;border-top:2px solid #E8E0D4;padding-top:14px;">
       <div style="font-size:16px;">💛</div>

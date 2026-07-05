@@ -14,8 +14,8 @@ import { useParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
-import { getMeeting, getFamilyMembers, type Meeting } from '@/lib/firestore';
-import { sendMeetingNotesEmailTo } from '@/lib/meetingRecap';
+import { getMeeting, getMeetings, getFamilyMembers, type Meeting } from '@/lib/firestore';
+import { sendMeetingNotesEmailTo, quoteOfTheNight, familyRhythmLabel, guestOfHonour } from '@/lib/meetingRecap';
 import { toDisplayDate } from '@/lib/dates';
 import { getSongLibrary, songIdFromUrl, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
@@ -31,6 +31,7 @@ export default function MeetingNotesPage() {
   const [parents, setParents] = useState<Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>>([]);
   const [song, setSong] = useState<SongLibraryEntry | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [rhythm, setRhythm] = useState<string | null>(null);
 
   useEffect(() => {
     if (!profile?.familyId || !meetingId) return;
@@ -41,6 +42,12 @@ export default function MeetingNotesPage() {
     ]).then(([m, members]) => {
       if (cancelled) return;
       setMeeting(m);
+      // 📿 Family Rhythm — consecutive weekly meetings up to this one.
+      if (m && profile.familyId) {
+        getMeetings(profile.familyId)
+          .then((all) => { if (!cancelled) setRhythm(familyRhythmLabel(all, m.date)); })
+          .catch(() => {});
+      }
       setParents(members.filter((x) => x.role === 'parent').map((x) => ({
         uid: x.uid,
         name: (x.displayName || 'Parent').split(' ')[0],
@@ -78,6 +85,22 @@ export default function MeetingNotesPage() {
     return rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meeting, parents, children]);
+
+  // 💬 Quote of the Night + 🏅 Guest of Honour — from the record itself.
+  const quote = useMemo(() => {
+    if (!meeting) return null;
+    const toEntries = (map?: Record<string, string>) =>
+      Object.entries((map || {}) as Record<string, string>)
+        .map(([cid, txt]) => ({
+          name: children.find((c) => c.id === cid)?.name.split(' ')[0] || 'Kid',
+          emoji: children.find((c) => c.id === cid)?.avatarEmoji || '🧒',
+          lines: [(txt || '').trim()].filter(Boolean),
+        }))
+        .filter((e) => e.lines.length > 0);
+    return quoteOfTheNight(toEntries(meeting.gratitude), toEntries(meeting.appreciations));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meeting, children]);
+  const guests = useMemo(() => (meeting ? guestOfHonour(meeting) : null), [meeting]);
 
   // Moments — honest to what the record stores.
   const moments = useMemo(() => {
@@ -140,6 +163,11 @@ export default function MeetingNotesPage() {
         <p className="text-[12px] opacity-75 mt-0.5">
           {meeting.type === 'kid-led' ? '🧒 Kid-led' : '👨‍👩‍👧‍👦 Weekly'} family meeting
         </p>
+        {rhythm && (
+          <span className="inline-block mt-2 text-[11px] font-extrabold px-3 py-1 rounded-full bg-kaya-gold/20 border border-kaya-gold/50 text-kaya-gold-light">
+            📿 Family Rhythm · {rhythm}
+          </span>
+        )}
         {attendance.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-3">
             {attendance.map((a, i) => (
@@ -164,6 +192,15 @@ export default function MeetingNotesPage() {
           </button>
         </div>
       </div>
+
+      {/* 💬 Quote of the Night */}
+      {quote && (
+        <div className="mt-3 rounded-kaya border border-purple-200 bg-purple-50/60 p-4 text-center">
+          <p className="text-[9px] uppercase tracking-[0.2em] font-extrabold text-kaya-purple" style={{ color: '#9B5DE5' }}>💬 Quote of the night</p>
+          <p className="font-display font-extrabold text-[15px] italic text-kaya-chocolate mt-1 leading-snug">&ldquo;{quote.text}&rdquo;</p>
+          <p className="text-[11px] font-bold text-kaya-sand mt-1">— {quote.by}</p>
+        </div>
+      )}
 
       {/* 🎤 Leadership */}
       {(meeting.ledByName || meeting.prayerLedBy || meeting.nextLeaderName) && (
@@ -284,6 +321,13 @@ export default function MeetingNotesPage() {
         </Section>
       )}
 
+      {/* 🏅 Guest of Honour */}
+      {guests && (
+        <div className="mt-3 rounded-kaya border border-dashed border-kaya-gold bg-kaya-gold/10 p-3.5 text-center text-[12.5px] text-kaya-chocolate">
+          🏅 <b>Guest of Honour</b> — thank you, <b>{guests}</b>, for joining our family night!
+        </div>
+      )}
+
       {/* 💛 Kaya Founding sign-off */}
       <div className="mt-6 pt-5 text-center border-t-2 border-kaya-warm-dark">
         <div className="text-lg">💛</div>
@@ -300,6 +344,7 @@ export default function MeetingNotesPage() {
           childrenList={children}
           parents={parents}
           myEmail={profile?.email || ''}
+          rhythmLabel={rhythm}
           onClose={() => setShareOpen(false)}
         />
       )}
@@ -311,12 +356,13 @@ export default function MeetingNotesPage() {
 // Recipients per the approved design: 🙋 Just me · 👨‍👩‍👧‍👦 All participants
 // (attendees with an email on file) · ☑️ Choose members · ✉️ Other emails.
 // Sends via the existing meeting-recap email route.
-function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, onClose }: {
+function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhythmLabel, onClose }: {
   family: NonNullable<ReturnType<typeof useFamily>['family']>;
   meeting: Meeting;
   childrenList: ReturnType<typeof useFamily>['children'];
   parents: Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>;
   myEmail: string;
+  rhythmLabel?: string | null;
   onClose: () => void;
 }) {
   type Mode = 'me' | 'all' | 'pick' | 'email';
@@ -365,7 +411,7 @@ function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, onCl
     if (recipients.length === 0) { setError(mode === 'email' ? 'Type at least one valid email.' : 'Nobody in that group has an email on file.'); return; }
     setSending(true);
     try {
-      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients });
+      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients, rhythmLabel });
       setSentTo(recipients.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not send — please try again.');

@@ -28,6 +28,9 @@ interface Args {
   householdParents: Array<{ uid: string; name: string; avatarEmoji?: string }>;
   children: Child[];
   songLinkApprovedBy: string | null;
+  /** Meeting Notes surprises — recent meetings for the 📿 Family Rhythm
+   *  streak (optional; the label is skipped when absent). */
+  recentMeetings?: Array<Pick<Meeting, 'date'>>;
 }
 
 interface RecapEntry { name: string; emoji: string; lines: string[] }
@@ -71,6 +74,52 @@ function mergeEntries(submitted: RecapEntry[], live: RecapEntry[]): RecapEntry[]
   return Array.from(byName.values());
 }
 
+// ── Meeting Notes surprises (2026-06-21) ────────────────────────────────
+
+/** 💬 Quote of the Night — the most quotable line said tonight: the longest
+ *  gratitude (heartfelt beats terse), falling back to the longest
+ *  appreciation. null when nothing substantial was shared. */
+export function quoteOfTheNight(
+  gratitudes: RecapEntry[],
+  appreciations: RecapEntry[],
+): { text: string; by: string } | null {
+  const pickFrom = (entries: RecapEntry[]) => {
+    let best: { text: string; by: string } | null = null;
+    for (const e of entries) {
+      for (const line of e.lines) {
+        const t = (line || '').trim();
+        if (t.length >= 12 && (!best || t.length > best.text.length)) best = { text: t, by: e.name };
+      }
+    }
+    return best;
+  };
+  return pickFrom(gratitudes) || pickFrom(appreciations);
+}
+
+/** 📿 Family Rhythm — consecutive weekly meetings ending at `uptoDate`
+ *  (gap ≤ 8 days counts as "kept the rhythm"). Returns a label like
+ *  "3 Sundays in a row" (null below 2), flagged 🔥 at milestones. */
+export function familyRhythmLabel(meetings: Array<Pick<Meeting, 'date'>>, uptoDate: string): string | null {
+  const dates = Array.from(new Set(meetings.map((m) => m.date).filter((d) => d && d <= uptoDate))).sort().reverse();
+  if (dates.length === 0 || dates[0] !== uptoDate) dates.unshift(uptoDate);
+  const parse = (s: string) => { const [y, mo, d] = s.split('-').map(Number); return new Date(y, mo - 1, d).getTime(); };
+  let streak = 1;
+  for (let i = 1; i < dates.length; i++) {
+    const gapDays = (parse(dates[i - 1]) - parse(dates[i])) / 864e5;
+    if (gapDays <= 8) streak += 1; else break;
+  }
+  if (streak < 2) return null;
+  const milestone = [5, 10, 25, 50, 100].includes(streak);
+  return `${streak} weeks in a row${milestone ? ' 🔥 milestone!' : ''}`;
+}
+
+/** 🏅 Guest of Honour — a named thank-you when guests joined the night. */
+export function guestOfHonour(meeting: Pick<Meeting, 'guestAttendees'>): string | null {
+  const names = (meeting.guestAttendees || []).map((g) => g.name).filter(Boolean);
+  if (names.length === 0) return null;
+  return names.join(' & ');
+}
+
 /** WHO gets the auto-sent notes (Meeting Notes, 2026-06-21). Back-compat:
  *  no recapBookRecipients → derive from the old on/off toggle. */
 export function recapRecipientsMode(family: Family | null | undefined): 'off' | 'parents' | 'all' {
@@ -80,7 +129,7 @@ export function recapRecipientsMode(family: Family | null | undefined): 'off' | 
 }
 
 export async function sendMeetingRecapEmail({
-  family, payload, submissions, householdParents, children, songLinkApprovedBy,
+  family, payload, submissions, householdParents, children, songLinkApprovedBy, recentMeetings,
 }: Args): Promise<void> {
   if (!family?.id) return;
 
@@ -182,6 +231,17 @@ export async function sendMeetingRecapEmail({
           ...pointsFieldsFrom(payload, children),
           ...(payload.prayerLedBy ? { prayerLedBy: payload.prayerLedBy } : {}),
           ...(payload.nextLeaderName ? { nextLeaderName: payload.nextLeaderName } : {}),
+          // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour.
+          ...(() => {
+            const q = quoteOfTheNight(gratitudes, appreciations);
+            const rhythm = recentMeetings ? familyRhythmLabel(recentMeetings, payload.date) : null;
+            const guests = guestOfHonour(payload);
+            return {
+              ...(q ? { quote: q } : {}),
+              ...(rhythm ? { rhythmLabel: rhythm } : {}),
+              ...(guests ? { guestThanks: guests } : {}),
+            };
+          })(),
           closing,
           openUrl: `${appUrl}/meetings`,
           includeSong,
@@ -235,8 +295,11 @@ export async function sendMeetingNotesEmailTo(args: {
   children: Child[];
   parents: Array<{ uid: string; name: string; avatarEmoji?: string }>;
   to: string[];
+  /** 📿 Family Rhythm label, computed by the caller when it has the
+   *  meetings list (the notes page does). */
+  rhythmLabel?: string | null;
 }): Promise<void> {
-  const { family, meeting, children, parents, to } = args;
+  const { family, meeting, children, parents, to, rhythmLabel } = args;
   const recipients = Array.from(new Set(to.map((e) => e.trim()).filter(Boolean)));
   if (recipients.length === 0) throw new Error('No recipients');
 
@@ -274,6 +337,19 @@ export async function sendMeetingNotesEmailTo(args: {
           ...pointsFieldsFrom(meeting, children),
           ...(meeting.prayerLedBy ? { prayerLedBy: meeting.prayerLedBy } : {}),
           ...(meeting.nextLeaderName ? { nextLeaderName: meeting.nextLeaderName } : {}),
+          // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour.
+          ...(() => {
+            const q = quoteOfTheNight(
+              entriesFromPerKidMap(meeting.gratitude, children),
+              entriesFromPerKidMap(meeting.appreciations, children),
+            );
+            const guests = guestOfHonour(meeting);
+            return {
+              ...(q ? { quote: q } : {}),
+              ...(rhythmLabel ? { rhythmLabel } : {}),
+              ...(guests ? { guestThanks: guests } : {}),
+            };
+          })(),
           closing,
           openUrl: `${appUrl}/meetings/notes/${meeting.id}`,
           includeSong: family.meetingSetup?.recapBookIncludeSong ?? true,
