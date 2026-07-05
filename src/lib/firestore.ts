@@ -1175,6 +1175,20 @@ export interface Meeting {
    *  meeting. Next meeting's Goals Review surfaces a "you pinky-promised
    *  this" ribbon on those goals (and a "promise kept!" beat when done). */
   pinkyPromised?: string[];
+  /** Meeting Notes (2026-06-21) — leadership captured on the record so the
+   *  structured notes + recap email can tell the story: who led tonight,
+   *  who led the prayer, and who leads next week (post-wheel snapshot). */
+  ledByName?: string;
+  prayerLedBy?: string;
+  nextLeaderName?: string;
+  /** Meeting Notes — a snapshot of the week's Points & Rewards at finish
+   *  time (last-7-days window ending tonight), so the notes/email stay
+   *  accurate forever even as live points move on. Firestore-safe
+   *  array-of-maps. `stars` = days this kid had the most Excellents. */
+  pointsSummary?: {
+    kids: Array<{ childId: string; name: string; hp: number; excellentDays: number; stars: number; belt?: boolean }>;
+    redeemed?: Array<{ name: string; reward: string; points: number }>;
+  };
   /** SM3.1 (#2) — 🙏 Opening Word: how the leader opened the night.
    *  Stamped when the leader marks the opening done; absent when the
    *  step was skipped (or disabled). Shows in the meeting report. */
