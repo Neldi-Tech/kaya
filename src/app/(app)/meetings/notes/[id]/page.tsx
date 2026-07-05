@@ -16,6 +16,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
 import { getMeeting, getMeetings, getFamilyMembers, type Meeting } from '@/lib/firestore';
 import { sendMeetingNotesEmailTo, quoteOfTheNight, familyRhythmLabel, guestOfHonour } from '@/lib/meetingRecap';
+import { getAllMeetingSubmissionHistory, type SubmissionHistoryEntry } from '@/lib/meetingSubmissionHistory';
 import { toDisplayDate } from '@/lib/dates';
 import { getSongLibrary, songIdFromUrl, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
@@ -32,6 +33,10 @@ export default function MeetingNotesPage() {
   const [song, setSong] = useState<SongLibraryEntry | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [rhythm, setRhythm] = useState<string | null>(null);
+  // What each member SUBMITTED for this meeting (from the per-member
+  // archive) — the saved meeting doc only holds live-typed lines, so this
+  // is what makes past meetings show the full approved structure.
+  const [histRows, setHistRows] = useState<Array<{ name: string; emoji?: string; entry: SubmissionHistoryEntry }>>([]);
 
   useEffect(() => {
     if (!profile?.familyId || !meetingId) return;
@@ -46,6 +51,19 @@ export default function MeetingNotesPage() {
       if (m && profile.familyId) {
         getMeetings(profile.familyId)
           .then((all) => { if (!cancelled) setRhythm(familyRhythmLabel(all, m.date)); })
+          .catch(() => {});
+        // Backfill from the submission archives: every member's entry for
+        // THIS meeting's date (multi-line, parents included, 💛 tags).
+        getAllMeetingSubmissionHistory(profile.familyId)
+          .then((docs) => {
+            if (cancelled) return;
+            const rows: Array<{ name: string; emoji?: string; entry: SubmissionHistoryEntry }> = [];
+            for (const d of docs) {
+              const e = (d.entries || []).find((x) => x.date === m.date);
+              if (e) rows.push({ name: (d.name || 'Member').split(' ')[0], emoji: d.emoji, entry: e });
+            }
+            setHistRows(rows);
+          })
           .catch(() => {});
       }
       setParents(members.filter((x) => x.role === 'parent').map((x) => ({
@@ -86,20 +104,48 @@ export default function MeetingNotesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meeting, parents, children]);
 
-  // 💬 Quote of the Night + 🏅 Guest of Honour — from the record itself.
+  // Merge archives + live-typed per-kid maps into display entries. The
+  // archive is primary (full multi-line, parents included); live lines
+  // not already present are appended.
+  const mergedEntries = useMemo(() => {
+    if (!meeting) return { gratitudes: [], appreciations: [], apprTagged: [] as Array<{ name: string; emoji?: string; line: string; tag?: string | null }> , gratLines: [] as Array<{ name: string; emoji?: string; line: string }> };
+    const gratLines: Array<{ name: string; emoji?: string; line: string }> = [];
+    const apprTagged: Array<{ name: string; emoji?: string; line: string; tag?: string | null }> = [];
+    const seenGrat = new Set<string>();
+    const seenAppr = new Set<string>();
+    for (const r of histRows) {
+      for (const g of r.entry.gratitudes || []) {
+        if (g && !seenGrat.has(g)) { seenGrat.add(g); gratLines.push({ name: r.name, emoji: r.emoji, line: g }); }
+      }
+      (r.entry.appreciations || []).forEach((a, i) => {
+        if (a && !seenAppr.has(a)) {
+          seenAppr.add(a);
+          apprTagged.push({ name: r.name, emoji: r.emoji, line: a, tag: r.entry.appreciationTagNames?.[i] ?? (i === 0 ? r.entry.appreciationTagName : null) });
+        }
+      });
+    }
+    for (const [cid, txt] of Object.entries((meeting.gratitude || {}) as Record<string, string>)) {
+      const t = (txt || '').trim();
+      const c = children.find((x) => x.id === cid);
+      if (t && !seenGrat.has(t)) { seenGrat.add(t); gratLines.push({ name: c?.name.split(' ')[0] || 'Kid', emoji: c?.avatarEmoji, line: t }); }
+    }
+    for (const [cid, txt] of Object.entries((meeting.appreciations || {}) as Record<string, string>)) {
+      const t = (txt || '').trim();
+      const c = children.find((x) => x.id === cid);
+      if (t && !seenAppr.has(t)) { seenAppr.add(t); apprTagged.push({ name: c?.name.split(' ')[0] || 'Kid', emoji: c?.avatarEmoji, line: t }); }
+    }
+    return { gratitudes: gratLines, appreciations: apprTagged, apprTagged, gratLines };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meeting, histRows, children]);
+
+  // 💬 Quote of the Night + 🏅 Guest of Honour — from the merged entries
+  // (archives + live), so past meetings get their quote too.
   const quote = useMemo(() => {
     if (!meeting) return null;
-    const toEntries = (map?: Record<string, string>) =>
-      Object.entries((map || {}) as Record<string, string>)
-        .map(([cid, txt]) => ({
-          name: children.find((c) => c.id === cid)?.name.split(' ')[0] || 'Kid',
-          emoji: children.find((c) => c.id === cid)?.avatarEmoji || '🧒',
-          lines: [(txt || '').trim()].filter(Boolean),
-        }))
-        .filter((e) => e.lines.length > 0);
-    return quoteOfTheNight(toEntries(meeting.gratitude), toEntries(meeting.appreciations));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meeting, children]);
+    const g = mergedEntries.gratitudes.map((r) => ({ name: r.name, emoji: r.emoji || '🧒', lines: [r.line] }));
+    const a = mergedEntries.appreciations.map((r) => ({ name: r.name, emoji: r.emoji || '🧒', lines: [r.line] }));
+    return quoteOfTheNight(g, a);
+  }, [meeting, mergedEntries]);
   const guests = useMemo(() => (meeting ? guestOfHonour(meeting) : null), [meeting]);
 
   // Moments — honest to what the record stores.
@@ -211,27 +257,29 @@ export default function MeetingNotesPage() {
         </Section>
       )}
 
-      {/* 🙏 Gratitude */}
-      {Object.values((meeting.gratitude || {}) as Record<string, string>).some((v) => (v || '').trim()) && (
+      {/* 🙏 Gratitude — archives (multi-line, parents incl.) + live lines */}
+      {mergedEntries.gratitudes.length > 0 && (
         <Section icon="🙏" title="Gratitude">
-          {Object.entries((meeting.gratitude || {}) as Record<string, string>).map(([cid, txt]) => {
-            const c = kidName(cid);
-            return (txt || '').trim()
-              ? <Line key={cid} emoji={c?.avatarEmoji || '🧒'} name={c?.name.split(' ')[0] || 'Kid'} text={txt} />
-              : null;
-          })}
+          {mergedEntries.gratitudes.map((r, i) => (
+            <Line key={i} emoji={r.emoji || '🧒'} name={r.name} text={r.line} />
+          ))}
         </Section>
       )}
 
-      {/* 💛 Appreciations */}
-      {Object.values((meeting.appreciations || {}) as Record<string, string>).some((v) => (v || '').trim()) && (
+      {/* 💛 Appreciations — archives + live, with who each was for */}
+      {mergedEntries.appreciations.length > 0 && (
         <Section icon="💛" title="Appreciations">
-          {Object.entries((meeting.appreciations || {}) as Record<string, string>).map(([cid, txt]) => {
-            const c = kidName(cid);
-            return (txt || '').trim()
-              ? <Line key={cid} emoji={c?.avatarEmoji || '🧒'} name={c?.name.split(' ')[0] || 'Kid'} text={`“${txt}”`} />
-              : null;
-          })}
+          {mergedEntries.appreciations.map((r, i) => (
+            <Line
+              key={i}
+              emoji={r.emoji || '🧒'}
+              name={r.name}
+              text={`“${r.line}”`}
+              extra={r.tag ? (
+                <span className="ml-1.5 text-[10.5px] font-extrabold px-2 py-0.5 rounded-full align-middle" style={{ background: '#F3ECFF', color: '#6b3fb0' }}>💛 {r.tag}</span>
+              ) : undefined}
+            />
+          ))}
         </Section>
       )}
 
@@ -345,6 +393,10 @@ export default function MeetingNotesPage() {
           parents={parents}
           myEmail={profile?.email || ''}
           rhythmLabel={rhythm}
+          entries={{
+            gratitudes: mergedEntries.gratitudes.map((r) => ({ name: r.name, emoji: r.emoji || '🧒', lines: [r.line] })),
+            appreciations: mergedEntries.appreciations.map((r) => ({ name: r.name, emoji: r.emoji || '🧒', lines: [r.tag ? `${r.line} (for ${r.tag})` : r.line] })),
+          }}
           onClose={() => setShareOpen(false)}
         />
       )}
@@ -356,13 +408,14 @@ export default function MeetingNotesPage() {
 // Recipients per the approved design: 🙋 Just me · 👨‍👩‍👧‍👦 All participants
 // (attendees with an email on file) · ☑️ Choose members · ✉️ Other emails.
 // Sends via the existing meeting-recap email route.
-function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhythmLabel, onClose }: {
+function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhythmLabel, entries, onClose }: {
   family: NonNullable<ReturnType<typeof useFamily>['family']>;
   meeting: Meeting;
   childrenList: ReturnType<typeof useFamily>['children'];
   parents: Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>;
   myEmail: string;
   rhythmLabel?: string | null;
+  entries?: { gratitudes: Array<{ name: string; emoji: string; lines: string[] }>; appreciations: Array<{ name: string; emoji: string; lines: string[] }> };
   onClose: () => void;
 }) {
   type Mode = 'me' | 'all' | 'pick' | 'email';
@@ -411,7 +464,7 @@ function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhyt
     if (recipients.length === 0) { setError(mode === 'email' ? 'Type at least one valid email.' : 'Nobody in that group has an email on file.'); return; }
     setSending(true);
     try {
-      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients, rhythmLabel });
+      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients, rhythmLabel, entries });
       setSentTo(recipients.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not send — please try again.');
