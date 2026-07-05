@@ -38,7 +38,8 @@ import {
   readDriversConfig, driversKindMeta, fuelUnitFor, fetchRecentFuelFills,
 } from '@/lib/purchase';
 import { fetchVehicleOdometer, fetchOdometerStats, logOdometerReading } from '@/lib/driversOdometer';
-import { computeServiceDue, localTodayIso } from '@/lib/vehicleService';
+import { computeServiceDue, addMonthsIso, localTodayIso } from '@/lib/vehicleService';
+import { scanServiceCard } from '@/lib/serviceCardScan';
 import { readFamilyUnits, kmToDisplay, displayToKm, formatDistance, type DistanceUnit, type FuelVolumeUnit } from '@/lib/units';
 import type { EditActor, PayrollEditLogEntry } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
@@ -54,7 +55,7 @@ import {
   DIRECTORY_STAPLES, DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES,
 } from '@/lib/pantryDirectory';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
-import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, vehicleFuelLabel, type Vehicle, type VehicleFuel } from '@/lib/vehicles';
+import { subscribeToVehicles, setVehicleNextService, vehicleEmoji, vehicleTypeLabel, vehicleFuelLabel, type Vehicle, type VehicleFuel } from '@/lib/vehicles';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { currencyAllowsDecimals } from '@/lib/hive';
 import NumberInput from '@/components/hive/NumberInput';
@@ -3834,6 +3835,14 @@ function ServiceStatusCard({
   const svcDistU: DistanceUnit = readFamilyUnits(svcFamily).distance;
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [stats, setStats] = useState<{ lastKm: number | null; kmPerDay: number | null } | null>(null);
+  // v2.2 — post-close sticker capture: next-km/date inputs (pre-filled
+  // from the derived schedule when one exists) + 📷 service-card scan.
+  const [capKm, setCapKm] = useState('');
+  const [capDate, setCapDate] = useState('');
+  const [capSeeded, setCapSeeded] = useState(false);
+  const [capScanBusy, setCapScanBusy] = useState(false);
+  const [capSaving, setCapSaving] = useState(false);
+  const [capMsg, setCapMsg] = useState('');
 
   useEffect(() => {
     const unsub = subscribeToVehicles(familyId, (vs) => {
@@ -3846,7 +3855,138 @@ function ServiceStatusCard({
     return () => { cancelled = true; unsub(); };
   }, [familyId, vehicleId]);
 
+  // Seed the capture inputs ONCE from the derived schedule (baseline
+  // just reset by this close + interval) — one tap to accept, or edit
+  // to the sticker's real numbers.
+  useEffect(() => {
+    if (!vehicle || capSeeded || !postCloseNudge) return;
+    if (vehicle.nextServiceKm != null || vehicle.nextServiceDate) { setCapSeeded(true); return; }
+    if (vehicle.serviceBaselineKm != null && vehicle.serviceIntervalKm) {
+      setCapKm(String(kmToDisplay(vehicle.serviceBaselineKm + vehicle.serviceIntervalKm, svcDistU)));
+    }
+    if (vehicle.serviceBaselineDate && vehicle.serviceIntervalMonths) {
+      const d = addMonthsIso(vehicle.serviceBaselineDate, vehicle.serviceIntervalMonths);
+      if (d) setCapDate(d);
+    }
+    setCapSeeded(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vehicle, capSeeded, postCloseNudge]);
+
   if (!vehicle) return null;
+
+  // v2.2 — the scan pre-fills; a human always reviews before Save.
+  const onScanServiceCard = async (file: File) => {
+    setCapScanBusy(true);
+    setCapMsg('');
+    try {
+      const r = await scanServiceCard(file);
+      if (!r) {
+        setCapMsg(sw ? 'Skani haipo — andika mwenyewe.' : 'Scan not configured — type it in.');
+        return;
+      }
+      if (r.nextServiceOdo != null) {
+        // Sticker unit wins when printed; else assume the family's unit.
+        const canonicalKm = r.odoUnit === 'mi'
+          ? Math.round(r.nextServiceOdo / 0.621371)
+          : r.odoUnit === 'km' ? r.nextServiceOdo
+          : displayToKm(r.nextServiceOdo, svcDistU);
+        setCapKm(String(kmToDisplay(canonicalKm, svcDistU)));
+      }
+      if (r.nextServiceDate) setCapDate(r.nextServiceDate);
+      setCapMsg(r.nextServiceOdo != null || r.nextServiceDate
+        ? (sw ? '✓ imesomwa kwenye kadi — hakiki kisha hifadhi' : '✓ read from the card — check, then save')
+        : (sw ? 'Haikusomeka — andika mwenyewe.' : 'Couldn’t read the card — type it in.'));
+    } catch {
+      setCapMsg(sw ? 'Skani imeshindikana — andika mwenyewe.' : 'Scan failed — type it in.');
+    } finally {
+      setCapScanBusy(false);
+    }
+  };
+
+  const saveCapture = async () => {
+    const n = parseFloat(capKm);
+    const kmVal = Number.isFinite(n) && n > 0 ? displayToKm(n, svcDistU) : null;
+    const dateOk = /^\d{4}-\d{2}-\d{2}$/.test(capDate);
+    if (kmVal == null && !dateOk) return;
+    setCapSaving(true);
+    try {
+      await setVehicleNextService(familyId, vehicleId, {
+        ...(kmVal != null ? { nextServiceKm: kmVal } : {}),
+        ...(dateOk ? { nextServiceDate: capDate } : {}),
+      });
+      // The vehicles subscription flips this card to the status view.
+    } finally {
+      setCapSaving(false);
+    }
+  };
+
+  const hasTargets = vehicle.nextServiceKm != null || !!vehicle.nextServiceDate;
+  // v2.2 — EVERY closed Service request prompts for the new sticker
+  // until targets exist (Elia 2026-07-05: "so that there is update").
+  if (postCloseNudge && !hasTargets) {
+    const capKmNum = parseFloat(capKm);
+    const capValid = (Number.isFinite(capKmNum) && capKmNum > 0) || /^\d{4}-\d{2}-\d{2}$/.test(capDate);
+    return (
+      <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3.5 mb-3">
+        <p className="font-nunito font-extrabold text-[14px]">
+          🛠️ {vehicle.label} {sw ? 'service imefungwa' : 'service closed'}
+          {typeof closedAtKm === 'number' && closedAtKm > 0 ? ` · ${formatDistance(closedAtKm, svcDistU)}` : ''}
+        </p>
+        <p className="text-[12px] text-hive-muted font-bold mt-1 mb-2">
+          {sw
+            ? 'Mzunguko mpya umeanza. Andika namba za stika mpya — au piga picha ya kadi ya service.'
+            : 'New cycle started. Type the new sticker’s numbers — or scan the service card.'}
+        </p>
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <label className="bg-white border border-hive-line rounded-xl px-3 py-2">
+            <span className="block text-[10px] text-hive-muted font-bold">
+              {sw ? 'Odometa ya service ijayo' : 'Next service odometer'} ({svcDistU})
+            </span>
+            <input
+              type="number" inputMode="numeric"
+              value={capKm}
+              onChange={(e) => setCapKm(e.target.value)}
+              className="w-full font-nunito font-extrabold text-[15px] outline-none bg-transparent"
+            />
+          </label>
+          <label className="bg-white border border-hive-line rounded-xl px-3 py-2">
+            <span className="block text-[10px] text-hive-muted font-bold">
+              {sw ? 'Tarehe ya service ijayo' : 'Next service date'}
+            </span>
+            <input
+              type="date"
+              value={capDate}
+              onChange={(e) => setCapDate(e.target.value)}
+              className="w-full font-nunito font-extrabold text-[13px] outline-none bg-transparent"
+            />
+          </label>
+        </div>
+        <div className="flex gap-2">
+          <label className={`flex-1 text-center bg-white border border-hive-honey text-hive-honey-dk rounded-full px-3 py-2 text-[12px] font-nunito font-extrabold cursor-pointer ${capScanBusy ? 'opacity-60' : ''}`}>
+            {capScanBusy ? (sw ? 'Inasoma…' : 'Reading…') : `📷 ${sw ? 'Piga picha ya kadi' : 'Scan service card'}`}
+            <input
+              type="file" accept="image/*" capture="environment" className="hidden"
+              disabled={capScanBusy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (f) void onScanServiceCard(f);
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={saveCapture}
+            disabled={capSaving || !capValid}
+            className="flex-1 bg-pantry-leaf text-white rounded-full px-3 py-2 text-[12px] font-nunito font-black disabled:opacity-50"
+          >
+            {capSaving ? (sw ? 'Inahifadhi…' : 'Saving…') : `🎯 ${sw ? 'Hifadhi lengo' : 'Save target'}`}
+          </button>
+        </div>
+        {capMsg && <p className="text-[11px] text-hive-muted font-bold mt-1.5">{capMsg}</p>}
+      </div>
+    );
+  }
   const due = computeServiceDue({
     intervalKm: vehicle.serviceIntervalKm,
     intervalMonths: vehicle.serviceIntervalMonths,
@@ -3860,29 +4000,9 @@ function ServiceStatusCard({
   });
 
   if (!due.configured) {
-    // v2.1 — the sticker was consumed by this close and nothing can
-    // derive the next due: one-tap deep link to type the new sticker.
-    if (postCloseNudge) {
-      return (
-        <div className="bg-[#FFF3D9] border border-hive-honey rounded-hive p-3.5 mb-3">
-          <p className="font-nunito font-extrabold text-[14px]">
-            🛠️ {vehicle.label} {sw ? 'service imefungwa' : 'service closed'}
-            {typeof closedAtKm === 'number' && closedAtKm > 0 ? ` · ${formatDistance(closedAtKm, svcDistU)}` : ''}
-          </p>
-          <p className="text-[12px] text-hive-muted font-bold mt-1">
-            {sw
-              ? 'Mzunguko mpya umeanza. Umepata stika mpya? Weka lengo kwenye Setup.'
-              : 'New cycle started. Got the next sticker? Add the target so the countdown keeps running.'}
-          </p>
-          <Link
-            href="/pantry/setup/vehicles"
-            className="inline-block mt-2 bg-white border border-hive-honey text-hive-honey-dk rounded-full px-3 py-1.5 text-[12px] font-nunito font-extrabold no-underline"
-          >
-            🎯 {sw ? 'Weka lengo la service' : 'Add next service target'} →
-          </Link>
-        </div>
-      );
-    }
+    // v2.2 — the post-close case is handled by the capture card above;
+    // this dashed hint is for OPEN service requests on unconfigured
+    // vehicles.
     return (
       <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-3.5 mb-3">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-1">
