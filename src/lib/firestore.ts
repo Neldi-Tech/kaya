@@ -2879,6 +2879,21 @@ export async function getMeetings(familyId: string): Promise<Meeting[]> {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Meeting));
 }
 
+/** Extended meeting fetch for the Highlights analytics tab (2026-07-05).
+ *  The hub list caps at 20, but the year/month streak filters need the
+ *  full archive — ~6 years of weekly meetings fits the 300 cap. One-shot
+ *  read, loaded only when the Highlights tab mounts. */
+export async function getAllMeetings(familyId: string, max = 300): Promise<Meeting[]> {
+  if (isGuestActive()) return [];
+  const q = query(
+    collection(db, 'families', familyId, 'meetings'),
+    orderBy('createdAt', 'desc'),
+    limit(max)
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Meeting));
+}
+
 // ── Rewards Operations ────────────────────────────
 export async function getRewards(familyId: string): Promise<Reward[]> {
   if (isGuestActive()) return MOCK_REWARDS;
