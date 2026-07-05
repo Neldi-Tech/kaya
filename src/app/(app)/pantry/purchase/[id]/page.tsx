@@ -35,7 +35,9 @@ import {
   readPurchaseConfig, bandPctFor, priceBandRange, priceWithinBand,
   resolvePriceException, hasUnresolvedPriceException,
   setRequestBudgetMonth, budgetMonthKeyFor, editPayrollPeriod, markSalaryPaid,
+  readDriversConfig, driversKindMeta, fuelUnitFor, fetchRecentFuelFills,
 } from '@/lib/purchase';
+import { fetchVehicleOdometer, logOdometerReading } from '@/lib/driversOdometer';
 import type { EditActor, PayrollEditLogEntry } from '@/lib/purchase';
 import { listHelpers } from '@/lib/helpers';
 import type { HelperLink } from '@/lib/firestore';
@@ -50,7 +52,7 @@ import {
   DIRECTORY_STAPLES, DIRECTORY_OUTDOOR, DIRECTORY_DRIVERS, DIRECTORY_UTILITIES,
 } from '@/lib/pantryDirectory';
 import { subscribeToMeters, meterEmoji, meterLabel, type UtilityMeter } from '@/lib/utilityMeters';
-import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, type Vehicle } from '@/lib/vehicles';
+import { subscribeToVehicles, vehicleEmoji, vehicleTypeLabel, vehicleFuelLabel, type Vehicle, type VehicleFuel } from '@/lib/vehicles';
 import { formatCents, formatCentsBudgetNeat } from '@/components/pantry/format';
 import { currencyAllowsDecimals } from '@/lib/hive';
 import NumberInput from '@/components/hive/NumberInput';
@@ -159,6 +161,15 @@ export default function PurchaseDetailPage() {
   const [scanFile, setScanFile] = useState<File | null>(null);
   const [receiptError, setReceiptError] = useState('');
 
+  // ── Drivers v2 — odometer capture (2026-07-05) ────────────────────
+  // The reading is typed here, stamped on the request doc, and mirrored
+  // into the Pulse ledger at send time. `odoLast` holds the ledger's
+  // latest reading for monotonic + jump-band validation (Screen B2).
+  const [odoValue, setOdoValue] = useState('');
+  const [odoSeeded, setOdoSeeded] = useState(false);
+  const [odoConfirmedJump, setOdoConfirmedJump] = useState(false);
+  const [odoLast, setOdoLast] = useState<{ lastKm: number | null; capturedAtMs: number | null } | null>(null);
+
   useEffect(() => {
     if (!profile?.familyId || !requestId) { setLoading(false); return; }
     const t = setTimeout(() => setLoading(false), 1500);
@@ -168,6 +179,25 @@ export default function PurchaseDetailPage() {
     });
     return () => { clearTimeout(t); unsub(); };
   }, [profile?.familyId, requestId]);
+
+  // Seed the odometer input from the request doc once, and fetch the
+  // vehicle's latest ledger reading for the "Last:" line + validation.
+  useEffect(() => {
+    if (!req || req.module !== 'drivers') return;
+    if (!odoSeeded) {
+      if (typeof req.odometerKm === 'number' && req.odometerKm > 0) setOdoValue(String(req.odometerKm));
+      setOdoSeeded(true);
+    }
+  }, [req, odoSeeded]);
+  useEffect(() => {
+    if (!profile?.familyId || !req?.vehicleId || req.module !== 'drivers') return;
+    let cancelled = false;
+    void fetchVehicleOdometer(profile.familyId, req.vehicleId).then((info) => {
+      if (!cancelled) setOdoLast({ lastKm: info.lastKm, capturedAtMs: info.capturedAtMs });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.familyId, req?.vehicleId, req?.module]);
 
   if (loading) {
     return <div className="mx-auto max-w-md w-full px-4 pt-16 text-center text-hive-muted text-sm">Loading…</div>;
@@ -206,6 +236,86 @@ export default function PurchaseDetailPage() {
   // `addedDuringReconcile` flag so the audit trail makes ad-hoc
   // additions obvious.
   const canAddItems = editable || reconcilable;
+
+  // ── Drivers v2 — odometer validation (Screen B2 guardrails) ───────
+  const driversCfg = readDriversConfig(family);
+  const isDrivers = req.module === 'drivers';
+  const odoNum = (() => {
+    const n = parseFloat(odoValue);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  })();
+  const odoLastKm = odoLast?.lastKm ?? null;
+  // Below the last ledger reading → hard block (readings only go up).
+  const odoBelowLast = odoNum != null && odoLastKm != null && odoNum < odoLastKm;
+  // Jump beyond the sanity band → needs an explicit confirm.
+  const odoJumpKm = odoNum != null && odoLastKm != null ? odoNum - odoLastKm : 0;
+  const odoBigJump = odoNum != null && odoLastKm != null
+    && odoJumpKm > driversCfg.odometerJumpBandKm && !odoConfirmedJump;
+  // Typo rescue: 850,000 was probably 85,000 — suggest value÷10 when
+  // that lands plausibly above the last reading and inside the band.
+  const odoSuggestion = (() => {
+    if (!odoBigJump || odoNum == null || odoLastKm == null) return null;
+    const s = Math.round(odoNum / 10);
+    return s >= odoLastKm && s - odoLastKm <= driversCfg.odometerJumpBandKm ? s : null;
+  })();
+  // Helpers can't send without a reading when the parent toggle is on;
+  // parents are nudged, never blocked (lock #3 of the closed logic).
+  const odoMissingMandatory = isDrivers && !!req.vehicleId && role === 'helper'
+    && driversCfg.odometerMandatoryForHelpers && odoNum == null;
+  const odoSendBlocked = isDrivers && !!req.vehicleId
+    && (odoMissingMandatory || odoBelowLast || odoBigJump);
+
+  // Fuel form (Screen B) — the structured litres × price line. The
+  // FuelCard owns the inputs; this handler maintains the single
+  // `isFuelLine` item so totals, approval and reconcile all keep
+  // working on the plain items array underneath.
+  const commitFuelLine = async (units: number, priceCents: number) => {
+    const fuelName = req.fuelType
+      ? `⛽ Fuel — ${vehicleFuelLabel(req.fuelType as VehicleFuel)}`
+      : '⛽ Fuel';
+    const unit = fuelUnitFor(req.fuelType);
+    const existing = req.items.find((i) => i.isFuelLine);
+    const next: PurchaseRequestItem[] = existing
+      ? req.items.map((i) => (i.isFuelLine
+        ? { ...i, name: fuelName, unit, qty: units, estimatedCents: priceCents }
+        : i))
+      : [
+        {
+          id: cryptoRandomId(),
+          name: fuelName,
+          unit,
+          qty: units,
+          estimatedCents: priceCents,
+          isFuelLine: true,
+        },
+        ...req.items,
+      ];
+    await patchItems(next);
+  };
+
+  // Persist the stamp on the request doc + mirror into the Pulse
+  // ledger. Ledger write is fire-and-forget — a logging hiccup must
+  // never block the send itself.
+  const persistOdometer = async () => {
+    if (!profile?.familyId || !profile.uid || !isDrivers || !req.vehicleId) return;
+    if (odoNum == null || odoBelowLast) return;
+    try {
+      if (req.odometerKm !== odoNum) {
+        await updateRequestMeta(profile.familyId, req.id, { odometerKm: odoNum });
+      }
+      void logOdometerReading({
+        familyId: profile.familyId,
+        vehicleId: req.vehicleId,
+        requestId: req.id,
+        valueKm: odoNum,
+        capturedBy: profile.uid,
+        capturedByKind: role,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[drivers] persistOdometer failed:', e);
+    }
+  };
 
   // ── Item mutations ───────────────────────────────────────────
 
@@ -350,8 +460,10 @@ export default function PurchaseDetailPage() {
 
   const send = async () => {
     if (!profile?.familyId || req.items.length === 0) return;
+    if (odoSendBlocked) return; // Screen B2 guardrails (belt + braces)
     setBusy(true);
     try {
+      await persistOdometer();
       await sendForApproval(profile.familyId, req.id);
       // Notify parents that a request needs approval. Fire-and-forget —
       // a notify failure (rule mis-deploy, etc.) shouldn't block the
@@ -382,6 +494,7 @@ export default function PurchaseDetailPage() {
     if (!profile?.familyId || !profile.uid || directCents == null) return;
     setBusy(true);
     try {
+      await persistOdometer(); // parents: optional but captured when given
       await postDraftToBudget(profile.familyId, req.id, profile.uid, directCents);
       setDirectCents(null);
     } finally { setBusy(false); }
@@ -1078,6 +1191,122 @@ export default function PurchaseDetailPage() {
         <VehicleBanner familyId={profile!.familyId!} vehicleId={req.vehicleId} />
       )}
 
+      {/* Drivers v2 (2026-07-05) — kind chip: what this request IS.
+          Legacy requests without a kind skip the row entirely. */}
+      {isDrivers && req.kind && (() => {
+        const km = driversKindMeta(req.kind);
+        return km && (
+          <div className="flex items-center gap-1.5 mb-3 -mt-1">
+            <span className="bg-pantry-leaf-soft text-pantry-leaf-dk rounded-full px-2.5 py-1 text-[11px] font-nunito font-extrabold">
+              {km.emoji} {km.label}
+            </span>
+            {req.kind === 'fuel' && req.fuelType && (
+              <span className="bg-hive-paper border border-hive-line rounded-full px-2.5 py-1 text-[11px] font-nunito font-bold text-hive-muted">
+                {vehicleFuelLabel(req.fuelType as VehicleFuel)}
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Fuel form (Screen B) — litres × price → auto-amount, price
+          memory pre-fill + deviation chip. Draft/pending only; from
+          reconcile onward the normal items flow takes over. */}
+      {isDrivers && req.kind === 'fuel' && editable && profile?.familyId && (
+        <FuelCard
+          familyId={profile.familyId}
+          req={req}
+          currency={currency}
+          sw={sw}
+          onCommit={commitFuelLine}
+        />
+      )}
+
+      {/* Odometer capture (Screens B + B2) — every Drivers kind. The
+          reading feeds the service schedule via the Pulse ledger. */}
+      {isDrivers && req.vehicleId && (editable ? (
+        <div className="bg-hive-paper border border-hive-line rounded-hive p-3.5 mb-3">
+          <div className="flex items-center justify-between mb-1.5">
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
+              🧭 {sw ? 'Usomaji wa odometa' : 'Odometer'}
+            </p>
+            <span className={`text-[10px] font-nunito font-extrabold rounded-full px-2 py-0.5 ${
+              odoMissingMandatory || (driversCfg.odometerMandatoryForHelpers && role === 'helper')
+                ? 'bg-hive-honey-soft text-hive-honey-dk'
+                : 'bg-hive-cream text-hive-muted'
+            }`}>
+              {driversCfg.odometerMandatoryForHelpers && role === 'helper'
+                ? (sw ? 'inahitajika kwako' : 'required for you')
+                : (sw ? 'si lazima' : 'optional')}
+            </span>
+          </div>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={odoValue}
+            onChange={(e) => { setOdoValue(e.target.value); setOdoConfirmedJump(false); }}
+            onBlur={() => {
+              if (profile?.familyId && odoNum != null && !odoBelowLast && req.odometerKm !== odoNum) {
+                void updateRequestMeta(profile.familyId, req.id, { odometerKm: odoNum });
+              }
+            }}
+            placeholder={sw ? 'Usomaji (km)' : 'Reading (km)'}
+            className={`w-full border rounded-xl px-3 py-2.5 font-nunito font-extrabold text-base bg-white ${
+              odoBelowLast || odoBigJump ? 'border-hive-honey' : 'border-hive-line'
+            }`}
+          />
+          <p className="text-[11px] text-hive-muted font-bold mt-1.5">
+            {odoLastKm != null
+              ? <>{sw ? 'Mwisho' : 'Last'}: <b>{odoLastKm.toLocaleString()} km</b>{odoLast?.capturedAtMs ? ` · ${toDisplayDate(new Date(odoLast.capturedAtMs).toLocaleDateString('en-CA'))}` : ''}</>
+              : (sw ? 'Hakuna usomaji uliopita bado.' : 'No previous reading yet.')}
+            {' '}{sw ? 'Inasaidia ratiba ya service.' : 'Feeds the service schedule.'}
+          </p>
+          {odoBelowLast && (
+            <p className="text-[11px] text-hive-rose font-bold mt-1.5">
+              {sw
+                ? `Usomaji hauwezi kuwa chini ya ${odoLastKm!.toLocaleString()} km iliyorekodiwa.`
+                : `Reading can't be below the last recorded ${odoLastKm!.toLocaleString()} km.`}
+            </p>
+          )}
+          {odoBigJump && (
+            <div className="bg-hive-honey-soft border border-hive-honey rounded-xl p-3 mt-2">
+              <p className="font-nunito font-extrabold text-[13px]">
+                🤔 {sw
+                  ? `Hiyo ni nyongeza ya km ${odoJumpKm.toLocaleString()} tangu mara ya mwisho.`
+                  : `That's a jump of ${odoJumpKm.toLocaleString()} km since the last reading.`}
+              </p>
+              <p className="text-[11px] text-hive-muted font-bold mt-1">
+                {sw
+                  ? 'Tafadhali hakiki namba kwenye dashibodi.'
+                  : 'Readings only go up, and big jumps get double-checked. Please confirm the number on the dash.'}
+              </p>
+              <div className="flex gap-2 mt-2">
+                {odoSuggestion != null && (
+                  <button
+                    type="button"
+                    onClick={() => { setOdoValue(String(odoSuggestion)); setOdoConfirmedJump(false); }}
+                    className="bg-white border border-hive-line rounded-full px-3 py-1.5 text-[12px] font-nunito font-extrabold"
+                  >
+                    {sw ? 'Tumia' : 'Use'} {odoSuggestion.toLocaleString()}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setOdoConfirmedJump(true)}
+                  className="bg-white border border-hive-line rounded-full px-3 py-1.5 text-[12px] font-nunito font-extrabold"
+                >
+                  {sw ? 'Nimeandika sahihi' : 'I typed it right'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (typeof req.odometerKm === 'number' && req.odometerKm > 0 && (
+        <p className="text-[11px] text-hive-muted font-bold mb-3 -mt-1">
+          🧭 {sw ? 'Odometa' : 'Odometer'} <b>{req.odometerKm.toLocaleString()} km</b>
+        </p>
+      )))}
+
       {/* Auto-generated payroll paystub (v3 — 2026-05-19). Renders
           the cycle summary in a tight pill row so the parent sees
           basic + allowances − deductions = net at a glance before
@@ -1589,11 +1818,18 @@ export default function PurchaseDetailPage() {
             <button
               type="button"
               onClick={send}
-              disabled={busy || req.items.length === 0 || isGuest}
+              disabled={busy || req.items.length === 0 || isGuest || odoSendBlocked}
               className="bg-pantry-leaf text-white rounded-hive py-3.5 font-nunito font-black text-sm shadow-lg shadow-pantry-leaf/30 disabled:opacity-60"
             >
-              Send for approval →
+              {sw ? 'Tuma kwa ukaguzi →' : 'Send for approval →'}
             </button>
+            {odoMissingMandatory && (
+              <p className="text-[11px] text-hive-honey-dk font-bold text-center -mt-0.5">
+                🧭 {sw
+                  ? 'Jaza usomaji wa odometa kwanza — unahitajika kwenye familia hii.'
+                  : 'Enter the odometer reading first — it’s required in this family.'}
+              </p>
+            )}
 
             {/* Parent fast-path: skip approval + reconcile and post the
                 spend straight to the budget. Helpers never see this. */}
@@ -3428,6 +3664,126 @@ function PayrollPaystubBanner({
           <p className="text-hive-muted uppercase tracking-wider text-[9px] font-bold">Net</p>
           <p className="font-nunito font-black text-sm text-[#5E4A8F] break-words">{formatCents(cycle.netCents, currency)}</p>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Fuel form (Drivers v2 — Screen B, 2026-07-05) ─────────────────
+// Litres × price-per-unit → auto-amount. The price pre-fills from the
+// family's last RECONCILED fuel price for the same fuel type (the
+// price memory) and chips the deviation when the entered price moves.
+// The unit follows the vehicle's fuel (L / kWh / kg). Commits a single
+// `isFuelLine` item into the normal basket on blur, so approval,
+// reconcile, guardrails and Finances all keep working untouched.
+function FuelCard({
+  familyId, req, currency, sw, onCommit,
+}: {
+  familyId: string;
+  req: PurchaseRequest;
+  currency: string;
+  sw: boolean;
+  onCommit: (units: number, priceCents: number) => void | Promise<void>;
+}) {
+  const line = req.items.find((i) => i.isFuelLine);
+  const unit = fuelUnitFor(req.fuelType);
+  const unitWord = unit === 'L' ? (sw ? 'lita' : 'litre') : unit;
+  const [units, setUnits] = useState(line ? String(line.qty) : '');
+  const [price, setPrice] = useState(
+    line?.estimatedCents ? String(line.estimatedCents / 100) : '',
+  );
+  const [lastPrice, setLastPrice] = useState<number | null>(null);
+  const [lastAtMs, setLastAtMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchRecentFuelFills(familyId, {
+      ...(req.fuelType ? { fuelType: req.fuelType } : {}),
+      max: 1,
+    }).then((fills) => {
+      if (cancelled || fills.length === 0) return;
+      setLastPrice(fills[0].pricePerUnitCents);
+      setLastAtMs(fills[0].closedAtMs || null);
+      // Pre-fill from memory only while the field is still blank.
+      setPrice((p) => (p === '' ? String(fills[0].pricePerUnitCents / 100) : p));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyId]);
+
+  const unitsNum = parseFloat(units);
+  const priceCents = price === '' ? null : Math.round(parseFloat(price) * 100);
+  const valid = Number.isFinite(unitsNum) && unitsNum > 0
+    && priceCents != null && Number.isFinite(priceCents) && priceCents > 0;
+  const amount = valid ? Math.round(unitsNum * (priceCents as number)) : null;
+  const devPct = valid && lastPrice
+    ? (((priceCents as number) - lastPrice) / lastPrice) * 100
+    : null;
+
+  const commit = () => { if (valid) void onCommit(unitsNum, priceCents as number); };
+
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-3.5 mb-3">
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-2">
+        ⛽ {sw ? 'Maelezo ya mafuta' : 'Fuel details'}
+        {req.fuelType ? ` · ${vehicleFuelLabel(req.fuelType as VehicleFuel)}` : ''}
+      </p>
+      <div className="flex flex-col gap-2">
+        <label className="flex items-center justify-between bg-white border border-hive-line rounded-xl px-3 py-2.5 gap-3">
+          <span className="text-[13px] text-hive-muted font-bold">
+            {unit === 'L' ? (sw ? 'Lita' : 'Litres') : unit}
+          </span>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={units}
+            onChange={(e) => setUnits(e.target.value)}
+            onBlur={commit}
+            placeholder="0"
+            className="w-28 text-right font-nunito font-extrabold text-base outline-none bg-transparent"
+          />
+        </label>
+        <label className="flex items-center justify-between bg-white border border-hive-line rounded-xl px-3 py-2.5 gap-3">
+          <span className="text-[13px] text-hive-muted font-bold">
+            {sw ? `Bei kwa ${unitWord}` : `Price per ${unitWord}`}
+          </span>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            onBlur={commit}
+            placeholder="0"
+            className="w-32 text-right font-nunito font-extrabold text-base outline-none bg-transparent"
+          />
+        </label>
+        {devPct != null && Math.abs(devPct) >= 0.5 && lastPrice != null && (
+          <div className="flex items-center justify-between px-1">
+            <span className={`rounded-full px-2.5 py-1 text-[11px] font-nunito font-extrabold ${
+              devPct > 0 ? 'bg-hive-rose/10 text-hive-rose' : 'bg-pantry-leaf-soft text-pantry-leaf-dk'
+            }`}>
+              {devPct > 0 ? '▲ +' : '▼ '}{devPct.toFixed(1)}% {sw ? 'kuliko mara ya mwisho' : 'vs last'} ({formatCents(lastPrice, currency)})
+            </span>
+            {lastAtMs ? (
+              <span className="text-[10px] text-hive-muted font-bold">
+                {sw ? 'bei halisi' : 'last actual'} · {toDisplayDate(new Date(lastAtMs).toLocaleDateString('en-CA'))}
+              </span>
+            ) : null}
+          </div>
+        )}
+        <div className="flex items-center justify-between bg-pantry-leaf-soft border border-pantry-leaf rounded-xl px-3 py-2.5">
+          <span className="text-[13px] text-pantry-leaf-dk font-bold">
+            {sw ? 'Kiasi — otomatiki' : 'Amount — auto'}
+          </span>
+          <span className="font-nunito font-black text-base text-pantry-leaf-dk">
+            {amount != null ? formatCents(amount, currency) : '—'}
+          </span>
+        </div>
+        <p className="text-[10px] text-hive-muted font-bold">
+          🔢 {sw
+            ? `Kiasi ni ${unitWord} × bei kila mara — hakuna kuandika jumla.`
+            : `Amount is always ${unit === 'L' ? 'litres' : unit} × price — no typing totals, no typo-inflation.`}
+        </p>
       </div>
     </div>
   );

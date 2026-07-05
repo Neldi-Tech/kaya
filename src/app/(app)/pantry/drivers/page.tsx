@@ -19,6 +19,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   type PurchaseRequest,
+  type DriversRequestKind,
+  DRIVERS_KINDS,
   STATUS_LABEL,
   subscribeToOpenRequests,
   subscribeToRecentRequests,
@@ -135,35 +137,57 @@ export default function DriversHomePage() {
   const drafts = open.filter((r) => r.status === 'draft');
   const inProgress = open.filter((r) => r.status === 'approved' || r.status === 'reconciling');
 
+  // Drivers v2 (2026-07-05) — after the vehicle pick, a second step
+  // asks WHAT the request is (fuel / maintenance / service / other).
+  // `kindStage` holds the picked vehicle while the kind panel shows;
+  // undefined = panel closed (null = "skip vehicle" was chosen).
+  const [kindStage, setKindStage] = useState<Vehicle | null | undefined>(undefined);
+
   const startDraftWithVehicle = async (vehicle: Vehicle | null) => {
     if (!profile?.familyId || !profile.uid || isGuest) return;
-    setCreating(true);
     setShowPicker(false);
-    try {
-      // If a template is pending, branch — the items come from the
-      // template snapshot, not a fresh basket.
-      let id: string;
-      if (pendingTemplateId) {
-        id = await createDraftFromTemplate(profile.familyId, pendingTemplateId, {
+    // Template drafts carry their own basket — the kind step doesn't
+    // apply; they stay the generic mixed shape.
+    if (pendingTemplateId) {
+      setCreating(true);
+      try {
+        const id = await createDraftFromTemplate(profile.familyId, pendingTemplateId, {
           createdBy: profile.uid,
           createdByRole: role,
           vehicleId: vehicle?.id,
           context: vehicle?.label,
         });
         setPendingTemplateId(null);
-      } else {
-        id = await createDraftRequest(profile.familyId, {
-          context: vehicle?.label,
-          createdBy: profile.uid,
-          createdByRole: role,
-          module: 'drivers',
-          vehicleId: vehicle?.id,
-        });
+        router.push(`/pantry/purchase/${id}`);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[drivers] startDraftWithVehicle failed:', e);
+        setCreating(false);
       }
+      return;
+    }
+    setKindStage(vehicle);
+  };
+
+  const createWithKind = async (kind: DriversRequestKind) => {
+    if (!profile?.familyId || !profile.uid || isGuest) return;
+    const vehicle = kindStage ?? null;
+    setCreating(true);
+    setKindStage(undefined);
+    try {
+      const id = await createDraftRequest(profile.familyId, {
+        context: vehicle?.label,
+        createdBy: profile.uid,
+        createdByRole: role,
+        module: 'drivers',
+        vehicleId: vehicle?.id,
+        kind,
+        fuelType: vehicle?.fuel,
+      });
       router.push(`/pantry/purchase/${id}`);
     } catch (e) {
       // eslint-disable-next-line no-console
-      console.error('[drivers] startDraftWithVehicle failed:', e);
+      console.error('[drivers] createWithKind failed:', e);
       setCreating(false);
     }
   };
@@ -264,6 +288,41 @@ export default function DriversHomePage() {
           <button
             type="button"
             onClick={() => { setShowPicker(false); setPendingTemplateId(null); }}
+            className="text-[11px] text-hive-muted underline mt-2"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Kind picker — step 2 of "+ New driver request" (Drivers v2,
+          2026-07-05). Four big tap targets; the kind shapes the form
+          on the detail page (fuel = litres × price, service = resets
+          the schedule). */}
+      {kindStage !== undefined && (
+        <div className="bg-hive-paper border border-pantry-leaf rounded-hive p-3 mb-3">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-pantry-leaf-dk mb-0.5">
+            {kindStage ? `New request · ${kindStage.label}` : 'New request'}
+          </p>
+          <p className="font-nunito font-black text-base mb-2">What is this for?</p>
+          <div className="grid grid-cols-2 gap-1.5">
+            {DRIVERS_KINDS.map((k) => (
+              <button
+                key={k.id}
+                type="button"
+                onClick={() => createWithKind(k.id)}
+                disabled={creating}
+                className="text-center bg-white border-2 border-hive-line rounded-hive p-3 hover:border-pantry-leaf disabled:opacity-60"
+              >
+                <span className="block text-2xl mb-1">{k.emoji}</span>
+                <span className="block font-nunito font-extrabold text-sm">{k.label}</span>
+                <span className="block text-[10px] text-hive-muted font-bold mt-0.5 leading-tight">{k.sub}</span>
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setKindStage(undefined)}
             className="text-[11px] text-hive-muted underline mt-2"
           >
             Cancel

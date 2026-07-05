@@ -311,6 +311,11 @@ export interface Family {
   // `PurchaseConfig` in `src/lib/purchase.ts`; persisted as a partial and
   // merged with DEFAULT_PURCHASE_CONFIG by `readPurchaseConfig(family)`.
   purchaseConfig?: Partial<import('./purchase').PurchaseConfig>;
+  // ── Drivers v2 odometer guardrails (2026-07-05) ──
+  // Parent toggle: odometer mandatory for helpers on Drivers requests,
+  // plus the big-jump sanity band. Canonical shape is `DriversConfig`
+  // in `src/lib/purchase.ts`; merged by `readDriversConfig(family)`.
+  driversConfig?: Partial<import('./purchase').DriversConfig>;
   // ── External email contacts ──────────────────────────────────
   // Email-only contacts (grandparents, godparents, tutors…) who get
   // the same rating / award notifications as parents/helpers in the
