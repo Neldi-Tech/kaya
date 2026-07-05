@@ -198,7 +198,12 @@ function MeterRow({ meter, familyId, currency, owners, template }: {
       )}
       <DirectionPicker dir={dir} onPick={(d) => { setDir(d); saveConfig(d, thresholdMajor); }} />
       {dir === 'down' && (
-        <ThresholdInput unit={meter.unit} value={thresholdMajor} onChange={setThresholdMajor} onBlur={() => saveConfig(dir, thresholdMajor)} />
+        <>
+          <ThresholdInput unit={meter.unit} value={thresholdMajor} onChange={setThresholdMajor} onBlur={() => saveConfig(dir, thresholdMajor)} />
+          <p className="text-[10px] text-pulse-slate font-bold mt-1">
+            🔔 Alert channels, days-before-empty + auto-request live in <Link href="/pantry/utility-meters" className="underline">Manage meters</Link>.
+          </p>
+        </>
       )}
       <div className="mt-3 pt-3 border-t border-pulse-gold/20">
         <ReaderAssign familyId={familyId} trackableId={meter.id} source="meter" owners={owners} template={template} createdBy={profile?.uid ?? ''} />
