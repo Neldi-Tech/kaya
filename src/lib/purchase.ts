@@ -888,6 +888,46 @@ export async function fetchRecentFuelFills(
   return fills;
 }
 
+/** Lite view of recent CLOSED Drivers requests — feeds the Vehicle
+ *  Health Card (spend vs cap, cost/km) + fleet comparison without
+ *  hauling full item arrays around. Same indexed query shape as the
+ *  recent-requests subscription. */
+export interface DriversClosedLite {
+  requestId: string;
+  vehicleId?: string;
+  kind?: DriversRequestKind;
+  actualTotalCents: number;
+  closedAtMs: number;
+}
+
+export async function fetchRecentDriversClosed(
+  familyId: string,
+  max = 80,
+): Promise<DriversClosedLite[]> {
+  if (isGuestActive()) return [];
+  const q = query(
+    requestCol(familyId),
+    where('module', '==', 'drivers'),
+    where('status', 'in', ['closed', 'rejected']),
+    orderBy('closedAt', 'desc'),
+    limit(max),
+  );
+  const snap = await getDocs(q);
+  const out: DriversClosedLite[] = [];
+  for (const d of snap.docs) {
+    const r = { id: d.id, ...d.data() } as PurchaseRequest;
+    if (r.status !== 'closed') continue;
+    out.push({
+      requestId: r.id,
+      ...(r.vehicleId ? { vehicleId: r.vehicleId } : {}),
+      ...(r.kind ? { kind: r.kind } : {}),
+      actualTotalCents: r.actualTotalCents ?? r.estimatedTotalCents ?? 0,
+      closedAtMs: r.closedAt ? r.closedAt.toMillis() : 0,
+    });
+  }
+  return out;
+}
+
 /** Subscribe to payroll requests pinned to a specific helper.
  *  Required by the v3 confidentiality rule — helpers can only read
  *  payroll docs where `helperUid == their own uid`, so the query

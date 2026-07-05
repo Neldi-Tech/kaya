@@ -65,6 +65,12 @@ export interface OdometerStats extends VehicleOdometerInfo {
    *  that projects "expected 24-Jul at your pace". Null when fewer
    *  than two readings exist. */
   kmPerDay: number | null;
+  /** Km covered this calendar month (ledger first→last inside the
+   *  month, anchored on the last reading BEFORE the month when one
+   *  exists). Null without enough readings. */
+  kmThisMonth: number | null;
+  /** Km covered across the trailing 90-day window (feeds cost/km). */
+  km90d: number | null;
 }
 
 /** Latest reading + km/day run-rate for a vehicle. One extra readings
@@ -74,7 +80,7 @@ export async function fetchOdometerStats(
   familyId: string,
   vehicleId: string,
 ): Promise<OdometerStats> {
-  const empty: OdometerStats = { trackableId: null, lastKm: null, capturedAtMs: null, kmPerDay: null };
+  const empty: OdometerStats = { trackableId: null, lastKm: null, capturedAtMs: null, kmPerDay: null, kmThisMonth: null, km90d: null };
   if (isGuestActive()) return empty;
   try {
     const tq = query(
@@ -114,7 +120,25 @@ export async function fetchOdometerStats(
       const days = (last.atMs - first.atMs) / (24 * 60 * 60 * 1000);
       if (days >= 1) kmPerDay = (last.value - first.value) / days;
     }
-    return { trackableId: odo.id, lastKm: last.value, capturedAtMs: last.atMs, kmPerDay };
+    // 90-day distance (Health Card cost/km denominator).
+    const km90d = windowed.length >= 2 && last.value > first.value
+      ? last.value - first.value
+      : null;
+    // This-month distance: anchor on the last reading BEFORE the month
+    // start when available, else the first reading inside the month.
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const monthStartMs = monthStart.getTime();
+    const before = readings.filter((r) => r.atMs < monthStartMs);
+    const inMonth = readings.filter((r) => r.atMs >= monthStartMs);
+    let kmThisMonth: number | null = null;
+    if (inMonth.length > 0) {
+      const anchor = before.length > 0 ? before[before.length - 1].value : inMonth[0].value;
+      const span = inMonth[inMonth.length - 1].value - anchor;
+      kmThisMonth = span >= 0 ? span : null;
+    }
+    return { trackableId: odo.id, lastKm: last.value, capturedAtMs: last.atMs, kmPerDay, kmThisMonth, km90d };
   } catch {
     return empty;
   }
