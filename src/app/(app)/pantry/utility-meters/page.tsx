@@ -592,6 +592,37 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
             📊 {lastEntry}
           </div>
         )}
+        {/* Honest protection status — mirrors the server engine's guards
+            (direction + threshold) so the chip never claims cover that
+            the engine wouldn't actually provide. Depleting meters only. */}
+        {direction === 'down' && meter.active !== false && (
+          <div className="mt-1">
+            {meter.lowAlertAt && meter.autoTopUpPendingRequestId ? (
+              <Link
+                href={`/pantry/purchase/${meter.autoTopUpPendingRequestId}`}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40"
+              >
+                🔔 LOW · request sent →
+              </Link>
+            ) : meter.lowAlertAt ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40">
+                🔔 LOW{meter.lowAlertBalance != null ? ` · ${meter.lowAlertBalance.toLocaleString()}${meter.unit ? ` ${meter.unit}` : ''} left` : ''}
+              </span>
+            ) : (meter.minUnitsThreshold ?? 0) > 0 ? (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">
+                ✅ Protected · below {meter.minUnitsThreshold}{unitSuffix}
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditing(true)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FFF3D9] text-hive-honey-dk border border-hive-honey/50"
+              >
+                ⚠️ Set protection
+              </button>
+            )}
+          </div>
+        )}
         {meter.reminderDays && meter.reminderDays.length > 0 && (
           <div className="text-[10px] text-hive-honey-dk font-nunito font-extrabold mt-0.5 break-words">
             🔔 Reminds on the {meter.reminderDays.map((d) => ordinalDay(d)).join(', ')}
