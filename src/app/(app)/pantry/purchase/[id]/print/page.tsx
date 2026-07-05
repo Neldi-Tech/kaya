@@ -35,6 +35,7 @@ import {
 import { STAPLE_CATEGORIES } from '@/lib/pantry';
 import { currencyDecimals } from '@/lib/hive';
 import { toDisplayDate } from '@/lib/dates';
+import { qrSvg } from '@/lib/vendor/qrcode';
 
 type Mode = 'shop' | 'quote' | 'record';
 
@@ -77,6 +78,8 @@ export default function PurchasePrintPage() {
   const [emailPicked, setEmailPicked] = useState<Record<string, boolean>>({});
   const [externalEmails, setExternalEmails] = useState<string[]>([]);
   const [emailDraft, setEmailDraft] = useState('');
+  // Scan-back share link (QR) — minted lazily via the Admin route.
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
 
   const [mode, setMode] = useState<Mode>('shop');
 
@@ -102,6 +105,27 @@ export default function PurchasePrintPage() {
       .then((m) => setMembers(m as { uid: string; displayName?: string; role?: string; email?: string }[]))
       .catch(() => {});
   }, [profile?.familyId]);
+
+  // Mint (or reuse) the scan-back share link so the QR can render. Best-effort:
+  // the sheet still prints fine if this fails (e.g. admin creds unset).
+  useEffect(() => {
+    if (!req || !SHAREABLE_STATUSES.includes(req.status)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await auth.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await fetch('/api/purchase/scan', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          body: JSON.stringify({ action: 'ensureToken', requestId: req.id, currency }),
+        });
+        const data = await res.json().catch(() => ({} as { url?: string }));
+        if (!cancelled && res.ok && data.url) setShareUrl(data.url);
+      } catch { /* QR is best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [req?.id, req?.status, currency]);
 
   const nameOf = useMemo(() => {
     const map = new Map(members.map((m) => [m.uid, m.displayName || 'Family member']));
@@ -382,6 +406,18 @@ export default function PurchasePrintPage() {
               : <div className="text-xl font-nunito font-black mt-0.5" style={{ color: '#b9ac8b', borderBottom: '1.8px dotted #b9ac8b', minWidth: 120, display: 'inline-block' }}>&nbsp;</div>}
           </div>
         </div>
+
+        {/* Scan-back QR — buyer scans to log actual prices in Kaya */}
+        {shareUrl && mode !== 'record' && (
+          <div className="flex items-center gap-4 px-6 py-4 border-t border-hive-line">
+            <div dangerouslySetInnerHTML={{ __html: qrSvg(shareUrl, 92) }} style={{ width: 92, height: 92, flex: 'none' }} />
+            <div>
+              <div className="font-nunito font-extrabold text-sm text-hive-ink">📲 Scan to log actual prices in Kaya</div>
+              <p className="text-[12px] text-hive-muted mt-0.5">Open it on your phone, type what you paid, and it syncs back for the family to reconcile. No app needed · link expires in 48h.</p>
+              <p className="text-[11px] text-hive-muted mt-1 break-all">{shareUrl.replace(/^https?:\/\//, '')}</p>
+            </div>
+          </div>
+        )}
 
         {/* Footer — signatures + running tally + notes */}
         <div className="grid sm:grid-cols-[1.4fr_.9fr] gap-5 p-6 border-t border-hive-line" style={{ background: '#FFFDF7' }}>
