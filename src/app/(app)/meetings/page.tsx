@@ -30,7 +30,7 @@ const BASE_AGENDA = [
 export default function MeetingsPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
-  const [tab, setTab] = useState<'new' | 'past' | 'highlights'>('new');
+  const [tab, setTab] = useState<'submission' | 'new' | 'past' | 'highlights'>('submission');
   const [meetingType, setMeetingType] = useState<'weekly' | 'kid-led'>('weekly');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeStep, setActiveStep] = useState(0);
@@ -221,16 +221,16 @@ export default function MeetingsPage() {
 
   // ── Tabs (shared markup) ──────────────────────────────────
   const Tabs = () => (
-    <div className="flex gap-2">
-      {(['new', 'past', 'highlights'] as const).map((t) => (
+    <div className="flex gap-2 overflow-x-auto -mx-1 px-1">
+      {(['submission', 'new', 'past', 'highlights'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
-          className={`flex-1 lg:flex-none lg:px-4 h-10 rounded-kaya-sm text-sm font-semibold transition-colors ${
+          className={`flex-1 lg:flex-none lg:px-4 h-10 px-2 rounded-kaya-sm text-[13px] font-semibold whitespace-nowrap transition-colors ${
             tab === t ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'
           }`}
         >
-          {t === 'new' ? '✨ New meeting' : t === 'past' ? `📁 Past (${meetings.length})` : '🔥 Highlights'}
+          {t === 'submission' ? '📝 Submission' : t === 'new' ? '✨ New' : t === 'past' ? `📁 Past (${meetings.length})` : '🔥 Highlights'}
         </button>
       ))}
     </div>
@@ -248,8 +248,7 @@ export default function MeetingsPage() {
           <p className="text-kaya-sand text-sm">Weekly check-ins to grow together</p>
         </div>
 
-        {/* Prep card — fill your Gratitude/Appreciation/Goal here too (PR B). */}
-        {myPrep && <MeetingPrepCard {...myPrep} />}
+        {/* Prep card now lives in its own Submission tab (below). */}
 
         {/* Today's closing song — parent or leader-of-day (shared card). */}
         <TodaysSongCard className="mb-4" />
@@ -304,7 +303,16 @@ export default function MeetingsPage() {
 
         <div className="mb-5"><Tabs /></div>
 
-        {tab === 'new' ? (
+        {tab === 'submission' ? (
+          myPrep ? (
+            <MeetingPrepCard {...myPrep} />
+          ) : (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-6 text-center">
+              <p className="text-3xl mb-2">📝</p>
+              <p className="text-kaya-sand text-sm">Your meeting prep will show here on prep day.</p>
+            </div>
+          )
+        ) : tab === 'new' ? (
           saved ? (
             <div className="text-center pt-10 animate-slide-up">
               <div className="text-5xl mb-4">✅</div>
@@ -466,9 +474,7 @@ export default function MeetingsPage() {
           <Tabs />
         </div>
 
-        {/* Prep card — desktop (PR B). Constrained width so it doesn't
-            sprawl across the full meeting canvas. */}
-        {myPrep && <div className="max-w-xl"><MeetingPrepCard {...myPrep} /></div>}
+        {/* Prep card now lives in its own Submission tab (below). */}
 
         {/* Today's closing song — desktop (shared card), constrained width. */}
         <div className="max-w-xl mb-4"><TodaysSongCard /></div>
@@ -523,7 +529,16 @@ export default function MeetingsPage() {
           </Link>
         </div>
 
-        {tab === 'new' ? (
+        {tab === 'submission' ? (
+          myPrep ? (
+            <div className="max-w-xl"><MeetingPrepCard {...myPrep} /></div>
+          ) : (
+            <div className="max-w-xl bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-8 text-center">
+              <p className="text-4xl mb-2">📝</p>
+              <p className="text-kaya-sand text-sm">Your meeting prep will show here on prep day.</p>
+            </div>
+          )
+        ) : tab === 'new' ? (
           saved ? (
             <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-12 text-center max-w-xl mx-auto animate-slide-up">
               <div className="text-6xl mb-4">✅</div>
