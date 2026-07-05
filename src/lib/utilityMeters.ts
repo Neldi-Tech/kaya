@@ -117,6 +117,11 @@ export interface UtilityMeter {
    *  Absent = ALL on (email + in-app + family chat). WhatsApp is staged —
    *  the slot exists here and lights up when the Neldi integration lands. */
   alertChannels?: { email?: boolean; inapp?: boolean; chat?: boolean; whatsapp?: boolean };
+  /** VIS PR4: per-meter EMAIL recipient override (parent uids) — the top of
+   *  the Item > Category > Global cascade (lib/alertEmails.shared). Empty or
+   *  absent = inherit. Explicit empty array is how "reset to inherit" is
+   *  written (ignoreUndefinedProperties: undefined would leave it as-is). */
+  alertRecipientUids?: string[];
   /** Helper-of-record uid — Kaya auto-pings this helper when the meter dips
    *  below minUnitsThreshold (Auto-buddy, PR 5). Picker UI lands in PR 5. */
   helperOfRecord?: string;

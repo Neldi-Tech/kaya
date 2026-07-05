@@ -22,7 +22,10 @@ import { suggestedReminderDays } from '@/lib/utilityReminders';
 import { getLatestReading, type PulseReading } from '@/lib/pulse';
 import { relativeDayLabel } from '@/lib/dates';
 import { useHive } from '@/contexts/HiveContext';
+import { useFamily } from '@/contexts/FamilyContext';
 import { formatCents } from '@/components/pantry/format';
+import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import { resolveAlertRecipients, type AlertEmailsConfig } from '@/lib/alertEmails';
 
 // Frequency choices offered for regular top-ups. Ordered most→least
 // frequent. Excludes 'daily' (no meter tops up daily) + the long
@@ -42,8 +45,19 @@ export default function UtilityMetersPage() {
     if (profile.role !== 'parent') router.replace('/pantry/utility');
   }, [profile, router]);
 
+  const { family } = useFamily();
   const [meters, setMeters] = useState<UtilityMeter[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  // Parents feed the per-meter "Email goes to" override (VIS PR4).
+  const [parentProfiles, setParentProfiles] = useState<UserProfile[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId || profile.role !== 'parent') return;
+    let alive = true;
+    getFamilyMembers(profile.familyId).then((ms) => {
+      if (alive) setParentProfiles(ms.filter((m) => m.role === 'parent'));
+    });
+    return () => { alive = false; };
+  }, [profile?.familyId, profile?.role]);
   const [lastByMeter, setLastByMeter] = useState<Record<string, PulseReading | null>>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -339,7 +353,7 @@ export default function UtilityMetersPage() {
           )}
 
           {/* Auto top-up (Kaya Plus) */}
-          <ProtectionFields value={protectCfg} onChange={(p) => setProtectCfg((s) => ({ ...s, ...p }))} currency={currency} pricePerUnitMajor={form.pricePerUnitMajor} unit={form.unit} />
+          <ProtectionFields value={protectCfg} onChange={(p) => setProtectCfg((s) => ({ ...s, ...p }))} currency={currency} pricePerUnitMajor={form.pricePerUnitMajor} unit={form.unit} parents={parentProfiles} alertCfg={family?.alertEmails} />
 
           <div className="grid grid-cols-2 gap-2 mt-2">
             <button onClick={() => setAdding(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
@@ -376,7 +390,7 @@ export default function UtilityMetersPage() {
             </p>
             <div className="flex flex-col gap-2">
               {list.map((m) => (
-                <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} currency={currency} suppliers={suppliers} last={lastByMeter[m.id] ?? null} />
+                <MeterRow key={m.id} meter={m} familyId={profile!.familyId!} currency={currency} suppliers={suppliers} last={lastByMeter[m.id] ?? null} parents={parentProfiles} alertCfg={family?.alertEmails} />
               ))}
             </div>
           </div>
@@ -386,8 +400,9 @@ export default function UtilityMetersPage() {
   );
 }
 
-function MeterRow({ meter, familyId, currency, suppliers, last }: {
+function MeterRow({ meter, familyId, currency, suppliers, last, parents, alertCfg }: {
   meter: UtilityMeter; familyId: string; currency: string; suppliers: Supplier[]; last: PulseReading | null;
+  parents: UserProfile[]; alertCfg?: AlertEmailsConfig;
 }) {
   const confirmAction = useConfirm();
   const [busy, setBusy] = useState(false);
@@ -546,7 +561,7 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
           </div>
         )}
         {/* 🔔 Low-balance protection (Kaya Plus) */}
-        <ProtectionFields value={protectCfg} onChange={(p) => setProtectCfg((s) => ({ ...s, ...p }))} currency={currency} pricePerUnitMajor={pricePerUnitMajor} unit={unit} />
+        <ProtectionFields value={protectCfg} onChange={(p) => setProtectCfg((s) => ({ ...s, ...p }))} currency={currency} pricePerUnitMajor={pricePerUnitMajor} unit={unit} parents={parents} alertCfg={alertCfg} />
 
         <div className="grid grid-cols-2 gap-2">
           <button onClick={() => setEditing(false)} className="border border-hive-line rounded-lg py-2 font-nunito font-bold text-sm">Cancel</button>
@@ -664,6 +679,9 @@ interface ProtectState {
   autoRequest: boolean;        // Kaya drafts the top-up request (parent still approves)
   source: 'last' | 'fixed';
   amountMajor: number;
+  /** VIS PR4: per-meter EMAIL override (parent uids). undefined/[] = inherit
+   *  the Global → Category cascade. */
+  recipientUids?: string[];
 }
 const EMPTY_PROTECT: ProtectState = {
   protect: false, threshold: 0, forecastDays: 3,
@@ -682,6 +700,7 @@ function protectStateFor(m: UtilityMeter): ProtectState {
     autoRequest: m.autoTopUp ?? false,
     source: m.autoTopUpSource ?? 'last',
     amountMajor: m.autoTopUpAmountCents ? m.autoTopUpAmountCents / 100 : 0,
+    recipientUids: m.alertRecipientUids && m.alertRecipientUids.length > 0 ? m.alertRecipientUids : undefined,
   };
 }
 
@@ -706,16 +725,26 @@ function protectionPatch(s: ProtectState): Partial<UtilityMeter> {
     autoTopUpSource: s.autoRequest ? s.source : undefined,
     autoTopUpAmountCents: s.autoRequest && s.source === 'fixed' && s.amountMajor > 0
       ? Math.round(s.amountMajor * 100) : undefined,
+    // [] is the explicit "inherit" write — ignoreUndefinedProperties means
+    // undefined would leave a stale override in place.
+    alertRecipientUids: s.recipientUids && s.recipientUids.length > 0 ? s.recipientUids : [],
   };
 }
 
-function ProtectionFields({ value, onChange, currency, pricePerUnitMajor, unit }: {
+function ProtectionFields({ value, onChange, currency, pricePerUnitMajor, unit, parents, alertCfg }: {
   value: ProtectState; onChange: (patch: Partial<ProtectState>) => void; currency: string; pricePerUnitMajor: number; unit?: string;
+  parents: UserProfile[]; alertCfg?: AlertEmailsConfig;
 }) {
   const unitsHint = value.source === 'fixed' && value.amountMajor > 0 && pricePerUnitMajor > 0
     ? `≈ ${Math.round(value.amountMajor / pricePerUnitMajor).toLocaleString()} units`
     : '';
   const noChannel = !value.chEmail && !value.chInapp && !value.chChat;
+  // VIS PR4 — where do this meter's alert EMAILS resolve without an override?
+  const allParentUids = parents.map((p) => p.uid);
+  const inherited = resolveAlertRecipients(alertCfg, 'utilities', allParentUids, undefined);
+  const customRecipients = (value.recipientUids ?? []).filter((u) => allParentUids.includes(u));
+  const isCustom = customRecipients.length > 0;
+  const nameOf = (uid: string) => parents.find((p) => p.uid === uid)?.displayName || 'Parent';
   const channelPill = (on: boolean, label: string, toggle: () => void) => (
     <button type="button" onClick={toggle}
       className={`text-[11px] font-nunito font-extrabold px-2.5 py-1.5 rounded-full border ${on ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}>
@@ -760,6 +789,62 @@ function ProtectionFields({ value, onChange, currency, pricePerUnitMajor, unit }
               <p className="text-[10px] text-hive-rose font-bold mt-1">Pick at least one channel — or nobody hears the alarm.</p>
             )}
           </div>
+          {/* VIS PR4 — "Email goes to": the item level of the cascade. The
+              breadcrumb always names the winning level (F10); customizing
+              detaches this meter only (D10). */}
+          {value.chEmail && parents.length > 0 && (
+            <div>
+              <span className="text-[10px] font-bold text-hive-muted uppercase tracking-[1.5px]">Email goes to</span>
+              {isCustom ? (
+                <div className="rounded-lg border border-dashed border-hive-honey-soft bg-white p-2.5 mt-1">
+                  <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FFF3D9] text-hive-honey-dk border border-hive-honey/40">custom · this meter only</span>
+                    <button
+                      type="button"
+                      onClick={() => onChange({ recipientUids: undefined })}
+                      className="text-[10px] font-nunito font-extrabold text-hive-honey-dk"
+                    >
+                      ↺ Reset to inherit
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {parents.map((p) => {
+                      const on = customRecipients.includes(p.uid);
+                      return (
+                        <button
+                          key={p.uid}
+                          type="button"
+                          title={p.email || undefined}
+                          onClick={() => {
+                            const next = on ? customRecipients.filter((u) => u !== p.uid) : [...customRecipients, p.uid];
+                            if (next.length === 0) return; // F1: the alarm keeps at least one ear
+                            onChange({ recipientUids: next });
+                          }}
+                          className={`text-[11px] font-nunito font-extrabold px-2.5 py-1.5 rounded-full border ${on ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}
+                        >
+                          {p.displayName}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg bg-[#EEF2FA] border border-[#CCD6EA] p-2.5 mt-1">
+                  <p className="text-[11px] font-nunito font-extrabold text-[#5B6B8C]">
+                    Following {inherited.level === 'category' ? '⚡ Utilities' : '🌍 Global'} → {inherited.uids.map(nameOf).join(' + ')}
+                  </p>
+                  <p className="text-[10px] text-hive-muted font-bold mt-0.5">Global → Utilities → this meter</p>
+                  <button
+                    type="button"
+                    onClick={() => onChange({ recipientUids: inherited.uids })}
+                    className="text-[11px] font-nunito font-extrabold text-hive-honey-dk mt-1.5"
+                  >
+                    Customize for this meter only
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="border-t border-dashed border-hive-honey-soft pt-2.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-nunito font-black text-hive-honey-dk">🤖 Auto-request top-up</span>
