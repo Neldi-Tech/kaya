@@ -105,6 +105,14 @@ export interface UtilityMeter {
   /** When balanceUnits falls below this, Pulse auto-creates a utility top-up
    *  purchaseRequest — the Kaya Plus seam. 'down' meters only. */
   minUnitsThreshold?: number;
+  /** HHR PR1: "about to be finished" — ALSO alert when the forecast says
+   *  ≤ this many days left (balance ÷ recent daily use). Default 3. */
+  lowForecastDays?: number;
+  /** HHR PR1: the open low-balance EPISODE — stamped when the alert fires,
+   *  cleared when the balance recovers above the threshold (top-up done).
+   *  One alert per episode = no spam. */
+  lowAlertAt?: number;
+  lowAlertBalance?: number;
   /** Helper-of-record uid — Kaya auto-pings this helper when the meter dips
    *  below minUnitsThreshold (Auto-buddy, PR 5). Picker UI lands in PR 5. */
   helperOfRecord?: string;

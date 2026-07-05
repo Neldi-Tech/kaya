@@ -5,12 +5,14 @@
 // their Pulse streak (reset to 0) — per the engine spec. Each task is processed
 // once (the query only matches 'pending'). No-ops cleanly without admin creds.
 //
-// (Helper performance dinging + the threshold auto-top-up are the next engine
-// pieces and will be added here.)
+// (Helper performance dinging is the next engine piece. The threshold
+// auto-top-up landed — HHR PR1: runAutoTopupSweep below backstops the
+// per-reading trigger in lib/pulseLogApply.server.)
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { notifyPulseOwner, notifyFamilyParents } from '@/lib/pulseGenerate';
+import { runAutoTopupSweep } from '@/lib/autoTopup.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -37,6 +39,8 @@ async function run(req: NextRequest) {
   }
 
   let missed = 0;
+  let lowFired = 0;
+  let lowRequests = 0;
   for (const fam of families.docs) {
     let taskSnap;
     try {
@@ -83,9 +87,18 @@ async function run(req: NextRequest) {
         link: '/pulse',
       });
     }
+  
+    // 🔔 Low-balance sweep (HHR PR1) — the backstop when nobody logs: every
+    // protected prepaid meter is re-checked from its latest reading, so the
+    // days-left forecast keeps counting down between readings.
+    try {
+      const r = await runAutoTopupSweep(db, fam.ref);
+      lowFired += r.fired;
+      lowRequests += r.requests;
+    } catch { /* best-effort per family */ }
   }
 
-  return NextResponse.json({ ok: true, missed });
+  return NextResponse.json({ ok: true, missed, lowFired, lowRequests });
 }
 
 export async function GET(req: NextRequest) {

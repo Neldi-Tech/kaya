@@ -242,5 +242,16 @@ export async function applyReadingLog(db: Firestore, p: ApplyReadingParams): Pro
     }
   }
 
+  // 5) 🔔 Low-balance engine (HHR PR1) — prepaid meters only. Fires on BOTH
+  // logging paths (direct log + helper-assist approval) since they share this
+  // apply. `avg` is per-reading ≈ per-day (readings are daily tasks) — the
+  // days-left forecast source. Best-effort: the hourly sweep backstops.
+  if (isMeter && direction === 'down') {
+    try {
+      const { checkMeterLowBalance } = await import('./autoTopup.server');
+      await checkMeterLowBalance(db, p.familyId, task.trackableId, { balance: p.value, avgDaily: avg });
+    } catch { /* engine is best-effort — never blocks the reading */ }
+  }
+
   return { ...base, consumedUnits, deltaCost, event, points: awardKid ? points : 0, isAnomaly, streak };
 }
