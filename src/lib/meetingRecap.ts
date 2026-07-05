@@ -71,23 +71,38 @@ function mergeEntries(submitted: RecapEntry[], live: RecapEntry[]): RecapEntry[]
   return Array.from(byName.values());
 }
 
+/** WHO gets the auto-sent notes (Meeting Notes, 2026-06-21). Back-compat:
+ *  no recapBookRecipients → derive from the old on/off toggle. */
+export function recapRecipientsMode(family: Family | null | undefined): 'off' | 'parents' | 'all' {
+  const s = family?.meetingSetup;
+  if (s?.recapBookRecipients) return s.recapBookRecipients;
+  return (s?.recapBookEmailEnabled ?? true) ? 'parents' : 'off';
+}
+
 export async function sendMeetingRecapEmail({
   family, payload, submissions, householdParents, children, songLinkApprovedBy,
 }: Args): Promise<void> {
   if (!family?.id) return;
 
-  // Recipient list = parents (UserProfile.email) + any Family contacts
-  // configured with an email. For MVP we read the parent emails via
-  // getFamilyMembers — Family contacts hook-up is queued for a
-  // follow-up (the design surfaces it; the contacts module already
-  // has the email field).
+  const mode = recapRecipientsMode(family);
+  if (mode === 'off') return;
+
+  // Recipients — 'parents' (default, today's behaviour) or 'all': every
+  // ATTENDEE with an email on file (kids included) plus the parents.
   const members = await getFamilyMembers(family.id).catch(() => [] as UserProfile[]);
   const parentEmails = members
     .filter((m) => m.role === 'parent')
     .map((m) => m.email)
     .filter((e): e is string => !!e);
 
-  const to = Array.from(new Set(parentEmails));
+  const kidEmails = mode === 'all'
+    ? children
+        .filter((c) => (payload.attendees || []).includes(c.id))
+        .map((c) => ((c as { email?: string; emailLower?: string }).email || (c as { emailLower?: string }).emailLower || '').trim())
+        .filter(Boolean)
+    : [];
+
+  const to = Array.from(new Set([...parentEmails, ...kidEmails]));
   if (to.length === 0) return;
 
   // Compose RecapEntry arrays — submissions first (read in advance),
