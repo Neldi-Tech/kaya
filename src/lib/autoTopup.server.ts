@@ -379,7 +379,7 @@ export async function checkMeterLowBalance(
         templateVersion: EMAIL_TEMPLATE_VERSION,
         facts: { label, balanceLine, ...(requestLine ? { requestLine } : {}), ctaUrl, ctaLabel },
       },
-      inapp: { on: inappOn, sent: inappTo.length > 0, to: inappTo },
+      inapp: { on: inappOn, sent: inappTo.length > 0, to: inappTo, title, message },
       chat: { on: chatOn, sent: chatSent, text: chatText },
       whatsapp: { on: false, status: 'soon' },
     },

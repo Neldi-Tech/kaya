@@ -25,7 +25,12 @@ export interface AlertLogChannels {
     templateVersion: number;
     facts: AlertLogEmailFacts;
   };
-  inapp?: { on: boolean; sent: boolean; to: { uid: string; name: string; role: string }[] };
+  inapp?: {
+    on: boolean; sent: boolean;
+    to: { uid: string; name: string; role: string }[];
+    /** The bell card verbatim (D8) — what each recipient saw. */
+    title?: string; message?: string;
+  };
   chat?: { on: boolean; sent: boolean; text: string };
   whatsapp?: { on: boolean; status?: string };
 }
