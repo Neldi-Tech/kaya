@@ -8,10 +8,11 @@ import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
-import { createMeeting, getMeetings, Meeting, todayString } from '@/lib/firestore';
+import { createMeeting, getMeetings, getAllMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import MeetingReportSheet, { fmtMeetingDay } from '@/components/meetings/MeetingReportSheet';
 import { subscribeMeetingSubmissions, isCurrentCycle, type MeetingSubmission } from '@/lib/meetingSubmissions';
+import { getAllMeetingSubmissionHistory, type SubmissionHistoryDoc } from '@/lib/meetingSubmissionHistory';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
 // mode's 6-step flow so what families see in the sidebar matches.
@@ -458,6 +459,7 @@ export default function MeetingsPage() {
             meetings={meetings}
             childrenList={children}
             scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
+            familyId={profile?.familyId}
           />
         )}
       </div>
@@ -746,6 +748,7 @@ export default function MeetingsPage() {
             meetings={meetings}
             childrenList={children}
             scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
+            familyId={profile?.familyId}
           />
         )}
         <NextUp from="meetings" />
@@ -776,12 +779,51 @@ export default function MeetingsPage() {
 // stable within a day, so the family sees fresh gems each Sunday.
 // ─────────────────────────────────────────────────────────────────────────
 
-function HighlightsPane({ meetings, childrenList, scheduleDow }: {
+function HighlightsPane({ meetings, childrenList, scheduleDow, familyId }: {
   meetings: Meeting[];
   childrenList: Array<{ id: string; name: string; avatarEmoji?: string }>;
   scheduleDow?: number;
+  familyId?: string;
 }) {
   const [span, setSpan] = useState<'year' | '6mo' | 'month'>('year');
+
+  // Highlights 2.0 (2026-07-05) — the hub list caps at 20 meetings, but
+  // year/month analytics need the archive. Loaded once when the tab
+  // mounts; until it lands we compute from the 20 already in hand.
+  const [allMeetings, setAllMeetings] = useState<Meeting[] | null>(null);
+  const [history, setHistory] = useState<SubmissionHistoryDoc[]>([]);
+  useEffect(() => {
+    if (!familyId) return;
+    getAllMeetings(familyId).then(setAllMeetings).catch(() => {});
+    getAllMeetingSubmissionHistory(familyId).then(setHistory).catch(() => {});
+  }, [familyId]);
+  const source = allMeetings ?? meetings;
+
+  // Filters — a specific year / month / member scopes the stats below.
+  const [yearFilter, setYearFilter] = useState<'all' | number>('all');
+  const [monthFilter, setMonthFilter] = useState<'all' | number>('all'); // 0-11
+  const [memberFilter, setMemberFilter] = useState<'all' | string>('all'); // child id or history uid
+
+  const yearsAvailable = useMemo(() => {
+    const ys = new Set<number>();
+    for (const m of source) {
+      const y = Number((m.date || '').slice(0, 4));
+      if (Number.isFinite(y) && y > 2000) ys.add(y);
+    }
+    return Array.from(ys).sort((a, b) => b - a);
+  }, [source]);
+
+  const inScope = (dateStr: string): boolean => {
+    if (!dateStr) return false;
+    if (yearFilter !== 'all' && Number(dateStr.slice(0, 4)) !== yearFilter) return false;
+    if (monthFilter !== 'all' && Number(dateStr.slice(5, 7)) - 1 !== monthFilter) return false;
+    return true;
+  };
+  const scoped = useMemo(
+    () => source.filter((m) => inScope(m.date)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [source, yearFilter, monthFilter],
+  );
 
   const pad = (n: number) => String(n).padStart(2, '0');
   const isoOf = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -800,8 +842,10 @@ function HighlightsPane({ meetings, childrenList, scheduleDow }: {
     return isoOf(d);
   };
 
-  const { currentStreak, longestStreak, yearCount, dots } = useMemo(() => {
-    const have = new Set(meetings.map((m) => weekKeyOf(m.date)));
+  const { currentStreak, longestStreak, yearCount, dots, attendancePct } = useMemo(() => {
+    // Current + longest streak always run on the FULL archive — a filter
+    // scopes the stats, never the streak itself.
+    const have = new Set(source.map((m) => weekKeyOf(m.date)));
     const now = new Date();
     const thisWeek = weekKeyOf(isoOf(now));
     // Current streak — grace for a this-week meeting that hasn't happened yet.
@@ -816,16 +860,32 @@ function HighlightsPane({ meetings, childrenList, scheduleDow }: {
       if (run > longest) longest = run;
       prev = k;
     }
-    const yearCount = keys.filter((k) => k.startsWith(String(now.getFullYear()))).length;
-    const n = span === 'year' ? 52 : span === '6mo' ? 26 : 5;
+    const statYear = yearFilter === 'all' ? now.getFullYear() : yearFilter;
+    const yearCount = keys.filter((k) => k.startsWith(String(statYear))).length;
+    // Streak map — a chosen year shows that year's weeks; otherwise the
+    // rolling span ending this week (as before).
     const dots: Array<{ key: string; on: boolean }> = [];
-    for (let i = n - 1; i >= 0; i--) {
-      const k = stepWeeks(thisWeek, -i);
-      dots.push({ key: k, on: have.has(k) });
+    if (yearFilter !== 'all') {
+      let k = weekKeyOf(`${yearFilter}-01-04`);
+      const end = yearFilter === now.getFullYear() ? thisWeek : weekKeyOf(`${yearFilter}-12-28`);
+      let guard = 0;
+      while (k <= end && guard < 54) { dots.push({ key: k, on: have.has(k) }); k = stepWeeks(k, 1); guard++; }
+    } else {
+      const n = span === 'year' ? 52 : span === '6mo' ? 26 : 5;
+      for (let i = n - 1; i >= 0; i--) {
+        const k = stepWeeks(thisWeek, -i);
+        dots.push({ key: k, on: have.has(k) });
+      }
     }
-    return { currentStreak: cur, longestStreak: longest, yearCount, dots };
+    // Attendance — average share of the kid roster present, over the
+    // scoped meetings (parents/guests tracked separately; kids are the
+    // stable roster).
+    const roster = Math.max(1, childrenList.length);
+    const rates = scoped.map((m) => Math.min(1, (m.attendees?.length ?? 0) / roster));
+    const attendancePct = rates.length ? Math.round((rates.reduce((a, b) => a + b, 0) / rates.length) * 100) : null;
+    return { currentStreak: cur, longestStreak: longest, yearCount, dots, attendancePct };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meetings, span, scheduleDow]);
+  }, [source, scoped, span, scheduleDow, yearFilter, childrenList.length]);
 
   const memories = useMemo(() => {
     const kidName = (id: string) => childrenList.find((c) => c.id === id)?.name || 'Someone';
@@ -861,6 +921,149 @@ function HighlightsPane({ meetings, childrenList, scheduleDow }: {
 
   const nextMilestone = [5, 10, 25, 52].find((m) => m > currentStreak);
 
+  // ── Per-member stats (Highlights 2.0) ──────────────────────────────
+  // Two sources, merged by display name:
+  //  • meetings — kid-keyed gratitude/goals/goalsDone/attendees
+  //  • submission-history — every submitter (parents + helpers + kids):
+  //    gratitudes, appreciations (+tag names = who received), goals
+  //    reflection (done flags)
+  type MemberStat = {
+    id: string; name: string; emoji: string;
+    gratitude: number; apprGiven: number; apprReceived: number;
+    goalsSet: number; goalsKept: number;
+    lastAppreciatedAt: string | null;
+  };
+  const memberStats = useMemo<MemberStat[]>(() => {
+    const byName = new Map<string, MemberStat>();
+    const ensure = (id: string, name: string, emoji?: string): MemberStat => {
+      const key = name.trim().toLowerCase();
+      let s = byName.get(key);
+      if (!s) {
+        s = { id, name: name.trim(), emoji: emoji || '👤', gratitude: 0, apprGiven: 0, apprReceived: 0, goalsSet: 0, goalsKept: 0, lastAppreciatedAt: null };
+        byName.set(key, s);
+      } else if (emoji && s.emoji === '👤') s.emoji = emoji;
+      return s;
+    };
+    for (const c of childrenList) ensure(c.id, c.name, c.avatarEmoji);
+    // From meetings (kids)
+    for (const m of scoped) {
+      for (const [cid, txt] of Object.entries(m.gratitude || {})) {
+        const c = childrenList.find((x) => x.id === cid);
+        if (c && (txt || '').trim()) ensure(c.id, c.name, c.avatarEmoji).gratitude += 1;
+      }
+      for (const [cid, txt] of Object.entries(m.goals || {})) {
+        const c = childrenList.find((x) => x.id === cid);
+        if (!c || !(txt || '').trim()) continue;
+        const s = ensure(c.id, c.name, c.avatarEmoji);
+        s.goalsSet += 1;
+        if (m.goalsDone?.[cid] === true) s.goalsKept += 1;
+      }
+    }
+    // From submission history (everyone)
+    for (const doc of history) {
+      const giver = ensure(doc.uid, doc.name || 'Member', doc.emoji);
+      for (const e of doc.entries || []) {
+        if (!inScope(e.date)) continue;
+        giver.gratitude += (e.gratitudes || []).filter((t) => (t || '').trim()).length;
+        const apprs = (e.appreciations || []).filter((t) => (t || '').trim());
+        giver.apprGiven += apprs.length;
+        for (const tagName of e.appreciationTagNames || []) {
+          if (!tagName) continue;
+          for (const nm of tagName.split(/,|&|\band\b/i).map((x) => x.replace('@', '').trim()).filter(Boolean)) {
+            if (/^everyone$|^all$/i.test(nm)) {
+              for (const s of Array.from(byName.values())) {
+                if (s === giver) continue;
+                s.apprReceived += 1;
+                if (!s.lastAppreciatedAt || e.date > s.lastAppreciatedAt) s.lastAppreciatedAt = e.date;
+              }
+            } else {
+              const s = ensure(nm, nm);
+              s.apprReceived += 1;
+              if (!s.lastAppreciatedAt || e.date > s.lastAppreciatedAt) s.lastAppreciatedAt = e.date;
+            }
+          }
+        }
+        for (const g of e.goalsReflection || []) {
+          if (!(g.text || '').trim()) continue;
+          giver.goalsSet += 1;
+          if (g.done) giver.goalsKept += 1;
+        }
+      }
+    }
+    return Array.from(byName.values())
+      .filter((s) => s.gratitude + s.apprGiven + s.apprReceived + s.goalsSet > 0 || childrenList.some((c) => c.id === s.id))
+      .sort((a, b) => (b.gratitude + b.apprGiven + b.goalsSet) - (a.gratitude + a.apprGiven + a.goalsSet));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoped, history, childrenList, yearFilter, monthFilter]);
+
+  const visibleStats = memberFilter === 'all'
+    ? memberStats
+    : memberStats.filter((s) => s.id === memberFilter || s.name.toLowerCase() === memberFilter.toLowerCase());
+
+  // ── Trends + Kaya's read (deterministic — instant, no API) ─────────
+  const trends = useMemo(() => {
+    const kept = memberStats.reduce((a, s) => a + s.goalsKept, 0);
+    const set = memberStats.reduce((a, s) => a + s.goalsSet, 0);
+    const goalsPct = set > 0 ? Math.round((kept / set) * 100) : null;
+    // Gratitude this month vs last (always current-calendar, unfiltered).
+    const now = new Date();
+    const mk = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const thisM = mk(now);
+    const lastM = mk(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    let gThis = 0; let gLast = 0;
+    for (const m of source) {
+      const key = (m.date || '').slice(0, 7);
+      const n = Object.values(m.gratitude || {}).filter((t) => (t || '').trim()).length;
+      if (key === thisM) gThis += n; else if (key === lastM) gLast += n;
+    }
+    for (const doc of history) for (const e of doc.entries || []) {
+      const key = (e.date || '').slice(0, 7);
+      const n = (e.gratitudes || []).filter((t) => (t || '').trim()).length;
+      if (key === thisM) gThis += n; else if (key === lastM) gLast += n;
+    }
+    const gratitudeDelta = gLast > 0 ? Math.round(((gThis - gLast) / gLast) * 100) : null;
+    // Least-recently appreciated member (who gives but isn't received).
+    const active = memberStats.filter((s) => s.apprGiven > 0 || s.apprReceived > 0 || s.goalsSet > 0);
+    let coldest: MemberStat | null = null;
+    for (const s of active) {
+      if (!coldest) { coldest = s; continue; }
+      const a = s.lastAppreciatedAt || '0000';
+      const b = coldest.lastAppreciatedAt || '0000';
+      if (a < b) coldest = s;
+    }
+    const weeksSince = coldest?.lastAppreciatedAt
+      ? Math.floor((Date.now() - new Date(`${coldest.lastAppreciatedAt}T00:00:00`).getTime()) / (7 * 86400000))
+      : null;
+    return { goalsPct, kept, set, gThis, gLast, gratitudeDelta, coldest, weeksSince };
+  }, [memberStats, source, history]);
+
+  const suggestions = useMemo(() => {
+    const out: Array<{ icon: string; title: string; text: string }> = [];
+    if (longestStreak > currentStreak && longestStreak - currentStreak <= 6 && currentStreak >= 3) {
+      out.push({ icon: '🔥', title: `${longestStreak - currentStreak + 1} week${longestStreak - currentStreak === 0 ? '' : 's'} from a record`, text: `You're on a ${currentStreak}-week streak — keep meeting to beat your all-time best of ${longestStreak}.` });
+    } else if (currentStreak >= 3 && currentStreak >= longestStreak) {
+      out.push({ icon: '🏆', title: 'You ARE the record', text: `${currentStreak} weeks in a row — every Sunday now extends your all-time best. Protect the ritual.` });
+    }
+    const struggling = memberStats.filter((s) => s.goalsSet >= 3 && s.goalsKept / s.goalsSet < 0.55).sort((a, b) => a.goalsKept / a.goalsSet - b.goalsKept / b.goalsSet)[0];
+    if (struggling) out.push({ icon: '🎯', title: `${struggling.name}'s goals need a nudge`, text: `${struggling.goalsKept} of ${struggling.goalsSet} goals kept. Try setting one smaller, very doable goal together this Sunday.` });
+    if (trends.gratitudeDelta != null && trends.gratitudeDelta <= -25) {
+      out.push({ icon: '🙏', title: 'Gratitude is dipping', text: `${Math.abs(trends.gratitudeDelta)}% fewer gratitude entries than last month. A one-line prompt on prep day usually bounces it back.` });
+    }
+    if (trends.coldest && trends.weeksSince != null && trends.weeksSince >= 4) {
+      out.push({ icon: '💛', title: 'Spread the love', text: `${trends.coldest.name} hasn't been appreciated in ${trends.weeksSince} weeks${trends.coldest.apprGiven > 0 ? ' — and they give plenty' : ''}. Worth a shout-out this week.` });
+    }
+    if (out.length < 3 && trends.goalsPct != null && trends.goalsPct >= 70) {
+      out.push({ icon: '🌟', title: 'Goals are landing', text: `${trends.goalsPct}% of family goals kept — that's real follow-through. Celebrate it out loud at the next meeting.` });
+    }
+    if (out.length < 3 && attendancePct != null && attendancePct >= 90) {
+      out.push({ icon: '👨‍👩‍👧‍👦', title: 'Everyone shows up', text: `${attendancePct}% attendance — the whole crew treats this as sacred time. That consistency is the win.` });
+    }
+    if (out.length === 0) {
+      out.push({ icon: '🌱', title: 'Keep building the habit', text: 'Hold a few more meetings and Kaya will start spotting streak runs, goal patterns and who needs a shout-out.' });
+    }
+    return out.slice(0, 4);
+  }, [memberStats, trends, currentStreak, longestStreak, attendancePct]);
+
   return (
     <div className="space-y-4">
       {/* 🔥 Streak card */}
@@ -872,7 +1075,8 @@ function HighlightsPane({ meetings, childrenList, scheduleDow }: {
               {currentStreak} week{currentStreak === 1 ? '' : 's'} in a row
             </p>
             <p className="text-[12px] text-kaya-sand font-semibold mt-0.5">
-              Longest ever: {longestStreak} · This year: {yearCount} meeting{yearCount === 1 ? '' : 's'}
+              Longest ever: {longestStreak} · {yearFilter === 'all' ? 'This year' : yearFilter}: {yearCount} meeting{yearCount === 1 ? '' : 's'}
+              {attendancePct != null ? ` · attendance ${attendancePct}%` : ''}
               {nextMilestone ? ` · next milestone: ${nextMilestone} 🎉` : ' · every milestone hit 🏆'}
             </p>
           </div>
@@ -894,6 +1098,141 @@ function HighlightsPane({ meetings, childrenList, scheduleDow }: {
         <p className="text-[10.5px] text-kaya-sand mt-2">
           A week counts when its meeting was held &amp; closed — unfinished weeks break the streak.
         </p>
+      </div>
+
+      {/* 🔎 Filters — slice the stats by year / month / member */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2.5">🔎 Check the streak &amp; stats</p>
+        <div className="flex flex-wrap gap-2">
+          <select
+            value={String(yearFilter)}
+            onChange={(e) => setYearFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="text-[13px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 bg-white text-kaya-chocolate"
+            aria-label="Filter by year"
+          >
+            <option value="all">📅 All time</option>
+            {yearsAvailable.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <select
+            value={String(monthFilter)}
+            onChange={(e) => setMonthFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+            className="text-[13px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 bg-white text-kaya-chocolate"
+            aria-label="Filter by month"
+          >
+            <option value="all">All months</option>
+            {['January','February','March','April','May','June','July','August','September','October','November','December'].map((mn, i) => (
+              <option key={mn} value={i}>{mn}</option>
+            ))}
+          </select>
+          <select
+            value={memberFilter}
+            onChange={(e) => setMemberFilter(e.target.value)}
+            className="text-[13px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 bg-white text-kaya-chocolate"
+            aria-label="Filter by member"
+          >
+            <option value="all">👨‍👩‍👧‍👦 Whole family</option>
+            {memberStats.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          {(yearFilter !== 'all' || monthFilter !== 'all' || memberFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => { setYearFilter('all'); setMonthFilter('all'); setMemberFilter('all'); }}
+              className="text-[12px] font-black text-kaya-sand hover:text-kaya-chocolate px-2"
+            >
+              ✕ Clear
+            </button>
+          )}
+        </div>
+        {allMeetings === null && (
+          <p className="text-[10.5px] text-kaya-sand mt-2">Loading the full meeting archive…</p>
+        )}
+      </div>
+
+      {/* 👥 Per member */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">
+          👥 Per member{yearFilter !== 'all' ? ` · ${yearFilter}` : ''}{monthFilter !== 'all' ? ` · ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][monthFilter]}` : ''}
+        </p>
+        {visibleStats.length === 0 ? (
+          <p className="text-[13px] text-kaya-sand">No entries in this period yet — try widening the filters.</p>
+        ) : (
+          <div className="space-y-3">
+            {visibleStats.map((s) => (
+              <div key={s.id} className="flex items-start gap-3 pb-3 border-b border-kaya-warm-dark/50 last:border-b-0 last:pb-0">
+                <div className="w-8 h-8 rounded-full bg-kaya-warm grid place-items-center text-base shrink-0">{s.emoji}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-[14px]">{s.name}</p>
+                  <p className="text-[12px] text-kaya-sand font-semibold leading-relaxed">
+                    🙏 {s.gratitude} gratitude · 💛 {s.apprGiven} given / {s.apprReceived} received
+                    {s.goalsSet > 0 && (
+                      <> · 🎯 {s.goalsKept}/{s.goalsSet} goals kept
+                        {s.goalsSet >= 3 && s.goalsKept / s.goalsSet < 0.55 && <span className="text-rose-500 font-black"> ◀ needs a nudge</span>}
+                      </>
+                    )}
+                  </p>
+                  {s.goalsSet > 0 && (
+                    <div className="h-1.5 rounded-full bg-kaya-warm mt-1.5 overflow-hidden">
+                      <span className="block h-full bg-emerald-500" style={{ width: `${Math.round((s.goalsKept / s.goalsSet) * 100)}%` }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* 📈 Trends */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">📈 Trends</p>
+        <div className="space-y-3.5">
+          <div>
+            <div className="flex items-baseline justify-between">
+              <p className="text-[13px] font-bold">🎯 Goals kept — family</p>
+              <p className="text-[12px] text-kaya-sand font-semibold">{trends.goalsPct != null ? `${trends.goalsPct}% (${trends.kept}/${trends.set})` : 'no goals yet'}</p>
+            </div>
+            {trends.goalsPct != null && (
+              <div className="h-2 rounded-full bg-kaya-warm mt-1.5 overflow-hidden">
+                <span className="block h-full bg-emerald-500" style={{ width: `${trends.goalsPct}%` }} />
+              </div>
+            )}
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <p className="text-[13px] font-bold">🙏 Gratitude this month</p>
+              <p className="text-[12px] text-kaya-sand font-semibold">
+                {trends.gThis} entr{trends.gThis === 1 ? 'y' : 'ies'}
+                {trends.gratitudeDelta != null ? ` · ${trends.gratitudeDelta >= 0 ? '▲' : '▼'} ${Math.abs(trends.gratitudeDelta)}% vs last` : ''}
+              </p>
+            </div>
+          </div>
+          <div>
+            <div className="flex items-baseline justify-between">
+              <p className="text-[13px] font-bold">💛 Appreciation spread</p>
+              <p className="text-[12px] text-kaya-sand font-semibold">
+                {trends.coldest && trends.weeksSince != null && trends.weeksSince >= 2
+                  ? `${trends.coldest.name} — ${trends.weeksSince}w since last`
+                  : 'everyone recently appreciated 💛'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 🤖 Kaya's read */}
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-5">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">🤖 Kaya&rsquo;s read — this week&rsquo;s suggestions</p>
+        <div className="space-y-2.5">
+          {suggestions.map((sg, i) => (
+            <div key={i} className="flex gap-3 rounded-kaya bg-kaya-cream/60 border border-kaya-warm-dark/60 p-3.5">
+              <div className="text-xl shrink-0" aria-hidden>{sg.icon}</div>
+              <div className="min-w-0">
+                <p className="font-bold text-[13.5px] leading-tight">{sg.title}</p>
+                <p className="text-[12.5px] text-kaya-sand leading-relaxed mt-0.5">{sg.text}</p>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* ✨ Memories */}
