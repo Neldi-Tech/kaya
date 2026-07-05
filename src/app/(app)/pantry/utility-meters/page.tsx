@@ -165,6 +165,12 @@ export default function UtilityMetersPage() {
         <p className="text-hive-muted text-sm mt-1">
           Register each meter once. Helpers pick from this list when requesting a top-up.
         </p>
+        <Link
+          href="/pantry/utility-meters/alerts"
+          className="inline-flex items-center gap-1 mt-2 px-3 py-1.5 rounded-full text-[11px] font-nunito font-black bg-hive-paper border border-hive-line text-hive-honey-dk hover:border-hive-honey"
+        >
+          📜 Alert log · what was sent, to whom ›
+        </Link>
       </div>
 
       {/* Add form */}
@@ -590,7 +596,7 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
             (direction + threshold) so the chip never claims cover that
             the engine wouldn't actually provide. Depleting meters only. */}
         {direction === 'down' && meter.active !== false && (
-          <div className="mt-1">
+          <div className="mt-1 flex items-center gap-1.5 flex-wrap">
             {meter.lowAlertAt && meter.autoTopUpPendingRequestId ? (
               <Link
                 href={`/pantry/purchase/${meter.autoTopUpPendingRequestId}`}
@@ -615,6 +621,16 @@ function MeterRow({ meter, familyId, currency, suppliers, last }: {
                 ⚠️ Set protection
               </button>
             )}
+            {/* The trace — alerted meters link straight to their log entry
+                surface (VIS PR2): what was sent, to whom, on which channels. */}
+            {meter.lowAlertAt ? (
+              <Link
+                href="/pantry/utility-meters/alerts"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-white text-hive-muted border border-hive-line hover:border-hive-honey"
+              >
+                📜 alerted {new Date(meter.lowAlertAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · view
+              </Link>
+            ) : null}
           </div>
         )}
         {meter.reminderDays && meter.reminderDays.length > 0 && (
