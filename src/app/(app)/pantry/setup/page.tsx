@@ -25,7 +25,11 @@ import {
   readFamilyUnits, setFamilyUnits,
   type DistanceUnit, type FuelVolumeUnit,
 } from '@/lib/units';
-import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
+import { getFamilyMembers, getChildren, type UserProfile, type Child } from '@/lib/firestore';
+import {
+  setKidEmailPrefs, DEFAULT_DIGEST_TIME, DIGEST_TIME_CHOICES,
+  type KidEmailPrefs, type KidEmailSource, type KidEmailUpdatesConfig,
+} from '@/lib/kidEmails';
 import {
   ALERT_CATEGORIES,
   setGlobalAlertEmails, setCategoryAlertEmails,
@@ -189,6 +193,200 @@ export default function HouseholdSetupHub() {
       {profile?.familyId && (
         <AlertEmailsCard familyId={profile.familyId} cfg={family?.alertEmails} />
       )}
+
+      {/* 📬 Kids' email updates (KID PR1) — selection from what's already
+          registered, never re-entry; everything defaults OFF (COPPA). */}
+      {profile?.familyId && (
+        <KidEmailUpdatesCard familyId={profile.familyId} cfg={family?.kidEmailUpdates} contacts={family?.externalContacts} />
+      )}
+    </div>
+  );
+}
+
+/* ── 📬 Kids' email updates card — rewards + morning digest per kid.
+      The address is a POINTER selected from registered sources (kid profile
+      email · parent login · approved contact) and resolves live at send
+      time — no re-entry, no stale copies (F2/F9). Streams default OFF;
+      toggles stay locked until a source with a real address is picked. ── */
+function KidEmailUpdatesCard({ familyId, cfg, contacts }: {
+  familyId: string;
+  cfg?: KidEmailUpdatesConfig;
+  contacts?: { id: string; name: string; email: string }[];
+}) {
+  const [kids, setKids] = useState<Child[]>([]);
+  const [parents, setParents] = useState<UserProfile[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([getChildren(familyId), getFamilyMembers(familyId)]).then(([cs, ms]) => {
+      if (!alive) return;
+      setKids(cs);
+      setParents(ms.filter((m) => m.role === 'parent'));
+    });
+    return () => { alive = false; };
+  }, [familyId]);
+
+  // Resolve a source pointer to its display address — the same rules the
+  // server applies at send time (lib/kidEmails.server).
+  const addressOf = (kid: Child, source?: KidEmailSource): { email?: string; label: string } => {
+    if (!source) return { label: 'pick who receives them' };
+    if (source.type === 'kid') return kid.email
+      ? { email: kid.email, label: `${kid.name}'s profile email` }
+      : { label: 'no profile email yet' };
+    if (source.type === 'parent') {
+      const p = parents.find((x) => x.uid === source.uid);
+      return p?.email ? { email: p.email, label: p.displayName } : { label: 'parent unavailable' };
+    }
+    const c = (contacts ?? []).find((x) => x.id === source.id);
+    return c?.email ? { email: c.email, label: `${c.name} (approved contact)` } : { label: 'contact removed' };
+  };
+
+  const save = async (childId: string, prefs: KidEmailPrefs) => {
+    if (busy) return;
+    setBusy(true);
+    try { await setKidEmailPrefs(familyId, childId, prefs); }
+    finally { setBusy(false); }
+  };
+
+  const srcChip = (on: boolean, label: string, onPick: () => void, disabled?: boolean) => (
+    <button
+      type="button"
+      disabled={busy || disabled}
+      onClick={onPick}
+      className={`text-[10.5px] font-nunito font-extrabold px-2 py-1 rounded-full border ${
+        on ? 'bg-hive-honey text-white border-hive-honey-dk'
+          : disabled ? 'bg-white border-dashed border-hive-line text-hive-muted opacity-50'
+          : 'bg-white border-hive-line text-hive-muted'
+      }`}
+    >
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="bg-hive-paper border border-hive-line rounded-hive p-4 mt-3">
+      <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-1">
+        👧👦 Kids&apos; email updates
+      </p>
+      <p className="text-[12px] text-hive-muted font-bold mb-2">
+        Send kids their 🏅 rewards and 🌞 morning routine by email — <b>pick from what&apos;s
+        already registered</b>, no typing. Everything starts OFF.
+      </p>
+
+      {kids.length === 0 && <p className="text-[12px] text-hive-muted font-bold">No kids on the family yet.</p>}
+
+      {kids.map((kid) => {
+        const prefs = cfg?.[kid.id] ?? {};
+        const src = prefs.source;
+        const addr = addressOf(kid, src);
+        const armed = !!addr.email;
+        const streamsOn = (prefs.rewards ? 1 : 0) + (prefs.digest ? 1 : 0);
+        // Rebuild the prefs object without undefined values on every save —
+        // the dot-path map write replaces the whole per-kid entry, and
+        // Firestore rejects undefined.
+        const base = (over: Partial<KidEmailPrefs>): KidEmailPrefs => {
+          const merged = { ...prefs, ...over };
+          const next: KidEmailPrefs = {};
+          if (merged.source) next.source = merged.source;
+          if (merged.rewards) next.rewards = true;
+          if (merged.digest) next.digest = true;
+          if (merged.digestTime) next.digestTime = merged.digestTime;
+          if (merged.lastDigestDayKey) next.lastDigestDayKey = merged.lastDigestDayKey;
+          return next;
+        };
+        return (
+          <div key={kid.id} className="rounded-xl border border-hive-line bg-white px-3 py-2.5 mb-2">
+            <div className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-full bg-[#FFF3D9] text-base flex items-center justify-center shrink-0">
+                {kid.avatarEmoji || '🙂'}
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-nunito font-extrabold text-[13px] text-hive-navy">{kid.name}</span>
+                <span className="block text-[11px] text-hive-muted font-bold truncate">
+                  {addr.email ? `→ ${addr.label} · ${addr.email}` : addr.label}
+                </span>
+              </span>
+              {streamsOn > 0 && armed ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30 shrink-0">{streamsOn} on</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-white text-hive-muted border border-dashed border-hive-line opacity-75 shrink-0">off</span>
+              )}
+            </div>
+
+            <span className="block text-[9.5px] font-bold uppercase tracking-[1.5px] text-hive-muted mt-2 mb-1">Send to</span>
+            <div className="flex flex-wrap gap-1.5">
+              {kid.email ? (
+                srcChip(src?.type === 'kid', `👧 ${kid.name}'s profile email`, () => save(kid.id, base({ source: { type: 'kid' } })))
+              ) : (
+                <Link
+                  href="/profiles"
+                  className="text-[10.5px] font-nunito font-extrabold px-2 py-1 rounded-full border border-dashed border-hive-line text-hive-muted opacity-75"
+                >
+                  👧 no profile email — add it in Profiles ›
+                </Link>
+              )}
+              {parents.map((p) => srcChip(
+                src?.type === 'parent' && src.uid === p.uid,
+                `${p.displayName}`,
+                () => save(kid.id, base({ source: { type: 'parent', uid: p.uid } })),
+                !p.email,
+              ))}
+              {(contacts ?? []).map((c) => srcChip(
+                src?.type === 'contact' && src.id === c.id,
+                `📇 ${c.name}`,
+                () => save(kid.id, base({ source: { type: 'contact', id: c.id } })),
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 mt-2.5">
+              <span className={`text-[12px] font-bold flex-1 ${armed ? 'text-hive-navy' : 'text-hive-muted opacity-60'}`}>🏅 Rewards &amp; points — instant</span>
+              <button
+                type="button"
+                aria-label={`Toggle reward emails for ${kid.name}`}
+                disabled={busy || !armed}
+                onClick={() => save(kid.id, base({ rewards: !prefs.rewards }))}
+                className={`w-10 h-[22px] rounded-full relative transition-colors shrink-0 ${prefs.rewards && armed ? 'bg-hive-honey' : 'bg-hive-line'} ${!armed ? 'opacity-50' : ''}`}
+              >
+                <span className={`absolute top-0.5 w-[18px] h-[18px] bg-white rounded-full transition-all ${prefs.rewards && armed ? 'right-0.5' : 'left-0.5'}`} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className={`text-[12px] font-bold flex-1 ${armed ? 'text-hive-navy' : 'text-hive-muted opacity-60'}`}>
+                🌞 Morning routine digest
+                {prefs.digest && armed && (
+                  <select
+                    value={prefs.digestTime ?? DEFAULT_DIGEST_TIME}
+                    disabled={busy}
+                    onChange={(e) => save(kid.id, base({ digestTime: e.target.value }))}
+                    className="ml-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk bg-transparent border border-hive-line rounded-lg px-1 py-0.5"
+                  >
+                    {DIGEST_TIME_CHOICES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                )}
+              </span>
+              <button
+                type="button"
+                aria-label={`Toggle morning digest for ${kid.name}`}
+                disabled={busy || !armed}
+                onClick={() => save(kid.id, base({ digest: !prefs.digest }))}
+                className={`w-10 h-[22px] rounded-full relative transition-colors shrink-0 ${prefs.digest && armed ? 'bg-hive-honey' : 'bg-hive-line'} ${!armed ? 'opacity-50' : ''}`}
+              >
+                <span className={`absolute top-0.5 w-[18px] h-[18px] bg-white rounded-full transition-all ${prefs.digest && armed ? 'right-0.5' : 'left-0.5'}`} />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mt-1.5 opacity-60">
+              <span className="text-[12px] font-bold flex-1 text-hive-muted">📱 WhatsApp · coming soon</span>
+            </div>
+          </div>
+        );
+      })}
+
+      <p className="text-[11px] text-hive-muted font-bold mt-1 bg-[#EEF2FA] border border-[#CCD6EA] rounded-lg px-2.5 py-2">
+        🛡️ <b>Parent-managed (COPPA):</b> addresses come only from registered sources and resolve
+        live — change a profile email once and every future send follows. Every kid email is
+        readable in the 📜 Alert log.
+      </p>
     </div>
   );
 }
