@@ -34,7 +34,7 @@ interface OldPost { id: string; caption: string; date: string; imageUrl: string 
 
 export default function SundaySurpriseStep({
   familyId, meUid, meName, childrenList, presentPeople, guestSuggestion,
-  surpriseOverrides, goldenTickets, dateKey, record, onRecord,
+  surpriseOverrides, goldenTickets, dateKey, record, onRecord, onBusyChange,
   missionMeeting, meetingsForQuiz,
 }: {
   familyId: string;
@@ -49,6 +49,9 @@ export default function SundaySurpriseStep({
   dateKey: string;                       // today, YYYY-MM-DD — the pick seed
   record: SurpriseRecord | null;         // tonight's captured surprise (parent state)
   onRecord: (r: SurpriseRecord | null) => void;
+  /** Finish-stuck fix (2026-06-21): lets the presenter WAIT on Finish while
+   *  a surprise photo/video upload is in flight (no half-saved meetings). */
+  onBusyChange?: (busy: boolean) => void;
   /** A PAST meeting whose Secret Missions were never checked → check-in first. */
   missionMeeting?: Meeting | null;
   meetingsForQuiz: Meeting[];
@@ -93,7 +96,7 @@ export default function SundaySurpriseStep({
 
   const onMediaFile = async (file: File) => {
     if (!def) return;
-    setBusy(true); setErr('');
+    setBusy(true); onBusyChange?.(true); setErr('');
     let postId: string | null = null;
     try {
       postId = await reservePost(familyId, meUid);
@@ -123,7 +126,7 @@ export default function SundaySurpriseStep({
       // A failed reserved post stays pending:true — invisible in the feed,
       // so no cleanup needed here.
       setErr(e instanceof Error ? e.message : 'Upload failed — try again.');
-    } finally { setBusy(false); }
+    } finally { setBusy(false); onBusyChange?.(false); }
   };
 
   // ── 🎤 Compliment Shower ───────────────────────────────────────────

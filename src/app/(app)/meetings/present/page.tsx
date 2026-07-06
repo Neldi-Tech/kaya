@@ -209,6 +209,11 @@ export default function MeetingPresenterPage() {
   const [openingWordDone, setOpeningWordDone] = useState(false);
   // 🎁 Sunday Surprise (SM3.1 · #7) — tonight's captured surprise.
   const [surpriseRecord, setSurpriseRecord] = useState<SurpriseRecord | null>(null);
+  // Finish-stuck fix (2026-06-21): a failed save shows a retryable error
+  // instead of leaving the button dead on 'Saving…'. Also: while a surprise
+  // photo/video is still uploading, Finish waits (no half-saved meeting).
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [surpriseBusy, setSurpriseBusy] = useState(false);
   // 📖 Theme of the Week + 🗳️ Family Vote (SM3.1 · H).
   const [weekThemeText, setWeekThemeText] = useState('');
   const [voteQuestion, setVoteQuestion] = useState('');
@@ -596,15 +601,20 @@ export default function MeetingPresenterPage() {
   const handleFinish = async () => {
     if (!profile?.familyId) return;
     setSaving(true);
+    setFinishError(null);
+    try {
 
-    // 1. Persist each touched historical meeting's goalsDone.
+    // 1. Persist each touched historical meeting's goalsDone. Best-effort
+    //    per patch — an old goal failing to save must never block tonight's
+    //    meeting (finish-stuck bug, 2026-06-21).
     const historicalPatches = Object.entries(reviewedGoalsDone)
       .filter(([, perKid]) => Object.keys(perKid).length > 0)
       .map(([meetingId, perKid]) => {
         // Merge with whatever the meeting already had on Firestore.
         const existing = recentMeetings.find((m) => m.id === meetingId);
         const merged = { ...(existing?.goalsDone || {}), ...perKid };
-        return updateMeeting(profile.familyId!, meetingId, { goalsDone: merged });
+        return updateMeeting(profile.familyId!, meetingId, { goalsDone: merged })
+          .catch(() => { /* retried next review — non-fatal */ });
       });
     await Promise.all(historicalPatches);
 
@@ -866,8 +876,16 @@ export default function MeetingPresenterPage() {
       console.warn('[meeting-recap] send failed (non-fatal):', e);
     });
 
-    setSaving(false);
     setDone(true);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[meeting-finish] save failed — retryable:', e);
+      setFinishError(e instanceof Error && /permission/i.test(e.message)
+        ? 'Could not save — check your connection and permissions, then tap Finish again.'
+        : 'Could not save the meeting — please tap Finish again.');
+    } finally {
+      setSaving(false);
+    }
     // Clear the persisted step so next week's meeting starts at step 1.
     if (typeof window !== 'undefined') {
       window.sessionStorage.removeItem('kaya:meeting-presenter:stepIdx');
@@ -1151,6 +1169,7 @@ export default function MeetingPresenterPage() {
 
               {step.id === 'surprise' && profile?.familyId && (
                 <SundaySurpriseStep
+                  onBusyChange={setSurpriseBusy}
                   familyId={profile.familyId}
                   meUid={profile.uid}
                   meName={profile.displayName || 'Kaya parent'}
@@ -1337,14 +1356,20 @@ export default function MeetingPresenterPage() {
                 Next →
               </button>
             ) : (
-              <button
-                type="button"
-                onClick={handleFinish}
-                disabled={!canAdvance || saving}
-                className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'Saving…' : '✅ Finish meeting'}
-              </button>
+              <div className="flex flex-col items-end gap-1.5">
+                {finishError && (
+                  <p className="text-[11.5px] font-bold text-red-300 max-w-[280px] text-right">⚠️ {finishError}</p>
+                )}
+                <button
+                  type="button"
+                  onClick={handleFinish}
+                  disabled={!canAdvance || saving || surpriseBusy}
+                  title={surpriseBusy ? 'The surprise photo/video is still uploading…' : undefined}
+                  className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {surpriseBusy ? '📸 Uploading…' : saving ? 'Saving…' : finishError ? '↻ Try Finish again' : '✅ Finish meeting'}
+                </button>
+              </div>
             )}
           </div>
         </footer>
