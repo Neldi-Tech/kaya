@@ -269,6 +269,54 @@ function ChanChip({ label, c, count }: { label: string; c?: { on: boolean; sent:
 function EmailTab({ e }: { e: AlertLogEntry }) {
   const em = e.channels?.email;
   if (!em) return <Missing what="email" />;
+  // 🌞 Kid morning digest (KID PR3) — its own template, re-rendered from
+  // the stored facts + version, like everything else in this log.
+  if (em.kidDigestFacts) {
+    const d = em.kidDigestFacts;
+    return (
+      <div>
+        <div className="rounded-t-xl border border-b-0 border-hive-line bg-hive-cream px-3 py-2 text-[10px] text-hive-muted font-bold leading-relaxed">
+          To: {em.to.length > 0 ? em.to.map((r) => `${r.name} <${r.email}>`).join(' · ') : '—'}<br />
+          Subject: {em.subject}<br />
+          {em.sent ? '✅ sent' : `❌ not sent${em.error ? ` · ${em.error}` : ''}`} · template v{em.templateVersion}
+        </div>
+        <div className="rounded-b-xl border border-hive-line bg-white p-3 font-nunito">
+          <div className="rounded-2xl p-4 text-white" style={{ background: 'linear-gradient(135deg,#1F2A44,#2E3D5C)' }}>
+            <div className="text-[15px] font-black">🌞 Good morning, {d.kidName}!</div>
+            <div className="text-[11.5px] opacity-90 mt-0.5">{d.dateLabel} · here&apos;s your day 👇</div>
+          </div>
+          {d.tasks.length === 0 && (
+            <p className="text-center text-[12px] text-hive-muted font-bold py-3">No tasks today — free day! 🎈</p>
+          )}
+          {d.tasks.map((t, i) => (
+            <div key={i} className="flex items-center gap-2 border border-hive-line rounded-xl px-2.5 py-2 mt-1.5">
+              <span className="text-base">{t.icon}</span>
+              <span className="font-nunito font-extrabold text-[12px] text-hive-navy flex-1">{t.label}</span>
+              {t.points ? <span className="text-[10.5px] font-nunito font-black text-hive-honey-dk">+{t.points} HP</span> : null}
+            </div>
+          ))}
+          <div className="flex gap-2 mt-2.5">
+            {[
+              { l: 'YESTERDAY', v: `+${d.yesterdayPoints} HP`, c: '#C77E0A' },
+              { l: 'BALANCE', v: `${d.balance.toLocaleString()} HP`, c: '#1F2A44' },
+              { l: 'STREAK', v: d.streak > 0 ? `🔥 ${d.streak}` : '—', c: '#2E7D4F' },
+            ].map((s) => (
+              <div key={s.l} className="flex-1 rounded-xl p-2 text-center" style={{ background: '#FBF4E4' }}>
+                <div className="text-[9px] font-extrabold" style={{ color: '#8A8471' }}>{s.l}</div>
+                <div className="text-[14px] font-black" style={{ color: s.c }}>{s.v}</div>
+              </div>
+            ))}
+          </div>
+          <div className="text-center mt-3 mb-1">
+            <span className="inline-block rounded-full px-6 py-2.5 font-black text-sm" style={{ background: '#F0A32A', color: '#3a2a08' }}>Open my day →</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-hive-muted font-bold mt-2 opacity-80">
+          Sent daily at the set time — manage in 🧰 Household Setup.
+        </p>
+      </div>
+    );
+  }
   // 📬 Kid reward/digest emails carry kidFacts instead of meter facts —
   // rendered by their own template (KID PR2), same re-render discipline.
   if (em.kidFacts) {

@@ -176,3 +176,165 @@ export async function sendKidRewardEmail(
     });
   } catch { /* never throws into a reward flow */ }
 }
+
+// ═══ 🌞 Morning routine digest (KID PR3) ═══════════════════════════════════
+//
+// One email per kid per local day at the parent-set time (default 06:30),
+// fired from the hourly pulse-scan cron. Same TZ constant the reminders +
+// birthdays engines use for the closed beta — when a per-family timezone
+// lands, all three engines adopt it together. Dedupe: lastDigestDayKey on
+// the kid's prefs; stamped once an attempt was made (one digest per day,
+// success or honestly-logged failure).
+
+/** Bump together with renderKidDigestEmail AND the digest view in
+ *  /pantry/utility-meters/alerts (F9 discipline). */
+export const KID_DIGEST_TEMPLATE_VERSION = 1;
+
+export interface KidDigestFacts {
+  kidName: string;
+  dateLabel: string;                                    // "Sunday · 06-Jul-2026"
+  tasks: { icon: string; label: string; points?: number }[];
+  yesterdayPoints: number;
+  balance: number;
+  streak: number;
+}
+
+function renderKidDigestEmail(f: KidDigestFacts): string {
+  const taskRows = f.tasks.length > 0
+    ? f.tasks.map((t) => `
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid #EFE4CC;border-radius:12px;padding:9px 11px;margin:6px 14px">
+        <span style="font-size:16px">${esc(t.icon || '✅')}</span>
+        <span style="font-weight:800;font-size:13px;color:#1F2A44;flex:1">${esc(t.label)}</span>
+        ${t.points ? `<span style="font-size:11px;font-weight:900;color:#C77E0A">+${t.points} HP</span>` : ''}
+      </div>`).join('')
+    : `<div style="text-align:center;padding:14px;font-size:13px;color:#5C6975;font-weight:700">No tasks today — free day! 🎈</div>`;
+  const stat = (label: string, value: string, color: string) => `
+    <div style="flex:1;background:#FBF4E4;border-radius:10px;padding:8px;text-align:center">
+      <div style="font-size:10px;color:#8A8471;font-weight:800">${label}</div>
+      <div style="font-size:16px;font-weight:900;color:${color}">${value}</div>
+    </div>`;
+  return `
+  <div style="font-family:Nunito,Arial,sans-serif;max-width:480px;margin:0 auto;padding:14px">
+    <div style="border-radius:18px;overflow:hidden;border:1px solid #EFE4CC;background:#fff">
+      <div style="background:linear-gradient(135deg,#1F2A44,#2E3D5C);padding:16px;color:#fff">
+        <div style="font-size:16px;font-weight:900">🌞 Good morning, ${esc(f.kidName)}!</div>
+        <div style="font-size:12px;opacity:.9;margin-top:2px">${esc(f.dateLabel)} · here's your day 👇</div>
+      </div>
+      ${taskRows}
+      <div style="display:flex;gap:8px;margin:12px 14px">
+        ${stat('YESTERDAY', `+${f.yesterdayPoints} HP`, '#C77E0A')}
+        ${stat('BALANCE', `${f.balance.toLocaleString('en-US')} HP`, '#1F2A44')}
+        ${stat('STREAK', f.streak > 0 ? `🔥 ${f.streak}` : '—', '#2E7D4F')}
+      </div>
+      <div style="text-align:center;padding:0 14px 14px">
+        <a href="${APP_URL}/my-day" style="display:inline-block;background:#F0A32A;color:#3a2a08;font-weight:900;font-size:13px;border-radius:999px;padding:10px 26px;text-decoration:none">Open my day →</a>
+      </div>
+      <div style="padding:9px 12px;font-size:10px;color:#8A8471;background:#FFFDF7;border-top:1px solid #EFE4CC">
+        Sent daily at your family's chosen time · parents manage this in Household Setup.
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Build + send one kid's morning digest. Returns true when an attempt was
+ *  made (the caller stamps lastDigestDayKey); false when the stream is off
+ *  or the address pointer doesn't resolve (retrying costs nothing). */
+export async function sendKidMorningDigest(
+  db: AdminDb,
+  familyId: string,
+  childId: string,
+  famData: FamilyDataSlice | undefined,
+  ctx: { todayKey: string; yesterdayKey: string; dowKey: string; dateLabel: string; tz: string },
+): Promise<boolean> {
+  try {
+    const prefs = famData?.kidEmailUpdates?.[childId];
+    if (!prefs?.digest) return false;
+    const resolved = await resolveKidEmailAddress(db, familyId, childId, famData);
+    if (!resolved) return false;
+
+    const famRef = db.collection('families').doc(familyId);
+    const childSnap = await famRef.collection('children').doc(childId).get();
+    if (!childSnap.exists) return false;
+    const kid = childSnap.data() as { name?: string; totalPoints?: number; streak?: number };
+
+    // Today's plan — recurring items on this weekday + adhoc items dated
+    // today, skipping paused ones (a pause is never a miss, and never noise).
+    const itemsSnap = await childSnap.ref.collection('workplanItems').get();
+    const tasks = itemsSnap.docs
+      .map((d) => d.data() as {
+        label?: string; icon?: string; active?: boolean; pointsValue?: number;
+        daysOfWeek?: string[]; kind?: string; scheduledDates?: string[];
+        timeLocal?: string; pause?: { from?: string; to?: string };
+      })
+      .filter((t) => {
+        if (t.active === false) return false;
+        const p = t.pause;
+        if (p?.from && p.from <= ctx.todayKey && (!p.to || ctx.todayKey <= p.to)) return false;
+        if (t.kind === 'adhoc') return (t.scheduledDates ?? []).includes(ctx.todayKey);
+        return (t.daysOfWeek ?? []).includes(ctx.dowKey);
+      })
+      .sort((a, b) => (a.timeLocal ?? '99:99').localeCompare(b.timeLocal ?? '99:99'))
+      .map((t) => ({
+        icon: t.icon || '✅',
+        label: t.label || 'Task',
+        ...(t.pointsValue && t.pointsValue > 0 ? { points: t.pointsValue } : {}),
+      }));
+
+    // Yesterday's earned points — positive award points dated yesterday
+    // in the family's local day (module-only query, in-memory filter).
+    let yesterdayPoints = 0;
+    try {
+      const awardsSnap = await famRef.collection('awards').where('childId', '==', childId).get();
+      awardsSnap.docs.forEach((d) => {
+        const a = d.data() as { points?: number; createdAt?: FirebaseFirestore.Timestamp };
+        const at = a.createdAt?.toDate?.();
+        if (!at || !a.points || a.points <= 0) return;
+        const key = new Intl.DateTimeFormat('en-CA', { timeZone: ctx.tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+        if (key === ctx.yesterdayKey) yesterdayPoints += a.points;
+      });
+    } catch { /* stat is best-effort — digest still goes */ }
+
+    const facts: KidDigestFacts = {
+      kidName: kid.name || 'you',
+      dateLabel: ctx.dateLabel,
+      tasks,
+      yesterdayPoints,
+      balance: kid.totalPoints ?? 0,
+      streak: kid.streak ?? 0,
+    };
+    const subject = `🌞 Good morning ${facts.kidName} — ${tasks.length === 0 ? 'free day!' : `${tasks.length} thing${tasks.length === 1 ? '' : 's'} today!`}`;
+
+    let sent = false; let error: string | undefined;
+    if (!resend) { error = 'resend-not-configured'; }
+    else {
+      try {
+        await resend.emails.send({
+          from: RESEND_FROM, to: [resolved.email], subject,
+          html: renderKidDigestEmail(facts),
+        });
+        sent = true;
+      } catch (e) { error = e instanceof Error ? e.message : 'send-failed'; }
+    }
+
+    await writeKidAlertLog(db, familyId, {
+      kind: 'kid_digest',
+      childId, childName: kid.name || 'Kid',
+      firedAt: Date.now(),
+      trigger: 'digest',
+      sourceLabel: resolved.sourceLabel,
+      channels: {
+        email: {
+          on: true, sent,
+          ...(error ? { error } : {}),
+          to: [{ name: kid.name || 'Kid', email: resolved.email }],
+          subject,
+          templateVersion: KID_DIGEST_TEMPLATE_VERSION,
+          kidDigestFacts: facts,
+        },
+      },
+    });
+    return true;
+  } catch {
+    return false; // never throws into the cron
+  }
+}

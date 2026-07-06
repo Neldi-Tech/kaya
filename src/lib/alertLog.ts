@@ -28,6 +28,16 @@ export interface KidRewardEmailFacts {
   streak?: number;
 }
 
+/** 🌞 Kid morning-digest facts (KID PR3). */
+export interface KidDigestEmailFacts {
+  kidName: string;
+  dateLabel: string;
+  tasks: { icon: string; label: string; points?: number }[];
+  yesterdayPoints: number;
+  balance: number;
+  streak: number;
+}
+
 export interface AlertLogChannels {
   email?: {
     on: boolean; sent: boolean; error?: string;
@@ -38,6 +48,8 @@ export interface AlertLogChannels {
     facts?: AlertLogEmailFacts;
     /** Kid reward emails (kind 'kid_reward'). */
     kidFacts?: KidRewardEmailFacts;
+    /** Kid morning digests (kind 'kid_digest'). */
+    kidDigestFacts?: KidDigestEmailFacts;
   };
   inapp?: {
     on: boolean; sent: boolean;

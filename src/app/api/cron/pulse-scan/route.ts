@@ -13,6 +13,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { notifyPulseOwner, notifyFamilyParents } from '@/lib/pulseGenerate';
 import { runAutoTopupSweep } from '@/lib/autoTopup.server';
+import { sendKidMorningDigest } from '@/lib/kidEmails.server';
+import { dayKeyInTZ } from '@/lib/dates';
+import type { KidEmailPrefs } from '@/lib/kidEmails.shared';
+
+// Same closed-beta TZ constant the reminders + birthdays engines use —
+// when a per-family timezone lands, all these engines adopt it together.
+const TZ = 'Africa/Dar_es_Salaam';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +49,16 @@ async function run(req: NextRequest) {
   let lowFired = 0;
   let lowRequests = 0;
   let lowPruned = 0;
+  let digests = 0;
+  // 🌞 Kid morning digests (KID PR3): fire when the family-local clock has
+  // passed the kid's set time and today's stamp isn't there yet.
+  const nowDate = new Date();
+  const localHHMM = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(nowDate);
+  const todayKey = dayKeyInTZ(nowDate, TZ);
+  const yesterdayKey = dayKeyInTZ(new Date(now - 86_400_000), TZ);
+  const dowKey = new Intl.DateTimeFormat('en-US', { timeZone: TZ, weekday: 'short' }).format(nowDate).toLowerCase().slice(0, 3);
+  const dateLabel = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })
+    .format(nowDate).replace(/(\d{2}) (\w{3}) (\d{4})/, '$1-$2-$3').replace(', ', ' · ');
   // Alert-log retention (VIS PR1, F8): 90 days. The prune runs once a day —
   // on the 03:00 UTC tick of this hourly cron — to keep the other 23 runs lean.
   const doPrune = new Date().getUTCHours() === 3;
@@ -113,9 +130,31 @@ async function run(req: NextRequest) {
         }
       } catch { /* best-effort per family */ }
     }
+
+    // 🌞 Kid morning digests (KID PR3) — per configured kid, once per local
+    // day. The stamp is written on ATTEMPT (sent or honestly-logged failure)
+    // so one digest per day holds; off-stream / dangling pointers cost a
+    // no-op and simply retry next hour.
+    try {
+      const famData = fam.data() as { kidEmailUpdates?: Record<string, KidEmailPrefs> };
+      const kidCfg = famData.kidEmailUpdates ?? {};
+      for (const childId of Object.keys(kidCfg)) {
+        const prefs = kidCfg[childId];
+        if (!prefs?.digest) continue;
+        if ((prefs.digestTime ?? '06:30') > localHHMM) continue; // not their time yet
+        if (prefs.lastDigestDayKey === todayKey) continue;       // already went today
+        const attempted = await sendKidMorningDigest(db, fam.id, childId, famData, {
+          todayKey, yesterdayKey, dowKey, dateLabel, tz: TZ,
+        });
+        if (attempted) {
+          digests++;
+          await fam.ref.update({ [`kidEmailUpdates.${childId}.lastDigestDayKey`]: todayKey }).catch(() => {});
+        }
+      }
+    } catch { /* best-effort per family */ }
   }
 
-  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned });
+  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned, digests });
 }
 
 export async function GET(req: NextRequest) {
