@@ -2537,6 +2537,21 @@ export interface GiveAwardResult {
   derivedPoints?: number;
 }
 
+/** 📬 KID PR2 — ping the reward-email route (fire-and-forget). The route
+ *  re-derives the words from the award DOC and only sends when the parent
+ *  armed the 🏅 stream; a failure here never touches the award (D4). */
+function pingKidRewardEmail(childId: string, awardId: string) {
+  import('./firebase').then(async ({ auth }) => {
+    const token = await auth.currentUser?.getIdToken();
+    if (!token) return;
+    void fetch('/api/kids/reward-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ childId, awardId }),
+    }).catch(() => {});
+  }).catch(() => {});
+}
+
 export async function giveAward(
   familyId: string,
   award: Omit<Award, 'id' | 'createdAt'>,
@@ -2561,12 +2576,14 @@ export async function giveAward(
       totalPoints: (child.totalPoints || 0) + award.points,
       weeklyPoints: (child.weeklyPoints || 0) + award.points,
     });
+    if (award.points > 0) pingKidRewardEmail(award.childId, ref.id);
     return { id: ref.id };
   }
 
   // Zero-point kinds: increment the accumulator, and if the threshold is
   // reached, fire a derived award + decrement the counter by the threshold.
   if (award.kind === 'kudos' || award.kind === 'improvement_note') {
+    if (award.kind === 'kudos') pingKidRewardEmail(award.childId, ref.id);
     const family = await getFamily(familyId);
     const config = readPointSystemConfig(family);
     const isKudos = award.kind === 'kudos';
@@ -2623,6 +2640,7 @@ export async function giveAward(
       totalPoints: (child.totalPoints || 0) + derivedPoints,
       weeklyPoints: (child.weeklyPoints || 0) + derivedPoints,
     });
+    if (derivedPoints > 0) pingKidRewardEmail(award.childId, derivedRef.id);
 
     return {
       id: ref.id,

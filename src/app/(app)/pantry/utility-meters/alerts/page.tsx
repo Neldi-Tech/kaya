@@ -105,6 +105,34 @@ export default function AlertLogPage() {
         <div key={g.key}>
           <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mt-4 mb-1.5">{dayLabel(g.key)}</p>
           {g.rows.map((e) => {
+            // 📬 Kid emails (KID PR2/PR3) — same log, their own row shape.
+            if (e.kind === 'kid_reward' || e.kind === 'kid_digest') {
+              const em = e.channels?.email;
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  onClick={() => { setOpen(e); setTab('email'); }}
+                  className="w-full text-left bg-hive-paper border border-hive-line rounded-hive p-3 mb-2 hover:border-hive-honey"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{e.kind === 'kid_reward' ? '🏅' : '🌞'}</span>
+                    <span className="font-nunito font-extrabold text-[13px] text-hive-navy truncate">
+                      {e.childName || 'Kid'} · {e.kind === 'kid_reward' ? 'reward email' : 'morning digest'}
+                    </span>
+                    {em?.sent ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">✅ sent</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40">❌ not sent</span>
+                    )}
+                    <span className="ml-auto text-hive-muted text-sm">›</span>
+                  </div>
+                  <p className="text-[11px] text-hive-muted font-bold mt-1 truncate">
+                    {timeOf(e.firedAt)}{em?.subject ? ` · ${em.subject}` : ''}{e.sourceLabel ? ` · via ${e.sourceLabel}` : ''}
+                  </p>
+                </button>
+              );
+            }
             const unit = e.unit ? ` ${e.unit}` : '';
             const ch = e.channels;
             return (
@@ -120,14 +148,14 @@ export default function AlertLogPage() {
                   {e.kind === 'recovered' ? (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">✅ recovered</span>
                   ) : (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40">🔔 LOW {Math.round(e.balance)}{unit}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40">🔔 LOW {Math.round(e.balance ?? 0)}{unit}</span>
                   )}
                   {e.kind === 'alert' && <span className="ml-auto text-hive-muted text-sm">›</span>}
                 </div>
                 <p className="text-[11px] text-hive-muted font-bold mt-1">
                   {timeOf(e.firedAt)} · {e.trigger === 'sweep' ? 'hourly sweep' : 'on a reading'} · floor {e.threshold}{unit}
                   {e.kind === 'alert' && e.daysLeft != null ? ` · ~${e.daysLeft} days left` : ''}
-                  {e.kind === 'recovered' ? ` · back to ${Math.round(e.balance)}${unit}` : ''}
+                  {e.kind === 'recovered' ? ` · back to ${Math.round(e.balance ?? 0)}${unit}` : ''}
                 </p>
                 {e.kind === 'alert' && ch && (
                   <div className="flex items-center gap-1 flex-wrap mt-1.5">
@@ -157,36 +185,55 @@ export default function AlertLogPage() {
               <div className="w-12 h-1 rounded-full bg-hive-line"></div>
             </div>
             <div className="px-4">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">{emojiOf(open)}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-nunito font-black text-[15px] text-hive-navy">{open.meterLabel} — low alert</p>
-                  <p className="text-[11px] text-hive-muted font-bold">
-                    {toDisplayDate(dayKeyOf(open.firedAt))} {timeOf(open.firedAt)} · {open.trigger === 'sweep' ? 'hourly sweep' : 'on a reading'}
-                    {' · resolved by '}{open.resolvedBy === 'item' ? 'this meter' : open.resolvedBy === 'category' ? '⚡ Utilities setup' : '🌍 global setup'}
-                  </p>
+              {open.kind === 'kid_reward' || open.kind === 'kid_digest' ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{open.kind === 'kid_reward' ? '🏅' : '🌞'}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-nunito font-black text-[15px] text-hive-navy">
+                      {open.childName || 'Kid'} — {open.kind === 'kid_reward' ? 'reward email' : 'morning digest'}
+                    </p>
+                    <p className="text-[11px] text-hive-muted font-bold">
+                      {toDisplayDate(dayKeyOf(open.firedAt))} {timeOf(open.firedAt)}
+                      {open.sourceLabel ? ` · address via ${open.sourceLabel}` : ''}
+                    </p>
+                  </div>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40 shrink-0">
-                  {Math.round(open.balance)} / {open.threshold}{open.unit ? ` ${open.unit}` : ''}
-                </span>
-              </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{emojiOf(open)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-nunito font-black text-[15px] text-hive-navy">{open.meterLabel} — low alert</p>
+                    <p className="text-[11px] text-hive-muted font-bold">
+                      {toDisplayDate(dayKeyOf(open.firedAt))} {timeOf(open.firedAt)} · {open.trigger === 'sweep' ? 'hourly sweep' : 'on a reading'}
+                      {' · resolved by '}{open.resolvedBy === 'item' ? 'this meter' : open.resolvedBy === 'category' ? '⚡ Utilities setup' : '🌍 global setup'}
+                    </p>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40 shrink-0">
+                    {Math.round(open.balance ?? 0)} / {open.threshold}{open.unit ? ` ${open.unit}` : ''}
+                  </span>
+                </div>
+              )}
 
-              <div className="flex gap-1.5 mt-3 mb-3">
-                {(['email', 'chat', 'inapp'] as Tab[]).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setTab(t)}
-                    className={`flex-1 text-center text-[11px] font-nunito font-black py-2 rounded-xl border ${tab === t ? 'bg-hive-navy text-white border-hive-navy' : 'bg-white text-hive-muted border-hive-line'}`}
-                  >
-                    {t === 'email' ? '📧 Email' : t === 'chat' ? '💬 Chat' : '🔔 In-app'}
-                  </button>
-                ))}
-              </div>
+              {/* Kid emails are email-only — no channel tabs to switch. */}
+              {open.kind === 'alert' && (
+                <div className="flex gap-1.5 mt-3 mb-3">
+                  {(['email', 'chat', 'inapp'] as Tab[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTab(t)}
+                      className={`flex-1 text-center text-[11px] font-nunito font-black py-2 rounded-xl border ${tab === t ? 'bg-hive-navy text-white border-hive-navy' : 'bg-white text-hive-muted border-hive-line'}`}
+                    >
+                      {t === 'email' ? '📧 Email' : t === 'chat' ? '💬 Chat' : '🔔 In-app'}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {(open.kind === 'kid_reward' || open.kind === 'kid_digest') && <div className="mt-3" />}
 
-              {tab === 'email' && <EmailTab e={open} />}
-              {tab === 'chat' && <ChatTab e={open} />}
-              {tab === 'inapp' && <InAppTab e={open} />}
+              {(tab === 'email' || open.kind !== 'alert') && <EmailTab e={open} />}
+              {tab === 'chat' && open.kind === 'alert' && <ChatTab e={open} />}
+              {tab === 'inapp' && open.kind === 'alert' && <InAppTab e={open} />}
 
               {open.requestId && (
                 <Link
@@ -222,7 +269,46 @@ function ChanChip({ label, c, count }: { label: string; c?: { on: boolean; sent:
 function EmailTab({ e }: { e: AlertLogEntry }) {
   const em = e.channels?.email;
   if (!em) return <Missing what="email" />;
+  // 📬 Kid reward/digest emails carry kidFacts instead of meter facts —
+  // rendered by their own template (KID PR2), same re-render discipline.
+  if (em.kidFacts) {
+    const k = em.kidFacts;
+    return (
+      <div>
+        <div className="rounded-t-xl border border-b-0 border-hive-line bg-hive-cream px-3 py-2 text-[10px] text-hive-muted font-bold leading-relaxed">
+          To: {em.to.length > 0 ? em.to.map((r) => `${r.name} <${r.email}>`).join(' · ') : '—'}<br />
+          Subject: {em.subject}<br />
+          {em.sent ? '✅ sent' : `❌ not sent${em.error ? ` · ${em.error}` : ''}`} · template v{em.templateVersion}
+        </div>
+        <div className="rounded-b-xl border border-hive-line bg-white p-3 font-nunito">
+          <div className="rounded-2xl p-5 text-white text-center" style={{ background: 'linear-gradient(135deg,#F0A32A,#E58A1F)' }}>
+            <div className="text-4xl leading-none">{k.emoji}</div>
+            <div className="text-xl font-black mt-1.5">{k.headline}</div>
+            <div className="text-[13px] font-extrabold opacity-95 mt-1">{k.detail}</div>
+          </div>
+          <div className="text-center mt-4">
+            {k.balance != null && (
+              <>
+                <div className="text-[12px] font-bold" style={{ color: '#5C6975' }}>Your balance</div>
+                <div className="text-[26px] font-black" style={{ color: '#1F2A44' }}>{k.balance.toLocaleString()} HP</div>
+              </>
+            )}
+            {k.streak && k.streak > 1 ? (
+              <div className="text-[12px] font-extrabold mt-0.5" style={{ color: '#2E7D4F' }}>🔥 {k.streak}-day streak — keep it going!</div>
+            ) : null}
+            <div className="mt-3 mb-1">
+              <span className="inline-block rounded-full px-6 py-2.5 font-black text-sm" style={{ background: '#F0A32A', color: '#3a2a08' }}>See my day →</span>
+            </div>
+          </div>
+        </div>
+        <p className="text-[10px] text-hive-muted font-bold mt-2 opacity-80">
+          Sent because Reward emails are on for {k.kidName} — manage in 🧰 Household Setup.
+        </p>
+      </div>
+    );
+  }
   const f = em.facts;
+  if (!f) return <Missing what="email" />;
   return (
     <div>
       <div className="rounded-t-xl border border-b-0 border-hive-line bg-hive-cream px-3 py-2 text-[10px] text-hive-muted font-bold leading-relaxed">

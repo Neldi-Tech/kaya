@@ -17,13 +17,27 @@ export interface AlertLogEmailFacts {
   ctaLabel: string;
 }
 
+/** 📬 Kid reward email facts (KID PR2) — re-rendered by the trace with
+ *  the entry's templateVersion, same F9 discipline as the meter emails. */
+export interface KidRewardEmailFacts {
+  kidName: string;
+  emoji: string;
+  headline: string;
+  detail: string;
+  balance?: number;
+  streak?: number;
+}
+
 export interface AlertLogChannels {
   email?: {
     on: boolean; sent: boolean; error?: string;
     to: { name: string; email: string }[];
     subject: string;
     templateVersion: number;
-    facts: AlertLogEmailFacts;
+    /** Meter low-balance emails (kind 'alert'). */
+    facts?: AlertLogEmailFacts;
+    /** Kid reward emails (kind 'kid_reward'). */
+    kidFacts?: KidRewardEmailFacts;
   };
   inapp?: {
     on: boolean; sent: boolean;
@@ -37,15 +51,21 @@ export interface AlertLogChannels {
 
 export interface AlertLogEntry {
   id: string;
-  kind: 'alert' | 'recovered';
-  meterId: string;
-  meterLabel: string;
+  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest';
+  // ── meter fields (kinds 'alert' / 'recovered') ──
+  meterId?: string;
+  meterLabel?: string;
   meterType?: string;
   unit?: string;
   firedAt: number;                       // ms epoch
-  trigger: 'reading' | 'sweep';
-  balance: number;
-  threshold: number;
+  trigger: 'reading' | 'sweep' | 'reward' | 'digest';
+  balance?: number;
+  threshold?: number;
+  // ── kid fields (kinds 'kid_reward' / 'kid_digest', KID PR2/PR3) ──
+  childId?: string;
+  childName?: string;
+  /** Where the kid's address resolved from (kid profile / parent / contact). */
+  sourceLabel?: string;
   daysLeft?: number | null;
   forecastDays?: number;
   requestId?: string;
