@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { sendKidRewardEmail } from '@/lib/kidEmails.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -85,6 +86,12 @@ async function run(req: NextRequest) {
           weeklyPoints: (c.weeklyPoints ?? 0) + points,
         });
         awarded.add(itemId);
+        // 📬 KID PR2 — reward email (already server-side here; best-effort).
+        await sendKidRewardEmail(db, familyId, childId, {
+          emoji: '🏅',
+          headline: `+${points} House Points!`,
+          detail: `${itemLabel} — approved ✅`,
+        });
       } catch {
         /* best-effort: the approval still lands even if the award write fails */
       }
