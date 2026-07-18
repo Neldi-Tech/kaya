@@ -10,8 +10,9 @@
 'use client';
 
 import {
-  deleteObject, getDownloadURL, ref as storageRef, uploadBytes,
+  deleteObject, getDownloadURL, ref as storageRef,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { storage } from '../firebase';
 import { processPhotoForUpload, type ProcessedPhoto } from '../photoUpload';
 
@@ -50,9 +51,9 @@ export async function uploadSparksPhoto(
   const refFull  = storageRef(storage, path(familyId, itemId, photoId, 'full'));
 
   await Promise.all([
-    uploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFeed,  blobs.feedBlob,  { contentType: 'image/jpeg' }),
-    uploadBytes(refFull,  blobs.fullBlob,  { contentType: 'image/jpeg' }),
+    safeUploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFeed,  blobs.feedBlob,  { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFull,  blobs.fullBlob,  { contentType: 'image/jpeg' }),
   ]);
 
   const [thumbUrl, feedUrl, fullUrl] = await Promise.all([

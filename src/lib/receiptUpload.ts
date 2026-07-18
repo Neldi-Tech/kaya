@@ -14,8 +14,9 @@
 // since the new upload is what the user cares about.
 
 import {
-  ref as storageRef, uploadBytes, getDownloadURL, deleteObject,
+  ref as storageRef, getDownloadURL, deleteObject,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db, storage } from './firebase';
 
@@ -92,7 +93,7 @@ export async function uploadReceipt(args: {
   const blob = await processReceipt(args.file);
   const photoId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const ref = storageRef(storage, receiptPath(args.familyId, args.requestId, photoId));
-  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(ref, blob, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(ref);
   // Persist the URL on the request.
   await updateDoc(doc(db, 'families', args.familyId, 'purchaseRequests', args.requestId), {

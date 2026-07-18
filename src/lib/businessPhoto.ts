@@ -9,8 +9,9 @@
 // so a 1280px long edge is plenty.
 
 import {
-  ref as storageRef, uploadBytes, getDownloadURL, deleteObject,
+  ref as storageRef, getDownloadURL, deleteObject,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { storage } from './firebase';
 import { isGuestActive } from './mockFamily';
 
@@ -56,7 +57,7 @@ export async function uploadBusinessPhoto(familyId: string, businessId: string, 
   const blob = await processPhoto(file);
   const photoId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const ref = storageRef(storage, photosPath(familyId, businessId, photoId));
-  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(ref, blob, { contentType: 'image/jpeg' });
   return getDownloadURL(ref);
 }
 
@@ -74,7 +75,7 @@ export async function uploadBusinessVideo(familyId: string, businessId: string, 
   const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const ref = storageRef(storage, videoPath(familyId, businessId, id, ext));
-  await uploadBytes(ref, file, { contentType: file.type });
+  await safeUploadBytes(ref, file, { contentType: file.type });
   return getDownloadURL(ref);
 }
 
@@ -87,14 +88,14 @@ export async function uploadProjectPhoto(familyId: string, projectId: string, fi
   const blob = await processPhoto(file);
   const photoId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const ref = storageRef(storage, projectPhotosPath(familyId, projectId, photoId));
-  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(ref, blob, { contentType: 'image/jpeg' });
   return getDownloadURL(ref);
 }
 
 async function uploadProcessed(path: string, blob: Blob): Promise<string> {
   const processed = await processPhoto(blob);
   const ref = storageRef(storage, path);
-  await uploadBytes(ref, processed, { contentType: 'image/jpeg' });
+  await safeUploadBytes(ref, processed, { contentType: 'image/jpeg' });
   return getDownloadURL(ref);
 }
 const newPhotoId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;

@@ -105,6 +105,28 @@ export default function AlertLogPage() {
         <div key={g.key}>
           <p className="text-[10px] font-nunito font-black uppercase tracking-[1.5px] text-hive-muted mt-4 mb-1.5">{dayLabel(g.key)}</p>
           {g.rows.map((e) => {
+            // 📦 System alarms (STOR PR1) — storage bucket full; parents
+            // were emailed + belled. Fixed template, so the row IS the trace.
+            if (e.kind === 'storage_quota') {
+              const em = e.channels?.email;
+              const inapp = e.channels?.inapp;
+              return (
+                <div key={e.id} className="w-full bg-hive-paper border border-hive-rose/40 rounded-hive p-3 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">📦</span>
+                    <span className="font-nunito font-extrabold text-[13px] text-hive-navy">Kaya storage full — uploads failing</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#FDE8E8] text-hive-rose border border-hive-rose/40">system</span>
+                  </div>
+                  <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                    <span className="text-[11px] text-hive-muted font-bold">{timeOf(e.firedAt)} · once per day while full</span>
+                    <span className="ml-auto flex gap-1">
+                      <ChanChip label="📧" c={em} count={em?.to.length} />
+                      <ChanChip label="🔔" c={inapp} count={inapp?.to.length} />
+                    </span>
+                  </div>
+                </div>
+              );
+            }
             // 📬 Kid emails (KID PR2/PR3) — same log, their own row shape.
             if (e.kind === 'kid_reward' || e.kind === 'kid_digest') {
               const em = e.channels?.email;

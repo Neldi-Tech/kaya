@@ -13,8 +13,9 @@ import {
   serverTimestamp, Timestamp,
 } from 'firebase/firestore';
 import {
-  getDownloadURL, ref as storageRef, uploadBytes,
+  getDownloadURL, ref as storageRef,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { db, storage } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { PhotoRef } from './moments';
@@ -114,9 +115,9 @@ export async function uploadVenuePhoto(
   const refFeed = storageRef(storage, venuePhotoPath(familyId, venueDocId, photoId, 'feed'));
   const refFull = storageRef(storage, venuePhotoPath(familyId, venueDocId, photoId, 'full'));
   await Promise.all([
-    uploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFeed, blobs.feedBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFull, blobs.fullBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFeed, blobs.feedBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFull, blobs.fullBlob, { contentType: 'image/jpeg' }),
   ]);
   const [thumbUrl, feedUrl, fullUrl] = await Promise.all([
     getDownloadURL(refThumb),

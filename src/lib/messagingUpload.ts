@@ -6,7 +6,8 @@
 // Photos downscale to a 1280px JPEG (mirrors businessPhoto.ts). Videos, voice
 // notes, and documents upload as-is, each size-capped to match the rule.
 
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { storage } from './firebase';
 import { isGuestActive } from './mockFamily';
 import type { Attachment } from './messaging';
@@ -72,7 +73,7 @@ export async function uploadMessagePhoto(familyId: string, threadId: string, fil
   if (!file.type.startsWith('image/')) throw new Error("That doesn't look like an image.");
   const blob = await downscale(file);
   const ref = storageRef(storage, attPath(familyId, threadId, newId(), 'jpg'));
-  await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(ref, blob, { contentType: 'image/jpeg' });
   return { kind: 'photo', url: await getDownloadURL(ref), mime: 'image/jpeg', sizeBytes: blob.size };
 }
 
@@ -82,7 +83,7 @@ export async function uploadMessageVideo(familyId: string, threadId: string, fil
   if (!file.type.startsWith('video/')) throw new Error("That doesn't look like a video.");
   if (file.size > MAX_VIDEO) throw new Error('Video is too big — keep it under ~50 MB.');
   const ref = storageRef(storage, attPath(familyId, threadId, newId(), safeExt(file.name, 'mp4')));
-  await uploadBytes(ref, file, { contentType: file.type });
+  await safeUploadBytes(ref, file, { contentType: file.type });
   return { kind: 'video', url: await getDownloadURL(ref), mime: file.type, sizeBytes: file.size };
 }
 
@@ -92,7 +93,7 @@ export async function uploadMessageDocument(familyId: string, threadId: string, 
   if (!DOC_TYPES.has(file.type)) throw new Error('That file type isn’t allowed. Try a PDF, doc, sheet, or text file.');
   if (file.size > MAX_DOC) throw new Error('Document is too big — keep it under 25 MB.');
   const ref = storageRef(storage, attPath(familyId, threadId, newId(), safeExt(file.name, 'bin')));
-  await uploadBytes(ref, file, { contentType: file.type });
+  await safeUploadBytes(ref, file, { contentType: file.type });
   return { kind: 'document', url: await getDownloadURL(ref), name: file.name, mime: file.type, sizeBytes: file.size };
 }
 
@@ -102,6 +103,6 @@ export async function uploadMessageVoice(familyId: string, threadId: string, blo
   if (blob.size > MAX_VOICE) throw new Error('Voice note is too long.');
   const ext = blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm';
   const ref = storageRef(storage, attPath(familyId, threadId, newId(), ext));
-  await uploadBytes(ref, blob, { contentType: blob.type || 'audio/webm' });
+  await safeUploadBytes(ref, blob, { contentType: blob.type || 'audio/webm' });
   return { kind: 'voice', url: await getDownloadURL(ref), mime: blob.type, sizeBytes: blob.size, durationSec: Math.round(durationSec) };
 }

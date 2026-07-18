@@ -6,7 +6,8 @@
 // client then hands to /api/games/challenge.
 
 import { storage } from '@/lib/firebase';
-import { ref as storageRef, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 
 async function downscale(file: File, maxEdge = 1600, quality = 0.85): Promise<Blob> {
   const bitmap = await createImageBitmap(file);
@@ -33,6 +34,6 @@ export async function uploadGameProof(
   const photoId = `${Date.now()}_${Math.round(Math.random() * 1e6)}`;
   const path = `families/${familyId}/children/${childSeg}/gameProofs/${gameId}/${photoId}.jpg`;
   const r = storageRef(storage, path);
-  await uploadBytes(r, blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(r, blob, { contentType: 'image/jpeg' });
   return await getDownloadURL(r);
 }
