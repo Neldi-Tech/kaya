@@ -63,14 +63,14 @@ export interface AlertLogChannels {
 
 export interface AlertLogEntry {
   id: string;
-  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest';
+  kind: 'alert' | 'recovered' | 'kid_reward' | 'kid_digest' | 'storage_quota';
   // ── meter fields (kinds 'alert' / 'recovered') ──
   meterId?: string;
   meterLabel?: string;
   meterType?: string;
   unit?: string;
   firedAt: number;                       // ms epoch
-  trigger: 'reading' | 'sweep' | 'reward' | 'digest';
+  trigger: 'reading' | 'sweep' | 'reward' | 'digest' | 'system';
   balance?: number;
   threshold?: number;
   // ── kid fields (kinds 'kid_reward' / 'kid_digest', KID PR2/PR3) ──

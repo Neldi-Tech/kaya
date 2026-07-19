@@ -25,8 +25,9 @@ import {
   setDoc, updateDoc, where, writeBatch, increment, limit,
 } from 'firebase/firestore';
 import {
-  deleteObject, getDownloadURL, ref as storageRef, uploadBytes,
+  deleteObject, getDownloadURL, ref as storageRef,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { db, storage } from './firebase';
 
 // ── Types ────────────────────────────────────────────────────────
@@ -237,9 +238,9 @@ export async function uploadProcessedPhoto(
   const refFeed = storageRef(storage, photoStoragePath(familyId, postId, photoId, 'feed'));
   const refFull = storageRef(storage, photoStoragePath(familyId, postId, photoId, 'full'));
   await Promise.all([
-    uploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFeed, blobs.feedBlob,  { contentType: 'image/jpeg' }),
-    uploadBytes(refFull, blobs.fullBlob,  { contentType: 'image/jpeg' }),
+    safeUploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFeed, blobs.feedBlob,  { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFull, blobs.fullBlob,  { contentType: 'image/jpeg' }),
   ]);
   const [thumbUrl, feedUrl, fullUrl] = await Promise.all([
     getDownloadURL(refThumb),
@@ -277,10 +278,10 @@ export async function uploadProcessedVideo(
   const refFull = storageRef(storage, photoStoragePath(familyId, postId, mediaId, 'full'));
   const refVideo = storageRef(storage, videoStoragePath(familyId, postId, mediaId));
   await Promise.all([
-    uploadBytes(refThumb, data.poster.thumbBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFeed, data.poster.feedBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFull, data.poster.fullBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refVideo, data.videoBlob, { contentType: data.contentType }),
+    safeUploadBytes(refThumb, data.poster.thumbBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFeed, data.poster.feedBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFull, data.poster.fullBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refVideo, data.videoBlob, { contentType: data.contentType }),
   ]);
   const [thumbUrl, feedUrl, fullUrl, videoUrl] = await Promise.all([
     getDownloadURL(refThumb),

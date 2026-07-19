@@ -23,8 +23,9 @@ import {
   updateDoc, where, writeBatch, increment, limit,
 } from 'firebase/firestore';
 import {
-  deleteObject, getDownloadURL, ref as storageRef, uploadBytes,
+  deleteObject, getDownloadURL, ref as storageRef,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { db, storage } from './firebase';
 import type { ProcessedPhoto } from './photoUpload';
 
@@ -320,9 +321,9 @@ export async function uploadAlbumPhoto(
   const refFeed = storageRef(storage, albumPhotoStoragePath(familyId, albumId, photoId, 'feed'));
   const refFull = storageRef(storage, albumPhotoStoragePath(familyId, albumId, photoId, 'full'));
   await Promise.all([
-    uploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFeed, blobs.feedBlob, { contentType: 'image/jpeg' }),
-    uploadBytes(refFull, blobs.fullBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refThumb, blobs.thumbBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFeed, blobs.feedBlob, { contentType: 'image/jpeg' }),
+    safeUploadBytes(refFull, blobs.fullBlob, { contentType: 'image/jpeg' }),
   ]);
   const [thumbUrl, feedUrl, fullUrl] = await Promise.all([
     getDownloadURL(refThumb),

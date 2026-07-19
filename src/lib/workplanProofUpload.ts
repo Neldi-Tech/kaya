@@ -16,8 +16,9 @@
 // proof doc + awards points (kids can't write awards under the rules).
 
 import {
-  ref as storageRef, uploadBytes, getDownloadURL,
+  ref as storageRef, getDownloadURL,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { storage } from './firebase';
 import type { WorkplanProofMediaType } from './kidWorkplan';
 
@@ -91,7 +92,7 @@ export async function uploadWorkplanProofMedia(args: {
   if (file.type.startsWith('image/')) {
     const blob = await processImage(file);
     const ref = storageRef(storage, `${folder}/${photoId}.jpg`);
-    await uploadBytes(ref, blob, { contentType: 'image/jpeg' });
+    await safeUploadBytes(ref, blob, { contentType: 'image/jpeg' });
     const url = await getDownloadURL(ref);
     return { url, mediaType: 'photo' };
   }
@@ -102,7 +103,7 @@ export async function uploadWorkplanProofMedia(args: {
     }
     const ext = extFromType(file.type);
     const ref = storageRef(storage, `${folder}/${photoId}.${ext}`);
-    await uploadBytes(ref, file, { contentType: file.type });
+    await safeUploadBytes(ref, file, { contentType: file.type });
     const url = await getDownloadURL(ref);
     return { url, mediaType: 'video' };
   }

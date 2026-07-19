@@ -7,8 +7,9 @@ import {
   setDoc, updateDoc,
 } from 'firebase/firestore';
 import {
-  deleteObject, getDownloadURL, ref as storageRef, uploadBytes,
+  deleteObject, getDownloadURL, ref as storageRef,
 } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { db, storage } from '../firebase';
 import type { SparksMaterial } from './materials';
 
@@ -31,7 +32,7 @@ export async function uploadMaterialFile(
 ): Promise<{ url: string; storedName: string; sizeBytes: number; mime: string }> {
   const storedName = safeFilename(file.name || 'material');
   const ref = storageRef(storage, materialFilePath(familyId, materialId, storedName));
-  await uploadBytes(ref, file, { contentType: file.type || undefined });
+  await safeUploadBytes(ref, file, { contentType: file.type || undefined });
   const url = await getDownloadURL(ref);
   return {
     url,

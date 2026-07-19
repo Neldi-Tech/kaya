@@ -8,7 +8,8 @@
 // (parent-only in storage.rules; the download URL is only discoverable via
 //  the asset doc, which is itself visibility-gated in firestore.rules.)
 
-import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref as storageRef, getDownloadURL, deleteObject } from 'firebase/storage';
+import { safeUploadBytes } from '@/lib/storageUpload';
 import { doc, collection, writeBatch, setDoc, onSnapshot, serverTimestamp, arrayUnion, arrayRemove, Timestamp } from 'firebase/firestore';
 import { db, storage } from '@/lib/firebase';
 import { isGuestActive } from '@/lib/mockFamily';
@@ -30,7 +31,7 @@ export async function uploadWealthDocument(args: {
   const id = newId();
   const path = `families/${args.familyId}/wealth/${args.assetId}/${id}.jpg`;
   const sref = storageRef(storage, path);
-  await uploadBytes(sref, args.blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(sref, args.blob, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(sref);
 
   // Concrete Timestamp (not serverTimestamp) — Firestore forbids sentinel
@@ -89,7 +90,7 @@ export async function uploadUnfiledDocument(args: {
   const id = newId();
   const path = `families/${args.familyId}/wealth/${UNFILED_ASSET}/${id}.jpg`;
   const sref = storageRef(storage, path);
-  await uploadBytes(sref, args.blob, { contentType: 'image/jpeg' });
+  await safeUploadBytes(sref, args.blob, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(sref);
   const entry: WealthDocEntry = {
     id, label: args.label.trim() || 'Document', storagePath: path, url,
@@ -131,7 +132,7 @@ export async function replaceUnfiledDoc(
   const id = newId();
   const path = `families/${familyId}/wealth/${UNFILED_ASSET}/${id}.jpg`;
   const sref = storageRef(storage, path);
-  await uploadBytes(sref, file, { contentType: 'image/jpeg' });
+  await safeUploadBytes(sref, file, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(sref);
   const entry: WealthDocEntry = {
     ...oldEntry, id, storagePath: path, url, uploadedAt: Timestamp.now(),
@@ -152,7 +153,7 @@ export async function replaceAssetDocument(
   const id = newId();
   const path = `families/${familyId}/wealth/${assetId}/${id}.jpg`;
   const sref = storageRef(storage, path);
-  await uploadBytes(sref, file, { contentType: 'image/jpeg' });
+  await safeUploadBytes(sref, file, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(sref);
   const media: WealthMedia = { ...oldMedia, id, storagePath: path, url, uploadedAt: Timestamp.now() };
   const assetRef = doc(db, 'families', familyId, 'wealth_assets', assetId);
