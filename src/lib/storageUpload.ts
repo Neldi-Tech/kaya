@@ -75,3 +75,39 @@ export async function safeUploadString(
   try { return await uploadString(ref, value, format, metadata); }
   catch (e) { rethrow(e); }
 }
+
+// ═══ 📉 Photo compression (STOR PR2) ═══════════════════════════════════════
+//
+// Most Kaya photo paths already pipeline through canvas (thumb/feed/full,
+// scan auto-frame). This closes the last raw-upload gaps so the bucket
+// fills far slower. Non-images, GIFs, SVGs and any failure fall back to
+// the ORIGINAL blob — compression can only ever help, never block.
+
+/** Downscale to `maxDim` and re-encode as JPEG. Returns the original blob
+ *  whenever that would be smaller or anything goes wrong. */
+export async function compressImageBlob(
+  input: Blob,
+  opts?: { maxDim?: number; quality?: number },
+): Promise<Blob> {
+  const maxDim = opts?.maxDim ?? 1600;
+  const quality = opts?.quality ?? 0.82;
+  try {
+    if (!input.type.startsWith('image/')) return input;
+    if (input.type === 'image/gif' || input.type === 'image/svg+xml') return input;
+    const bmp = await createImageBitmap(input);
+    const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return input;
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+    const out = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    return out && out.size < input.size ? out : input; // never grow a file
+  } catch {
+    return input;
+  }
+}

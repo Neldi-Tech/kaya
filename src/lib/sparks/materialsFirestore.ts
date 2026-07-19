@@ -9,7 +9,7 @@ import {
 import {
   deleteObject, getDownloadURL, ref as storageRef,
 } from 'firebase/storage';
-import { safeUploadBytes } from '@/lib/storageUpload';
+import { safeUploadBytes, compressImageBlob } from '@/lib/storageUpload';
 import { db, storage } from '../firebase';
 import type { SparksMaterial } from './materials';
 
@@ -32,13 +32,17 @@ export async function uploadMaterialFile(
 ): Promise<{ url: string; storedName: string; sizeBytes: number; mime: string }> {
   const storedName = safeFilename(file.name || 'material');
   const ref = storageRef(storage, materialFilePath(familyId, materialId, storedName));
-  await safeUploadBytes(ref, file, { contentType: file.type || undefined });
+  // STOR PR2 — photos compress before upload; documents pass through
+  // untouched (compressImageBlob is a no-op for non-images and any failure).
+  const toSend = await compressImageBlob(file);
+  const compressed = toSend !== file;
+  await safeUploadBytes(ref, toSend, { contentType: (compressed ? 'image/jpeg' : file.type) || undefined });
   const url = await getDownloadURL(ref);
   return {
     url,
     storedName: file.name || storedName,
-    sizeBytes: file.size,
-    mime: file.type || 'application/octet-stream',
+    sizeBytes: toSend.size,
+    mime: (compressed ? 'image/jpeg' : file.type) || 'application/octet-stream',
   };
 }
 
