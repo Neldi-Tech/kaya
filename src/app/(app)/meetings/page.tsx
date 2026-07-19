@@ -7,6 +7,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import { createMeeting, getMeetings, getAllMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
@@ -31,7 +32,7 @@ const BASE_AGENDA = [
 export default function MeetingsPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
-  const [tab, setTab] = useState<'submission' | 'new' | 'past' | 'highlights'>('submission');
+  const [tab, setTab] = useState<'submission' | 'new' | 'goals' | 'past' | 'highlights'>('submission');
   const [meetingType, setMeetingType] = useState<'weekly' | 'kid-led'>('weekly');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [activeStep, setActiveStep] = useState(0);
@@ -228,8 +229,8 @@ export default function MeetingsPage() {
   // "Submission"), ordered Prep → New → Highlights → Past, and rendered
   // as a full-width segmented control so nothing clips on desktop.
   const Tabs = () => (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-kaya-warm rounded-kaya-lg p-1.5">
-      {(['submission', 'new', 'highlights', 'past'] as const).map((t) => (
+    <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 bg-kaya-warm rounded-kaya-lg p-1.5">
+      {(['submission', 'new', 'goals', 'highlights', 'past'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
@@ -237,7 +238,7 @@ export default function MeetingsPage() {
             tab === t ? 'bg-kaya-chocolate text-white shadow-sm' : 'bg-transparent text-kaya-sand hover:text-kaya-chocolate'
           }`}
         >
-          {t === 'submission' ? '📝 Meeting Prep' : t === 'new' ? '✨ New' : t === 'highlights' ? '🔥 Highlights' : (
+          {t === 'submission' ? '📝 Meeting Prep' : t === 'new' ? '✨ New' : t === 'goals' ? '🎯 Goals' : t === 'highlights' ? '🔥 Highlights' : (
             <>📁 Past <span className={`text-[10px] rounded-full px-1.5 py-0.5 ${tab === t ? 'bg-white/20' : 'bg-kaya-warm-dark/60'}`}>{meetings.length}</span></>
           )}
         </button>
@@ -375,6 +376,10 @@ export default function MeetingsPage() {
               </div>
             </div>
           )
+        ) : tab === 'goals' ? (
+          // 🎯 Meeting Goals PR1 — the SAME Goals view My Day/Workplan mount
+          // (one component, two front doors — approved design D1/F1).
+          <GoalsReviewView />
         ) : tab === 'past' ? (
           <div className="space-y-3">
             {/* SM3.1 (#5b) — status filter */}
@@ -596,6 +601,9 @@ export default function MeetingsPage() {
               </section>
             </div>
           )
+        ) : tab === 'goals' ? (
+          // 🎯 Meeting Goals PR1 — same component as mobile/My Day/Workplan.
+          <div className="max-w-xl"><GoalsReviewView /></div>
         ) : tab === 'past' ? (
           // Past meetings (desktop) — chips + 🟡 unfinished weeks + 🟢 report cards (SM3.1 · #5)
           <div>
