@@ -82,7 +82,9 @@ export default function MyDayPage() {
   // Shared tab bar — sits under the date, above the day's content. Same
   // for parent / kid / helper. v4: 🎯 Goals Review added as a 3rd tab.
   const tabBar = (
-    <div className="mx-auto max-w-md w-full px-4 pt-4">
+    // One width for ALL My Day sections (tabs, song, reminders, content) —
+    // md on mobile, 2xl on desktop — so nothing sits narrower than the rest.
+    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4">
       <div className="flex gap-1.5 rounded-full p-1" style={{ background: '#F0EBE3' }}>
         {([['today', '🌟 Today'], ['submissions', '📒 Submissions'], ['goals', '🎯 Goals']] as const).map(([key, label]) => (
           <button
@@ -106,7 +108,7 @@ export default function MyDayPage() {
     return (
       <>
         {tabBar}
-        <div className="mx-auto max-w-md w-full px-4 pt-3 pb-32">
+        <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-3 pb-32">
           <SubmissionHistoryView familyId={family.id} uid={profile.uid} />
         </div>
       </>
@@ -118,7 +120,7 @@ export default function MyDayPage() {
     return (
       <>
         {tabBar}
-        <div className="mx-auto max-w-md w-full px-4 pt-3 pb-32">
+        <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-3 pb-32">
           <GoalsReviewView />
         </div>
       </>
@@ -129,12 +131,12 @@ export default function MyDayPage() {
   // nothing (no spacing) when nobody's celebrating.
   const wishCard = (
     <>
-    <WeekThemeCard className="mx-auto max-w-md w-full px-4 pt-4 mb-0" />
+    <WeekThemeCard className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 mb-0" />
     <BirthdayWishCard
       familyId={family.id}
       viewerUid={profile.uid}
       viewerChildId={profile.childId}
-      wrapClassName="mx-auto max-w-md w-full px-4 pt-4 -mb-6"
+      wrapClassName="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 -mb-6"
     />
     </>
   );
@@ -142,14 +144,14 @@ export default function MyDayPage() {
   // 🔔 Reminders surface on My Day for every role: today's reminders inline +
   // a "Coming up" block (Kaya Reminders R1). Renders nothing when empty.
   const remindersStrip = (
-    <RemindersInline wrapClassName="mx-auto max-w-md w-full px-4 pt-4" />
+    <RemindersInline wrapClassName="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4" />
   );
 
   // 🎵 Today's closing song — self-gates to a parent or the leader of the
   // day, so it surfaces here too (not only on the Meetings hub). v4.3.
   // Plus the post-meeting "rate the song" prompt for EVERY member (v4.6).
   const songStrip = (
-    <div className="mx-auto max-w-md w-full px-4 pt-4 space-y-4">
+    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 space-y-4">
       <TodaysSongCard />
       <RateClosingSongCard />
     </div>
@@ -261,7 +263,7 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
   const doByPeriod: MyDayPeriod[] = ['morning', 'anytime', 'evening'];
 
   return (
-    <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
+    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1).
@@ -551,7 +553,7 @@ function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; n
   const router = useRouter();
   const reminders = useReminders(familyId, uid);
   return (
-    <div className="mx-auto max-w-md w-full px-4 pt-4 pb-32">
+    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* Forward-compatible: helpers aren't in the default wheel pool,
