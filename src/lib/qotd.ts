@@ -40,6 +40,7 @@ export interface QotdStreak {
   last: string;          // last YYYY-MM-DD answered ('' = never)
   streak: number;        // consecutive days answered
   best: number;
+  days: string[];        // answered-day history (last 60) — powers the dot strip
 }
 
 export interface QotdAnswerResult {
@@ -152,9 +153,14 @@ export async function ensureQotd(familyId: string): Promise<QotdDoc> {
 export async function readMyStreak(familyId: string, uid: string): Promise<QotdStreak> {
   try {
     const snap = await getDoc(doc(db, 'families', familyId, 'gameStats', uid));
-    const d = snap.data() as { qotdLast?: string; qotdStreak?: number; qotdBest?: number } | undefined;
-    return { last: d?.qotdLast || '', streak: Number(d?.qotdStreak) || 0, best: Number(d?.qotdBest) || 0 };
-  } catch { return { last: '', streak: 0, best: 0 }; }
+    const d = snap.data() as { qotdLast?: string; qotdStreak?: number; qotdBest?: number; qotdDays?: string[] } | undefined;
+    return {
+      last: d?.qotdLast || '',
+      streak: Number(d?.qotdStreak) || 0,
+      best: Number(d?.qotdBest) || 0,
+      days: Array.isArray(d?.qotdDays) ? d!.qotdDays!.filter((x) => typeof x === 'string') : [],
+    };
+  } catch { return { last: '', streak: 0, best: 0, days: [] }; }
 }
 
 /** Did this player already answer today's question? */
