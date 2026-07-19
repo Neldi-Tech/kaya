@@ -2754,25 +2754,52 @@ function GoalsStep({
                     {s.emoji || '🧒'} {s.name}
                   </p>
                   <div className="space-y-2">
-                    {(s.goalsReflection || []).map((r, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <span className={`mt-0.5 shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
-                          r.done ? 'bg-emerald-500 text-white' : 'bg-white/15 text-white/30'
-                        }`}>
-                          {r.done ? '✓' : '·'}
-                        </span>
-                        <div className="min-w-0">
-                          <span className={`text-[13px] lg:text-sm leading-snug ${r.done ? 'text-emerald-300 line-through decoration-emerald-500/50' : 'text-white/70'}`}>
-                            {r.text}
+                    {(s.goalsReflection || []).map((r, i) => {
+                      // GOALS PR2 — carried lines carry their origin week;
+                      // carried→done is a comeback story, 🍂 a graceful rest.
+                      const carriedDays = r.originDate
+                        ? (() => {
+                            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(r.originDate);
+                            if (!m) return 0;
+                            const then = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+                            const now = new Date();
+                            return Math.max(0, Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - then.getTime()) / 86_400_000));
+                          })()
+                        : 0;
+                      const carried = carriedDays > 7;
+                      return (
+                        <div key={i} className="flex items-start gap-2">
+                          <span className={`mt-0.5 shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${
+                            r.done ? 'bg-emerald-500 text-white' : r.released ? 'bg-white/10 text-white/50' : 'bg-white/15 text-white/30'
+                          }`}>
+                            {r.done ? '✓' : r.released ? '🍂' : '·'}
                           </span>
-                          {r.note && (
-                            <p className="mt-0.5 text-[12px] lg:text-[12.5px] italic text-kaya-gold-light/90 border-l-2 border-kaya-gold/50 pl-2">
-                              “{r.note}”
-                            </p>
-                          )}
+                          <div className="min-w-0">
+                            <span className={`text-[13px] lg:text-sm leading-snug ${
+                              r.done ? 'text-emerald-300 line-through decoration-emerald-500/50'
+                              : r.released ? 'text-white/40 line-through'
+                              : 'text-white/70'
+                            }`}>
+                              {r.text}
+                            </span>
+                            {carried && r.done && (
+                              <span className="ml-1.5 text-[10px] font-black text-emerald-300">↻ carried {carriedDays} days → DONE 🎉</span>
+                            )}
+                            {carried && !r.done && !r.released && (
+                              <span className="ml-1.5 text-[10px] font-black text-kaya-gold-light/80">⏳ pending {carriedDays} days</span>
+                            )}
+                            {r.released && (
+                              <span className="ml-1.5 text-[10px] font-black text-white/40">let it rest</span>
+                            )}
+                            {r.note && (
+                              <p className="mt-0.5 text-[12px] lg:text-[12.5px] italic text-kaya-gold-light/90 border-l-2 border-kaya-gold/50 pl-2">
+                                “{r.note}”
+                              </p>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}

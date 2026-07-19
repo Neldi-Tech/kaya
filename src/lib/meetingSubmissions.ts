@@ -71,8 +71,15 @@ export interface MeetingSubmission {
    *  member reviews LAST week's goals and marks each done/not-done, and
    *  (v4) can attach a short NOTE either way — how it went, what made it
    *  hard or easy. Archived with the history entry so the Goal Register
-   *  can show the full cycle: goal set → accomplished/carried + the story. */
-  goalsReflection?: Array<{ text: string; done: boolean; note?: string }>;
+   *  can show the full cycle: goal set → accomplished/carried + the story.
+   *  GOALS PR2 (2026-07-19): entries may now cover CARRIED goals from any
+   *  earlier week — `originDate`/`originIndex` say which history entry the
+   *  line belongs to (absent = legacy last-week line), and `released`
+   *  marks a goal gracefully retired ("let it go 🍂"). */
+  goalsReflection?: Array<{
+    text: string; done: boolean; note?: string;
+    originDate?: string; originIndex?: number; released?: boolean;
+  }>;
   updatedAt: number;         // epoch ms (Date.now())
 }
 
