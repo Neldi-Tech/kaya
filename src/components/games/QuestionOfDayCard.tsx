@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { FUN_EMOJI } from '@/lib/gamesFun';
 import {
-  ensureQotd, readMyStreak, answeredToday,
+  ensureQotd, readMyStreak, answeredToday, todayKey,
   answerQotd, type QotdDoc, type QotdStreak, type QotdAnswerResult,
 } from '@/lib/qotd';
 
@@ -30,6 +30,19 @@ export default function QuestionOfDayCard({ meId }: { meId: string | null }) {
   const [result, setResult] = useState<QotdAnswerResult | null>(null);
   const [err, setErr] = useState('');
 
+  // 2026-07-19 fix — the fetch is keyed to the LOCAL DAY, and the day key
+  // refreshes when the app wakes (visibilitychange) or a minute ticks past
+  // midnight. A warm phone / installed PWA no longer shows yesterday's
+  // question forever (the root cause of "same question every day").
+  const [dayKey, setDayKey] = useState(todayKey());
+  useEffect(() => {
+    const check = () => setDayKey((k) => (todayKey() !== k ? todayKey() : k));
+    const onVisible = () => { if (document.visibilityState === 'visible') check(); };
+    const timer = setInterval(check, 60_000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     if (!familyId || !meId) return;
@@ -39,10 +52,14 @@ export default function QuestionOfDayCard({ meId }: { meId: string | null }) {
       setQ(question);
       setStreak(s);
       setDoneToday(answeredToday(s));
+      // New day → clear yesterday's answer state so the fresh question is
+      // answerable immediately.
+      setSelected(null);
+      setResult(null);
       setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [familyId, meId]);
+  }, [familyId, meId, dayKey]);
 
   if (!familyId || !meId) return null;
 

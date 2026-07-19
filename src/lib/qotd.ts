@@ -20,6 +20,7 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '@/lib/firebase';
 import { localDateKey } from '@/lib/games';
+import { QOTD_BANK, qotdFingerprint } from '@/lib/qotdBank';
 
 export interface QotdDoc {
   date: string;          // YYYY-MM-DD (local) this question belongs to
@@ -29,6 +30,10 @@ export interface QotdDoc {
   context?: string;      // playful one-line framing
   fact?: string;         // "Did you know?" follow-up
   subject?: string;
+  /** Lifetime question counter — "Question #142 · never repeats". */
+  serial?: number;
+  /** Family members who answered today (family progress line). */
+  answeredUids?: string[];
 }
 
 export interface QotdStreak {
@@ -48,6 +53,9 @@ export interface QotdAnswerResult {
   funAwarded?: number;
   milestone?: boolean;   // streak just hit a multiple of the target
   target?: number;
+  shieldUsed?: boolean;  // 🛡️ a missed day was auto-forgiven this answer
+  repaired?: boolean;    // one-time streak repair (rotation-bug era) applied
+  days?: string[];       // answered-day history (last 60) for the dot strip
   error?: string;
   skipped?: boolean;
 }
@@ -74,59 +82,68 @@ export async function readQotd(familyId: string): Promise<QotdDoc | null> {
   } catch { return null; }
 }
 
-// A tiny hand-authored fallback bank so the Question of the Day ALWAYS appears,
-// even when the AI generator is offline. One is picked from the day's date so
-// the whole family still lands on the same question.
-const FALLBACK: Omit<QotdDoc, 'date'>[] = [
-  { q: 'Which planet is closest to the Sun?', choices: ['Mercury', 'Mars', 'Earth', 'Jupiter'], answer: 0, context: '☀️ Out in space…', fact: 'Did you know? Mercury is the smallest planet and races around the Sun in just 88 days.' },
-  { q: 'What do bees make?', choices: ['Honey', 'Milk', 'Bread', 'Silk'], answer: 0, context: '🐝 In the garden…', fact: 'Did you know? One bee makes only about a twelfth of a teaspoon of honey in its whole life.' },
-  { q: 'How many legs does a spider have?', choices: ['8', '6', '4', '10'], answer: 0, context: '🕷️ On the web…', fact: 'Did you know? Spiders are not insects — insects have six legs, but spiders have eight.' },
-  { q: 'Which is the largest ocean on Earth?', choices: ['Pacific', 'Atlantic', 'Indian', 'Arctic'], answer: 0, context: '🌊 Around the world…', fact: 'Did you know? The Pacific Ocean is so wide it covers about a third of the whole planet.' },
-  { q: 'Mixing blue and yellow paint makes…', choices: ['Green', 'Purple', 'Orange', 'Brown'], answer: 0, context: '🎨 In the art room…', fact: 'Did you know? Plants look green because of a colour called chlorophyll that catches sunlight.' },
-  { q: 'How many days are there in a week?', choices: ['7', '5', '10', '12'], answer: 0, context: '📅 On the calendar…', fact: 'Did you know? The seven-day week is thousands of years old and used almost everywhere on Earth.' },
-  { q: 'What is a baby frog called?', choices: ['Tadpole', 'Cub', 'Kitten', 'Calf'], answer: 0, context: '🐸 At the pond…', fact: 'Did you know? A tadpole slowly grows legs and loses its tail as it turns into a frog.' },
-  { q: 'Which animal is the tallest in the world?', choices: ['Giraffe', 'Elephant', 'Horse', 'Camel'], answer: 0, context: '🦒 On the savanna…', fact: 'Did you know? A giraffe is so tall it can look into a first-floor window — and its tongue is dark blue!' },
-];
-
 function hash(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
   return h;
 }
 
-/** Ensure a question exists for today and return it. The first family member to
- *  open My Day on a new day generates it (via the AI trivia route, falling back
- *  to the hand-authored bank); everyone else just reads it. */
+/** Ensure a question exists for today and return it.
+ *
+ *  2026-07-19 — rotation is now primarily SERVER-SIDE (the hourly
+ *  /api/cron/qotd-rotate cron); this client path is only the backup for a
+ *  family's very first question or a cron miss. It now honours the same
+ *  no-repeat contract: passes the `seen` fingerprints as the trivia
+ *  route's `avoid` list, draws bank fallbacks from the curated 120-question
+ *  bank excluding seen, and preserves `serial`/`seen` on the doc. */
 export async function ensureQotd(familyId: string): Promise<QotdDoc> {
   const today = todayKey();
   const existing = await readQotd(familyId);
   if (existing) return existing;
 
-  // Pick the subject deterministically from the date, so a same-day double
-  // generate still lands on the same topic.
+  // Raw read for the rotation bookkeeping (seen/serial survive the day flip).
+  let seen: string[] = [];
+  let serial = 0;
+  try {
+    const raw = (await getDoc(qotdRef(familyId))).data() as { seen?: string[]; serial?: number } | undefined;
+    if (Array.isArray(raw?.seen)) seen = raw!.seen!.filter((s) => typeof s === 'string');
+    serial = Number(raw?.serial) || 0;
+  } catch { /* fresh family */ }
+
   const subject = SUBJECTS[hash(today) % SUBJECTS.length];
 
   let built: Omit<QotdDoc, 'date'> | null = null;
   try {
     const res = await fetch('/api/games/trivia', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, difficulty: 'medium', count: 1 }),
+      body: JSON.stringify({ subject, difficulty: 'medium', count: 4, avoid: seen.slice(-40) }),
     });
     const data = (await res.json().catch(() => null)) as { questions?: QotdDoc[] } | null;
-    const q = data?.questions?.[0];
-    if (q && Array.isArray(q.choices) && q.choices.length === 4 && typeof q.answer === 'number') {
-      built = { q: q.q, choices: q.choices, answer: q.answer, context: q.context, fact: q.fact, subject };
-    }
+    const q = data?.questions?.find(
+      (x) => x && Array.isArray(x.choices) && x.choices.length === 4
+        && typeof x.answer === 'number' && !seen.includes(qotdFingerprint(x.q)),
+    );
+    if (q) built = { q: q.q, choices: q.choices, answer: q.answer, context: q.context, fact: q.fact, subject };
   } catch { /* fall through to the bank */ }
-  if (!built) built = { ...FALLBACK[hash(today) % FALLBACK.length], subject: 'mixed' };
+  if (!built) {
+    const unseen = QOTD_BANK.filter((b) => !seen.includes(qotdFingerprint(b.q)));
+    const pick = (unseen.length ? unseen : QOTD_BANK)[hash(today) % (unseen.length ? unseen.length : QOTD_BANK.length)];
+    built = { q: pick.q, choices: [...pick.choices], answer: pick.answer, context: pick.context, fact: pick.fact, subject: pick.subject };
+  }
 
-  const docData: QotdDoc = { date: today, ...built };
+  const fp = qotdFingerprint(built.q);
+  const docData: QotdDoc = { date: today, ...built, serial: serial + 1, answeredUids: [] };
   try {
     // Re-check right before writing: if someone beat us to it this very moment,
     // keep theirs so the whole family shares one question.
     const fresh = await readQotd(familyId);
     if (fresh) return fresh;
-    await setDoc(qotdRef(familyId), { ...docData, createdAt: Date.now() }, { merge: true });
+    await setDoc(qotdRef(familyId), {
+      ...docData,
+      seen: [...seen.filter((s) => s !== fp), fp].slice(-400),
+      rotatedBy: 'client',
+      createdAt: Date.now(),
+    }, { merge: true });
   } catch { /* best-effort — this player still sees `docData` */ }
   return docData;
 }
