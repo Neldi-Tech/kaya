@@ -36,13 +36,16 @@ import { toDisplayDate } from '@/lib/dates';
 const PURPLE = '#9B5DE5';
 const EMERALD = '#5BA88C';
 
-interface OpenLine {
+export interface OpenLine {
   entryDate: string;   // origin week (YYYY-MM-DD) — the addressing key
   index: number;       // position within that week's goals — never text-matched
   text: string;
   done: boolean;
   note: string;
   released: boolean;
+  /** GOALS PR3 — last "not yet" day + how many distinct days it was carried. */
+  postponedAt?: string;
+  carryCount?: number;
 }
 
 /** Whole local days since a YYYY-MM-DD key (never negative). */
@@ -53,6 +56,87 @@ function daysSince(key: string): number {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return Math.max(0, Math.round((today.getTime() - then.getTime()) / 86_400_000));
+}
+
+/** Today's LOCAL YYYY-MM-DD (postpone stamps use local days, never UTC). */
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** "Sun 26-Jul-2026" — weekday + Kaya display date, for the ⏰ Due chip. */
+export function dueDateLabel(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return toDisplayDate(iso);
+  return `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${toDisplayDate(iso)}`;
+}
+
+/** Build the OPEN goal lines from a member's history + current-cycle
+ *  submission. Pure — module-scoped so the Meetings page's prep-tab
+ *  shortcut can reuse it via loadOpenGoalLines (GOALS PR3). */
+function buildOpenLines(
+  h: SubmissionHistoryDoc | null,
+  sub: { goalsReflection?: Array<{ text: string; done: boolean; note?: string; originDate?: string; originIndex?: number; released?: boolean }> } | null,
+): OpenLine[] {
+  const entries = h?.entries || [];
+  if (entries.length === 0) return [];
+  const latestDate = entries.find((e) => (e.goals || []).length > 0)?.date;
+  const out: OpenLine[] = [];
+  entries.forEach((e) => {
+    (e.goals || []).forEach((g, i) => {
+      if (!g) return;
+      const r = e.goalsReflection?.[i];
+      if (r?.done === true || r?.released) return; // closed — register only
+      // Overlay this cycle's unsaved-to-archive reflection: origin-tagged
+      // first; legacy untagged lines belong to the LATEST week (by position).
+      const tagged = sub?.goalsReflection?.find((x) => x.originDate === e.date && x.originIndex === i);
+      const legacy = e.date === latestDate
+        ? sub?.goalsReflection?.find((x, xi) => !x.originDate && (x.text === g || xi === i))
+        : undefined;
+      const src = tagged || legacy;
+      if (src?.released) return;
+      out.push({
+        entryDate: e.date, index: i, text: g,
+        done: src?.done ?? false,
+        note: src?.note || r?.note || '',
+        released: false,
+        ...(r?.postponedAt ? { postponedAt: r.postponedAt } : {}),
+        ...(r?.carryCount ? { carryCount: r.carryCount } : {}),
+      });
+    });
+  });
+  return out;
+}
+
+/** One-shot open-goals read for the Meeting-Prep shortcut card. */
+export async function loadOpenGoalLines(familyId: string, uid: string): Promise<OpenLine[]> {
+  const [h, sub] = await Promise.all([
+    getMeetingSubmissionHistory(familyId, uid).catch(() => null),
+    getMeetingSubmission(familyId, uid).catch(() => null),
+  ]);
+  return buildOpenLines(h, sub);
+}
+
+/** The Set / ↻ Postponed / ⏰ Due chip row (GOALS PR3). */
+export function GoalDateChips({ line, dueKey }: { line: Pick<OpenLine, 'entryDate' | 'postponedAt' | 'carryCount'>; dueKey?: string | null }) {
+  return (
+    <span className="flex flex-wrap gap-1 mt-1.5">
+      <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black" style={{ background: '#F0EBE3', color: '#9B8A72' }}>
+        Set {toDisplayDate(line.entryDate) || line.entryDate}
+      </span>
+      {line.postponedAt && (
+        <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black" style={{ background: '#F6EFCF', color: '#8a6d1a' }}>
+          ↻ Postponed {toDisplayDate(line.postponedAt) || line.postponedAt}{(line.carryCount || 0) > 1 ? ` · ×${line.carryCount}` : ''}
+        </span>
+      )}
+      {dueKey && (
+        <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-black" style={{ background: '#EAF6EE', color: '#2E6B39' }}>
+          ⏰ Due {dueDateLabel(dueKey)}
+        </span>
+      )}
+    </span>
+  );
 }
 
 export default function GoalsReviewView() {
@@ -91,34 +175,8 @@ export default function GoalsReviewView() {
   const [rowSaving, setRowSaving] = useState(false);
   const burstRef = useRef<HTMLDivElement | null>(null);
 
-  const buildLines = (h: SubmissionHistoryDoc | null, sub: { goalsReflection?: Array<{ text: string; done: boolean; note?: string; originDate?: string; originIndex?: number; released?: boolean }> } | null): OpenLine[] => {
-    const entries = h?.entries || [];
-    if (entries.length === 0) return [];
-    const latestDate = entries.find((e) => (e.goals || []).length > 0)?.date;
-    const out: OpenLine[] = [];
-    entries.forEach((e) => {
-      (e.goals || []).forEach((g, i) => {
-        if (!g) return;
-        const r = e.goalsReflection?.[i];
-        if (r?.done === true || r?.released) return; // closed — register only
-        // Overlay this cycle's unsaved-to-archive reflection: origin-tagged
-        // first; legacy untagged lines belong to the LATEST week (by position).
-        const tagged = sub?.goalsReflection?.find((x) => x.originDate === e.date && x.originIndex === i);
-        const legacy = e.date === latestDate
-          ? sub?.goalsReflection?.find((x, xi) => !x.originDate && (x.text === g || xi === i))
-          : undefined;
-        const src = tagged || legacy;
-        if (src?.released) return;
-        out.push({
-          entryDate: e.date, index: i, text: g,
-          done: src?.done ?? false,
-          note: src?.note || r?.note || '',
-          released: false,
-        });
-      });
-    });
-    return out;
-  };
+  // The upcoming meeting day — every open goal is "due" then (GOALS PR3).
+  const dueKey = meetingCycleKey(scheduleDow);
 
   const reload = () => {
     if (!familyId || !uid) return;
@@ -127,7 +185,7 @@ export default function GoalsReviewView() {
       getMeetingSubmission(familyId, uid).catch(() => null),
     ]).then(([h, sub]) => {
       setHist(h);
-      setLines(buildLines(h, sub));
+      setLines(buildOpenLines(h, sub));
     }).finally(() => setLoading(false));
   };
 
@@ -140,7 +198,7 @@ export default function GoalsReviewView() {
     ]).then(([h, sub]) => {
       if (cancelled) return;
       setHist(h);
-      setLines(buildLines(h, sub));
+      setLines(buildOpenLines(h, sub));
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -173,6 +231,9 @@ export default function GoalsReviewView() {
       done: l.done,
       ...(l.note.trim() ? { note: l.note.trim() } : {}),
       ...(l.released ? { released: true } : {}),
+      // GOALS PR3 — a "not yet" review stamps today as the postponed date
+      // (the lib bumps the carry counter at most once per distinct day).
+      ...(!l.done && !l.released ? { postponedAt: todayIso() } : {}),
     })));
     await setMeetingSubmission(familyId, uid, {
       name,
@@ -219,6 +280,8 @@ export default function GoalsReviewView() {
       done: e.goalsReflection?.[i]?.done,
       released: e.goalsReflection?.[i]?.released,
       note: e.goalsReflection?.[i]?.note,
+      postponedAt: e.goalsReflection?.[i]?.postponedAt,
+      carryCount: e.goalsReflection?.[i]?.carryCount,
     })))
     .filter((r) => r.goal), [hist]);
 
@@ -324,6 +387,7 @@ export default function GoalsReviewView() {
                   <div key={`${l.entryDate}:${l.index}`} className="rounded-xl bg-white border p-2.5" style={{ borderColor: '#F0E8FF' }}>
                     {statusButtons(l, (p) => setLine(l.entryDate, l.index, p), !g.isLatest)}
                     <p className="text-[13px] font-bold mt-2" style={{ color: '#3D241A' }}>{l.text}</p>
+                    <GoalDateChips line={l} dueKey={dueKey} />
                     <textarea
                       value={l.note}
                       onChange={(e) => setLine(l.entryDate, l.index, { note: e.target.value })}
@@ -400,6 +464,9 @@ export default function GoalsReviewView() {
                         </span>
                         {open && pendChip(daysSince(r.entryDate))}
                       </div>
+                      {open && (
+                        <GoalDateChips line={{ entryDate: r.entryDate, postponedAt: r.postponedAt, carryCount: r.carryCount }} dueKey={dueKey} />
+                      )}
                       {r.note && !expanded && (
                         <p className="text-[11.5px] italic mt-0.5" style={{ color: '#7C6A52' }}>&ldquo;{r.note}&rdquo;</p>
                       )}

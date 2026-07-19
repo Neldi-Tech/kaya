@@ -37,8 +37,14 @@ export interface SubmissionHistoryEntry {
    *  by index with `goals`. Undefined = not yet reviewed (still in
    *  progress or no next meeting yet). GOALS PR2: `released` = the goal
    *  was gracefully retired ("let it go 🍂") — out of the open queue,
-   *  kept forever in the register. */
-  goalsReflection?: Array<{ text: string; done: boolean; note?: string; released?: boolean }>;
+   *  kept forever in the register. GOALS PR3 (2026-07-19): `postponedAt`
+   *  = the last day a "not yet" review was saved; `carryCount` = how many
+   *  DISTINCT days it was postponed (incremented at most once per day, so
+   *  re-saving the same review never inflates it). */
+  goalsReflection?: Array<{
+    text: string; done: boolean; note?: string; released?: boolean;
+    postponedAt?: string; carryCount?: number;
+  }>;
 }
 
 export interface SubmissionHistoryDoc {
@@ -110,20 +116,29 @@ export async function archiveMeetingSubmissions(
             ? [...e.goalsReflection]
             : (e.goals || []).map((g) => ({ text: g, done: false }));
           if (k === 0 && legacy.length > 0) {
-            gr = legacy.map((r) => ({
-              text: r.text, done: r.done,
-              ...(r.note ? { note: r.note } : {}),
-              ...(r.released ? { released: true } : {}),
-            }));
+            // GOALS PR3 — carry the postpone trail through the archive rewrite.
+            gr = legacy.map((r, li) => {
+              const kept = gr[li] as { postponedAt?: string; carryCount?: number } | undefined;
+              return {
+                text: r.text, done: r.done,
+                ...(r.note ? { note: r.note } : {}),
+                ...(r.released ? { released: true } : {}),
+                ...(kept?.postponedAt ? { postponedAt: kept.postponedAt } : {}),
+                ...(kept?.carryCount ? { carryCount: kept.carryCount } : {}),
+              };
+            });
           }
           targeted.forEach((r) => {
             const i = r.originIndex ?? -1;
             if (i < 0 || i >= (e.goals || []).length) return;
             while (gr.length <= i) gr.push({ text: (e.goals || [])[gr.length] || '', done: false });
+            const kept = gr[i] as { postponedAt?: string; carryCount?: number } | undefined;
             gr[i] = {
               text: r.text, done: r.done,
               ...(r.note ? { note: r.note } : {}),
               ...(r.released ? { released: true } : {}),
+              ...(kept?.postponedAt ? { postponedAt: kept.postponedAt } : {}),
+              ...(kept?.carryCount ? { carryCount: kept.carryCount } : {}),
             };
           });
           return { ...e, goalsReflection: gr };
@@ -153,7 +168,11 @@ export async function archiveMeetingSubmissions(
 export async function updateGoalReflections(
   familyId: string,
   uid: string,
-  updates: Array<{ entryDate: string; goalIndex: number; done: boolean; note?: string; released?: boolean }>,
+  updates: Array<{
+    entryDate: string; goalIndex: number; done: boolean; note?: string; released?: boolean;
+    /** GOALS PR3 — today's key when this review is a "not yet" (postpone). */
+    postponedAt?: string;
+  }>,
 ): Promise<void> {
   if (updates.length === 0) return;
   const ref = doc(db, 'families', familyId, COL, uid);
@@ -169,11 +188,22 @@ export async function updateGoalReflections(
     mine.forEach((u) => {
       if (u.goalIndex < 0 || u.goalIndex >= (e.goals || []).length) return;
       while (gr.length <= u.goalIndex) gr.push({ text: (e.goals || [])[gr.length] || '', done: false });
+      // GOALS PR3 — the postpone trail survives every rewrite; the carry
+      // counter bumps at most once per distinct day.
+      const kept = gr[u.goalIndex] as { postponedAt?: string; carryCount?: number } | undefined;
+      let postponedAt = kept?.postponedAt;
+      let carryCount = Number(kept?.carryCount) || 0;
+      if (!u.done && !u.released && u.postponedAt && u.postponedAt !== postponedAt) {
+        postponedAt = u.postponedAt;
+        carryCount += 1;
+      }
       gr[u.goalIndex] = {
         text: (e.goals || [])[u.goalIndex],
         done: u.done,
         ...(u.note?.trim() ? { note: u.note.trim() } : {}),
         ...(u.released ? { released: true } : {}),
+        ...(postponedAt ? { postponedAt } : {}),
+        ...(carryCount > 0 ? { carryCount } : {}),
       };
     });
     return { ...e, goalsReflection: gr };

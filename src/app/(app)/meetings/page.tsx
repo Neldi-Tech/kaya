@@ -7,12 +7,12 @@ import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
-import GoalsReviewView from '@/components/meetings/GoalsReviewView';
+import GoalsReviewView, { loadOpenGoalLines, GoalDateChips, type OpenLine } from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import { createMeeting, getMeetings, getAllMeetings, Meeting, todayString } from '@/lib/firestore';
 import BackButton from '@/components/ui/BackButton';
 import MeetingReportSheet, { fmtMeetingDay } from '@/components/meetings/MeetingReportSheet';
-import { subscribeMeetingSubmissions, isCurrentCycle, type MeetingSubmission } from '@/lib/meetingSubmissions';
+import { subscribeMeetingSubmissions, isCurrentCycle, meetingCycleKey, type MeetingSubmission } from '@/lib/meetingSubmissions';
 import { getAllMeetingSubmissionHistory, type SubmissionHistoryDoc } from '@/lib/meetingSubmissionHistory';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
@@ -50,6 +50,50 @@ export default function MeetingsPage() {
   // Meetings 2.0 — closing-song picker now opens as a sheet from the
   // Tonight strip instead of sitting permanently above the tabs.
   const [showSong, setShowSong] = useState(false);
+
+  // GOALS PR3 — open goals for the Meeting-Prep shortcut card. Reloaded
+  // whenever the Prep tab is shown so the count stays honest after a
+  // review over in the Goals tab.
+  const [openGoals, setOpenGoals] = useState<OpenLine[] | null>(null);
+  useEffect(() => {
+    if (!profile?.familyId || !profile?.uid || tab !== 'submission') return;
+    let cancelled = false;
+    loadOpenGoalLines(profile.familyId, profile.uid)
+      .then((ls) => { if (!cancelled) setOpenGoals(ls); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [profile?.familyId, profile?.uid, tab]);
+
+  // The tappable prep → goals shortcut (only when something is open).
+  const GoalsShortcut = () => {
+    if (!openGoals || openGoals.length === 0) return null;
+    const first = openGoals[0];
+    const dueKey = meetingCycleKey(family?.meetingSetup?.schedule?.dayOfWeek);
+    return (
+      <button
+        type="button"
+        onClick={() => setTab('goals')}
+        className="w-full text-left mt-3 rounded-kaya border-[1.5px] border-dashed p-3.5 transition-colors"
+        style={{ borderColor: '#9B5DE5', background: '#F6F1FE' }}
+      >
+        <span className="flex items-center justify-between gap-3">
+          <span className="min-w-0">
+            <span className="block text-[13.5px] font-display font-extrabold" style={{ color: '#5B3FD4' }}>
+              🔎 Review your open goals
+              <span className="ml-1.5 inline-block align-middle text-white text-[10.5px] font-black rounded-full px-2 py-0.5" style={{ background: '#9B5DE5' }}>
+                {openGoals.length} open
+              </span>
+            </span>
+            <span className="block text-[12px] font-semibold truncate mt-0.5" style={{ color: '#7a6fae' }}>
+              &ldquo;{first.text}&rdquo;
+            </span>
+            <GoalDateChips line={first} dueKey={dueKey} />
+          </span>
+          <span className="shrink-0 text-lg font-black" style={{ color: '#5B3FD4' }}>→</span>
+        </span>
+      </button>
+    );
+  };
 
   // Points Review used to be its own filtered step here; it's now
   // merged into "Celebrate the wins" in presenter mode (link to the
@@ -230,7 +274,9 @@ export default function MeetingsPage() {
   // as a full-width segmented control so nothing clips on desktop.
   const Tabs = () => (
     <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 bg-kaya-warm rounded-kaya-lg p-1.5">
-      {(['submission', 'new', 'goals', 'highlights', 'past'] as const).map((t) => (
+      {/* GOALS PR3 (Elia 2026-07-19) — 🎯 Goals sits right beside 📝 Meeting
+          Prep: they're the two "before Sunday" jobs. */}
+      {(['submission', 'goals', 'new', 'highlights', 'past'] as const).map((t) => (
         <button
           key={t}
           onClick={() => setTab(t)}
@@ -295,11 +341,15 @@ export default function MeetingsPage() {
 
         {tab === 'submission' ? (
           myPrep ? (
-            <MeetingPrepCard {...myPrep} />
+            <>
+              <MeetingPrepCard {...myPrep} />
+              <GoalsShortcut />
+            </>
           ) : (
             <div className="bg-white border border-kaya-warm-dark rounded-kaya p-6 text-center">
               <p className="text-3xl mb-2">📝</p>
               <p className="text-kaya-sand text-sm">Your meeting prep will show here on prep day.</p>
+              <GoalsShortcut />
             </div>
           )
         ) : tab === 'new' ? (
@@ -476,11 +526,17 @@ export default function MeetingsPage() {
 
         {tab === 'submission' ? (
           myPrep ? (
-            <div className="max-w-xl"><MeetingPrepCard {...myPrep} /></div>
+            <div className="max-w-xl">
+              <MeetingPrepCard {...myPrep} />
+              <GoalsShortcut />
+            </div>
           ) : (
-            <div className="max-w-xl bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-8 text-center">
-              <p className="text-4xl mb-2">📝</p>
-              <p className="text-kaya-sand text-sm">Your meeting prep will show here on prep day.</p>
+            <div className="max-w-xl">
+              <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-8 text-center">
+                <p className="text-4xl mb-2">📝</p>
+                <p className="text-kaya-sand text-sm">Your meeting prep will show here on prep day.</p>
+              </div>
+              <GoalsShortcut />
             </div>
           )
         ) : tab === 'new' ? (
