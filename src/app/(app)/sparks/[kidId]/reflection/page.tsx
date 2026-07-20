@@ -99,7 +99,7 @@ export default function ReflectionPage() {
     if (!familyId || !kidId) return;
     const u1 = subscribeToSparksProfile(familyId, kidId, setProfile);
     const u2 = subscribeToReflection(familyId, kidId, today, setTodayEntry);
-    const u3 = subscribeToReflections(familyId, kidId, setRecent, 220); // hit-map needs ~7-8 months of history
+    const u3 = subscribeToReflections(familyId, kidId, setRecent, 366); // hit-map year-picker needs a full year of history
     const u4 = subscribeToWeeklyReviews(familyId, kidId, setWeeklyReviews);
     return () => { u1(); u2(); u3(); u4(); };
   }, [familyId, kidId, today]);
@@ -900,7 +900,29 @@ function entryScore(e: ReflectionEntry): number | null {
   return null;
 }
 
-type HitRange = 'week' | 'month' | '3mo';
+type HitRange = 'week' | 'month' | '3mo' | 'custom';
+
+/** One rendered block of days — 3mo/custom render one section per month
+ *  (own title + Monday-padded grid); week/month render a single section. */
+interface HitSection { title?: string; days: string[] }
+
+const monthName = (y: number, m: number, sw: boolean, short = false) =>
+  new Date(y, m, 1).toLocaleDateString(sw ? 'sw' : 'en', { month: short ? 'short' : 'long', ...(short ? {} : { year: 'numeric' }) });
+
+/** Monday-padded day-keys for one month, optionally clipped to [from..to]. */
+function monthDays(y: number, m: number, from?: string, to?: string): string[] {
+  const first = new Date(y, m, 1);
+  const last = new Date(y, m + 1, 0);
+  const days: string[] = [];
+  const lead = (first.getDay() + 6) % 7;
+  for (let i = 0; i < lead; i++) days.push('');
+  for (let d = 1; d <= last.getDate(); d++) {
+    const k = reflectionDayKey(new Date(y, m, d));
+    if ((from && k < from) || (to && k > to)) days.push('');
+    else days.push(k);
+  }
+  return days;
+}
 
 function ReflectionHitMap({
   entries, activeDays, onOpenDay, hasEntry, sw,
@@ -911,60 +933,141 @@ function ReflectionHitMap({
   hasEntry: (date: string) => boolean;
   sw: boolean;
 }) {
-  const [range, setRange] = useState<HitRange>('month');
-  // Month cursor (0 = current month, -1 = last month, …) for paging.
-  const [monthOffset, setMonthOffset] = useState(0);
-
   const today = new Date();
   const todayKey = reflectionDayKey(today);
+
+  const [range, setRange] = useState<HitRange>('month');
+  // Absolute month cursor for the month view (v2 — replaces the ±offset
+  // so the year picker can jump anywhere directly).
+  const [cursor, setCursor] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  // Year picker (tap the month title to open).
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(today.getFullYear());
+  // 3mo view pager — 0 = latest quarter window, -1 = the 3 months before…
+  const [q3Offset, setQ3Offset] = useState(0);
+  // Custom range filter (v2). Drafts feed the two date inputs; `applied`
+  // is what actually renders. Windows longer than 3 months clamp into
+  // pages of ≤3 months — page 0 = the LATEST slice.
+  const [fromDraft, setFromDraft] = useState('');
+  const [toDraft, setToDraft] = useState('');
+  const [applied, setApplied] = useState<{ from: string; to: string } | null>(null);
+  const [customPage, setCustomPage] = useState(0);
+
   const scoreByDate = useMemo(() => {
     const m: Record<string, number | null> = {};
     for (const e of entries) m[e.date] = entryScore(e);
     return m;
   }, [entries]);
 
-  // Build the list of day-keys to render for the active range.
-  const { gridDays, label } = useMemo(() => {
-    const days: string[] = [];
+  const earliestKey = useMemo(
+    () => (entries.length ? entries.reduce((a, b) => (a.date < b.date ? a : b)).date : todayKey),
+    [entries, todayKey],
+  );
+  const minYear = Number(earliestKey.slice(0, 4));
+
+  // ── Build the sections for the active range ──
+  const { sections, label } = useMemo((): { sections: HitSection[]; label: string } => {
     if (range === 'week') {
       const mon = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+      const days: string[] = [];
       for (let i = 0; i < 7; i++) { const d = new Date(mon); d.setDate(mon.getDate() + i); days.push(reflectionDayKey(d)); }
-      return { gridDays: days, label: sw ? 'Wiki hii' : 'This week' };
+      return { sections: [{ days }], label: sw ? 'Wiki hii' : 'This week' };
     }
     if (range === '3mo') {
-      const start = new Date(today.getFullYear(), today.getMonth() - 2, 1);
-      const end = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      for (const d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(reflectionDayKey(new Date(d)));
-      return { gridDays: days, label: sw ? 'Miezi 3' : 'Last 3 months' };
+      const endM = today.getMonth() + q3Offset * 3;
+      const months = [endM - 2, endM - 1, endM].map((m) => {
+        const d = new Date(today.getFullYear(), m, 1);
+        return { y: d.getFullYear(), m: d.getMonth() };
+      });
+      return {
+        sections: months.map(({ y, m }) => ({ title: monthName(y, m, sw), days: monthDays(y, m) })),
+        label: `${monthName(months[0].y, months[0].m, sw, true)} → ${monthName(months[2].y, months[2].m, sw, true)} ${months[2].y}`,
+      };
+    }
+    if (range === 'custom') {
+      if (!applied) return { sections: [], label: '' };
+      // Every month touched by the window, oldest → newest.
+      const months: Array<{ y: number; m: number }> = [];
+      const c = new Date(Number(applied.from.slice(0, 4)), Number(applied.from.slice(5, 7)) - 1, 1);
+      const end = new Date(Number(applied.to.slice(0, 4)), Number(applied.to.slice(5, 7)) - 1, 1);
+      while (c <= end) { months.push({ y: c.getFullYear(), m: c.getMonth() }); c.setMonth(c.getMonth() + 1); }
+      // Chunk into ≤3-month pages counted from the END (page 0 = latest).
+      const pages: Array<Array<{ y: number; m: number }>> = [];
+      for (let i = months.length; i > 0; i -= 3) pages.push(months.slice(Math.max(0, i - 3), i));
+      const page = pages[Math.min(customPage, pages.length - 1)] ?? [];
+      return {
+        sections: page.map(({ y, m }) => ({
+          title: monthName(y, m, sw),
+          days: monthDays(y, m, applied.from, applied.to),
+        })),
+        label: page.length
+          ? `${monthName(page[0].y, page[0].m, sw, true)} → ${monthName(page[page.length - 1].y, page[page.length - 1].m, sw, true)} ${page[page.length - 1].y}`
+          : '',
+      };
     }
     // month
-    const first = new Date(today.getFullYear(), today.getMonth() + monthOffset, 1);
-    const last = new Date(today.getFullYear(), today.getMonth() + monthOffset + 1, 0);
-    // pad to Monday-start grid
-    const lead = (first.getDay() + 6) % 7;
-    for (let i = 0; i < lead; i++) days.push('');
-    for (let d = 1; d <= last.getDate(); d++) days.push(reflectionDayKey(new Date(first.getFullYear(), first.getMonth(), d)));
-    const lbl = first.toLocaleDateString(sw ? 'sw' : 'en', { month: 'long', year: 'numeric' });
-    return { gridDays: days, label: lbl };
-  }, [range, monthOffset, sw, today]);
+    return {
+      sections: [{ days: monthDays(cursor.y, cursor.m) }],
+      label: monthName(cursor.y, cursor.m, sw),
+    };
+  }, [range, cursor, q3Offset, applied, customPage, sw, today]);
 
-  // Tally logged / missed / avg-score over the real (non-pad) days.
+  // Custom-window paging metadata (for the clamp note + Earlier/Later).
+  const customMeta = useMemo(() => {
+    if (range !== 'custom' || !applied) return null;
+    const months: Array<{ y: number; m: number }> = [];
+    const c = new Date(Number(applied.from.slice(0, 4)), Number(applied.from.slice(5, 7)) - 1, 1);
+    const end = new Date(Number(applied.to.slice(0, 4)), Number(applied.to.slice(5, 7)) - 1, 1);
+    while (c <= end) { months.push({ y: c.getFullYear(), m: c.getMonth() }); c.setMonth(c.getMonth() + 1); }
+    const pages: Array<Array<{ y: number; m: number }>> = [];
+    for (let i = months.length; i > 0; i -= 3) pages.push(months.slice(Math.max(0, i - 3), i));
+    const fmtPage = (p: Array<{ y: number; m: number }> | undefined) =>
+      p && p.length ? `${monthName(p[0].y, p[0].m, sw, true)} → ${monthName(p[p.length - 1].y, p[p.length - 1].m, sw, true)}` : '';
+    return {
+      totalMonths: months.length,
+      pageCount: pages.length,
+      earlierLabel: fmtPage(pages[customPage + 1]),
+      laterLabel: fmtPage(pages[customPage - 1]),
+    };
+  }, [range, applied, customPage, sw]);
+
+  // ── Stats over every real day currently rendered ──
   const stats = useMemo(() => {
-    let logged = 0, missed = 0, sum = 0, scored = 0;
-    for (const k of gridDays) {
-      if (!k) continue;
+    const all = sections.flatMap((s) => s.days).filter(Boolean).sort();
+    let logged = 0, missed = 0, sum = 0, scored = 0, run = 0, best = 0;
+    for (const k of all) {
       const future = k > todayKey;
       if (hasEntry(k)) {
         logged++;
         const s = scoreByDate[k];
         if (typeof s === 'number') { sum += s; scored++; }
+        if (activeDays.has(dowOf(k))) { run++; if (run > best) best = run; }
       } else if (!future && activeDays.has(dowOf(k))) {
         missed++;
+        run = 0;
       }
+      // non-active days: don't count, don't break (school-day streak rule)
     }
-    return { logged, missed, avg: scored ? Math.round(sum / scored) : null };
-  }, [gridDays, scoreByDate, hasEntry, activeDays, todayKey]);
+    return { logged, missed, avg: scored ? Math.round(sum / scored) : null, best };
+  }, [sections, scoreByDate, hasEntry, activeDays, todayKey]);
+
+  // ── Year-picker chip data for pickerYear ──
+  const yearMonths = useMemo(() => {
+    return Array.from({ length: 12 }, (_, m) => {
+      const firstKey = reflectionDayKey(new Date(pickerYear, m, 1));
+      const future = firstKey > todayKey;
+      let logged = 0, missed = 0;
+      if (!future) {
+        for (const k of monthDays(pickerYear, m)) {
+          if (!k || k > todayKey) continue;
+          if (hasEntry(k)) logged++;
+          else if (activeDays.has(dowOf(k))) missed++;
+        }
+      }
+      return { m, future, logged, missed };
+    });
+  }, [pickerYear, todayKey, hasEntry, activeDays]);
 
   const cellClass = (k: string): string => {
     if (!k) return 'invisible';
@@ -986,18 +1089,64 @@ function ReflectionHitMap({
     { id: 'week', label: sw ? 'Wiki' : 'Week' },
     { id: 'month', label: sw ? 'Mwezi' : 'Month' },
     { id: '3mo', label: sw ? 'Miezi 3' : '3 mo' },
+    { id: 'custom', label: sw ? 'Chagua' : 'Custom' },
   ];
+
+  const applyCustom = (from: string, to: string) => {
+    if (!from || !to) return;
+    const [a, b] = from <= to ? [from, to] : [to, from];
+    setFromDraft(a); setToDraft(b);
+    setApplied({ from: a, to: b });
+    setCustomPage(0);
+  };
+
+  const onPickRange = (id: HitRange) => {
+    setRange(id);
+    setPickerOpen(false);
+    if (id === 'month') setCursor({ y: today.getFullYear(), m: today.getMonth() });
+    if (id === '3mo') setQ3Offset(0);
+    if (id === 'custom' && !applied) {
+      // Default the filter to the last 30 days so the grid isn't empty.
+      const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29);
+      applyCustom(reflectionDayKey(from), todayKey);
+    }
+  };
+
+  // Preset windows — clamping to ≤3 rendered months is automatic.
+  const presetTerm = () => {
+    // School terms anchor Jan / May / Sep — pick the latest start ≤ today.
+    const starts = [8, 4, 0].map((m) => new Date(today.getFullYear(), m, 1)).filter((d) => d <= today);
+    const from = starts[0] ?? new Date(today.getFullYear(), 0, 1);
+    applyCustom(reflectionDayKey(from), todayKey);
+  };
+  const preset30 = () => {
+    const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 29);
+    applyCustom(reflectionDayKey(from), todayKey);
+  };
+  const presetJoined = () => applyCustom(earliestKey, todayKey);
+
+  const monthCursorBack = () => {
+    setCursor(({ y, m }) => (y <= minYear && m === 0 ? { y, m } : m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 }));
+  };
+  const monthCursorFwd = () => {
+    setCursor(({ y, m }) => {
+      const atNow = y === today.getFullYear() && m === today.getMonth();
+      if (atNow) return { y, m };
+      return m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 };
+    });
+  };
+  const cursorAtNow = cursor.y === today.getFullYear() && cursor.m === today.getMonth();
 
   return (
     <div className="mt-4 rounded-2xl border border-[#ECE4D3] bg-white p-3">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488]">
           {sw ? '📅 Ramani ya tafakari' : '📅 Reflection hit-map'}
         </div>
         <div className="flex gap-1">
           {ranges.map((r) => (
             <button key={r.id} type="button"
-              onClick={() => { setRange(r.id); if (r.id === 'month') setMonthOffset(0); }}
+              onClick={() => onPickRange(r.id)}
               className={`text-[10.5px] font-extrabold rounded-full px-2.5 py-1 border ${range === r.id ? 'bg-[#0F1F44] text-white border-[#0F1F44]' : 'bg-white text-[#5A6488] border-[#ECE4D3]'}`}>
               {r.label}
             </button>
@@ -1005,42 +1154,168 @@ function ReflectionHitMap({
         </div>
       </div>
 
-      {range === 'month' ? (
+      {/* ── Month view header — ‹ Month YYYY ▾ › · title opens the year picker ── */}
+      {range === 'month' && (
         <div className="flex items-center justify-between mb-2">
-          <button type="button" onClick={() => setMonthOffset((o) => o - 1)} className="text-[16px] font-black text-[#5A6488] px-2" aria-label="Previous month">‹</button>
-          <span className="font-nunito font-black text-[13px] text-[#0F1F44] capitalize">{label}</span>
-          <button type="button" onClick={() => setMonthOffset((o) => Math.min(0, o + 1))} disabled={monthOffset >= 0}
-            className="text-[16px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label="Next month">›</button>
+          <button type="button" onClick={monthCursorBack}
+            disabled={cursor.y <= minYear && cursor.m === 0}
+            className="text-[16px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label={sw ? 'Mwezi uliopita' : 'Previous month'}>‹</button>
+          <button type="button"
+            onClick={() => { setPickerYear(cursor.y); setPickerOpen((o) => !o); }}
+            className="font-nunito font-black text-[13px] text-[#0F1F44] capitalize px-2 py-0.5 rounded-lg hover:bg-[#FBF7EE]"
+            aria-expanded={pickerOpen}
+            title={sw ? 'Chagua mwezi wowote' : 'Jump to any month'}>
+            {label} <span className="text-[#5A3CB8]">▾</span>
+          </button>
+          <button type="button" onClick={monthCursorFwd} disabled={cursorAtNow}
+            className="text-[16px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label={sw ? 'Mwezi ujao' : 'Next month'}>›</button>
         </div>
-      ) : (
-        <div className="text-center font-nunito font-black text-[13px] text-[#0F1F44] mb-2">{label}</div>
       )}
 
-      {range !== 'week' && (
-        <div className="grid grid-cols-7 gap-1 mb-1">
-          {dow.map((d, i) => <span key={i} className="text-center text-[8.5px] font-black text-[#5A6488]">{d}</span>)}
+      {/* ── Year picker (v2·A) — 12 chips with activity dots ── */}
+      {range === 'month' && pickerOpen && (
+        <div className="mb-2 rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5">
+          <div className="flex items-center justify-center gap-4 mb-2">
+            <button type="button" onClick={() => setPickerYear((y) => Math.max(minYear, y - 1))}
+              disabled={pickerYear <= minYear}
+              className="text-[15px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label={sw ? 'Mwaka uliopita' : 'Previous year'}>‹</button>
+            <span className="font-nunito font-black text-[14px] text-[#0F1F44]">{pickerYear}</span>
+            <button type="button" onClick={() => setPickerYear((y) => Math.min(today.getFullYear(), y + 1))}
+              disabled={pickerYear >= today.getFullYear()}
+              className="text-[15px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label={sw ? 'Mwaka ujao' : 'Next year'}>›</button>
+          </div>
+          <div className="grid grid-cols-6 max-[420px]:grid-cols-4 gap-1.5">
+            {yearMonths.map(({ m, future, logged, missed }) => {
+              const sel = !future && pickerYear === cursor.y && m === cursor.m;
+              const isNow = pickerYear === today.getFullYear() && m === today.getMonth();
+              return (
+                <button key={m} type="button" disabled={future}
+                  onClick={() => { setCursor({ y: pickerYear, m }); setPickerOpen(false); }}
+                  className={`rounded-lg px-1 pt-1.5 pb-1 text-center border-[1.5px] text-[11px] font-extrabold transition-colors ${
+                    sel ? 'border-[#5A3CB8] bg-[#F6EFFF] text-[#5A3CB8]'
+                      : future ? 'border-transparent bg-white text-[#cfc7b5]'
+                      : 'border-transparent bg-white text-[#5A6488] hover:border-[#5A3CB8]/40'
+                  } ${isNow ? 'shadow-[inset_0_0_0_1.5px_#D4A847]' : ''}`}
+                  title={future ? undefined : `${monthName(pickerYear, m, sw)} · ${logged} ${sw ? 'zimeandikwa' : 'logged'}${missed ? ` · ${missed} ${sw ? 'zimekoswa' : 'missed'}` : ''}`}>
+                  {monthName(pickerYear, m, sw, true)}
+                  <span className="flex justify-center gap-0.5 mt-0.5" aria-hidden>
+                    {future ? null : logged === 0 && missed === 0
+                      ? <span className="w-[5px] h-[5px] rounded-full bg-[#ECE4D3]" />
+                      : (
+                        <>
+                          {logged > 0 && <span className={`w-[5px] h-[5px] rounded-full ${logged >= 8 ? 'bg-[#1f7a44]' : 'bg-[#9ad9ad]'}`} />}
+                          {missed > 0 && <span className="w-[5px] h-[5px] rounded-full bg-[#f3b4a8]" />}
+                        </>
+                      )}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
-      <div className="grid grid-cols-7 gap-1">
-        {gridDays.map((k, i) => {
-          if (!k) return <span key={`p${i}`} className="invisible aspect-square" />;
-          const day = Number(k.slice(8, 10));
-          const isToday = k === todayKey;
-          const tappable = hasEntry(k);
-          return (
-            <button
-              key={k}
-              type="button"
-              disabled={!tappable}
-              onClick={() => onOpenDay(k)}
-              title={`${toDisplayDate(k)}${typeof scoreByDate[k] === 'number' ? ` · ${scoreByDate[k]}%` : ''}`}
-              className={`aspect-square rounded-md grid place-items-center text-[10px] font-nunito font-extrabold border ${cellClass(k)} ${isToday ? 'ring-2 ring-[#5A3CB8]' : ''} ${tappable ? 'cursor-pointer' : 'cursor-default'}`}
-            >
-              {day}
+
+      {/* ── 3mo pager (v2·C) — step a quarter at a time ── */}
+      {range === '3mo' && (
+        <div className="flex items-center justify-between mb-2">
+          <button type="button" onClick={() => setQ3Offset((o) => o - 1)}
+            disabled={new Date(today.getFullYear(), today.getMonth() + (q3Offset - 1) * 3, 1).getFullYear() < minYear}
+            className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8] disabled:opacity-30">
+            ‹ {sw ? 'Nyuma' : 'Earlier'}
+          </button>
+          <span className="font-nunito font-black text-[13px] text-[#0F1F44]">{label}</span>
+          <button type="button" onClick={() => setQ3Offset((o) => Math.min(0, o + 1))} disabled={q3Offset >= 0}
+            className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8] disabled:opacity-30">
+            {sw ? 'Mbele' : 'Later'} ›
+          </button>
+        </div>
+      )}
+
+      {/* ── Custom filter (v2·B) — from → to · presets · 3-month clamp ── */}
+      {range === 'custom' && (
+        <div className="mb-2 rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <input type="date" value={fromDraft} min={earliestKey} max={todayKey}
+              onChange={(e) => setFromDraft(e.target.value)}
+              aria-label={sw ? 'Kuanzia' : 'From'}
+              className="bg-white border border-[#ECE4D3] rounded-lg px-2 py-1 text-[11.5px] font-extrabold text-[#0F1F44]" />
+            <span className="text-[#5A6488] font-black">→</span>
+            <input type="date" value={toDraft} min={earliestKey} max={todayKey}
+              onChange={(e) => setToDraft(e.target.value)}
+              aria-label={sw ? 'Hadi' : 'To'}
+              className="bg-white border border-[#ECE4D3] rounded-lg px-2 py-1 text-[11.5px] font-extrabold text-[#0F1F44]" />
+            <button type="button" onClick={() => applyCustom(fromDraft, toDraft)}
+              disabled={!fromDraft || !toDraft}
+              className="text-[11.5px] font-extrabold rounded-full px-3.5 py-1.5 bg-[#5A3CB8] text-white disabled:opacity-40">
+              {sw ? 'Tumia' : 'Apply'}
             </button>
-          );
-        })}
-      </div>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            <button type="button" onClick={presetTerm} className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8]">{sw ? 'Muhula huu' : 'This term'}</button>
+            <button type="button" onClick={preset30} className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8]">{sw ? 'Siku 30' : 'Last 30 days'}</button>
+            <button type="button" onClick={presetJoined} className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8]">{sw ? 'Tangu mwanzo' : 'Since joined'}</button>
+          </div>
+          {customMeta && customMeta.totalMonths > 3 ? (
+            <div className="mt-2 rounded-lg bg-[#FFE0DA] border border-[#f3b4a8] px-2.5 py-1.5 text-[10.5px] font-bold text-[#b23b2a] leading-snug">
+              ⚠️ {sw
+                ? `Hiyo ni miezi ${customMeta.totalMonths} — tunaonyesha 3 za karibuni. Tumia ‹ kurudi nyuma.`
+                : `That's ${customMeta.totalMonths} months — showing 3 at a time. Use ‹ Earlier to step back through the rest.`}
+            </div>
+          ) : (
+            <div className="mt-1.5 text-[10px] text-[#5A6488]">
+              {sw ? 'Upeo · miezi 3 kwa mara moja.' : 'Max window · 3 months at one go.'}
+            </div>
+          )}
+          {customMeta && customMeta.pageCount > 1 && (
+            <div className="flex items-center justify-between mt-2">
+              <button type="button" onClick={() => setCustomPage((p) => Math.min(customMeta.pageCount - 1, p + 1))}
+                disabled={customPage >= customMeta.pageCount - 1}
+                className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8] disabled:opacity-30">
+                ‹ {customMeta.earlierLabel || (sw ? 'Nyuma' : 'Earlier')}
+              </button>
+              <span className="font-nunito font-black text-[12px] text-[#0F1F44]">{label}</span>
+              <button type="button" onClick={() => setCustomPage((p) => Math.max(0, p - 1))} disabled={customPage <= 0}
+                className="text-[10.5px] font-extrabold rounded-full px-2.5 py-1 bg-[#E5D6FF] text-[#5A3CB8] disabled:opacity-30">
+                {customMeta.laterLabel || (sw ? 'Mbele' : 'Later')} ›
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Day grids — one section per month (3mo/custom) or a single grid ── */}
+      {sections.map((sec, si) => (
+        <div key={sec.title ?? si} className={si > 0 ? 'mt-3' : ''}>
+          {sec.title && (
+            <div className="text-center font-nunito font-black text-[12px] text-[#0F1F44] capitalize mb-1">{sec.title}</div>
+          )}
+          {range !== 'week' && (
+            <div className="grid grid-cols-7 gap-1 mb-1">
+              {dow.map((d, i) => <span key={i} className="text-center text-[8.5px] font-black text-[#5A6488]">{d}</span>)}
+            </div>
+          )}
+          <div className="grid grid-cols-7 gap-1">
+            {sec.days.map((k, i) => {
+              if (!k) return <span key={`p${i}`} className="invisible aspect-square" />;
+              const day = Number(k.slice(8, 10));
+              const isToday = k === todayKey;
+              const tappable = hasEntry(k);
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  disabled={!tappable}
+                  onClick={() => onOpenDay(k)}
+                  title={`${toDisplayDate(k)}${typeof scoreByDate[k] === 'number' ? ` · ${scoreByDate[k]}%` : ''}`}
+                  className={`aspect-square rounded-md grid place-items-center text-[10px] font-nunito font-extrabold border ${cellClass(k)} ${isToday ? 'ring-2 ring-[#5A3CB8]' : ''} ${tappable ? 'cursor-pointer' : 'cursor-default'}`}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
 
       <div className="flex gap-2 mt-3">
         <div className="flex-1 bg-[#FBF7EE] rounded-lg py-1.5 text-center">
@@ -1054,6 +1329,10 @@ function ReflectionHitMap({
         <div className="flex-1 bg-[#FBF7EE] rounded-lg py-1.5 text-center">
           <div className="font-black text-[15px] text-[#0F1F44]">{stats.avg === null ? '—' : `${stats.avg}%`}</div>
           <div className="text-[8.5px] font-extrabold uppercase tracking-[0.4px] text-[#5A6488]">{sw ? 'Wastani' : 'Avg score'}</div>
+        </div>
+        <div className="flex-1 bg-[#FBF7EE] rounded-lg py-1.5 text-center">
+          <div className="font-black text-[15px] text-[#8A6800]">🔥 {stats.best}</div>
+          <div className="text-[8.5px] font-extrabold uppercase tracking-[0.4px] text-[#5A6488]">{sw ? 'Mfululizo bora' : 'Best streak'}</div>
         </div>
       </div>
       <div className="text-[9.5px] text-[#5A6488] mt-2 leading-snug">
