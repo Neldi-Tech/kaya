@@ -28,6 +28,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { toDisplayDate } from '@/lib/dates';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { participatesInMeetings } from '@/lib/participation';
 import {
   createMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
   updateFamily,
@@ -96,7 +97,15 @@ const GOALS_REVIEW_WEEKS_BACK = 4;
 export default function MeetingPresenterPage() {
   const router = useRouter();
   const { profile } = useAuth();
-  const { family, children } = useFamily();
+  // Little Stars (2026-07-26): kids below the family's meeting age are
+  // excluded from attendance/gratitude/goals prompts — `children` here is
+  // the participating roster. `allChildren` remains for the warm surfaces
+  // (appreciation targets + the meeting record snapshot).
+  const { family, children: allChildren } = useFamily();
+  const children = useMemo(
+    () => allChildren.filter((c) => participatesInMeetings(c, family)),
+    [allChildren, family],
+  );
 
   // ── Stepper state ────────────────────────────────────────────────
   // Active steps respect the parent's `meetingSetup.agendaSteps` if set,
@@ -503,7 +512,7 @@ export default function MeetingPresenterPage() {
   // StepSubmissions to compute "who's still to add" for each section.
   // id = childId for kids, uid for parents (matches submission keying).
   const prepRoster = useMemo<PrepMember[]>(() => [
-    ...children.map((c) => ({ id: c.id, name: c.name, emoji: c.avatarEmoji || '🧒', kind: 'kid' as const })),
+    ...allChildren.map((c) => ({ id: c.id, name: c.name, emoji: c.avatarEmoji || '🧒', kind: 'kid' as const })),
     ...householdParents.map((p) => ({ id: p.uid, name: p.name, emoji: p.avatarEmoji || '👤', kind: 'parent' as const })),
   ], [children, householdParents]);
 
@@ -710,7 +719,7 @@ export default function MeetingPresenterPage() {
         for (const row of dayRows) if (row.excellentCount === max) starsByKid[row.childId] = (starsByKid[row.childId] || 0) + 1;
       }
       const startMs = new Date(`${range.from}T00:00:00`).getTime();
-      const kidsSummary = children.map((c) => ({
+      const kidsSummary = allChildren.map((c) => ({
         childId: c.id,
         name: c.name,
         hp: review.perKid[c.id]?.totalPoints ?? 0,

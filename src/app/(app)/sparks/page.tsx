@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { participatesInSparks } from '@/lib/participation';
 import { useSparksFeatures } from '@/lib/sparks/gating';
 import {
   SPARKS_AREA_META, SPARKS_AREA_ORDER, type SparksArea,
@@ -238,9 +239,13 @@ export default function SparksLandingPage() {
   }, [isKid, profile?.childId, router]);
 
   const visibleKids = useMemo(() => {
-    if (!features.multiKid) return children.slice(0, 1);
-    return children;
-  }, [children, features.multiKid]);
+    // Little Stars (2026-07-26): below the family's Sparks age → no
+    // Sparks presence at all (tasks, materials, reflections).
+    const eligible = children.filter((c) => participatesInSparks(c, family));
+    if (!features.multiKid) return eligible.slice(0, 1);
+    return eligible;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [children, family, features.multiKid]);
 
   if (isKid) return null;
 

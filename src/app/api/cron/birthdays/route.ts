@@ -18,6 +18,7 @@ import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { Resend } from 'resend';
 import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
+import { readParticipationAges } from '@/lib/participation';
 import {
   todaysBirthdays, ordinalAge, type BirthdayPersonSource, type BirthdayPerson,
 } from '@/lib/birthdays';
@@ -207,6 +208,49 @@ async function handle(req: NextRequest) {
         }
         await famRef.set({ birthdays: { [sk]: { name: src.name, [stampField]: Date.now() } } }, { merge: true });
         reminded++;
+      }
+
+      // ── 3 · 🌟 Little Star graduation (2026-07-26) ───────────────────
+      // A week before a kid's birthday crosses a participation threshold,
+      // tell the parents Kaya will include them automatically on the day.
+      // Once per surface per kid (graduationNotified flags).
+      const ages = readParticipationAges(famDoc.data() as { participationAges?: Record<string, number> });
+      for (const kidDoc of childrenSnap.docs) {
+        const kid = kidDoc.data() as Record<string, unknown>;
+        const bday = typeof kid.birthday === 'string' ? kid.birthday : '';
+        if (!bday) continue;
+        const dd = daysToNextBirthday(bday);
+        const ageNext = ageAtNextBirthday(bday);
+        if (dd === null || ageNext === null || dd > 7 || dd < 1) continue;
+        const overrides = (kid.participationOverrides || {}) as { sparks?: boolean; meetings?: boolean };
+        const notified = (kid.graduationNotified || {}) as { sparks?: boolean; meetings?: boolean };
+        const name = String(kid.name || 'Your little star').split(' ')[0];
+        const grads: Array<{ key: 'sparks' | 'meetings'; label: string; link: string }> = [];
+        if (ageNext === ages.sparksFromAge && overrides.sparks === undefined && !notified.sparks) {
+          grads.push({ key: 'sparks', label: '✨ Kaya Sparks — tasks & routines', link: '/sparks' });
+        }
+        if (ageNext === ages.meetingsFromAge && overrides.meetings === undefined && !notified.meetings) {
+          grads.push({ key: 'meetings', label: '🗓️ Sunday meetings', link: '/meetings' });
+        }
+        for (const g of grads) {
+          for (const pid of parentUids) {
+            await famRef.collection('notifications').add({
+              type: 'reminder',
+              title: `🌟 ${name} turns ${ageNext} next week!`,
+              message: `${name} is ready to join ${g.label}. Kaya will include ${name} automatically on the birthday — or adjust it on the profile.`,
+              read: false, forUserId: pid, link: g.link, createdAt: FieldValue.serverTimestamp(),
+            }).catch(() => {});
+          }
+          if (resend && parentEmails.length > 0) {
+            await resend.emails.send({
+              from: FROM, to: Array.from(new Set(parentEmails)),
+              subject: `🌟 ${name} is ready to join ${g.key === 'sparks' ? 'Kaya Sparks' : 'Sunday meetings'}!`,
+              html: `<p style="font-family:Helvetica,Arial,sans-serif;font-size:14px;color:#1E120B">${name} turns ${ageNext} next week — old enough for <b>${g.label.replace(/^[^ ]+ /, '')}</b> by your family's participation ages. Kaya will include ${name} automatically on the birthday. 🎉<br><br>Want it different? Adjust ${name}'s profile in Kaya.</p>`,
+            }).catch(() => {});
+          }
+          await kidDoc.ref.set({ graduationNotified: { ...notified, [g.key]: true } }, { merge: true });
+          reminded++;
+        }
       }
     } catch {
       continue; // a broken family never blocks the rest of the sweep

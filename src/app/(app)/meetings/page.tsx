@@ -14,6 +14,7 @@ import BackButton from '@/components/ui/BackButton';
 import MeetingReportSheet, { fmtMeetingDay } from '@/components/meetings/MeetingReportSheet';
 import { subscribeMeetingSubmissions, isCurrentCycle, meetingCycleKey, type MeetingSubmission } from '@/lib/meetingSubmissions';
 import { getAllMeetingSubmissionHistory, type SubmissionHistoryDoc } from '@/lib/meetingSubmissionHistory';
+import { participatesInMeetings } from '@/lib/participation';
 
 // Quick-log fallback agenda — kept in sync with the new presenter
 // mode's 6-step flow so what families see in the sidebar matches.
@@ -32,6 +33,13 @@ const BASE_AGENDA = [
 export default function MeetingsPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
+  // Little Stars (2026-07-26): meeting prompts, attendance + Highlights
+  // stats only count participating kids. The report sheet keeps the full
+  // roster (historical record).
+  const meetingKids = useMemo(
+    () => children.filter((c) => participatesInMeetings(c, family)),
+    [children, family],
+  );
   const [tab, setTab] = useState<'submission' | 'new' | 'goals' | 'past' | 'highlights'>('submission');
   const [meetingType, setMeetingType] = useState<'weekly' | 'kid-led'>('weekly');
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -180,7 +188,7 @@ export default function MeetingsPage() {
     await createMeeting(profile.familyId, {
       date: todayString(),
       type: meetingType,
-      attendees: children.map((c) => c.id),
+      attendees: meetingKids.map((c) => c.id),
       gratitude,
       goals,
       notes,
@@ -206,7 +214,7 @@ export default function MeetingsPage() {
     if (currentStep.hasInputs === 'gratitude') {
       return (
         <div className="space-y-3">
-          {children.map((c) => (
+          {meetingKids.map((c) => (
             <div key={c.id}>
               <label className="text-xs font-semibold mb-1 block">{c.avatarEmoji} {c.name}</label>
               <input
@@ -223,7 +231,7 @@ export default function MeetingsPage() {
     if (currentStep.hasInputs === 'goals') {
       return (
         <div className="space-y-3">
-          {children.map((c) => (
+          {meetingKids.map((c) => (
             <div key={c.id}>
               <label className="text-xs font-semibold mb-1 block">{c.avatarEmoji} {c.name}</label>
               <input
@@ -500,7 +508,7 @@ export default function MeetingsPage() {
         ) : (
           <HighlightsPane
             meetings={meetings}
-            childrenList={children}
+            childrenList={meetingKids}
             scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
             familyId={profile?.familyId}
             onOpenMeeting={setReportMeeting}
@@ -748,7 +756,7 @@ export default function MeetingsPage() {
         ) : (
           <HighlightsPane
             meetings={meetings}
-            childrenList={children}
+            childrenList={meetingKids}
             scheduleDow={family?.meetingSetup?.schedule?.dayOfWeek}
             familyId={profile?.familyId}
             onOpenMeeting={setReportMeeting}
