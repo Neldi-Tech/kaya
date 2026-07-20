@@ -18,6 +18,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { addChild } from '@/lib/firestore';
 import { generateChildCode } from '@/lib/coppa/client';
+import AvatarEmojiPicker from '@/components/ui/AvatarEmojiPicker';
 import { stashFreshCode } from '@/lib/coppa/freshCode';
 
 const PRESETS = [
@@ -37,6 +38,8 @@ export default function AddChildPage() {
   const [firstName, setFirstName] = useState('');
   const [dob, setDob] = useState(''); // YYYY-MM-DD from the date input
   const [presetIdx, setPresetIdx] = useState(0);
+  // Avatar picker (approved 2026-07-20) — 144 curated + type-your-own.
+  const [avatarEmoji, setAvatarEmoji] = useState('🏅');
   const [consent, setConsent] = useState(false);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -75,7 +78,7 @@ export default function AddChildPage() {
         name: firstName.trim(),
         houseName: `House ${children.length + 1}`,
         houseColor: preset.color,
-        avatarEmoji: preset.emoji,
+        avatarEmoji: avatarEmoji.trim() || preset.emoji,
         ...(dob ? { birthday: dob } : {}),
         totalPoints: 0,
         weeklyPoints: 0,
@@ -148,7 +151,7 @@ export default function AddChildPage() {
           </div>
           <div>
             <label className="block text-xs font-semibold text-kaya-chocolate/60 uppercase tracking-wider mb-1.5">
-              Avatar
+              House colour
             </label>
             <div className="flex gap-2.5 flex-wrap">
               {PRESETS.map((p, i) => (
@@ -160,15 +163,19 @@ export default function AddChildPage() {
                     presetIdx === i ? 'ring-2 ring-kaya-gold ring-offset-1' : ''
                   }`}
                   style={{ background: `${p.color}30` }}
-                  aria-label={`Avatar ${i + 1}`}
+                  aria-label={`House colour ${i + 1}`}
                 >
-                  {p.emoji}
+                  <span className="w-5 h-5 rounded-full" style={{ background: p.color }} />
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-kaya-chocolate/50 mt-2">
-              Preset avatars + house colours — same set as onboarding. No photo upload.
-            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-kaya-chocolate/60 uppercase tracking-wider mb-1.5">
+              Avatar — {avatarEmoji}
+            </label>
+            {/* Approved 2026-07-20: 8 categories · 144 choices + type-your-own. */}
+            <AvatarEmojiPicker value={avatarEmoji} onChange={setAvatarEmoji} compact />
           </div>
         </div>
 

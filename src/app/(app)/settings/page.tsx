@@ -16,7 +16,10 @@ import {
   ensureInviteCodes, setInviteCodeActive, regenerateInviteCode,
   InviteCodeState,
   getFamilyMembers, removeUserFromFamily, UserProfile,
+  updateChild,
 } from '@/lib/firestore';
+import { AvatarEmojiPickerModal } from '@/components/ui/AvatarEmojiPicker';
+import { defaultAvatarEmoji } from '@/lib/avatarEmojis';
 import {
   normalizeHandle, handleErrorMessage, suggestFamilyHandles,
   formatFamilyHandle, formatPersonHandle, handleToSlug,
@@ -83,6 +86,9 @@ export default function SettingsPage() {
   const [members, setMembers] = useState<UserProfile[] | null>(null);
   const [removingMember, setRemovingMember] = useState<string | null>(null);
   const [newChildName, setNewChildName] = useState('');
+  // Avatar picker (approved 2026-07-20): tap a kid's emoji to change it.
+  const [avatarChild, setAvatarChild] = useState<{ id: string; name: string; avatarEmoji?: string } | null>(null);
+  const [savingAvatar, setSavingAvatar] = useState(false);
   const [addingChild, setAddingChild] = useState(false);
   const [pointsMode, setPointsMode] = useState<PointsMode>(family?.pointsMode || 'full');
   const [savingMethod, setSavingMethod] = useState<string | null>(null);
@@ -693,13 +699,13 @@ export default function SettingsPage() {
     if (!profile?.familyId || !newChildName.trim()) return;
     setAddingChild(true);
     const colors = ['#D4A017', '#7B9DB7', '#9B8EC4', '#C0392B', '#27AE60', '#2980B9'];
-    const emojis = ['🏅', '🤍', '🥈', '❤️', '💚', '💙'];
+
     const idx = children.length % colors.length;
     const newChild = {
       name: newChildName.trim(),
       houseName: `House ${children.length + 1}`,
       houseColor: colors[idx],
-      avatarEmoji: emojis[idx],
+      avatarEmoji: defaultAvatarEmoji(children.length),
       totalPoints: 0,
       weeklyPoints: 0,
       streak: 0,
@@ -3058,7 +3064,15 @@ export default function SettingsPage() {
               <div className="space-y-2 mb-3">
                 {children.map((c) => (
                   <div key={c.id} className="flex items-center gap-2 text-sm flex-wrap">
-                    <span>{c.avatarEmoji}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAvatarChild({ id: c.id, name: c.name, avatarEmoji: c.avatarEmoji })}
+                      title="Change avatar"
+                      className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 hover:bg-kaya-warm transition-colors"
+                    >
+                      <span className="text-base">{c.avatarEmoji}</span>
+                      <span className="text-[9px] text-kaya-sand font-bold">✎</span>
+                    </button>
                     <span className="font-medium">{c.name}</span>
                     <span className="text-xs text-kaya-sand">— {c.houseName}</span>
                     {isLittleStar(c, family) && (
@@ -3086,6 +3100,25 @@ export default function SettingsPage() {
                   className="h-10 px-4 bg-kaya-gold text-white rounded-kaya-sm text-sm font-bold disabled:opacity-40"
                 >Add</button>
               </div>
+              {avatarChild && (
+                <AvatarEmojiPickerModal
+                  title={`${avatarChild.name}'s avatar`}
+                  value={avatarChild.avatarEmoji || '🏅'}
+                  saving={savingAvatar}
+                  onClose={() => setAvatarChild(null)}
+                  onSave={async (emoji) => {
+                    if (!profile?.familyId) return;
+                    setSavingAvatar(true);
+                    try {
+                      await updateChild(profile.familyId, avatarChild.id, { avatarEmoji: emoji });
+                      await refresh();
+                      setAvatarChild(null);
+                    } finally {
+                      setSavingAvatar(false);
+                    }
+                  }}
+                />
+              )}
             </div>
           )}
 

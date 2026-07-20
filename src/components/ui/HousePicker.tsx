@@ -7,6 +7,7 @@
 // library can grow without touching this file.
 
 import { useEffect, useMemo, useState } from 'react';
+import AvatarEmojiPicker from '@/components/ui/AvatarEmojiPicker';
 import {
   HOUSES,
   HOUSE_THEMES,
@@ -384,6 +385,15 @@ function CustomBuilder({
               className="w-full bg-brand-cream border-[1.5px] border-kaya-warm-dark rounded-xl px-4 py-2 text-2xl text-center focus:outline-none focus:border-brand-honey"
             />
           </div>
+        </div>
+
+        {/* Approved 2026-07-20 — the shared avatar library (8 categories ·
+            144 choices) alongside the free-type box above. */}
+        <div>
+          <label className="block text-[11px] font-bold uppercase tracking-[0.14em] text-brand-ink/60 mb-1.5">
+            Or pick from the library
+          </label>
+          <AvatarEmojiPicker value={emoji} onChange={onEmoji} compact />
         </div>
 
         <button
