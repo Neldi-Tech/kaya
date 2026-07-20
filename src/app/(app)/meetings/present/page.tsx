@@ -335,31 +335,61 @@ export default function MeetingPresenterPage() {
   // helpers as standing suggestions even if they've never attended. One-tap
   // re-add so a parent doesn't have to retype "Bibi Asha · Grandma" every
   // week. Filters out anyone already on tonight's guest list.
-  const guestSuggestions = useMemo(() => {
-    const seen = new Map<string, { name: string; relationship?: string; lastSeen: string }>();
+  // Attendance v2 (approved 2026-07-20): past guests carry their STORY —
+  // visit count + last visit — ranked by frequency so regulars float to
+  // the top. Helpers are NO LONGER standing suggestions in the grid; they
+  // live behind a quiet "Invite a helper" affordance instead.
+  const pastGuests = useMemo(() => {
+    const byName = new Map<string, { name: string; relationship?: string; visits: number; lastSeen: string }>();
     for (const m of meetingHistory) {
       for (const g of (m.guestAttendees || [])) {
-        const key = `${(g.name || '').trim().toLowerCase()}|${(g.relationship || '').toLowerCase()}`;
-        if (!seen.has(key) || (seen.get(key)?.lastSeen || '') < m.date) {
-          seen.set(key, { name: g.name, relationship: g.relationship, lastSeen: m.date });
+        const key = (g.name || '').trim().toLowerCase();
+        if (!key) continue;
+        const prev = byName.get(key);
+        if (prev) {
+          prev.visits += 1;
+          if (m.date > prev.lastSeen) { prev.lastSeen = m.date; if (g.relationship) prev.relationship = g.relationship; }
+        } else {
+          byName.set(key, { name: g.name, relationship: g.relationship, visits: 1, lastSeen: m.date });
         }
       }
     }
-    // Standing suggestions — household helpers (nanny/tutor/…), deduped by
-    // NAME against past guests so the same person never shows twice.
-    const namesSeen = new Set(Array.from(seen.values()).map((s) => s.name.trim().toLowerCase()));
-    for (const h of householdHelpers) {
-      const nm = h.name.trim();
-      if (!nm || namesSeen.has(nm.toLowerCase())) continue;
-      seen.set(`${nm.toLowerCase()}|helper`, { name: nm, relationship: 'Helper', lastSeen: '0000-00-00' });
-    }
-    // Exclude anyone already added to tonight's list (by name).
     const tonightNames = new Set(guestAttendees.map((g) => g.name.trim().toLowerCase()));
-    return Array.from(seen.values())
-      .filter((s) => !tonightNames.has(s.name.trim().toLowerCase()))
-      .sort((a, b) => b.lastSeen.localeCompare(a.lastSeen))
-      .slice(0, 8);
-  }, [meetingHistory, householdHelpers, guestAttendees]);
+    return Array.from(byName.values())
+      .filter((g) => !tonightNames.has(g.name.trim().toLowerCase()))
+      .sort((a, b) => (b.visits - a.visits) || b.lastSeen.localeCompare(a.lastSeen))
+      .slice(0, 12);
+  }, [meetingHistory, guestAttendees]);
+
+  // 📊 Guest statistics — totals across the loaded history window.
+  const guestStats = useMemo(() => {
+    const byName = new Map<string, { visits: number; first: string; name: string }>();
+    let totalVisits = 0;
+    for (const m of meetingHistory) {
+      for (const g of (m.guestAttendees || [])) {
+        const key = (g.name || '').trim().toLowerCase();
+        if (!key) continue;
+        totalVisits += 1;
+        const prev = byName.get(key);
+        if (prev) { prev.visits += 1; if (m.date < prev.first) prev.first = m.date; }
+        else byName.set(key, { visits: 1, first: m.date, name: g.name });
+      }
+    }
+    let top: { name: string; visits: number } | null = null;
+    for (const v of byName.values()) if (!top || v.visits > top.visits) top = { name: v.name, visits: v.visits };
+    const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 30);
+    const cutoffKey = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+    const newThisMonth = Array.from(byName.values()).filter((v) => v.first >= cutoffKey).length;
+    return { totalVisits, top, newThisMonth };
+  }, [meetingHistory]);
+
+  // 🤝 Helpers — invite-only chips (never in the grid unless invited).
+  const helperInvites = useMemo(() => {
+    const tonightNames = new Set(guestAttendees.map((g) => g.name.trim().toLowerCase()));
+    return householdHelpers
+      .map((h) => h.name.trim())
+      .filter((nm) => nm && !tonightNames.has(nm.toLowerCase()));
+  }, [householdHelpers, guestAttendees]);
   useEffect(() => {
     if (!profile?.familyId) return;
     getMeetings(profile.familyId).then((ms) => {
@@ -1058,7 +1088,9 @@ export default function MeetingPresenterPage() {
                   attendees={attendees}
                   parentAttendees={parentAttendees}
                   guests={guestAttendees}
-                  guestSuggestions={guestSuggestions}
+                  pastGuests={pastGuests}
+                  helperNames={helperInvites}
+                  guestStats={guestStats}
                   onToggleAttendee={(kidId) => {
                     setAttendees((prev) => {
                       const next = new Set(prev);
@@ -1178,7 +1210,7 @@ export default function MeetingPresenterPage() {
                     ...children.filter((c) => attendees.has(c.id)).map((c) => ({ key: c.id, name: c.name })),
                     ...householdParents.filter((p) => parentAttendees.has(p.uid)).map((p) => ({ key: p.uid, name: p.name })),
                   ]}
-                  guestSuggestion={guestSuggestions[0]?.name}
+                  guestSuggestion={pastGuests[0]?.name}
                   surpriseOverrides={family?.meetingSetup?.surprises}
                   goldenTickets={family?.meetingSetup?.goldenTickets}
                   dateKey={todayString()}
@@ -2386,7 +2418,9 @@ function AttendanceStep({
   attendees,
   parentAttendees,
   guests,
-  guestSuggestions,
+  pastGuests,
+  helperNames,
+  guestStats,
   onToggleAttendee,
   onToggleParent,
   onAddGuest,
@@ -2401,9 +2435,11 @@ function AttendanceStep({
   attendees: Set<string>;
   parentAttendees: Set<string>;
   guests: Array<{ id: string; name: string; relationship?: string }>;
-  /** People the family has had at past meetings — surfaced as one-tap
-   *  chips so the parent doesn't have to retype Grandma every week. */
-  guestSuggestions: Array<{ name: string; relationship?: string }>;
+  /** Attendance v2 — past guests with their story (visits + last seen),
+   *  ranked by frequency; helpers as invite-only chips; guest stats. */
+  pastGuests: Array<{ name: string; relationship?: string; visits: number; lastSeen: string }>;
+  helperNames: string[];
+  guestStats: { totalVisits: number; top: { name: string; visits: number } | null; newThisMonth: number };
   onToggleAttendee: (kidId: string) => void;
   onToggleParent: (uid: string) => void;
   onAddGuest: (name: string, relationship?: string) => void;
@@ -2413,7 +2449,8 @@ function AttendanceStep({
   onChangePresentBy: (s: string) => void;
   onChangePresentTopic: (s: string) => void;
 }) {
-  const [adding, setAdding] = useState(false);
+  const [showHelpers, setShowHelpers] = useState(false);
+  const [showGuests, setShowGuests] = useState(false);
   const [guestName, setGuestName] = useState('');
   const [guestRel, setGuestRel] = useState<string>('Family Friend');
   const [otherRel, setOtherRel] = useState('');
@@ -2426,7 +2463,6 @@ function AttendanceStep({
     setGuestName('');
     setOtherRel('');
     setGuestRel('Family Friend');
-    setAdding(false);
   };
 
   const empty = childrenList.length === 0 && parentsList.length === 0;
@@ -2501,7 +2537,7 @@ function AttendanceStep({
                 key={g.id}
                 className="flex items-center gap-3 p-4 rounded-kaya border bg-kaya-chocolate-light/40 border-kaya-gold/40 text-white text-left"
               >
-                <span className="text-3xl">🧑</span>
+                <span className="text-3xl">{g.relationship === 'Helper' ? '🤝' : '🫂'}</span>
                 <span className="flex-1 min-w-0">
                   <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{g.name}</span>
                   <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold opacity-70">
@@ -2516,84 +2552,141 @@ function AttendanceStep({
                 >✕</button>
               </div>
             ))}
-            {/* Suggestion tiles — past guests, one-tap re-add. */}
-            {!adding && guestSuggestions.map((g) => (
-              <button
-                type="button"
-                key={`sugg-${g.name}-${g.relationship || ''}`}
-                onClick={() => onAddGuest(g.name, g.relationship)}
-                className="flex items-center gap-3 p-4 rounded-kaya border border-dashed border-kaya-gold/40 bg-kaya-gold/5 text-white/85 hover:bg-kaya-gold/15 hover:border-kaya-gold/70 transition-all text-left"
-              >
-                <span className="text-3xl">🧑</span>
-                <span className="flex-1 min-w-0">
-                  <span className="block font-display font-extrabold text-[14px] lg:text-base truncate">{g.name}</span>
-                  <span className="block text-[10px] lg:text-[11px] mt-0.5 uppercase tracking-wider font-bold text-kaya-gold-light/80">
-                    {g.relationship || 'Guest'} · tap to add
-                  </span>
-                </span>
-                <span className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black bg-kaya-gold/30 text-kaya-gold-light">＋</span>
-              </button>
-            ))}
-            {/* Add guest tile */}
-            {!adding ? (
-              <button
-                type="button"
-                onClick={() => setAdding(true)}
-                className="flex items-center justify-center gap-2 p-4 rounded-kaya border-2 border-dashed border-white/20 text-white/55 hover:text-white hover:border-white/40 transition-all font-display font-extrabold text-[14px] lg:text-base"
-              >
-                ＋ Add someone new
-              </button>
-            ) : (
-              <div className="col-span-2 lg:col-span-3 bg-white/5 border border-white/10 rounded-kaya p-4 lg:p-5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-display font-extrabold text-[14px] text-kaya-gold-light">Add a guest</p>
-                  <button type="button" onClick={() => setAdding(false)} className="text-[11px] font-bold text-white/55 hover:text-white">Cancel</button>
-                </div>
-                <input
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                  placeholder="Name — e.g. Bibi Asha"
-                  autoFocus
-                  className="w-full h-11 lg:h-12 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
-                />
-                <div>
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-white/55 mb-2">Relationship</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {GUEST_RELATIONSHIPS.map((r) => (
-                      <button
-                        type="button"
-                        key={r}
-                        onClick={() => setGuestRel(r)}
-                        aria-pressed={guestRel === r}
-                        className={`px-3 py-1.5 rounded-kaya-sm font-display font-extrabold text-[11.5px] lg:text-[12px] transition-colors ${
-                          guestRel === r
-                            ? 'bg-kaya-gold text-kaya-chocolate'
-                            : 'bg-white/5 text-white/60 hover:bg-white/15'
-                        }`}
-                      >{r}</button>
-                    ))}
-                  </div>
-                  {guestRel === 'Other' && (
-                    <input
-                      value={otherRel}
-                      onChange={(e) => setOtherRel(e.target.value)}
-                      placeholder="Describe — e.g. Family pastor"
-                      className="mt-2 w-full h-10 bg-white/10 border border-white/10 rounded-kaya-sm px-3 text-[13px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
-                    />
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={commitGuest}
-                  disabled={!guestName.trim()}
-                  className="w-full h-11 lg:h-12 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors hover:bg-kaya-gold-dark disabled:opacity-40"
-                >＋ Add to tonight's meeting</button>
-              </div>
-            )}
           </div>
         )}
+
+        {/* Attendance v2 — helpers + guests live behind quiet affordances,
+            never as standing tiles in the family grid. */}
+        <div className="flex gap-2.5 flex-wrap mt-3">
+          {helperNames.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { setShowHelpers((v) => !v); setShowGuests(false); }}
+              className={`px-4 py-2 rounded-full border-2 border-dashed font-display font-extrabold text-[12.5px] transition-colors ${
+                showHelpers ? 'border-kaya-gold text-kaya-gold-light bg-kaya-gold/10' : 'border-white/25 text-white/70 hover:border-kaya-gold/60 hover:text-kaya-gold-light'
+              }`}
+            >🤝 Invite a helper</button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setShowGuests((v) => !v); setShowHelpers(false); }}
+            className={`px-4 py-2 rounded-full border-2 border-dashed font-display font-extrabold text-[12.5px] transition-colors ${
+              showGuests ? 'border-kaya-gold text-kaya-gold-light bg-kaya-gold/10' : 'border-white/25 text-white/70 hover:border-kaya-gold/60 hover:text-kaya-gold-light'
+            }`}
+          >🫂 Add a guest</button>
+        </div>
+
+        {/* 🤝 Helper invite panel — tonight only; untap the ✕ on their grid
+            card to uninvite. */}
+        {showHelpers && (
+          <div className="mt-3 bg-white/5 border border-white/10 rounded-kaya p-4">
+            <p className="font-display font-extrabold text-[12px] uppercase tracking-wider text-kaya-gold-light">🤝 Invite a helper — tonight only</p>
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
+              {helperNames.map((nm) => (
+                <button
+                  type="button"
+                  key={nm}
+                  onClick={() => { onAddGuest(nm, 'Helper'); setShowHelpers(false); }}
+                  className="inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12.5px] font-display font-extrabold bg-white/5 text-white/80 border border-white/20 hover:bg-kaya-gold hover:text-kaya-chocolate hover:border-kaya-gold transition-colors"
+                >🧑 {nm}</button>
+              ))}
+            </div>
+            <p className="text-[10.5px] text-white/40 mt-2.5">Invited helpers join tonight&apos;s grid with a ✓ — tap ✕ on their card to uninvite. They never appear unless invited.</p>
+          </div>
+        )}
+
+        {/* 🫂 Guest panel — stats + past-guest one-tap picks + new-guest form. */}
+        {showGuests && (
+          <div className="mt-3 bg-white/5 border border-white/10 rounded-kaya p-4 space-y-4">
+            <p className="font-display font-extrabold text-[12px] uppercase tracking-wider text-kaya-gold-light">🫂 Add a guest</p>
+
+            {guestStats.totalVisits > 0 && (
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-white/5 border border-white/10 rounded-kaya-sm p-2.5 text-center">
+                  <p className="font-display font-black text-lg text-kaya-gold-light">{guestStats.totalVisits}</p>
+                  <p className="text-[8.5px] uppercase tracking-wider font-bold text-white/45 mt-0.5">Guest visits</p>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-kaya-sm p-2.5 text-center">
+                  <p className="font-display font-black text-[13px] text-kaya-gold-light leading-tight mt-1 truncate">🏅 {guestStats.top?.name || '—'}</p>
+                  <p className="text-[8.5px] uppercase tracking-wider font-bold text-white/45 mt-0.5">Most frequent{guestStats.top ? ` · ×${guestStats.top.visits}` : ''}</p>
+                </div>
+                <div className="bg-white/5 border border-white/10 rounded-kaya-sm p-2.5 text-center">
+                  <p className="font-display font-black text-lg text-kaya-gold-light">{guestStats.newThisMonth}</p>
+                  <p className="text-[8.5px] uppercase tracking-wider font-bold text-white/45 mt-0.5">New this month</p>
+                </div>
+              </div>
+            )}
+
+            {pastGuests.length > 0 && (
+              <div>
+                <p className="text-[10.5px] uppercase tracking-wider font-bold text-white/50 mb-2">Past guests — tap to add</p>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                  {pastGuests.map((g) => (
+                    <button
+                      type="button"
+                      key={`pg-${g.name}`}
+                      onClick={() => onAddGuest(g.name, g.relationship)}
+                      className="flex items-center gap-2.5 rounded-kaya-sm border border-white/15 bg-white/5 hover:border-kaya-gold hover:bg-kaya-gold/10 transition-colors p-2.5 text-left"
+                    >
+                      <span className="text-xl">🫂</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-display font-extrabold text-[13px] text-white truncate">{g.name}</span>
+                        <span className="block text-[10px] text-white/50">{g.relationship || 'Guest'} · last {toDisplayDate(g.lastSeen) || g.lastSeen}</span>
+                      </span>
+                      <span className="shrink-0 font-display font-black text-[11px] px-2 py-0.5 rounded-full bg-kaya-gold/20 text-kaya-gold-light">×{g.visits}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Someone new */}
+            <div className="space-y-3 border-t border-dashed border-white/15 pt-3.5">
+              <input
+                value={guestName}
+                onChange={(e) => setGuestName(e.target.value)}
+                placeholder="Someone new — name, e.g. Bibi Asha"
+                className="w-full h-11 lg:h-12 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[14px] lg:text-base text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+              />
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-white/55 mb-2">Relationship</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {GUEST_RELATIONSHIPS.map((r) => (
+                    <button
+                      type="button"
+                      key={r}
+                      onClick={() => setGuestRel(r)}
+                      aria-pressed={guestRel === r}
+                      className={`px-3 py-1.5 rounded-kaya-sm font-display font-extrabold text-[11.5px] lg:text-[12px] transition-colors ${
+                        guestRel === r
+                          ? 'bg-kaya-gold text-kaya-chocolate'
+                          : 'bg-white/5 text-white/60 hover:bg-white/15'
+                      }`}
+                    >{r}</button>
+                  ))}
+                </div>
+                {guestRel === 'Other' && (
+                  <input
+                    value={otherRel}
+                    onChange={(e) => setOtherRel(e.target.value)}
+                    placeholder="Describe — e.g. Family pastor"
+                    className="mt-2 w-full h-10 bg-white/10 border border-white/10 rounded-kaya-sm px-3 text-[13px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+                  />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={commitGuest}
+                disabled={!guestName.trim()}
+                className="w-full h-11 lg:h-12 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors hover:bg-kaya-gold-dark disabled:opacity-40"
+              >＋ Add to tonight's meeting</button>
+              <p className="text-[10.5px] text-white/40">New guests are remembered — next week they&apos;re a one-tap pick with their visit count.</p>
+            </div>
+          </div>
+        )}
+
         <p className="text-[11px] lg:text-[12px] text-white/40 mt-3 px-1">
-          Household defaults to present — tap to mark absent. Add anyone else with “＋ Add attendee”.
+          Household defaults to present — tap to mark absent. Helpers and guests join via the buttons above.
         </p>
       </section>
 
