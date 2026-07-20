@@ -10,6 +10,7 @@ import KidAvatar from '@/components/ui/KidAvatar';
 import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import BirthdayHero from '@/components/birthdays/BirthdayHero';
+import ArrivalHero from '@/components/family/ArrivalHero';
 import WeekThemeCard from '@/components/meetings/WeekThemeCard';
 import RemindersChip from '@/components/reminders/RemindersChip';
 
@@ -113,6 +114,7 @@ export default function DashboardPage() {
         {/* 🎂 Birthday hero — renders only on someone's day (B1). */}
         {profile && family && (
           <>
+            <ArrivalHero />
             <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
             <WeekThemeCard className="mb-4" />
           </>
@@ -272,6 +274,7 @@ export default function DashboardPage() {
         {/* 🎂 Birthday hero — renders only on someone's day (B1). */}
         {profile && family && (
           <>
+            <ArrivalHero />
             <BirthdayHero familyId={family.id} viewerUid={profile.uid} viewerChildId={profile.childId} />
             <WeekThemeCard className="mb-4" />
           </>
