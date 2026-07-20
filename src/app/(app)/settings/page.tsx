@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
-  updateFamily, updateUserProfile, addChild, ensureReferralCode,
+  updateFamily, updateUserProfile, addChild, ensureReferralCode, type Child,
   getReferredFamilies, isHandleAvailable, Family, PointsMode,
   Gender, BirthdayPrivacy, ExternalContact,
   addExternalContact, updateExternalContact, removeExternalContact,
@@ -24,6 +24,8 @@ import {
 import { fileToAvatarDataUrl } from '@/lib/imageUpload';
 import { AVATAR_PRESETS, AVATAR_GROUPS, generateAvatarFromName } from '@/lib/avatarPresets';
 import { toDisplayDate, monthDayOf, dayOfWeek, daysToNextBirthday, ageNow, ageAtNextBirthday } from '@/lib/dates';
+import KidWelcomeWizard from '@/components/family/KidWelcomeWizard';
+import { readParticipationAges, isLittleStar, profileUnfinished } from '@/lib/participation';
 import { milestoneForYear, ordinal } from '@/lib/anniversaryMilestones';
 import {
   bornOnThisDay, eventsOnThisDay,
@@ -683,13 +685,17 @@ export default function SettingsPage() {
     setBusyCode(null);
   };
 
+  // Welcome Wizard (2026-07-26) — opens right after a quick-add, and from
+  // the ✎ Finish-profile chip on any kid with missing basics.
+  const [wizardChild, setWizardChild] = useState<Child | null>(null);
+
   const handleAddChild = async () => {
     if (!profile?.familyId || !newChildName.trim()) return;
     setAddingChild(true);
     const colors = ['#D4A017', '#7B9DB7', '#9B8EC4', '#C0392B', '#27AE60', '#2980B9'];
     const emojis = ['🏅', '🤍', '🥈', '❤️', '💚', '💙'];
     const idx = children.length % colors.length;
-    await addChild(profile.familyId, {
+    const newChild = {
       name: newChildName.trim(),
       houseName: `House ${children.length + 1}`,
       houseColor: colors[idx],
@@ -698,9 +704,29 @@ export default function SettingsPage() {
       weeklyPoints: 0,
       streak: 0,
       badges: [],
-    } as any);
+    };
+    const childId = await addChild(profile.familyId, newChild as any);
     setNewChildName('');
     setAddingChild(false);
+    await refresh();
+    // Open the Welcome Wizard for the freshly-added kid (design §1).
+    setWizardChild({ id: childId, ...newChild } as Child);
+  };
+
+  // Little Stars — family-default participation ages (design §2).
+  const partAges = readParticipationAges(family);
+  const bumpAge = async (key: 'sparksFromAge' | 'meetingsFromAge', delta: number) => {
+    if (!profile?.familyId) return;
+    const next = Math.max(0, Math.min(18, partAges[key] + delta));
+    await updateFamily(profile.familyId, {
+      participationAges: { ...family?.participationAges, [key]: next },
+    } as any);
+    await refresh();
+  };
+  const celebrationDays = Math.max(0, Math.min(60, Number((family as any)?.celebrationDays ?? 14)));
+  const bumpCelebration = async (delta: number) => {
+    if (!profile?.familyId) return;
+    await updateFamily(profile.familyId, { celebrationDays: Math.max(0, Math.min(60, celebrationDays + delta)) } as any);
     await refresh();
   };
 
@@ -3031,10 +3057,19 @@ export default function SettingsPage() {
               <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Children</p>
               <div className="space-y-2 mb-3">
                 {children.map((c) => (
-                  <div key={c.id} className="flex items-center gap-2 text-sm">
+                  <div key={c.id} className="flex items-center gap-2 text-sm flex-wrap">
                     <span>{c.avatarEmoji}</span>
                     <span className="font-medium">{c.name}</span>
                     <span className="text-xs text-kaya-sand">— {c.houseName}</span>
+                    {isLittleStar(c, family) && (
+                      <span className="text-[10px] font-black rounded-full px-2 py-0.5" style={{ background: '#FDF3E4', color: '#9a5f14' }}>🌟 Little Star</span>
+                    )}
+                    {profileUnfinished(c) && (
+                      <button type="button" onClick={() => setWizardChild(c)}
+                        className="text-[10px] font-black rounded-full px-2 py-0.5" style={{ background: '#FDF2F4', color: '#B4485A' }}>
+                        ✎ Finish profile →
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -3052,6 +3087,51 @@ export default function SettingsPage() {
                 >Add</button>
               </div>
             </div>
+          )}
+
+          {/* 🌟 Little Stars — participation ages + celebration length
+              (2026-07-26, Elia-approved design §2 + §3). */}
+          {isParent && (
+            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Participation ages</p>
+              <p className="text-[11px] text-kaya-sand mb-3">Little Stars join the family everywhere it warms — tasks &amp; meetings start at the ages you set. Each kid&rsquo;s profile can override.</p>
+              {([
+                ['sparksFromAge', '✨ Kaya Sparks from', 'tasks, routines & ratings begin'],
+                ['meetingsFromAge', '🗓️ Sunday meetings from', 'counted in attendance, gratitude & goals'],
+              ] as const).map(([key, label, sub]) => (
+                <div key={key} className="flex items-center justify-between gap-3 py-2.5 border-b border-dashed border-kaya-warm-dark">
+                  <div>
+                    <p className="text-[13px] font-bold">{label}</p>
+                    <p className="text-[11px] text-kaya-sand">{sub}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => void bumpAge(key, -1)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">−</button>
+                    <span className="min-w-[52px] text-center font-black text-sm">age {partAges[key]}</span>
+                    <button type="button" onClick={() => void bumpAge(key, 1)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">＋</button>
+                  </div>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-[13px] font-bold">🎊 Arrival celebration</p>
+                  <p className="text-[11px] text-kaya-sand">how long a new member&rsquo;s welcome stays on Home</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => void bumpCelebration(-7)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">−</button>
+                  <span className="min-w-[62px] text-center font-black text-sm">{celebrationDays} days</span>
+                  <button type="button" onClick={() => void bumpCelebration(7)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">＋</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Welcome Wizard sheet */}
+          {wizardChild && profile?.familyId && (
+            <KidWelcomeWizard
+              familyId={profile.familyId}
+              child={wizardChild}
+              onClose={() => { setWizardChild(null); void refresh(); }}
+            />
           )}
 
           {/* Navigation links — parent-only. Helpers don't need to

@@ -185,6 +185,12 @@ export interface Family {
   //   absent → resolved against DEFAULT_GAMES_CONFIG. Family-readable,
   //   parent-writable (rides the family doc — no extra rule).
   gamesConfig?: Partial<import('./games').GamesConfig>;
+  /** Little Stars — family-default participation ages (partial, merged
+   *  over DEFAULT_PARTICIPATION_AGES by lib/participation.ts). */
+  participationAges?: Partial<import('./participation').ParticipationAges>;
+  /** 🎊 Arrival celebration length in days (default 14) — how long a new
+   *  member's welcome card stays on everyone's Home. */
+  celebrationDays?: number;
   // ── 📮 Reminder email groups (v4) · named recipient bundles built in
   //   Settings, surfaced as one-tap chips in the reminder "EMAIL TO" panel.
   //   Rides the family doc like gamesConfig — no extra rule.
@@ -940,6 +946,17 @@ export interface Child {
   gender?: Gender;            // drives avatar hints + on-this-day filtering
   interests?: string[];       // free-form chips, e.g. ['Football', 'Lego']
   aspirations?: string[];     // up to 3, e.g. ['Pilot', 'Doctor', 'Footballer']
+  // ── Little Stars (2026-07-26) ──
+  /** Per-kid participation override — set only when a parent flips a
+   *  wizard/profile switch away from the age-based family default
+   *  (lib/participation.ts). Absent = follow family participationAges. */
+  participationOverrides?: { sparks?: boolean; meetings?: boolean };
+  /** The day this kid was added to the family (YYYY-MM-DD) — powers the
+   *  🎊 arrival celebration on Home + the pinned Moments welcome. */
+  arrivedAt?: string;
+  /** Set once the graduation reminder ("joins meetings next week!") has
+   *  been sent for a surface, so the cron never double-notifies. */
+  graduationNotified?: { sparks?: boolean; meetings?: boolean };
   // ── Game state ──
   totalPoints: number;
   weeklyPoints: number;
