@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { participatesInSparks } from '@/lib/participation';
 import { submitRating, getTodayRatings, getRatingsByDate, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
 import { notifyRating } from '@/lib/notify';
 import { fmt } from '@/lib/format';
@@ -45,7 +46,11 @@ function clearDraft(key: string) {
 export default function RatePage() {
   const searchParams = useSearchParams();
   const { profile } = useAuth();
-  const { family, children } = useFamily();
+  // Little Stars (2026-07-26): kids below the family's Sparks age are
+  // excluded from routine rating — the roster below is pre-filtered so
+  // every tab/index downstream only ever sees participating kids.
+  const { family, children: allChildren } = useFamily();
+  const children = allChildren.filter((c) => participatesInSparks(c, family));
 
   const [selectedChild, setSelectedChild] = useState(0);
   const [period, setPeriod] = useState<'morning' | 'evening'>(
