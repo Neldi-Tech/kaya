@@ -21,7 +21,9 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateChild, type Child, type Gender } from '@/lib/firestore';
+import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { createPost } from '@/lib/moments';
 import {
   readParticipationAges, ageOf, participatesInSparks, participatesInMeetings,
 } from '@/lib/participation';
@@ -37,6 +39,7 @@ export default function KidWelcomeWizard({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { profile } = useAuth();
   const { family, refresh } = useFamily();
   const ages = readParticipationAges(family);
 
@@ -85,11 +88,26 @@ export default function KidWelcomeWizard({
       const overrides: { sparks?: boolean; meetings?: boolean } = {};
       if (sparksOn !== null && sparksOn !== suggestedSparks) overrides.sparks = sparksOn;
       if (meetingsOn !== null && meetingsOn !== suggestedMeetings) overrides.meetings = meetingsOn;
+      const firstArrival = !(child as { arrivedAt?: string }).arrivedAt;
       await updateChild(familyId, child.id, {
         ...(Object.keys(overrides).length ? { participationOverrides: overrides } : {}),
         // Arrival stamp — powers the 🎊 celebration (design §3). Set once.
-        ...((child as { arrivedAt?: string }).arrivedAt ? {} : { arrivedAt: new Date().toISOString().slice(0, 10) }),
+        ...(firstArrival ? { arrivedAt: new Date().toISOString().slice(0, 10) } : {}),
       } as Partial<Child>);
+      // 🎊 Moments welcome post (design §3) — the family keepsake where
+      // everyone piles on comments + 💛. Best-effort, created once.
+      if (firstArrival && profile?.uid) {
+        try {
+          await createPost(familyId, {
+            authorUid: profile.uid,
+            authorName: profile.displayName || 'A proud parent',
+            caption: `🎊 A new star has joined the family — welcome, ${child.name}! ${avatar} ${birthday ? `Born ${toDisplayDate(birthday)}. ` : ''}Drop a 💛 and say karibu!`,
+            photos: [],
+            kidTags: [child.id],
+            visibility: 'family',
+          } as Parameters<typeof createPost>[1]);
+        } catch { /* the celebration hero still shows — never block the wizard */ }
+      }
       setStep(3);
     } finally { setSaving(false); }
   }
