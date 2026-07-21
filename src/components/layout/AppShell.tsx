@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
+import { setFamilyLocale } from '@/lib/useLocale';
+import { asLocale } from '@/lib/i18n';
 import { getHelperLink } from '@/lib/helpers';
 import { subscribeToUnreadNotificationCount } from '@/lib/firestore';
 import { getOperatorRole } from '@/lib/access';
@@ -569,6 +571,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (!profile?.familyId || !profile?.uid) { setUnreadCount(0); return; }
     return subscribeToUnreadNotificationCount(profile.familyId, profile.uid, setUnreadCount);
   }, [profile?.familyId, profile?.uid]);
+
+  // One-time language backfill: a parent who picked a personal language while
+  // the family default was never set (the "parent=EN but kids see Swahili"
+  // trap) — sync their choice to the family default so kids inherit it.
+  const [langBackfilled, setLangBackfilled] = useState(false);
+  useEffect(() => {
+    if (langBackfilled) return;
+    const myPref = asLocale(profile?.languagePref);
+    if (role !== 'parent' || !profile?.familyId || !family || !myPref) return;
+    if (asLocale(family.primaryLanguage)) return;
+    setLangBackfilled(true);
+    setFamilyLocale(profile.familyId, myPref).catch(() => {});
+  }, [langBackfilled, role, profile?.familyId, profile?.languagePref, family]);
 
   // Closed beta: is this user a Kaya operator? Drives the /admin nav link.
   const [isOperator, setIsOperator] = useState(false);
@@ -1253,7 +1268,23 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                       </Link>
                     );
                   })
-                : sidebar.map(renderSidebarRow)}
+                : (
+                  <>
+                    {sidebar.map(renderSidebarRow)}
+                    {/* Kids: quick 🌍 language shortcut (their friendly picker
+                        lives in Settings, which has no other kid entry here). */}
+                    {role === 'kid' && (
+                      <Link
+                        href="/settings#language"
+                        onClick={() => setOpenSheetId(null)}
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-kaya-sm text-[14px] text-kaya-chocolate hover:bg-white font-medium"
+                      >
+                        <span className="text-lg leading-none">🌍</span>
+                        <span className="text-left flex-1 truncate">Language · Lugha</span>
+                      </Link>
+                    )}
+                  </>
+                )}
             </nav>
           </div>
         </div>
