@@ -29,7 +29,7 @@ const TZ = process.env.SPARKS_REFLECTION_TZ || 'Africa/Dar_es_Salaam';
 
 type Action = 'list' | 'save' | 'lock' | 'delete'
   | 'privacy-get' | 'pin-set' | 'pin-reset' | 'quota-set'
-  | 'knock' | 'knock-answer' | 'quiet-open';
+  | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set';
 
 const FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'];
 
@@ -66,9 +66,10 @@ export async function POST(req: NextRequest) {
     feeling?: string; blocks?: BlockIn[]; locked?: boolean;
     linked_reflection_date?: string; max?: number;
     pin?: string; quota?: number; allow?: boolean; reason?: string;
+    visibility?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open'];
+  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set'];
   const action: Action = ALL_ACTIONS.includes(body.action as Action)
     ? (body.action as Action) : 'list';
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId : '';
@@ -108,9 +109,22 @@ export async function POST(req: NextRequest) {
   // Access gate:
   //   owner → everything below
   //   parent + kid-owned diary → read-only (list) with redaction
+  //   family member + PARENT-owned diary → list ONLY, and only when the
+  //     owning parent set visibility='visible' (Slice 8e). Their locked
+  //     pages are NEVER served to others — not even the meta.
   //   anything else → 403 (this is what makes siblings blind)
   const parentReadingKid = isParent && ownerIsKid && !isOwner;
-  if (!isOwner && !parentReadingKid) {
+  const ownerIsParentUser = !ownerIsKid && !!(await db.collection('users').doc(ownerId).get()).exists;
+  let familyReadingParent = false;
+  if (!isOwner && !parentReadingKid && ownerIsParentUser && action === 'list') {
+    const ownerUser = (await db.collection('users').doc(ownerId).get()).data() as { familyId?: string; role?: string } | undefined;
+    if (ownerUser?.familyId === familyId && ownerUser?.role === 'parent') {
+      const priv = ((await db.collection('families').doc(familyId)
+        .collection('sparks_diary_private').doc(ownerId).get()).data() ?? {}) as { visibility?: string };
+      familyReadingParent = priv.visibility === 'visible';
+    }
+  }
+  if (!isOwner && !parentReadingKid && !familyReadingParent) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
@@ -148,9 +162,19 @@ export async function POST(req: NextRequest) {
 
   // ── Slice 8d · privacy actions ────────────────────────────────────
   if (action === 'privacy-get') {
-    const priv = ((await privRef.get()).data() ?? {}) as PrivDoc;
+    const priv = ((await privRef.get()).data() ?? {}) as PrivDoc & { visibility?: string; reflection_visibility?: string };
     if (isOwner && ownerIsKid) {
       return NextResponse.json({ hasPin: !!priv.pin });
+    }
+    if (isOwner && !ownerIsKid) {
+      // A parent's OWN diary: hasPin + both visibility toggles. The PIN
+      // itself is never echoed back — it's theirs alone, unrecoverable.
+      const extra = priv as { reflection_visibility?: string };
+      return NextResponse.json({
+        hasPin: !!priv.pin,
+        visibility: priv.visibility ?? 'personal',
+        reflection_visibility: extra.reflection_visibility ?? 'personal',
+      });
     }
     if (!parentReadingKid && !(isParent && ownerIsKid)) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
@@ -167,7 +191,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (action === 'pin-set') {
-    if (!isOwner || !ownerIsKid) return NextResponse.json({ error: 'kid-only' }, { status: 403 });
+    if (!isOwner) return NextResponse.json({ error: 'owner-only' }, { status: 403 });
     const pin = String(body.pin ?? '');
     if (!/^\d{4}$/.test(pin)) return NextResponse.json({ error: 'pin-4-digits' }, { status: 400 });
     await privRef.set({ pin }, { merge: true });
@@ -179,6 +203,13 @@ export async function POST(req: NextRequest) {
     await privRef.set({ pin: FieldValue.delete() }, { merge: true });
     await notifyUser(ownerId, '🔑 Your Diary PIN was reset', 'A parent reset your PIN — set a fresh one next time you lock a page.');
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'visibility-set') {
+    if (!isOwner || ownerIsKid) return NextResponse.json({ error: 'parent-owner-only' }, { status: 403 });
+    const visibility = body.visibility === 'visible' ? 'visible' : 'personal';
+    await privRef.set({ visibility }, { merge: true });
+    return NextResponse.json({ ok: true, visibility });
   }
 
   if (action === 'quota-set') {
@@ -291,6 +322,7 @@ export async function POST(req: NextRequest) {
         return ka < kb ? 1 : ka > kb ? -1 : 0; // newest first
       })
       .slice(0, max)
+      .filter((r) => !(familyReadingParent && r.locked === true))
       .map((r) => {
         if (parentReadingKid && r.locked === true && (r as { knock_open?: boolean }).knock_open !== true) {
           // Redact: content gone, meta survives. Slice 8d adds the

@@ -269,6 +269,30 @@ export default function SparksLandingPage() {
         {/* 1 · HERO ─────────────────────────────────────────────── */}
         <Hero plan={features.plan} aiUnlocked={features.aiScan} />
 
+        {/* 1b · YOUR CORNER (Slice 8e) — the parent's own surfaces. */}
+        <section className="mt-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Link href="/sparks/my-diary"
+              className="rounded-2xl p-4 no-underline text-white flex items-center gap-3 hover:opacity-95 transition-opacity"
+              style={{ background: 'linear-gradient(135deg, #2a1f3d 0%, #7A2E5C 100%)' }}>
+              <span className="text-2xl" aria-hidden>📔</span>
+              <span>
+                <span className="block font-display font-extrabold text-[14px]">My Diary</span>
+                <span className="block text-[11px] opacity-85">Your own book · Personal or Visible — your call</span>
+              </span>
+            </Link>
+            <Link href="/sparks/my-reflection"
+              className="rounded-2xl p-4 no-underline text-white flex items-center gap-3 hover:opacity-95 transition-opacity"
+              style={{ background: 'linear-gradient(135deg, #1B1547 0%, #5AB7D6 130%)' }}>
+              <span className="text-2xl" aria-hidden>🪞</span>
+              <span>
+                <span className="block font-display font-extrabold text-[14px]">My Reflection</span>
+                <span className="block text-[11px] opacity-85">Model the habit — kids copy what they see</span>
+              </span>
+            </Link>
+          </div>
+        </section>
+
         {/* 2 · KID SELECTOR ───────────────────────────────────── */}
         <section className="mt-8">
           <SectionTitle eyebrow="Step 1" title="Pick a child" />

@@ -264,3 +264,20 @@ export async function quietOpenPage(
 ): Promise<{ entry: DiaryEntry; used: number; quota: number }> {
   return diaryApi<{ entry: DiaryEntry; used: number; quota: number }>('quiet-open', { ownerId, entryId, pin, reason });
 }
+
+
+// ── Slice 8e · parent-diary helpers ────────────────────────────────
+
+/** Owner-parent view of their own diary privacy (both surfaces). */
+export async function getMyDiaryMeta(ownerId: string): Promise<{ hasPin: boolean; visibility: 'personal' | 'visible'; reflection_visibility: 'personal' | 'visible' }> {
+  const r = await diaryApi<{ hasPin: boolean; visibility?: string; reflection_visibility?: string }>('privacy-get', { ownerId });
+  return {
+    hasPin: !!r.hasPin,
+    visibility: r.visibility === 'visible' ? 'visible' : 'personal',
+    reflection_visibility: r.reflection_visibility === 'visible' ? 'visible' : 'personal',
+  };
+}
+
+export async function setDiaryVisibility(ownerId: string, visibility: 'personal' | 'visible'): Promise<void> {
+  await diaryApi('visibility-set', { ownerId, visibility });
+}
