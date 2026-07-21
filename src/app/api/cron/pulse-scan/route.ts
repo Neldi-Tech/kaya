@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
 import { notifyPulseOwner, notifyFamilyParents } from '@/lib/pulseGenerate';
 import { runAutoTopupSweep } from '@/lib/autoTopup.server';
-import { sendKidMorningDigest } from '@/lib/kidEmails.server';
+import { sendKidMorningDigest, sendKidStatementMail } from '@/lib/kidEmails.server';
 import { dayKeyInTZ } from '@/lib/dates';
 import type { KidEmailPrefs } from '@/lib/kidEmails.shared';
 
@@ -50,6 +50,7 @@ async function run(req: NextRequest) {
   let lowRequests = 0;
   let lowPruned = 0;
   let digests = 0;
+  let statements = 0;
   // 🌞 Kid morning digests (KID PR3): fire when the family-local clock has
   // passed the kid's set time and today's stamp isn't there yet.
   const nowDate = new Date();
@@ -152,9 +153,41 @@ async function run(req: NextRequest) {
         }
       }
     } catch { /* best-effort per family */ }
+
+    // 📬 Hive Statement Mail (HIVE PR4) — weekly on the family's chosen day
+    // or monthly on the 1st, at the chosen time window; kid + parents CC'd
+    // (+ selected contacts / extra emails). One send per scheduled day via
+    // lastStatementKey; failures log honestly and retry next scheduled day.
+    try {
+      const famData = fam.data() as {
+        kidEmailUpdates?: Record<string, KidEmailPrefs>;
+        externalContacts?: { id: string; name: string; email: string }[];
+      };
+      const kidCfg = famData.kidEmailUpdates ?? {};
+      const dom = Number(todayKey.slice(-2));
+      const fmtDM = (ms: number) => new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day: 'numeric', month: 'short' }).format(new Date(ms));
+      for (const childId of Object.keys(kidCfg)) {
+        const prefs = kidCfg[childId];
+        if (!prefs?.statement) continue;
+        const freq = prefs.statementFreq ?? 'weekly';
+        if (freq === 'weekly' ? dowKey !== (prefs.statementDay ?? 'sun') : dom !== 1) continue;
+        if ((prefs.statementTime ?? '07:00') > localHHMM) continue;
+        if (prefs.lastStatementKey === todayKey) continue;
+        const endMs = now;
+        const startMs = endMs - (freq === 'weekly' ? 7 : 30) * 86_400_000;
+        const attempted = await sendKidStatementMail(db, fam.id, childId, famData, {
+          periodLabel: `${fmtDM(startMs)} – ${fmtDM(endMs)}`,
+          startMs, endMs, tz: TZ,
+        });
+        if (attempted) {
+          statements++;
+          await fam.ref.update({ [`kidEmailUpdates.${childId}.lastStatementKey`]: todayKey }).catch(() => {});
+        }
+      }
+    } catch { /* best-effort per family */ }
   }
 
-  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned, digests });
+  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned, digests, statements });
 }
 
 export async function GET(req: NextRequest) {

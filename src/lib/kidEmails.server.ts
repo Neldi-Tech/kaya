@@ -338,3 +338,202 @@ export async function sendKidMorningDigest(
     return false; // never throws into the cron
   }
 }
+
+// ═══ 📬 Hive Statement Mail (HIVE PR4) ═════════════════════════════════════
+//
+// The period's whole story — Money · Hive activity · Business · Points ·
+// Behavior (growth voice, F9) — emailed to the kid with parents ALWAYS
+// CC'd, plus any approved contacts / parent-added extra addresses the
+// family selected (Elia's extended-CC addition). Weekly (chosen day) or
+// monthly (the 1st), at the family's chosen time window. Fired from the
+// hourly pulse-scan cron; one send per scheduled day via lastStatementKey.
+
+/** Bump together with renderKidStatementEmail AND the alerts-page renderer
+ *  (the log stores facts + this version — F9 discipline). */
+export const KID_STATEMENT_TEMPLATE_VERSION = 1;
+
+interface StatementData {
+  kidName: string;
+  periodLabel: string;                     // "13–19 Jul" / "June"
+  balances: { hp: number; coins: number; potCents: number; cashCents: number };
+  moneyDeltaCents: number;                 // Pot+Cash net change over the period
+  hpEarned: number;
+  salesCount: number;
+  salesCents: number;
+  kudos: number;
+  improvements: number;
+  currency: string;
+}
+
+function renderKidStatementEmail(d: StatementData): string {
+  const money = (c: number) => `${d.currency} ${Math.round(c / 100).toLocaleString('en-US')}`;
+  const delta = d.moneyDeltaCents;
+  const deltaLine = delta === 0 ? 'steady this period'
+    : `${delta > 0 ? '▲ +' : '▼ −'}${money(Math.abs(delta))} this period`;
+  const row = (icon: string, title: string, sub: string, right: string) => `
+    <div style="display:flex;align-items:center;gap:10px;border-bottom:1px solid #F0EAD9;padding:10px 0">
+      <span style="font-size:18px">${icon}</span>
+      <span style="flex:1"><b style="font-size:13px;color:#1F2A44">${title}</b><br>
+        <span style="font-size:11px;color:#8A8471">${esc(sub)}</span></span>
+      <b style="font-size:12.5px;color:#1F2A44;white-space:nowrap">${esc(right)}</b>
+    </div>`;
+  const growth = d.improvements > 0
+    ? `${d.kudos > 0 ? `${d.kudos} kudos 🎉 · ` : ''}${d.improvements} thing${d.improvements === 1 ? '' : 's'} to grow — you've got this 💪`
+    : d.kudos > 0 ? `${d.kudos} kudos 🎉 — keep shining!` : 'a quiet week — new chances ahead 🌱';
+  return `
+  <div style="font-family:Nunito,Arial,sans-serif;max-width:520px;margin:0 auto;padding:14px">
+    <div style="border-radius:18px;overflow:hidden;border:1px solid #EFE4CC;background:#fff">
+      <div style="background:linear-gradient(135deg,#1F2A44,#2E3D5C);padding:16px;color:#fff">
+        <div style="font-size:16px;font-weight:900">🐝 Your Hive · ${esc(d.periodLabel)}</div>
+        <div style="font-size:12px;opacity:.9;margin-top:3px">💰 Money ${esc(deltaLine)}</div>
+      </div>
+      <div style="padding:6px 16px 2px">
+        ${row('💵', 'Money now', `⭐ ${d.hpEarned >= 0 ? '' : ''}${d.balances.hp.toLocaleString('en-US')} HP · 🪙 ${d.balances.coins.toLocaleString('en-US')} · 💵 ${money(d.balances.cashCents)}`, `🍯 ${money(d.balances.potCents)}`)}
+        ${row('🏪', 'Business', d.salesCount > 0 ? `${d.salesCount} sale${d.salesCount === 1 ? '' : 's'} this period` : 'no sales this period', d.salesCount > 0 ? `+${money(d.salesCents)}` : '—')}
+        ${row('⭐', 'Points earned', 'from chores, routines & your business', `+${d.hpEarned.toLocaleString('en-US')} HP`)}
+        ${row('👏', 'Behavior', growth, d.kudos > 0 ? '😊' : '🌱')}
+      </div>
+      <div style="text-align:center;padding:10px 16px 16px">
+        <a href="${APP_URL}/hive/statement" style="display:inline-block;background:#F0A32A;color:#3a2a08;font-weight:900;font-size:13px;border-radius:999px;padding:10px 26px;text-decoration:none">📜 Open my full statement →</a>
+      </div>
+      <div style="padding:9px 12px;font-size:10px;color:#8A8471;background:#FFFDF7;border-top:1px solid #EFE4CC">
+        Sent on your family's schedule · parents receive the same email · manage in Household Setup.
+      </div>
+    </div>
+  </div>`;
+}
+
+/** Build + send one kid's Hive statement. Returns true when an attempt was
+ *  made (caller stamps lastStatementKey). Parents are ALWAYS CC'd; extended
+ *  CC comes from the parent-selected contacts + extra addresses. */
+export async function sendKidStatementMail(
+  db: AdminDb,
+  familyId: string,
+  childId: string,
+  famData: (FamilyDataSlice & {
+    alertEmails?: import('./alertEmails.shared').AlertEmailsConfig;
+  }) | undefined,
+  ctx: { periodLabel: string; startMs: number; endMs: number; tz: string },
+): Promise<boolean> {
+  try {
+    const prefs = famData?.kidEmailUpdates?.[childId];
+    if (!prefs?.statement) return false;
+    const resolved = await resolveKidEmailAddress(db, familyId, childId, famData);
+    if (!resolved) return false;
+
+    const famRef = db.collection('families').doc(familyId);
+    const childSnap = await famRef.collection('children').doc(childId).get();
+    if (!childSnap.exists) return false;
+    const kid = childSnap.data() as { name?: string };
+
+    // Parents — ALWAYS CC'd (via the alert-email cascade's global level).
+    const parentsSnap = await db.collection('users')
+      .where('familyId', '==', familyId).where('role', '==', 'parent').get();
+    const parentEmails = parentsSnap.docs
+      .map((d) => (d.data() as { email?: string }).email)
+      .filter((e): e is string => !!e);
+    // Extended CC (Elia's addition): approved contacts + parent extras.
+    const contacts = (famData?.externalContacts ?? [])
+      .filter((c) => (prefs.statementCcContacts ?? []).includes(c.id))
+      .map((c) => c.email);
+    const extras = (prefs.statementCcExtra ?? []).filter(Boolean);
+    const cc = Array.from(new Set([...parentEmails, ...contacts, ...extras]))
+      .filter((e) => e !== resolved.email);
+
+    // Wallet + period ledger.
+    const walletSnap = await famRef.collection('kids').doc(childId)
+      .collection('wallet').doc('balances').get();
+    const w = (walletSnap.data() ?? {}) as {
+      housePoints?: number; honeyCoins?: number; treasuryCents?: number; cashCents?: number;
+    };
+    const txSnap = await famRef.collection('kids').doc(childId)
+      .collection('hiveTransactions').orderBy('createdAt', 'desc').limit(300).get();
+    let moneyDeltaCents = 0; let hpEarned = 0; let salesCount = 0; let salesCents = 0;
+    txSnap.docs.forEach((doc2) => {
+      const t = doc2.data() as {
+        layer?: string; direction?: string; amount?: number; category?: string; status?: string;
+        createdAt?: FirebaseFirestore.Timestamp;
+      };
+      const ms = t.createdAt?.toMillis?.();
+      if (t.status !== 'completed' || typeof ms !== 'number' || ms < ctx.startMs || ms >= ctx.endMs) return;
+      const amt = Number(t.amount ?? 0);
+      const signed = t.direction === 'in' ? amt : -amt;
+      if (t.layer === 'treasury' || t.layer === 'cash') moneyDeltaCents += signed;
+      if (t.layer === 'house_points' && t.direction === 'in') hpEarned += amt;
+      if (t.layer === 'treasury' && t.direction === 'in' && t.category === 'business') {
+        salesCount += 1; salesCents += amt;
+      }
+    });
+
+    // Behavior — kudos + improvement notes in the period, growth voice (F9).
+    let kudos = 0; let improvements = 0;
+    try {
+      const awardsSnap = await famRef.collection('awards').where('childId', '==', childId).get();
+      awardsSnap.docs.forEach((d2) => {
+        const a = d2.data() as { kind?: string; createdAt?: FirebaseFirestore.Timestamp };
+        const ms = a.createdAt?.toMillis?.();
+        if (typeof ms !== 'number' || ms < ctx.startMs || ms >= ctx.endMs) return;
+        if (a.kind === 'kudos') kudos += 1;
+        if (a.kind === 'improvement_note') improvements += 1;
+      });
+    } catch { /* behavior stats are best-effort */ }
+
+    const famCurrency = (famData as { currency?: string } | undefined)?.currency
+      ?? (await famRef.get()).get('hiveConfig.currency') ?? 'TZS';
+    const data: StatementData = {
+      kidName: kid.name || 'you',
+      periodLabel: ctx.periodLabel,
+      balances: {
+        hp: w.housePoints ?? 0, coins: w.honeyCoins ?? 0,
+        potCents: w.treasuryCents ?? 0, cashCents: w.cashCents ?? 0,
+      },
+      moneyDeltaCents, hpEarned, salesCount, salesCents,
+      kudos, improvements,
+      currency: typeof famCurrency === 'string' ? famCurrency : 'TZS',
+    };
+    const subject = `🐝 Your Hive ${ctx.periodLabel}, ${data.kidName} — ${moneyDeltaCents >= 0 ? 'you grew! 📈' : 'the full story inside'}`;
+
+    let sent = false; let error: string | undefined;
+    if (!resend) { error = 'resend-not-configured'; }
+    else {
+      try {
+        await resend.emails.send({
+          from: RESEND_FROM, to: [resolved.email],
+          ...(cc.length > 0 ? { cc } : {}),
+          subject, html: renderKidStatementEmail(data),
+        });
+        sent = true;
+      } catch (e) { error = e instanceof Error ? e.message : 'send-failed'; }
+    }
+
+    await writeKidAlertLog(db, familyId, {
+      kind: 'kid_statement',
+      childId, childName: kid.name || 'Kid',
+      firedAt: Date.now(),
+      trigger: 'statement',
+      sourceLabel: resolved.sourceLabel,
+      channels: {
+        email: {
+          on: true, sent,
+          ...(error ? { error } : {}),
+          to: [
+            { name: kid.name || 'Kid', email: resolved.email },
+            ...cc.map((e) => ({ name: 'CC', email: e })),
+          ],
+          subject,
+          templateVersion: KID_STATEMENT_TEMPLATE_VERSION,
+          // Rendered by the existing kid-email view in the Alert log.
+          kidFacts: {
+            kidName: data.kidName,
+            emoji: '🧾',
+            headline: `Hive statement · ${ctx.periodLabel}`,
+            detail: `Money ${moneyDeltaCents >= 0 ? '+' : '−'}${data.currency} ${Math.round(Math.abs(moneyDeltaCents) / 100).toLocaleString('en-US')} · ${salesCount} sale${salesCount === 1 ? '' : 's'} · +${hpEarned} HP · ${kudos} kudos`,
+          },
+        },
+      },
+    });
+    return true;
+  } catch {
+    return false; // never throws into the cron
+  }
+}

@@ -28,6 +28,8 @@ import {
 import { getFamilyMembers, getChildren, type UserProfile, type Child } from '@/lib/firestore';
 import {
   setKidEmailPrefs, DEFAULT_DIGEST_TIME, DIGEST_TIME_CHOICES,
+  DEFAULT_STATEMENT_TIME, DEFAULT_STATEMENT_DAY,
+  STATEMENT_TIME_CHOICES, STATEMENT_DAYS, isValidEmail,
   type KidEmailPrefs, type KidEmailSource, type KidEmailUpdatesConfig,
 } from '@/lib/kidEmails';
 import {
@@ -216,6 +218,8 @@ function KidEmailUpdatesCard({ familyId, cfg, contacts }: {
   const [kids, setKids] = useState<Child[]>([]);
   const [parents, setParents] = useState<UserProfile[]>([]);
   const [busy, setBusy] = useState(false);
+  // 📬 Statement Mail (HIVE PR4) — per-kid draft for the extra-CC input.
+  const [ccDraft, setCcDraft] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let alive = true;
@@ -281,7 +285,7 @@ function KidEmailUpdatesCard({ familyId, cfg, contacts }: {
         const src = prefs.source;
         const addr = addressOf(kid, src);
         const armed = !!addr.email;
-        const streamsOn = (prefs.rewards ? 1 : 0) + (prefs.digest ? 1 : 0);
+        const streamsOn = (prefs.rewards ? 1 : 0) + (prefs.digest ? 1 : 0) + (prefs.statement ? 1 : 0);
         // Rebuild the prefs object without undefined values on every save —
         // the dot-path map write replaces the whole per-kid entry, and
         // Firestore rejects undefined.
@@ -293,8 +297,20 @@ function KidEmailUpdatesCard({ familyId, cfg, contacts }: {
           if (merged.digest) next.digest = true;
           if (merged.digestTime) next.digestTime = merged.digestTime;
           if (merged.lastDigestDayKey) next.lastDigestDayKey = merged.lastDigestDayKey;
+          // 📬 Statement Mail (HIVE PR4) — carry the schedule + extended CC.
+          if (merged.statement) next.statement = true;
+          if (merged.statementFreq) next.statementFreq = merged.statementFreq;
+          if (merged.statementDay) next.statementDay = merged.statementDay;
+          if (merged.statementTime) next.statementTime = merged.statementTime;
+          if (merged.statementCcContacts && merged.statementCcContacts.length > 0) next.statementCcContacts = merged.statementCcContacts;
+          if (merged.statementCcExtra && merged.statementCcExtra.length > 0) next.statementCcExtra = merged.statementCcExtra;
+          if (merged.lastStatementKey) next.lastStatementKey = merged.lastStatementKey;
           return next;
         };
+        const stFreq = prefs.statementFreq ?? 'weekly';
+        const stDay = prefs.statementDay ?? DEFAULT_STATEMENT_DAY;
+        const stCcContacts = prefs.statementCcContacts ?? [];
+        const stCcExtra = prefs.statementCcExtra ?? [];
         return (
           <div key={kid.id} className="rounded-xl border border-hive-line bg-white px-3 py-2.5 mb-2">
             <div className="flex items-center gap-2.5">
@@ -375,6 +391,118 @@ function KidEmailUpdatesCard({ familyId, cfg, contacts }: {
                 <span className={`absolute top-0.5 w-[18px] h-[18px] bg-white rounded-full transition-all ${prefs.digest && armed ? 'right-0.5' : 'left-0.5'}`} />
               </button>
             </div>
+            {/* 📬 Hive Statement Mail (HIVE PR4) — weekly/monthly to the kid,
+                parents ALWAYS CC'd, plus optional contacts + extra emails. */}
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className={`text-[12px] font-bold flex-1 ${armed ? 'text-hive-navy' : 'text-hive-muted opacity-60'}`}>
+                📬 Hive statement <span className="text-[10px] text-hive-honey-dk">· parents CC&apos;d</span>
+              </span>
+              <button
+                type="button"
+                aria-label={`Toggle Hive statement for ${kid.name}`}
+                disabled={busy || !armed}
+                onClick={() => save(kid.id, base({ statement: !prefs.statement }))}
+                className={`w-10 h-[22px] rounded-full relative transition-colors shrink-0 ${prefs.statement && armed ? 'bg-hive-honey' : 'bg-hive-line'} ${!armed ? 'opacity-50' : ''}`}
+              >
+                <span className={`absolute top-0.5 w-[18px] h-[18px] bg-white rounded-full transition-all ${prefs.statement && armed ? 'right-0.5' : 'left-0.5'}`} />
+              </button>
+            </div>
+            {prefs.statement && armed && (
+              <div className="mt-1.5 rounded-lg border border-dashed border-hive-honey-soft bg-[#FEF6E8] p-2.5">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(['weekly', 'monthly'] as const).map((f) => (
+                    <button
+                      key={f}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => save(kid.id, base({ statementFreq: f }))}
+                      className={`text-[10.5px] font-nunito font-extrabold px-2.5 py-1 rounded-full border ${stFreq === f ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}
+                    >
+                      {f === 'weekly' ? '🗓️ Weekly' : '📅 Monthly (1st)'}
+                    </button>
+                  ))}
+                  <select
+                    value={prefs.statementTime ?? DEFAULT_STATEMENT_TIME}
+                    disabled={busy}
+                    onChange={(e) => save(kid.id, base({ statementTime: e.target.value }))}
+                    className="text-[10.5px] font-nunito font-extrabold text-hive-honey-dk bg-white border border-hive-line rounded-lg px-1.5 py-1"
+                  >
+                    {STATEMENT_TIME_CHOICES.map((t) => <option key={t} value={t}>at {t}</option>)}
+                  </select>
+                </div>
+                {stFreq === 'weekly' && (
+                  <div className="flex items-center gap-1 flex-wrap mt-1.5">
+                    {STATEMENT_DAYS.map((d) => (
+                      <button
+                        key={d.key}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => save(kid.id, base({ statementDay: d.key }))}
+                        className={`text-[10px] font-nunito font-extrabold px-2 py-1 rounded-full border ${stDay === d.key ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}
+                      >
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <span className="block text-[9.5px] font-bold uppercase tracking-[1.5px] text-hive-muted mt-2 mb-1">
+                  Also CC · parents always included
+                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(contacts ?? []).map((c) => {
+                    const on = stCcContacts.includes(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        disabled={busy}
+                        title={c.email}
+                        onClick={() => save(kid.id, base({
+                          statementCcContacts: on ? stCcContacts.filter((x) => x !== c.id) : [...stCcContacts, c.id],
+                        }))}
+                        className={`text-[10px] font-nunito font-extrabold px-2 py-1 rounded-full border ${on ? 'bg-hive-honey text-white border-hive-honey-dk' : 'bg-white border-hive-line text-hive-muted'}`}
+                      >
+                        📇 {c.name}
+                      </button>
+                    );
+                  })}
+                  {stCcExtra.map((e) => (
+                    <button
+                      key={e}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => save(kid.id, base({ statementCcExtra: stCcExtra.filter((x) => x !== e) }))}
+                      className="text-[10px] font-nunito font-extrabold px-2 py-1 rounded-full border bg-[#EEF2FA] border-[#CCD6EA] text-[#5B6B8C]"
+                      title="Tap to remove"
+                    >
+                      ✉️ {e} ×
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5">
+                  <input
+                    type="email"
+                    value={ccDraft[kid.id] ?? ''}
+                    onChange={(e) => setCcDraft((d) => ({ ...d, [kid.id]: e.target.value }))}
+                    placeholder="＋ add another email (e.g. your work address)"
+                    className="flex-1 min-w-0 border border-hive-line rounded-lg px-2 py-1.5 text-[11px] font-nunito font-bold bg-white focus:outline-none focus:border-hive-honey"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy || !isValidEmail(ccDraft[kid.id] ?? '')}
+                    onClick={() => {
+                      const email = (ccDraft[kid.id] ?? '').trim().toLowerCase();
+                      if (!isValidEmail(email) || stCcExtra.includes(email)) return;
+                      save(kid.id, base({ statementCcExtra: [...stCcExtra, email] }));
+                      setCcDraft((d) => ({ ...d, [kid.id]: '' }));
+                    }}
+                    className="text-[10.5px] font-nunito font-extrabold px-2.5 py-1.5 rounded-lg bg-hive-honey text-white disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex items-center gap-2 mt-1.5 opacity-60">
               <span className="text-[12px] font-bold flex-1 text-hive-muted">📱 WhatsApp · coming soon</span>
             </div>
