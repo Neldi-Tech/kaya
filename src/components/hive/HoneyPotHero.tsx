@@ -7,6 +7,7 @@
 //   House Points → Coins → Honey Pot (Treasury) → Cash.
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { formatHoney, formatCash, formatCashClean, formatHp } from './format';
 import HoneyCoin from './HoneyCoin';
 import HoneyPotIcon from './HoneyPotIcon';
@@ -45,10 +46,13 @@ export default function HoneyPotHero({
       <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-white/30 blur-2xl pointer-events-none" />
       <div className="relative">
         <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-honey-dk">Treasury Reserve <span className="opacity-70">(the Honey Pot)</span></p>
-        <div className="mt-1 flex items-center gap-3">
+        {/* HIVEv5 PR1 — tapping the Pot (icon or amount) opens its own filtered
+            statement (Elia ②: "clicking the Pot or the amount → details"). */}
+        <Link href="/hive/statement?layer=treasury" className="mt-1 flex items-center gap-3 no-underline text-inherit group">
           <HoneyPotIcon size={64} className="drop-shadow-[0_4px_10px_rgba(120,70,5,0.30)] -mt-1" />
-          <span className="font-nunito font-black text-[40px] leading-none">{formatCash(treasuryCents, currency)}</span>
-        </div>
+          <span className="font-nunito font-black text-[40px] leading-none group-hover:opacity-90">{formatCash(treasuryCents, currency)}</span>
+          <span className="text-hive-honey-dk font-black text-lg self-center">›</span>
+        </Link>
         <p className="text-[12px] text-hive-muted font-bold mt-2">
           Your spending pot — earnings &amp; sales land here. Spend straight from it, with a parent&apos;s OK.
         </p>

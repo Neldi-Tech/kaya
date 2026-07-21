@@ -64,16 +64,18 @@ export default function MeaningSheet({
 
   if (!open) return null;
 
-  const components: { icon: string; label: string; sub?: string; amount: string }[] =
+  // HIVEv5 PR1 — each component carries its layer so the row taps through to
+  // the 📜 Statement pre-filtered to that layer's own story.
+  const components: { icon: string; label: string; sub?: string; amount: string; layer?: string }[] =
     kind === 'money' ? [
-      { icon: '⭐', label: `House Points · ${formatHp(housePoints)}`, sub: 'at today’s rates', amount: formatCash(hpCents, currency) },
-      { icon: '🪙', label: `Honey Coins · ${formatHoney(honeyCoins)}`, amount: formatCash(coinsCents, currency) },
-      { icon: '🍯', label: 'Honey Pot', amount: formatCash(treasuryCents, currency) },
-      { icon: '💵', label: 'Cash', amount: formatCash(cashCents, currency) },
+      { icon: '⭐', label: `House Points · ${formatHp(housePoints)}`, sub: 'at today’s rates', amount: formatCash(hpCents, currency), layer: 'house_points' },
+      { icon: '🪙', label: `Honey Coins · ${formatHoney(honeyCoins)}`, amount: formatCash(coinsCents, currency), layer: 'honey' },
+      { icon: '🍯', label: 'Honey Pot', amount: formatCash(treasuryCents, currency), layer: 'treasury' },
+      { icon: '💵', label: 'Cash', amount: formatCash(cashCents, currency), layer: 'cash' },
     ] : kind === 'business' ? [
       { icon: '📦', label: 'What your business owns', sub: 'stock + tools + its money', amount: formatCash(businessAssetsCents, currency) },
     ] : [
-      { icon: '🍯', label: 'In your Pot right now', amount: formatCash(treasuryCents, currency) },
+      { icon: '🍯', label: 'In your Pot right now', amount: formatCash(treasuryCents, currency), layer: 'treasury' },
     ];
 
   const reconcile =
@@ -100,16 +102,26 @@ export default function MeaningSheet({
             {kind === 'money' ? 'What makes your Money' : kind === 'business' ? 'What it holds' : 'Right now'}
           </p>
           <div className="bg-white border border-hive-line rounded-hive px-3 mb-3">
-            {components.map((c) => (
-              <div key={c.label} className="flex items-center gap-2.5 py-2.5 border-b border-hive-line last:border-b-0">
-                <span className="text-base">{c.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="font-nunito font-extrabold text-[12.5px]">{c.label}</p>
-                  {c.sub && <p className="text-[10px] text-hive-muted font-bold">{c.sub}</p>}
+            {components.map((c) => {
+              const inner = (
+                <div className="flex items-center gap-2.5 py-2.5 border-b border-hive-line last:border-b-0">
+                  <span className="text-base">{c.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-nunito font-extrabold text-[12.5px]">{c.label}</p>
+                    {c.sub && <p className="text-[10px] text-hive-muted font-bold">{c.sub}</p>}
+                  </div>
+                  <span className="font-nunito font-black text-[12.5px]">{c.amount}</span>
+                  {c.layer && <span className="text-hive-honey-dk font-black text-[11px] ml-1">›</span>}
                 </div>
-                <span className="font-nunito font-black text-[12.5px]">{c.amount}</span>
-              </div>
-            ))}
+              );
+              return c.layer ? (
+                <Link key={c.label} href={`/hive/statement?layer=${c.layer}`} onClick={onClose} className="block no-underline text-inherit hover:bg-hive-cream/50 -mx-3 px-3">
+                  {inner}
+                </Link>
+              ) : (
+                <div key={c.label}>{inner}</div>
+              );
+            })}
           </div>
 
           {/* …then the recent story, each row linking onward when it can. */}
