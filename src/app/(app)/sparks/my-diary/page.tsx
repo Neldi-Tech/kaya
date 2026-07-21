@@ -15,11 +15,11 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLocale } from '@/lib/useLocale';
 import {
-  DIARY_FEELINGS, type DiaryFeeling, type DiaryEntry, type DiaryBlock,
+  DIARY_FEELINGS, DIARY_FEELINGS_MORE, type DiaryFeeling, type DiaryEntry, type DiaryBlock,
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats,
   kidHasDiaryPin, setDiaryPin,
-  getMyDiaryMeta, setDiaryVisibility,
+  getMyDiaryMeta, setDiaryVisibility, setEntryFeeling,
 } from '@/lib/sparks/diary';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 import { toDisplayDate } from '@/lib/dates';
@@ -51,6 +51,7 @@ export default function MyDiaryPage() {
   const [locked, setLocked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [moreFeelings, setMoreFeelings] = useState(false);
   const [inkOpen, setInkOpen] = useState(false);
   const [hasInk, setHasInk] = useState(false);
   const inkRef = useRef<DiaryInkHandle>(null);
@@ -84,9 +85,9 @@ export default function MyDiaryPage() {
     try { await setDiaryVisibility(uid, next); } catch { getMyDiaryMeta(uid).then(setMeta).catch(() => {}); }
   };
 
-  const canSave = !saving && feeling !== null && (text.trim().length > 0 || hasInk || scanFiles.length > 0);
+  const canSave = !saving && (text.trim().length > 0 || hasInk || scanFiles.length > 0);
   const save = async () => {
-    if (!canSave || !familyId || feeling === null) return;
+    if (!canSave || !familyId) return;
     setSaving(true); setErr('');
     try {
       const blocks: DiaryBlock[] = [];
@@ -101,7 +102,7 @@ export default function MyDiaryPage() {
         const ups = await uploadSparksPhotos(familyId, draftId, scanFiles);
         for (const up of ups) blocks.push({ kind: 'scan', url: up.feedUrl });
       }
-      await saveDiaryEntry(familyId, { ownerId: uid, feeling, blocks, locked });
+      await saveDiaryEntry(familyId, { ownerId: uid, ...(feeling ? { feeling } : {}), blocks, locked });
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
       setInkOpen(false); setHasInk(false); inkRef.current?.clear(); setScanFiles([]);
     } catch (e) {
@@ -174,6 +175,7 @@ export default function MyDiaryPage() {
                 <div className="space-y-2.5 mb-3">
                   {todays.slice().reverse().map((e) => (
                     <EntryCard key={e.id} e={e} isOwner kidFirstName={firstName} sw={sw}
+                      onSetFeeling={familyId ? (f) => setEntryFeeling(familyId, uid, e.id, f) : undefined}
                       onToggleLock={familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, uid, e.id, true)) : setDiaryEntryLock(familyId, uid, e.id, false)) : undefined} />
                   ))}
                 </div>
@@ -198,14 +200,29 @@ export default function MyDiaryPage() {
                   <div className="text-[11px] font-nunito font-black uppercase tracking-[1.2px] text-[#7A2E5C] mb-1.5">
                     {sw ? 'Unajisikiaje?' : 'How do you feel?'}
                   </div>
-                  <div className="flex gap-1.5 flex-wrap mb-3">
+                  <div className="flex gap-1.5 flex-wrap mb-1.5">
                     {DIARY_FEELINGS.map((f) => (
                       <button key={f} type="button" onClick={() => setFeeling(f)} aria-label={`Feeling ${f}`}
                         className={`w-10 h-10 rounded-xl grid place-items-center text-[21px] border-2 transition ${feeling === f ? 'border-[#7A2E5C] bg-[#F9E4F1]' : 'border-transparent bg-[#FBF7EE]'}`}>
                         {f}
                       </button>
                     ))}
+                    <button type="button" onClick={() => setMoreFeelings((v) => !v)}
+                      className="w-10 h-10 rounded-xl grid place-items-center text-[16px] font-black text-[#7A2E5C] border-2 border-dashed border-[#EBC2DC] bg-[#FDF3F9]">
+                      ＋
+                    </button>
                   </div>
+                  {moreFeelings && (
+                    <div className="rounded-xl border border-[#EBC2DC] bg-[#FDF3F9] px-2.5 py-2 mb-2 flex gap-1.5 flex-wrap">
+                      {DIARY_FEELINGS_MORE.map((f) => (
+                        <button key={f} type="button" onClick={() => { setFeeling(f); setMoreFeelings(false); }}
+                          className="w-8 h-8 rounded-lg grid place-items-center text-[17px] bg-white border border-transparent hover:border-[#C05299]">
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-[#5A6488] mt-0 mb-2">✨ {sw ? 'Ukiruka, Kaya atakisia.' : 'Skip it and Kaya guesses from your words.'}</p>
                   <div className="grid grid-cols-3 gap-2 mb-2.5">
                     <div className="rounded-2xl border-2 border-[#7A2E5C] bg-[#F9E4F1] py-2 px-2 text-center">
                       <div className="text-[18px] leading-none" aria-hidden>✍️</div>

@@ -20,16 +20,58 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { dayKeyInTZ } from '@/lib/dates';
+import Anthropic from '@anthropic-ai/sdk';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
 
 const TZ = process.env.SPARKS_REFLECTION_TZ || 'Africa/Dar_es_Salaam';
+const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }) : null;
+
+/** Slice 8g · any emoji is a valid feeling: short, non-ASCII string.
+ *  (The curated sets live client-side; the server just sanity-checks.) */
+function validFeeling(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!t || t.length > 16) return null;
+  // Reject plain ASCII words ("happy") — feelings are emoji.
+  // eslint-disable-next-line no-control-regex
+  if (/^[\x00-\x7F]+$/.test(t)) return null;
+  return t;
+}
+
+/** Slice 8g · infer a feeling emoji from page text. Best-effort with a
+ *  hard 😐 fallback — never blocks a save. */
+async function inferFeeling(text: string): Promise<string> {
+  if (!anthropic || !text.trim()) return '😐';
+  try {
+    const r = await anthropic.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 30,
+      system: [{
+        type: 'text',
+        text: 'Read a child\'s diary text and answer with the ONE emoji that best matches the overall feeling. Prefer: 😊 😄 😐 🙁 😢 😠 😴 🤔 but any single fitting emoji is allowed. Return JSON: { "emoji": "x" }.',
+        cache_control: { type: 'ephemeral' },
+      }],
+      output_config: { format: { type: 'json_schema', schema: {
+        type: 'object', properties: { emoji: { type: 'string' } },
+        required: ['emoji'], additionalProperties: false,
+      } } },
+      messages: [{ role: 'user', content: [{ type: 'text', text: text.slice(0, 800) }] }],
+    });
+    const t = r.content.find((b) => b.type === 'text');
+    if (t && t.type === 'text') {
+      const e = validFeeling((JSON.parse(t.text) as { emoji?: string }).emoji);
+      if (e) return e;
+    }
+  } catch { /* fall through */ }
+  return '😐';
+}
 
 type Action = 'list' | 'save' | 'lock' | 'delete'
   | 'privacy-get' | 'pin-set' | 'pin-reset' | 'quota-set'
-  | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set';
+  | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set' | 'feeling-set';
 
 const FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'];
 
@@ -69,7 +111,7 @@ export async function POST(req: NextRequest) {
     visibility?: string; sealed_until?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set'];
+  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set'];
   const action: Action = ALL_ACTIONS.includes(body.action as Action)
     ? (body.action as Action) : 'list';
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId : '';
@@ -331,6 +373,7 @@ export async function POST(req: NextRequest) {
           return {
             id: r.id, ownerId: r.ownerId, ownerRole: r.ownerRole,
             date: r.date, time: r.time, feeling: r.feeling,
+            feeling_ai_guessed: (r as { feeling_ai_guessed?: boolean }).feeling_ai_guessed === true,
             locked: r.locked === true, sealed_until: sealedUntil,
             redacted: true, blocks: [],
           };
@@ -341,6 +384,7 @@ export async function POST(req: NextRequest) {
           return {
             id: r.id, ownerId: r.ownerId, ownerRole: r.ownerRole,
             date: r.date, time: r.time, feeling: r.feeling,
+            feeling_ai_guessed: (r as { feeling_ai_guessed?: boolean }).feeling_ai_guessed === true,
             locked: true, redacted: true, blocks: [],
           };
         }
@@ -353,9 +397,19 @@ export async function POST(req: NextRequest) {
   if (!isOwner) return NextResponse.json({ error: 'owner-only' }, { status: 403 });
 
   if (action === 'save') {
-    const feeling = typeof body.feeling === 'string' && FEELINGS.includes(body.feeling)
-      ? body.feeling : '';
-    if (!feeling) return NextResponse.json({ error: 'feeling-required' }, { status: 400 });
+    // Slice 8g · feeling is now OPTIONAL and may be ANY emoji. Missing →
+    // Kaya infers one from the typed text (😐 fallback) and stamps the
+    // page ✨ ai-guessed so the owner can correct it with one tap.
+    let feeling = validFeeling(body.feeling) ?? '';
+    let feelingGuessed = false;
+    if (!feeling) {
+      const textForInfer = (Array.isArray(body.blocks) ? body.blocks : [])
+        .filter((b) => b?.kind !== 'ink' && b?.kind !== 'scan' && typeof b?.text === 'string')
+        .map((b) => String(b.text))
+        .join('\n');
+      feeling = await inferFeeling(textForInfer);
+      feelingGuessed = true;
+    }
 
     const rawBlocks = Array.isArray(body.blocks) ? body.blocks.slice(0, 12) : [];
     type CleanBlock = { kind: 'text' | 'ink' | 'scan'; text?: string; url?: string };
@@ -384,6 +438,7 @@ export async function POST(req: NextRequest) {
       date,
       time: localTimeHHmm(new Date()),
       feeling,
+      ...(feelingGuessed ? { feeling_ai_guessed: true } : {}),
       blocks,
       locked: body.locked === true,
       createdAt: FieldValue.serverTimestamp(),
@@ -400,6 +455,20 @@ export async function POST(req: NextRequest) {
     }
     const ref = await col.add(doc);
     return NextResponse.json({ id: ref.id });
+  }
+
+  if (action === 'feeling-set') {
+    if (!isOwner) return NextResponse.json({ error: 'owner-only' }, { status: 403 });
+    const entryId = typeof body.entryId === 'string' ? body.entryId : '';
+    const feeling = validFeeling(body.feeling);
+    if (!entryId || !feeling) return NextResponse.json({ error: 'bad-args' }, { status: 400 });
+    const ref = col.doc(entryId);
+    const snap = await ref.get();
+    if (!snap.exists || (snap.data() as { ownerId?: string }).ownerId !== ownerId) {
+      return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    }
+    await ref.update({ feeling, feeling_ai_guessed: FieldValue.delete(), updatedAt: FieldValue.serverTimestamp() });
+    return NextResponse.json({ ok: true });
   }
 
   if (action === 'lock' || action === 'delete') {
