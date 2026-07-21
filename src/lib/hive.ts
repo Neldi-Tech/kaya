@@ -401,6 +401,9 @@ export interface HiveTransaction {
   linkedTxId?: string;
   /** Approval request that produced this entry, if any. */
   requestId?: string;
+  /** HIVE PR2 — source reference for statement drill-down. For 'business'
+   *  entries this is the businessId, so the row links to the sale history. */
+  refId?: string;
   createdBy: string;     // user uid
   approvedBy?: string;
   createdAt: Timestamp;
@@ -1340,6 +1343,9 @@ export async function depositToTreasury(
   category: 'business' | 'other',
   description: string,
   uid: string,
+  /** HIVE PR2 — optional source id (businessId for sales) so the statement
+   *  can drill from the Pot entry back to where the money came from. */
+  refId?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Amount must be positive cents.');
@@ -1360,6 +1366,7 @@ export async function depositToTreasury(
       description: description.trim() || category, status: 'completed',
       createdBy: uid, approvedBy: uid,
       createdAt: now, completedAt: now,
+      ...(refId ? { refId } : {}),
     });
   });
 }
