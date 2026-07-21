@@ -41,6 +41,7 @@ import {
   countItemsByArea, getAcademicCount, subscribeToAllKidItems,
 } from '@/lib/sparks/firestore';
 import { subscribeToReflections, computeReflectionStreak } from '@/lib/sparks/reflection';
+import { subscribeToDiary, computeDiaryStats } from '@/lib/sparks/diary';
 
 // Kid palette accents per area — direct from the mockup
 // (Step 2 · Module landing). Coral · Yellow · Green · Purple · Mint
@@ -53,6 +54,7 @@ const AREA_ACCENT: Record<SparksArea, { bg: string; fg: string }> = {
   sports_subscription: { bg: '#C9F0EC', fg: '#1E7873' }, // bg-mint
   revision:            { bg: '#E0D7FF', fg: '#1B1547' }, // bg-deep-purple (study vibe)
   reflection:          { bg: '#DCEEFB', fg: '#3F6FA0' }, // bg-sky (calm mirror vibe)
+  diary:               { bg: '#F9E4F1', fg: '#7A2E5C' }, // bg-rose (personal book · Slice 8)
 };
 
 // Short single-line subtitles for the row cards — punchier than the
@@ -65,6 +67,7 @@ const AREA_SUB: Record<SparksArea, string> = {
   sports_subscription: 'Subscriptions, schedules',
   revision:            'Practice · AI scores + suggests',
   reflection:          'Daily · scan + AI feedback',
+  diary:               'Personal · feelings & stories',
 };
 
 export default function KidSparksHomePage() {
@@ -105,6 +108,9 @@ export default function KidSparksHomePage() {
   // Daily Reflection isn't a sparks_item — the card's chip shows the
   // current streak (🔥) instead of a row count. (2026-06-07)
   const [reflectionStreak, setReflectionStreak] = useState<number | null>(null);
+  // Diary tile chip — days filled this year (Slice 8). Fails to 0 for
+  // sibling viewers (the API denies them; the tile is hidden anyway).
+  const [diaryPages, setDiaryPages] = useState<number | null>(null);
   // AI Auto-File (Scanning 3.0): scan a doc → Kaya classifies + files it.
   const [autofileOpen, setAutofileOpen] = useState(false);
   const [autofileFiles, setAutofileFiles] = useState<File[] | null>(null);
@@ -116,6 +122,13 @@ export default function KidSparksHomePage() {
     if (!familyId || !kidId) { setReflectionStreak(null); return; }
     return subscribeToReflections(familyId, kidId, (entries) => {
       setReflectionStreak(computeReflectionStreak(entries).current);
+    });
+  }, [familyId, kidId]);
+
+  useEffect(() => {
+    if (!familyId || !kidId) { setDiaryPages(null); return; }
+    return subscribeToDiary(familyId, kidId, (entries) => {
+      setDiaryPages(computeDiaryStats(entries).daysFilledThisYear);
     });
   }, [familyId, kidId]);
   useEffect(() => {
@@ -131,6 +144,7 @@ export default function KidSparksHomePage() {
   function countForArea(area: SparksArea): number | null {
     if (area === 'academic') return academicCount;
     if (area === 'reflection') return reflectionStreak;
+    if (area === 'diary') return diaryPages;
     return itemCounts[area];
   }
   function chipFor(area: SparksArea): string {
@@ -267,6 +281,8 @@ export default function KidSparksHomePage() {
         <div className="px-4 py-4 lg:px-8 lg:py-7">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 lg:gap-4">
           {SPARKS_AREA_ORDER.map((areaKey) => {
+            // A diary is fully personal — sibling kids don't even see the tile.
+            if (areaKey === 'diary' && isKid && !!profile?.childId && profile.childId !== kidId) return null;
             const meta = SPARKS_AREA_META[areaKey];
             const accent = AREA_ACCENT[areaKey];
             const chip = chipFor(areaKey);
