@@ -58,11 +58,19 @@ export interface DiaryEntry {
    *  for a parent viewer, blocks=[] and this is true. Date + feeling
    *  always survive redaction (the meta is never hidden). */
   redacted?: boolean;
-  /** Slice 8d · pending/answered knock on a locked page. */
-  knock?: { byUid: string; byName: string; status: 'pending' | 'allowed' | 'denied' };
+  /** Slice 8d · pending/answered knock on a locked page. Slice 8k adds
+   *  the loop meta: when it was sent (ms), the optional parent note, the
+   *  👀 seen receipt, the 👋 nudge stamp and the answer time. */
+  knock?: {
+    byUid: string; byName: string; status: 'pending' | 'allowed' | 'denied';
+    at?: number; note?: string; seenAt?: number; nudgedAt?: number; answeredAt?: number;
+  };
   /** Slice 8d · true once a knock was allowed — parents read the page
    *  until the kid re-locks it (re-lock clears this server-side). */
   knock_open?: boolean;
+  /** Slice 8k · ⏳ today-only allow — open while the LOCAL day matches,
+   *  self-locking past midnight. */
+  knock_open_until?: string;
   /** Set when this entry was spawned from a Reflection (Slice 8e). */
   linked_reflection_date?: string;
   /** Slice 8f · ⏳ sealed until this date — content hidden from everyone
@@ -270,14 +278,50 @@ export async function setDiaryQuota(ownerId: string, quota: number): Promise<voi
   await diaryApi('quota-set', { ownerId, quota });
 }
 
-export async function knockOnPage(familyId: string, ownerId: string, entryId: string): Promise<void> {
-  await diaryApi('knock', { ownerId, entryId });
+export async function knockOnPage(familyId: string, ownerId: string, entryId: string, note?: string): Promise<void> {
+  await diaryApi('knock', { ownerId, entryId, ...(note?.trim() ? { note: note.trim() } : {}) });
   pingDiary(familyId, ownerId);
 }
 
-export async function answerKnock(familyId: string, ownerId: string, entryId: string, allow: boolean): Promise<void> {
-  await diaryApi('knock-answer', { ownerId, entryId, allow });
+export async function answerKnock(
+  familyId: string, ownerId: string, entryId: string, allow: boolean,
+  /** Slice 8k · 'today' = ⏳ open until midnight only; 'always' = classic. */
+  mode: 'always' | 'today' = 'always',
+): Promise<void> {
+  await diaryApi('knock-answer', { ownerId, entryId, allow, mode });
   pingDiary(familyId, ownerId);
+}
+
+/** Slice 8k · 👀 stamp the seen receipt — fired when the knock banner
+ *  actually renders on the kid's screen. Best-effort + idempotent. */
+export async function markKnockSeen(familyId: string, ownerId: string, entryId: string): Promise<void> {
+  try { await diaryApi('knock-seen', { ownerId, entryId }); } catch { /* best-effort */ }
+}
+
+/** Slice 8k · 👋 one warm reminder — server enforces 24h-wait + 1/day. */
+export async function nudgeKnock(
+  familyId: string, ownerId: string, entryId: string,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await diaryApi('knock-nudge', { ownerId, entryId });
+    pingDiary(familyId, ownerId);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message || 'nudge-failed' };
+  }
+}
+
+/** Slice 8k · the kid's open knocks (meta only) — feeds My Day's todo. */
+export async function getPendingKnocks(
+  ownerId: string,
+): Promise<Array<{ entryId: string; date: string; byName: string; note: string; at: number | null }>> {
+  if (isGuestActive()) return [];
+  try {
+    const r = await diaryApi<{ knocks?: Array<{ entryId: string; date: string; byName: string; note: string; at: number | null }> }>(
+      'knocks-pending', { ownerId },
+    );
+    return r?.knocks ?? [];
+  } catch { return []; }
 }
 
 /** Quiet PIN-open — returns the FULL entry once (nothing persists,
