@@ -11,6 +11,7 @@ import {
 import { daysToNextBirthday, ageAtNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import MeetingPrepCard from '@/components/meetings/MeetingPrepCard';
+import QuestionOfDayCard from '@/components/games/QuestionOfDayCard';
 
 // Quick-pick reason chips for the appreciation form. Plain English so a
 // 6-year-old can tap without typing — they can still type a custom note.
@@ -241,6 +242,11 @@ export default function KidPage() {
           </div>
         </div>
       </div>
+
+      {/* 🎯 Question of the Day — the kids' landing surface finally carries the
+          daily quiz (same shared question + streaks as /my-day; answering on
+          either surface counts once). */}
+      {profile?.uid && <QuestionOfDayCard meId={profile.uid} />}
 
       {/* Birthday countdown — only visible if birthday is set and within range */}
       {(() => {
