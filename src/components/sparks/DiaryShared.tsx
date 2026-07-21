@@ -8,13 +8,14 @@ import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   type DiaryEntry, computeDiaryStats, diaryDayKey,
+  DIARY_FEELINGS, DIARY_FEELINGS_MORE,
 } from '@/lib/sparks/diary';
 import { toDisplayDate } from '@/lib/dates';
 
 // ── Entry card ──────────────────────────────────────────────────────
 
 export function EntryCard({
-  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen,
+  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen, onSetFeeling,
 }: {
   e: DiaryEntry;
   isOwner: boolean;
@@ -24,7 +25,10 @@ export function EntryCard({
   /** Slice 8d · parent doors on a redacted (locked) page. */
   onKnock?: () => void;
   onQuietOpen?: () => void;
+  /** Slice 8g · owner corrects an AI-guessed feeling. */
+  onSetFeeling?: (feeling: string) => void;
 }) {
+  const [pickFeeling, setPickFeeling] = useState(false);
   // ⏳ Sealed page — hidden from EVERYONE (owner too) until the date.
   if (e.redacted && e.sealed_until) {
     return (
@@ -85,6 +89,16 @@ export function EntryCard({
     <div className={`rounded-2xl border px-3.5 py-3 ${e.locked ? 'border-dashed border-[#EBC2DC] bg-[#FDF3F9]' : 'border-[#ECE4D3] bg-white'}`}>
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[20px]" aria-hidden>{e.feeling}</span>
+        {e.feeling_ai_guessed && (
+          isOwner && onSetFeeling ? (
+            <button type="button" onClick={() => setPickFeeling((v) => !v)}
+              className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#E5D6FF] text-[#5A3CB8]">
+              ✨ {sw ? 'Kaya amekisia · badilisha' : 'Kaya guessed · tap to change'}
+            </button>
+          ) : (
+            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#E5D6FF] text-[#5A3CB8]">✨ {sw ? 'Kaya amekisia' : 'Kaya guessed'}</span>
+          )
+        )}
         <span className="text-[10.5px] font-bold text-[#5A6488]">{e.time}</span>
         {e.locked && e.knock_open ? (
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">💛 {sw ? 'Hodi imeruhusiwa' : 'Knock allowed'}</span>
@@ -106,6 +120,17 @@ export function EntryCard({
           </button>
         )}
       </div>
+      {pickFeeling && isOwner && onSetFeeling && (
+        <div className="mt-1.5 rounded-xl border border-[#EBC2DC] bg-[#FDF3F9] px-2.5 py-2 flex gap-1.5 flex-wrap">
+          {[...DIARY_FEELINGS, ...DIARY_FEELINGS_MORE].map((f) => (
+            <button key={f} type="button"
+              onClick={() => { onSetFeeling(f); setPickFeeling(false); }}
+              className="w-8 h-8 rounded-lg grid place-items-center text-[17px] bg-white border border-transparent hover:border-[#C05299]">
+              {f}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="mt-1.5 space-y-2">
         {e.blocks.map((b, i) => {
           if (b.kind === 'text') {

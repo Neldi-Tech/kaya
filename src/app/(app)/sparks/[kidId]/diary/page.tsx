@@ -19,11 +19,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useLocale } from '@/lib/useLocale';
 import {
-  DIARY_FEELINGS, type DiaryFeeling, type DiaryEntry, type DiaryBlock,
+  DIARY_FEELINGS, DIARY_FEELINGS_MORE, type DiaryFeeling, type DiaryEntry, type DiaryBlock,
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats, diaryDayKey,
   kidHasDiaryPin, setDiaryPin, answerKnock, knockOnPage, quietOpenPage, getDiaryPrivacy,
-  getDiaryPrompt, requestKayaReply,
+  getDiaryPrompt, requestKayaReply, setEntryFeeling,
 } from '@/lib/sparks/diary';
 import { toDisplayDate, ageNow } from '@/lib/dates';
 import { subscribeToSparksProfile } from '@/lib/sparks/firestore';
@@ -81,6 +81,8 @@ export default function DiaryPage() {
   const [pinModalFor, setPinModalFor] = useState<null | { then: () => void }>(null);
   const [quietFor, setQuietFor] = useState<DiaryEntry | null>(null);
   // Slice 8f · the five features.
+  const [moreFeelings, setMoreFeelings] = useState(false);
+  const [customFeeling, setCustomFeeling] = useState('');
   const [jarPrompt, setJarPrompt] = useState<string | null>(null);
   const [jarBusy, setJarBusy] = useState(false);
   const [dearKaya, setDearKaya] = useState(false);
@@ -150,11 +152,12 @@ export default function DiaryPage() {
     return Array.from(byDay.entries()).slice(0, 7);
   }, [entries, today]);
 
-  const canSave = !saving && feeling !== null
+  // Slice 8g · feeling optional — Kaya infers when skipped (✨ badge).
+  const canSave = !saving
     && (text.trim().length > 0 || hasInk || scanFiles.length > 0);
 
   const save = async () => {
-    if (!canSave || !familyId || feeling === null) return;
+    if (!canSave || !familyId) return;
     setSaving(true); setErr('');
     try {
       const blocks: DiaryBlock[] = [];
@@ -176,7 +179,7 @@ export default function DiaryPage() {
 
       const entryId = await saveDiaryEntry(familyId, {
         ownerId: kidId,
-        feeling,
+        ...(feeling ? { feeling } : {}),
         blocks,
         locked,
         ...(linkedRefDate ? { linked_reflection_date: linkedRefDate } : {}),
@@ -288,6 +291,7 @@ export default function DiaryPage() {
         <div className="space-y-2.5 mb-3">
           {todays.slice().reverse().map((e) => <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
             onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                    onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
             onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
             onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />)}
         </div>
@@ -362,7 +366,7 @@ export default function DiaryPage() {
           <div className="text-[11px] font-nunito font-black uppercase tracking-[1.2px] text-[#7A2E5C] mb-1.5">
             {sw ? 'Unajisikiaje sasa hivi?' : 'How do you feel right now?'}
           </div>
-          <div className="flex gap-1.5 flex-wrap mb-3">
+          <div className="flex gap-1.5 flex-wrap mb-1.5">
             {DIARY_FEELINGS.map((f) => (
               <button key={f} type="button" onClick={() => setFeeling(f)}
                 aria-label={`Feeling ${f}`}
@@ -370,7 +374,36 @@ export default function DiaryPage() {
                 {f}
               </button>
             ))}
+            {feeling && !([...DIARY_FEELINGS, ...DIARY_FEELINGS_MORE] as string[]).includes(feeling) && (
+              <span className="w-10 h-10 rounded-xl grid place-items-center text-[21px] border-2 border-[#7A2E5C] bg-[#F9E4F1]">{feeling}</span>
+            )}
+            <button type="button" onClick={() => setMoreFeelings((v) => !v)}
+              aria-label={sw ? 'Hisia zaidi' : 'More feelings'}
+              className="w-10 h-10 rounded-xl grid place-items-center text-[16px] font-black text-[#7A2E5C] border-2 border-dashed border-[#EBC2DC] bg-[#FDF3F9]">
+              ＋
+            </button>
           </div>
+          {moreFeelings && (
+            <div className="rounded-xl border border-[#EBC2DC] bg-[#FDF3F9] px-2.5 py-2 mb-2">
+              <div className="flex gap-1.5 flex-wrap">
+                {DIARY_FEELINGS_MORE.map((f) => (
+                  <button key={f} type="button" onClick={() => { setFeeling(f); setMoreFeelings(false); }}
+                    className={`w-8 h-8 rounded-lg grid place-items-center text-[17px] border-2 ${feeling === f ? 'border-[#7A2E5C] bg-white' : 'border-transparent bg-white'}`}>
+                    {f}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[10.5px] font-extrabold text-[#7A2E5C]">{sw ? 'Au andika yako:' : 'Or type yours:'}</span>
+                <input value={customFeeling} maxLength={4}
+                  onChange={(e) => setCustomFeeling(e.target.value)}
+                  onBlur={() => { const t = customFeeling.trim(); if (t && !/^[\x20-\x7E]+$/.test(t)) { setFeeling(t); setMoreFeelings(false); } setCustomFeeling(''); }}
+                  placeholder="🦖"
+                  className="w-14 bg-white border border-[#EBC2DC] rounded-lg px-2 py-1 text-[16px] text-center" />
+              </div>
+            </div>
+          )}
+          <p className="text-[10px] text-[#5A6488] mt-0 mb-2">✨ {sw ? 'Ukisahau kuchagua, Kaya atakisia hisia yako.' : 'Skip it and Kaya will guess your feeling from what you write.'}</p>
           {/* Trio — mix any of the three on one page (Slice 8b). */}
           <div className="grid grid-cols-3 gap-2 mb-2.5">
             <div className="rounded-2xl border-2 border-[#7A2E5C] bg-[#F9E4F1] py-2.5 px-2 text-center">
@@ -512,6 +545,7 @@ export default function DiaryPage() {
                   {dayEntries.slice().reverse().map((e) => (
                     <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
                     onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                    onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
                     onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
                       onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
                   ))}
@@ -534,6 +568,7 @@ export default function DiaryPage() {
               {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (
                 <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
                   onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                    onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
                   onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
                   onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
               ))}

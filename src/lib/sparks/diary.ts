@@ -21,10 +21,13 @@ import { isGuestActive } from '../mockFamily';
 
 // ── Types ───────────────────────────────────────────────────────────
 
-/** The 8 feelings — same scale the Reflection AI-read uses, but here
- *  the KID picks (required on every entry). */
+/** The core 8 feelings — front-and-centre in the picker and the scale
+ *  the mood analytics anchor on. Slice 8g: picking is OPTIONAL (Kaya
+ *  infers when skipped) and ANY emoji is storable via the ＋ tray. */
 export const DIARY_FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'] as const;
-export type DiaryFeeling = typeof DIARY_FEELINGS[number];
+/** The ＋ tray — 16 more curated feelings. */
+export const DIARY_FEELINGS_MORE = ['🤩', '😎', '🥰', '😅', '🤗', '😤', '🥱', '😬', '🤒', '😇', '🤯', '🥹', '😰', '🙄', '😜', '💪'] as const;
+export type DiaryFeeling = string;
 
 /** One content block on a page. Blocks mix freely on one entry:
  *  a typed paragraph + an ink drawing + a scanned page. */
@@ -44,6 +47,9 @@ export interface DiaryEntry {
   date: string;   // YYYY-MM-DD local day
   time: string;   // HH:mm local — orders multiple entries in a day
   feeling: DiaryFeeling;
+  /** Slice 8g · true when Kaya inferred the feeling (owner can correct
+   *  via setEntryFeeling — correction clears the flag). */
+  feeling_ai_guessed?: boolean;
   blocks: DiaryBlock[];
   /** Kid-locked page — content hidden from parents until knock/PIN.
    *  For parents' own diaries this is their independent page PIN. */
@@ -137,7 +143,8 @@ export function subscribeToDiary(
 export interface NewDiaryEntryInput {
   ownerId: string;
   date?: string;   // defaults server-side to today (local TZ)
-  feeling: DiaryFeeling;
+  /** Slice 8g · optional — Kaya infers (✨ badge) when absent. */
+  feeling?: DiaryFeeling;
   blocks: DiaryBlock[];
   locked?: boolean;
   linked_reflection_date?: string;
@@ -327,4 +334,16 @@ export async function requestKayaReply(
     if (data?.reply) { pingDiary(familyId, ownerId); return String(data.reply); }
   } catch { /* best-effort */ }
   return null;
+}
+
+
+// ── Slice 8g · feeling correction ───────────────────────────────────
+
+/** Owner corrects an AI-guessed (or any) feeling; clears the ✨ badge. */
+export async function setEntryFeeling(
+  familyId: string, ownerId: string, entryId: string, feeling: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await diaryApi('feeling-set', { ownerId, entryId, feeling });
+  pingDiary(familyId, ownerId);
 }

@@ -17,6 +17,7 @@ import {
   type ReflectionEntry,
   reflectionDayKey, subscribeToReflection, subscribeToReflections,
   saveReflection, computeReflectionStreak, setMyReflectionVisibility,
+  saveReflectionAIRead, type ReflectionAIRead,
 } from '@/lib/sparks/reflection';
 import { getMyDiaryMeta } from '@/lib/sparks/diary';
 import { toDisplayDate } from '@/lib/dates';
@@ -68,6 +69,21 @@ export default function MyReflectionPage() {
         kidId: uid, date: today, text: draft.trim(), source: 'typed', by: uid,
       });
       setEditing(false);
+      // Slice 8g · adult mood read too — best-effort, same endpoint the
+      // kid reflection uses; the emoji feeds the personal streak header.
+      void (async () => {
+        try {
+          const res = await fetch('/api/sparks/ai/reflection-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: draft.trim(), firstName }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (data && !data.skipped && !data.error && data.mood_emoji) {
+            await saveReflectionAIRead(familyId, uid, today, data as ReflectionAIRead);
+          }
+        } catch { /* best-effort */ }
+      })();
     } catch (e) {
       setErr((e as Error).message || 'Could not save');
     } finally { setSaving(false); }
@@ -126,6 +142,11 @@ export default function MyReflectionPage() {
               {todayEntry && !editing ? (
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">
+                    {todayEntry.ai_read && (
+                      <span className="inline-flex items-center gap-1.5 mr-2 text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-[#E5D6FF] text-[#5A3CB8] align-middle">
+                        {todayEntry.ai_read.mood_emoji} {todayEntry.ai_read.mood_word}
+                      </span>
+                    )}
                     {todayEntry.text}
                   </div>
                   <button type="button" onClick={() => { setDraft(todayEntry.text); setEditing(true); }}
