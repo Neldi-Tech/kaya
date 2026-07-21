@@ -24,6 +24,7 @@ import {
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 import { toDisplayDate } from '@/lib/dates';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
+import { PolishControl } from '@/components/sparks/PolishedText';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 
@@ -52,6 +53,7 @@ export default function MyDiaryPage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const [moreFeelings, setMoreFeelings] = useState(false);
+  const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
   const [inkOpen, setInkOpen] = useState(false);
   const [hasInk, setHasInk] = useState(false);
   const inkRef = useRef<DiaryInkHandle>(null);
@@ -102,9 +104,9 @@ export default function MyDiaryPage() {
         const ups = await uploadSparksPhotos(familyId, draftId, scanFiles);
         for (const up of ups) blocks.push({ kind: 'scan', url: up.feedUrl });
       }
-      await saveDiaryEntry(familyId, { ownerId: uid, ...(feeling ? { feeling } : {}), blocks, locked });
+      await saveDiaryEntry(familyId, { ownerId: uid, ...(feeling ? { feeling } : {}), blocks, locked, ...(polishedDraft && text.trim() ? { polished: polishedDraft } : {}) });
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
-      setInkOpen(false); setHasInk(false); inkRef.current?.clear(); setScanFiles([]);
+      setInkOpen(false); setHasInk(false); inkRef.current?.clear(); setScanFiles([]); setPolishedDraft(null);
     } catch (e) {
       setErr((e as Error).message || 'Could not save');
     } finally { setSaving(false); }
@@ -239,9 +241,15 @@ export default function MyDiaryPage() {
                       <div className="text-[10.5px] font-extrabold text-[#7A2E5C] mt-0.5">{sw ? 'Changanua' : 'Scan'}{scanFiles.length ? ` · ${scanFiles.length}` : ''}</div>
                     </button>
                   </div>
-                  <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} maxLength={8000}
+                  <textarea value={text} onChange={(e) => { setText(e.target.value); if (polishedDraft) setPolishedDraft(null); }} rows={4} maxLength={8000}
                     placeholder={sw ? 'Leo…' : 'Dear diary…'}
                     className="w-full rounded-xl border border-[#EBC2DC] bg-white p-3 text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#C05299]/40 resize-none" />
+                  {text.trim().length > 12 && (
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <PolishControl getText={() => text} onAccept={(md) => setPolishedDraft(md)} sw={sw} />
+                      {polishedDraft && <span className="text-[10.5px] font-extrabold text-[#5A3CB8]">✨ {sw ? 'Itahifadhiwa ikiwa nadhifu' : 'Will save polished'}</span>}
+                    </div>
+                  )}
                   {inkOpen && <div className="mt-2.5"><DiaryInkCanvas ref={inkRef} height={240} onDirtyChange={setHasInk} /></div>}
                   {err && <p className="text-[12px] font-bold text-[#E36F6F] mt-1">{err}</p>}
                   <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
