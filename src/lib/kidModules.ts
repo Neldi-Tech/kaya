@@ -155,12 +155,13 @@ export function resolveKidModules(kidModules: string[] | undefined): Set<string>
   // route (/reminders) isn't in KID_MODULES, so moduleIdForPath returns
   // undefined → the kid route guard never bounces it.
   set.add('reminders');
-  // Sub-ids look like "household:meals" — promote each to its parent
-  // so the parent's nav row renders and the parent route resolves.
-  for (const id of Array.from(set)) {
-    const colon = id.indexOf(':');
-    if (colon > 0) set.add(id.slice(0, colon));
-  }
+  // NO sub→parent promotion. Legitimate sub-grants always carry their parent
+  // id (the settings UI only offers subs while the parent is ON and writes
+  // both), so promotion's only real effect was the gate leak: sub-ids
+  // orphaned by an earlier parent-off toggle silently re-granted the parent,
+  // and Household reappeared for kids after being switched off. An orphaned
+  // sub now grants exactly its own deep path (moduleIdForPath returns the
+  // composite for sub-paths) and nothing else.
   return set;
 }
 
