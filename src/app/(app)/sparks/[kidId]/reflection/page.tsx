@@ -513,6 +513,19 @@ export default function ReflectionPage() {
 
           <ReflectionFeedbackCard feedback={todayEntry.feedback} busy={feedbackBusy} sw={sw} />
 
+          {/* Slice 8e · Reflection → Diary connector. */}
+          {!isParent && (
+            <a href={`/sparks/${kidId}/diary?from=reflection&d=${today}`}
+              className="block rounded-2xl bg-[#FDF3F9] border-2 border-dashed border-[#EBC2DC] px-4 py-3 no-underline hover:border-[#C05299] transition-colors">
+              <div className="font-display font-extrabold text-[13px] text-[#7A2E5C]">
+                📔 {sw ? 'Andika zaidi kwenye shajara yako →' : 'Want to tell the full story? Write more in your Diary →'}
+              </div>
+              <div className="text-[10.5px] text-[#5A6488] mt-0.5">
+                {sw ? 'Ukurasa mpya utaunganishwa na tafakari ya leo.' : "Creates a diary page linked to today's reflection."}
+              </div>
+            </a>
+          )}
+
           {canWrite && (
             <button
               type="button"

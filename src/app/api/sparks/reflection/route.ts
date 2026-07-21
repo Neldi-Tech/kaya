@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
 // (matches Kaya Pulse's daily generators). Reflections are day-granular.
 const TZ = 'Africa/Dar_es_Salaam';
 
-type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating' | 'aiscore';
+type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating' | 'aiscore' | 'refl-visibility-set';
 
 /** Whole-day difference between two YYYY-MM-DD keys (a - b). */
 function dayDiff(a: string, b: string): number {
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     };
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating', 'aiscore'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
+  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating', 'aiscore', 'refl-visibility-set'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
   const kidId = typeof body.kidId === 'string' ? body.kidId : '';
   if (!kidId) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
 
@@ -108,7 +108,14 @@ export async function POST(req: NextRequest) {
 
   // ── Writes (parent or owner kid; rating is parent-only) ────────────────
   if (action === 'save' || action === 'airead' || action === 'feedback' || action === 'rating' || action === 'aiscore') {
-    if (action === 'rating') {
+    // Slice 8e · a parent-owned reflection is a single-user surface:
+    // only that parent writes it; nobody rates it.
+    const preOwnerUser = (await db.collection('users').doc(kidId).get()).data() as
+      { role?: string; familyId?: string } | undefined;
+    if (preOwnerUser?.role === 'parent' && preOwnerUser?.familyId === familyId) {
+      if (kidId !== uid) return NextResponse.json({ error: 'owner-only' }, { status: 403 });
+      if (action === 'rating') return NextResponse.json({ error: 'not-ratable' }, { status: 403 });
+    } else if (action === 'rating') {
       if (!isParent) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
     } else if (!isParent && !isOwnerKid) {
       return NextResponse.json({ error: 'forbidden' }, { status: 403 });
@@ -206,6 +213,20 @@ export async function POST(req: NextRequest) {
     if ((prof?.sibling_visibility || 'open') === 'open') canRead = true;
   }
   if (!canRead) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+  if (action === 'refl-visibility-set') {
+    // Owner parent toggles their reflection between personal / visible.
+    const ownerUser2 = (await db.collection('users').doc(kidId).get()).data() as
+      { role?: string; familyId?: string } | undefined;
+    if (!(ownerUser2?.role === 'parent' && ownerUser2?.familyId === familyId && kidId === uid)) {
+      return NextResponse.json({ error: 'parent-owner-only' }, { status: 403 });
+    }
+    const vis = (body as { visibility?: string }).visibility === 'visible' ? 'visible' : 'personal';
+    await db.collection('families').doc(familyId)
+      .collection('sparks_diary_private').doc(uid)
+      .set({ reflection_visibility: vis }, { merge: true });
+    return NextResponse.json({ ok: true, visibility: vis });
+  }
 
   if (action === 'get') {
     const date = typeof body.date === 'string' ? body.date : '';

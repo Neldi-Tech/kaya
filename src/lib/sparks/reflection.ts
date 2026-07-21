@@ -545,3 +545,11 @@ export async function dismissStreakReward(
     updatedAt: serverTimestamp(),
   });
 }
+
+
+// ── Slice 8e · parent-reflection visibility ─────────────────────────
+
+/** Owner parent toggles their "My Reflection" between personal/visible. */
+export async function setMyReflectionVisibility(uid: string, visibility: 'personal' | 'visible'): Promise<void> {
+  await reflectionApi('refl-visibility-set', { kidId: uid, visibility });
+}
