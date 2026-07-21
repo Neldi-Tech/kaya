@@ -165,6 +165,9 @@ export interface SparksProfile {
   /** Slice 7n · reflection streak rewards (Kaya Points on milestones).
    *  Defaults in DEFAULT_REFLECTION_STREAK_REWARDS apply when absent. */
   reflection_streak?: ReflectionStreakRewards;
+  /** Slice 8i · 📚 My Words jar — great words a kid used, collected
+   *  after each diary save (Admin-written, cap 60, newest last). */
+  word_jar?: Array<{ word: string; note: string; date: string; entryId: string }>;
   /** Slice 8f · 💌 Dear Kaya parent toggle (default ON when absent).
    *  OFF hides the option in the kid's composer AND the reply route
    *  refuses. */
