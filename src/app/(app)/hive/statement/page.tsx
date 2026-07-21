@@ -47,6 +47,17 @@ export default function HiveStatementPage() {
   const [layer, setLayer] = useState<'all' | HiveLayer>('all');
   const [loading, setLoading] = useState(true);
 
+  // HIVEv5 PR1 — deep-link pre-filter: /hive/statement?layer=treasury lands
+  // straight on the Pot's own story (from the meaning sheet, Pot hero, wallet
+  // cards). Read once from the URL; the chips take over after.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const q = new URLSearchParams(window.location.search).get('layer');
+    if (q && (['house_points', 'honey', 'treasury', 'cash'] as const).includes(q as HiveLayer)) {
+      setLayer(q as HiveLayer);
+    }
+  }, []);
+
   // Own subscription with a deeper window than the home feed (200 entries).
   useEffect(() => {
     if (!familyId || !activeKidId) return;
@@ -64,24 +75,40 @@ export default function HiveStatementPage() {
   // don't belong on a statement.
   const completed = useMemo(() => txs.filter((t) => t.status === 'completed'), [txs]);
 
-  // Per-layer running balances, bank-statement style: start from the wallet
-  // TODAY and walk newest→oldest, so each row shows the balance AFTER it —
-  // and closing always reconciles to the screen by construction. Whatever
-  // remains after the walk is the honest "brought forward" (F6).
-  const { rows, broughtForward } = useMemo(() => {
+  // HIVEv5 PR1 — LAST-30-DAYS window with an exact ⏮ earlier-months carry
+  // (Elia ③): show the last 30 days individually, and summarise everything
+  // before as one per-layer line. The math is exact by construction — we
+  // anchor to the real wallet and walk newest→oldest, so `earlier` = the
+  // balance at the 30-day boundary = wallet − Σ(window effects). Thus
+  // earlier + listed = the total, to the cent.
+  const WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+  const { rows, earlier, hasEarlier } = useMemo(() => {
     const run: Record<HiveLayer, number> = {
       house_points: wallet.housePoints || 0,
       honey: wallet.honeyCoins || 0,
       treasury: wallet.treasuryCents || 0,
       cash: wallet.cashCents || 0,
     };
-    const out = completed.map((t) => {
-      const after = run[t.layer];
-      run[t.layer] = after - (t.direction === 'in' ? t.amount : -t.amount);
-      return { tx: t, after };
-    });
-    return { rows: out, broughtForward: { ...run } };
-  }, [completed, wallet]);
+    const cutoff = Date.now() - WINDOW_MS;
+    const win: { tx: HiveTransaction; after: number }[] = [];
+    let older = false;
+    for (const t of completed) {
+      const ms = (t.createdAt as { toMillis?: () => number })?.toMillis?.() ?? 0;
+      if (ms >= cutoff) {
+        const after = run[t.layer];
+        run[t.layer] = after - (t.direction === 'in' ? t.amount : -t.amount);
+        win.push({ tx: t, after });
+      } else {
+        older = true;
+        break; // rows are newest→oldest; once we cross the boundary we stop.
+        // `run` now holds the balance BEFORE the window = the earlier carry.
+      }
+    }
+    const carry = { ...run };
+    const hasEarlier = older || txs.length >= 200 || Object.values(carry).some((v) => v !== 0);
+    return { rows: win, earlier: carry, hasEarlier };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completed, wallet, txs.length]);
 
   const filtered = useMemo(
     () => (layer === 'all' ? rows : rows.filter((r) => r.tx.layer === layer)),
@@ -118,8 +145,14 @@ export default function HiveStatementPage() {
     return null;
   };
 
-  const anyBeyondWindow = txs.length >= 200
-    || Object.values(broughtForward).some((v) => v !== 0);
+  // Per-layer earlier-months summary text, respecting the active filter.
+  const earlierText = (() => {
+    if (layer === 'house_points') return `⭐ ${formatHp(earlier.house_points)} HP`;
+    if (layer === 'honey') return `🪙 ${formatHoney(earlier.honey)}`;
+    if (layer === 'treasury') return `🍯 ${formatCash(earlier.treasury, currency)}`;
+    if (layer === 'cash') return `💵 ${formatCash(earlier.cash, currency)}`;
+    return `⭐ ${formatHp(earlier.house_points)} HP · 🪙 ${formatHoney(earlier.honey)} · 🍯 ${formatCash(earlier.treasury, currency)} · 💵 ${formatCash(earlier.cash, currency)}`;
+  })();
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
@@ -151,8 +184,22 @@ export default function HiveStatementPage() {
         ))}
       </div>
 
+      {!loading && (filtered.length > 0 || hasEarlier) && (
+        <p className="text-[11px] font-nunito font-extrabold text-hive-honey-dk mb-1">Showing the last 30 days</p>
+      )}
+      {/* ⏮ Earlier months — exact per-unit carry so listed + earlier = total. */}
+      {!loading && hasEarlier && (
+        <div className="rounded-hive border border-dashed border-hive-honey-soft bg-hive-cream px-3 py-2 mb-2 flex items-center gap-2">
+          <span className="text-base shrink-0">⏮</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-nunito font-black text-hive-honey-dk">Earlier months</p>
+            <p className="text-[10.5px] text-hive-muted font-bold">{earlierText}</p>
+          </div>
+        </div>
+      )}
+
       {loading && <p className="text-sm text-hive-muted font-bold">Loading your story…</p>}
-      {!loading && filtered.length === 0 && (
+      {!loading && filtered.length === 0 && !hasEarlier && (
         <div className="bg-hive-paper border border-dashed border-hive-line rounded-hive p-6 text-center">
           <div className="text-2xl mb-1">🌱</div>
           <p className="font-nunito font-extrabold text-sm">Nothing here yet</p>
@@ -204,25 +251,16 @@ export default function HiveStatementPage() {
         </div>
       ))}
 
-      {!loading && filtered.length > 0 && (
-        <>
-          {anyBeyondWindow && (
-            <p className="text-[11px] text-hive-muted font-bold mt-3 text-center">
-              ⏮ Brought forward (before this statement): ⭐ {formatHp(broughtForward.house_points)} ·
-              🪙 {formatHoney(broughtForward.honey)} · 🍯 {formatCash(broughtForward.treasury, currency)} ·
-              💵 {formatCash(broughtForward.cash, currency)}
-            </p>
-          )}
-          {/* Reconciliation footer (F4) — closing = the wallet, always. */}
-          <div className="mt-3 rounded-hive border border-[#bfe0cc] bg-[#E7F5EC] px-4 py-3">
-            <p className="font-nunito font-black text-[13px] text-pantry-leaf-dk">✓ These add up to your balances today</p>
-            <p className="text-[11.5px] text-hive-muted font-bold mt-0.5">
-              ⭐ {formatHp(wallet.housePoints || 0)} HP · 🪙 {formatHoney(wallet.honeyCoins || 0)} ·
-              🍯 {formatCash(wallet.treasuryCents || 0, currency)} · 💵 {formatCash(wallet.cashCents || 0, currency)}
-              {' '}— exactly what your wallet shows.
-            </p>
-          </div>
-        </>
+      {!loading && (filtered.length > 0 || hasEarlier) && (
+        /* Reconciliation footer — earlier + these 30 days = the wallet, exactly. */
+        <div className="mt-3 rounded-hive border border-[#bfe0cc] bg-[#E7F5EC] px-4 py-3">
+          <p className="font-nunito font-black text-[13px] text-pantry-leaf-dk">✓ Earlier + these 30 days = your balances today</p>
+          <p className="text-[11.5px] text-hive-muted font-bold mt-0.5">
+            ⭐ {formatHp(wallet.housePoints || 0)} HP · 🪙 {formatHoney(wallet.honeyCoins || 0)} ·
+            🍯 {formatCash(wallet.treasuryCents || 0, currency)} · 💵 {formatCash(wallet.cashCents || 0, currency)}
+            {' '}— exactly what your wallet shows.
+          </p>
+        </div>
       )}
     </div>
   );
