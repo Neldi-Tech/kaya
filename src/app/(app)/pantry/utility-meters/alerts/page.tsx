@@ -128,7 +128,7 @@ export default function AlertLogPage() {
               );
             }
             // 📬 Kid emails (KID PR2/PR3) — same log, their own row shape.
-            if (e.kind === 'kid_reward' || e.kind === 'kid_digest') {
+            if (e.kind === 'kid_reward' || e.kind === 'kid_digest' || e.kind === 'kid_statement') {
               const em = e.channels?.email;
               return (
                 <button
@@ -138,9 +138,9 @@ export default function AlertLogPage() {
                   className="w-full text-left bg-hive-paper border border-hive-line rounded-hive p-3 mb-2 hover:border-hive-honey"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-base">{e.kind === 'kid_reward' ? '🏅' : '🌞'}</span>
+                    <span className="text-base">{e.kind === 'kid_reward' ? '🏅' : e.kind === 'kid_statement' ? '🧾' : '🌞'}</span>
                     <span className="font-nunito font-extrabold text-[13px] text-hive-navy truncate">
-                      {e.childName || 'Kid'} · {e.kind === 'kid_reward' ? 'reward email' : 'morning digest'}
+                      {e.childName || 'Kid'} · {e.kind === 'kid_reward' ? 'reward email' : e.kind === 'kid_statement' ? 'Hive statement' : 'morning digest'}
                     </span>
                     {em?.sent ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-nunito font-black bg-[#E7F5EC] text-pantry-leaf-dk border border-pantry-leaf-dk/30">✅ sent</span>
@@ -207,12 +207,12 @@ export default function AlertLogPage() {
               <div className="w-12 h-1 rounded-full bg-hive-line"></div>
             </div>
             <div className="px-4">
-              {open.kind === 'kid_reward' || open.kind === 'kid_digest' ? (
+              {open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement' ? (
                 <div className="flex items-center gap-2">
-                  <span className="text-xl">{open.kind === 'kid_reward' ? '🏅' : '🌞'}</span>
+                  <span className="text-xl">{open.kind === 'kid_reward' ? '🏅' : open.kind === 'kid_statement' ? '🧾' : '🌞'}</span>
                   <div className="flex-1 min-w-0">
                     <p className="font-nunito font-black text-[15px] text-hive-navy">
-                      {open.childName || 'Kid'} — {open.kind === 'kid_reward' ? 'reward email' : 'morning digest'}
+                      {open.childName || 'Kid'} — {open.kind === 'kid_reward' ? 'reward email' : open.kind === 'kid_statement' ? 'Hive statement' : 'morning digest'}
                     </p>
                     <p className="text-[11px] text-hive-muted font-bold">
                       {toDisplayDate(dayKeyOf(open.firedAt))} {timeOf(open.firedAt)}
@@ -251,7 +251,7 @@ export default function AlertLogPage() {
                   ))}
                 </div>
               )}
-              {(open.kind === 'kid_reward' || open.kind === 'kid_digest') && <div className="mt-3" />}
+              {(open.kind === 'kid_reward' || open.kind === 'kid_digest' || open.kind === 'kid_statement') && <div className="mt-3" />}
 
               {(tab === 'email' || open.kind !== 'alert') && <EmailTab e={open} />}
               {tab === 'chat' && open.kind === 'alert' && <ChatTab e={open} />}
