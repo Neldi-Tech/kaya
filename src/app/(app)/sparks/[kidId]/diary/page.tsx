@@ -22,6 +22,7 @@ import {
   DIARY_FEELINGS, type DiaryFeeling, type DiaryEntry, type DiaryBlock,
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats, diaryDayKey,
+  kidHasDiaryPin, setDiaryPin, answerKnock, knockOnPage, quietOpenPage, getDiaryPrivacy,
 } from '@/lib/sparks/diary';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
@@ -69,6 +70,11 @@ export default function DiaryPage() {
   // Slice 8c · timeline visibility + tapped-day sheet.
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [dayOpen, setDayOpen] = useState<string | null>(null);
+  // Slice 8d · privacy: kid PIN gate + parent quiet-open flow.
+  const [hasPin, setHasPin] = useState<boolean | null>(null);
+  const [pinModalFor, setPinModalFor] = useState<null | { then: () => void }>(null);
+  const [quietFor, setQuietFor] = useState<DiaryEntry | null>(null);
+  const [peek, setPeek] = useState<DiaryEntry | null>(null);
   const scanUrls = useMemo(() => scanFiles.map((f) => URL.createObjectURL(f)), [scanFiles]);
   useEffect(() => () => scanUrls.forEach((u) => URL.revokeObjectURL(u)), [scanUrls]);
 
@@ -92,6 +98,18 @@ export default function DiaryPage() {
       });
     });
   }, [familyId, kidId, knownOtherKid]);
+
+  useEffect(() => {
+    if (!isOwnerKid || !kidId) return;
+    kidHasDiaryPin(kidId).then(setHasPin).catch(() => setHasPin(null));
+  }, [isOwnerKid, kidId]);
+
+  /** Gate a lock action behind PIN existence — first lock sets the PIN
+   *  (with the parents-can-see-it disclosure). */
+  const withPin = (then: () => void) => {
+    if (hasPin) { then(); return; }
+    setPinModalFor({ then });
+  };
 
   const stats = useMemo(() => computeDiaryStats(entries ?? []), [entries]);
   const todays = useMemo(() => (entries ?? []).filter((e) => e.date === today), [entries, today]);
@@ -172,6 +190,36 @@ export default function DiaryPage() {
           : "your personal book: feelings, stories, dreams, worries. As long or as short as you want. It's yours — shared with your parents, locked when you need it."}
       </div>
 
+      {/* Slice 8d · pending knocks — the kid answers here. */}
+      {isOwnerKid && (entries ?? []).some((e) => e.knock?.status === 'pending') && (
+        <div className="space-y-2 mb-3">
+          {(entries ?? []).filter((e) => e.knock?.status === 'pending').map((e) => (
+            <div key={`k-${e.id}`} className="rounded-2xl border-2 border-[#5A3CB8] bg-[#F6EFFF] px-4 py-3">
+              <div className="font-display font-extrabold text-[13.5px] text-[#1B1547]">
+                🚪 {sw ? 'Hodi hodi…' : 'Knock knock…'}
+              </div>
+              <p className="text-[12px] text-[#2c2056] mt-0.5 mb-2 leading-snug">
+                {sw
+                  ? `${e.knock?.byName} anaomba kusoma ukurasa wako wa ${toDisplayDate(e.date)}. Kushiriki husaidia wazazi kukuelewa.`
+                  : `${e.knock?.byName} would like to read your ${toDisplayDate(e.date)} page. Sharing helps your grown-ups understand you.`}
+              </p>
+              <div className="flex gap-2">
+                <button type="button"
+                  onClick={() => familyId && answerKnock(familyId, kidId, e.id, true)}
+                  className="flex-1 rounded-xl py-2 text-[12.5px] font-extrabold text-[#3D2E08]" style={{ background: '#D4A847' }}>
+                  💛 {sw ? 'Ruhusu' : 'Allow'}
+                </button>
+                <button type="button"
+                  onClick={() => familyId && answerKnock(familyId, kidId, e.id, false)}
+                  className="flex-1 rounded-xl py-2 text-[12.5px] font-extrabold bg-white border-2 border-[#5A3CB8] text-[#5A3CB8]">
+                  {sw ? 'Bado' : 'Not yet'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Today */}
       <div className="flex items-center justify-between mb-2">
         <div className="font-nunito font-black text-[15px] text-[#0F1F44]">{toDisplayDate(today)}</div>
@@ -194,7 +242,9 @@ export default function DiaryPage() {
       ) : (
         <div className="space-y-2.5 mb-3">
           {todays.slice().reverse().map((e) => <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
-            onToggleLock={isOwnerKid && familyId ? (next) => setDiaryEntryLock(familyId, kidId, e.id, next) : undefined} />)}
+            onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+            onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
+            onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />)}
         </div>
       )}
 
@@ -298,7 +348,7 @@ export default function DiaryPage() {
           )}
           {err && <p className="text-[12px] font-bold text-[#E36F6F] mt-1">{err}</p>}
           <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
-            <button type="button" onClick={() => setLocked((v) => !v)}
+            <button type="button" onClick={() => (locked ? setLocked(false) : withPin(() => setLocked(true)))}
               className="flex items-center gap-2 text-[12.5px] font-extrabold text-[#7A2E5C]" aria-pressed={locked}>
               🔒 {sw ? 'Funga ukurasa huu' : 'Lock this page'}
               <span className={`w-[42px] h-[24px] rounded-full relative transition-colors ${locked ? 'bg-[#7A2E5C]' : 'bg-[#cfd3e0]'}`}>
@@ -338,7 +388,9 @@ export default function DiaryPage() {
                 <div className="space-y-2">
                   {dayEntries.slice().reverse().map((e) => (
                     <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
-                      onToggleLock={isOwnerKid && familyId ? (next) => setDiaryEntryLock(familyId, kidId, e.id, next) : undefined} />
+                    onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                    onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
+                      onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
                   ))}
                 </div>
               </div>
@@ -358,8 +410,61 @@ export default function DiaryPage() {
             <div className="p-4 space-y-2.5">
               {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (
                 <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
-                  onToggleLock={isOwnerKid && familyId ? (next) => setDiaryEntryLock(familyId, kidId, e.id, next) : undefined} />
+                  onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                  onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
+                  onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Slice 8d · kid PIN-create modal (first lock). */}
+      {pinModalFor && (
+        <PinCreateModal
+          kidFirstName={kidName.split(' ')[0]}
+          sw={sw}
+          onCancel={() => setPinModalFor(null)}
+          onSet={async (pin) => {
+            await setDiaryPin(kidId, pin);
+            setHasPin(true);
+            const go = pinModalFor.then;
+            setPinModalFor(null);
+            go();
+          }}
+        />
+      )}
+
+      {/* Slice 8d · parent quiet-open flow (pause → PIN → maybe reason). */}
+      {quietFor && (
+        <QuietOpenModal
+          entry={quietFor}
+          kidId={kidId}
+          kidFirstName={kidName.split(' ')[0]}
+          onClose={() => setQuietFor(null)}
+          onKnockInstead={() => { if (familyId) knockOnPage(familyId, kidId, quietFor.id); setQuietFor(null); }}
+          onOpened={(full) => { setQuietFor(null); setPeek(full); }}
+        />
+      )}
+
+      {/* One-time read of a quietly-opened page. */}
+      {peek && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <button type="button" aria-label="Close" onClick={() => setPeek(null)} className="absolute inset-0 bg-black/40" />
+          <div className="relative w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl">
+            <div className="px-5 pt-4 pb-3 text-white" style={{ background: 'linear-gradient(135deg, #7A2E5C, #C05299)' }}>
+              <div className="font-display font-extrabold text-[15px]">🔑 {toDisplayDate(peek.date)} · {peek.feeling}</div>
+              <div className="text-[10.5px] opacity-85">One-time read · nothing is saved, {kidName.split(' ')[0]} is not notified</div>
+            </div>
+            <div className="p-4 space-y-2">
+              {peek.blocks.map((b, i) => b.kind === 'text'
+                ? <div key={i} className="text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">{b.text}</div>
+                // eslint-disable-next-line @next/next/no-img-element
+                : <img key={i} src={b.url} alt="" className="w-full max-h-64 object-contain rounded-xl bg-[#FBF7EE] border border-[#ECE4D3]" />)}
+              <button type="button" onClick={() => setPeek(null)}
+                className="w-full rounded-xl py-2.5 mt-2 text-[13px] font-extrabold bg-[#FBF7EE] text-[#5A6488]">
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -387,15 +492,20 @@ export default function DiaryPage() {
 // ── Entry card ──────────────────────────────────────────────────────
 
 function EntryCard({
-  e, isOwner, kidFirstName, sw, onToggleLock,
+  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen,
 }: {
   e: DiaryEntry;
   isOwner: boolean;
   kidFirstName: string;
   sw: boolean;
   onToggleLock?: (locked: boolean) => void;
+  /** Slice 8d · parent doors on a redacted (locked) page. */
+  onKnock?: () => void;
+  onQuietOpen?: () => void;
 }) {
   if (e.redacted) {
+    const knockPending = e.knock?.status === 'pending';
+    const knockDenied = e.knock?.status === 'denied';
     return (
       <div className="rounded-2xl border border-dashed border-[#EBC2DC] bg-[#FDF3F9] px-3.5 py-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -404,7 +514,33 @@ function EntryCard({
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#EFEAF9] text-[#4a3d78]">
             🔒 {sw ? `Imefungwa · ya ${kidFirstName} tu` : `Locked · just ${kidFirstName}'s`}
           </span>
+          {knockPending && (
+            <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">
+              🚪 {sw ? 'Hodi imetumwa' : 'Knock sent'}
+            </span>
+          )}
+          {knockDenied && (
+            <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFE7E0] text-[#A33A2A]">
+              {sw ? 'Bado' : 'Not yet'}
+            </span>
+          )}
         </div>
+        {(onKnock || onQuietOpen) && (
+          <div className="flex gap-2 mt-2.5">
+            {onKnock && !knockPending && (
+              <button type="button" onClick={onKnock}
+                className="flex-1 rounded-xl py-2 text-[12px] font-extrabold text-white" style={{ background: '#7A2E5C' }}>
+                🚪 {sw ? 'Bisha hodi' : 'Send a knock'}
+              </button>
+            )}
+            {onQuietOpen && (
+              <button type="button" onClick={onQuietOpen}
+                className="flex-1 rounded-xl py-2 text-[12px] font-extrabold bg-white border-2 border-[#7A2E5C] text-[#7A2E5C]">
+                🔑 {sw ? 'Fungua kimya' : 'Open quietly'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -413,7 +549,9 @@ function EntryCard({
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[20px]" aria-hidden>{e.feeling}</span>
         <span className="text-[10.5px] font-bold text-[#5A6488]">{e.time}</span>
-        {e.locked ? (
+        {e.locked && e.knock_open ? (
+          <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">💛 {sw ? 'Hodi imeruhusiwa' : 'Knock allowed'}</span>
+        ) : e.locked ? (
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#EFEAF9] text-[#4a3d78]">🔒 {sw ? 'Imefungwa' : 'Locked · just mine'}</span>
         ) : (
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">💛 {sw ? 'Imeshirikiwa na wazazi' : 'Shared with parents'}</span>
@@ -617,6 +755,182 @@ function DiaryTimeline({
         {sw
           ? 'Kila kisanduku kinaonyesha hisia ya mwisho ya siku hiyo. Bonyeza siku kuona kurasa zake.'
           : 'Each cell shows that day’s latest feeling. Tap a filled day to read its pages.'}
+      </div>
+    </div>
+  );
+}
+
+
+// ── Slice 8d · Kid PIN-create modal ────────────────────────────────
+// The capability disclosure lives HERE, once: "your parents can always
+// see your PIN." Locking anything routes through this until a PIN exists.
+
+function PinCreateModal({
+  kidFirstName, sw, onCancel, onSet,
+}: {
+  kidFirstName: string;
+  sw: boolean;
+  onCancel: () => void;
+  onSet: (pin: string) => Promise<void>;
+}) {
+  const [pin, setPin] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const press = (d: string) => {
+    if (busy) return;
+    if (d === '⌫') { setPin((p) => p.slice(0, -1)); return; }
+    setPin((p) => (p.length >= 4 ? p : p + d));
+  };
+  const submit = async () => {
+    if (pin.length !== 4 || busy) return;
+    setBusy(true); setErr('');
+    try { await onSet(pin); }
+    catch (e) { setErr((e as Error).message || 'Failed'); setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <button type="button" aria-label="Close" onClick={onCancel} className="absolute inset-0 bg-black/40" />
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden">
+        <div className="px-5 pt-4 pb-3 text-white" style={{ background: 'linear-gradient(135deg, #7A2E5C, #C05299)' }}>
+          <div className="font-display font-extrabold text-[16px]">🔒 {sw ? 'Weka PIN ya shajara' : 'Set your Diary PIN'}</div>
+        </div>
+        <div className="p-4">
+          <div className="flex gap-2.5 justify-center my-2" aria-label={`${pin.length} of 4 digits`}>
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} className={`w-3.5 h-3.5 rounded-full border-2 ${i < pin.length ? 'bg-[#7A2E5C] border-[#7A2E5C]' : 'bg-[#F9E4F1] border-[#EBC2DC]'}`} />
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-1.5 justify-items-stretch my-3 max-w-[220px] mx-auto">
+            {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((d, i) => d === ''
+              ? <span key={i} />
+              : (
+                <button key={i} type="button" onClick={() => press(d)}
+                  className="h-11 rounded-xl bg-[#FBF7EE] font-black text-[15px] text-[#0F1F44] active:bg-[#F9E4F1]">
+                  {d}
+                </button>
+              ))}
+          </div>
+          <div className="rounded-xl bg-[#FFF1C9] px-3 py-2.5 text-[11.5px] text-[#8A6800] leading-relaxed">
+            💛 {sw
+              ? `PIN yako inazuia kaka na dada kufungua kurasa zako. Wazazi wako wanaweza kuiona PIN yako kila wakati — ni walezi wako salama.`
+              : `Your PIN keeps your locked pages away from brothers & sisters. Your parents can always see your PIN — they're your safe grown-ups. Locked pages just say "knock first, please."`}
+          </div>
+          {err && <p className="text-[12px] font-bold text-[#E36F6F] mt-2">{err}</p>}
+          <div className="flex gap-2 mt-3">
+            <button type="button" onClick={onCancel} className="flex-1 rounded-xl py-2.5 text-[13px] font-bold text-[#5A6488] bg-[#FBF7EE]">
+              {sw ? 'Ghairi' : 'Cancel'}
+            </button>
+            <button type="button" onClick={submit} disabled={pin.length !== 4 || busy}
+              className="flex-1 rounded-xl py-2.5 text-[13px] font-extrabold text-white disabled:opacity-40" style={{ background: '#7A2E5C' }}>
+              {busy ? '…' : (sw ? 'Weka PIN' : 'Set PIN')}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Slice 8d · Parent quiet-open modal ─────────────────────────────
+// Pause screen first (knock is the celebrated path), then the kid's
+// PIN, then — over quota in a multi-parent family — a typed reason.
+// The opened page returns ONCE; nothing persists; the kid is never
+// notified (capability disclosed at PIN setup).
+
+function QuietOpenModal({
+  entry, kidId, kidFirstName, onClose, onKnockInstead, onOpened,
+}: {
+  entry: DiaryEntry;
+  kidId: string;
+  kidFirstName: string;
+  onClose: () => void;
+  onKnockInstead: () => void;
+  onOpened: (full: DiaryEntry) => void;
+}) {
+  const [meta, setMeta] = useState<{ quota: number; used: number; parents: number } | null>(null);
+  const [pin, setPin] = useState('');
+  const [reason, setReason] = useState('');
+  const [needReason, setNeedReason] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    getDiaryPrivacy(kidId)
+      .then((v) => setMeta({ quota: v.quota, used: v.usedThisMonth, parents: v.parentCount }))
+      .catch(() => setMeta(null));
+  }, [kidId]);
+
+  const overQuota = meta !== null && meta.used >= meta.quota;
+  const left = meta === null ? null : Math.max(0, meta.quota - meta.used);
+
+  const open = async () => {
+    if (busy || pin.length !== 4) return;
+    setBusy(true); setErr('');
+    try {
+      const { entry: full } = await quietOpenPage(kidId, entry.id, pin, reason.trim() || undefined);
+      onOpened(full);
+    } catch (e) {
+      const msg = (e as Error).message || '';
+      if (msg.includes('reason-required')) { setNeedReason(true); setErr('Over your monthly limit — a short reason is required and your co-parent is pinged.'); }
+      else if (msg.includes('wrong-pin')) setErr(`That's not ${kidFirstName}'s PIN — check /sparks/setup.`);
+      else setErr(msg || 'Could not open');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <button type="button" aria-label="Close" onClick={onClose} className="absolute inset-0 bg-black/40" />
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden">
+        <div className="px-5 pt-4 pb-3 text-white" style={{ background: 'linear-gradient(135deg, #7A2E5C, #C05299)' }}>
+          <div className="font-display font-extrabold text-[16px]">🚪 Knock first?</div>
+          <div className="text-[11px] opacity-90">{toDisplayDate(entry.date)} · {entry.feeling}</div>
+        </div>
+        <div className="p-4">
+          <p className="text-[12.5px] text-[#0F1F44] leading-relaxed m-0 mb-3">
+            Every knock {kidFirstName} allows is a trust rep — that&apos;s the learning.
+            Quiet opens are for genuine worry, not curiosity.
+          </p>
+          <button type="button" onClick={onKnockInstead}
+            className="w-full rounded-xl py-2.5 text-[13px] font-extrabold text-white mb-2" style={{ background: '#7A2E5C' }}>
+            🚪 Send a knock instead
+          </button>
+
+          <div className="rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5 mt-2">
+            <div className="text-[11px] font-extrabold text-[#5A6488] mb-1.5">
+              🔑 Open quietly {left === null ? '' : `· ${left} of ${meta?.quota} left this month`}
+            </div>
+            <input
+              type="password"
+              inputMode="numeric"
+              maxLength={4}
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              placeholder={`${kidFirstName}'s 4-digit PIN`}
+              className="w-full bg-white border border-[#ECE4D3] rounded-lg px-3 py-2 text-[14px] font-black tracking-[6px] text-[#0F1F44] focus:outline-none focus:border-[#7A2E5C]"
+            />
+            {(needReason || (overQuota && (meta?.parents ?? 1) > 1)) && (
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={2}
+                maxLength={300}
+                placeholder="One line on the genuine worry…"
+                className="mt-2 w-full bg-white border border-[#ECE4D3] rounded-lg px-3 py-2 text-[12.5px] text-[#0F1F44] focus:outline-none focus:border-[#7A2E5C] resize-none"
+              />
+            )}
+            {err && <p className="text-[11.5px] font-bold text-[#A33A2A] mt-1.5">{err}</p>}
+            <button type="button" onClick={open} disabled={pin.length !== 4 || busy}
+              className="w-full mt-2 rounded-xl py-2 text-[12.5px] font-extrabold bg-white border-2 border-[#7A2E5C] text-[#7A2E5C] disabled:opacity-40">
+              {busy ? '…' : overQuota ? '🔑 Open with reason' : '🔑 Open quietly'}
+            </button>
+            <p className="text-[10px] text-[#5A6488] mt-1.5 leading-snug m-0">
+              Quiet opens don&apos;t notify {kidFirstName}. Every one is logged for parents.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
