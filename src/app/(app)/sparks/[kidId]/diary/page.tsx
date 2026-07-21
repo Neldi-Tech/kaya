@@ -13,18 +13,21 @@
 //   · parents see entries; locked pages arrive REDACTED (meta only)
 //   · only the owner kid writes here
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useLocale } from '@/lib/useLocale';
 import {
-  DIARY_FEELINGS, type DiaryFeeling, type DiaryEntry,
+  DIARY_FEELINGS, type DiaryFeeling, type DiaryEntry, type DiaryBlock,
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats, diaryDayKey,
 } from '@/lib/sparks/diary';
 import { toDisplayDate } from '@/lib/dates';
 import AreaScreen from '@/components/sparks/AreaScreen';
+import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
+import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
+import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 
 const PLUM = '#7A2E5C';
 
@@ -50,13 +53,21 @@ export default function DiaryPage() {
   const [entries, setEntries] = useState<DiaryEntry[] | null>(null);
   const [denied, setDenied] = useState(false);
 
-  // Composer state (owner kid only in this slice)
+  // Composer state (owner kid only). Slice 8b: full trio editor —
+  // ✍️ type · 🖊 pencil canvas · 📷 scan, blocks mix on one page.
   const [writing, setWriting] = useState(false);
   const [feeling, setFeeling] = useState<DiaryFeeling | null>(null);
   const [text, setText] = useState('');
   const [locked, setLocked] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const [inkOpen, setInkOpen] = useState(false);
+  const [hasInk, setHasInk] = useState(false);
+  const inkRef = useRef<DiaryInkHandle>(null);
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanFiles, setScanFiles] = useState<File[]>([]);
+  const scanUrls = useMemo(() => scanFiles.map((f) => URL.createObjectURL(f)), [scanFiles]);
+  useEffect(() => () => scanUrls.forEach((u) => URL.revokeObjectURL(u)), [scanUrls]);
 
   useEffect(() => {
     if (knownOtherKid) { router.replace('/sparks'); return; }
@@ -90,19 +101,39 @@ export default function DiaryPage() {
     return Array.from(byDay.entries()).slice(0, 7);
   }, [entries, today]);
 
-  const canSave = !saving && feeling !== null && text.trim().length > 0;
+  const canSave = !saving && feeling !== null
+    && (text.trim().length > 0 || hasInk || scanFiles.length > 0);
 
   const save = async () => {
     if (!canSave || !familyId || feeling === null) return;
     setSaving(true); setErr('');
     try {
+      const blocks: DiaryBlock[] = [];
+      if (text.trim()) blocks.push({ kind: 'text', text: text.trim() });
+
+      // Uploads share one pseudo-item id so the Storage layout mirrors
+      // the sparks path convention (families/{f}/sparks/{itemId}/…).
+      const draftId = `diary-${Date.now().toString(36)}`;
+
+      const ink = await inkRef.current?.exportFile();
+      if (ink) {
+        const [up] = await uploadSparksPhotos(familyId, draftId, [ink]);
+        blocks.push({ kind: 'ink', url: up.feedUrl });
+      }
+      if (scanFiles.length > 0) {
+        const ups = await uploadSparksPhotos(familyId, draftId, scanFiles);
+        for (const up of ups) blocks.push({ kind: 'scan', url: up.feedUrl });
+      }
+
       await saveDiaryEntry(familyId, {
         ownerId: kidId,
         feeling,
-        blocks: [{ kind: 'text', text: text.trim() }],
+        blocks,
         locked,
       });
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
+      setInkOpen(false); setHasInk(false); inkRef.current?.clear();
+      setScanFiles([]);
     } catch (e) {
       setErr((e as Error).message || (sw ? 'Imeshindikana kuhifadhi' : 'Could not save'));
     } finally { setSaving(false); }
@@ -186,14 +217,61 @@ export default function DiaryPage() {
               </button>
             ))}
           </div>
+          {/* Trio — mix any of the three on one page (Slice 8b). */}
+          <div className="grid grid-cols-3 gap-2 mb-2.5">
+            <div className="rounded-2xl border-2 border-[#7A2E5C] bg-[#F9E4F1] py-2.5 px-2 text-center">
+              <div className="text-[20px] leading-none" aria-hidden>✍️</div>
+              <div className="text-[11px] font-extrabold text-[#7A2E5C] mt-0.5">{sw ? 'Andika' : 'Type'}</div>
+            </div>
+            <button type="button" onClick={() => setInkOpen((v) => !v)}
+              className={`rounded-2xl border-2 py-2.5 px-2 text-center transition-colors ${inkOpen || hasInk ? 'border-[#7A2E5C] bg-[#F9E4F1]' : 'border-dashed border-[#EBC2DC] bg-[#FDF3F9] hover:border-[#C05299]'}`}>
+              <div className="text-[20px] leading-none" aria-hidden>🖊</div>
+              <div className="text-[11px] font-extrabold text-[#7A2E5C] mt-0.5">{sw ? 'Kalamu' : 'Pencil'}{hasInk ? ' ✓' : ''}</div>
+            </button>
+            <button type="button" onClick={() => setScanOpen(true)}
+              className={`rounded-2xl border-2 py-2.5 px-2 text-center transition-colors ${scanFiles.length > 0 ? 'border-[#7A2E5C] bg-[#F9E4F1]' : 'border-dashed border-[#EBC2DC] bg-[#FDF3F9] hover:border-[#C05299]'}`}>
+              <div className="text-[20px] leading-none" aria-hidden>📷</div>
+              <div className="text-[11px] font-extrabold text-[#7A2E5C] mt-0.5">{sw ? 'Changanua' : 'Scan'}{scanFiles.length > 0 ? ` · ${scanFiles.length}` : ''}</div>
+            </button>
+          </div>
+
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            rows={5}
+            rows={4}
             maxLength={8000}
             placeholder={sw ? 'Leo…' : 'Dear diary…'}
             className="w-full rounded-xl border border-[#EBC2DC] bg-white p-3 text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#C05299]/40 resize-none"
           />
+
+          {/* Pencil canvas — toggled by the 🖊 tile. */}
+          {inkOpen && (
+            <div className="mt-2.5">
+              <DiaryInkCanvas ref={inkRef} height={260} onDirtyChange={setHasInk} />
+              <p className="text-[10px] text-[#5A6488] mt-1 leading-snug">
+                {sw
+                  ? '🖊 Kalamu ya iPad inachora yenyewe · "Finger scrolls" huzuia kiganja kuchora.'
+                  : '🖊 Apple Pencil draws with pressure · "Finger scrolls" keeps your palm from marking the page.'}
+              </p>
+            </div>
+          )}
+
+          {/* Scan previews. */}
+          {scanFiles.length > 0 && (
+            <div className="mt-2.5 flex items-center gap-2 overflow-x-auto">
+              {scanUrls.map((url, idx) => (
+                <div key={url} className="relative w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-[#EBC2DC]">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={url} alt={`Scan ${idx + 1}`} className="w-full h-full object-cover" />
+                  <button type="button" onClick={() => setScanFiles((prev) => prev.filter((_, i) => i !== idx))}
+                    aria-label={`Remove scan ${idx + 1}`}
+                    className="absolute top-0.5 right-0.5 w-4.5 h-4.5 w-[18px] h-[18px] rounded-full bg-white text-[#E85C5C] font-bold text-[11px] grid place-items-center shadow">
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {err && <p className="text-[12px] font-bold text-[#E36F6F] mt-1">{err}</p>}
           <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
             <button type="button" onClick={() => setLocked((v) => !v)}
@@ -244,6 +322,14 @@ export default function DiaryPage() {
           </div>
         </div>
       )}
+
+      {/* Scan camera — same sheet the Reflection + Revisions use. */}
+      <CameraCaptureSheet
+        open={scanOpen}
+        mode="scan"
+        onClose={() => setScanOpen(false)}
+        onConfirm={(files) => { if (files.length) setScanFiles((prev) => [...prev, ...files]); setScanOpen(false); }}
+      />
 
       {isParent && (
         <p className="text-[10.5px] text-[#5A6488] mt-5 leading-snug">
