@@ -13,6 +13,7 @@ import { formatWorth } from '@/components/business/money';
 import HoneyPotIcon from './HoneyPotIcon';
 import { formatHp, formatHoney, honeyToCashCents } from './format';
 import HoneyCoin from './HoneyCoin';
+import MeaningSheet, { type MeaningKind } from './MeaningSheet';
 
 export default function WealthCard({
   treasuryCents, honeyCoins, housePoints, cashCents, businessAssetsCents,
@@ -30,6 +31,9 @@ export default function WealthCard({
   rounding?: DisplayRounding;
 }) {
   const [open, setOpen] = useState(false);
+  // HIVE PR3 (Elia's ④) — tapping A·Money / B·Business opens the meaning
+  // sheet: definition first, then the story that sums to the number.
+  const [sheet, setSheet] = useState<MeaningKind | null>(null);
   const fx = fxUsdToFamily ?? 1;
   const money = (cents: number) => formatWorth(cents, currency, rounding);
 
@@ -61,15 +65,42 @@ export default function WealthCard({
       </div>
 
       <div className="mt-3 flex gap-2 text-[11px]">
-        <div className="flex-1 bg-hive-cream rounded-hive p-2.5">
+        <button
+          type="button"
+          onClick={() => setSheet('money')}
+          className="flex-1 bg-hive-cream rounded-hive p-2.5 text-left hover:ring-2 hover:ring-hive-honey/50 transition-shadow"
+        >
           <p className="text-hive-muted font-bold">A · Money</p>
           <p className="font-nunito font-black text-[15px]">{money(moneyA)}</p>
-        </div>
-        <div className="flex-1 bg-hive-cream rounded-hive p-2.5">
+          <p className="text-[10px] text-hive-honey-dk font-bold mt-0.5">meaning + story ›</p>
+        </button>
+        <button
+          type="button"
+          onClick={() => setSheet('business')}
+          className="flex-1 bg-hive-cream rounded-hive p-2.5 text-left hover:ring-2 hover:ring-hive-honey/50 transition-shadow"
+        >
           <p className="text-hive-muted font-bold">B · Business</p>
           <p className="font-nunito font-black text-[15px]">{money(assetsB)}</p>
-        </div>
+          <p className="text-[10px] text-hive-honey-dk font-bold mt-0.5">meaning + story ›</p>
+        </button>
       </div>
+
+      {sheet && (
+        <MeaningSheet
+          kind={sheet}
+          open
+          onClose={() => setSheet(null)}
+          treasuryCents={treasuryCents}
+          honeyCoins={honeyCoins}
+          housePoints={housePoints}
+          cashCents={cashCents}
+          businessAssetsCents={assetsB}
+          hpToHoneyRate={hpToHoneyRate}
+          honeyToCashRate={honeyToCashRate}
+          fxUsdToFamily={fx}
+          currency={currency}
+        />
+      )}
 
       {open && (
         <div className="mt-3 space-y-2">
