@@ -14,6 +14,7 @@ import BackButton from '@/components/ui/BackButton';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
 import WeekThemeCard from '@/components/meetings/WeekThemeCard';
+import KnockTodoCard from '@/components/sparks/KnockTodoCard';
 import { useTodaysBirthdays } from '@/components/birthdays/useTodaysBirthdays';
 import KidAvatar from '@/components/ui/KidAvatar';
 import RemindersInline from '@/components/reminders/RemindersInline';
@@ -161,7 +162,10 @@ export default function MyDayPage() {
     if (!profile.childId) return null;
     const me = children.find((c) => c.id === profile.childId);
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
-    return <>{tabBar}{wishCard}{remindersStrip}{songStrip}<MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
+    return <>{tabBar}{wishCard}{remindersStrip}{songStrip}
+      {/* Slice 8k · 🚪 pending diary knocks land on My Day too. */}
+      <KnockTodoCard familyId={family.id} kidId={profile.childId} className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4" />
+      <MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
   if (role === 'helper') {

@@ -33,7 +33,7 @@ function pageStyleProps(style?: string): { className: string; style?: React.CSSP
 }
 
 export function EntryCard({
-  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen, onSetFeeling,
+  e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen, onNudge, onSetFeeling,
 }: {
   e: DiaryEntry;
   isOwner: boolean;
@@ -42,6 +42,8 @@ export function EntryCard({
   onToggleLock?: (locked: boolean) => void;
   /** Slice 8d · parent doors on a redacted (locked) page. */
   onKnock?: () => void;
+  /** Slice 8k · 👋 nudge an unanswered knock (parent, ≥24h, 1/day). */
+  onNudge?: () => void;
   onQuietOpen?: () => void;
   /** Slice 8g · owner corrects an AI-guessed feeling. */
   onSetFeeling?: (feeling: string) => void;
@@ -65,6 +67,13 @@ export function EntryCard({
   if (e.redacted) {
     const knockPending = e.knock?.status === 'pending';
     const knockDenied = e.knock?.status === 'denied';
+    // Slice 8k · the loop chips: sent-at, 👀 seen receipt, ⏳ waiting
+    // hours, and whether the 👋 nudge is available (≥24h, 1/day).
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const waitingH = knockPending && e.knock?.at ? Math.max(0, Math.floor((now - e.knock.at) / 3600000)) : null;
+    const nudgeReady = knockPending && !!e.knock?.at && now - (e.knock.at as number) >= DAY
+      && (!e.knock?.nudgedAt || now - (e.knock.nudgedAt as number) >= DAY);
     return (
       <div className="rounded-2xl border border-dashed border-[#EBC2DC] bg-[#FDF3F9] px-3.5 py-3">
         <div className="flex items-center gap-2 flex-wrap">
@@ -76,6 +85,22 @@ export function EntryCard({
           {knockPending && (
             <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">
               🚪 {sw ? 'Hodi imetumwa' : 'Knock sent'}
+            </span>
+          )}
+          {knockPending && !isOwner && (
+            e.knock?.seenAt ? (
+              <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">
+                👀 {sw ? 'Imeonekana' : 'Seen'}
+              </span>
+            ) : (
+              <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#EFEAF9] text-[#4a3d78]">
+                📪 {sw ? 'Haijaonekana bado' : 'Not seen yet'}
+              </span>
+            )
+          )}
+          {knockPending && !isOwner && waitingH !== null && waitingH >= 1 && (
+            <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">
+              ⏳ {waitingH >= 48 ? `${Math.floor(waitingH / 24)}d` : `${waitingH}h`} {sw ? 'ikisubiri' : 'waiting'}
             </span>
           )}
           {knockDenied && (
@@ -90,6 +115,12 @@ export function EntryCard({
               <button type="button" onClick={onKnock}
                 className="flex-1 rounded-xl py-2 text-[12px] font-extrabold text-white" style={{ background: '#7A2E5C' }}>
                 🚪 {sw ? 'Bisha hodi' : 'Send a knock'}
+              </button>
+            )}
+            {onNudge && nudgeReady && (
+              <button type="button" onClick={onNudge}
+                className="flex-1 rounded-xl py-2 text-[12px] font-extrabold text-white" style={{ background: '#D4A847' }}>
+                👋 {sw ? 'Kumbusha kwa upole' : 'Nudge gently'}
               </button>
             )}
             {onQuietOpen && (
@@ -121,7 +152,9 @@ export function EntryCard({
           )
         )}
         <span className="text-[10.5px] font-bold text-[#5A6488]">{e.time}</span>
-        {e.locked && e.knock_open ? (
+        {e.locked && !e.knock_open && e.knock_open_until ? (
+          <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">⏳ {sw ? 'Wazi leo tu' : 'Open today only'}</span>
+        ) : e.locked && e.knock_open ? (
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#DDF5DF] text-[#2E7D34]">💛 {sw ? 'Hodi imeruhusiwa' : 'Knock allowed'}</span>
         ) : e.locked ? (
           <span className="text-[10.5px] font-extrabold px-2 py-0.5 rounded-full bg-[#EFEAF9] text-[#4a3d78]">🔒 {sw ? 'Imefungwa' : 'Locked · just mine'}</span>

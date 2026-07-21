@@ -23,6 +23,7 @@ import {
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats, diaryDayKey,
   kidHasDiaryPin, setDiaryPin, answerKnock, knockOnPage, quietOpenPage, getDiaryPrivacy,
+  markKnockSeen, nudgeKnock,
   getDiaryPrompt, requestKayaReply, setEntryFeeling,
   addDiaryWord, DIARY_PAGE_STYLES,
 } from '@/lib/sparks/diary';
@@ -82,6 +83,10 @@ export default function DiaryPage() {
   const [hasPin, setHasPin] = useState<boolean | null>(null);
   const [pinModalFor, setPinModalFor] = useState<null | { then: () => void }>(null);
   const [quietFor, setQuietFor] = useState<DiaryEntry | null>(null);
+  // Slice 8k · knock-with-a-note modal (parent) + one-shot seen stamps.
+  const [knockFor, setKnockFor] = useState<{ id: string; date: string } | null>(null);
+  const [knockNote, setKnockNote] = useState('');
+  const seenStamped = useRef<Set<string>>(new Set());
   // Slice 8f · the five features.
   const [moreFeelings, setMoreFeelings] = useState(false);
   const [customFeeling, setCustomFeeling] = useState('');
@@ -228,14 +233,26 @@ export default function DiaryPage() {
     );
   }
 
+  // Slice 8k · 👀 the receipt — the banner rendering IS the "seen".
+  // One stamp per entry per mount; server ignores repeats.
+  useEffect(() => {
+    if (!isOwnerKid || !familyId) return;
+    for (const e of entries ?? []) {
+      if (e.knock?.status === 'pending' && !e.knock.seenAt && !seenStamped.current.has(e.id)) {
+        seenStamped.current.add(e.id);
+        void markKnockSeen(familyId, kidId, e.id);
+      }
+    }
+  }, [entries, isOwnerKid, familyId, kidId]);
+
   return (
     <AreaScreen kidId={kidId} kidName={kidName} area="diary" subtitle={heroSub}>
       {/* Pinned guide note — the Diary side of the boundary. */}
       <div className="rounded-xl bg-[#FDF3F9] border-l-[3px] border-[#C05299] px-3.5 py-2.5 text-[11.5px] leading-relaxed text-[#5c2547] mb-4">
         <b className="text-[#7A2E5C]">📔 {sw ? 'Shajara yako' : 'Your Diary'}</b>{' — '}
         {sw
-          ? 'kitabu chako binafsi: hisia, hadithi, ndoto, wasiwasi. Urefu wowote unaotaka. Ni chako — kinashirikiwa na wazazi wako, funga ukurasa unapohitaji.'
-          : "your personal book: feelings, stories, dreams, worries. As long or as short as you want. It's yours — shared with your parents, locked when you need it."}
+          ? 'kitabu chako binafsi: hisia, hadithi, ndoto, wasiwasi. Urefu wowote unaotaka. Ni chako — kinashirikiwa na wazazi wako, funga ukurasa unapohitaji. Mzazi akibisha hodi, ataona umeiona — jibu ukiwa tayari.'
+          : "your personal book: feelings, stories, dreams, worries. As long or as short as you want. It's yours — shared with your parents, locked when you need it. When a parent knocks, they can see you've seen it — answer when you're ready."}
       </div>
 
       {/* 📚 My Words toast — a new word landed in the jar. */}
@@ -266,21 +283,34 @@ export default function DiaryPage() {
               <div className="font-display font-extrabold text-[13.5px] text-[#1B1547]">
                 🚪 {sw ? 'Hodi hodi…' : 'Knock knock…'}
               </div>
-              <p className="text-[12px] text-[#2c2056] mt-0.5 mb-2 leading-snug">
+              <p className="text-[12px] text-[#2c2056] mt-0.5 mb-1 leading-snug">
                 {sw
-                  ? `${e.knock?.byName} anaomba kusoma ukurasa wako wa ${toDisplayDate(e.date)}. Kushiriki husaidia wazazi kukuelewa.`
-                  : `${e.knock?.byName} would like to read your ${toDisplayDate(e.date)} page. Sharing helps your grown-ups understand you.`}
+                  ? `${e.knock?.byName} anaomba kusoma ukurasa wako wa ${toDisplayDate(e.date)}.`
+                  : `${e.knock?.byName} would like to read your ${toDisplayDate(e.date)} page.`}
               </p>
-              <div className="flex gap-2">
+              {e.knock?.note && (
+                <p className="text-[12.5px] font-bold text-[#1B1547] mb-1 leading-snug">&ldquo;{e.knock.note}&rdquo;</p>
+              )}
+              <p className="text-[10.5px] text-[#5A6488] mb-2 leading-snug">
+                {sw
+                  ? '⏳ hufungua hadi usiku wa manane tu, kisha inajifunga tena. Kushiriki husaidia wazazi wakusaidie kukua 💛'
+                  : '⏳ opens the page until midnight, then it locks itself again. Sharing helps them help you grow 💛'}
+              </p>
+              <div className="flex flex-col gap-1.5">
                 <button type="button"
-                  onClick={() => familyId && answerKnock(familyId, kidId, e.id, true)}
-                  className="flex-1 rounded-xl py-2 text-[12.5px] font-extrabold text-[#3D2E08]" style={{ background: '#D4A847' }}>
-                  💛 {sw ? 'Ruhusu' : 'Allow'}
+                  onClick={() => familyId && answerKnock(familyId, kidId, e.id, true, 'always')}
+                  className="rounded-xl py-2 text-[12.5px] font-extrabold text-white" style={{ background: '#5A3CB8' }}>
+                  💛 {sw ? 'Ruhusu kila wakati' : 'Allow always'}
+                </button>
+                <button type="button"
+                  onClick={() => familyId && answerKnock(familyId, kidId, e.id, true, 'today')}
+                  className="rounded-xl py-2 text-[12.5px] font-extrabold text-[#3D2E08]" style={{ background: '#D4A847' }}>
+                  ⏳ {sw ? 'Ruhusu leo tu' : 'Allow for today only'}
                 </button>
                 <button type="button"
                   onClick={() => familyId && answerKnock(familyId, kidId, e.id, false)}
-                  className="flex-1 rounded-xl py-2 text-[12.5px] font-extrabold bg-white border-2 border-[#5A3CB8] text-[#5A3CB8]">
-                  {sw ? 'Bado' : 'Not yet'}
+                  className="rounded-xl py-2 text-[12.5px] font-extrabold bg-white border-2 border-[#5A3CB8] text-[#5A3CB8]">
+                  🔒 {sw ? 'Bado — ibaki yangu' : 'Not now — keep it mine'}
                 </button>
               </div>
             </div>
@@ -310,7 +340,8 @@ export default function DiaryPage() {
       ) : (
         <div className="space-y-2.5 mb-3">
           {todays.slice().reverse().map((e) => <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
-            onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+            onKnock={isParent && familyId ? () => { setKnockNote(''); setKnockFor({ id: e.id, date: e.date }); } : undefined}
+            onNudge={isParent && familyId ? () => { void nudgeKnock(familyId, kidId, e.id); } : undefined}
                     onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
             onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
             onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />)}
@@ -605,7 +636,8 @@ export default function DiaryPage() {
                 <div className="space-y-2">
                   {dayEntries.slice().reverse().map((e) => (
                     <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
-                    onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                    onKnock={isParent && familyId ? () => { setKnockNote(''); setKnockFor({ id: e.id, date: e.date }); } : undefined}
+                    onNudge={isParent && familyId ? () => { void nudgeKnock(familyId, kidId, e.id); } : undefined}
                     onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
                     onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
                       onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
@@ -628,7 +660,8 @@ export default function DiaryPage() {
             <div className="p-4 space-y-2.5">
               {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (
                 <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
-                  onKnock={isParent && familyId ? () => knockOnPage(familyId, kidId, e.id) : undefined}
+                  onKnock={isParent && familyId ? () => { setKnockNote(''); setKnockFor({ id: e.id, date: e.date }); } : undefined}
+                  onNudge={isParent && familyId ? () => { void nudgeKnock(familyId, kidId, e.id); } : undefined}
                     onSetFeeling={isOwnerKid && familyId ? (f) => setEntryFeeling(familyId, kidId, e.id, f) : undefined}
                   onQuietOpen={isParent ? () => setQuietFor(e) : undefined}
                   onToggleLock={isOwnerKid && familyId ? (next) => (next ? withPin(() => setDiaryEntryLock(familyId, kidId, e.id, true)) : setDiaryEntryLock(familyId, kidId, e.id, false)) : undefined} />
@@ -655,6 +688,39 @@ export default function DiaryPage() {
       )}
 
       {/* Slice 8d · parent quiet-open flow (pause → PIN → maybe reason). */}
+      {/* Slice 8k · 💬 knock with a note — kids allow far more readily
+          when they know why. Note is optional, 120 chars. */}
+      {knockFor && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-3xl bg-[#FDF3F9] border border-[#EBC2DC] p-5">
+            <div className="font-display font-extrabold text-[15px] text-[#7A2E5C]">
+              🚪 {sw ? `Bisha hodi · ukurasa wa ${toDisplayDate(knockFor.date)}` : `Knock · ${toDisplayDate(knockFor.date)} page`}
+            </div>
+            <p className="text-[12px] text-[#5c2547] mt-1 leading-snug">
+              {sw ? `Ongeza ujumbe mfupi ili ${kidName.split(' ')[0]} ajue kwa nini 💛` : `Add a little note so ${kidName.split(' ')[0]} knows why 💛`}
+              {' '}<span className="text-[#5A6488]">({sw ? 'hiari' : 'optional'})</span>
+            </p>
+            <input
+              type="text" value={knockNote} maxLength={120}
+              onChange={(ev) => setKnockNote(ev.target.value)}
+              placeholder={sw ? 'Bibi aliuliza kuhusu shairi lako 💛' : 'Grandma asked about your poem 💛'}
+              className="w-full mt-2.5 rounded-xl border border-[#EBC2DC] bg-white px-3 py-2.5 text-[13px] focus:outline-none focus:ring-2 focus:ring-[#C05299]/40"
+            />
+            <div className="flex gap-2 mt-3">
+              <button type="button"
+                onClick={() => { if (familyId) void knockOnPage(familyId, kidId, knockFor.id, knockNote); setKnockFor(null); }}
+                className="flex-1 rounded-xl py-2.5 text-[13px] font-nunito font-black text-white" style={{ background: '#7A2E5C' }}>
+                🚪 {sw ? 'Bisha hodi' : 'Knock'}
+              </button>
+              <button type="button" onClick={() => setKnockFor(null)}
+                className="rounded-xl px-4 py-2.5 text-[13px] font-nunito font-extrabold bg-white border border-[#EBC2DC] text-[#5A6488]">
+                {sw ? 'Ghairi' : 'Cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {quietFor && (
         <QuietOpenModal
           entry={quietFor}

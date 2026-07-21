@@ -17,7 +17,7 @@
 // Storage: /families/{familyId}/sparks_diary/{entryId}.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
+import { getAdminMessaging, getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { dayKeyInTZ } from '@/lib/dates';
 import Anthropic from '@anthropic-ai/sdk';
@@ -72,7 +72,7 @@ async function inferFeeling(text: string): Promise<string> {
 type Action = 'list' | 'save' | 'lock' | 'delete'
   | 'privacy-get' | 'pin-set' | 'pin-reset' | 'quota-set'
   | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set' | 'feeling-set'
-  | 'word-jar-add';
+  | 'word-jar-add' | 'knock-seen' | 'knock-nudge' | 'knocks-pending';
 
 const FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'];
 
@@ -109,10 +109,10 @@ export async function POST(req: NextRequest) {
     feeling?: string; blocks?: BlockIn[]; locked?: boolean;
     linked_reflection_date?: string; max?: number;
     pin?: string; quota?: number; allow?: boolean; reason?: string;
-    visibility?: string; sealed_until?: string; polished?: string; page_style?: string;
+    visibility?: string; sealed_until?: string; polished?: string; page_style?: string; note?: string; mode?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set', 'word-jar-add'];
+  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set', 'word-jar-add', 'knock-seen', 'knock-nudge', 'knocks-pending'];
   const action: Action = ALL_ACTIONS.includes(body.action as Action)
     ? (body.action as Action) : 'list';
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId : '';
@@ -194,6 +194,23 @@ export async function POST(req: NextRequest) {
       .map((u) => ({ uid: u.id, name: (u.data().displayName as string | undefined) || 'Parent' }));
   };
 
+  // Slice 8k · web-push companion to the bell (mirrors /api/push: read
+  // the user's fcmTokens, multicast a data payload, prune dead tokens).
+  // Best-effort — missing creds/tokens are silent no-ops.
+  const pushUser = async (forUserId: string, title: string, message: string) => {
+    try {
+      const messaging = getAdminMessaging();
+      if (!messaging) return;
+      const toks = await db.collection('users').doc(forUserId).collection('fcmTokens').get();
+      const tokens = toks.docs.map((t) => t.id);
+      if (tokens.length === 0) return;
+      await messaging.sendEachForMulticast({
+        tokens,
+        data: { title, body: message.slice(0, 160), url: `/sparks/${ownerId}/diary`, tag: 'sparks-diary-knock' },
+      });
+    } catch { /* best-effort */ }
+  };
+
   const notifyUser = async (forUserId: string, title: string, message: string) => {
     await db.collection('families').doc(familyId).collection('notifications').add({
       type: 'sparks-diary',
@@ -270,11 +287,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'not-found' }, { status: 404 });
     }
     const me = (await familyParents()).find((pp) => pp.uid === uid);
+    // Slice 8k · optional one-line note ("Grandma asked about your poem 💛")
+    // — kids allow far more readily when they know why. `at` is ms so the
+    // waiting-hours counter + nudge threshold need no Timestamp gymnastics.
+    const note = String(body.note ?? '').trim().slice(0, 120);
     await col.doc(entryId).update({
-      knock: { byUid: uid, byName: me?.name || 'Parent', status: 'pending', at: FieldValue.serverTimestamp() },
+      knock: {
+        byUid: uid, byName: me?.name || 'Parent', status: 'pending',
+        at: Date.now(), ...(note ? { note } : {}),
+      },
     });
     const d = (eSnap.data() as { date?: string }).date || '';
-    await notifyUser(ownerId, '🚪 Knock knock…', `${me?.name || 'A parent'} would like to read your ${d} page. Open your diary to answer.`);
+    const kmsg = `${me?.name || 'A parent'} would like to read your ${d} page.${note ? ` "${note}"` : ''} Open your diary to answer.`;
+    await notifyUser(ownerId, '🚪 Knock knock…', kmsg);
+    await pushUser(ownerId, '🚪 Knock knock…', kmsg);
     return NextResponse.json({ ok: true });
   }
 
@@ -287,16 +313,98 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'not-found' }, { status: 404 });
     }
     const allow = body.allow === true;
+    // Slice 8k · graded trust — 'today' opens until midnight (local day
+    // key), then the page locks itself again; 'always' is the classic
+    // permanent open. The expiry is honest: it lands in the ledger.
+    const mode = body.mode === 'today' ? 'today' : 'always';
     await col.doc(entryId).update({
       'knock.status': allow ? 'allowed' : 'denied',
-      ...(allow ? { knock_open: true } : {}),
+      'knock.answeredAt': Date.now(),
+      ...(allow ? (mode === 'today' ? { knock_open_until: today } : { knock_open: true }) : {}),
     });
+    if (allow && mode === 'today') {
+      const kidDoc = await db.collection('families').doc(familyId).collection('children').doc(ownerId).get();
+      const kidName = ((kidDoc.data() as { name?: string } | undefined)?.name) || 'Kid';
+      await privRef.set({
+        ledger: FieldValue.arrayUnion({
+          by: uid, byName: `${kidName} · allowed for today`,
+          on: today, entryDate: eData.date || '', overQuota: false, at: Date.now(),
+        }),
+      }, { merge: true });
+    }
     if (eData.knock.byUid) {
-      await notifyUser(eData.knock.byUid,
-        allow ? '💛 Knock allowed' : '🚪 Not yet',
-        allow ? `Your knock on the ${eData.date} page was allowed.` : `The ${eData.date} page stays closed for now — that's okay.`);
+      const t = allow ? (mode === 'today' ? '⏳ Open for today' : '💛 Knock allowed') : '🚪 Not yet';
+      const m = allow
+        ? (mode === 'today'
+          ? `The ${eData.date} page is open for you until midnight — then it locks itself again.`
+          : `Your knock on the ${eData.date} page was allowed.`)
+        : `The ${eData.date} page stays closed for now — that's okay.`;
+      await notifyUser(eData.knock.byUid, t, m);
+      await pushUser(eData.knock.byUid, t, m);
     }
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'knock-seen') {
+    // Slice 8k · 👀 the receipt — stamped when the knock banner actually
+    // renders on the kid's screen. Disclosed in the kid guide note (no
+    // secret surveillance). Bell-only to the parent — no push buzz.
+    if (!isOwner || !ownerIsKid) return NextResponse.json({ error: 'kid-only' }, { status: 403 });
+    const entryId = String(body.entryId ?? '');
+    const eSnap = await col.doc(entryId).get();
+    const eData = eSnap.data() as { ownerId?: string; date?: string; knock?: { byUid?: string; status?: string; seenAt?: number } } | undefined;
+    if (!eSnap.exists || eData?.ownerId !== ownerId || eData?.knock?.status !== 'pending') {
+      return NextResponse.json({ ok: true, skipped: true });
+    }
+    if (eData.knock.seenAt) return NextResponse.json({ ok: true, already: true });
+    await col.doc(entryId).update({ 'knock.seenAt': Date.now() });
+    if (eData.knock.byUid) {
+      await notifyUser(eData.knock.byUid, '👀 Knock seen', `Your knock on the ${eData.date} page has been seen.`);
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'knock-nudge') {
+    // Slice 8k · 👋 one warm reminder — only after 24h waiting, max one
+    // per day. Never auto-opens anything; the knock stays the ask.
+    if (!isParent || !ownerIsKid) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    const entryId = String(body.entryId ?? '');
+    const eSnap = await col.doc(entryId).get();
+    const eData = eSnap.data() as { ownerId?: string; date?: string; knock?: { byUid?: string; byName?: string; status?: string; at?: number; nudgedAt?: number; note?: string } } | undefined;
+    if (!eSnap.exists || eData?.ownerId !== ownerId || eData?.knock?.status !== 'pending') {
+      return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    }
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    if (!eData.knock.at || now - eData.knock.at < DAY) {
+      return NextResponse.json({ error: 'too-soon' }, { status: 428 });
+    }
+    if (eData.knock.nudgedAt && now - eData.knock.nudgedAt < DAY) {
+      return NextResponse.json({ error: 'nudged-today' }, { status: 428 });
+    }
+    await col.doc(entryId).update({ 'knock.nudgedAt': now });
+    const nmsg = `${eData.knock.byName || 'A parent'} is still hoping to read your ${eData.date} page — no rush, answer when you're ready 💛`;
+    await notifyUser(ownerId, '👋 Gentle nudge', nmsg);
+    await pushUser(ownerId, '👋 Gentle nudge', nmsg);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'knocks-pending') {
+    // Slice 8k · the kid's open knocks — feeds the My Day todo card.
+    // Meta only (who/date/note/waiting) — never page content.
+    if (!isOwner || !ownerIsKid) return NextResponse.json({ knocks: [] });
+    const snap = await col.where('ownerId', '==', ownerId).get();
+    const knocks = snap.docs
+      .map((doc) => ({ id: doc.id, ...(doc.data() as { date?: string; knock?: { byName?: string; status?: string; at?: number; note?: string; seenAt?: number } }) }))
+      .filter((r) => r.knock?.status === 'pending')
+      .map((r) => ({
+        entryId: r.id, date: r.date || '',
+        byName: r.knock?.byName || 'Parent',
+        note: r.knock?.note || '',
+        at: r.knock?.at ?? null,
+      }))
+      .sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+    return NextResponse.json({ knocks });
   }
 
   if (action === 'quiet-open') {
@@ -380,7 +488,11 @@ export async function POST(req: NextRequest) {
             redacted: true, blocks: [],
           };
         }
-        if (parentReadingKid && r.locked === true && (r as { knock_open?: boolean }).knock_open !== true) {
+        // Slice 8k · ⏳ a today-only allow opens the page for THIS local
+        // day only; past midnight the date no longer matches and the
+        // page redacts itself again — no cron needed.
+        const openToday = (r as { knock_open_until?: string }).knock_open_until === today;
+        if (parentReadingKid && r.locked === true && (r as { knock_open?: boolean }).knock_open !== true && !openToday) {
           // Redact: content gone, meta survives. Slice 8d adds the
           // knock / quiet-open doors that lift this.
           return {
@@ -389,6 +501,10 @@ export async function POST(req: NextRequest) {
             feeling_ai_guessed: (r as { feeling_ai_guessed?: boolean }).feeling_ai_guessed === true,
             page_style: (r as { page_style?: string }).page_style,
             locked: true, redacted: true, blocks: [],
+            // Slice 8k · knock meta survives redaction — the parent's
+            // status chips (sent / 👀 seen / ⏳ waiting / 👋 nudge) need
+            // it, and it never contains page content.
+            ...((r as { knock?: unknown }).knock ? { knock: (r as { knock?: unknown }).knock } : {}),
           };
         }
         return r;
