@@ -28,6 +28,7 @@ import {
   maybeAwardStreakMilestone, type StreakAwardResult,
   approveStreakReward, dismissStreakReward,
   subscribeToWeeklyReviews,
+  retakeReflectionScan,
 } from '@/lib/sparks/reflection';
 import type { ReflectionWeekReview, ReflectionStreakPending } from '@/lib/sparks/schema';
 import type { DayOfWeek } from '@/lib/firestore';
@@ -72,6 +73,15 @@ export default function ReflectionPage() {
   // Draft state
   const [draft, setDraft] = useState('');
   const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
+  // Slice 8j · 📷 Retake — camera open + the keep-text/re-read choice
+  // holding the freshly-uploaded page URL until the kid decides.
+  const [retakeOpen, setRetakeOpen] = useState(false);
+  const [retakeChoice, setRetakeChoice] = useState<{ url: string; file: File } | null>(null);
+  const [retakeBusy, setRetakeBusy] = useState(false);
+  // Slice 8j · 📬 what-came-back seen marker (per kid, this device).
+  const [seenRatings, setSeenRatings] = useState<Record<string, boolean>>(() => {
+    try { return JSON.parse(localStorage.getItem(`kaya_refl_seen_${kidId}`) || '{}'); } catch { return {}; }
+  });
   const [scanUrl, setScanUrl] = useState<string | undefined>();
   const [source, setSource] = useState<'scan' | 'typed'>('scan');
   const [mode, setMode] = useState<'idle' | 'scanning' | 'review'>('idle');
@@ -141,6 +151,20 @@ export default function ReflectionPage() {
   }, [scoreDate, todayEntry, recent]);
 
   const isParent = authProfile?.role === 'parent';
+
+  // Slice 8j · 📬 opener sequence — the loop closes before the camera.
+  const lastEntry = useMemo(() => recent.find((r) => r.date !== today) ?? null, [recent, today]);
+  const cameBack = useMemo(() => {
+    if (todayEntry || isParent) return null;
+    return recent.find((r) => r.date !== today && r.parent_rating && !seenRatings[r.date]) ?? null;
+  }, [recent, today, todayEntry, isParent, seenRatings]);
+  const markRatingSeen = (date: string) => {
+    setSeenRatings((prev) => {
+      const next = { ...prev, [date]: true };
+      try { localStorage.setItem(`kaya_refl_seen_${kidId}`, JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  };
   const canWrite = !isParent || authProfile?.role === 'parent'; // kid (own) or parent
 
   // ── Scan flow ──
@@ -173,6 +197,75 @@ export default function ReflectionPage() {
       setErr((e2 as Error).message || 'Scan failed');
       setMode('idle');
     }
+  };
+
+  // ── Slice 8j · Retake flow ──
+  // New photo uploads first (unique storage id — the old page's URL keeps
+  // working inside the trail), then the kid picks: keep the words, or let
+  // Kaya re-read the fresh page.
+  const processRetakeFile = async (file: File) => {
+    if (!file || !familyId) return;
+    setErr(''); setRetakeBusy(true);
+    try {
+      const up = await uploadSparksPhoto(familyId, `reflection_${kidId}_${today}`, file);
+      setRetakeChoice({ url: up.fullUrl, file });
+    } catch (e2) {
+      setErr((e2 as Error).message || 'Upload failed');
+    } finally { setRetakeBusy(false); }
+  };
+
+  const finishRetake = async (reread: boolean) => {
+    if (!retakeChoice || !familyId) return;
+    setRetakeBusy(true); setErr('');
+    try {
+      let newText = '';
+      if (reread) {
+        const { b64, mime } = await fileToBase64(retakeChoice.file);
+        const res = await fetch('/api/sparks/ai/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: b64, mediaType: mime, kind: 'reflection' }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!data?.skipped) newText = (data?.text as string || '').trim();
+      }
+      const r = await retakeReflectionScan(familyId, {
+        kidId, date: today, scanUrl: retakeChoice.url,
+        ...(newText ? { text: newText } : {}),
+      });
+      if (r.error === 'rated-locked') {
+        setErr(sw ? 'Imeshapimwa — kesho ni ukurasa mpya 💛' : 'Reviewed already — tomorrow is a fresh page 💛');
+      } else if (r.error) {
+        setErr(r.error);
+      } else if (newText) {
+        // Fresh words → refresh Kaya's read + score (best-effort, parallel).
+        void (async () => {
+          try {
+            const res = await fetch('/api/sparks/ai/reflection-read', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: newText, firstName: kidName.split(' ')[0] }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data && !data.skipped && !data.error && data.mood_emoji) {
+              await saveReflectionAIRead(familyId, kidId, today, data as ReflectionAIRead);
+            }
+          } catch { /* best-effort */ }
+        })();
+        void (async () => {
+          try {
+            const res = await fetch('/api/sparks/ai/reflection-score', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ text: newText }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (data && !data.skipped && typeof data.soundness === 'number') {
+              await saveReflectionAIScore(familyId, kidId, today, data as ReflectionAIScore);
+            }
+          } catch { /* best-effort */ }
+        })();
+      }
+      setRetakeChoice(null);
+    } finally { setRetakeBusy(false); }
   };
 
   // ── Save + request feedback ──
@@ -420,6 +513,37 @@ export default function ReflectionPage() {
               </div>
             </button>
           )}
+
+          {/* Slice 8j · 📷 Retake — swap a not-so-great scan. Kid freezes
+              once a parent rated (the grade refers to THAT page); parents
+              can always retake. Earlier pages stay in the 👁 trail. */}
+          {todayEntry.source === 'scan' && todayEntry.scanUrl && (
+            <div className="flex items-center gap-2 flex-wrap">
+              {(isParent || !todayEntry.parent_rating) ? (
+                <button type="button" onClick={() => setRetakeOpen(true)} disabled={retakeBusy}
+                  className="px-3.5 py-2 rounded-xl bg-white border border-[#ECE4D3] text-[#5A6488] font-nunito font-extrabold text-[12px] disabled:opacity-50">
+                  📷 {retakeBusy ? (sw ? 'Inapakia…' : 'Uploading…') : (sw ? 'Piga picha upya' : 'Retake photo')}
+                </button>
+              ) : (
+                <span className="text-[10.5px] font-extrabold px-2.5 py-1.5 rounded-full bg-[#EFEAF9] text-[#4a3d78]">
+                  📷 {sw ? 'Imeshapimwa — kesho ni ukurasa mpya 💛' : 'Retake off — reviewed already'}
+                </span>
+              )}
+              {(todayEntry.retakes?.length ?? 0) > 0 && (
+                <button type="button"
+                  onClick={() => setScanGallery({
+                    urls: [...(todayEntry.retakes ?? []).map((r) => r.scanUrl), todayEntry.scanUrl as string],
+                    index: 0,
+                    caption: sw ? 'Kurasa za awali → ya sasa' : 'Earlier pages → current',
+                  })}
+                  className="text-[10.5px] font-extrabold text-[#5A6488] underline underline-offset-2">
+                  👁 {sw
+                    ? `Matoleo ya awali · ${todayEntry.retakes?.length}`
+                    : `${todayEntry.retakes?.length} earlier version${(todayEntry.retakes?.length ?? 0) > 1 ? 's' : ''}`}
+                </button>
+              )}
+            </div>
+          )}
           <div className="rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">
             {todayEntry.polished
               ? <PolishedText polished={todayEntry.polished} original={todayEntry.text} sw={sw} />
@@ -579,8 +703,51 @@ export default function ReflectionPage() {
           </div>
         </div>
       ) : (
-        // ── Empty today → scan-first capture ──
+        // ── Empty today → 📬 what came back → last recap → scan CTA ──
         <div className="space-y-3">
+          {/* Slice 8j · 📬 What came back — unseen parent feedback leads.
+              Stays until the kid opens it (like unread mail). */}
+          {cameBack && cameBack.parent_rating && (
+            <button type="button"
+              onClick={() => { markRatingSeen(cameBack.date); setScoreDate(cameBack.date); }}
+              className="w-full text-left rounded-2xl border-2 border-[#D4A847] bg-[#FFFAEB] px-4 py-3">
+              <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#8A6800]">
+                📬 {sw ? 'Kilichorudi' : 'What came back'}
+              </div>
+              <div className="font-nunito font-black text-[15px] text-[#0F1F44] mt-0.5">
+                {typeof cameBack.parent_rating.stars === 'number' ? `${'⭐'.repeat(cameBack.parent_rating.stars)} ` : '⭐ '}
+                {sw
+                  ? `kutoka kwa ${cameBack.parent_rating.ratedByName}${cameBack.parent_rating.notes ? ' + ujumbe!' : '!'}`
+                  : `from ${cameBack.parent_rating.ratedByName}${cameBack.parent_rating.notes ? ' + a note!' : '!'}`}
+              </div>
+              {cameBack.parent_rating.notes && (
+                <div className="text-[12.5px] text-[#0F1F44] mt-1 leading-snug">&ldquo;{cameBack.parent_rating.notes.slice(0, 140)}&rdquo;</div>
+              )}
+              <div className="text-[10.5px] text-[#8A6800] font-bold mt-1.5">
+                {sw ? `kwenye tafakari yako ya ${toDisplayDate(cameBack.date)} · bonyeza kufungua` : `on your ${toDisplayDate(cameBack.date)} reflection · tap to open`}
+              </div>
+            </button>
+          )}
+
+          {/* Slice 8j · 🪞 last-reflection recap — continuity before the camera. */}
+          {lastEntry && (
+            <button type="button" onClick={() => setScoreDate(lastEntry.date)}
+              className="w-full text-left rounded-2xl border border-[#ECE4D3] bg-white px-4 py-3">
+              <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#5A6488]">
+                🪞 {sw ? `Tafakari yako ya mwisho · ${toDisplayDate(lastEntry.date)}` : `Your last reflection · ${toDisplayDate(lastEntry.date)}`}
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-[20px]" aria-hidden>{lastEntry.ai_read?.mood_emoji ?? '🪞'}</span>
+                <div className="text-[12px] text-[#5A6488] leading-snug">
+                  &ldquo;{lastEntry.text.slice(0, 90)}{lastEntry.text.length > 90 ? '…' : ''}&rdquo;
+                  {typeof lastEntry.ai_score?.soundness === 'number' && <> · 🤖 {lastEntry.ai_score.soundness}%</>}
+                  {typeof lastEntry.parent_rating?.stars === 'number' && <> · {'⭐'.repeat(lastEntry.parent_rating.stars)}</>}
+                </div>
+              </div>
+              <div className="text-[10.5px] text-[#5A6488] font-bold mt-1">{sw ? 'bonyeza kuisoma yote ↓' : 'tap to read it in full ↓'}</div>
+            </button>
+          )}
+
           <div className="flex items-center justify-between">
             <div className="font-nunito font-black text-[15px] text-[#0F1F44]">{toDisplayDate(today)}</div>
             {streak.current > 0 && (
@@ -624,6 +791,37 @@ export default function ReflectionPage() {
       {/* Scan camera — AI auto-frame · crop · enhance · multi-page (the same
           imaging Sparks captures + Business Projects use). Confirmed page is
           enhanced; OCR + draft happen in processScanFile. */}
+      {/* Slice 8j · Retake camera + the keep-text / re-read choice. */}
+      <CameraCaptureSheet
+        open={retakeOpen}
+        mode="scan"
+        contentTight
+        onClose={() => setRetakeOpen(false)}
+        onConfirm={(files) => { if (files[0]) return processRetakeFile(files[0]); }}
+      />
+      {retakeChoice && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+          <div className="w-full max-w-sm rounded-3xl bg-[#EFE7FF] border border-[#cdbdf0] p-5">
+            <div className="font-display font-extrabold text-[15px] text-[#1B1547]">
+              {sw ? 'Ukurasa mpya umehifadhiwa ✔' : 'New page saved ✔'}
+            </div>
+            <p className="text-[12.5px] text-[#2c2056] mt-1 leading-snug">
+              {sw ? 'Maneno je?' : 'What about the words?'}
+            </p>
+            <div className="flex flex-col gap-2 mt-3">
+              <button type="button" onClick={() => finishRetake(true)} disabled={retakeBusy}
+                className="rounded-xl py-2.5 text-[13px] font-nunito font-black text-white disabled:opacity-50" style={{ background: VIOLET }}>
+                📖 {retakeBusy ? (sw ? 'Kaya inasoma…' : 'Kaya is reading…') : (sw ? 'Kaya aisome upya' : 'Kaya re-reads it')}
+              </button>
+              <button type="button" onClick={() => finishRetake(false)} disabled={retakeBusy}
+                className="rounded-xl py-2.5 text-[13px] font-nunito font-extrabold bg-white border border-[#ECE4D3] text-[#5A6488] disabled:opacity-50">
+                ✍️ {sw ? 'Baki na maneno yangu' : 'Keep my text'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <CameraCaptureSheet
         open={scanOpen}
         mode="scan"

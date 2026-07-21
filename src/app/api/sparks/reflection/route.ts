@@ -32,7 +32,7 @@ export const dynamic = 'force-dynamic';
 // (matches Kaya Pulse's daily generators). Reflections are day-granular.
 const TZ = 'Africa/Dar_es_Salaam';
 
-type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating' | 'aiscore' | 'refl-visibility-set';
+type Action = 'get' | 'list' | 'save' | 'airead' | 'feedback' | 'rating' | 'aiscore' | 'refl-visibility-set' | 'retake';
 
 /** Whole-day difference between two YYYY-MM-DD keys (a - b). */
 function dayDiff(a: string, b: string): number {
@@ -77,7 +77,7 @@ export async function POST(req: NextRequest) {
     };
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating', 'aiscore', 'refl-visibility-set'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
+  const action: Action = (['get', 'list', 'save', 'airead', 'feedback', 'rating', 'aiscore', 'refl-visibility-set', 'retake'] as const).includes(body.action as Action) ? (body.action as Action) : 'get';
   const kidId = typeof body.kidId === 'string' ? body.kidId : '';
   if (!kidId) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
 
@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
   const col = db.collection('families').doc(familyId).collection('sparks_reflections');
 
   // ── Writes (parent or owner kid; rating is parent-only) ────────────────
-  if (action === 'save' || action === 'airead' || action === 'feedback' || action === 'rating' || action === 'aiscore') {
+  if (action === 'save' || action === 'airead' || action === 'feedback' || action === 'rating' || action === 'aiscore' || action === 'retake') {
     // Slice 8e · a parent-owned reflection is a single-user surface:
     // only that parent writes it; nobody rates it.
     const preOwnerUser = (await db.collection('users').doc(kidId).get()).data() as
@@ -131,6 +131,35 @@ export async function POST(req: NextRequest) {
     }
 
     const ref = col.doc(`${kidId}_${date}`);
+
+    if (action === 'retake') {
+      // Slice 8j · 📷 swap today's scan for a better photo. The old scan
+      // moves into the `retakes` honesty trail (visible to kid + parent —
+      // a retake can never hide a page a parent already saw). A kid is
+      // frozen out once a parent rated: the grade refers to THAT page.
+      const snap = await ref.get();
+      const cur = snap.data() as {
+        scanUrl?: string; parent_rating?: unknown;
+        retakes?: Array<{ scanUrl: string; at: number }>;
+      } | undefined;
+      if (!snap.exists || !cur) return NextResponse.json({ error: 'not-found' }, { status: 404 });
+      if (!isParent && cur.parent_rating) {
+        return NextResponse.json({ error: 'rated-locked' }, { status: 403 });
+      }
+      const newUrl = String(body.scanUrl ?? '').slice(0, 2048);
+      if (!newUrl.startsWith('https://')) return NextResponse.json({ error: 'bad-scan-url' }, { status: 400 });
+      const trail = Array.isArray(cur.retakes) ? cur.retakes : [];
+      const newText = typeof body.text === 'string' ? body.text.trim().slice(0, 8000) : '';
+      await ref.set({
+        scanUrl: newUrl,
+        source: 'scan',
+        ...(cur.scanUrl ? { retakes: [...trail, { scanUrl: cur.scanUrl, at: Date.now() }].slice(-6) } : {}),
+        // Kaya re-read the new page → fresh words, stale polish cleared.
+        ...(newText ? { text: newText, polished: FieldValue.delete() } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      return NextResponse.json({ ok: true });
+    }
 
     if (action === 'feedback') {
       const fb = body.feedback && typeof body.feedback === 'object' ? body.feedback : null;

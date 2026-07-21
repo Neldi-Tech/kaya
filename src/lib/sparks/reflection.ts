@@ -102,6 +102,9 @@ export interface ReflectionEntry {
   /** Slice 8h · ✨ AI-polished markdown-lite version; displays instead
    *  of `text` with a ↺ view-original flip. Original text always kept. */
   polished?: string;
+  /** Slice 8j · 📷 earlier scans kept when the page is retaken — the
+   *  honesty trail (a retake can never hide a page a parent saw). */
+  retakes?: Array<{ scanUrl: string; at: number }>;
   createdAt: Timestamp;
   createdBy: string;            // uid (kid or parent)
   updatedAt: Timestamp;
@@ -268,6 +271,28 @@ export async function saveReflection(
     ...(args.polished ? { polished: args.polished } : {}),
   });
   pingReflection(familyId, args.kidId);
+}
+
+/** Slice 8j · 📷 Retake today's scan. The server moves the current
+ *  scanUrl into the `retakes` trail and installs the new page; pass
+ *  `text` when Kaya re-read the new page (clears any stale polish).
+ *  Kids are blocked once a parent has rated (the grade refers to the
+ *  old page); parents may always retake. */
+export async function retakeReflectionScan(
+  familyId: string,
+  args: { kidId: string; date: string; scanUrl: string; text?: string },
+): Promise<{ ok?: boolean; error?: string }> {
+  if (isGuestActive()) return { error: 'guest' };
+  try {
+    const r = await reflectionApi<{ ok?: boolean; error?: string }>('retake', {
+      kidId: args.kidId, date: args.date, scanUrl: args.scanUrl,
+      ...(typeof args.text === 'string' && args.text.trim() ? { text: args.text.trim() } : {}),
+    });
+    pingReflection(familyId, args.kidId);
+    return r ?? { ok: true };
+  } catch (e) {
+    return { error: (e as Error).message || 'retake-failed' };
+  }
 }
 
 /** Slice 7p · Attach Kaya's post-scan AI read to a saved reflection. */
