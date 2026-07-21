@@ -145,6 +145,9 @@ export default function SparksSetupPage() {
                   kid={activeKid}
                   uid={profile.uid}
                 />
+                <DiaryPrivacyCard
+                  kid={activeKid}
+                />
               </div>
             )}
           </>
@@ -1262,5 +1265,113 @@ function ToggleKnob({
         <div className="text-[11px] text-[#5A6488] mt-0.5 leading-snug">{hint}</div>
       </div>
     </label>
+  );
+}
+
+
+// ────────────────────────────────────────────────────────────────────
+// Slice 8d · Diary privacy — the parent's oversight card. PIN is
+// visible BY DESIGN (disclosed to the kid at setup: "your parents can
+// always see your PIN"). Quota is each parent's self-set quiet-open
+// leash; the ledger keeps adult-to-adult accountability.
+// All data flows through the Admin gateway — nothing here touches
+// Firestore directly.
+
+function DiaryPrivacyCard({ kid }: { kid: Child }) {
+  const [view, setView] = useState<import('@/lib/sparks/diary').DiaryPrivacyParentView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [showLedger, setShowLedger] = useState(false);
+
+  const load = () => {
+    import('@/lib/sparks/diary').then(({ getDiaryPrivacy }) =>
+      getDiaryPrivacy(kid.id).then(setView).catch(() => setView(null)));
+  };
+  useEffect(load, [kid.id]);
+
+  const resetPin = async () => {
+    if (!window.confirm(`Reset ${kid.name.split(' ')[0]}'s Diary PIN? They'll be asked to set a new one and get a notification.`)) return;
+    setBusy(true);
+    try { const { resetDiaryPin } = await import('@/lib/sparks/diary'); await resetDiaryPin(kid.id); load(); }
+    finally { setBusy(false); }
+  };
+  const saveQuota = async (q: number) => {
+    setBusy(true);
+    try { const { setDiaryQuota } = await import('@/lib/sparks/diary'); await setDiaryQuota(kid.id, q); load(); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-white border border-[rgba(15,31,68,0.08)] rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <span className="text-xl" aria-hidden>📔</span>
+        <div className="font-display font-extrabold text-[14.5px] text-[#0F1F44]">
+          Diary privacy · {kid.name}
+        </div>
+      </div>
+      <p className="text-[12.5px] text-[#5A6488] m-0 mt-1 mb-4">
+        Locked pages are normal and healthy. Knock first — quiet opens are for genuine worry, and every one is logged here.
+      </p>
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5 mb-2">
+        <div>
+          <div className="font-nunito font-extrabold text-[13px] text-[#0F1F44]">🔑 {kid.name.split(' ')[0]}&apos;s PIN</div>
+          <div className="text-[11px] text-[#5A6488]">Visible to parents by design — the kid knows this.</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono font-black text-[16px] tracking-[3px] text-[#7A2E5C]">
+            {view === null ? '…' : view.pin ?? '— not set —'}
+          </span>
+          {view?.pin && (
+            <button type="button" onClick={resetPin} disabled={busy}
+              className="text-[11px] font-extrabold text-[#A33A2A] underline underline-offset-2 disabled:opacity-40">
+              Reset
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5 mb-2">
+        <div>
+          <div className="font-nunito font-extrabold text-[13px] text-[#0F1F44]">🔒 My quiet-opens per month</div>
+          <div className="text-[11px] text-[#5A6488]">
+            Your self-set limit · used {view?.usedThisMonth ?? 0} of {view?.quota ?? 3} this month
+            {view && view.parentCount <= 1 ? ' · single-parent: no reason required over limit' : ''}
+          </div>
+        </div>
+        <select
+          value={view?.quota ?? 3}
+          onChange={(e) => saveQuota(Number(e.target.value))}
+          disabled={busy || view === null}
+          className="bg-white border border-[#ECE4D3] rounded px-2 py-1 text-[13px] font-extrabold text-[#0F1F44]"
+          aria-label="Quiet-open quota"
+        >
+          {Array.from({ length: 11 }, (_, n) => (
+            <option key={n} value={n}>{n === 0 ? '0 · knock-only' : n}</option>
+          ))}
+        </select>
+      </div>
+
+      <button type="button" onClick={() => setShowLedger((v) => !v)}
+        className="text-[12px] font-extrabold text-[#7A2E5C] underline underline-offset-2">
+        📜 {showLedger ? 'Hide' : 'Show'} quiet-open ledger ({view?.ledger.length ?? 0})
+      </button>
+      {showLedger && view && (
+        <div className="mt-2 border border-[#ECE4D3] rounded-xl overflow-hidden">
+          {view.ledger.length === 0 ? (
+            <div className="px-3 py-2.5 text-[12px] text-[#5A6488]">No quiet opens yet — the knock is working. 💛</div>
+          ) : view.ledger.map((row, i) => (
+            <div key={i} className={`flex items-center justify-between gap-2 px-3 py-2 text-[11.5px] ${i > 0 ? 'border-t border-[#ECE4D3]' : ''}`}>
+              <span className="font-extrabold text-[#0F1F44]">
+                {row.byName} {row.overQuota && <span className="text-[#A33A2A]">· over-quota</span>}
+              </span>
+              <span className="text-[#5A6488]">{row.on} · {row.entryDate} page{row.reason ? ` · "${row.reason}"` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[10.5px] text-[#5A6488] mt-3 leading-snug">
+        Kids never see this card. Quiet opens don&apos;t notify the kid — the capability was disclosed once, at PIN setup.
+      </p>
+    </div>
   );
 }

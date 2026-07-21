@@ -52,6 +52,11 @@ export interface DiaryEntry {
    *  for a parent viewer, blocks=[] and this is true. Date + feeling
    *  always survive redaction (the meta is never hidden). */
   redacted?: boolean;
+  /** Slice 8d · pending/answered knock on a locked page. */
+  knock?: { byUid: string; byName: string; status: 'pending' | 'allowed' | 'denied' };
+  /** Slice 8d · true once a knock was allowed — parents read the page
+   *  until the kid re-locks it (re-lock clears this server-side). */
+  knock_open?: boolean;
   /** Set when this entry was spawned from a Reflection (Slice 8e). */
   linked_reflection_date?: string;
   createdAt?: { seconds: number } | null;
@@ -205,4 +210,57 @@ export function computeDiaryStats(entries: DiaryEntry[], today: Date = new Date(
     feelingByDate,
     lockedByDate,
   };
+}
+
+
+// ── Slice 8d · privacy client helpers ───────────────────────────────
+
+export interface DiaryPrivacyParentView {
+  pin: string | null;
+  quota: number;
+  usedThisMonth: number;
+  ledger: Array<{ by: string; byName: string; on: string; entryDate: string; overQuota: boolean; reason?: string }>;
+  parentCount: number;
+}
+
+/** Parent view of a kid's privacy card (PIN visible by design). */
+export async function getDiaryPrivacy(ownerId: string): Promise<DiaryPrivacyParentView> {
+  return diaryApi<DiaryPrivacyParentView>('privacy-get', { ownerId });
+}
+
+/** Kid-side: do I have a PIN yet? */
+export async function kidHasDiaryPin(ownerId: string): Promise<boolean> {
+  const { hasPin } = await diaryApi<{ hasPin: boolean }>('privacy-get', { ownerId });
+  return !!hasPin;
+}
+
+export async function setDiaryPin(ownerId: string, pin: string): Promise<void> {
+  await diaryApi('pin-set', { ownerId, pin });
+}
+
+export async function resetDiaryPin(ownerId: string): Promise<void> {
+  await diaryApi('pin-reset', { ownerId });
+}
+
+export async function setDiaryQuota(ownerId: string, quota: number): Promise<void> {
+  await diaryApi('quota-set', { ownerId, quota });
+}
+
+export async function knockOnPage(familyId: string, ownerId: string, entryId: string): Promise<void> {
+  await diaryApi('knock', { ownerId, entryId });
+  pingDiary(familyId, ownerId);
+}
+
+export async function answerKnock(familyId: string, ownerId: string, entryId: string, allow: boolean): Promise<void> {
+  await diaryApi('knock-answer', { ownerId, entryId, allow });
+  pingDiary(familyId, ownerId);
+}
+
+/** Quiet PIN-open — returns the FULL entry once (nothing persists,
+ *  the kid is not notified). Throws 'reason-required' (multi-parent,
+ *  over quota, no reason) and 'wrong-pin'. */
+export async function quietOpenPage(
+  ownerId: string, entryId: string, pin: string, reason?: string,
+): Promise<{ entry: DiaryEntry; used: number; quota: number }> {
+  return diaryApi<{ entry: DiaryEntry; used: number; quota: number }>('quiet-open', { ownerId, entryId, pin, reason });
 }

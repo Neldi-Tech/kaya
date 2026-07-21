@@ -27,7 +27,9 @@ export const maxDuration = 30;
 
 const TZ = process.env.SPARKS_REFLECTION_TZ || 'Africa/Dar_es_Salaam';
 
-type Action = 'list' | 'save' | 'lock' | 'delete';
+type Action = 'list' | 'save' | 'lock' | 'delete'
+  | 'privacy-get' | 'pin-set' | 'pin-reset' | 'quota-set'
+  | 'knock' | 'knock-answer' | 'quiet-open';
 
 const FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'];
 
@@ -63,9 +65,11 @@ export async function POST(req: NextRequest) {
     action?: Action; ownerId?: string; entryId?: string; date?: string;
     feeling?: string; blocks?: BlockIn[]; locked?: boolean;
     linked_reflection_date?: string; max?: number;
+    pin?: string; quota?: number; allow?: boolean; reason?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const action: Action = (['list', 'save', 'lock', 'delete'] as const).includes(body.action as Action)
+  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open'];
+  const action: Action = ALL_ACTIONS.includes(body.action as Action)
     ? (body.action as Action) : 'list';
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId : '';
   if (!ownerId) return NextResponse.json({ error: 'bad-owner' }, { status: 400 });
@@ -112,6 +116,163 @@ export async function POST(req: NextRequest) {
 
   const col = db.collection('families').doc(familyId).collection('sparks_diary');
   const today = dayKeyInTZ(new Date(), TZ);
+  // Slice 8d · privacy store — Admin-only collection (no rules exist for
+  // it → default deny for every client). Holds the kid PIN, per-parent
+  // quiet-open quotas + usage, and the parents-only ledger.
+  const privRef = db.collection('families').doc(familyId)
+    .collection('sparks_diary_private').doc(ownerId);
+  const monthKey = today.slice(0, 7); // YYYY-MM
+
+  type PrivDoc = {
+    pin?: string;
+    quotas?: Record<string, number>;
+    used?: Record<string, { month: string; count: number }>;
+    ledger?: Array<Record<string, unknown>>;
+  };
+
+  const familyParents = async (): Promise<Array<{ uid: string; name: string }>> => {
+    const us = await db.collection('users').where('familyId', '==', familyId).get();
+    return us.docs
+      .filter((u) => (u.data().role || '') === 'parent')
+      .map((u) => ({ uid: u.id, name: (u.data().displayName as string | undefined) || 'Parent' }));
+  };
+
+  const notifyUser = async (forUserId: string, title: string, message: string) => {
+    await db.collection('families').doc(familyId).collection('notifications').add({
+      type: 'sparks-diary',
+      title, message: message.slice(0, 160),
+      read: false, forUserId, link: `/sparks/${ownerId}/diary`,
+      createdAt: FieldValue.serverTimestamp(),
+    }).catch(() => {});
+  };
+
+  // ── Slice 8d · privacy actions ────────────────────────────────────
+  if (action === 'privacy-get') {
+    const priv = ((await privRef.get()).data() ?? {}) as PrivDoc;
+    if (isOwner && ownerIsKid) {
+      return NextResponse.json({ hasPin: !!priv.pin });
+    }
+    if (!parentReadingKid && !(isParent && ownerIsKid)) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    const parents = await familyParents();
+    const myUsed = priv.used?.[uid];
+    return NextResponse.json({
+      pin: priv.pin ?? null,
+      quota: priv.quotas?.[uid] ?? 3,
+      usedThisMonth: myUsed && myUsed.month === monthKey ? myUsed.count : 0,
+      ledger: (priv.ledger ?? []).slice(-50).reverse(),
+      parentCount: parents.length,
+    });
+  }
+
+  if (action === 'pin-set') {
+    if (!isOwner || !ownerIsKid) return NextResponse.json({ error: 'kid-only' }, { status: 403 });
+    const pin = String(body.pin ?? '');
+    if (!/^\d{4}$/.test(pin)) return NextResponse.json({ error: 'pin-4-digits' }, { status: 400 });
+    await privRef.set({ pin }, { merge: true });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'pin-reset') {
+    if (!isParent || !ownerIsKid) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    await privRef.set({ pin: FieldValue.delete() }, { merge: true });
+    await notifyUser(ownerId, '🔑 Your Diary PIN was reset', 'A parent reset your PIN — set a fresh one next time you lock a page.');
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'quota-set') {
+    if (!isParent || !ownerIsKid) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    const quota = Math.max(0, Math.min(10, Math.round(Number(body.quota ?? 3))));
+    await privRef.set({ quotas: { [uid]: quota } }, { merge: true });
+    return NextResponse.json({ ok: true, quota });
+  }
+
+  if (action === 'knock') {
+    if (!isParent || !ownerIsKid) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    const entryId = String(body.entryId ?? '');
+    const eSnap = await col.doc(entryId).get();
+    if (!eSnap.exists || (eSnap.data() as { ownerId?: string }).ownerId !== ownerId) {
+      return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    }
+    const me = (await familyParents()).find((pp) => pp.uid === uid);
+    await col.doc(entryId).update({
+      knock: { byUid: uid, byName: me?.name || 'Parent', status: 'pending', at: FieldValue.serverTimestamp() },
+    });
+    const d = (eSnap.data() as { date?: string }).date || '';
+    await notifyUser(ownerId, '🚪 Knock knock…', `${me?.name || 'A parent'} would like to read your ${d} page. Open your diary to answer.`);
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'knock-answer') {
+    if (!isOwner || !ownerIsKid) return NextResponse.json({ error: 'kid-only' }, { status: 403 });
+    const entryId = String(body.entryId ?? '');
+    const eSnap = await col.doc(entryId).get();
+    const eData = eSnap.data() as { ownerId?: string; date?: string; knock?: { byUid?: string; byName?: string } } | undefined;
+    if (!eSnap.exists || eData?.ownerId !== ownerId || !eData?.knock) {
+      return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    }
+    const allow = body.allow === true;
+    await col.doc(entryId).update({
+      'knock.status': allow ? 'allowed' : 'denied',
+      ...(allow ? { knock_open: true } : {}),
+    });
+    if (eData.knock.byUid) {
+      await notifyUser(eData.knock.byUid,
+        allow ? '💛 Knock allowed' : '🚪 Not yet',
+        allow ? `Your knock on the ${eData.date} page was allowed.` : `The ${eData.date} page stays closed for now — that's okay.`);
+    }
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'quiet-open') {
+    if (!isParent || !ownerIsKid) return NextResponse.json({ error: 'parent-only' }, { status: 403 });
+    const entryId = String(body.entryId ?? '');
+    const eSnap = await col.doc(entryId).get();
+    const eData = eSnap.data() as Record<string, unknown> | undefined;
+    if (!eSnap.exists || eData?.ownerId !== ownerId) {
+      return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    }
+    const priv = ((await privRef.get()).data() ?? {}) as PrivDoc;
+    if (!priv.pin || String(body.pin ?? '') !== priv.pin) {
+      return NextResponse.json({ error: 'wrong-pin' }, { status: 403 });
+    }
+    const parents = await familyParents();
+    const quota = priv.quotas?.[uid] ?? 3;
+    const usedRec = priv.used?.[uid];
+    const used = usedRec && usedRec.month === monthKey ? usedRec.count : 0;
+    const over = used >= quota;
+    const reason = String(body.reason ?? '').trim().slice(0, 300);
+    // Over-quota valve: multi-parent families require a typed reason +
+    // co-parent ping. Single parent → quota + pause screen only.
+    if (over && parents.length > 1 && !reason) {
+      return NextResponse.json({ error: 'reason-required', used, quota }, { status: 428 });
+    }
+    const me = parents.find((pp) => pp.uid === uid);
+    const ledgerRow: Record<string, unknown> = {
+      by: uid, byName: me?.name || 'Parent',
+      on: today, entryDate: (eData?.date as string) || '',
+      overQuota: over,
+      at: Date.now(),
+    };
+    if (over && reason) ledgerRow.reason = reason;
+    await privRef.set({
+      used: { [uid]: { month: monthKey, count: used + 1 } },
+      ledger: FieldValue.arrayUnion(ledgerRow),
+    }, { merge: true });
+    if (over && parents.length > 1) {
+      for (const pp of parents) {
+        if (pp.uid === uid) continue;
+        await notifyUser(pp.uid, '🔑 Over-quota quiet open',
+          `${me?.name || 'Your co-parent'} opened a locked ${(eData?.date as string) || ''} page over quota. Reason: ${reason}`);
+      }
+    }
+    // One-time read — the full entry returns in THIS response only.
+    // Nothing persists on the entry; the kid is never notified (the
+    // capability was disclosed once, at PIN setup).
+    return NextResponse.json({ entry: { id: eSnap.id, ...eData }, used: used + 1, quota });
+  }
+
 
   // ── list ──────────────────────────────────────────────────────────
   if (action === 'list') {
@@ -131,7 +292,7 @@ export async function POST(req: NextRequest) {
       })
       .slice(0, max)
       .map((r) => {
-        if (parentReadingKid && r.locked === true) {
+        if (parentReadingKid && r.locked === true && (r as { knock_open?: boolean }).knock_open !== true) {
           // Redact: content gone, meta survives. Slice 8d adds the
           // knock / quiet-open doors that lift this.
           return {
@@ -201,7 +362,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'not-found' }, { status: 404 });
     }
     if (action === 'lock') {
-      await ref.update({ locked: body.locked === true, updatedAt: FieldValue.serverTimestamp() });
+      await ref.update({
+        locked: body.locked === true,
+        // Re-locking resets any knock grant — fresh lock, fresh privacy.
+        ...(body.locked === true ? { knock_open: FieldValue.delete(), knock: FieldValue.delete() } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
       return NextResponse.json({ ok: true });
     }
     await ref.delete();
