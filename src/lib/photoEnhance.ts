@@ -748,3 +748,50 @@ export async function autoScanWithDetector(
   }
   return { ...cleaned, framed: false };
 }
+
+// ── Quality hint (Rapid Batch Scan) ─────────────────────────────────────────
+// A cheap focus/exposure score so a batch grid can show 🟢/🟡/🔴 per page and
+// the uploader knows which to re-shoot. Laplacian variance on a downscaled
+// greyscale = sharpness; very dark/blown frames are also flagged 'low'.
+export type ScanQuality = 'good' | 'ok' | 'low';
+
+export async function scanQuality(file: File): Promise<ScanQuality> {
+  try {
+    const img = await loadImage(file, 480);
+    const w = img.naturalWidth || img.width;
+    const h = img.naturalHeight || img.height;
+    if (!w || !h) return 'ok';
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return 'ok';
+    ctx.drawImage(img, 0, 0, w, h);
+    const { data } = ctx.getImageData(0, 0, w, h);
+    // greyscale buffer + mean brightness
+    const g = new Float32Array(w * h);
+    let sum = 0;
+    for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+      const v = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      g[p] = v; sum += v;
+    }
+    const mean = sum / (w * h);
+    // Laplacian variance (4-neighbour) = focus measure
+    let lsum = 0, lsq = 0, n = 0;
+    for (let y = 1; y < h - 1; y++) {
+      for (let x = 1; x < w - 1; x++) {
+        const idx = y * w + x;
+        const lap = g[idx - 1] + g[idx + 1] + g[idx - w] + g[idx + w] - 4 * g[idx];
+        lsum += lap; lsq += lap * lap; n++;
+      }
+    }
+    if (!n) return 'ok';
+    const variance = lsq / n - (lsum / n) ** 2;
+    // dark or blown frames are unreadable regardless of focus
+    if (mean < 40 || mean > 232) return 'low';
+    if (variance > 180) return 'good';
+    if (variance > 55) return 'ok';
+    return 'low';
+  } catch {
+    return 'ok';
+  }
+}

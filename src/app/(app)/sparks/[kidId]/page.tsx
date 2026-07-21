@@ -234,8 +234,9 @@ export default function KidSparksHomePage() {
             {kid.houseName ? `${kid.houseName} House` : 'Kaya family'}
           </div>
 
-          {/* 🪄 Scan & file (Scanning 3.0 · AI Auto-File) — snap a doc and
-              Kaya sorts it into the right area for this kid. */}
+          {/* 🪄 Scan & file (Scanning 3.0 · AI Auto-File + Rapid Batch Scan) —
+              snap one doc, or keep shooting (＋ Add page) for a whole stack;
+              Kaya sorts each into the right area for this kid. */}
           {(isParent || isSelf) && (
             <button
               type="button"
