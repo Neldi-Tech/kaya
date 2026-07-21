@@ -862,8 +862,10 @@ export default function SettingsPage() {
   const toggleKidModule = async (id: string) => {
     if (!profile?.familyId || !family || isGuest || savingKidModule) return;
     const isOn = selectedKidModules.includes(id);
+    // Off strips the module AND all its sub-page grants — leftovers used to
+    // re-grant the module through the nav resolver (the Household gate leak).
     const next = isOn
-      ? selectedKidModules.filter((m) => m !== id)
+      ? selectedKidModules.filter((m) => m !== id && !m.startsWith(`${id}:`))
       : [...selectedKidModules, id];
     setSavingKidModule(id);
     try {

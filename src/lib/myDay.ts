@@ -33,6 +33,8 @@ import type { PurchaseRequest } from '@/lib/purchase';
 import { resolveBusinessRequest } from '@/lib/business';
 import { getNotifications } from '@/lib/firestore';
 import type { Notification } from '@/lib/firestore';
+import { useFamily } from '@/contexts/FamilyContext';
+import { resolveKidModules, moduleIdForPath } from '@/lib/kidModules';
 
 export type MyDaySource = 'workplan' | 'pulse' | 'request' | 'reminder' | 'approval';
 export type MyDayGroup = 'do' | 'headsup' | 'done' | 'approve';
@@ -115,6 +117,11 @@ export interface UseKidMyDay {
 
 export function useKidMyDay(familyId: string, childId: string, userUid: string): UseKidMyDay {
   const dateStr = todayDateString();
+  const { family } = useFamily();
+  const grantedModules = useMemo(
+    () => resolveKidModules(family?.kidModules),
+    [family?.kidModules],
+  );
 
   const [items, setItems] = useState<KidWorkplanItem[] | null>(null);
   const [completion, setCompletion] = useState<KidWorkplanCompletion | null>(null);
@@ -207,9 +214,16 @@ export function useKidMyDay(familyId: string, childId: string, userUid: string):
     }
 
     // Reminders → Heads-up. Skip pulse-* (covered by Do rows) + read.
+    // Module gate: a notification deep-linking into a module the kid isn't
+    // granted (e.g. a /pantry link with Household off) doesn't render — it
+    // would only bounce at the route guard anyway.
     for (const n of notifs) {
       if (n.read) continue;
       if (n.type === 'pulse-reading-due' || n.type === 'pulse-missed') continue;
+      if (n.link) {
+        const mod = moduleIdForPath(n.link.split('?')[0]);
+        if (mod && !grantedModules.has(mod)) continue;
+      }
       out.push({
         id: `nt_${n.id}`,
         source: 'reminder',
@@ -224,7 +238,7 @@ export function useKidMyDay(familyId: string, childId: string, userUid: string):
     }
 
     return out;
-  }, [items, completion, pulseTasks, trackById, requests, notifs]);
+  }, [items, completion, pulseTasks, trackById, requests, notifs, grantedModules]);
 
   const sortDo = (a: MyDayItem, b: MyDayItem) => {
     if (PERIOD_ORDER[a.period] !== PERIOD_ORDER[b.period]) return PERIOD_ORDER[a.period] - PERIOD_ORDER[b.period];
