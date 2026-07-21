@@ -14,6 +14,11 @@ import { asLocale, localeForCountry, type Locale } from '@/lib/i18n';
 export function useLocale(): Locale {
   const { profile } = useAuth();
   const { family } = useFamily();
+  // Helpers: the LOCAL language is primary (own choice → country), skipping
+  // the family default — a helper in TZ reads Swahili even in an EN family.
+  if (profile?.role === 'helper') {
+    return asLocale(profile?.languagePref) ?? localeForCountry(family?.location?.country);
+  }
   return (
     asLocale(profile?.languagePref)
     ?? asLocale(family?.primaryLanguage)

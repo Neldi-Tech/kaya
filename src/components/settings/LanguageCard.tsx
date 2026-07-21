@@ -38,7 +38,15 @@ export default function LanguageCard() {
   const pickMine = async (loc: Locale | null) => {
     if (!profile?.uid || busy) return;
     setBusy(true);
-    try { await setUserLocale(profile.uid, loc); } finally { setBusy(false); }
+    try {
+      await setUserLocale(profile.uid, loc);
+      // A parent's concrete pick is the family's language too — kids follow
+      // it (the family-default control below stays for explicit overrides).
+      if (isParent && loc && profile.familyId) {
+        await setFamilyLocale(profile.familyId, loc);
+        await refresh?.();
+      }
+    } finally { setBusy(false); }
   };
   const pickFamily = async (loc: Locale) => {
     if (!profile?.familyId || busy) return;
@@ -46,8 +54,58 @@ export default function LanguageCard() {
     try { await setFamilyLocale(profile.familyId, loc); await refresh?.(); } finally { setBusy(false); }
   };
 
+  // Kid-friendly version: two big flag tiles, one tap to switch, and an
+  // "Auto — follow my family" line. Same data (their own languagePref).
+  if (profile?.role === 'kid') {
+    const effective = myPref ?? familyEffective;
+    return (
+      <div id="language" className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xl">🌍</span>
+          <h2 className="font-display text-lg font-extrabold">My language</h2>
+        </div>
+        <p className="text-[12.5px] text-kaya-sand mb-3">
+          Kaya speaks your family&apos;s language. Want your own? Tap it!
+        </p>
+        <div className="flex gap-2.5 mb-2">
+          {SUPPORTED_LOCALES.map((l) => (
+            <button
+              key={l.code}
+              type="button"
+              disabled={busy}
+              onClick={() => pickMine(l.code)}
+              className={`flex-1 rounded-2xl border-2 py-3 px-2 text-center transition ${
+                effective === l.code
+                  ? 'border-kaya-gold bg-kaya-gold-light'
+                  : 'border-kaya-warm-dark/50 bg-white hover:border-kaya-gold'
+              }`}
+            >
+              <div className="text-2xl">{l.flag}</div>
+              <div className="font-bold text-[13px] mt-0.5">{l.native}</div>
+              <div className="text-[10px] text-kaya-sand font-bold">
+                {effective === l.code
+                  ? (myPref === l.code ? 'my choice ✓' : 'family’s choice ✓')
+                  : 'tap to switch'}
+              </div>
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          disabled={busy || myPref === undefined}
+          onClick={() => pickMine(null)}
+          className={`text-[11.5px] font-bold ${myPref === undefined ? 'text-kaya-sand' : 'text-kaya-gold-dark hover:underline'}`}
+        >
+          {myPref === undefined
+            ? `✨ Following your family’s language (${localeLabel(familyEffective)})`
+            : '✨ Back to Auto — follow my family'}
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4">
+    <div id="language" className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xl">🌍</span>
         <h2 className="font-display text-lg font-extrabold">Language</h2>
@@ -75,7 +133,9 @@ export default function LanguageCard() {
         <>
           <p className="text-[11px] font-bold uppercase tracking-wide text-kaya-sand mb-2">Family default language</p>
           <p className="text-[11.5px] text-kaya-sand mb-2">
-            What everyone (incl. helpers) sees unless they pick their own.
+            👶 Kids follow this unless they pick their own. 🧹 Helpers get the local
+            language (<b>{localeLabel(localeForCountry(family?.location?.country))}</b>) by
+            default — they can change it on their phone.
             {!familySet && <> Currently auto from your country: <b>{localeLabel(familyEffective)}</b>.</>}
           </p>
           <div className="flex flex-wrap gap-2">
