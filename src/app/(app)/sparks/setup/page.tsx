@@ -147,6 +147,8 @@ export default function SparksSetupPage() {
                 />
                 <DiaryPrivacyCard
                   kid={activeKid}
+                  familyId={familyId}
+                  uid={profile.uid}
                 />
               </div>
             )}
@@ -1277,7 +1279,7 @@ function ToggleKnob({
 // All data flows through the Admin gateway — nothing here touches
 // Firestore directly.
 
-function DiaryPrivacyCard({ kid }: { kid: Child }) {
+function DiaryPrivacyCard({ kid, familyId, uid }: { kid: Child; familyId: string; uid: string }) {
   const [view, setView] = useState<import('@/lib/sparks/diary').DiaryPrivacyParentView | null>(null);
   const [busy, setBusy] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
@@ -1351,6 +1353,9 @@ function DiaryPrivacyCard({ kid }: { kid: Child }) {
         </select>
       </div>
 
+      {/* 💌 Dear Kaya toggle (Slice 8f) — parent gate for the pen-pal. */}
+      <DearKayaToggleRow familyId={familyId} kidId={kid.id} uid={uid} />
+
       <button type="button" onClick={() => setShowLedger((v) => !v)}
         className="text-[12px] font-extrabold text-[#7A2E5C] underline underline-offset-2">
         📜 {showLedger ? 'Hide' : 'Show'} quiet-open ledger ({view?.ledger.length ?? 0})
@@ -1373,5 +1378,33 @@ function DiaryPrivacyCard({ kid }: { kid: Child }) {
         Kids never see this card. Quiet opens don&apos;t notify the kid — the capability was disclosed once, at PIN setup.
       </p>
     </div>
+  );
+}
+
+
+// Slice 8f · Dear Kaya parent gate — lives on the privacy card.
+function DearKayaToggleRow({ familyId, kidId, uid }: { familyId: string; kidId: string; uid: string }) {
+  const [profile, setProfile] = useState<SparksProfile | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => subscribeToSparksProfile(familyId, kidId, setProfile), [familyId, kidId]);
+  const enabled = (profile as { diary_dear_kaya?: boolean } | null)?.diary_dear_kaya !== false;
+  const flip = async () => {
+    setBusy(true);
+    try {
+      await upsertSparksProfile(familyId, kidId, { diary_dear_kaya: !enabled } as Partial<SparksProfile>, uid);
+    } finally { setBusy(false); }
+  };
+  return (
+    <button type="button" onClick={flip} disabled={busy}
+      className="w-full flex items-center justify-between gap-3 rounded-xl border border-[#ECE4D3] bg-[#FBF7EE] px-3 py-2.5 mb-2 disabled:opacity-50"
+      aria-pressed={enabled}>
+      <span className="text-left">
+        <span className="block font-nunito font-extrabold text-[13px] text-[#0F1F44]">💌 Dear Kaya pen-pal</span>
+        <span className="block text-[11px] text-[#5A6488]">Kid can address a page to Kaya and get a short warm reply. Never on locked or sealed pages.</span>
+      </span>
+      <span className={`w-[42px] h-[24px] rounded-full relative shrink-0 transition-colors ${enabled ? 'bg-[#7A2E5C]' : 'bg-[#cfd3e0]'}`}>
+        <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${enabled ? 'right-[3px]' : 'left-[3px]'}`} />
+      </span>
+    </button>
   );
 }

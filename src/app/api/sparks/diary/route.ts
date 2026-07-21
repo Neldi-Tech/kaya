@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     feeling?: string; blocks?: BlockIn[]; locked?: boolean;
     linked_reflection_date?: string; max?: number;
     pin?: string; quota?: number; allow?: boolean; reason?: string;
-    visibility?: string;
+    visibility?: string; sealed_until?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
   const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set'];
@@ -324,6 +324,17 @@ export async function POST(req: NextRequest) {
       .slice(0, max)
       .filter((r) => !(familyReadingParent && r.locked === true))
       .map((r) => {
+        // ⏳ Sealed and not yet due → content hidden from EVERYONE,
+        // including the owner. Date + feeling + the seal date survive.
+        const sealedUntil = (r as { sealed_until?: string }).sealed_until;
+        if (sealedUntil && sealedUntil > today) {
+          return {
+            id: r.id, ownerId: r.ownerId, ownerRole: r.ownerRole,
+            date: r.date, time: r.time, feeling: r.feeling,
+            locked: r.locked === true, sealed_until: sealedUntil,
+            redacted: true, blocks: [],
+          };
+        }
         if (parentReadingKid && r.locked === true && (r as { knock_open?: boolean }).knock_open !== true) {
           // Redact: content gone, meta survives. Slice 8d adds the
           // knock / quiet-open doors that lift this.
@@ -380,6 +391,12 @@ export async function POST(req: NextRequest) {
     };
     if (typeof body.linked_reflection_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.linked_reflection_date)) {
       doc.linked_reflection_date = body.linked_reflection_date;
+    }
+    // Slice 8f · ⏳ sealed pages — hidden from EVERYONE (owner included)
+    // until the chosen date. Must be in the future; quiet-open still
+    // works (safeguard beats gimmick).
+    if (typeof body.sealed_until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.sealed_until) && body.sealed_until > today) {
+      doc.sealed_until = body.sealed_until;
     }
     const ref = await col.add(doc);
     return NextResponse.json({ id: ref.id });
