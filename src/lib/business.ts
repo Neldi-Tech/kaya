@@ -1597,7 +1597,9 @@ export async function logSale(
     // soup ("Sold Eggplants → Dad" instead of "Dad · Eggplants").
     const soldWhat = (input.productName || input.description || 'Sale').trim();
     const note = `Sold ${soldWhat}${input.customerLabel ? ` → ${input.customerLabel.trim()}` : ''}`.slice(0, 80);
-    await depositToTreasury(familyId, actor.ownerId, amountCents, 'business', note, actor.uid);
+    // HIVE PR2 — refId = businessId, so the 📜 Statement drills from the
+    // Pot entry straight back to this business's sale history.
+    await depositToTreasury(familyId, actor.ownerId, amountCents, 'business', note, actor.uid, businessId);
   }
   // Reduce the sold product's stock (floor 0). Instant-stock items can hit 0
   // and still sell tomorrow (they regrow); this just keeps the count honest.

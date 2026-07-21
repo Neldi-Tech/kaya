@@ -149,8 +149,10 @@ export default function HiveHomePage() {
       <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4 mb-6">
         <div className="flex items-baseline justify-between mb-2">
           <h3 className="font-nunito font-extrabold text-[14px]">Recent activity</h3>
-          <Link href="/hive/wallet" className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
-            See all →
+          {/* HIVE PR2 (F2) — "See all" now opens the 📜 Statement (the full
+              ledger story), not the wallet balances page. */}
+          <Link href="/hive/statement" className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+            See all · 📜 Statement →
           </Link>
         </div>
         {recent.length === 0 ? (
