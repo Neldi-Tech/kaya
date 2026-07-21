@@ -21,13 +21,16 @@ export type SparksArea =
   | 'sports_subscription'
   | 'academic'
   | 'revision'
-  | 'reflection';
+  | 'reflection'
+  | 'diary';
 
 /** Areas that map to a row in `sparks_items`. Academic records have
  *  their own collection, so they're absent here. Revisions ride the
  *  same `sparks_items` row but carry a richer `revision_data` payload.
- *  Reflection has its own daily collection too (see reflection.ts). */
-export type SparksItemArea = Exclude<SparksArea, 'academic' | 'reflection'>;
+ *  Reflection has its own daily collection too (see reflection.ts).
+ *  Diary (Slice 8 · 2026-07-21) lives in `sparks_diary`, read/written
+ *  ONLY through the Admin-API gateway — never client-direct. */
+export type SparksItemArea = Exclude<SparksArea, 'academic' | 'reflection' | 'diary'>;
 
 /** Order + presentation metadata for the 5 area cards on the kid's
  *  Sparks home. The dashboard + setup pages also import this so labels
@@ -39,7 +42,7 @@ export const SPARKS_AREA_META: Record<SparksArea, {
   emoji: string;
   description: string;
   /** Sub-path under `/sparks/[kidId]/` for the area's list page. */
-  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection';
+  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection' | 'diary';
 }> = {
   school_project: {
     key: 'school_project',
@@ -97,6 +100,14 @@ export const SPARKS_AREA_META: Record<SparksArea, {
     description: 'Write by hand + scan how your day went · AI gives warm, structured feedback · build a daily streak.',
     path: 'reflection',
   },
+  diary: {
+    key: 'diary',
+    label: 'My Diary',
+    shortLabel: 'Diary',
+    emoji: '📔',
+    description: 'Your personal book · feelings, stories, dreams · shared with your parents, locked when you need it.',
+    path: 'diary',
+  },
 };
 
 /** Canonical area order used everywhere a tile grid renders. */
@@ -105,6 +116,7 @@ export const SPARKS_AREA_ORDER: SparksArea[] = [
   'home_project',
   'revision',
   'reflection',
+  'diary',
   'achievement',
   'academic',
   'sports_subscription',

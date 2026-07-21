@@ -16,7 +16,7 @@ import { SPARKS_AREA_META, type SparksItemArea } from '@/lib/sparks/schema';
 // Gradient + text colour per area — pulled directly from the mockup
 // (`.head-coral`, `.head-yellow`, `.head-green`, `.head-purple`, `.head-mint`).
 // Revision = navy → purple (its own "study + brain" identity).
-export const AREA_HEAD_BG: Record<SparksItemArea | 'academic' | 'reflection', string> = {
+export const AREA_HEAD_BG: Record<SparksItemArea | 'academic' | 'reflection' | 'diary', string> = {
   school_project:      'linear-gradient(135deg, #FF6B6B 0%, #FF8E72 100%)',
   home_project:        'linear-gradient(135deg, #FFB627 0%, #FFD93D 100%)',
   achievement:         'linear-gradient(135deg, #6BCB77 0%, #9DE0A6 100%)',
@@ -25,9 +25,11 @@ export const AREA_HEAD_BG: Record<SparksItemArea | 'academic' | 'reflection', st
   revision:            'linear-gradient(135deg, #1B1547 0%, #5A3CB8 100%)',
   // Daily Reflection — calm teal→violet "mirror" identity.
   reflection:          'linear-gradient(135deg, #5AB7D6 0%, #8E7BE0 100%)',
+  // Diary — deep plum→rose "personal book" identity (Slice 8).
+  diary:               'linear-gradient(135deg, #7A2E5C 0%, #C05299 100%)',
 };
 
-export const AREA_HEAD_FG: Record<SparksItemArea | 'academic' | 'reflection', string> = {
+export const AREA_HEAD_FG: Record<SparksItemArea | 'academic' | 'reflection' | 'diary', string> = {
   school_project: '#fff',
   home_project:   '#0F1F44',
   achievement:    '#fff',
@@ -35,12 +37,13 @@ export const AREA_HEAD_FG: Record<SparksItemArea | 'academic' | 'reflection', st
   sports_subscription: '#fff',
   revision:       '#fff',
   reflection:     '#fff',
+  diary:          '#fff',
 };
 
 interface Props {
   kidId: string;
   kidName: string;
-  area: SparksItemArea | 'academic' | 'reflection';
+  area: SparksItemArea | 'academic' | 'reflection' | 'diary';
   /** Right-side detail under the title (e.g. "12 captured · 3 upcoming"). */
   subtitle?: string;
   /** Right-aligned CTA, typically the "+ Add" button. */

@@ -40,7 +40,7 @@ import SparksIcon from '@/components/brand/SparksIcon';
 // shape the mockup designs around. Keep edits in lockstep with the
 // mockup so the parent landing stays faithful.
 
-type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit';
+type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit' | '08 · Personal Book';
 
 const AREA_PITCH: Record<SparksArea, {
   badge: Badge;
@@ -146,6 +146,20 @@ const AREA_PITCH: Record<SparksArea, {
     ],
     aiTag: '✨ AI reads handwriting + gives kind feedback',
     workplanTag: '🔥 Builds a daily streak',
+  },
+  diary: {
+    badge: '08 · Personal Book',
+    badgeBg: '#F9E4F1', badgeFg: '#7A2E5C', cornerBg: '#C05299',
+    purpose: "The kid's own diary — feelings, stories, dreams, worries. Shared with parents by default; individual pages lockable with the kid's PIN. Never scored, never rated. Siblings never see it.",
+    features: [
+      'Feeling emoji on every page — a mood timeline over the year',
+      'Type · pencil-write (iPad) · or scan a paper page',
+      'Per-page 🔒 lock — content hides, feeling + date stay visible',
+      'Knock-first parent access · quiet-open safeguard with self-set limits',
+      'Days-filled tracking + streak, like the Daily Reflection',
+    ],
+    aiTag: '💌 Dear Kaya pen-pal replies (opt-in)',
+    workplanTag: '🔥 Personal streak',
   },
 };
 
