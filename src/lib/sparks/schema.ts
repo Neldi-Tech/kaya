@@ -165,6 +165,10 @@ export interface SparksProfile {
   /** Slice 7n · reflection streak rewards (Kaya Points on milestones).
    *  Defaults in DEFAULT_REFLECTION_STREAK_REWARDS apply when absent. */
   reflection_streak?: ReflectionStreakRewards;
+  /** Slice 8f · 💌 Dear Kaya parent toggle (default ON when absent).
+   *  OFF hides the option in the kid's composer AND the reply route
+   *  refuses. */
+  diary_dear_kaya?: boolean;
   /** Slice 7q · per-parent email-alert preferences for this kid's
    *  submissions. Keyed by parentUid; absent parent → no emails.
    *  Defaults in DEFAULT_EMAIL_ALERTS apply when absent. */

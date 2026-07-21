@@ -25,6 +25,21 @@ export function EntryCard({
   onKnock?: () => void;
   onQuietOpen?: () => void;
 }) {
+  // ⏳ Sealed page — hidden from EVERYONE (owner too) until the date.
+  if (e.redacted && e.sealed_until) {
+    return (
+      <div className="rounded-2xl border border-[#F3E3B9] bg-[#FFF8E9] px-3.5 py-3 text-center">
+        <div className="text-[22px]" aria-hidden>⏳</div>
+        <div className="font-display font-extrabold text-[13px] text-[#8A6800] mt-0.5">
+          {sw ? `Imefungwa hadi ${toDisplayDate(e.sealed_until)}` : `Sealed until ${toDisplayDate(e.sealed_until)}`}
+        </div>
+        <div className="text-[10.5px] text-[#5A6488] mt-0.5">
+          {e.feeling} · {e.time} · {sw ? 'hata wewe huwezi kuifungua kabla ya siku hiyo' : 'not even you can open it before then'}
+        </div>
+      </div>
+    );
+  }
+
   if (e.redacted) {
     const knockPending = e.knock?.status === 'pending';
     const knockDenied = e.knock?.status === 'denied';
@@ -101,6 +116,11 @@ export function EntryCard({
             <img key={i} src={b.url} alt="" className="w-full max-h-64 object-contain rounded-xl bg-[#FBF7EE] border border-[#ECE4D3]" />
           );
         })}
+        {e.kaya_reply && (
+          <div className="rounded-xl bg-[#FDF3F9] border border-[#EBC2DC] px-3 py-2 text-[12.5px] leading-snug text-[#0F1F44]">
+            <b className="text-[#7A2E5C]">💌 Kaya:</b> {e.kaya_reply}
+          </div>
+        )}
       </div>
     </div>
   );

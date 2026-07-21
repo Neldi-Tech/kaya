@@ -59,6 +59,11 @@ export interface DiaryEntry {
   knock_open?: boolean;
   /** Set when this entry was spawned from a Reflection (Slice 8e). */
   linked_reflection_date?: string;
+  /** Slice 8f · ⏳ sealed until this date — content hidden from everyone
+   *  (owner included) until then; quiet-open still works. */
+  sealed_until?: string;
+  /** Slice 8f · 💌 Dear Kaya reply (written server-side, opt-in). */
+  kaya_reply?: string;
   createdAt?: { seconds: number } | null;
 }
 
@@ -136,6 +141,8 @@ export interface NewDiaryEntryInput {
   blocks: DiaryBlock[];
   locked?: boolean;
   linked_reflection_date?: string;
+  /** Slice 8f · seal the page until a FUTURE date. */
+  sealed_until?: string;
 }
 
 /** Create one diary entry. Returns the new id. */
@@ -280,4 +287,44 @@ export async function getMyDiaryMeta(ownerId: string): Promise<{ hasPin: boolean
 
 export async function setDiaryVisibility(ownerId: string, visibility: 'personal' | 'visible'): Promise<void> {
   await diaryApi('visibility-set', { ownerId, visibility });
+}
+
+
+// ── Slice 8f · the five features · client helpers ───────────────────
+
+/** 🫙 Prompt Jar — one kid-appropriate writing prompt (AI or bank). */
+export async function getDiaryPrompt(firstName: string, age?: number | null): Promise<string> {
+  try {
+    const res = await fetch('/api/sparks/ai/diary-prompt', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ firstName, age: age ?? undefined }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.prompt) return String(data.prompt);
+  } catch { /* fall through */ }
+  return 'What made today different from yesterday?';
+}
+
+/** 💌 Dear Kaya — request the pen-pal reply for a just-saved page.
+ *  Server enforces: owner-only · parent toggle · never locked/sealed. */
+export async function requestKayaReply(
+  familyId: string, ownerId: string, entryId: string, firstName: string,
+): Promise<string | null> {
+  const token = await (async () => {
+    const u = auth.currentUser;
+    if (!u) return null;
+    try { return await u.getIdToken(); } catch { return null; }
+  })();
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/sparks/ai/diary-reply', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ownerId, entryId, firstName }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.reply) { pingDiary(familyId, ownerId); return String(data.reply); }
+  } catch { /* best-effort */ }
+  return null;
 }

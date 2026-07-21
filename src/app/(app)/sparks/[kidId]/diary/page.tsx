@@ -23,10 +23,14 @@ import {
   subscribeToDiary, saveDiaryEntry, setDiaryEntryLock,
   computeDiaryStats, diaryDayKey,
   kidHasDiaryPin, setDiaryPin, answerKnock, knockOnPage, quietOpenPage, getDiaryPrivacy,
+  getDiaryPrompt, requestKayaReply,
 } from '@/lib/sparks/diary';
-import { toDisplayDate } from '@/lib/dates';
+import { toDisplayDate, ageNow } from '@/lib/dates';
+import { subscribeToSparksProfile } from '@/lib/sparks/firestore';
+import type { SparksProfile } from '@/lib/sparks/schema';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
+import { YearInPixelsCard, OnThisDayCard } from '@/components/sparks/DiaryFeatures';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
@@ -76,6 +80,12 @@ export default function DiaryPage() {
   const [hasPin, setHasPin] = useState<boolean | null>(null);
   const [pinModalFor, setPinModalFor] = useState<null | { then: () => void }>(null);
   const [quietFor, setQuietFor] = useState<DiaryEntry | null>(null);
+  // Slice 8f · the five features.
+  const [jarPrompt, setJarPrompt] = useState<string | null>(null);
+  const [jarBusy, setJarBusy] = useState(false);
+  const [dearKaya, setDearKaya] = useState(false);
+  const [sealDate, setSealDate] = useState('');
+  const [sparksProfile, setSparksProfile] = useState<SparksProfile | null>(null);
   const [peek, setPeek] = useState<DiaryEntry | null>(null);
   const scanUrls = useMemo(() => scanFiles.map((f) => URL.createObjectURL(f)), [scanFiles]);
   useEffect(() => () => scanUrls.forEach((u) => URL.revokeObjectURL(u)), [scanUrls]);
@@ -105,6 +115,12 @@ export default function DiaryPage() {
     if (!isOwnerKid || !kidId) return;
     kidHasDiaryPin(kidId).then(setHasPin).catch(() => setHasPin(null));
   }, [isOwnerKid, kidId]);
+
+  useEffect(() => {
+    if (!familyId || !kidId) return;
+    return subscribeToSparksProfile(familyId, kidId, setSparksProfile);
+  }, [familyId, kidId]);
+  const dearKayaEnabled = (sparksProfile as { diary_dear_kaya?: boolean } | null)?.diary_dear_kaya !== false;
 
   // Slice 8e · Reflection → Diary connector: arriving with
   // ?from=reflection opens the composer pre-linked to today's
@@ -158,16 +174,22 @@ export default function DiaryPage() {
         for (const up of ups) blocks.push({ kind: 'scan', url: up.feedUrl });
       }
 
-      await saveDiaryEntry(familyId, {
+      const entryId = await saveDiaryEntry(familyId, {
         ownerId: kidId,
         feeling,
         blocks,
         locked,
         ...(linkedRefDate ? { linked_reflection_date: linkedRefDate } : {}),
+        ...(sealDate && !locked ? { sealed_until: sealDate } : {}),
       });
+      // 💌 Dear Kaya — opt-in, never on locked/sealed pages (server
+      // double-enforces). Best-effort.
+      if (dearKaya && !locked && !sealDate && dearKayaEnabled) {
+        void requestKayaReply(familyId, kidId, entryId, kidName.split(' ')[0]);
+      }
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
       setInkOpen(false); setHasInk(false); inkRef.current?.clear();
-      setScanFiles([]);
+      setScanFiles([]); setJarPrompt(null); setDearKaya(false); setSealDate('');
     } catch (e) {
       setErr((e as Error).message || (sw ? 'Imeshindikana kuhifadhi' : 'Could not save'));
     } finally { setSaving(false); }
@@ -294,12 +316,42 @@ export default function DiaryPage() {
 
       {/* Slice 8c · emoji timeline — Year → Month → Day. */}
       {timelineOpen && (
-        <DiaryTimeline
-          entries={entries ?? []}
-          sw={sw}
-          onOpenDay={(d) => setDayOpen(d)}
-        />
+        <>
+          <DiaryTimeline
+            entries={entries ?? []}
+            sw={sw}
+            onOpenDay={(d) => setDayOpen(d)}
+          />
+          <YearInPixelsCard
+            entries={entries ?? []}
+            year={new Date().getFullYear()}
+            ownerName={kidName.split(' ')[0]}
+            canShare={isOwnerKid}
+            onShare={familyId && authProfile?.uid ? async (png) => {
+              // Kid's say-so share → a real Moments post via the standard
+              // reserve → upload → finalize pipeline.
+              const [{ reservePost, uploadProcessedPhoto, finalizePost }, { processPhotoForUpload }] = await Promise.all([
+                import('@/lib/moments'), import('@/lib/photoUpload'),
+              ]);
+              const postId = await reservePost(familyId, authProfile.uid);
+              const blobs = await processPhotoForUpload(png);
+              const photo = await uploadProcessedPhoto(familyId, postId, blobs);
+              await finalizePost(familyId, postId, {
+                authorUid: authProfile.uid,
+                authorName: kidName,
+                caption: sw ? `Mwaka wangu kwa hisia 🎨` : `My year in feelings 🎨`,
+                photos: [photo],
+                kidTags: [kidId],
+                visibility: 'family',
+              });
+            } : undefined}
+            sw={sw}
+          />
+        </>
       )}
+
+      {/* 📅 On This Day — a gentle flashback when one exists. */}
+      <OnThisDayCard entries={entries ?? []} sw={sw} />
       {isOwnerKid && writing && (
         <div className="rounded-2xl border border-[#EBC2DC] bg-white p-3.5">
           {linkedRefDate && (
@@ -337,12 +389,27 @@ export default function DiaryPage() {
             </button>
           </div>
 
+          {/* 🫙 Prompt Jar — shake for inspiration on a blank page. */}
+          <div className="flex items-center gap-2 mb-1.5">
+            <button type="button" disabled={jarBusy}
+              onClick={async () => {
+                setJarBusy(true);
+                try { setJarPrompt(await getDiaryPrompt(kidName.split(' ')[0], kid?.birthday ? ageNow(kid.birthday) : null)); }
+                finally { setJarBusy(false); }
+              }}
+              className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-[#FFF1C9] text-[#8A6800] disabled:opacity-50">
+              🫙 {jarBusy ? '…' : jarPrompt ? (sw ? 'Tikisa tena' : 'Shake again') : (sw ? 'Wazo la kuandika' : 'Prompt Jar')}
+            </button>
+            {jarPrompt && (
+              <span className="text-[11.5px] italic text-[#5A4500] leading-snug flex-1">{jarPrompt}</span>
+            )}
+          </div>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={4}
             maxLength={8000}
-            placeholder={sw ? 'Leo…' : 'Dear diary…'}
+            placeholder={jarPrompt ?? (sw ? 'Leo…' : 'Dear diary…')}
             className="w-full rounded-xl border border-[#EBC2DC] bg-white p-3 text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#C05299]/40 resize-none"
           />
 
@@ -375,6 +442,34 @@ export default function DiaryPage() {
             </div>
           )}
           {err && <p className="text-[12px] font-bold text-[#E36F6F] mt-1">{err}</p>}
+          {/* 💌 Dear Kaya + ⏳ Seal — mutually exclusive with 🔒 (private
+              pages get neither; the server double-enforces). */}
+          {!locked && (
+            <div className="flex items-center gap-3 mt-2 flex-wrap">
+              {dearKayaEnabled && !sealDate && (
+                <button type="button" onClick={() => setDearKaya((v) => !v)}
+                  className={`flex items-center gap-1.5 text-[11.5px] font-extrabold px-2.5 py-1 rounded-full border-2 ${dearKaya ? 'bg-[#F9E4F1] border-[#C05299] text-[#7A2E5C]' : 'bg-white border-[#EBC2DC] text-[#5A6488]'}`}
+                  aria-pressed={dearKaya}>
+                  💌 {sw ? 'Kwa Kaya' : 'Dear Kaya'}{dearKaya ? ' ✓' : ''}
+                </button>
+              )}
+              <label className="flex items-center gap-1.5 text-[11.5px] font-extrabold text-[#8A6800]">
+                ⏳ {sw ? 'Funga hadi' : 'Seal until'}
+                <input type="date" value={sealDate} min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+                  onChange={(e) => { setSealDate(e.target.value); if (e.target.value) setDearKaya(false); }}
+                  className="bg-white border border-[#F3E3B9] rounded-lg px-2 py-0.5 text-[11px] font-bold text-[#0F1F44]" />
+                {sealDate && (
+                  <button type="button" onClick={() => setSealDate('')} className="text-[#A33A2A]">×</button>
+                )}
+              </label>
+            </div>
+          )}
+          {dearKaya && !locked && (
+            <p className="text-[10px] text-[#5A6488] mt-1 m-0">{sw ? 'Kaya atakujibu baada ya kuhifadhi.' : 'Kaya writes you a short reply after you save.'}</p>
+          )}
+          {sealDate && !locked && (
+            <p className="text-[10px] text-[#8A6800] mt-1 m-0">{sw ? `Hata wewe hutaweza kuufungua kabla ya ${toDisplayDate(sealDate)}.` : `Not even you can open it before ${toDisplayDate(sealDate)}.`}</p>
+          )}
           <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
             <button type="button" onClick={() => (locked ? setLocked(false) : withPin(() => setLocked(true)))}
               className="flex items-center gap-2 text-[12.5px] font-extrabold text-[#7A2E5C]" aria-pressed={locked}>
