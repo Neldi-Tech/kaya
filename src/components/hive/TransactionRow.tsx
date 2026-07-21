@@ -19,11 +19,12 @@ const CATEGORY_ICON: Record<string, string> = {
   other: '✨',
 };
 
+// HIVE PR1 — layer badges with names, per the approved Hive Clarity design.
 const LAYER_LABEL: Record<HiveTransaction['layer'], string> = {
-  house_points: 'HP',
-  honey: 'HC',
-  treasury: '🍯',
-  cash: '$',
+  house_points: '⭐ HP',
+  honey: '🪙 Coins',
+  treasury: '🍯 Pot',
+  cash: '💵 Cash',
 };
 
 export default function TransactionRow({
@@ -41,7 +42,10 @@ export default function TransactionRow({
   const isIn = tx.direction === 'in';
   const amountText = (() => {
     const sign = isIn ? '+' : '−';
-    if (tx.layer === 'cash') return `${sign}${formatCash(tx.amount, currency)}`;
+    // HIVE PR1 (confirmed bug): treasury (the Honey Pot) holds MONEY in
+    // family-currency cents — it fell into the HP fallback and printed
+    // sale proceeds as "+100,000 HP". Money now always reads as money.
+    if (tx.layer === 'cash' || tx.layer === 'treasury') return `${sign}${formatCash(tx.amount, currency)}`;
     if (tx.layer === 'honey') return `${sign}${formatHoney(tx.amount)} HC`;
     return `${sign}${formatHp(tx.amount)} HP`;
   })();

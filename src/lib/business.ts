@@ -1593,7 +1593,10 @@ export async function logSale(
   if (input.productName?.trim()) entry.productName = input.productName.trim();
   await addDoc(ledgerCol(familyId, businessId), entry);
   if (paymentStatus === 'paid') {
-    const note = `${input.customerLabel ? input.customerLabel + ' · ' : ''}${input.description || 'Sale'}`.slice(0, 80);
+    // HIVE PR1 — sale voice: the Pot entry reads like a sale, not a label
+    // soup ("Sold Eggplants → Dad" instead of "Dad · Eggplants").
+    const soldWhat = (input.productName || input.description || 'Sale').trim();
+    const note = `Sold ${soldWhat}${input.customerLabel ? ` → ${input.customerLabel.trim()}` : ''}`.slice(0, 80);
     await depositToTreasury(familyId, actor.ownerId, amountCents, 'business', note, actor.uid);
   }
   // Reduce the sold product's stock (floor 0). Instant-stock items can hit 0
