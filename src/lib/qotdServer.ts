@@ -107,15 +107,36 @@ async function birthdayQuestion(
   } catch { return null; }
 }
 
-// ── Fresh AI batch (mirrors /api/games/trivia contract) ──────────────
-const GEN_SYSTEM = `You are Kaya's family trivia writer. Write kid-friendly multiple-choice questions a mixed-age family (6–45) enjoys answering together. Plain text only, no markdown. Vary which position holds the correct answer. Never repeat or paraphrase any question in the avoid list. No dark or scary themes. Each question gets a playful one-line "context" chip (with one emoji) and a true, delightful "Did you know?" fact.`;
+// ── Age-aware audience line (Elia, 21-Jul-2026) ──────────────────────
+/** Real family age span from the kids' birthdays — e.g. "kids aged 5–11 and
+ *  their parents". Kids without a birthday don't restrict anything; no
+ *  birthdays at all falls back to the generic mixed-age line. */
+async function familyAudience(famRef: DocumentReference, todayKey: string): Promise<string> {
+  const generic = 'a mixed-age family (6–45)';
+  try {
+    const snap = await famRef.collection('children').get();
+    const year = Number(todayKey.slice(0, 4));
+    const ages = snap.docs
+      .map((d) => (d.data() as { birthday?: string }).birthday)
+      .filter((b): b is string => typeof b === 'string' && /^\d{4}-/.test(b))
+      .map((b) => year - Number(b.slice(0, 4)))
+      .filter((a) => Number.isFinite(a) && a > 0 && a < 25);
+    if (ages.length === 0) return generic;
+    const lo = Math.min(...ages);
+    const hi = Math.max(...ages);
+    return `a family with kids aged ${lo === hi ? lo : `${lo}–${hi}`} and their parents`;
+  } catch { return generic; }
+}
 
-async function generateBatch(subject: string, avoid: string[]): Promise<QotdQuestion[]> {
+// ── Fresh AI batch (mirrors /api/games/trivia contract) ──────────────
+const genSystem = (audience: string) => `You are Kaya's family trivia writer. Write kid-friendly multiple-choice questions ${audience} enjoys answering together — pitched so the youngest kids have a real shot while staying fun for everyone. Plain text only, no markdown. Vary which position holds the correct answer. Never repeat or paraphrase any question in the avoid list. No dark or scary themes. Each question gets a playful one-line "context" chip (with one emoji) and a true, delightful "Did you know?" fact.`;
+
+async function generateBatch(subject: string, avoid: string[], audience: string): Promise<QotdQuestion[]> {
   if (!client) throw new Error('ANTHROPIC_API_KEY not set');
   const response = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1400,
-    system: GEN_SYSTEM,
+    system: genSystem(audience),
     messages: [{
       role: 'user',
       content:
@@ -182,7 +203,8 @@ export async function rotateQotdForFamily(
     // 3) fresh AI batch — 1 today + spares to the pool
     if (!picked) {
       try {
-        const batch = (await generateBatch(subject, seen.slice(-40))).filter(
+        const audience = await familyAudience(famRef, todayKey);
+        const batch = (await generateBatch(subject, seen.slice(-40), audience)).filter(
           (q) => !seen.includes(qotdFingerprint(q.q)),
         );
         if (batch.length > 0) {
