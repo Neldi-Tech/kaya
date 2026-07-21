@@ -66,6 +66,9 @@ export default function DiaryPage() {
   const inkRef = useRef<DiaryInkHandle>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanFiles, setScanFiles] = useState<File[]>([]);
+  // Slice 8c · timeline visibility + tapped-day sheet.
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [dayOpen, setDayOpen] = useState<string | null>(null);
   const scanUrls = useMemo(() => scanFiles.map((f) => URL.createObjectURL(f)), [scanFiles]);
   useEffect(() => () => scanUrls.forEach((u) => URL.revokeObjectURL(u)), [scanUrls]);
 
@@ -197,11 +200,32 @@ export default function DiaryPage() {
 
       {/* Composer — owner kid only (parents never write here). */}
       {isOwnerKid && !writing && (
-        <button type="button" onClick={() => setWriting(true)}
-          className="w-full rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
-          style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
-          ＋ {sw ? 'Andika kwenye shajara yangu' : 'Write in my diary'}
+        <div className="flex gap-2">
+          <button type="button" onClick={() => setWriting(true)}
+            className="flex-1 rounded-2xl py-3 text-white font-nunito font-black text-[14px]"
+            style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
+            ＋ {sw ? 'Andika kwenye shajara yangu' : 'Write in my diary'}
+          </button>
+          <button type="button" onClick={() => setTimelineOpen((v) => !v)}
+            className="rounded-2xl py-3 px-4 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
+            📖 {sw ? 'Ratiba' : 'My timeline'}
+          </button>
+        </div>
+      )}
+      {!isOwnerKid && (
+        <button type="button" onClick={() => setTimelineOpen((v) => !v)}
+          className="w-full rounded-2xl py-3 font-nunito font-black text-[14px] bg-[#F9E4F1] text-[#7A2E5C]">
+          📖 {sw ? 'Ratiba ya shajara' : 'Diary timeline'}
         </button>
+      )}
+
+      {/* Slice 8c · emoji timeline — Year → Month → Day. */}
+      {timelineOpen && (
+        <DiaryTimeline
+          entries={entries ?? []}
+          sw={sw}
+          onOpenDay={(d) => setDayOpen(d)}
+        />
       )}
       {isOwnerKid && writing && (
         <div className="rounded-2xl border border-[#EBC2DC] bg-white p-3.5">
@@ -323,6 +347,24 @@ export default function DiaryPage() {
         </div>
       )}
 
+      {/* Slice 8c · tapped-day sheet — that day's entries, same cards. */}
+      {dayOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <button type="button" aria-label="Close" onClick={() => setDayOpen(null)} className="absolute inset-0 bg-black/40" />
+          <div className="relative w-full sm:max-w-md max-h-[85vh] overflow-y-auto bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl">
+            <div className="px-5 pt-4 pb-3 text-white sticky top-0" style={{ background: `linear-gradient(135deg, ${PLUM}, #C05299)` }}>
+              <div className="font-display font-extrabold text-[16px]">📔 {toDisplayDate(dayOpen)}</div>
+            </div>
+            <div className="p-4 space-y-2.5">
+              {(entries ?? []).filter((e) => e.date === dayOpen).slice().reverse().map((e) => (
+                <EntryCard key={e.id} e={e} isOwner={isOwnerKid} kidFirstName={kidName.split(' ')[0]} sw={sw}
+                  onToggleLock={isOwnerKid && familyId ? (next) => setDiaryEntryLock(familyId, kidId, e.id, next) : undefined} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Scan camera — same sheet the Reflection + Revisions use. */}
       <CameraCaptureSheet
         open={scanOpen}
@@ -393,6 +435,188 @@ function EntryCard({
             <img key={i} src={b.url} alt="" className="w-full max-h-64 object-contain rounded-xl bg-[#FBF7EE] border border-[#ECE4D3]" />
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ── Slice 8c · Diary timeline — Year → Month → Day ─────────────────
+//
+// Month view = emoji calendar (the day's latest feeling on each cell,
+// tiny 🔒 badge on locked days). Tap the title → year picker: 12 month
+// chips each showing the month's two most-picked feelings, ‹ › steps
+// the year (bounded: earliest entry year → current). One month rendered
+// at a time — the diary honours the same 3-month render cap family.
+
+function DiaryTimeline({
+  entries, sw, onOpenDay,
+}: {
+  entries: DiaryEntry[];
+  sw: boolean;
+  onOpenDay: (date: string) => void;
+}) {
+  const today = new Date();
+  const todayKey = diaryDayKey(today);
+  const [cursor, setCursor] = useState({ y: today.getFullYear(), m: today.getMonth() });
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(today.getFullYear());
+
+  const stats = useMemo(() => computeDiaryStats(entries, today), [entries, today]);
+  const earliestYear = useMemo(() => {
+    let min = today.getFullYear();
+    for (const e of entries) {
+      const y = Number(e.date.slice(0, 4));
+      if (Number.isFinite(y) && y < min) min = y;
+    }
+    return min;
+  }, [entries, today]);
+
+  const monthLabel = new Date(cursor.y, cursor.m, 1)
+    .toLocaleDateString(sw ? 'sw' : 'en', { month: 'long', year: 'numeric' });
+
+  // Monday-padded day keys for the cursor month.
+  const days = useMemo(() => {
+    const first = new Date(cursor.y, cursor.m, 1);
+    const last = new Date(cursor.y, cursor.m + 1, 0);
+    const out: string[] = [];
+    const lead = (first.getDay() + 6) % 7;
+    for (let i = 0; i < lead; i++) out.push('');
+    for (let d = 1; d <= last.getDate(); d++) out.push(diaryDayKey(new Date(cursor.y, cursor.m, d)));
+    return out;
+  }, [cursor]);
+
+  // Month-scoped chips: days filled · best run · locked count.
+  const monthStats = useMemo(() => {
+    let filled = 0, locked = 0, run = 0, best = 0;
+    for (const k of days) {
+      if (!k) continue;
+      if (stats.feelingByDate[k]) {
+        filled++; run++;
+        if (run > best) best = run;
+        if (stats.lockedByDate[k]) locked++;
+      } else if (k <= todayKey) {
+        run = 0;
+      }
+    }
+    return { filled, locked, best };
+  }, [days, stats, todayKey]);
+
+  // Year-picker chips: the month's two most-picked feelings.
+  const yearMonths = useMemo(() => {
+    return Array.from({ length: 12 }, (_, m) => {
+      const prefix = `${pickerYear}-${String(m + 1).padStart(2, '0')}`;
+      const future = new Date(pickerYear, m, 1) > today;
+      const counts = new Map<string, number>();
+      for (const e of entries) {
+        if (!e.date.startsWith(prefix)) continue;
+        counts.set(e.feeling, (counts.get(e.feeling) ?? 0) + 1);
+      }
+      const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([f]) => f);
+      return { m, future, top };
+    });
+  }, [pickerYear, entries, today]);
+
+  const dow = sw ? ['J2', 'J3', 'J4', 'J5', 'I', 'J', 'JP'] : ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  const back = () => setCursor(({ y, m }) => (y <= earliestYear && m === 0 ? { y, m } : m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 }));
+  const fwd = () => setCursor(({ y, m }) => {
+    if (y === today.getFullYear() && m === today.getMonth()) return { y, m };
+    return m === 11 ? { y: y + 1, m: 0 } : { y, m: m + 1 };
+  });
+  const atNow = cursor.y === today.getFullYear() && cursor.m === today.getMonth();
+
+  return (
+    <div className="mt-3 rounded-2xl border border-[#EBC2DC] bg-white p-3">
+      <div className="flex items-center justify-between mb-2">
+        <button type="button" onClick={back} disabled={cursor.y <= earliestYear && cursor.m === 0}
+          className="text-[16px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label={sw ? 'Mwezi uliopita' : 'Previous month'}>‹</button>
+        <button type="button" onClick={() => { setPickerYear(cursor.y); setPickerOpen((o) => !o); }}
+          className="font-nunito font-black text-[13px] text-[#0F1F44] capitalize px-2 py-0.5 rounded-lg hover:bg-[#FDF3F9]"
+          aria-expanded={pickerOpen} title={sw ? 'Chagua mwezi wowote' : 'Jump to any month'}>
+          {monthLabel} <span className="text-[#7A2E5C]">▾</span>
+        </button>
+        <button type="button" onClick={fwd} disabled={atNow}
+          className="text-[16px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label={sw ? 'Mwezi ujao' : 'Next month'}>›</button>
+      </div>
+
+      {pickerOpen && (
+        <div className="mb-2 rounded-xl border border-[#EBC2DC] bg-[#FDF3F9] px-3 py-2.5">
+          <div className="flex items-center justify-center gap-4 mb-2">
+            <button type="button" onClick={() => setPickerYear((y) => Math.max(earliestYear, y - 1))}
+              disabled={pickerYear <= earliestYear}
+              className="text-[15px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label="Previous year">‹</button>
+            <span className="font-nunito font-black text-[14px] text-[#0F1F44]">{pickerYear}</span>
+            <button type="button" onClick={() => setPickerYear((y) => Math.min(today.getFullYear(), y + 1))}
+              disabled={pickerYear >= today.getFullYear()}
+              className="text-[15px] font-black text-[#5A6488] px-2 disabled:opacity-30" aria-label="Next year">›</button>
+          </div>
+          <div className="grid grid-cols-6 max-[420px]:grid-cols-4 gap-1.5">
+            {yearMonths.map(({ m, future, top }) => {
+              const sel = pickerYear === cursor.y && m === cursor.m;
+              return (
+                <button key={m} type="button" disabled={future}
+                  onClick={() => { setCursor({ y: pickerYear, m }); setPickerOpen(false); }}
+                  className={`rounded-lg px-1 pt-1.5 pb-1 text-center border-[1.5px] text-[11px] font-extrabold transition-colors ${
+                    sel ? 'border-[#7A2E5C] bg-[#F9E4F1] text-[#7A2E5C]'
+                      : future ? 'border-transparent bg-white text-[#cfc7b5]'
+                      : 'border-transparent bg-white text-[#5A6488] hover:border-[#C05299]/40'
+                  }`}>
+                  {new Date(pickerYear, m, 1).toLocaleDateString(sw ? 'sw' : 'en', { month: 'short' })}
+                  <span className="block text-[12px] mt-0.5 tracking-[1px]" aria-hidden>
+                    {future ? '' : top.length ? top.join('') : '·'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {dow.map((d, i) => <span key={i} className="text-center text-[8.5px] font-black text-[#5A6488]">{d}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {days.map((k, i) => {
+          if (!k) return <span key={`p${i}`} className="invisible aspect-square" />;
+          const feeling = stats.feelingByDate[k];
+          const isToday = k === todayKey;
+          const future = k > todayKey;
+          const dayNum = Number(k.slice(8, 10));
+          return (
+            <button key={k} type="button" disabled={!feeling}
+              onClick={() => onOpenDay(k)}
+              title={toDisplayDate(k)}
+              className={`relative aspect-square rounded-lg grid place-items-center border ${
+                feeling ? 'bg-[#FDF3F9] border-transparent text-[15px] cursor-pointer'
+                : future ? 'bg-white border-dashed border-[#ECE4D3] text-[#cfc7b5] text-[10px] font-extrabold'
+                : 'bg-[#FBF7EE] border-transparent text-[#b9ad95] text-[10px] font-extrabold'
+              } ${isToday ? 'ring-2 ring-[#7A2E5C]' : ''}`}>
+              {feeling ?? dayNum}
+              {feeling && stats.lockedByDate[k] && (
+                <span className="absolute bottom-0 right-0 text-[8px]" aria-hidden>🔒</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex gap-2 mt-2.5 flex-wrap">
+        <span className="text-[10.5px] font-extrabold px-2.5 py-1 rounded-full bg-[#F9E4F1] text-[#7A2E5C]">
+          {monthStats.filled} {sw ? 'siku zimejazwa' : 'days filled'}
+        </span>
+        <span className="text-[10.5px] font-extrabold px-2.5 py-1 rounded-full bg-[#FFF1C9] text-[#8A6800]">
+          🔥 {sw ? 'mfululizo bora' : 'best run'} · {monthStats.best}
+        </span>
+        {monthStats.locked > 0 && (
+          <span className="text-[10.5px] font-extrabold px-2.5 py-1 rounded-full bg-[#EFEAF9] text-[#4a3d78]">
+            🔒 {monthStats.locked} {sw ? 'zimefungwa' : 'locked'}
+          </span>
+        )}
+      </div>
+      <div className="text-[9.5px] text-[#5A6488] mt-2 leading-snug">
+        {sw
+          ? 'Kila kisanduku kinaonyesha hisia ya mwisho ya siku hiyo. Bonyeza siku kuona kurasa zake.'
+          : 'Each cell shows that day’s latest feeling. Tap a filled day to read its pages.'}
       </div>
     </div>
   );
