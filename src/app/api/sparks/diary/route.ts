@@ -71,7 +71,8 @@ async function inferFeeling(text: string): Promise<string> {
 
 type Action = 'list' | 'save' | 'lock' | 'delete'
   | 'privacy-get' | 'pin-set' | 'pin-reset' | 'quota-set'
-  | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set' | 'feeling-set';
+  | 'knock' | 'knock-answer' | 'quiet-open' | 'visibility-set' | 'feeling-set'
+  | 'word-jar-add';
 
 const FEELINGS = ['😊', '😄', '😐', '🙁', '😢', '😠', '😴', '🤔'];
 
@@ -108,10 +109,10 @@ export async function POST(req: NextRequest) {
     feeling?: string; blocks?: BlockIn[]; locked?: boolean;
     linked_reflection_date?: string; max?: number;
     pin?: string; quota?: number; allow?: boolean; reason?: string;
-    visibility?: string; sealed_until?: string; polished?: string;
+    visibility?: string; sealed_until?: string; polished?: string; page_style?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
-  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set'];
+  const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set', 'word-jar-add'];
   const action: Action = ALL_ACTIONS.includes(body.action as Action)
     ? (body.action as Action) : 'list';
   const ownerId = typeof body.ownerId === 'string' ? body.ownerId : '';
@@ -374,6 +375,7 @@ export async function POST(req: NextRequest) {
             id: r.id, ownerId: r.ownerId, ownerRole: r.ownerRole,
             date: r.date, time: r.time, feeling: r.feeling,
             feeling_ai_guessed: (r as { feeling_ai_guessed?: boolean }).feeling_ai_guessed === true,
+            page_style: (r as { page_style?: string }).page_style,
             locked: r.locked === true, sealed_until: sealedUntil,
             redacted: true, blocks: [],
           };
@@ -385,6 +387,7 @@ export async function POST(req: NextRequest) {
             id: r.id, ownerId: r.ownerId, ownerRole: r.ownerRole,
             date: r.date, time: r.time, feeling: r.feeling,
             feeling_ai_guessed: (r as { feeling_ai_guessed?: boolean }).feeling_ai_guessed === true,
+            page_style: (r as { page_style?: string }).page_style,
             locked: true, redacted: true, blocks: [],
           };
         }
@@ -440,6 +443,7 @@ export async function POST(req: NextRequest) {
       feeling,
       ...(feelingGuessed ? { feeling_ai_guessed: true } : {}),
       ...(typeof body.polished === 'string' && body.polished.trim() ? { polished: body.polished.trim().slice(0, 8000) } : {}),
+      ...(['lined', 'starry', 'night', 'rainbow'].includes(String(body.page_style)) ? { page_style: body.page_style } : {}),
       blocks,
       locked: body.locked === true,
       createdAt: FieldValue.serverTimestamp(),
@@ -456,6 +460,53 @@ export async function POST(req: NextRequest) {
     }
     const ref = await col.add(doc);
     return NextResponse.json({ id: ref.id });
+  }
+
+  if (action === 'word-jar-add') {
+    // 📚 My Words — after a KID saves a page, pull ONE great word/phrase
+    // they used + a one-line compliment and drop it in their jar.
+    // Owner-kid only (parents don't collect words). Best-effort.
+    if (!isOwner || !ownerIsKid) return NextResponse.json({ skipped: true, reason: 'not-owner-kid' });
+    if (!anthropic) return NextResponse.json({ skipped: true, reason: 'ai-off' });
+    const entryId = typeof body.entryId === 'string' ? body.entryId : '';
+    const text = (Array.isArray(body.blocks) ? body.blocks : [])
+      .filter((b) => b?.kind !== 'ink' && b?.kind !== 'scan' && typeof b?.text === 'string')
+      .map((b) => String(b.text)).join('\n').slice(0, 1500);
+    if (!entryId || text.length < 12) return NextResponse.json({ skipped: true, reason: 'too-short' });
+    try {
+      const r = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 120,
+        system: [{
+          type: 'text',
+          text: 'Read a child\'s diary page. Pick ONE genuinely nice word or short phrase THEY actually wrote (a strong verb, vivid adjective, or grown-up phrase) worth celebrating. Give a warm one-line compliment about it. If nothing stands out, return empty word. JSON: { "word": "the exact word/phrase from their text", "note": "one short warm line" }.',
+          cache_control: { type: 'ephemeral' },
+        }],
+        output_config: { format: { type: 'json_schema', schema: {
+          type: 'object', properties: { word: { type: 'string' }, note: { type: 'string' } },
+          required: ['word', 'note'], additionalProperties: false,
+        } } },
+        messages: [{ role: 'user', content: [{ type: 'text', text }] }],
+      });
+      const t = r.content.find((b) => b.type === 'text');
+      if (!t || t.type !== 'text') return NextResponse.json({ skipped: true });
+      const parsed = JSON.parse(t.text) as { word?: string; note?: string };
+      const word = String(parsed.word ?? '').trim().slice(0, 40);
+      const note = String(parsed.note ?? '').trim().slice(0, 160);
+      if (!word) return NextResponse.json({ skipped: true, reason: 'no-word' });
+      // Dedup (case-insensitive) + cap 60 (drop oldest).
+      const profRef = db.collection('families').doc(familyId).collection('sparks_profiles').doc(ownerId);
+      const prof = (await profRef.get()).data() as { word_jar?: Array<{ word: string }> } | undefined;
+      const jar = Array.isArray(prof?.word_jar) ? prof!.word_jar : [];
+      if (jar.some((w) => w.word.toLowerCase() === word.toLowerCase())) {
+        return NextResponse.json({ skipped: true, reason: 'dup', word });
+      }
+      const next = [...jar, { word, note, date: today, entryId }].slice(-60);
+      await profRef.set({ word_jar: next }, { merge: true });
+      return NextResponse.json({ word, note, count: next.length });
+    } catch {
+      return NextResponse.json({ skipped: true, reason: 'error' });
+    }
   }
 
   if (action === 'feeling-set') {

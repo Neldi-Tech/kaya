@@ -74,6 +74,8 @@ export interface DiaryEntry {
    *  Displays instead of the raw text with a ↺ view-original flip. The
    *  original text always survives in `blocks`. */
   polished?: string;
+  /** Slice 8i · 🎨 page paper style (plain when absent). */
+  page_style?: 'lined' | 'starry' | 'night' | 'rainbow';
   createdAt?: { seconds: number } | null;
 }
 
@@ -156,6 +158,8 @@ export interface NewDiaryEntryInput {
   sealed_until?: string;
   /** Slice 8h · opt-in polished markdown to store alongside the text. */
   polished?: string;
+  /** Slice 8i · 🎨 chosen paper style. */
+  page_style?: 'lined' | 'starry' | 'night' | 'rainbow';
 }
 
 /** Create one diary entry. Returns the new id. */
@@ -371,4 +375,32 @@ export async function polishText(text: string): Promise<string | null> {
     if (data?.polished) return String(data.polished);
   } catch { /* keep raw */ }
   return null;
+}
+
+
+// ── Slice 8i · 📚 My Words + 🎨 page styles ─────────────────────────
+
+export const DIARY_PAGE_STYLES: Array<{ id: 'plain' | 'lined' | 'starry' | 'night' | 'rainbow'; label: string; emoji: string }> = [
+  { id: 'plain', label: 'Plain', emoji: '📄' },
+  { id: 'lined', label: 'Lined', emoji: '📏' },
+  { id: 'starry', label: 'Starry', emoji: '⭐' },
+  { id: 'night', label: 'Night', emoji: '🌙' },
+  { id: 'rainbow', label: 'Rainbow', emoji: '🌈' },
+];
+
+/** After a kid saves a page, ask the gateway to collect one great word
+ *  into their jar. Best-effort — returns the word + note for a toast,
+ *  or null (nothing found / AI off / duplicate). */
+export async function addDiaryWord(
+  familyId: string, ownerId: string, entryId: string, blocks: DiaryBlock[],
+): Promise<{ word: string; note: string; count?: number } | null> {
+  if (isGuestActive()) return null;
+  try {
+    const r = await diaryApi<{ word?: string; note?: string; count?: number; skipped?: boolean }>(
+      'word-jar-add', { ownerId, entryId, blocks },
+    );
+    if (r?.skipped || !r?.word) return null;
+    pingDiary(familyId, ownerId);
+    return { word: r.word, note: r.note ?? '', count: r.count };
+  } catch { return null; }
 }

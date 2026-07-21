@@ -15,6 +15,23 @@ import { PolishedText } from './PolishedText';
 
 // ── Entry card ──────────────────────────────────────────────────────
 
+/** 🎨 CSS for a page's paper style (Slice 8i). Applied to the unlocked
+ *  entry card so the timeline reads like a real, decorated diary. */
+function pageStyleProps(style?: string): { className: string; style?: React.CSSProperties } {
+  switch (style) {
+    case 'lined':
+      return { className: 'border-[#ECE4D3]', style: { background: 'repeating-linear-gradient(#fff, #fff 22px, #e8eef8 23px)' } };
+    case 'starry':
+      return { className: 'border-[#F3E3B9]', style: { background: '#fffdf4 radial-gradient(circle at 18% 26%, #ffe9a8 0 2px, transparent 3px), #fffdf4 radial-gradient(circle at 74% 62%, #ffd7ef 0 2px, transparent 3px)' } };
+    case 'night':
+      return { className: 'border-transparent text-white', style: { background: 'linear-gradient(160deg,#1B1547,#3b2b6b)' } };
+    case 'rainbow':
+      return { className: '', style: { background: '#fff', border: '3px solid transparent', borderImage: 'linear-gradient(90deg,#FF6B6B,#FFB627,#6BCB77,#4ECDC4,#5A3CB8) 1' } };
+    default:
+      return { className: 'border-[#ECE4D3] bg-white' };
+  }
+}
+
 export function EntryCard({
   e, isOwner, kidFirstName, sw, onToggleLock, onKnock, onQuietOpen, onSetFeeling,
 }: {
@@ -87,7 +104,10 @@ export function EntryCard({
     );
   }
   return (
-    <div className={`rounded-2xl border px-3.5 py-3 ${e.locked ? 'border-dashed border-[#EBC2DC] bg-[#FDF3F9]' : 'border-[#ECE4D3] bg-white'}`}>
+    <div
+      className={`rounded-2xl border px-3.5 py-3 ${e.locked ? 'border-dashed border-[#EBC2DC] bg-[#FDF3F9]' : (e.page_style ? pageStyleProps(e.page_style).className : 'border-[#ECE4D3] bg-white')}`}
+      style={!e.locked && e.page_style ? pageStyleProps(e.page_style).style : undefined}
+    >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[20px]" aria-hidden>{e.feeling}</span>
         {e.feeling_ai_guessed && (

@@ -20,6 +20,7 @@ import {
   computeDiaryStats,
   kidHasDiaryPin, setDiaryPin,
   getMyDiaryMeta, setDiaryVisibility, setEntryFeeling,
+  DIARY_PAGE_STYLES,
 } from '@/lib/sparks/diary';
 import { uploadSparksPhotos } from '@/lib/sparks/uploadPhoto';
 import { toDisplayDate } from '@/lib/dates';
@@ -54,6 +55,7 @@ export default function MyDiaryPage() {
   const [err, setErr] = useState('');
   const [moreFeelings, setMoreFeelings] = useState(false);
   const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
+  const [pageStyle, setPageStyle] = useState<'plain' | 'lined' | 'starry' | 'night' | 'rainbow'>('plain');
   const [inkOpen, setInkOpen] = useState(false);
   const [hasInk, setHasInk] = useState(false);
   const inkRef = useRef<DiaryInkHandle>(null);
@@ -104,9 +106,9 @@ export default function MyDiaryPage() {
         const ups = await uploadSparksPhotos(familyId, draftId, scanFiles);
         for (const up of ups) blocks.push({ kind: 'scan', url: up.feedUrl });
       }
-      await saveDiaryEntry(familyId, { ownerId: uid, ...(feeling ? { feeling } : {}), blocks, locked, ...(polishedDraft && text.trim() ? { polished: polishedDraft } : {}) });
+      await saveDiaryEntry(familyId, { ownerId: uid, ...(feeling ? { feeling } : {}), blocks, locked, ...(polishedDraft && text.trim() ? { polished: polishedDraft } : {}), ...(pageStyle !== 'plain' && !locked ? { page_style: pageStyle } : {}) });
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
-      setInkOpen(false); setHasInk(false); inkRef.current?.clear(); setScanFiles([]); setPolishedDraft(null);
+      setInkOpen(false); setHasInk(false); inkRef.current?.clear(); setScanFiles([]); setPolishedDraft(null); setPageStyle('plain');
     } catch (e) {
       setErr((e as Error).message || 'Could not save');
     } finally { setSaving(false); }
@@ -252,6 +254,17 @@ export default function MyDiaryPage() {
                   )}
                   {inkOpen && <div className="mt-2.5"><DiaryInkCanvas ref={inkRef} height={240} onDirtyChange={setHasInk} /></div>}
                   {err && <p className="text-[12px] font-bold text-[#E36F6F] mt-1">{err}</p>}
+                  {!locked && (
+                    <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                      <span className="text-[10.5px] font-extrabold text-[#7A2E5C]">🎨 {sw ? 'Karatasi' : 'Paper'}</span>
+                      {DIARY_PAGE_STYLES.map((st) => (
+                        <button key={st.id} type="button" onClick={() => setPageStyle(st.id)}
+                          className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${pageStyle === st.id ? 'bg-[#F9E4F1] border-[#7A2E5C] text-[#7A2E5C]' : 'bg-white border-[#EBC2DC] text-[#5A6488]'}`}>
+                          {st.emoji}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
                     <button type="button" onClick={() => (locked ? setLocked(false) : withPin(() => setLocked(true)))}
                       className="flex items-center gap-2 text-[12.5px] font-extrabold text-[#7A2E5C]" aria-pressed={locked}>

@@ -24,6 +24,7 @@ import {
   computeDiaryStats, diaryDayKey,
   kidHasDiaryPin, setDiaryPin, answerKnock, knockOnPage, quietOpenPage, getDiaryPrivacy,
   getDiaryPrompt, requestKayaReply, setEntryFeeling,
+  addDiaryWord, DIARY_PAGE_STYLES,
 } from '@/lib/sparks/diary';
 import { toDisplayDate, ageNow } from '@/lib/dates';
 import { subscribeToSparksProfile } from '@/lib/sparks/firestore';
@@ -87,6 +88,8 @@ export default function DiaryPage() {
   const [jarPrompt, setJarPrompt] = useState<string | null>(null);
   const [jarBusy, setJarBusy] = useState(false);
   const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
+  const [pageStyle, setPageStyle] = useState<'plain' | 'lined' | 'starry' | 'night' | 'rainbow'>('plain');
+  const [wordToast, setWordToast] = useState<{ word: string; note: string } | null>(null);
   const [dearKaya, setDearKaya] = useState(false);
   const [sealDate, setSealDate] = useState('');
   const [sparksProfile, setSparksProfile] = useState<SparksProfile | null>(null);
@@ -187,7 +190,11 @@ export default function DiaryPage() {
         ...(linkedRefDate ? { linked_reflection_date: linkedRefDate } : {}),
         ...(sealDate && !locked ? { sealed_until: sealDate } : {}),
         ...(polishedDraft && text.trim() ? { polished: polishedDraft } : {}),
+        ...(pageStyle !== 'plain' && !locked ? { page_style: pageStyle } : {}),
       });
+      if (text.trim().length > 12) {
+        void addDiaryWord(familyId, kidId, entryId, blocks).then((w) => { if (w) setWordToast(w); });
+      }
       // 💌 Dear Kaya — opt-in, never on locked/sealed pages (server
       // double-enforces). Best-effort.
       if (dearKaya && !locked && !sealDate && dearKayaEnabled) {
@@ -195,7 +202,7 @@ export default function DiaryPage() {
       }
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
       setInkOpen(false); setHasInk(false); inkRef.current?.clear();
-      setScanFiles([]); setJarPrompt(null); setDearKaya(false); setSealDate(''); setPolishedDraft(null);
+      setScanFiles([]); setJarPrompt(null); setDearKaya(false); setSealDate(''); setPolishedDraft(null); setPageStyle('plain');
     } catch (e) {
       setErr((e as Error).message || (sw ? 'Imeshindikana kuhifadhi' : 'Could not save'));
     } finally { setSaving(false); }
@@ -230,6 +237,16 @@ export default function DiaryPage() {
           ? 'kitabu chako binafsi: hisia, hadithi, ndoto, wasiwasi. Urefu wowote unaotaka. Ni chako — kinashirikiwa na wazazi wako, funga ukurasa unapohitaji.'
           : "your personal book: feelings, stories, dreams, worries. As long or as short as you want. It's yours — shared with your parents, locked when you need it."}
       </div>
+
+      {/* 📚 My Words toast — a new word landed in the jar. */}
+      {wordToast && (
+        <div className="rounded-2xl border-2 border-[#D4A847] bg-gradient-to-br from-[#FFF1C9] to-[#FFFAEB] px-4 py-3 mb-3">
+          <div className="text-[12px] font-extrabold text-[#8A6800]">📚 {sw ? 'Neno jipya kwenye jaa lako!' : 'New word in your jar!'}</div>
+          <div className="text-[16px] font-black text-[#0F1F44] mt-0.5">&ldquo;{wordToast.word}&rdquo;</div>
+          {wordToast.note && <div className="text-[11.5px] text-[#5A4500] mt-0.5 leading-snug">{wordToast.note}</div>}
+          <button type="button" onClick={() => setWordToast(null)} className="mt-1 text-[11px] font-bold text-[#8A6800] hover:underline">Dismiss</button>
+        </div>
+      )}
 
       {/* Slice 8e · "Why share?" guidance — the kid-side card from the
           locked logic (rule 8). One warm line, never preachy. */}
@@ -359,6 +376,30 @@ export default function DiaryPage() {
 
       {/* 📅 On This Day — a gentle flashback when one exists. */}
       <OnThisDayCard entries={entries ?? []} sw={sw} />
+
+      {/* 📚 My Words jar — the growing word collection (Slice 8i). Both
+          kid + parent see it; tap a word → the page it came from. */}
+      {(() => {
+        const jar = (sparksProfile as { word_jar?: Array<{ word: string; note: string; date: string; entryId: string }> } | null)?.word_jar ?? [];
+        if (jar.length === 0) return null;
+        return (
+          <div className="mt-3 rounded-2xl border border-[#F3E3B9] bg-[#FFFAEB] p-3">
+            <div className="text-[10px] font-nunito font-black uppercase tracking-[1.2px] text-[#8A6800]">
+              📚 {sw ? `Jaa la maneno ya ${kidName.split(' ')[0]}` : `${kidName.split(' ')[0]}'s word jar`} · {jar.length}
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {jar.slice().reverse().slice(0, 40).map((w, i) => (
+                <button key={`${w.word}-${i}`} type="button"
+                  onClick={() => setDayOpen(w.date)}
+                  title={w.note}
+                  className="text-[11.5px] font-extrabold px-2.5 py-1 rounded-full bg-white border border-[#F3E3B9] text-[#8A6800] hover:border-[#D4A847]">
+                  {w.word}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
       {isOwnerKid && writing && (
         <div className="rounded-2xl border border-[#EBC2DC] bg-white p-3.5">
           {linkedRefDate && (
@@ -511,6 +552,17 @@ export default function DiaryPage() {
           )}
           {sealDate && !locked && (
             <p className="text-[10px] text-[#8A6800] mt-1 m-0">{sw ? `Hata wewe hutaweza kuufungua kabla ya ${toDisplayDate(sealDate)}.` : `Not even you can open it before ${toDisplayDate(sealDate)}.`}</p>
+          )}
+          {!locked && (
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              <span className="text-[10.5px] font-extrabold text-[#7A2E5C]">🎨 {sw ? 'Karatasi' : 'Paper'}</span>
+              {DIARY_PAGE_STYLES.map((st) => (
+                <button key={st.id} type="button" onClick={() => setPageStyle(st.id)}
+                  className={`text-[11px] font-extrabold px-2 py-1 rounded-full border ${pageStyle === st.id ? 'bg-[#F9E4F1] border-[#7A2E5C] text-[#7A2E5C]' : 'bg-white border-[#EBC2DC] text-[#5A6488]'}`}>
+                  {st.emoji}
+                </button>
+              ))}
+            </div>
           )}
           <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
             <button type="button" onClick={() => (locked ? setLocked(false) : withPin(() => setLocked(true)))}
