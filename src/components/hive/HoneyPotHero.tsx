@@ -6,9 +6,11 @@
 // sees the whole money ladder at a glance:
 //   House Points → Coins → Honey Pot (Treasury) → Cash.
 
+import { useState } from 'react';
 import { formatHoney, formatCash, formatCashClean, formatHp } from './format';
 import HoneyCoin from './HoneyCoin';
 import HoneyPotIcon from './HoneyPotIcon';
+import MeaningSheet from './MeaningSheet';
 
 export default function HoneyPotHero({
   treasuryCents,
@@ -35,6 +37,8 @@ export default function HoneyPotHero({
   currency?: string;
 }) {
   const convertibleHp = Math.max(0, housePoints - minHpReserve);
+  // HIVE PR3 (Elia's ④) — the Pot itself opens its meaning + story sheet.
+  const [sheetOpen, setSheetOpen] = useState(false);
   return (
     <div className="rounded-hive-lg p-6 text-hive-ink relative overflow-hidden bg-gradient-to-br from-[#FFE9C2] via-hive-honey-soft to-hive-honey shadow-[0_24px_48px_-24px_rgba(243,156,47,0.55)]">
       {/* Decorative blur */}
@@ -48,6 +52,13 @@ export default function HoneyPotHero({
         <p className="text-[12px] text-hive-muted font-bold mt-2">
           Your spending pot — earnings &amp; sales land here. Spend straight from it, with a parent&apos;s OK.
         </p>
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          className="mt-2 inline-flex items-center gap-1 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:bg-white transition-colors"
+        >
+          🍯 What&apos;s my Pot? · meaning + story ›
+        </button>
         <div className="mt-4 flex items-center gap-2 flex-wrap">
           <span
             className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk"
@@ -74,6 +85,19 @@ export default function HoneyPotHero({
           )}
         </div>
       </div>
+
+      {sheetOpen && (
+        <MeaningSheet
+          kind="pot"
+          open
+          onClose={() => setSheetOpen(false)}
+          treasuryCents={treasuryCents}
+          honeyCoins={honeyCoins}
+          housePoints={housePoints}
+          cashCents={cashCents}
+          currency={currency}
+        />
+      )}
     </div>
   );
 }
