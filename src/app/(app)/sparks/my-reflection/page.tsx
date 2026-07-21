@@ -20,6 +20,7 @@ import {
   saveReflectionAIRead, type ReflectionAIRead,
 } from '@/lib/sparks/reflection';
 import { getMyDiaryMeta } from '@/lib/sparks/diary';
+import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import { toDisplayDate } from '@/lib/dates';
 
 const NAVY = '#1B1547';
@@ -37,6 +38,7 @@ export default function MyReflectionPage() {
   const [recent, setRecent] = useState<ReflectionEntry[]>([]);
   const [visibility, setVisibility] = useState<'personal' | 'visible'>('personal');
   const [draft, setDraft] = useState('');
+  const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
@@ -67,8 +69,9 @@ export default function MyReflectionPage() {
     try {
       await saveReflection(familyId, {
         kidId: uid, date: today, text: draft.trim(), source: 'typed', by: uid,
+        ...(polishedDraft && draft.trim() ? { polished: polishedDraft } : {}),
       });
-      setEditing(false);
+      setEditing(false); setPolishedDraft(null);
       // Slice 8g · adult mood read too — best-effort, same endpoint the
       // kid reflection uses; the emoji feeds the personal streak header.
       void (async () => {
@@ -147,7 +150,9 @@ export default function MyReflectionPage() {
                         {todayEntry.ai_read.mood_emoji} {todayEntry.ai_read.mood_word}
                       </span>
                     )}
-                    {todayEntry.text}
+                    {todayEntry.polished
+                      ? <PolishedText polished={todayEntry.polished} original={todayEntry.text} sw={sw} />
+                      : todayEntry.text}
                   </div>
                   <button type="button" onClick={() => { setDraft(todayEntry.text); setEditing(true); }}
                     className="text-[12px] font-nunito font-extrabold text-[#5A3CB8] underline underline-offset-2">
@@ -158,12 +163,18 @@ export default function MyReflectionPage() {
                 <div className="space-y-2.5">
                   <textarea
                     value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
+                    onChange={(e) => { setDraft(e.target.value); if (polishedDraft) setPolishedDraft(null); }}
                     rows={5}
                     maxLength={4000}
                     placeholder={sw ? 'Leo…' : 'Today I…'}
                     className="w-full rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#8E7BE0]/40 resize-none"
                   />
+                  {draft.trim().length > 12 && (
+                    <div className="flex items-center gap-2">
+                      <PolishControl getText={() => draft} onAccept={(md) => setPolishedDraft(md)} sw={sw} />
+                      {polishedDraft && <span className="text-[10.5px] font-extrabold text-[#5A3CB8]">✨ {sw ? 'Itahifadhiwa nadhifu' : 'Will save polished'}</span>}
+                    </div>
+                  )}
                   {err && <p className="text-[12px] font-bold text-[#E36F6F]">{err}</p>}
                   <div className="flex justify-end gap-2">
                     {editing && (

@@ -32,6 +32,7 @@ import {
 import type { ReflectionWeekReview, ReflectionStreakPending } from '@/lib/sparks/schema';
 import type { DayOfWeek } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
+import { PolishControl, PolishedText } from '@/components/sparks/PolishedText';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import CelebrationBurst from '@/components/sparks/CelebrationBurst';
@@ -70,6 +71,7 @@ export default function ReflectionPage() {
 
   // Draft state
   const [draft, setDraft] = useState('');
+  const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
   const [scanUrl, setScanUrl] = useState<string | undefined>();
   const [source, setSource] = useState<'scan' | 'typed'>('scan');
   const [mode, setMode] = useState<'idle' | 'scanning' | 'review'>('idle');
@@ -180,7 +182,9 @@ export default function ReflectionPage() {
     try {
       await saveReflection(familyId, {
         kidId, date: today, text: draft.trim(), source, scanUrl, by: authProfile.uid,
+        ...(polishedDraft && draft.trim() ? { polished: polishedDraft } : {}),
       });
+      setPolishedDraft(null);
       setMode('idle');
 
       // Slice 7n · fire streak-milestone awards if any landed today.
@@ -417,7 +421,9 @@ export default function ReflectionPage() {
             </button>
           )}
           <div className="rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">
-            {todayEntry.text}
+            {todayEntry.polished
+              ? <PolishedText polished={todayEntry.polished} original={todayEntry.text} sw={sw} />
+              : todayEntry.text}
             {todayEntry.source === 'scan' && (
               <span className="ml-2 text-[10px] font-extrabold uppercase tracking-[1px] text-[#5A6488]">📷 {sw ? 'imechanganuliwa' : 'scanned'}</span>
             )}
@@ -546,11 +552,17 @@ export default function ReflectionPage() {
           </div>
           <textarea
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => { setDraft(e.target.value); if (polishedDraft) setPolishedDraft(null); }}
             rows={5}
             placeholder={sw ? 'Leo nilijifunza…' : 'Today I learned…'}
             className="w-full rounded-2xl border border-[#ECE4D3] bg-white p-3 text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#8E7BE0]/40"
           />
+          {draft.trim().length > 12 && (
+            <div className="flex items-center gap-2">
+              <PolishControl getText={() => draft} onAccept={(md) => setPolishedDraft(md)} sw={sw} />
+              {polishedDraft && <span className="text-[10.5px] font-extrabold text-[#5A3CB8]">✨ {sw ? 'Itahifadhiwa nadhifu' : 'Will save polished'}</span>}
+            </div>
+          )}
           {err && <p className="text-[12px] font-bold text-[#E36F6F]">{err}</p>}
           <div className="flex items-center gap-2">
             {source === 'scan' && (

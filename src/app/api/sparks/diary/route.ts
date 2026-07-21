@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
     feeling?: string; blocks?: BlockIn[]; locked?: boolean;
     linked_reflection_date?: string; max?: number;
     pin?: string; quota?: number; allow?: boolean; reason?: string;
-    visibility?: string; sealed_until?: string;
+    visibility?: string; sealed_until?: string; polished?: string;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'bad-json' }, { status: 400 }); }
   const ALL_ACTIONS: Action[] = ['list', 'save', 'lock', 'delete', 'privacy-get', 'pin-set', 'pin-reset', 'quota-set', 'knock', 'knock-answer', 'quiet-open', 'visibility-set', 'feeling-set'];
@@ -439,6 +439,7 @@ export async function POST(req: NextRequest) {
       time: localTimeHHmm(new Date()),
       feeling,
       ...(feelingGuessed ? { feeling_ai_guessed: true } : {}),
+      ...(typeof body.polished === 'string' && body.polished.trim() ? { polished: body.polished.trim().slice(0, 8000) } : {}),
       blocks,
       locked: body.locked === true,
       createdAt: FieldValue.serverTimestamp(),

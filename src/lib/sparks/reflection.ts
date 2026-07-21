@@ -99,6 +99,9 @@ export interface ReflectionEntry {
   ai_read?: ReflectionAIRead;
   /** 2026-06-23 · AI soundness score (display-only feedback). */
   ai_score?: ReflectionAIScore;
+  /** Slice 8h · ✨ AI-polished markdown-lite version; displays instead
+   *  of `text` with a ↺ view-original flip. Original text always kept. */
+  polished?: string;
   createdAt: Timestamp;
   createdBy: string;            // uid (kid or parent)
   updatedAt: Timestamp;
@@ -253,6 +256,8 @@ export async function saveReflection(
     source: ReflectionSource;
     scanUrl?: string;
     by: string;
+    /** Slice 8h · opt-in polished markdown stored alongside the text. */
+    polished?: string;
   },
 ): Promise<void> {
   if (isGuestActive()) return;
@@ -260,6 +265,7 @@ export async function saveReflection(
   await reflectionApi('save', {
     kidId: args.kidId, date, text: args.text, source: args.source,
     ...(args.scanUrl ? { scanUrl: args.scanUrl } : {}),
+    ...(args.polished ? { polished: args.polished } : {}),
   });
   pingReflection(familyId, args.kidId);
 }

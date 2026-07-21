@@ -70,6 +70,10 @@ export interface DiaryEntry {
   sealed_until?: string;
   /** Slice 8f · 💌 Dear Kaya reply (written server-side, opt-in). */
   kaya_reply?: string;
+  /** Slice 8h · ✨ AI-polished markdown-lite version of the page's text.
+   *  Displays instead of the raw text with a ↺ view-original flip. The
+   *  original text always survives in `blocks`. */
+  polished?: string;
   createdAt?: { seconds: number } | null;
 }
 
@@ -150,6 +154,8 @@ export interface NewDiaryEntryInput {
   linked_reflection_date?: string;
   /** Slice 8f · seal the page until a FUTURE date. */
   sealed_until?: string;
+  /** Slice 8h · opt-in polished markdown to store alongside the text. */
+  polished?: string;
 }
 
 /** Create one diary entry. Returns the new id. */
@@ -346,4 +352,23 @@ export async function setEntryFeeling(
   if (isGuestActive()) return;
   await diaryApi('feeling-set', { ownerId, entryId, feeling });
   pingDiary(familyId, ownerId);
+}
+
+
+// ── Slice 8h · AI Polish ────────────────────────────────────────────
+
+/** Request a polished (markdown-lite) preview of arbitrary text. Returns
+ *  null when the AI is off or the call fails — caller keeps the raw text. */
+export async function polishText(text: string): Promise<string | null> {
+  if (!text.trim()) return null;
+  try {
+    const res = await fetch('/api/sparks/ai/polish', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.polished) return String(data.polished);
+  } catch { /* keep raw */ }
+  return null;
 }

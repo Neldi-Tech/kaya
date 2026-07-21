@@ -30,6 +30,7 @@ import { subscribeToSparksProfile } from '@/lib/sparks/firestore';
 import type { SparksProfile } from '@/lib/sparks/schema';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import { EntryCard, DiaryTimeline, PinCreateModal } from '@/components/sparks/DiaryShared';
+import { PolishControl } from '@/components/sparks/PolishedText';
 import { YearInPixelsCard, OnThisDayCard } from '@/components/sparks/DiaryFeatures';
 import CameraCaptureSheet from '@/components/messaging/CameraCaptureSheet';
 import DiaryInkCanvas, { type DiaryInkHandle } from '@/components/sparks/DiaryInkCanvas';
@@ -85,6 +86,7 @@ export default function DiaryPage() {
   const [customFeeling, setCustomFeeling] = useState('');
   const [jarPrompt, setJarPrompt] = useState<string | null>(null);
   const [jarBusy, setJarBusy] = useState(false);
+  const [polishedDraft, setPolishedDraft] = useState<string | null>(null);
   const [dearKaya, setDearKaya] = useState(false);
   const [sealDate, setSealDate] = useState('');
   const [sparksProfile, setSparksProfile] = useState<SparksProfile | null>(null);
@@ -184,6 +186,7 @@ export default function DiaryPage() {
         locked,
         ...(linkedRefDate ? { linked_reflection_date: linkedRefDate } : {}),
         ...(sealDate && !locked ? { sealed_until: sealDate } : {}),
+        ...(polishedDraft && text.trim() ? { polished: polishedDraft } : {}),
       });
       // 💌 Dear Kaya — opt-in, never on locked/sealed pages (server
       // double-enforces). Best-effort.
@@ -192,7 +195,7 @@ export default function DiaryPage() {
       }
       setWriting(false); setFeeling(null); setText(''); setLocked(false);
       setInkOpen(false); setHasInk(false); inkRef.current?.clear();
-      setScanFiles([]); setJarPrompt(null); setDearKaya(false); setSealDate('');
+      setScanFiles([]); setJarPrompt(null); setDearKaya(false); setSealDate(''); setPolishedDraft(null);
     } catch (e) {
       setErr((e as Error).message || (sw ? 'Imeshindikana kuhifadhi' : 'Could not save'));
     } finally { setSaving(false); }
@@ -439,12 +442,18 @@ export default function DiaryPage() {
           </div>
           <textarea
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => { setText(e.target.value); if (polishedDraft) setPolishedDraft(null); }}
             rows={4}
             maxLength={8000}
             placeholder={jarPrompt ?? (sw ? 'Leo…' : 'Dear diary…')}
             className="w-full rounded-xl border border-[#EBC2DC] bg-white p-3 text-[14px] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#C05299]/40 resize-none"
           />
+          {text.trim().length > 12 && (
+            <div className="flex items-center gap-2 mt-1.5">
+              <PolishControl getText={() => text} onAccept={(md) => setPolishedDraft(md)} sw={sw} />
+              {polishedDraft && <span className="text-[10.5px] font-extrabold text-[#5A3CB8]">✨ {sw ? 'Itahifadhiwa ikiwa nadhifu' : 'Will save polished'}</span>}
+            </div>
+          )}
 
           {/* Pencil canvas — toggled by the 🖊 tile. */}
           {inkOpen && (

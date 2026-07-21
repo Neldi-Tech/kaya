@@ -11,6 +11,7 @@ import {
   DIARY_FEELINGS, DIARY_FEELINGS_MORE,
 } from '@/lib/sparks/diary';
 import { toDisplayDate } from '@/lib/dates';
+import { PolishedText } from './PolishedText';
 
 // ── Entry card ──────────────────────────────────────────────────────
 
@@ -132,8 +133,20 @@ export function EntryCard({
         </div>
       )}
       <div className="mt-1.5 space-y-2">
+        {(() => {
+          const firstText = e.blocks.find((b) => b.kind === 'text')?.text ?? '';
+          // ✨ Polished pages render the tidy version with a ↺ flip; the
+          // raw text lives in blocks and comes back via the flip.
+          if (e.polished && firstText) {
+            return <PolishedText polished={e.polished} original={firstText} sw={sw} />;
+          }
+          return null;
+        })()}
         {e.blocks.map((b, i) => {
           if (b.kind === 'text') {
+            // When a polished version exists, the first text block is
+            // already shown above (with its original flip) — skip it.
+            if (e.polished && b.text === e.blocks.find((x) => x.kind === 'text')?.text) return null;
             return <div key={i} className="text-[13px] text-[#0F1F44] leading-relaxed whitespace-pre-wrap">{b.text}</div>;
           }
           return (

@@ -196,6 +196,9 @@ export async function POST(req: NextRequest) {
       date,
       text: String(body.text || '').slice(0, 4000).trim(),
       source: body.source === 'typed' ? 'typed' : 'scan',
+      ...(typeof (body as { polished?: string }).polished === 'string' && (body as { polished?: string }).polished!.trim()
+        ? { polished: (body as { polished?: string }).polished!.trim().slice(0, 8000) }
+        : { polished: FieldValue.delete() }),
       updatedAt: FieldValue.serverTimestamp(),
       createdBy: prev?.createdBy || uid,
       createdAt: prev?.createdAt || FieldValue.serverTimestamp(),
