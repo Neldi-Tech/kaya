@@ -116,6 +116,13 @@ export interface HiveConfig {
     cadence?: 'weekly' | 'monthly';
     nextRunAt?: Timestamp;
   };
+  // ── CASH UPGRADE · Money Buddy 🤖 deposit categories (see moneyBuddy.ts) ──
+  /** Custom deposit categories this family created (＋ New). */
+  depositCategories?: Array<{ id: string; emoji: string; label: string }>;
+  /** Learned note-keyword → categoryId hints ("pocket" → 'allowance'). */
+  depositCategoryHints?: Record<string, string>;
+  /** Per-category deposit counts — most-used chips float to the front. */
+  depositCategoryUsage?: Record<string, number>;
 }
 
 export const DEFAULT_HIVE_CONFIG: HiveConfig = {
@@ -1314,7 +1321,7 @@ export async function depositCash(
   familyId: string,
   kidId: string,
   amountCents: number,
-  category: 'allowance' | 'gift' | 'business' | 'other',
+  category: TxCategory,
   description: string,
   uid: string,
 ): Promise<void> {
@@ -1349,7 +1356,7 @@ export async function depositToTreasury(
   familyId: string,
   kidId: string,
   amountCents: number,
-  category: 'business' | 'other',
+  category: TxCategory,
   description: string,
   uid: string,
   /** HIVE PR2 — optional source id (businessId for sales) so the statement
