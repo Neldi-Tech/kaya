@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  cancelOwnRequest, requestOrAutoSpend, TxCategory, PLAN_CATEGORIES,
+  cancelOwnRequest, requestOrAutoSpend, correctSpendTx, TxCategory, PLAN_CATEGORIES,
   effectiveAutoApproveCents, currencySymbol, spendableCents, type HiveTransaction,
 } from '@/lib/hive';
 import { Business, subscribeToKidBusinesses, requestBusinessReinvest } from '@/lib/business';
@@ -52,9 +52,19 @@ export default function CashOutPage() {
   // small spend that posted directly without going to the parent inbox.
   const [autoApproveFlash, setAutoApproveFlash] = useState<{ amount: number; desc: string } | null>(null);
 
-  const outgoing = useMemo(
-    () => transactions.filter(isSpendOut),
+  // Corrected originals are replaced by their repost in this list (the full
+  // trail — original + ↩️ reversal + repost — stays visible on the Statement).
+  const correctedIds = useMemo(
+    () => new Set(
+      transactions
+        .filter((t) => t.correctionKind === 'reversal' && t.correctsTxId)
+        .map((t) => t.correctsTxId as string),
+    ),
     [transactions],
+  );
+  const outgoing = useMemo(
+    () => transactions.filter(isSpendOut).filter((t) => !correctedIds.has(t.id)),
+    [transactions, correctedIds],
   );
   const pendingSpends = useMemo(
     () => myRequests.filter((r) => r.type === 'spend' && r.status === 'pending'),
@@ -157,6 +167,40 @@ export default function CashOutPage() {
   const cancel = async (requestId: string) => {
     if (!profile?.familyId || isGuest) return;
     await cancelOwnRequest(profile.familyId, requestId, profile.uid);
+  };
+
+  // ── CASH UPGRADE · ✏️ fix a spend entry (parent-only) ───────────
+  // Wrong-pocket postings (🍯 instead of 💵) and category/description slips
+  // are corrected via append-only reversal+repost pairs — see correctSpendTx.
+  const isParentUser = profile?.role === 'parent';
+  const [fixTx, setFixTx] = useState<HiveTransaction | null>(null);
+  const [fixPocket, setFixPocket] = useState<'treasury' | 'cash'>('cash');
+  const [fixCategory, setFixCategory] = useState<TxCategory>('shopping');
+  const [fixDesc, setFixDesc] = useState('');
+  const [fixSaving, setFixSaving] = useState(false);
+  const [fixError, setFixError] = useState('');
+  const openFix = (t: HiveTransaction) => {
+    setFixTx(t);
+    setFixPocket(t.layer === 'treasury' ? 'treasury' : 'cash');
+    setFixCategory(t.category);
+    setFixDesc(t.description || '');
+    setFixError('');
+  };
+  const saveFix = async () => {
+    if (!profile?.familyId || !activeKidId || !fixTx) return;
+    setFixError('');
+    setFixSaving(true);
+    try {
+      await correctSpendTx(profile.familyId, activeKidId, fixTx.id, {
+        pocket: fixPocket,
+        category: fixCategory,
+        description: fixDesc,
+      }, profile.uid);
+      setFixTx(null);
+    } catch (e: any) {
+      setFixError(e?.message || 'Couldn’t save the correction.');
+    }
+    setFixSaving(false);
   };
 
   return (
@@ -437,10 +481,110 @@ export default function CashOutPage() {
           </p>
         ) : (
           outgoing.map((t) => (
-            <TransactionRow key={t.id} tx={t} currency={config.currency} />
+            <div key={t.id} className="flex items-center gap-1.5">
+              <div className="flex-1 min-w-0">
+                <TransactionRow tx={t} currency={config.currency} />
+              </div>
+              {isParentUser && (
+                <button
+                  onClick={() => openFix(t)}
+                  title="Fix this entry (pocket / category / description)"
+                  className="shrink-0 w-8 h-8 rounded-[10px] border border-hive-line bg-hive-cream text-[13px] hover:border-hive-honey transition-colors"
+                >
+                  ✏️
+                </button>
+              )}
+            </div>
           ))
         )}
       </div>
+
+      {/* ✏️ Fix-entry sheet (parent-only). Corrections are append-only —
+          the original + ↩️ reversal + repost all stay on the Statement. */}
+      {fixTx && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end lg:items-center justify-center p-0 lg:p-6" onClick={() => !fixSaving && setFixTx(null)}>
+          <div
+            className="w-full max-w-md bg-hive-paper rounded-t-hive-lg lg:rounded-hive-lg p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">✏️ Fix this entry</p>
+              <p className="font-nunito font-black text-lg mt-1">
+                −{formatCash(fixTx.amount, config.currency)} · {fixTx.description}
+              </p>
+              <p className="text-[11px] text-hive-muted mt-0.5">
+                Posted against {fixTx.layer === 'treasury' ? 'the 🍯 Honey Pot' : '💵 Cash'}. The original stays on the statement — Kaya writes a ↩️ correction pair.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">Should have left…</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setFixPocket('cash')}
+                  aria-pressed={fixPocket === 'cash'}
+                  className={`p-2.5 rounded-hive border-2 text-left transition-all ${fixPocket === 'cash' ? 'border-hive-green bg-[#EAF7F0]' : 'border-hive-line bg-hive-paper'}`}
+                >
+                  <p className="font-nunito font-extrabold text-[13px]">💵 Cash</p>
+                </button>
+                <button
+                  onClick={() => setFixPocket('treasury')}
+                  aria-pressed={fixPocket === 'treasury'}
+                  className={`p-2.5 rounded-hive border-2 text-left transition-all ${fixPocket === 'treasury' ? 'border-hive-honey bg-hive-honey-soft/40' : 'border-hive-line bg-hive-paper'}`}
+                >
+                  <p className="font-nunito font-extrabold text-[13px]">🍯 Honey Pot</p>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">Category</label>
+              <div className="flex flex-wrap gap-1.5">
+                {SPEND_CHIPS.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setFixCategory(c.id)}
+                    className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
+                      fixCategory === c.id ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                    }`}
+                  >
+                    {c.emoji} {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1">Description</label>
+              <input
+                value={fixDesc}
+                onChange={(e) => setFixDesc(e.target.value)}
+                maxLength={120}
+                className="w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+              />
+            </div>
+
+            {fixError && <p className="text-hive-rose text-sm font-bold">{fixError}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFixTx(null)}
+                disabled={fixSaving}
+                className="h-11 px-4 rounded-hive bg-hive-cream text-hive-muted font-nunito font-extrabold text-[13px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveFix}
+                disabled={fixSaving}
+                className="flex-1 h-11 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-[13px] disabled:opacity-40 transition-colors"
+              >
+                {fixSaving ? 'Saving…' : 'Save correction ↩️'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <p className="mt-3 text-center text-[11px] text-hive-muted">
         Every spend needs parent approval. Categories tracked.
