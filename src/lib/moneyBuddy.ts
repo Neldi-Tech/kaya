@@ -103,6 +103,44 @@ export function customCategoryId(label: string): string {
   return `custom:${label.toLowerCase().trim().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40)}`;
 }
 
+// ── Spend-side Money Buddy 🤖 (design screen E + §5) ──────────────
+// Read-only instincts for the KID spend form: suggest the right category
+// from the description, spot business costs, and cheer good choices.
+// (No learning writes here — kids can't edit family config, by design.)
+
+export type SpendSuggestion =
+  | { kind: 'category'; id: TxCategory; emoji: string; label: string }
+  | { kind: 'business' };
+
+const SPEND_HEURISTICS: Array<{ match: RegExp; s: SpendSuggestion }> = [
+  { match: /seed|seedling|fertili[sz]er|manure|feed|stock|supplies|inventory|packaging|mbegu/i,
+    s: { kind: 'business' } },
+  { match: /book|pencil|pen\b|notebook|school|exam|kitabu/i,
+    s: { kind: 'category', id: 'books', emoji: '📚', label: 'Books' } },
+  { match: /ice\s*cream|candy|sweet|soda|chips|snack|chocolate|cake|biscuit|pipi/i,
+    s: { kind: 'category', id: 'treats', emoji: '🍦', label: 'Treats' } },
+  { match: /donat|church|mosque|charity|help(ing)?\s|offering|sadaka/i,
+    s: { kind: 'category', id: 'donation', emoji: '❤️', label: 'Donation' } },
+];
+
+export function suggestSpendCategory(desc: string): SpendSuggestion | null {
+  for (const h of SPEND_HEURISTICS) {
+    if (h.match.test(desc || '')) return h.s;
+  }
+  return null;
+}
+
+/** A friendly one-liner for the moment before sending the request. */
+export function buddyCheer(category: TxCategory, isBusinessReinvest: boolean): string | null {
+  if (isBusinessReinvest) return 'Nice one! Money into your business can come back as sales 🌱';
+  switch (category) {
+    case 'books':    return 'Books are brain-honey — great pick 📚🐝';
+    case 'donation': return 'Giving back — that’s a big-heart move ❤️';
+    case 'savings':  return 'Saving it? The bees approve 🐝';
+    default:         return null;
+  }
+}
+
 /** The hiveConfig patch that teaches Money Buddy from a confirmed deposit:
  *  note keywords → chosen category, plus a usage bump for chip ordering.
  *  Caller writes it via setHiveConfig (parent-only). */

@@ -13,6 +13,7 @@ import {
   effectiveAutoApproveCents, currencySymbol, spendableCents, type HiveTransaction,
 } from '@/lib/hive';
 import { Business, subscribeToKidBusinesses, requestBusinessReinvest } from '@/lib/business';
+import { suggestSpendCategory, buddyCheer } from '@/lib/moneyBuddy';
 import { useFamily } from '@/contexts/FamilyContext';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import TransactionRow from '@/components/hive/TransactionRow';
@@ -380,6 +381,46 @@ export default function CashOutPage() {
               </p>
             </div>
           )}
+
+          {/* 🤖 Money Buddy — spot the right category (or a business cost)
+              from what the kid typed. Suggest-only; the kid decides. */}
+          {(() => {
+            const s = suggestSpendCategory(desc);
+            if (!s) return null;
+            if (s.kind === 'business') {
+              if (mode === 'business') return null;
+              return (
+                <div className="rounded-hive border border-[#DCD0F5] bg-[#F1EBFC] p-3 text-[12.5px] leading-relaxed flex items-start gap-2">
+                  <span className="text-lg shrink-0">🤖</span>
+                  <span>
+                    That sounds like a <b>🌳 Kaya Business</b> cost — tag it so it counts in your business books?{' '}
+                    <button onClick={() => setMode('business')} className="font-nunito font-extrabold text-[#8E6FD8] hover:underline">
+                      Tag it →
+                    </button>
+                  </span>
+                </div>
+              );
+            }
+            if (mode !== 'spend' || category === s.id) return null;
+            return (
+              <div className="rounded-hive border border-[#DCD0F5] bg-[#F1EBFC] p-3 text-[12.5px] leading-relaxed flex items-start gap-2">
+                <span className="text-lg shrink-0">🤖</span>
+                <span>
+                  Looks like <b>{s.emoji} {s.label}</b> to me.{' '}
+                  <button onClick={() => { setMode('spend'); setCategory(s.id); }} className="font-nunito font-extrabold text-[#8E6FD8] hover:underline">
+                    Use {s.label} →
+                  </button>
+                </span>
+              </div>
+            );
+          })()}
+
+          {/* 🤖 A little cheer when the pick deserves one. */}
+          {(() => {
+            const cheer = buddyCheer(category, mode === 'business');
+            if (!cheer || !desc.trim()) return null;
+            return <p className="text-[12px] text-[#6B4FB3] font-bold">🤖 {cheer}</p>;
+          })()}
 
           {/* Soft over-budget warning — only when the kid actually has a
               plan budget for this category and adding the requested amount
