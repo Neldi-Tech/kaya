@@ -16,6 +16,7 @@ import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import HoneyCoin from '@/components/hive/HoneyCoin';
 import WealthCard from '@/components/hive/WealthCard';
 import WishJar from '@/components/hive/WishJar';
+import SaverStreakCard from '@/components/hive/SaverStreakCard';
 import HpValueCommentary from '@/components/hive/HpValueCommentary';
 import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
@@ -133,6 +134,8 @@ export default function HiveHomePage() {
           currency={config.currency}
         />
       )}
+
+      <SaverStreakCard child={activeKid} />
 
       <div className="mb-5">
         <WealthCard
