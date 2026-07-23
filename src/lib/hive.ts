@@ -497,6 +497,14 @@ export interface ApprovalRequest {
    *  Phase 2 can switch on dual-parent without a migration. */
   requiredApprovals?: number;
   approvals?: string[];
+  // ── CASH UPGRADE · treasury_to_cash (🏧 withdrawal) two-step handover ──
+  /** 'approve' while waiting for the parent OK; 'handover' once approved but
+   *  before the real money changes hands. Cash only moves at handover. */
+  stage?: 'approve' | 'handover';
+  /** 4-digit code the kid shows at pickup so the handover is verifiable. */
+  code?: string;
+  handedOverAt?: Timestamp;
+  handedOverBy?: string;
   status: ApprovalStatus;
   rejectionReason?: string;
   /** Parent's free-text comment left at review time (approve or decline),
@@ -803,15 +811,19 @@ export async function requestCashOut(
   return ref.id;
 }
 
-/** Kid asks a parent to turn part of their Treasury Reserve (Honey Pot) into
- *  real Cash. The balance move happens on approval — single- or both-parent per
- *  `config.treasuryCashApprovers`. `amountCents` is family-currency cents. */
+/** CASH UPGRADE — the Kaya ATM 🏧. Kid asks a parent to turn part of their
+ *  Honey Pot into real, in-hand Cash. Two steps: parent approves (single- or
+ *  both-parent per `config.treasuryCashApprovers`), then confirms the real 🤝
+ *  handover via {@link confirmCashHandover} — the balance only moves at
+ *  handover, so the app never claims the kid holds money they don't.
+ *  `amountCents` is family-currency cents. */
 export async function requestTreasuryToCash(
   familyId: string,
   kidId: string,
   amountCents: number,
   createdBy: string,
   requiredApprovals: number = 1,
+  whatFor: string = '',
 ): Promise<string> {
   if (isGuestActive()) return 'guest-request';
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Pick a positive amount.');
@@ -819,9 +831,13 @@ export async function requestTreasuryToCash(
     kidId,
     type: 'treasury_to_cash' as ApprovalType,
     amountCents,
-    description: 'Turn Honey Pot into Cash',
+    description: whatFor.trim() || 'Withdraw to real cash 🏧',
     requiredApprovals: requiredApprovals >= 2 ? 2 : 1,
     approvals: [] as string[],
+    stage: 'approve',
+    // Handover code the kid shows at pickup. Not a secret — a shared ritual
+    // that makes the physical handover moment verifiable and fun.
+    code: String(Math.floor(1000 + Math.random() * 9000)),
     status: 'pending' as ApprovalStatus,
     createdAt: serverTimestamp(),
     createdBy,
@@ -1019,6 +1035,67 @@ export async function cancelOwnRequest(
   });
 }
 
+/** CASH UPGRADE — the 🤝 moment. A parent confirms the real money has been
+ *  handed to the kid; only now does the Pot→Cash balance move happen, with a
+ *  receipt pair in the ledger. The request must already be at stage
+ *  'handover' (i.e. fully approved). */
+export async function confirmCashHandover(
+  familyId: string,
+  requestId: string,
+  parentUid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await runTransaction(db, async (tx) => {
+    const reqRef = doc(requestCol(familyId), requestId);
+    const reqSnap = await tx.get(reqRef);
+    if (!reqSnap.exists()) throw new Error('Request not found.');
+    const req = reqSnap.data() as ApprovalRequest;
+    if (req.type !== 'treasury_to_cash') throw new Error('Not a withdrawal request.');
+    if (req.status !== 'pending' || req.stage !== 'handover') {
+      throw new Error('This withdrawal isn’t waiting for a handover.');
+    }
+    const cents = req.amountCents ?? 0;
+    const wRef = walletPath(familyId, req.kidId);
+    const wSnap = await tx.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised.');
+    const wallet = wSnap.data() as Wallet;
+    if ((wallet.treasuryCents || 0) < cents) throw new Error('Not enough in the Honey Pot.');
+    // Already counted as earned when it entered the Pot — no lifetime re-add.
+    const link = doc(txCol(familyId, req.kidId)).id;
+    const outRef = doc(txCol(familyId, req.kidId), `${link}-out`);
+    const inRef = doc(txCol(familyId, req.kidId), `${link}-in`);
+    const now = serverTimestamp();
+    tx.set(wRef, {
+      ...wallet,
+      treasuryCents: (wallet.treasuryCents || 0) - cents,
+      cashCents: wallet.cashCents + cents,
+      updatedAt: now,
+    });
+    tx.set(outRef, {
+      layer: 'treasury', direction: 'out', amount: cents, category: 'convert',
+      description: `Withdrawal 🏧${req.code ? ` · code ${req.code}` : ''}`,
+      status: 'completed', linkedTxId: link, requestId,
+      createdBy: req.createdBy, approvedBy: parentUid,
+      createdAt: now, completedAt: now,
+    });
+    tx.set(inRef, {
+      layer: 'cash', direction: 'in', amount: cents, category: 'convert',
+      description: 'Handed over 🤝 — from your Honey Pot',
+      status: 'completed', linkedTxId: link, requestId,
+      createdBy: req.createdBy, approvedBy: parentUid,
+      createdAt: now, completedAt: now,
+    });
+    tx.update(reqRef, {
+      status: 'approved' as ApprovalStatus,
+      handedOverAt: now,
+      handedOverBy: parentUid,
+      resolvedAt: now,
+      resolvedBy: parentUid,
+      resultingTxIds: [`${link}-out`, `${link}-in`],
+    });
+  });
+}
+
 // ── Approval resolution (parent-side) ─────────────────────────────
 
 /**
@@ -1152,38 +1229,13 @@ export async function resolveApprovalRequest(
         tx.update(reqRef, { approvals: nextApprovals });
         return;
       }
-      // Threshold met — move Honey Pot → Cash. (Already counted as earned when it
-      // entered the Pot, so we don't re-add to lifetime earnings here.)
-      const link = doc(txCol(familyId, req.kidId)).id;
-      const outRef = doc(txCol(familyId, req.kidId), `${link}-out`);
-      const inRef = doc(txCol(familyId, req.kidId), `${link}-in`);
-      const now = serverTimestamp();
-      tx.set(wRef, {
-        ...wallet,
-        treasuryCents: (wallet.treasuryCents || 0) - cents,
-        cashCents: wallet.cashCents + cents,
-        updatedAt: now,
-      });
-      tx.set(outRef, {
-        layer: 'treasury', direction: 'out', amount: cents, category: 'convert',
-        description: 'Honey Pot → Cash',
-        status: 'completed', linkedTxId: link, requestId,
-        createdBy: req.createdBy, approvedBy: approverUid,
-        createdAt: now, completedAt: now,
-      });
-      tx.set(inRef, {
-        layer: 'cash', direction: 'in', amount: cents, category: 'convert',
-        description: 'From your Honey Pot',
-        status: 'completed', linkedTxId: link, requestId,
-        createdBy: req.createdBy, approvedBy: approverUid,
-        createdAt: now, completedAt: now,
-      });
+      // CASH UPGRADE: approval no longer moves money. The request advances to
+      // the 🤝 handover stage (still 'pending', so it stays in the inbox) and
+      // the Pot→Cash move happens in confirmCashHandover — when the real
+      // shillings actually change hands.
       tx.update(reqRef, {
-        status: 'approved' as ApprovalStatus,
         approvals: nextApprovals,
-        resolvedAt: now,
-        resolvedBy: approverUid,
-        resultingTxIds: [`${link}-out`, `${link}-in`],
+        stage: 'handover',
       });
     } else if (req.type === 'spend') {
       const cents = req.amountCents ?? 0;

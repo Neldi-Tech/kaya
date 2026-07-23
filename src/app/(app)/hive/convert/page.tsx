@@ -1,10 +1,10 @@
 'use client';
 
-// /hive/convert — the money ladder, step by step:
-//   HP → Coins (parent-approved) · Coins → Honey Pot (instant) ·
-//   Honey Pot → Cash (parent-approved, single/both per family setting).
-// Cash is parent-fed only — kids reach it by filling the Honey Pot, then a
-// parent turns the Pot into Cash.
+// /hive/convert — the saving side of the money ladder:
+//   HP → Coins (parent-approved) · Coins → Honey Pot (instant).
+// CASH UPGRADE: getting real Cash out of the Pot moved to the Kaya ATM at
+// /hive/withdraw (parent OK + 🤝 handover) — one ladder, one exit. The old
+// direct Coins→Cash shortcut is retired from the UI.
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -12,13 +12,13 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { requestHpToHoney, convertCoinsToTreasury, requestTreasuryToCash } from '@/lib/hive';
+import { requestHpToHoney, convertCoinsToTreasury } from '@/lib/hive';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import NumberInput from '@/components/hive/NumberInput';
 import BackButton from '@/components/ui/BackButton';
-import { formatCash, formatHoney, formatHp, honeyToCashCents } from '@/components/hive/format';
+import { formatHoney, formatHp, honeyToCashCents, formatCash } from '@/components/hive/format';
 
-type Mode = 'hp_to_coins' | 'coins_to_pot' | 'pot_to_cash';
+type Mode = 'hp_to_coins' | 'coins_to_pot';
 
 export default function ConvertPage() {
   const router = useRouter();
@@ -34,7 +34,6 @@ export default function ConvertPage() {
 
   const fxRate = fxUsdToFamily ?? 1;
   const num = Math.max(0, Math.round(amount));
-  const treasuryCents = wallet.treasuryCents || 0;
 
   // Reserve floor only applies to HP→Coins.
   const hpAfter = wallet.housePoints - num;
@@ -50,18 +49,11 @@ export default function ConvertPage() {
         if (num > wallet.housePoints) throw new Error(`You only have ${formatHp(wallet.housePoints)} HP.`);
         await requestHpToHoney(profile.familyId, activeKidId, num, config, profile.uid, wallet.housePoints);
         router.push('/hive/wallet?pending=1');
-      } else if (mode === 'coins_to_pot') {
+      } else {
         if (num > wallet.honeyCoins) throw new Error(`You only have ${formatHoney(wallet.honeyCoins)} 🪙.`);
         await convertCoinsToTreasury(profile.familyId, activeKidId, num, config, profile.uid, fxRate);
         setDone(`Moved ${formatHoney(num)} 🪙 into your Honey Pot 🍯`);
         setAmount(0); setSubmitting(false);
-      } else {
-        // pot_to_cash — amount is in family-currency major units → cents.
-        const cents = Math.round(amount * 100);
-        if (cents <= 0) throw new Error('Pick an amount.');
-        if (cents > treasuryCents) throw new Error(`Your Honey Pot has ${formatCash(treasuryCents, config.currency)}.`);
-        await requestTreasuryToCash(profile.familyId, activeKidId, cents, profile.uid, config.treasuryCashApprovers);
-        router.push('/hive/wallet?pending=1');
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to submit.');
@@ -84,45 +76,42 @@ export default function ConvertPage() {
       <div className="mb-5">
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Convert</p>
         <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">
-          {mode === 'hp_to_coins' ? 'Save my points 🪙' : mode === 'coins_to_pot' ? 'Fill the Honey Pot 🍯' : 'Get real money 💵'}
+          {mode === 'hp_to_coins' ? 'Save my points 🪙' : 'Fill the Honey Pot 🍯'}
         </h1>
       </div>
 
       <KidSwitcher />
 
-      {/* Ladder switcher */}
+      {/* Ladder switcher — real Cash now comes out via the Kaya ATM 🏧. */}
       <div className="grid grid-cols-3 gap-2 mb-5">
         <button onClick={() => { setMode('hp_to_coins'); setAmount(0); setError(''); setDone(''); }} className={seg('hp_to_coins', '', 'bg-hive-honey shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)]')}>⭐→🪙 Save HP</button>
         <button onClick={() => { setMode('coins_to_pot'); setAmount(0); setError(''); setDone(''); }} className={seg('coins_to_pot', '', 'bg-hive-honey-dk shadow-[0_8px_20px_-8px_rgba(209,127,26,0.5)]')}>🪙→🍯 To Pot</button>
-        <button onClick={() => { setMode('pot_to_cash'); setAmount(0); setError(''); setDone(''); }} className={seg('pot_to_cash', '', 'bg-hive-green shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)]')}>🍯→💵 Cash</button>
+        <Link href="/hive/withdraw" className="h-12 rounded-hive-pill font-nunito font-black text-[12px] transition-colors bg-hive-paper border border-hive-green/50 text-hive-green flex items-center justify-center hover:bg-hive-green hover:text-white">🍯→💵 ATM 🏧</Link>
       </div>
 
       {/* FROM card */}
       <div className="rounded-hive p-4 mb-2 border bg-gradient-to-br from-[#FFF3D9] to-hive-honey-soft border-hive-honey">
         <div className="flex justify-between items-center mb-2">
           <p className="font-nunito font-black text-[12px] uppercase tracking-[2px] text-hive-muted">
-            {mode === 'hp_to_coins' ? 'FROM ⭐ House Points' : mode === 'coins_to_pot' ? 'FROM 🪙 Coins' : 'FROM 🍯 Honey Pot'}
+            {mode === 'hp_to_coins' ? 'FROM ⭐ House Points' : 'FROM 🪙 Coins'}
           </p>
           <p className="text-[11px] text-hive-muted font-bold">
             Available: {mode === 'hp_to_coins'
               ? `${formatHp(Math.max(0, wallet.housePoints - config.minHpReserve))} HP`
-              : mode === 'coins_to_pot'
-                ? formatHoney(wallet.honeyCoins)
-                : formatCash(treasuryCents, config.currency)}
+              : formatHoney(wallet.honeyCoins)}
           </p>
         </div>
         <div className="flex items-baseline gap-2">
           <NumberInput
             value={amount}
             onChange={setAmount}
-            allowDecimal={mode === 'pot_to_cash'}
             min={0}
             ariaLabel="Amount to convert"
             placeholder="0"
             className="font-nunito font-black text-[44px] leading-none bg-transparent outline-none w-full max-w-[220px] placeholder:text-hive-muted/30 min-w-0"
           />
           <span className="text-base text-hive-muted font-bold">
-            {mode === 'hp_to_coins' ? 'HP' : mode === 'coins_to_pot' ? '🪙' : config.currency}
+            {mode === 'hp_to_coins' ? 'HP' : '🪙'}
           </span>
         </div>
       </div>
@@ -132,14 +121,12 @@ export default function ConvertPage() {
       {/* TO card */}
       <div className="rounded-hive p-4 mb-4 border bg-gradient-to-br from-[#E6F7EE] to-[#C9EBD7] border-[#8FD3AB]">
         <p className="font-nunito font-black text-[12px] uppercase tracking-[2px] text-hive-muted mb-2">
-          {mode === 'hp_to_coins' ? 'TO 🪙 Coins' : mode === 'coins_to_pot' ? 'TO 🍯 Honey Pot' : 'TO 💵 Cash'}
+          {mode === 'hp_to_coins' ? 'TO 🪙 Coins' : 'TO 🍯 Honey Pot'}
         </p>
         <span className="font-nunito font-black text-[36px] leading-none text-hive-honey-dk">
           {mode === 'hp_to_coins'
             ? `+${formatHoney(coinsFromHp)} 🪙`
-            : mode === 'coins_to_pot'
-              ? `+${formatCash(potFromCoins, config.currency)}`
-              : `+${formatCash(Math.round(amount * 100) || 0, config.currency)}`}
+            : `+${formatCash(potFromCoins, config.currency)}`}
         </span>
       </div>
 
@@ -155,19 +142,19 @@ export default function ConvertPage() {
         onClick={submit}
         disabled={submitting || num <= 0 || isGuest || !activeKidId || breachReserve}
         className={`w-full h-12 rounded-hive font-nunito font-black text-[14px] text-white transition disabled:opacity-40 ${
-          mode === 'coins_to_pot' ? 'bg-hive-honey-dk hover:brightness-110' : mode === 'pot_to_cash' ? 'bg-hive-green hover:brightness-110' : 'bg-hive-honey hover:bg-hive-honey-dk'
+          mode === 'coins_to_pot' ? 'bg-hive-honey-dk hover:brightness-110' : 'bg-hive-honey hover:bg-hive-honey-dk'
         }`}
       >
         {submitting ? 'Working…'
           : mode === 'hp_to_coins' ? 'Request save (parent approves) →'
-          : mode === 'coins_to_pot' ? 'Move into Honey Pot 🍯'
-          : `Ask ${config.treasuryCashApprovers >= 2 ? 'both parents' : 'a parent'} for Cash →`}
+          : 'Move into Honey Pot 🍯'}
       </button>
 
       <p className="mt-3 text-[11px] text-hive-muted text-center leading-relaxed">
         {mode === 'coins_to_pot'
           ? 'Moving Coins into your Honey Pot is instant — it pools your earned money.'
-          : `Needs ${mode === 'pot_to_cash' && config.treasuryCashApprovers >= 2 ? 'both parents' : 'parent'} approval · usually within a day. You'll see it in your wallet's pending list.`}
+          : 'Needs parent approval · usually within a day. You\'ll see it in your wallet\'s pending list.'}{' '}
+        Need real money? <Link href="/hive/withdraw" className="text-hive-honey-dk font-extrabold hover:underline">Kaya ATM 🏧</Link>
       </p>
 
       <div className="mt-6 flex items-center justify-center gap-4">
