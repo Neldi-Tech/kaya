@@ -392,6 +392,12 @@ export interface HiveTransaction {
   status: TxStatus;
   /** Pairs the two halves of a conversion (HP-out + Honey-in share an id). */
   linkedTxId?: string;
+  // ── CASH UPGRADE · spend corrections (append-only; rows are immutable) ──
+  /** Points at the original row this correction fixes. A 'reversal' undoes
+   *  the original on its pocket; the paired 'repost' re-books it on the
+   *  right pocket / with the fixed category & description. */
+  correctsTxId?: string;
+  correctionKind?: 'reversal' | 'repost';
   /** Approval request that produced this entry, if any. */
   requestId?: string;
   /** HIVE PR2 — source reference for statement drill-down. For 'business'
@@ -1099,6 +1105,92 @@ export async function confirmCashHandover(
       resolvedAt: now,
       resolvedBy: parentUid,
       resultingTxIds: [`${link}-out`, `${link}-in`],
+    });
+  });
+}
+
+/** CASH UPGRADE — fix a spend that was posted against the wrong pocket
+ *  (🍯 Pot instead of 💵 Cash, or vice versa), and/or fix its category or
+ *  description. Ledger rows are immutable by rule, so this never edits the
+ *  original: it writes an append-only pair —
+ *    reversal (money back IN on the original pocket) +
+ *    repost   (money OUT on the corrected pocket, with the fixed details)
+ *  — both linked to the original via `correctsTxId`. Wallet nets out unless
+ *  the pocket changed; lifetime totals are untouched (same spend, new home).
+ *  Parent-only (enforced by callers/UI; kid tx-create rules would allow the
+ *  kid to write rows for themselves, but the UI never offers it). */
+export async function correctSpendTx(
+  familyId: string,
+  kidId: string,
+  txId: string,
+  fix: { pocket?: 'treasury' | 'cash'; category?: TxCategory; description?: string },
+  parentUid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await runTransaction(db, async (tx) => {
+    const origRef = doc(txCol(familyId, kidId), txId);
+    const origSnap = await tx.get(origRef);
+    if (!origSnap.exists()) throw new Error('Entry not found.');
+    const orig = origSnap.data() as HiveTransaction;
+    if (orig.direction !== 'out' || (orig.layer !== 'treasury' && orig.layer !== 'cash')) {
+      throw new Error('Only spends from the Pot or Cash can be corrected.');
+    }
+    if (orig.category === 'convert') throw new Error('Transfers can’t be corrected — they have two linked halves.');
+    if (orig.correctionKind === 'reversal') throw new Error('Corrections can’t be corrected again — fix the reposted entry.');
+
+    const targetPocket = fix.pocket || orig.layer;
+    const newCategory = fix.category || orig.category;
+    const newDescription = (fix.description ?? orig.description ?? '').trim() || orig.description;
+    const pocketChanged = targetPocket !== orig.layer;
+    if (!pocketChanged && newCategory === orig.category && newDescription === orig.description) {
+      throw new Error('Nothing to change.');
+    }
+
+    const wRef = walletPath(familyId, kidId);
+    const wSnap = await tx.get(wRef);
+    if (!wSnap.exists()) throw new Error('Wallet not initialised.');
+    const wallet = wSnap.data() as Wallet;
+    const amount = orig.amount;
+
+    if (pocketChanged) {
+      // Money comes back to the original pocket and leaves the target one.
+      const targetBalance = targetPocket === 'cash' ? (wallet.cashCents || 0) : (wallet.treasuryCents || 0);
+      if (targetBalance < amount) {
+        throw new Error(`Not enough in ${targetPocket === 'cash' ? '💵 Cash' : 'the 🍯 Pot'} to re-post this spend (needs ${amount} cents there).`);
+      }
+      tx.set(wRef, {
+        ...wallet,
+        treasuryCents: (wallet.treasuryCents || 0)
+          + (orig.layer === 'treasury' ? amount : 0)
+          - (targetPocket === 'treasury' ? amount : 0),
+        cashCents: (wallet.cashCents || 0)
+          + (orig.layer === 'cash' ? amount : 0)
+          - (targetPocket === 'cash' ? amount : 0),
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    const now = serverTimestamp();
+    const reversalRef = doc(txCol(familyId, kidId));
+    tx.set(reversalRef, {
+      layer: orig.layer, direction: 'in', amount,
+      category: orig.category,
+      description: `↩️ Correction — was posted against ${orig.layer === 'treasury' ? 'the 🍯 Pot' : '💵 Cash'}`,
+      status: 'completed',
+      correctsTxId: txId, correctionKind: 'reversal',
+      createdBy: parentUid, approvedBy: parentUid,
+      createdAt: now, completedAt: now,
+    });
+    const repostRef = doc(txCol(familyId, kidId));
+    tx.set(repostRef, {
+      layer: targetPocket, direction: 'out', amount,
+      category: newCategory,
+      description: newDescription,
+      status: 'completed',
+      correctsTxId: txId, correctionKind: 'repost',
+      ...(orig.requestId ? { requestId: orig.requestId } : {}),
+      createdBy: parentUid, approvedBy: parentUid,
+      createdAt: now, completedAt: now,
     });
   });
 }
