@@ -40,6 +40,13 @@ export default function HiveDepositPage() {
   const [amount, setAmount] = useState<number>(0);
   const [dest, setDest] = useState<'cash' | 'treasury'>('treasury');
   const [description, setDescription] = useState('');
+  // When? Defaults to today; adjustable so money handed earlier lands on the
+  // right statement day. LOCAL day key (YYYY-MM-DD), per the app's date rule.
+  const todayKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const [dateKey, setDateKey] = useState(todayKey);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<{ kidNames: string[]; cents: number; perKid: boolean; dest: 'cash' | 'treasury' } | null>(null);
   const [error, setError] = useState('');
@@ -144,6 +151,15 @@ export default function HiveDepositPage() {
       ? `${baseDesc} · ${sourceSym}${sourceAmount.toFixed(2)} ${sourceCurrency} @ ${fxNum} → ${defaultCurrency}`
       : baseDesc;
 
+    // Backdated deposits post at local noon of the picked day (a today-dated
+    // deposit keeps the exact "now" timestamp so ordering stays natural).
+    const postedAt = (() => {
+      if (!dateKey || dateKey === todayKey) return undefined;
+      const [y, m, d] = dateKey.split('-').map(Number);
+      if (!y || !m || !d) return undefined;
+      return new Date(y, m - 1, d, 12, 0, 0);
+    })();
+
     setSubmitting(true);
     try {
       await Promise.all(
@@ -151,9 +167,11 @@ export default function HiveDepositPage() {
           ? depositToTreasury(
               profile.familyId, kidId, destCents,
               selectedCat.txCategory, recordDesc, profile.uid,
+              undefined, postedAt,
             )
           : depositCash(
               profile.familyId, kidId, destCents, selectedCat.txCategory, recordDesc, profile.uid,
+              postedAt,
             )),
       );
       // Teach Money Buddy 🤖 — note keywords → this category, usage bump for
@@ -167,6 +185,7 @@ export default function HiveDepositPage() {
       setAmount(0);
       setDescription('');
       setKidIds([]);
+      setDateKey(todayKey);
       setTimeout(() => setSuccess(null), 4000);
     } catch (e: any) {
       setError(e?.message || 'Deposit failed.');
@@ -392,6 +411,30 @@ export default function HiveDepositPage() {
             maxLength={120}
             className="w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
           />
+        </div>
+
+        {/* When? — default today; backdate to land on the right statement day. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
+          <div className="flex items-baseline justify-between mb-2">
+            <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">When?</p>
+            {dateKey !== todayKey && (
+              <button onClick={() => setDateKey(todayKey)} className="text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
+                Today
+              </button>
+            )}
+          </div>
+          <input
+            type="date"
+            value={dateKey}
+            max={todayKey}
+            onChange={(e) => setDateKey(e.target.value || todayKey)}
+            className="w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm font-nunito font-extrabold border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+          />
+          <p className="text-[11px] text-hive-muted mt-1.5">
+            {dateKey === todayKey
+              ? 'Posting today — adjust if you’re recording money given earlier.'
+              : '⏪ Backdated — this deposit will show on that day of the statement.'}
+          </p>
         </div>
 
         {/* Money Buddy 🤖 suggestion — learned hints beat first-run instincts. */}
