@@ -6,7 +6,7 @@
 // While a withdrawal is pending this page shows the 3-step tracker and the
 // 4-digit handover code the kid presents at pickup.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
@@ -40,6 +40,16 @@ export default function WithdrawPage() {
   const potCents = wallet.treasuryCents || 0;
   const cents = Math.round(amountInput * 100) || 0;
   const chips = useMemo(() => niceChipsCents(potCents), [potCents]);
+
+  // 🧞 Wish Jar deep-link: /hive/withdraw?amount=180000&for=My+wish… pre-fills
+  // the form (same window.location pattern as the statement's ?layer=).
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const amt = parseFloat(q.get('amount') || '');
+    if (Number.isFinite(amt) && amt > 0) setAmountInput(amt);
+    const forWhat = q.get('for');
+    if (forWhat) setWhatFor(forWhat.slice(0, 120));
+  }, []);
 
   const pendingWithdrawals = useMemo(
     () => myRequests.filter((r) => r.type === 'treasury_to_cash' && r.status === 'pending'),

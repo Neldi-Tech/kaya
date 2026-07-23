@@ -5,15 +5,25 @@
 // GoalCard.
 
 import Link from 'next/link';
+import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
+import { pinWishGoal, unpinWishGoal } from '@/lib/hive';
 import GoalCard from '@/components/hive/GoalCard';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import BackButton from '@/components/ui/BackButton';
 
 export default function GoalsPage() {
-  const { goals, weeklyEarningsCents, config } = useHive();
+  const { profile, isGuest } = useAuth();
+  const { activeKidId, goals, weeklyEarningsCents, config } = useHive();
   const active = goals.filter((g) => g.status === 'active');
   const done = goals.filter((g) => g.status === 'completed');
+
+  // 🧞 Wish Jar — pin ONE cash goal as THE wish (shows on the Hive home).
+  const togglePin = async (goalId: string, pinned: boolean) => {
+    if (!profile?.familyId || !activeKidId || isGuest) return;
+    if (pinned) await unpinWishGoal(profile.familyId, activeKidId, goalId);
+    else await pinWishGoal(profile.familyId, activeKidId, goalId, goals.map((g) => g.id));
+  };
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
@@ -29,12 +39,25 @@ export default function GoalsPage() {
 
       <div className="space-y-3">
         {active.map((g) => (
-          <GoalCard
-            key={g.id}
-            goal={g}
-            weeklyEarningsCents={weeklyEarningsCents}
-            currency={config.currency}
-          />
+          <div key={g.id}>
+            <GoalCard
+              goal={g}
+              weeklyEarningsCents={weeklyEarningsCents}
+              currency={config.currency}
+            />
+            {g.layer === 'cash' && (
+              <button
+                onClick={() => togglePin(g.id, !!g.pinned)}
+                className={`mt-1.5 px-3 py-1.5 rounded-hive-pill text-[11px] font-nunito font-extrabold border transition-colors ${
+                  g.pinned
+                    ? 'bg-hive-honey-soft border-hive-honey text-hive-honey-dk'
+                    : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/50'
+                }`}
+              >
+                {g.pinned ? '🧞 My wish ✓ · unpin' : '📌 Make it my wish'}
+              </button>
+            )}
+          </div>
         ))}
 
         <Link
