@@ -1653,6 +1653,11 @@ export const BADGES = [
   { id: 'streak-30', name: 'Legend', description: '30-day streak', icon: '👑', threshold: 30 },
   { id: 'helper-hero', name: 'Helper Hero', description: 'Help with 10 extra chores', icon: '🦸', threshold: 10 },
   { id: 'meeting-champ', name: 'Meeting Champion', description: 'Attend 5 family meetings', icon: '🏆', threshold: 5 },
+  // CASH UPGRADE · 🔥 Saver Streak milestones — minted by SaverStreakCard
+  // when the Hive save-rate streak crosses each mark.
+  { id: 'saver-4', name: 'Bronze Saver', description: '4-week saver streak (≥50% saved)', icon: '🥉', threshold: 4 },
+  { id: 'saver-12', name: 'Silver Saver', description: '12-week saver streak', icon: '🥈', threshold: 12 },
+  { id: 'saver-26', name: 'Gold Saver', description: '26-week saver streak', icon: '🥇', threshold: 26 },
 ];
 
 // ── Utility ───────────────────────────────────────
