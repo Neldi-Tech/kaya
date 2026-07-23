@@ -20,7 +20,7 @@
 // to restore the design's "auto-approved" HP→Honey behaviour.
 
 import {
-  collection, doc, getDoc, setDoc, addDoc,
+  collection, doc, getDoc, setDoc, addDoc, updateDoc, writeBatch,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
   onSnapshot, runTransaction,
 } from 'firebase/firestore';
@@ -418,6 +418,9 @@ export interface Goal {
   currentAmount: number;
   layer: 'honey' | 'cash';
   status: 'active' | 'completed' | 'abandoned';
+  /** CASH UPGRADE · 🧞 Wish Jar — at most one active cash goal is pinned as
+   *  THE wish; the Hive home shows its progress ring against the Pot. */
+  pinned?: boolean;
   createdAt: Timestamp;
   completedAt?: Timestamp;
 }
@@ -1494,6 +1497,32 @@ export async function addGoal(
     createdAt: serverTimestamp(),
   });
   return ref.id;
+}
+
+/** 🧞 Wish Jar — pin ONE goal as the wish (unpins any others). Kid manages
+ *  their own goals; parents can pin for any kid (existing goal rules). */
+export async function pinWishGoal(
+  familyId: string,
+  kidId: string,
+  goalId: string,
+  otherGoalIds: string[] = [],
+): Promise<void> {
+  if (isGuestActive()) return;
+  const batch = writeBatch(db);
+  batch.update(doc(goalCol(familyId, kidId), goalId), { pinned: true });
+  for (const id of otherGoalIds) {
+    if (id !== goalId) batch.update(doc(goalCol(familyId, kidId), id), { pinned: false });
+  }
+  await batch.commit();
+}
+
+export async function unpinWishGoal(
+  familyId: string,
+  kidId: string,
+  goalId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await updateDoc(doc(goalCol(familyId, kidId), goalId), { pinned: false });
 }
 
 // ── Family-level config writes (parent-only) ──────────────────────

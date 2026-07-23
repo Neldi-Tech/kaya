@@ -15,6 +15,7 @@ import HoneyPotHero from '@/components/hive/HoneyPotHero';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import HoneyCoin from '@/components/hive/HoneyCoin';
 import WealthCard from '@/components/hive/WealthCard';
+import WishJar from '@/components/hive/WishJar';
 import HpValueCommentary from '@/components/hive/HpValueCommentary';
 import TransactionRow from '@/components/hive/TransactionRow';
 import RatePill from '@/components/hive/RatePill';
@@ -36,7 +37,9 @@ export default function HiveHomePage() {
   const { profile } = useAuth();
   const { children, family } = useFamily();
   const wealthRounding = readBusinessConfig(family).displayRounding;
-  const { activeKidId, wallet, transactions, config, weeklyEarningsCents, fxUsdToFamily } = useHive();
+  const { activeKidId, wallet, transactions, goals, config, weeklyEarningsCents, fxUsdToFamily } = useHive();
+  // 🧞 Wish Jar — the kid's pinned wish (cash goals only; ring vs the Pot).
+  const wish = goals.find((g) => g.pinned && g.status === 'active' && g.layer === 'cash');
   const activeKid = children.find((c) => c.id === activeKidId);
 
   const cashEquivalent = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxUsdToFamily ?? 1);
@@ -112,6 +115,15 @@ export default function HiveHomePage() {
       <p className="mb-5 text-center text-[11px] text-hive-muted font-bold">
         You can only spend what&apos;s in 💵 Cash
       </p>
+
+      {wish && (
+        <WishJar
+          goal={wish}
+          potCents={wallet.treasuryCents || 0}
+          weeklyEarningsCents={weeklyEarningsCents}
+          currency={config.currency}
+        />
+      )}
 
       <div className="mb-5">
         <WealthCard
