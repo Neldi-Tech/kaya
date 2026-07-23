@@ -22,6 +22,7 @@ export default function HoneyPotHero({
   weeklyEarningsCents,
   cashEquivalentCents,
   currency = 'USD',
+  isParent = false,
 }: {
   /** Treasury Reserve ("Honey Pot") balance, in family-currency cents. */
   treasuryCents: number;
@@ -36,6 +37,8 @@ export default function HoneyPotHero({
   /** Coins converted to cash at the current rate, for the "≈ $X" hint. */
   cashEquivalentCents: number;
   currency?: string;
+  /** CASH UPGRADE — parents see a ＋ Deposit shortcut on the Pot card. */
+  isParent?: boolean;
 }) {
   const convertibleHp = Math.max(0, housePoints - minHpReserve);
   // HIVE PR3 (Elia's ④) — the Pot itself opens its meaning + story sheet.
@@ -45,7 +48,17 @@ export default function HoneyPotHero({
       {/* Decorative blur */}
       <div className="absolute -top-12 -right-12 w-44 h-44 rounded-full bg-white/30 blur-2xl pointer-events-none" />
       <div className="relative">
-        <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-honey-dk">Treasury Reserve <span className="opacity-70">(the Honey Pot)</span></p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-honey-dk">Honey Pot <span className="opacity-70">· your bank</span></p>
+          {isParent && (
+            <Link
+              href="/parent/hive-deposit"
+              className="inline-flex items-center gap-1 bg-white/75 border border-hive-honey/40 rounded-hive-pill px-3 py-1 text-[11px] font-nunito font-extrabold text-hive-honey-dk hover:bg-white transition-colors no-underline"
+            >
+              ＋ Deposit
+            </Link>
+          )}
+        </div>
         {/* HIVEv5 PR1 — tapping the Pot (icon or amount) opens its own filtered
             statement (Elia ②: "clicking the Pot or the amount → details"). */}
         <Link href="/hive/statement?layer=treasury" className="mt-1 flex items-center gap-3 no-underline text-inherit group">
@@ -54,7 +67,7 @@ export default function HoneyPotHero({
           <span className="text-hive-honey-dk font-black text-lg self-center">›</span>
         </Link>
         <p className="text-[12px] text-hive-muted font-bold mt-2">
-          Your spending pot — earnings &amp; sales land here. Spend straight from it, with a parent&apos;s OK.
+          Banked &amp; growing — sales, deposits and coins land here. Withdraw 🏧 to turn it into real cash.
         </p>
         <button
           type="button"
@@ -78,9 +91,6 @@ export default function HoneyPotHero({
             {minHpReserve > 0 && (
               <span className="font-bold text-hive-muted">· {formatHp(convertibleHp)} usable</span>
             )}
-          </span>
-          <span className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk">
-            ⚡ Cash {formatCash(cashCents, currency)}
           </span>
           {weeklyEarningsCents > 0 && (
             <span className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-green/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-green">
