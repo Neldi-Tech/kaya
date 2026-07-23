@@ -1436,6 +1436,9 @@ export async function depositCash(
   category: TxCategory,
   description: string,
   uid: string,
+  /** CASH UPGRADE — optional posting date (backdated deposits, e.g. money
+   *  given last week). Defaults to now. The ledger row lands on that day. */
+  postedAt?: Date,
 ): Promise<void> {
   if (isGuestActive()) return;
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Amount must be positive cents.');
@@ -1445,6 +1448,7 @@ export async function depositCash(
     const wallet = (wSnap.exists() ? wSnap.data() : EMPTY_WALLET) as Wallet;
     const txRef = doc(txCol(familyId, kidId));
     const now = serverTimestamp();
+    const posted = postedAt ? Timestamp.fromDate(postedAt) : now;
     txn.set(wRef, {
       ...wallet,
       cashCents: wallet.cashCents + amountCents,
@@ -1455,7 +1459,7 @@ export async function depositCash(
       layer: 'cash', direction: 'in', amount: amountCents, category,
       description: description.trim() || category, status: 'completed',
       createdBy: uid, approvedBy: uid,
-      createdAt: now, completedAt: now,
+      createdAt: posted, completedAt: posted,
     });
   });
 }
@@ -1474,6 +1478,8 @@ export async function depositToTreasury(
   /** HIVE PR2 — optional source id (businessId for sales) so the statement
    *  can drill from the Pot entry back to where the money came from. */
   refId?: string,
+  /** CASH UPGRADE — optional posting date (backdated deposits). */
+  postedAt?: Date,
 ): Promise<void> {
   if (isGuestActive()) return;
   if (!Number.isInteger(amountCents) || amountCents <= 0) throw new Error('Amount must be positive cents.');
@@ -1483,6 +1489,7 @@ export async function depositToTreasury(
     const wallet = (wSnap.exists() ? wSnap.data() : EMPTY_WALLET) as Wallet;
     const txRef = doc(txCol(familyId, kidId));
     const now = serverTimestamp();
+    const posted = postedAt ? Timestamp.fromDate(postedAt) : now;
     txn.set(wRef, {
       ...wallet,
       treasuryCents: (wallet.treasuryCents || 0) + amountCents,
@@ -1493,7 +1500,7 @@ export async function depositToTreasury(
       layer: 'treasury', direction: 'in', amount: amountCents, category,
       description: description.trim() || category, status: 'completed',
       createdBy: uid, approvedBy: uid,
-      createdAt: now, completedAt: now,
+      createdAt: posted, completedAt: posted,
       ...(refId ? { refId } : {}),
     });
   });
