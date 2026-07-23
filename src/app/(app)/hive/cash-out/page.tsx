@@ -129,9 +129,9 @@ export default function CashOutPage() {
       return;
     }
 
-    // ── Normal spend — draws from the Honey Pot first, then Cash ──
+    // ── Normal spend — 💵 Cash only (the Pot is banked; withdraw first) ──
     if (cents > spendableCents(wallet)) {
-      setError(`You only have ${formatCash(spendableCents(wallet), config.currency)} to spend (Pot + Cash).`);
+      setError(`You only have ${formatCash(spendableCents(wallet), config.currency)} in 💵 Cash — withdraw from your Honey Pot first.`);
       return;
     }
     setSubmitting(true);
@@ -251,9 +251,28 @@ export default function CashOutPage() {
             <p className="text-[11px] text-hive-muted mt-1">
               {mode === 'business'
                 ? <>From 🍯 Honey Pot · {formatCash(wallet.treasuryCents || 0, config.currency)}</>
-                : <>Available {formatCash(spendableCents(wallet), config.currency)} · 🍯 {formatCash(wallet.treasuryCents || 0, config.currency)} + 💵 {formatCash(wallet.cashCents, config.currency)}</>}
+                : <>Available <b className="text-hive-green">💵 {formatCash(spendableCents(wallet), config.currency)}</b> — Cash only</>}
             </p>
           </div>
+
+          {/* CASH UPGRADE — the Pot can't be spent directly anymore. When Cash
+              can't cover what the kid is trying to do but the Pot could, point
+              them to the withdrawal path instead of dead-ending on an error. */}
+          {mode === 'spend' && (() => {
+            const cents = Math.round(amountInput * 100) || 0;
+            const cash = spendableCents(wallet);
+            const pot = wallet.treasuryCents || 0;
+            const short = cents > 0 ? cents > cash : cash === 0;
+            if (!short || pot <= 0) return null;
+            return (
+              <div className="rounded-hive border-2 border-dashed border-hive-honey bg-[#FFF3D9] p-3 text-[12px] leading-relaxed">
+                🍯 Your Honey Pot has <b>{formatCash(pot, config.currency)}</b> — but spending comes from 💵 Cash.{' '}
+                <Link href="/hive/convert" className="text-hive-honey-dk font-nunito font-extrabold hover:underline">
+                  Withdraw first 🏧 →
+                </Link>
+              </div>
+            );
+          })()}
 
           <div>
             <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">What for?</label>
