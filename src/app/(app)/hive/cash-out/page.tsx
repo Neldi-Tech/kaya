@@ -267,7 +267,7 @@ export default function CashOutPage() {
             return (
               <div className="rounded-hive border-2 border-dashed border-hive-honey bg-[#FFF3D9] p-3 text-[12px] leading-relaxed">
                 🍯 Your Honey Pot has <b>{formatCash(pot, config.currency)}</b> — but spending comes from 💵 Cash.{' '}
-                <Link href="/hive/convert" className="text-hive-honey-dk font-nunito font-extrabold hover:underline">
+                <Link href="/hive/withdraw" className="text-hive-honey-dk font-nunito font-extrabold hover:underline">
                   Withdraw first 🏧 →
                 </Link>
               </div>

@@ -5,11 +5,12 @@
 // Reject buttons. Reject opens an inline reason input. The actual write
 // goes through resolveApprovalRequest in src/lib/hive.ts.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { getDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { resolveApprovalRequest, ApprovalRequest } from '@/lib/hive';
+import { resolveApprovalRequest, confirmCashHandover, walletPath, ApprovalRequest, type Wallet } from '@/lib/hive';
 import { getStockTake, resolveBusinessRequest, type StockTake } from '@/lib/business';
 import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 import { formatCash, formatHoney, formatHp } from './format';
@@ -21,7 +22,7 @@ import { formatCash, formatHoney, formatHp } from './format';
 const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }>> = {
   hp_to_honey:       { emoji: '⇆', label: 'Save HP → 🪙',         tone: 'honey' },
   cash_out:          { emoji: '🪙', label: 'Cash out 🪙 → $',      tone: 'green' },
-  treasury_to_cash:  { emoji: '🍯', label: 'Honey Pot → Cash',    tone: 'green' },
+  treasury_to_cash:  { emoji: '🏧', label: 'Withdraw to real Cash', tone: 'green' },
   spend:             { emoji: '🛒', label: 'Cash spend',          tone: 'rose'  },
   business_hp:       { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
   business_reinvest: { emoji: '🌳', label: 'Reinvest · Honey Pot → business', tone: 'green' },
@@ -37,6 +38,30 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
   const [showReject, setShowReject] = useState(false);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
+  // CASH UPGRADE · 🏧 withdrawal — "Pot after" preview so the parent decides
+  // with the balance in view. One-shot read; live precision isn't needed here.
+  const isWithdrawal = req.type === 'treasury_to_cash';
+  const atHandover = isWithdrawal && req.stage === 'handover';
+  const [potCents, setPotCents] = useState<number | null>(null);
+  const [handingOver, setHandingOver] = useState(false);
+  useEffect(() => {
+    if (!isWithdrawal || !profile?.familyId) return;
+    getDoc(walletPath(profile.familyId, req.kidId))
+      .then((s) => { if (s.exists()) setPotCents(((s.data() as Wallet).treasuryCents) || 0); })
+      .catch(() => { /* best-effort preview */ });
+  }, [isWithdrawal, profile?.familyId, req.kidId]);
+
+  const handover = async () => {
+    if (!profile?.familyId) return;
+    setError('');
+    setHandingOver(true);
+    try {
+      await confirmCashHandover(profile.familyId, req.id, profile.uid);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to confirm the handover.');
+      setHandingOver(false);
+    }
+  };
   // Stock-take "view details" (business_hp) — lazy-load the day's take.
   const [showDetails, setShowDetails] = useState(false);
   const [take, setTake] = useState<StockTake | null>(null);
@@ -60,7 +85,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
       return `${formatHoney(req.honeyAmount || 0)} 🪙 → ${formatCash(req.amountCents || 0)}`;
     }
     if (req.type === 'treasury_to_cash') {
-      return `${formatCash(req.amountCents || 0)} → Cash`;
+      return `${formatCash(req.amountCents || 0)} → 💵 in hand`;
     }
     if (req.type === 'business_hp') {
       return `+${formatHp(req.points || 0)} HP`;
@@ -215,10 +240,57 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
               {haveOne ? '🔓 One parent approved — needs the other parent' : '🔒 Both parents must approve'}
             </p>
           )}
+          {isWithdrawal && (
+            <div className="mt-2 rounded-hive border border-hive-green/40 bg-[#EAF7F0] px-3 py-2 text-[12px] font-nunito font-bold text-hive-ink">
+              {potCents !== null && (
+                <>🍯 Pot after: {formatCash(Math.max(0, potCents - (req.amountCents || 0)))}{' · '}</>
+              )}
+              Kid&apos;s code: <span className="font-black tracking-[3px]">{req.code || '—'}</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {!showReject ? (
+      {atHandover ? (
+        <div className="mt-3">
+          <p className="text-[12px] text-hive-muted text-center mb-2">
+            ✓ Approved — hand the real money to <strong className="text-hive-navy">{kid?.name || 'the kid'}</strong>, then tap:
+          </p>
+          <button
+            onClick={handover}
+            disabled={handingOver}
+            className="w-full h-11 rounded-hive-pill bg-hive-green text-white font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition"
+          >
+            {handingOver ? 'Confirming…' : `🤝 I've handed over ${formatCash(req.amountCents || 0)}`}
+          </button>
+          <button
+            onClick={() => setShowReject(true)}
+            disabled={handingOver}
+            className="w-full mt-1.5 h-8 rounded-hive-pill text-hive-muted font-nunito font-extrabold text-[11px] hover:text-hive-rose transition"
+          >
+            Cancel this withdrawal instead
+          </button>
+          {showReject && (
+            <div className="mt-2 space-y-2">
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Reason (optional, kid sees this)"
+                maxLength={120}
+                className="w-full h-10 px-3 bg-hive-cream rounded-hive-pill text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-rose/40"
+                autoFocus
+              />
+              <button
+                onClick={() => act('rejected')}
+                disabled={!!resolving}
+                className="w-full h-10 rounded-hive-pill bg-hive-rose text-white font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition"
+              >
+                {resolving === 'reject' ? 'Cancelling…' : 'Confirm cancel'}
+              </button>
+            </div>
+          )}
+        </div>
+      ) : !showReject ? (
         <div className="mt-3 flex items-center gap-2">
           <button
             onClick={() => act('approved')}
