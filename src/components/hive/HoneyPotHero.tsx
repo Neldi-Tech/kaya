@@ -23,6 +23,7 @@ export default function HoneyPotHero({
   cashEquivalentCents,
   currency = 'USD',
   isParent = false,
+  beeBonusCents = 0,
 }: {
   /** Treasury Reserve ("Honey Pot") balance, in family-currency cents. */
   treasuryCents: number;
@@ -39,6 +40,8 @@ export default function HoneyPotHero({
   currency?: string;
   /** CASH UPGRADE — parents see a ＋ Deposit shortcut on the Pot card. */
   isParent?: boolean;
+  /** 🐝 Bee Bonus paid in the last 7 days (0 hides the chip). */
+  beeBonusCents?: number;
 }) {
   const convertibleHp = Math.max(0, housePoints - minHpReserve);
   // HIVE PR3 (Elia's ④) — the Pot itself opens its meaning + story sheet.
@@ -92,6 +95,14 @@ export default function HoneyPotHero({
               <span className="font-bold text-hive-muted">· {formatHp(convertibleHp)} usable</span>
             )}
           </span>
+          {beeBonusCents > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-honey/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-honey-dk"
+              title="Bee Bonus — weekly interest your banked honey earned"
+            >
+              🐝 +{formatCash(beeBonusCents, currency)} this week
+            </span>
+          )}
           {weeklyEarningsCents > 0 && (
             <span className="inline-flex items-center gap-1.5 bg-white/70 border border-hive-green/40 rounded-hive-pill px-3 py-1.5 text-[11px] font-nunito font-extrabold text-hive-green">
               ↑ +{formatCash(weeklyEarningsCents, currency)} this week

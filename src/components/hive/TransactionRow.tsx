@@ -14,6 +14,7 @@ const CATEGORY_ICON: Record<string, string> = {
   allowance: '💵',
   gift: '🎁',
   business: '🌳',
+  interest: '🐝',
   spend: '🛒',
   donation: '❤️',
   other: '✨',

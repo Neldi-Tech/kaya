@@ -33,6 +33,10 @@ export default function ParentRatesPage() {
   // Auto-approve threshold is held in dollars (the user-facing unit) and
   // converted to cents on save so the UI can show "$5.00" cleanly.
   const [autoApproveDollars, setAutoApproveDollars] = useState((config.spendAutoApproveBelowCents || 0) / 100);
+  // 🐝 Bee Bonus — weekly interest on the banked Pot (CASH UPGRADE).
+  const [beeEnabled, setBeeEnabled] = useState(!!config.beeBonus?.enabled);
+  const [beeRatePct, setBeeRatePct] = useState(config.beeBonus?.weeklyRatePct ?? 1);
+  const [beeCapDollars, setBeeCapDollars] = useState((config.beeBonus?.capCents || 0) / 100);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -49,6 +53,9 @@ export default function ParentRatesPage() {
     setTreasuryApprovers(config.treasuryCashApprovers);
     setCurrency(config.currency);
     setAutoApproveDollars((config.spendAutoApproveBelowCents || 0) / 100);
+    setBeeEnabled(!!config.beeBonus?.enabled);
+    setBeeRatePct(config.beeBonus?.weeklyRatePct ?? 1);
+    setBeeCapDollars((config.beeBonus?.capCents || 0) / 100);
   }, [config]);
 
   const autoApproveCents = Math.max(0, Math.round(autoApproveDollars * 100));
@@ -63,7 +70,10 @@ export default function ParentRatesPage() {
     cashOutApproval !== config.cashOutRequiresApproval ||
     treasuryApprovers !== config.treasuryCashApprovers ||
     currency !== config.currency ||
-    autoApproveCents !== (config.spendAutoApproveBelowCents || 0);
+    autoApproveCents !== (config.spendAutoApproveBelowCents || 0) ||
+    beeEnabled !== !!config.beeBonus?.enabled ||
+    beeRatePct !== (config.beeBonus?.weeklyRatePct ?? 1) ||
+    Math.round(beeCapDollars * 100) !== (config.beeBonus?.capCents || 0);
 
   const save = async () => {
     if (isGuest || !profile?.familyId) return;
@@ -85,6 +95,11 @@ export default function ParentRatesPage() {
         treasuryCashApprovers: treasuryApprovers,
         currency,
         spendAutoApproveBelowCents: autoApproveCents,
+        beeBonus: {
+          enabled: beeEnabled,
+          weeklyRatePct: Math.max(0, Math.min(10, Math.round(beeRatePct * 10) / 10)),
+          capCents: Math.max(0, Math.round(beeCapDollars * 100)),
+        },
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2200);
@@ -105,6 +120,9 @@ export default function ParentRatesPage() {
     setTreasuryApprovers(config.treasuryCashApprovers);
     setCurrency(config.currency);
     setAutoApproveDollars((config.spendAutoApproveBelowCents || 0) / 100);
+    setBeeEnabled(!!config.beeBonus?.enabled);
+    setBeeRatePct(config.beeBonus?.weeklyRatePct ?? 1);
+    setBeeCapDollars((config.beeBonus?.capCents || 0) / 100);
     setError('');
   };
 
@@ -383,6 +401,57 @@ export default function ParentRatesPage() {
             on={spendApproval}
             onChange={setSpendApproval}
           />
+        </div>
+
+        {/* 🐝 Bee Bonus — weekly interest so banked honey literally grows. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-nunito font-extrabold text-[14px]">🐝 Bee Bonus — honey grows</p>
+              <p className="text-[12px] text-hive-muted mt-0.5 leading-relaxed">
+                Every Sunday the bees add a little honey to whatever sits in each kid&apos;s Pot.
+                Saving literally pays — withdrawing everything means no bonus.
+              </p>
+            </div>
+            <button
+              onClick={() => setBeeEnabled((v) => !v)}
+              aria-pressed={beeEnabled}
+              className={`shrink-0 w-12 h-7 rounded-full transition-colors relative ${beeEnabled ? 'bg-hive-green' : 'bg-hive-line'}`}
+            >
+              <span className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow transition-all ${beeEnabled ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+          {beeEnabled && (
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-[1.5px] font-bold text-hive-muted mb-1">Weekly rate %</p>
+                <NumberInput
+                  value={beeRatePct}
+                  onChange={setBeeRatePct}
+                  allowDecimal
+                  min={0}
+                  ariaLabel="Bee Bonus weekly rate percent"
+                  placeholder="1"
+                  className="w-full h-10 px-3 bg-hive-cream rounded-[10px] font-nunito font-extrabold text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                />
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[1.5px] font-bold text-hive-muted mb-1">Weekly cap ({symbolText} · 0 = none)</p>
+                <NumberInput
+                  value={beeCapDollars}
+                  onChange={setBeeCapDollars}
+                  allowDecimal
+                  min={0}
+                  ariaLabel="Bee Bonus weekly cap"
+                  placeholder="0"
+                  className="w-full h-10 px-3 bg-hive-cream rounded-[10px] font-nunito font-extrabold text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                />
+              </div>
+              <p className="col-span-2 text-[11px] text-hive-muted leading-relaxed">
+                e.g. a {symbolText}100,000 Pot at {beeRatePct || 1}%/week grows ~{symbolText}{Math.round(100000 * ((beeRatePct || 1) / 100)).toLocaleString('en-US')} next Sunday 🐝
+              </p>
+            </div>
+          )}
         </div>
 
         {error && (

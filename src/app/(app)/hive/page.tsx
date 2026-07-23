@@ -40,6 +40,14 @@ export default function HiveHomePage() {
   const { activeKidId, wallet, transactions, goals, config, weeklyEarningsCents, fxUsdToFamily } = useHive();
   // 🧞 Wish Jar — the kid's pinned wish (cash goals only; ring vs the Pot).
   const wish = goals.find((g) => g.pinned && g.status === 'active' && g.layer === 'cash');
+  // 🐝 Bee Bonus chip — interest paid into the Pot in the last 7 days.
+  const beeBonusCents = (() => {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return transactions
+      .filter((t) => t.category === 'interest' && t.direction === 'in'
+        && ((t.createdAt as any)?.toMillis?.() ?? 0) >= weekAgo)
+      .reduce((s, t) => s + t.amount, 0);
+  })();
   const activeKid = children.find((c) => c.id === activeKidId);
 
   const cashEquivalent = honeyToCashCents(wallet.honeyCoins, config.honeyToCashRate, fxUsdToFamily ?? 1);
@@ -80,6 +88,7 @@ export default function HiveHomePage() {
           cashEquivalentCents={cashEquivalent}
           currency={config.currency}
           isParent={profile?.role === 'parent'}
+          beeBonusCents={beeBonusCents}
         />
       </div>
 
