@@ -21,7 +21,7 @@ import RatePill from '@/components/hive/RatePill';
 import KidSwitcher from '@/components/hive/KidSwitcher';
 import PendingRequestBanner from '@/components/hive/PendingRequestBanner';
 import PlanSummaryCard from '@/components/hive/PlanSummaryCard';
-import { honeyToCashCents } from '@/components/hive/format';
+import { formatCash, honeyToCashCents } from '@/components/hive/format';
 
 const ACTIONS = [
   { id: 'save',     icon: '🍯', label: 'Save',     desc: 'Convert HP → 🪙',     href: '/hive/convert'  },
@@ -66,7 +66,7 @@ export default function HiveHomePage() {
 
       <PendingRequestBanner />
 
-      <div className="mb-5">
+      <div className="mb-3">
         <HoneyPotHero
           treasuryCents={wallet.treasuryCents || 0}
           honeyCoins={wallet.honeyCoins}
@@ -76,8 +76,42 @@ export default function HiveHomePage() {
           weeklyEarningsCents={weeklyEarningsCents}
           cashEquivalentCents={cashEquivalent}
           currency={config.currency}
+          isParent={profile?.role === 'parent'}
         />
       </div>
+
+      {/* CASH UPGRADE — 💵 Cash card: real money in the kid's hand, the ONLY
+          spendable pocket. Tapping opens the cash-filtered statement. */}
+      <div className="mb-3 rounded-hive-lg p-5 border-2 border-[#BFE6CF] bg-gradient-to-br from-[#E6F7EE] to-[#F4FBF7]">
+        <p className="text-[11px] font-bold uppercase tracking-[3px] text-hive-green">💵 Cash · in your hand</p>
+        <Link href="/hive/statement?layer=cash" className="mt-1 flex items-center gap-2 no-underline text-inherit group">
+          <span className="font-nunito font-black text-[32px] leading-none text-[#1E6B41] group-hover:opacity-90">
+            {formatCash(wallet.cashCents, config.currency)}
+          </span>
+          <span className="text-hive-green font-black text-lg self-center">›</span>
+        </Link>
+        <p className="text-[12px] text-hive-muted font-bold mt-1.5">
+          Real money you can spend. Get some from your Pot 👇
+        </p>
+      </div>
+
+      <div className="mb-2 grid grid-cols-2 gap-3">
+        <Link
+          href="/hive/withdraw"
+          className="h-12 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-[14px] flex items-center justify-center no-underline shadow-[0_8px_20px_-8px_rgba(243,156,47,0.5)] transition-colors"
+        >
+          🏧 Withdraw
+        </Link>
+        <Link
+          href="/hive/cash-out"
+          className="h-12 rounded-hive bg-hive-green hover:brightness-110 text-white font-nunito font-black text-[14px] flex items-center justify-center no-underline shadow-[0_8px_20px_-8px_rgba(63,175,108,0.5)] transition"
+        >
+          🛒 Spend
+        </Link>
+      </div>
+      <p className="mb-5 text-center text-[11px] text-hive-muted font-bold">
+        You can only spend what&apos;s in 💵 Cash
+      </p>
 
       <div className="mb-5">
         <WealthCard
@@ -97,8 +131,8 @@ export default function HiveHomePage() {
       {/* Quick commentary — the money ladder in one line. */}
       <div className="mb-4 text-center">
         <p className="text-[11px] text-hive-muted leading-relaxed">
-          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> → <span className="font-nunito font-extrabold text-hive-honey-dk inline-flex items-center gap-1"><HoneyCoin size={13} /> Coins</span> → <span className="font-nunito font-extrabold text-hive-honey-dk inline-flex items-center gap-1"><HoneyPotIcon size={15} /> Honey Pot</span>.{' '}
-          You spend from your Pot — a grown-up says yes.{' '}
+          <span className="font-nunito font-extrabold text-hive-honey-dk">⭐ HP</span> → <span className="font-nunito font-extrabold text-hive-honey-dk inline-flex items-center gap-1"><HoneyCoin size={13} /> Coins</span> → <span className="font-nunito font-extrabold text-hive-honey-dk inline-flex items-center gap-1"><HoneyPotIcon size={15} /> Honey Pot</span> → <span className="font-nunito font-extrabold text-hive-green">💵 Cash</span>.{' '}
+          Withdraw 🏧 to get real cash — then spend it, a grown-up says yes.{' '}
           <Link href="/hive/guide" className="font-nunito font-extrabold text-hive-honey-dk hover:underline whitespace-nowrap">Read the Guide →</Link>
         </p>
       </div>
