@@ -1,29 +1,32 @@
 'use client';
 
-// /parent/hive-deposit — manual cash deposit. Parent can:
+// /parent/hive-deposit — Deposit 2.0 (CASH UPGRADE, design v1 screen F).
+// Parent can:
 //   - Pick one OR several kids at once (each gets the same deposit).
-//   - Pick a category (allowance / gift / business / other).
+//   - Pick the destination: 🍯 Honey Pot (app money, the default) or
+//     💵 Cash (recording real money being handed over right now).
+//   - Pick a category — built-ins + categories the FAMILY created (＋ New);
+//     Money Buddy 🤖 suggests one from the note and remembers choices.
 //   - Optionally enter the amount in a *different* currency at a given
 //     exchange rate. We always store in the family's default currency.
 // No approval is required because the parent IS the approver.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
-import { depositCash, depositToTreasury, CURRENCIES } from '@/lib/hive';
+import { depositCash, depositToTreasury, setHiveConfig, CURRENCIES } from '@/lib/hive';
+import {
+  depositCategories, suggestDepositCategory, customCategoryId,
+  learnDepositChoicePatch, type DepositCategory,
+} from '@/lib/moneyBuddy';
 import { fetchFxRates, suggestedRate, formatRate, FxRates } from '@/lib/fxRates';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import { formatCash } from '@/components/hive/format';
 import NumberInput from '@/components/hive/NumberInput';
 
-const CATEGORIES = [
-  { id: 'allowance' as const, emoji: '💵', label: 'Allowance',     desc: 'Regular pocket money' },
-  { id: 'gift'      as const, emoji: '🎁', label: 'Gift',          desc: 'Birthday, holiday, milestone' },
-  { id: 'business'  as const, emoji: '🌳', label: 'Business',      desc: 'Earnings from a side hustle' },
-  { id: 'other'     as const, emoji: '✨', label: 'Other',         desc: 'Anything else' },
-];
+const NEW_CAT_EMOJIS = ['🍪', '🎨', '⚽', '📱', '🎓', '🧸', '🚌', '💊', '✨'];
 
 export default function HiveDepositPage() {
   const { profile, isGuest } = useAuth();
@@ -35,12 +38,31 @@ export default function HiveDepositPage() {
   /** Source amount in MAJOR units of `sourceCurrency` (or default currency
    *  if FX is off). Held as a number so the NumberInput stays clean. */
   const [amount, setAmount] = useState<number>(0);
-  const [category, setCategory] = useState<typeof CATEGORIES[number]['id']>('allowance');
-  const [dest, setDest] = useState<'cash' | 'treasury'>('cash');
+  const [dest, setDest] = useState<'cash' | 'treasury'>('treasury');
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<{ kidNames: string[]; cents: number; perKid: boolean; dest: 'cash' | 'treasury' } | null>(null);
   const [error, setError] = useState('');
+
+  // ── Categories: built-ins + family customs, most-used first ─────
+  const cats = useMemo(() => depositCategories(config), [config]);
+  const [categoryId, setCategoryId] = useState<string>('allowance');
+  const selectedCat: DepositCategory =
+    cats.find((c) => c.id === categoryId) || cats[0];
+  // ＋ New category inline form.
+  const [showNewCat, setShowNewCat] = useState(false);
+  const [newCatLabel, setNewCatLabel] = useState('');
+  const [newCatEmoji, setNewCatEmoji] = useState(NEW_CAT_EMOJIS[0]);
+  const [savingCat, setSavingCat] = useState(false);
+
+  // ── Money Buddy 🤖 — suggest from the note; dismissible per note ─
+  const suggestion = useMemo(
+    () => suggestDepositCategory(description, config),
+    [description, config],
+  );
+  const [dismissedFor, setDismissedFor] = useState('');
+  const showSuggestion =
+    !!suggestion && suggestion.category.id !== categoryId && dismissedFor !== description;
 
   // Source-currency toggle. When ON, the parent enters the amount in the
   // source currency and a 1-unit-source-to-default-currency rate; we
@@ -49,9 +71,6 @@ export default function HiveDepositPage() {
   const [useFx, setUseFx] = useState(false);
   const [sourceCurrency, setSourceCurrency] = useState(defaultCurrency);
   const [fxRate, setFxRate] = useState<number>(1);
-  // Live exchange rates from open.er-api.com (no key, free, cached daily
-  // in localStorage). Drives the "Suggested rate" pill so a parent doesn't
-  // have to pull up Google Finance every time.
   const [fx, setFx] = useState<FxRates | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -62,8 +81,6 @@ export default function HiveDepositPage() {
   const fxSuggestion = useFx && sourceCurrency !== defaultCurrency
     ? suggestedRate(fx, sourceCurrency, defaultCurrency)
     : null;
-  // Auto-fill the suggested rate when the parent opens the FX panel for
-  // the first time (or switches source currency). They can override.
   useEffect(() => {
     if (fxSuggestion && fxSuggestion > 0) {
       setFxRate(parseFloat(formatRate(fxSuggestion).replace(/,/g, '')) || 0);
@@ -75,9 +92,6 @@ export default function HiveDepositPage() {
     setKidIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
   };
 
-  // Compute the destination amount (in cents of the family's default
-  // currency). Without FX it's just amount × 100. With FX it's
-  // sourceAmount × fxRate × 100.
   const sourceAmount = amount;
   const fxNum = fxRate;
   const destCents = useFx
@@ -87,6 +101,34 @@ export default function HiveDepositPage() {
   const sourceMeta = CURRENCIES.find((c) => c.code === sourceCurrency);
   const sourceSym = sourceMeta?.symbol || '$';
 
+  const addCustomCategory = async () => {
+    if (!profile?.familyId || isGuest) return;
+    const label = newCatLabel.trim();
+    if (!label) return;
+    const id = customCategoryId(label);
+    if (!id.replace('custom:', '')) return;
+    if (cats.some((c) => c.id === id || c.label.toLowerCase() === label.toLowerCase())) {
+      setCategoryId(cats.find((c) => c.label.toLowerCase() === label.toLowerCase())?.id || id);
+      setShowNewCat(false); setNewCatLabel('');
+      return;
+    }
+    setSavingCat(true);
+    try {
+      await setHiveConfig(profile.familyId, {
+        depositCategories: [
+          ...(config.depositCategories || []),
+          { id, emoji: newCatEmoji, label },
+        ],
+      });
+      setCategoryId(id);
+      setShowNewCat(false);
+      setNewCatLabel('');
+    } catch (e: any) {
+      setError(e?.message || 'Couldn’t save the category.');
+    }
+    setSavingCat(false);
+  };
+
   const submit = async () => {
     if (!profile?.familyId || isGuest) return;
     setError('');
@@ -95,26 +137,31 @@ export default function HiveDepositPage() {
     if (useFx && fxNum <= 0) { setError('Pick a positive exchange rate.'); return; }
 
     // Description records both sides so the parent can read the ledger
-    // later and reconstruct what actually happened.
-    const baseDesc = description.trim() || CATEGORIES.find((c) => c.id === category)!.label;
+    // later and reconstruct what actually happened. Custom categories keep
+    // their label in the row text (the ledger's TxCategory for them is 'other').
+    const baseDesc = description.trim() || selectedCat.label;
     const recordDesc = useFx && sourceCurrency !== defaultCurrency
       ? `${baseDesc} · ${sourceSym}${sourceAmount.toFixed(2)} ${sourceCurrency} @ ${fxNum} → ${defaultCurrency}`
       : baseDesc;
 
     setSubmitting(true);
     try {
-      // One deposit per kid. We do them sequentially so a partial failure
-      // (e.g. one kid's wallet doesn't exist yet) doesn't block the rest.
       await Promise.all(
         kidIds.map((kidId) => dest === 'treasury'
           ? depositToTreasury(
               profile.familyId, kidId, destCents,
-              category === 'business' ? 'business' : 'other', recordDesc, profile.uid,
+              selectedCat.txCategory, recordDesc, profile.uid,
             )
           : depositCash(
-              profile.familyId, kidId, destCents, category, recordDesc, profile.uid,
+              profile.familyId, kidId, destCents, selectedCat.txCategory, recordDesc, profile.uid,
             )),
       );
+      // Teach Money Buddy 🤖 — note keywords → this category, usage bump for
+      // chip ordering. Best-effort: a failed lesson never blocks the deposit.
+      setHiveConfig(
+        profile.familyId,
+        learnDepositChoicePatch(description, selectedCat.id, config),
+      ).catch(() => {});
       const kidNames = children.filter((c) => kidIds.includes(c.id)).map((c) => c.name);
       setSuccess({ kidNames, cents: destCents, perKid: kidIds.length > 1, dest });
       setAmount(0);
@@ -135,7 +182,7 @@ export default function HiveDepositPage() {
     };
     return (
       <div className="mx-auto max-w-md w-full px-4 pt-16 lg:pt-24 text-center">
-        <div className="text-6xl mb-4">💸</div>
+        <div className="text-6xl mb-4">{success.dest === 'treasury' ? '🍯' : '💸'}</div>
         <h2 className="font-nunito font-black text-3xl mb-2">
           {success.perKid ? 'Deposited to all!' : 'Deposited!'}
         </h2>
@@ -145,7 +192,7 @@ export default function HiveDepositPage() {
             +{formatCash(success.cents, defaultCurrency)}
             {success.perKid ? ' each' : ''}
           </span>{' '}
-          in their {success.dest === 'treasury' ? 'Honey Pot 🍯' : 'Cash'} balance.
+          in their {success.dest === 'treasury' ? 'Honey Pot 🍯' : '💵 Cash'}.
         </p>
       </div>
     );
@@ -155,11 +202,11 @@ export default function HiveDepositPage() {
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8">
       <div className="lg:hidden"><BackButton /></div>
       <div className="mb-5">
-        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · The Hive</p>
-        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Deposit cash 💸</h1>
+        <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[3px] text-hive-honey-dk">Parent · Deposit</p>
+        <h1 className="font-nunito font-black text-3xl lg:text-[36px] mt-1">Top up the Hive 🍯</h1>
         <p className="text-sm text-hive-muted mt-2">
-          Allowance, gifts, or business income — land it in Cash (spendable now) or the Honey Pot 🍯.
-          You can disburse to several kids at once.
+          Allowance, gifts, rewards or business income — into the Honey Pot (their bank)
+          or 💵 Cash when you&apos;re handing real money now. Several kids at once is fine.
         </p>
       </div>
 
@@ -168,7 +215,7 @@ export default function HiveDepositPage() {
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
           <div className="flex items-baseline justify-between mb-2">
             <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted">
-              For who?
+              Who for?
               {kidIds.length > 0 && (
                 <span className="ml-2 text-hive-honey-dk normal-case">{kidIds.length} selected</span>
               )}
@@ -205,6 +252,29 @@ export default function HiveDepositPage() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Destination — 🍯 Pot (app money, default) or 💵 Cash (real handover). */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Where to?</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => setDest('treasury')}
+              aria-pressed={dest === 'treasury'}
+              className={`p-3 rounded-hive border-2 text-left transition-all ${dest === 'treasury' ? 'border-hive-honey bg-hive-honey-soft/40' : 'border-hive-line bg-hive-paper hover:border-hive-honey/40'}`}
+            >
+              <p className="font-nunito font-extrabold text-[13px]">🍯 Honey Pot</p>
+              <p className="text-[10.5px] text-hive-muted leading-snug mt-0.5">App money — lands in their bank. A 🏧 withdrawal turns it into real cash.</p>
+            </button>
+            <button
+              onClick={() => setDest('cash')}
+              aria-pressed={dest === 'cash'}
+              className={`p-3 rounded-hive border-2 text-left transition-all ${dest === 'cash' ? 'border-hive-green bg-[#EAF7F0]' : 'border-hive-line bg-hive-paper hover:border-hive-green/40'}`}
+            >
+              <p className="font-nunito font-extrabold text-[13px]">💵 Cash</p>
+              <p className="text-[10.5px] text-hive-muted leading-snug mt-0.5">I&apos;m handing real money now — records it straight into their hand.</p>
+            </button>
           </div>
         </div>
 
@@ -270,9 +340,6 @@ export default function HiveDepositPage() {
                 </div>
               </div>
 
-              {/* Suggested rate pill — fetched live from open.er-api.com,
-                  cached for the day. Only renders when source ≠ default
-                  AND we got a usable rate. */}
               {fxSuggestion && (
                 <button
                   type="button"
@@ -284,8 +351,6 @@ export default function HiveDepositPage() {
                 </button>
               )}
 
-              {/* Verbose commentary — keeps the parent oriented as they
-                  type. Mirrors what the receipt will say in the ledger. */}
               {sourceAmount > 0 && fxNum > 0 ? (
                 <div className="rounded-hive bg-hive-cream border border-hive-line p-3 text-[12px] leading-relaxed">
                   <p className="font-nunito font-extrabold text-hive-honey-dk uppercase tracking-[1.5px] text-[10px] mb-1">Conversion</p>
@@ -317,64 +382,108 @@ export default function HiveDepositPage() {
           )}
         </div>
 
-        {/* Destination — Cash (spendable now) or the Honey Pot (savings). */}
-        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Where should it land?</p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => setDest('cash')}
-              aria-pressed={dest === 'cash'}
-              className={`p-3 rounded-hive border-2 text-left transition-all ${dest === 'cash' ? 'border-hive-honey bg-hive-honey-soft/40' : 'border-hive-line bg-hive-paper hover:border-hive-honey/40'}`}
-            >
-              <p className="font-nunito font-extrabold text-[13px]">💵 Cash</p>
-              <p className="text-[10.5px] text-hive-muted leading-snug mt-0.5">Spendable now (with the usual approval to spend).</p>
-            </button>
-            <button
-              onClick={() => setDest('treasury')}
-              aria-pressed={dest === 'treasury'}
-              className={`p-3 rounded-hive border-2 text-left transition-all ${dest === 'treasury' ? 'border-hive-green bg-[#EAF7F0]' : 'border-hive-line bg-hive-paper hover:border-hive-green/40'}`}
-            >
-              <p className="font-nunito font-extrabold text-[13px]">🍯 Honey Pot</p>
-              <p className="text-[10.5px] text-hive-muted leading-snug mt-0.5">Savings pot. Convert to Cash to spend — business spends go straight from it.</p>
-            </button>
-          </div>
-        </div>
-
-        {/* Category */}
-        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
-          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Category</p>
-          <div className="grid grid-cols-2 gap-2">
-            {CATEGORIES.map((c) => {
-              const sel = category === c.id;
-              return (
-                <button
-                  key={c.id}
-                  onClick={() => setCategory(c.id)}
-                  className={`flex items-start gap-2 p-2.5 rounded-hive border-2 text-left transition-all ${
-                    sel ? 'border-hive-honey bg-hive-honey-soft/50' : 'border-hive-line bg-hive-paper hover:border-hive-honey/40'
-                  }`}
-                >
-                  <span className="text-xl shrink-0">{c.emoji}</span>
-                  <div className="min-w-0">
-                    <p className="font-nunito font-extrabold text-[13px] leading-tight">{c.label}</p>
-                    <p className="text-[10px] text-hive-muted leading-snug">{c.desc}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Optional note */}
+        {/* Note — Money Buddy reads this to suggest a category. */}
         <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
           <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Note (optional)</p>
           <input
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Birthday gift from Auntie Sarah"
+            onChange={(e) => { setDescription(e.target.value); setDismissedFor(''); }}
+            placeholder="e.g. July pocket money"
             maxLength={120}
             className="w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
           />
+        </div>
+
+        {/* Money Buddy 🤖 suggestion — learned hints beat first-run instincts. */}
+        {showSuggestion && suggestion && (
+          <div className="rounded-hive border border-[#DCD0F5] bg-[#F1EBFC] p-3 flex items-start gap-2.5">
+            <span className="text-xl shrink-0">🤖</span>
+            <div className="flex-1 min-w-0 text-[12.5px] leading-relaxed">
+              {suggestion.learned
+                ? <>I remembered — you usually file this as <strong>{suggestion.category.emoji} {suggestion.category.label}</strong>.</>
+                : <>Looks like <strong>{suggestion.category.emoji} {suggestion.category.label}</strong> — tap to confirm, or pick another. I&apos;ll remember your choice for next time.</>}
+              <div className="mt-1.5 flex gap-1.5">
+                <button
+                  onClick={() => setCategoryId(suggestion.category.id)}
+                  className="px-3 py-1 rounded-hive-pill bg-[#8E6FD8] text-white text-[11px] font-nunito font-extrabold hover:brightness-110"
+                >
+                  Use {suggestion.category.label}
+                </button>
+                <button
+                  onClick={() => setDismissedFor(description)}
+                  className="px-3 py-1 rounded-hive-pill bg-white/70 text-hive-muted text-[11px] font-nunito font-extrabold"
+                >
+                  No thanks
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Category — built-ins + family customs, most-used first, ＋ New. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">Category</p>
+          <div className="flex flex-wrap gap-1.5">
+            {cats.map((c) => {
+              const sel = categoryId === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setCategoryId(c.id)}
+                  className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
+                    sel ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted hover:border-hive-honey/50'
+                  }`}
+                >
+                  {c.emoji} {c.label}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setShowNewCat((v) => !v)}
+              className="px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border border-dashed border-hive-honey text-hive-honey-dk bg-hive-paper hover:bg-hive-honey-soft/40 transition-colors"
+            >
+              ＋ New
+            </button>
+          </div>
+          {(config.depositCategories?.length || 0) > 0 && (
+            <p className="text-[11px] text-hive-muted mt-2">
+              Categories <b>your family</b> created stay here — Kaya keeps the ones you use up front.
+            </p>
+          )}
+          {showNewCat && (
+            <div className="mt-3 rounded-hive border border-hive-line bg-hive-cream p-3 space-y-2">
+              <div className="flex flex-wrap gap-1">
+                {NEW_CAT_EMOJIS.map((e) => (
+                  <button
+                    key={e}
+                    onClick={() => setNewCatEmoji(e)}
+                    className={`w-8 h-8 rounded-[10px] text-base flex items-center justify-center border transition-colors ${
+                      newCatEmoji === e ? 'bg-hive-honey-soft border-hive-honey' : 'bg-hive-paper border-hive-line'
+                    }`}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <input
+                  value={newCatLabel}
+                  onChange={(e) => setNewCatLabel(e.target.value)}
+                  placeholder="e.g. School Snacks"
+                  maxLength={24}
+                  className="flex-1 h-10 px-3 bg-hive-paper rounded-[10px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+                  autoFocus
+                />
+                <button
+                  onClick={addCustomCategory}
+                  disabled={savingCat || !newCatLabel.trim()}
+                  className="h-10 px-4 rounded-[10px] bg-hive-honey text-white font-nunito font-extrabold text-[12px] disabled:opacity-40"
+                >
+                  {savingCat ? 'Saving…' : 'Add'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {error && (
@@ -389,8 +498,8 @@ export default function HiveDepositPage() {
           {submitting
             ? 'Depositing…'
             : kidIds.length > 1 && destCents > 0
-              ? `Deposit ${formatCash(destCents, defaultCurrency)} to ${kidIds.length} kids → ${dest === 'treasury' ? 'Honey Pot 🍯' : 'Cash'}`
-              : `Deposit ${destCents > 0 ? formatCash(destCents, defaultCurrency) : ''} → ${dest === 'treasury' ? 'Honey Pot 🍯' : 'Cash'}`}
+              ? `Deposit ${formatCash(destCents, defaultCurrency)} to ${kidIds.length} kids → ${dest === 'treasury' ? 'Honey Pot 🍯' : '💵 Cash'}`
+              : `Deposit ${destCents > 0 ? formatCash(destCents, defaultCurrency) : ''} → ${dest === 'treasury' ? 'Honey Pot 🍯' : '💵 Cash'}`}
         </button>
       </div>
     </div>
