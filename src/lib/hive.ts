@@ -367,26 +367,12 @@ export const EMPTY_WALLET: Wallet = {
   totalLifetimeSpentCents: 0,
 };
 
-/** A kid's spendable balance = Honey Pot + Cash. The Pot is virtual cash the
- *  parent backs and is the primary "what they have"; Cash is a second pocket
- *  a parent can hand over directly. */
+/** CASH UPGRADE (2026-07): a kid's spendable balance = 💵 Cash only. The
+ *  Honey Pot is the kid's BANK — banked money must go through a 🏧 withdrawal
+ *  (parent approval + real handover) before it can be spent. The signature
+ *  keeps the wider Pick so callers passing a full wallet still compile. */
 export const spendableCents = (w: Pick<Wallet, 'treasuryCents' | 'cashCents'>): number =>
-  (w.treasuryCents || 0) + (w.cashCents || 0);
-
-/** A spend draws from the Honey Pot first, then Cash for any remainder.
- *  Returns how much comes from each — or null if the combined balance can't
- *  cover the amount. Single-sourced so the auto-spend path and the
- *  parent-approval resolver split a spend identically. */
-export function splitSpendDebit(
-  wallet: Pick<Wallet, 'treasuryCents' | 'cashCents'>,
-  amountCents: number,
-): { fromPot: number; fromCash: number } | null {
-  const pot = wallet.treasuryCents || 0;
-  const cash = wallet.cashCents || 0;
-  if (pot + cash < amountCents) return null;
-  const fromPot = Math.min(pot, amountCents);
-  return { fromPot, fromCash: amountCents - fromPot };
-}
+  (w.cashCents || 0);
 
 export interface HiveTransaction {
   id: string;
@@ -987,39 +973,25 @@ export async function requestOrAutoSpend(
     const wSnap = await txn.get(wRef);
     if (!wSnap.exists()) throw new Error('Wallet not initialised for this kid.');
     const wallet = wSnap.data() as Wallet;
-    // Spend draws from the Honey Pot first, then Cash for any remainder.
-    const split = splitSpendDebit(wallet, amountCents);
-    if (!split) throw new Error('Not enough in your Honey Pot or Cash to cover the spend.');
+    // CASH UPGRADE: spends leave 💵 Cash only — the Pot is banked money.
+    if ((wallet.cashCents || 0) < amountCents) {
+      throw new Error('Not enough Cash — withdraw from your Honey Pot first 🏧.');
+    }
     const now = serverTimestamp();
     txn.set(wRef, {
       ...wallet,
-      treasuryCents: (wallet.treasuryCents || 0) - split.fromPot,
-      cashCents: wallet.cashCents - split.fromCash,
+      cashCents: wallet.cashCents - amountCents,
       totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + amountCents,
       updatedAt: now,
     });
-    // One ledger row per pocket touched (Pot first), so history shows exactly
-    // where the money came from. The Pot row is the primary returned id.
-    if (split.fromPot > 0) {
-      const potRef = doc(txCol(familyId, kidId));
-      createdTxId = potRef.id;
-      txn.set(potRef, {
-        layer: 'treasury', direction: 'out', amount: split.fromPot,
-        category, description: description.trim(),
-        status: 'completed', createdBy, approvedBy: 'auto',
-        createdAt: now, completedAt: now,
-      });
-    }
-    if (split.fromCash > 0) {
-      const cashRef = doc(txCol(familyId, kidId));
-      if (!createdTxId) createdTxId = cashRef.id;
-      txn.set(cashRef, {
-        layer: 'cash', direction: 'out', amount: split.fromCash,
-        category, description: description.trim(),
-        status: 'completed', createdBy, approvedBy: 'auto',
-        createdAt: now, completedAt: now,
-      });
-    }
+    const cashRef = doc(txCol(familyId, kidId));
+    createdTxId = cashRef.id;
+    txn.set(cashRef, {
+      layer: 'cash', direction: 'out', amount: amountCents,
+      category, description: description.trim(),
+      status: 'completed', createdBy, approvedBy: 'auto',
+      createdAt: now, completedAt: now,
+    });
   });
   return { kind: 'auto', txId: createdTxId };
 }
@@ -1215,46 +1187,31 @@ export async function resolveApprovalRequest(
       });
     } else if (req.type === 'spend') {
       const cents = req.amountCents ?? 0;
-      // Spend draws from the Honey Pot first, then Cash for any remainder.
-      const split = splitSpendDebit(wallet, cents);
-      if (!split) throw new Error('Not enough in the Honey Pot or Cash to cover the spend.');
+      // CASH UPGRADE: spends leave 💵 Cash only — the Pot is banked money and
+      // must be withdrawn (🏧 + handover) before it can be spent.
+      if ((wallet.cashCents || 0) < cents) {
+        throw new Error('Not enough Cash to cover this — the kid needs to withdraw from their Honey Pot first 🏧.');
+      }
 
       const now = serverTimestamp();
       const resultingTxIds: string[] = [];
 
       tx.set(wRef, {
         ...wallet,
-        treasuryCents: (wallet.treasuryCents || 0) - split.fromPot,
-        cashCents: wallet.cashCents - split.fromCash,
+        cashCents: wallet.cashCents - cents,
         totalLifetimeSpentCents: wallet.totalLifetimeSpentCents + cents,
         updatedAt: now,
       });
-      // One ledger row per pocket touched (Pot first), so the kid's history
-      // shows exactly where the money came from.
-      if (split.fromPot > 0) {
-        const potRef = doc(txCol(familyId, req.kidId));
-        resultingTxIds.push(potRef.id);
-        tx.set(potRef, {
-          layer: 'treasury', direction: 'out', amount: split.fromPot,
-          category: req.category || 'spend',
-          description: req.description,
-          status: 'completed', requestId,
-          createdBy: req.createdBy, approvedBy: approverUid,
-          createdAt: now, completedAt: now,
-        });
-      }
-      if (split.fromCash > 0) {
-        const cashRef = doc(txCol(familyId, req.kidId));
-        resultingTxIds.push(cashRef.id);
-        tx.set(cashRef, {
-          layer: 'cash', direction: 'out', amount: split.fromCash,
-          category: req.category || 'spend',
-          description: req.description,
-          status: 'completed', requestId,
-          createdBy: req.createdBy, approvedBy: approverUid,
-          createdAt: now, completedAt: now,
-        });
-      }
+      const cashRef = doc(txCol(familyId, req.kidId));
+      resultingTxIds.push(cashRef.id);
+      tx.set(cashRef, {
+        layer: 'cash', direction: 'out', amount: cents,
+        category: req.category || 'spend',
+        description: req.description,
+        status: 'completed', requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
       tx.update(reqRef, {
         status: 'approved' as ApprovalStatus,
         resolvedAt: now,
