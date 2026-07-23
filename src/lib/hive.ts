@@ -1116,17 +1116,18 @@ export async function confirmCashHandover(
   });
 }
 
-/** CASH UPGRADE — fix a spend that was posted against the wrong pocket
- *  (🍯 Pot instead of 💵 Cash, or vice versa), and/or fix its category or
- *  description. Ledger rows are immutable by rule, so this never edits the
- *  original: it writes an append-only pair —
- *    reversal (money back IN on the original pocket) +
- *    repost   (money OUT on the corrected pocket, with the fixed details)
+/** CASH UPGRADE — fix a ledger entry (spend OR deposit) that was posted
+ *  against the wrong pocket (🍯 Pot instead of 💵 Cash, or vice versa),
+ *  and/or fix its category or description. Ledger rows are immutable by
+ *  rule, so this never edits the original: it writes an append-only pair —
+ *    reversal (undoes the original on its pocket) +
+ *    repost   (re-books it on the corrected pocket, with the fixed details)
  *  — both linked to the original via `correctsTxId`. Wallet nets out unless
- *  the pocket changed; lifetime totals are untouched (same spend, new home).
- *  Parent-only (enforced by callers/UI; kid tx-create rules would allow the
- *  kid to write rows for themselves, but the UI never offers it). */
-export async function correctSpendTx(
+ *  the pocket changed; lifetime totals are untouched (same money, new home).
+ *  Balance guard: a spend re-posts OUT of the target pocket (target needs
+ *  the balance); a deposit moves OUT of the original pocket (the deposited
+ *  money must still be sitting there). Parent-only via callers/UI. */
+export async function correctWalletTx(
   familyId: string,
   kidId: string,
   txId: string,
@@ -1139,12 +1140,13 @@ export async function correctSpendTx(
     const origSnap = await tx.get(origRef);
     if (!origSnap.exists()) throw new Error('Entry not found.');
     const orig = origSnap.data() as HiveTransaction;
-    if (orig.direction !== 'out' || (orig.layer !== 'treasury' && orig.layer !== 'cash')) {
-      throw new Error('Only spends from the Pot or Cash can be corrected.');
+    if (orig.layer !== 'treasury' && orig.layer !== 'cash') {
+      throw new Error('Only Pot or Cash entries can be corrected.');
     }
     if (orig.category === 'convert') throw new Error('Transfers can’t be corrected — they have two linked halves.');
     if (orig.correctionKind === 'reversal') throw new Error('Corrections can’t be corrected again — fix the reposted entry.');
 
+    const isDeposit = orig.direction === 'in';
     const targetPocket = fix.pocket || orig.layer;
     const newCategory = fix.category || orig.category;
     const newDescription = (fix.description ?? orig.description ?? '').trim() || orig.description;
@@ -1160,19 +1162,25 @@ export async function correctSpendTx(
     const amount = orig.amount;
 
     if (pocketChanged) {
-      // Money comes back to the original pocket and leaves the target one.
-      const targetBalance = targetPocket === 'cash' ? (wallet.cashCents || 0) : (wallet.treasuryCents || 0);
-      if (targetBalance < amount) {
-        throw new Error(`Not enough in ${targetPocket === 'cash' ? '💵 Cash' : 'the 🍯 Pot'} to re-post this spend (needs ${amount} cents there).`);
+      // The pocket the money will LEAVE in this correction: for a spend the
+      // repost debits the target; for a deposit the reversal debits the
+      // original (the deposited money moves house).
+      const debitPocket = isDeposit ? orig.layer : targetPocket;
+      const debitBalance = debitPocket === 'cash' ? (wallet.cashCents || 0) : (wallet.treasuryCents || 0);
+      if (debitBalance < amount) {
+        throw new Error(`Not enough in ${debitPocket === 'cash' ? '💵 Cash' : 'the 🍯 Pot'} to move this entry (needs ${amount} cents there).`);
       }
+      // Net wallet effect of reversal+repost: the original pocket gains back
+      // (spend) or gives up (deposit) the amount; the target does the inverse.
+      const sign = isDeposit ? -1 : 1; // spend: orig +, target − · deposit: orig −, target +
       tx.set(wRef, {
         ...wallet,
         treasuryCents: (wallet.treasuryCents || 0)
-          + (orig.layer === 'treasury' ? amount : 0)
-          - (targetPocket === 'treasury' ? amount : 0),
+          + (orig.layer === 'treasury' ? sign * amount : 0)
+          - (targetPocket === 'treasury' ? sign * amount : 0),
         cashCents: (wallet.cashCents || 0)
-          + (orig.layer === 'cash' ? amount : 0)
-          - (targetPocket === 'cash' ? amount : 0),
+          + (orig.layer === 'cash' ? sign * amount : 0)
+          - (targetPocket === 'cash' ? sign * amount : 0),
         updatedAt: serverTimestamp(),
       });
     }
@@ -1180,9 +1188,9 @@ export async function correctSpendTx(
     const now = serverTimestamp();
     const reversalRef = doc(txCol(familyId, kidId));
     tx.set(reversalRef, {
-      layer: orig.layer, direction: 'in', amount,
+      layer: orig.layer, direction: isDeposit ? 'out' : 'in', amount,
       category: orig.category,
-      description: `↩️ Correction — was posted against ${orig.layer === 'treasury' ? 'the 🍯 Pot' : '💵 Cash'}`,
+      description: `↩️ Correction — ${isDeposit ? 'deposit' : 'spend'} was posted ${isDeposit ? 'to' : 'against'} ${orig.layer === 'treasury' ? 'the 🍯 Pot' : '💵 Cash'}`,
       status: 'completed',
       correctsTxId: txId, correctionKind: 'reversal',
       createdBy: parentUid, approvedBy: parentUid,
@@ -1190,17 +1198,22 @@ export async function correctSpendTx(
     });
     const repostRef = doc(txCol(familyId, kidId));
     tx.set(repostRef, {
-      layer: targetPocket, direction: 'out', amount,
+      layer: targetPocket, direction: orig.direction, amount,
       category: newCategory,
       description: newDescription,
       status: 'completed',
       correctsTxId: txId, correctionKind: 'repost',
       ...(orig.requestId ? { requestId: orig.requestId } : {}),
+      ...(orig.refId ? { refId: orig.refId } : {}),
       createdBy: parentUid, approvedBy: parentUid,
       createdAt: now, completedAt: now,
     });
   });
 }
+
+/** Back-compat alias — the spend fix sheet on /hive/cash-out predates the
+ *  deposit-capable generalisation above. */
+export const correctSpendTx = correctWalletTx;
 
 // ── Approval resolution (parent-side) ─────────────────────────────
 

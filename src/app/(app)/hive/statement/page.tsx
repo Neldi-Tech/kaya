@@ -15,9 +15,10 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
-  subscribeToHiveTransactions,
-  type HiveTransaction, type HiveLayer,
+  subscribeToHiveTransactions, correctWalletTx, PLAN_CATEGORIES,
+  type HiveTransaction, type HiveLayer, type TxCategory,
 } from '@/lib/hive';
+import { DEPOSIT_BUILTINS } from '@/lib/moneyBuddy';
 import { formatCash, formatHoney, formatHp } from '@/components/hive/format';
 import { toDisplayDate } from '@/lib/dates';
 
@@ -32,7 +33,15 @@ const LAYERS: { key: 'all' | HiveLayer; label: string }[] = [
 const CATEGORY_ICON: Record<string, string> = {
   chore: '🧹', quest: '🏆', award: '🎖️', convert: '⇄', allowance: '💵',
   gift: '🎁', business: '🌳', spend: '🛒', donation: '❤️', other: '✨',
+  shopping: '🛒', books: '📚', treats: '🍦', savings: '🍯', interest: '🐝',
 };
+
+// ✏️ Which rows the fix sheet accepts: money rows only, not transfers
+// (two linked halves), not ↩️ reversals (fix the repost instead).
+const isFixable = (t: HiveTransaction): boolean =>
+  (t.layer === 'treasury' || t.layer === 'cash')
+  && t.category !== 'convert'
+  && t.correctionKind !== 'reversal';
 
 const dayKeyOf = (ms: number): string => {
   const d = new Date(ms);
@@ -114,6 +123,49 @@ export default function HiveStatementPage() {
     () => (layer === 'all' ? rows : rows.filter((r) => r.tx.layer === layer)),
     [rows, layer],
   );
+
+  // ✏️ Corrections (parent-only) — deposits AND spends. Originals that have
+  // been corrected stay on the book (immutable) but render dimmed with a
+  // "corrected ↩️" note; the repost carries the fixed details.
+  const isParentUser = profile?.role === 'parent';
+  const correctedIds = useMemo(
+    () => new Set(
+      txs.filter((t) => t.correctionKind === 'reversal' && t.correctsTxId)
+        .map((t) => t.correctsTxId as string),
+    ),
+    [txs],
+  );
+  const [fixTx, setFixTx] = useState<HiveTransaction | null>(null);
+  const [fixPocket, setFixPocket] = useState<'treasury' | 'cash'>('cash');
+  const [fixCategory, setFixCategory] = useState<TxCategory>('other');
+  const [fixDesc, setFixDesc] = useState('');
+  const [fixSaving, setFixSaving] = useState(false);
+  const [fixError, setFixError] = useState('');
+  const openFix = (t: HiveTransaction) => {
+    setFixTx(t);
+    setFixPocket(t.layer === 'treasury' ? 'treasury' : 'cash');
+    setFixCategory(t.category);
+    setFixDesc(t.description || '');
+    setFixError('');
+  };
+  const saveFix = async () => {
+    if (!familyId || !activeKidId || !fixTx) return;
+    setFixError('');
+    setFixSaving(true);
+    try {
+      await correctWalletTx(familyId, activeKidId, fixTx.id, {
+        pocket: fixPocket, category: fixCategory, description: fixDesc,
+      }, profile!.uid);
+      setFixTx(null);
+    } catch (e: any) {
+      setFixError(e?.message || 'Couldn’t save the correction.');
+    }
+    setFixSaving(false);
+  };
+  // Deposit rows pick from deposit categories; spend rows from spend chips.
+  const fixChips = fixTx?.direction === 'in'
+    ? DEPOSIT_BUILTINS.map((c) => ({ id: c.txCategory, emoji: c.emoji, label: c.label }))
+    : PLAN_CATEGORIES.filter((c) => c.id !== 'savings');
 
   // Group by local day, newest first (rows already ordered desc).
   const groups = useMemo(() => {
@@ -217,8 +269,9 @@ export default function HiveStatementPage() {
           <div className="bg-hive-paper border border-hive-line rounded-hive px-3">
             {g.rows.map(({ tx, after }) => {
               const href = linkFor(tx);
+              const wasCorrected = correctedIds.has(tx.id);
               const inner = (
-                <div className="flex items-center gap-2.5 py-2.5 border-b border-hive-line last:border-b-0">
+                <div className={`flex items-center gap-2.5 py-2.5 border-b border-hive-line last:border-b-0 ${wasCorrected ? 'opacity-50' : ''}`}>
                   <div className={`w-[34px] h-[34px] rounded-[11px] flex items-center justify-center text-base shrink-0 ${
                     tx.direction === 'in' ? 'bg-[#E6F7EE]' : 'bg-[#FCEAEA]'
                   }`}>
@@ -228,6 +281,7 @@ export default function HiveStatementPage() {
                     <p className="font-nunito font-extrabold text-[13px] leading-tight truncate">{tx.description}</p>
                     <p className="text-[10px] text-hive-muted mt-0.5">
                       {LAYERS.find((l) => l.key === tx.layer)?.label}
+                      {wasCorrected ? ' · corrected ↩️' : ''}
                       {href ? ' · tap to open the sale ›' : ''}
                     </p>
                   </div>
@@ -239,12 +293,26 @@ export default function HiveStatementPage() {
                   </div>
                 </div>
               );
-              return href ? (
-                <Link key={tx.id} href={href} className="block no-underline text-inherit hover:bg-hive-cream/50 -mx-3 px-3">
+              const row = href ? (
+                <Link href={href} className="block no-underline text-inherit hover:bg-hive-cream/50 -mx-3 px-3">
                   {inner}
                 </Link>
               ) : (
-                <div key={tx.id}>{inner}</div>
+                inner
+              );
+              return (
+                <div key={tx.id} className="flex items-center gap-1.5">
+                  <div className="flex-1 min-w-0">{row}</div>
+                  {isParentUser && isFixable(tx) && !wasCorrected && (
+                    <button
+                      onClick={() => openFix(tx)}
+                      title="Fix this entry (pocket / category / description)"
+                      className="shrink-0 w-8 h-8 rounded-[10px] border border-hive-line bg-hive-cream text-[13px] hover:border-hive-honey transition-colors"
+                    >
+                      ✏️
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -260,6 +328,98 @@ export default function HiveStatementPage() {
             🍯 {formatCash(wallet.treasuryCents || 0, currency)} · 💵 {formatCash(wallet.cashCents || 0, currency)}
             {' '}— exactly what your wallet shows.
           </p>
+        </div>
+      )}
+
+      {/* ✏️ Fix-entry sheet (parent-only) — deposits AND spends. The book
+          stays append-only: original + ↩️ reversal + repost all remain. */}
+      {fixTx && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-end lg:items-center justify-center p-0 lg:p-6" onClick={() => !fixSaving && setFixTx(null)}>
+          <div
+            className="w-full max-w-md bg-hive-paper rounded-t-hive-lg lg:rounded-hive-lg p-5 space-y-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div>
+              <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">
+                ✏️ Fix this {fixTx.direction === 'in' ? 'deposit' : 'spend'}
+              </p>
+              <p className="font-nunito font-black text-lg mt-1">
+                {fixTx.direction === 'in' ? '+' : '−'}{formatCash(fixTx.amount, currency)} · {fixTx.description}
+              </p>
+              <p className="text-[11px] text-hive-muted mt-0.5">
+                Posted {fixTx.direction === 'in' ? 'to' : 'against'} {fixTx.layer === 'treasury' ? 'the 🍯 Honey Pot' : '💵 Cash'}.
+                The original stays on the statement — Kaya writes a ↩️ correction pair.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">
+                Should have {fixTx.direction === 'in' ? 'landed in…' : 'left…'}
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setFixPocket('cash')}
+                  aria-pressed={fixPocket === 'cash'}
+                  className={`p-2.5 rounded-hive border-2 text-left transition-all ${fixPocket === 'cash' ? 'border-hive-green bg-[#EAF7F0]' : 'border-hive-line bg-hive-paper'}`}
+                >
+                  <p className="font-nunito font-extrabold text-[13px]">💵 Cash</p>
+                </button>
+                <button
+                  onClick={() => setFixPocket('treasury')}
+                  aria-pressed={fixPocket === 'treasury'}
+                  className={`p-2.5 rounded-hive border-2 text-left transition-all ${fixPocket === 'treasury' ? 'border-hive-honey bg-hive-honey-soft/40' : 'border-hive-line bg-hive-paper'}`}
+                >
+                  <p className="font-nunito font-extrabold text-[13px]">🍯 Honey Pot</p>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1.5">Category</label>
+              <div className="flex flex-wrap gap-1.5">
+                {fixChips.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setFixCategory(c.id as TxCategory)}
+                    className={`px-3 py-1.5 rounded-hive-pill text-[12px] font-nunito font-extrabold border transition-colors ${
+                      fixCategory === c.id ? 'bg-hive-honey text-white border-transparent' : 'border-hive-line bg-hive-paper text-hive-muted'
+                    }`}
+                  >
+                    {c.emoji} {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted block mb-1">Description</label>
+              <input
+                value={fixDesc}
+                onChange={(e) => setFixDesc(e.target.value)}
+                maxLength={120}
+                className="w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+              />
+            </div>
+
+            {fixError && <p className="text-hive-rose text-sm font-bold">{fixError}</p>}
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setFixTx(null)}
+                disabled={fixSaving}
+                className="h-11 px-4 rounded-hive bg-hive-cream text-hive-muted font-nunito font-extrabold text-[13px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveFix}
+                disabled={fixSaving}
+                className="flex-1 h-11 rounded-hive bg-hive-honey hover:bg-hive-honey-dk text-white font-nunito font-black text-[13px] disabled:opacity-40 transition-colors"
+              >
+                {fixSaving ? 'Saving…' : 'Save correction ↩️'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
