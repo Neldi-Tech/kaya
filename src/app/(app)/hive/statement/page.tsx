@@ -192,6 +192,10 @@ export default function HiveStatementPage() {
     if (l === 'honey') return `Coins: ${formatHoney(v)}`;
     return `HP: ${formatHp(v)}`;
   };
+  // Compact per-layer number (no currency prefix) for the learning line —
+  // "7,000 + 20,000 = 27,000" reads like the sums kids do at school.
+  const fmtNum = (l: HiveLayer, v: number) =>
+    (l === 'cash' || l === 'treasury') ? (v / 100).toLocaleString('en-US') : v.toLocaleString('en-US');
   const linkFor = (t: HiveTransaction): string | null => {
     if (t.category === 'business' && t.refId) return `/business/${t.refId}/history`;
     return null;
@@ -279,8 +283,19 @@ export default function HiveStatementPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-nunito font-extrabold text-[13px] leading-tight truncate">{tx.description}</p>
+                    {/* The learning line: balance before ± this move = balance
+                        after. Space is free down here, and seeing the sum is
+                        how the running balance clicks for kids. */}
                     <p className="text-[10px] text-hive-muted mt-0.5">
                       {LAYERS.find((l) => l.key === tx.layer)?.label}
+                      {' · '}
+                      <span className="font-nunito font-bold">
+                        {fmtNum(tx.layer, after - (tx.direction === 'in' ? tx.amount : -tx.amount))}
+                        {tx.direction === 'in' ? ' + ' : ' − '}
+                        {fmtNum(tx.layer, tx.amount)}
+                        {' = '}
+                        <span className="text-hive-ink">{fmtNum(tx.layer, after)}</span>
+                      </span>
                       {wasCorrected ? ' · corrected ↩️' : ''}
                       {href ? ' · tap to open the sale ›' : ''}
                     </p>
