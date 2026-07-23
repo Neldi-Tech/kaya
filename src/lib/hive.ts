@@ -63,7 +63,7 @@ export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 // 'spend' remains as a generic fallback for legacy / "I'm not sure" entries.
 export type TxCategory =
   | 'chore' | 'quest' | 'award' | 'convert' | 'allowance'
-  | 'gift'  | 'business'
+  | 'gift'  | 'business' | 'interest'
   | 'spend' | 'shopping' | 'books' | 'treats' | 'donation' | 'savings' | 'other';
 
 // Subset of TxCategory that can appear on a budget line. Keep this list
@@ -116,6 +116,10 @@ export interface HiveConfig {
     cadence?: 'weekly' | 'monthly';
     nextRunAt?: Timestamp;
   };
+  // ── CASH UPGRADE · 🐝 Bee Bonus — weekly interest on the banked Pot ──
+  /** Every Sunday the bees add `weeklyRatePct`% of the Pot (capped at
+   *  `capCents` per week when set). Teaches that saved money grows. */
+  beeBonus?: { enabled: boolean; weeklyRatePct: number; capCents?: number };
   // ── CASH UPGRADE · Money Buddy 🤖 deposit categories (see moneyBuddy.ts) ──
   /** Custom deposit categories this family created (＋ New). */
   depositCategories?: Array<{ id: string; emoji: string; label: string }>;

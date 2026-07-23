@@ -5,6 +5,10 @@
   "installCommand": "npm install",
   "crons": [
     {
+      "path": "/api/cron/hive-bee-bonus",
+      "schedule": "0 6 * * 0"
+    },
+    {
       "path": "/api/cron/perf-digest",
       "schedule": "0 17 * * *"
     },
