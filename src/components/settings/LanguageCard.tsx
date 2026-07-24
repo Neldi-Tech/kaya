@@ -5,7 +5,7 @@
 // see unless they choose otherwise). English is always the fallback.
 // Backed by lib/i18n + useLocale.
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { SUPPORTED_LOCALES, localeForCountry, localeLabel, asLocale, type Locale } from '@/lib/i18n';
@@ -30,28 +30,42 @@ export default function LanguageCard() {
   const { family, refresh } = useFamily();
   const isParent = profile?.role === 'parent';
 
-  const myPref = asLocale(profile?.languagePref);                 // undefined = follow family
-  const familySet = asLocale(family?.primaryLanguage);            // undefined = derive from country
+  // SET PR1 (M2) — optimistic highlight: the tapped tile lights up
+  // immediately; the live profile subscription then confirms it. `undefined`
+  // = no pending pick, `null` = Auto pending.
+  const [pendingMine, setPendingMine] = useState<Locale | null | undefined>(undefined);
+  const [pendingFamily, setPendingFamily] = useState<Locale | undefined>(undefined);
+  useEffect(() => { setPendingMine(undefined); }, [profile?.languagePref]);
+  useEffect(() => { setPendingFamily(undefined); }, [family?.primaryLanguage]);
+
+  const myPref = pendingMine !== undefined
+    ? (pendingMine ?? undefined)                                  // undefined = follow family
+    : asLocale(profile?.languagePref);
+  const familySet = pendingFamily ?? asLocale(family?.primaryLanguage); // undefined = derive from country
   const familyEffective = familySet ?? localeForCountry(family?.location?.country);
   const [busy, setBusy] = useState(false);
 
   const pickMine = async (loc: Locale | null) => {
     if (!profile?.uid || busy) return;
     setBusy(true);
+    setPendingMine(loc);
     try {
       await setUserLocale(profile.uid, loc);
       // A parent's concrete pick is the family's language too — kids follow
       // it (the family-default control below stays for explicit overrides).
       if (isParent && loc && profile.familyId) {
+        setPendingFamily(loc);
         await setFamilyLocale(profile.familyId, loc);
         await refresh?.();
       }
-    } finally { setBusy(false); }
+    } catch { setPendingMine(undefined); } finally { setBusy(false); }
   };
   const pickFamily = async (loc: Locale) => {
     if (!profile?.familyId || busy) return;
     setBusy(true);
-    try { await setFamilyLocale(profile.familyId, loc); await refresh?.(); } finally { setBusy(false); }
+    setPendingFamily(loc);
+    try { await setFamilyLocale(profile.familyId, loc); await refresh?.(); }
+    catch { setPendingFamily(undefined); } finally { setBusy(false); }
   };
 
   // Kid-friendly version: two big flag tiles, one tap to switch, and an
