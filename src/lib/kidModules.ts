@@ -118,7 +118,7 @@ export const KID_MODULES: KidModule[] = [
   // subModules (extraPaths instead) so all three pages gate on the
   // single top-level `stats` id — granting `stats` unlocks the whole
   // section without per-page sub-grants.
-  { id: 'stats',     label: 'Stats',          icon: '📊', path: '/reports', extraPaths: ['/profiles', '/family-tree'] },
+  { id: 'stats',     label: 'Stats',          icon: '📊', path: '/reports', extraPaths: ['/profiles', '/family-tree', '/stats/me'] },
   // ── Phased-out (OFF by default) ───────────────────────────────────
   { id: 'discover',  label: 'Discover',       icon: '🔎', path: '/',        isLegacy: true },
   { id: 'badges',    label: 'Badges',         icon: '🏆', path: '/badges',  isLegacy: true },
