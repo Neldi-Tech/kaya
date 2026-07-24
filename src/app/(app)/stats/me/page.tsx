@@ -166,6 +166,9 @@ export default function MyStatsPage() {
 
   // PR2 — behaviour detail + reflections + ⚖️ Compare
   const [openBehaviour, setOpenBehaviour] = useState<string | null>(null);
+  // Layout 2.0 — behaviour sort (remembered per kid) + top-5 cap.
+  const [behSort, setBehSort] = useState<'risk' | 'best' | 'az'>('risk');
+  const [showAllBeh, setShowAllBeh] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null); // ratingId key
   const [reflectDraft, setReflectDraft] = useState('');
   const [reflectBusy, setReflectBusy] = useState(false);
@@ -246,7 +249,11 @@ export default function MyStatsPage() {
       setLifeAwards(aws.filter((a) => a.childId === myChildId));
       setRewards(rw.filter((r) => r.active !== false).sort((a, b) => a.pointsCost - b.pointsCost));
     });
-    try { setThermoRewardId(localStorage.getItem(`kayaThermo:${myChildId}`) || ''); } catch { /* ignore */ }
+    try {
+      setThermoRewardId(localStorage.getItem(`kayaThermo:${myChildId}`) || '');
+      const s = localStorage.getItem(`kayaBehSort:${myChildId}`);
+      if (s === 'risk' || s === 'best' || s === 'az') setBehSort(s);
+    } catch { /* ignore */ }
     return () => { cancelled = true; };
   }, [familyId, myChildId]);
 
@@ -475,6 +482,16 @@ export default function MyStatsPage() {
       .sort((x, y) => y.pct - x.pct);
   }, [ratings, routines]);
 
+  // Layout 2.0 — user-chosen sort (risk-first default) + top-5 cap.
+  const sortedBehaviours = useMemo(() => {
+    const arr = [...behaviours];
+    if (behSort === 'risk') arr.sort((a, b) => a.pct - b.pct);
+    else if (behSort === 'best') arr.sort((a, b) => b.pct - a.pct);
+    else arr.sort((a, b) => a.label.localeCompare(b.label));
+    return arr;
+  }, [behaviours, behSort]);
+  const visibleBehaviours = showAllBeh ? sortedBehaviours : sortedBehaviours.slice(0, 5);
+
   // Belt & Ladder — perfect (Excellent) days + rungs of 5 + star podiums.
   const belt = useMemo(() => {
     const byDay = new Map<string, { rated: number; excellent: number }>();
@@ -678,9 +695,13 @@ export default function MyStatsPage() {
           <div className="h-40 rounded-kaya-lg bg-kaya-warm" />
         </div>
       ) : (
-        <div className="lg:grid lg:grid-cols-3 lg:gap-4 lg:items-start space-y-3 lg:space-y-0">
+        // Layout 2.0 (Elia 2026-07-24): numbers → insights → the drill.
+        // flex order drives mobile, grid order drives lg — same sequence:
+        // 1 HP hero · 2 Belt+awards · 3 Discovery · 4 Coach ·
+        // 5 Behaviours (wide) · 6 Records (wide).
+        <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
           {/* ⭐ HP hero */}
-          <div className="rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+          <div className="order-1 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
             <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ My House Points · {range.label.toLowerCase()}</p>
             <p className="font-display font-black text-4xl leading-tight mt-1">{hp.total} HP</p>
             <div className="flex gap-5 mt-2">
@@ -700,12 +721,23 @@ export default function MyStatsPage() {
             )}
           </div>
 
-          {/* 😇 Behaviours */}
-          <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2.5">😇 My behaviours · {range.label.toLowerCase()}</p>
+          {/* 😇 Behaviours — Layout 2.0: wide, risk-first, capped at 5 */}
+          <div className="order-5 lg:col-span-2 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+            <div className="flex items-center gap-2 flex-wrap mb-2.5">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand flex-1">😇 My behaviours · {range.label.toLowerCase()}</p>
+              {([['risk', '🌱 Needs love first'], ['best', '⭐ Best first'], ['az', '🔤 A–Z']] as const).map(([k, l]) => (
+                <button key={k} type="button"
+                  onClick={() => { setBehSort(k); try { localStorage.setItem(`kayaBehSort:${myChildId}`, k); } catch { /* ignore */ } }}
+                  className={`px-2.5 py-1 rounded-full text-[10.5px] font-black ${behSort === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
             {behaviours.length === 0 ? (
               <p className="text-[12.5px] text-kaya-sand">No ratings in this period yet.</p>
-            ) : behaviours.map((b) => {
+            ) : (<>
+            <div className="md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-x-6">
+            {visibleBehaviours.map((b) => {
               const open = openBehaviour === b.id;
               const days = ratings
                 .filter((r) => r.ratings?.[b.id] && r.ratings[b.id] !== 'skip')
@@ -719,7 +751,7 @@ export default function MyStatsPage() {
               const dotColor = (v: string) => (v === 'excellent' ? '#2E9E5B' : v === 'good' ? '#D4A017' : '#E06A7B');
               const sel = days.find((d) => d.ratingId === openDay);
               return (
-                <div key={b.id} className="border-b border-dashed border-kaya-warm last:border-b-0">
+                <div key={b.id} className={`border-b border-dashed border-kaya-warm last:border-b-0 ${open ? 'md:col-span-2 xl:col-span-3' : ''}`}>
                   <button type="button" className="w-full flex items-center gap-2.5 py-1.5 text-left"
                     onClick={() => { setOpenBehaviour(open ? null : b.id); setOpenDay(null); setReflectMsg(''); }}>
                     <span className="w-7 h-7 rounded-lg bg-kaya-warm grid place-items-center text-[14px] shrink-0">{b.icon}</span>
@@ -773,10 +805,19 @@ export default function MyStatsPage() {
                 </div>
               );
             })}
+            </div>
+            {sortedBehaviours.length > 5 && (
+              <button type="button" onClick={() => setShowAllBeh((v) => !v)}
+                className="mt-2 text-[11.5px] font-black" style={{ color: '#6B3FE0' }}>
+                {showAllBeh ? '▴ Show top 5 only' : `▾ Show all ${sortedBehaviours.length} behaviours`}
+              </button>
+            )}
+            </>
+            )}
             <p className="text-[10px] text-kaya-sand mt-2">🌱 = needs love — same scores your family sees at the Sunday meeting, live.</p>
           </div>
 
-          <div className="space-y-3">
+          <div className="order-2 space-y-3">
             {/* 🥋 Belt & Ladder */}
             <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
               <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2">🥋 My Belt &amp; Ladder</p>
@@ -815,7 +856,7 @@ export default function MyStatsPage() {
           </div>
 
           {/* 🧭 Points Discovery — Awards & Kudos FIRST (PR 3) */}
-          <div className="lg:col-span-3 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+          <div className="order-3 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
             <div className="flex items-center gap-2 mb-3">
               <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand flex-1">🧭 Points Discovery · {range.label.toLowerCase()}</p>
               {([['awards', '🏅 Awards & Kudos'], ['routine', '⭐ Routine Points']] as const).map(([k, l]) => (
@@ -967,7 +1008,7 @@ export default function MyStatsPage() {
           </div>
 
           {/* 🤖 Coach Kaya (PR 4) */}
-          <div className="lg:col-span-2 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#11C5A8,#6B3FE0)' }}>
+          <div className="order-4 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#11C5A8,#6B3FE0)' }}>
             <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85">🤖 Coach Kaya · today</p>
             {coach.focus ? (
               <div className="rounded-kaya px-3 py-2.5 mt-2" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
@@ -1001,7 +1042,7 @@ export default function MyStatsPage() {
           </div>
 
           {/* 🏆 Records & more (PR 4) */}
-          <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+          <div className="order-6 lg:col-span-2 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
             <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2">🏆 My records · lifetime</p>
             <ul className="space-y-1 text-[12px]">
               {records.bestDay && <li>🌟 <b>Best day ever:</b> {records.bestDay.pts} pts · {toDisplayDate(records.bestDay.date)}</li>}
