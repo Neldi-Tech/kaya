@@ -12,7 +12,8 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import { auth, db } from '@/lib/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { getUserProfile, updateUserProfile, getChildren, UserProfile } from '@/lib/firestore';
 import {
   GUEST_FAMILY_ID, GUEST_UID, MOCK_PROFILE,
@@ -124,6 +125,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       enterGuestMode();
     }
   }, [enterGuestMode]);
+
+  // SET PR1 (M1) — LIVE profile: after the initial load (which also runs the
+  // childId self-heal), keep users/{uid} subscribed so any profile change —
+  // languagePref, name, prefs — re-renders app-wide immediately. This is the
+  // fix for "the language highlight doesn't move": the pick saved fine, but
+  // the one-time fetch meant nothing re-read it until a full reload.
+  useEffect(() => {
+    if (!user?.uid || isGuest) return;
+    const unsub = onSnapshot(
+      doc(db, 'users', user.uid),
+      (snap) => { if (snap.exists()) setProfile(snap.data() as UserProfile); },
+      () => { /* keep the loaded profile on transient errors */ },
+    );
+    return unsub;
+  }, [user?.uid, isGuest]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
