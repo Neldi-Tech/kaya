@@ -11,6 +11,7 @@
 // Console's "Send test message" flow (paste a token, click send).
 
 import { useEffect, useState } from 'react';
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { collection, onSnapshot, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
@@ -220,8 +221,15 @@ export default function NotificationSettings() {
   if (status === 'loading') return null;
 
   return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-      <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-3">Device notifications</p>
+    // SET PR3 (M8) — folded like the rest of Settings: live summary shows
+    // device count + digest state without opening; #alerts deep-links here.
+    <CollapsibleSection
+      id="alerts"
+      remember
+      icon="🔔"
+      title="Device notifications"
+      summary={`${tokens.length} device${tokens.length === 1 ? '' : 's'}${digestEmail ? ' · digest on' : ''}`}
+    >
 
       {status === 'unsupported' && (
         <p className="text-[11px] text-kaya-sand leading-relaxed">
@@ -376,6 +384,6 @@ export default function NotificationSettings() {
           <p className="text-[10px] text-kaya-sand-light leading-relaxed mt-2">Changes save automatically.</p>
         </div>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }
