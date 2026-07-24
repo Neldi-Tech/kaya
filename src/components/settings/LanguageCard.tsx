@@ -25,7 +25,7 @@ function Choice({ active, onClick, children }: { active: boolean; onClick: () =>
   );
 }
 
-export default function LanguageCard() {
+export default function LanguageCard({ bare = false }: { bare?: boolean } = {}) {
   const { profile } = useAuth();
   const { family, refresh } = useFamily();
   const isParent = profile?.role === 'parent';
