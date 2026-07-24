@@ -31,9 +31,12 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { auth } from '@/lib/firebase';
 import {
   getRatingsInDateRange, getAwardsInDateRange, getMeetings, createNotification,
+  getRewards, getFamilyMembers,
   readPointSystemConfig, inferAwardKind, DEFAULT_ROUTINES,
-  type DailyRating, type Award, type Routine, type Meeting,
+  type DailyRating, type Award, type Routine, type Meeting, type Reward,
 } from '@/lib/firestore';
+import { getMeetingSubmission, setMeetingSubmission, meetingCycleKey } from '@/lib/meetingSubmissions';
+import { computeCoach, detectComebacks, computeRecords } from '@/lib/kidCoach';
 import { toDisplayDate } from '@/lib/dates';
 
 type PeriodKey = 'thisWeek' | 'thisMonth' | 'last7' | 'thisYear' | 'lifetime' | 'month' | 'custom';
@@ -169,6 +172,19 @@ export default function MyStatsPage() {
   const [reflectMsg, setReflectMsg] = useState('');
   const [discTab, setDiscTab] = useState<'awards' | 'routine'>('awards');
   const [patternAwards, setPatternAwards] = useState<Award[]>([]);
+
+  // PR4 — lifetime data (records, Why-book, Full House), rewards, actions.
+  const [lifeRatings, setLifeRatings] = useState<DailyRating[]>([]);
+  const [lifeAwards, setLifeAwards] = useState<Award[]>([]);
+  const [rewards, setRewards] = useState<Reward[]>([]);
+  const [whyBookOpen, setWhyBookOpen] = useState(false);
+  const [goalMsg, setGoalMsg] = useState('');
+  const [helpMsg, setHelpMsg] = useState('');
+  const [catchOpen, setCatchOpen] = useState(false);
+  const [catchWho, setCatchWho] = useState('');
+  const [catchDeed, setCatchDeed] = useState('');
+  const [catchMsg, setCatchMsg] = useState('');
+  const [thermoRewardId, setThermoRewardId] = useState<string>('');
   const [compare, setCompare] = useState<null | 'week' | 'month' | 'months'>(null);
   const [cmpA, setCmpA] = useState(() => iso(new Date()).slice(0, 7));
   const [cmpB, setCmpB] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return iso(d).slice(0, 7); });
@@ -207,6 +223,94 @@ export default function MyStatsPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId, myChildId, range.from, range.to]);
+
+  // Family feature switches (Settings → My Stats options; default ON).
+  const statsCfg = {
+    reflections: (family as { statsConfig?: { reflections?: boolean } } | null)?.statsConfig?.reflections !== false,
+    compare: (family as { statsConfig?: { compare?: boolean } } | null)?.statsConfig?.compare !== false,
+    helpNudges: (family as { statsConfig?: { helpNudges?: boolean } } | null)?.statsConfig?.helpNudges !== false,
+    catchGood: (family as { statsConfig?: { catchGood?: boolean } } | null)?.statsConfig?.catchGood !== false,
+  };
+
+  // PR4 — lifetime docs (records / Why-book / Full House) + rewards, once.
+  useEffect(() => {
+    if (!familyId || !myChildId) return;
+    let cancelled = false;
+    Promise.all([
+      getRatingsInDateRange(familyId, '2000-01-01', iso(new Date())).catch(() => [] as DailyRating[]),
+      getAwardsInDateRange(familyId, '2000-01-01', iso(new Date())).catch(() => [] as Award[]),
+      getRewards(familyId).catch(() => [] as Reward[]),
+    ]).then(([rs, aws, rw]) => {
+      if (cancelled) return;
+      setLifeRatings(rs.filter((r) => r.childId === myChildId));
+      setLifeAwards(aws.filter((a) => a.childId === myChildId));
+      setRewards(rw.filter((r) => r.active !== false).sort((a, b) => a.pointsCost - b.pointsCost));
+    });
+    try { setThermoRewardId(localStorage.getItem(`kayaThermo:${myChildId}`) || ''); } catch { /* ignore */ }
+    return () => { cancelled = true; };
+  }, [familyId, myChildId]);
+
+  // 🎯 Make the focus my Sunday goal — appends to the kid's meeting prep.
+  async function makeSundayGoal(text: string) {
+    if (!familyId || !profile?.uid) return;
+    setGoalMsg('');
+    try {
+      const cur = await getMeetingSubmission(familyId, profile.uid).catch(() => null);
+      const goals = (cur?.goals || []).filter(Boolean);
+      if (goals.includes(text)) { setGoalMsg('Already in your prep ✓'); return; }
+      if (goals.length >= 3) { setGoalMsg('Your prep already has 3 goals — swap one there first.'); return; }
+      await setMeetingSubmission(familyId, profile.uid, {
+        name: (profile.displayName || 'Me').split(' ')[0],
+        childId: isKid ? myChildId ?? undefined : undefined,
+        role: isKid ? 'kid' : 'parent',
+        gratitudes: cur?.gratitudes || [],
+        appreciations: cur?.appreciations || [],
+        goals: [...goals, text],
+        cycleKey: meetingCycleKey(family?.meetingSetup?.schedule?.dayOfWeek) ?? undefined,
+      });
+      setGoalMsg('🎯 Added to your Sunday prep!');
+    } catch { setGoalMsg('Could not add — try again.'); }
+  }
+
+  // 🤝 I need help — a warm bell to the parents.
+  async function askForHelp(label: string) {
+    if (!familyId || !kid) return;
+    setHelpMsg('');
+    try {
+      const members = await getFamilyMembers(familyId);
+      const parents = members.filter((m) => (m as { role?: string }).role === 'parent');
+      await Promise.all(parents.map((p) => createNotification(familyId, {
+        type: 'reminder',
+        title: `🤝 ${kid.name.split(' ')[0]} would like some help`,
+        message: `${kid.name.split(' ')[0]} is finding “${label}” hard and tapped “I need help with this”. A little coaching moment awaits.`,
+        read: false,
+        forUserId: (p as { uid: string }).uid,
+        link: '/stats/me',
+      } as Parameters<typeof createNotification>[1])));
+      setHelpMsg('🤝 Sent — a parent will get your message.');
+    } catch { setHelpMsg('Could not send — try again.'); }
+  }
+
+  // 🔦 Catch Someone Doing Good — nomination bell to the parents.
+  async function sendCatchGood() {
+    if (!familyId || !kid || !catchWho.trim() || !catchDeed.trim()) return;
+    setCatchMsg('');
+    try {
+      const members = await getFamilyMembers(familyId);
+      const parents = members.filter((m) => (m as { role?: string }).role === 'parent');
+      const spotter = kid.name.split(' ')[0];
+      await Promise.all(parents.map((p) => createNotification(familyId, {
+        type: 'reminder',
+        title: `🔦 ${spotter} caught ${catchWho.trim()} doing good!`,
+        message: `“${catchDeed.trim().slice(0, 200)}” — if it deserves an award, open Award Points for ${catchWho.trim()} (and a 💛 Kudos for ${spotter}, the spotter!).`,
+        read: false,
+        forUserId: (p as { uid: string }).uid,
+        link: '/award',
+      } as Parameters<typeof createNotification>[1])));
+      setCatchMsg('🔦 Sent to your parents — great spotting!');
+      setCatchDeed(''); setCatchOpen(false);
+    } catch { setCatchMsg('Could not send — try again.'); }
+  }
 
   // 🔮 Pattern window — awards over the last 60 days regardless of the
   // selected view range, so weekday rhythms are detectable.
@@ -403,6 +507,25 @@ export default function MyStatsPage() {
     return k === 'diamond' ? '💎' : k === 'kudos' ? '💛' : k === 'reducing' ? '⚠️' : k === 'improvement_note' ? '☝️' : '⭐';
   };
 
+  // PR4 memos — coach, comebacks, records, Full House, thermometer.
+  const coach = useMemo(() => computeCoach(behaviours, (kid?.name || 'friend').split(' ')[0], belt.toNext), [behaviours, kid?.name, belt.toNext]);
+  const comebacks = useMemo(() => detectComebacks(lifeRatings, routines), [lifeRatings, routines]);
+  const records = useMemo(() => computeRecords(lifeRatings, lifeAwards), [lifeRatings, lifeAwards]);
+  const fullHouse = useMemo(() => {
+    const year = String(new Date().getFullYear());
+    const got = new Set<string>();
+    lifeAwards.forEach((a) => {
+      const d = a.createdAt?.toDate?.();
+      if (d && String(d.getFullYear()) === year) got.add(categoryKeyOf(a));
+    });
+    return { got, count: AWARD_CATEGORIES.filter((c) => got.has(c.id)).length };
+  }, [lifeAwards]);
+  const thermoReward = rewards.find((r) => r.id === thermoRewardId) || rewards[0] || null;
+  const whyBook = useMemo(() =>
+    lifeAwards.filter((a) => (a.reason || '').trim())
+      .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)),
+  [lifeAwards]);
+
   if (!familyId) return null;
   if (!kid) {
     return (
@@ -447,11 +570,13 @@ export default function MyStatsPage() {
         {!['thisWeek', 'thisMonth'].includes(period) && (
           <span className="px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold bg-kaya-chocolate text-white">{range.label}</span>
         )}
-        <button type="button" onClick={() => { setCompare((c) => (c ? null : 'week')); setMoreOpen(false); }}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${compare ? 'text-white' : ''}`}
-          style={compare ? { background: '#6B3FE0' } : { background: '#EFE9FF', color: '#6B3FE0' }}>
-          ⚖️ Compare
-        </button>
+        {statsCfg.compare && (
+          <button type="button" onClick={() => { setCompare((c) => (c ? null : 'week')); setMoreOpen(false); }}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${compare ? 'text-white' : ''}`}
+            style={compare ? { background: '#6B3FE0' } : { background: '#EFE9FF', color: '#6B3FE0' }}>
+            ⚖️ Compare
+          </button>
+        )}
         <button type="button" onClick={() => setMoreOpen((v) => !v)}
           className="px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold bg-white border-[1.5px] border-dashed border-kaya-warm-dark text-kaya-sand">
           More ▾
@@ -625,6 +750,7 @@ export default function MyStatsPage() {
                             {sel.value === 'excellent' ? '🟢 Excellent' : sel.value === 'good' ? '🟡 Good' : '🔴 Bad'} · {toDisplayDate(sel.date)} · rated by {sel.ratedByName}
                           </p>
                           {sel.note && <p className="text-[12px] mt-1">“{sel.note}”</p>}
+                          {statsCfg.reflections && (
                           <div className="mt-1.5 rounded-kaya-sm p-2" style={{ background: '#EFE9FF' }}>
                             <p className="text-[9.5px] font-black uppercase tracking-wider" style={{ color: '#6B3FE0' }}>💬 My reflection</p>
                             <textarea value={reflectDraft} onChange={(e) => setReflectDraft(e.target.value)} rows={2}
@@ -639,6 +765,7 @@ export default function MyStatsPage() {
                             </div>
                             <p className="text-[9.5px] text-kaya-sand mt-1">Shows here, at the Sunday meeting and in Reports — freezes once the week has met.</p>
                           </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -837,6 +964,126 @@ export default function MyStatsPage() {
                 </div>
               );
             })()}
+          </div>
+
+          {/* 🤖 Coach Kaya (PR 4) */}
+          <div className="lg:col-span-2 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#11C5A8,#6B3FE0)' }}>
+            <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85">🤖 Coach Kaya · today</p>
+            {coach.focus ? (
+              <div className="rounded-kaya px-3 py-2.5 mt-2" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
+                <p className="text-[13.5px] font-black">{coach.focus.icon} This week&rsquo;s focus: {coach.focus.label}</p>
+                <p className="text-[12px] opacity-90 mt-0.5">You&rsquo;re at {coach.focus.pct}% — win this one and the whole week follows!</p>
+                <div className="flex gap-2 flex-wrap mt-2">
+                  <button type="button" onClick={() => void makeSundayGoal(`${coach.focus!.label} — Excellent every day this week`)}
+                    className="px-3 py-1.5 rounded-full text-[11px] font-black" style={{ background: '#fff', color: '#6B3FE0' }}>
+                    🎯 Make it my Sunday goal
+                  </button>
+                  {statsCfg.helpNudges && (
+                    <button type="button" onClick={() => void askForHelp(coach.focus!.label)}
+                      className="px-3 py-1.5 rounded-full text-[11px] font-black" style={{ background: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.4)', color: '#fff' }}>
+                      🤝 I need help with this
+                    </button>
+                  )}
+                </div>
+                {(goalMsg || helpMsg) && <p className="text-[11px] font-bold mt-1.5 opacity-95">{goalMsg} {helpMsg}</p>}
+              </div>
+            ) : (
+              <p className="text-[13px] font-bold mt-2">Everything is 80%+ — champion mode! Keep the rhythm going. 🏆</p>
+            )}
+            <ul className="mt-2.5 space-y-1">
+              {coach.tips.map((t, i) => <li key={i} className="text-[12px] flex gap-2"><span>💡</span><span>{t}</span></li>)}
+              <li className="text-[12px] flex gap-2"><span>💛</span><span>{coach.warm}</span></li>
+            </ul>
+            <div className="rounded-kaya px-3 py-2 mt-2.5" style={{ background: 'rgba(255,255,255,.12)' }}>
+              <p className="text-[12px] italic">&ldquo;{coach.quote.q}&rdquo;</p>
+              <p className="text-[10px] font-black opacity-80 mt-0.5">— {coach.quote.by} · new quote every day</p>
+            </div>
+          </div>
+
+          {/* 🏆 Records & more (PR 4) */}
+          <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2">🏆 My records · lifetime</p>
+            <ul className="space-y-1 text-[12px]">
+              {records.bestDay && <li>🌟 <b>Best day ever:</b> {records.bestDay.pts} pts · {toDisplayDate(records.bestDay.date)}</li>}
+              {records.bestWeek && <li>📈 <b>Biggest week:</b> {records.bestWeek.pts} pts · wk of {toDisplayDate(records.bestWeek.weekStart)}</li>}
+              <li>🔥 <b>Longest Excellent run:</b> {records.longestExcellentRun} day{records.longestExcellentRun === 1 ? '' : 's'}</li>
+              {records.mostKudosMonth && <li>💛 <b>Most kudos in a month:</b> {records.mostKudosMonth.n}</li>}
+            </ul>
+            <p className="text-[10px] text-kaya-sand mt-1.5">The only competitor is yesterday&rsquo;s you.</p>
+
+            {comebacks.length > 0 && (
+              <div className="rounded-kaya px-3 py-2 mt-2.5" style={{ background: '#FDF3E4' }}>
+                <p className="text-[9.5px] font-black uppercase tracking-wider" style={{ color: '#9a5f14' }}>🔥 Comeback!</p>
+                {comebacks.slice(0, 2).map((c) => (
+                  <p key={c.id} className="text-[12px] mt-0.5">{c.icon} <b>{c.label}</b> — {c.run} Excellent days after a stumble. Champions get back up! 🏅</p>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-3 pt-2.5 border-t border-dashed border-kaya-warm">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand">🏆 Full House of Values · {new Date().getFullYear()}</p>
+              <div className="flex gap-1 mt-1.5">
+                {AWARD_CATEGORIES.map((c) => (
+                  <span key={c.id} title={c.label} className={`w-7 h-7 rounded-lg grid place-items-center text-[13px] ${fullHouse.got.has(c.id) ? '' : 'opacity-30 grayscale'}`} style={{ background: '#F0EBE3' }}>{c.emoji}</span>
+                ))}
+              </div>
+              <p className="text-[11px] font-bold mt-1" style={{ color: fullHouse.count === 8 ? '#2E9E5B' : '#9B8A72' }}>
+                {fullHouse.count === 8 ? '🎉 FULL HOUSE — every value earned this year!' : `${fullHouse.count}/8 values earned this year — ${8 - fullHouse.count} to a Full House!`}
+              </p>
+            </div>
+
+            {thermoReward && kid && (
+              <div className="mt-3 pt-2.5 border-t border-dashed border-kaya-warm">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand">🌡️ Saving toward</p>
+                  <select value={thermoReward.id}
+                    onChange={(e) => { setThermoRewardId(e.target.value); try { localStorage.setItem(`kayaThermo:${myChildId}`, e.target.value); } catch { /* ignore */ } }}
+                    className="text-[11px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-1.5 py-1 bg-white max-w-[55%]">
+                    {rewards.map((r) => <option key={r.id} value={r.id}>{r.icon} {r.title}</option>)}
+                  </select>
+                </div>
+                <div className="h-2.5 rounded-full bg-kaya-warm overflow-hidden mt-1.5">
+                  <span className="block h-full rounded-full" style={{ width: `${Math.min(100, Math.round(((kid.totalPoints || 0) / Math.max(1, thermoReward.pointsCost)) * 100))}%`, background: 'linear-gradient(90deg,#11C5A8,#D4A017)' }} />
+                </div>
+                <p className="text-[11px] font-bold text-kaya-sand mt-1">{kid.totalPoints || 0} / {thermoReward.pointsCost} HP {((kid.totalPoints || 0) >= thermoReward.pointsCost) ? '— ready to redeem! 🎉' : ''}</p>
+              </div>
+            )}
+
+            <div className="mt-3 pt-2.5 border-t border-dashed border-kaya-warm flex gap-2 flex-wrap">
+              <button type="button" onClick={() => setWhyBookOpen((v) => !v)}
+                className="px-3 py-1.5 rounded-full text-[11px] font-black bg-kaya-warm text-kaya-chocolate">
+                📖 My Why-book ({whyBook.length})
+              </button>
+              {statsCfg.catchGood && (
+                <button type="button" onClick={() => { setCatchOpen((v) => !v); setCatchMsg(''); }}
+                  className="px-3 py-1.5 rounded-full text-[11px] font-black text-white" style={{ background: '#D4A017' }}>
+                  🔦 Catch someone doing good
+                </button>
+              )}
+            </div>
+            {whyBookOpen && (
+              <div className="mt-2 max-h-56 overflow-y-auto space-y-1.5">
+                {whyBook.length === 0 ? <p className="text-[12px] text-kaya-sand">Your praise cards will collect here. ✨</p> : whyBook.map((a) => (
+                  <div key={a.id} className="rounded-kaya px-3 py-2" style={{ background: '#FBF6E9' }}>
+                    <p className="text-[11.5px] italic">&ldquo;{a.reason}&rdquo;</p>
+                    <p className="text-[10px] font-bold text-kaya-sand mt-0.5">— {a.awardedByName}{a.createdAt?.toDate ? ` · ${toDisplayDate(iso(a.createdAt.toDate()))}` : ''}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+            {catchOpen && (
+              <div className="mt-2 rounded-kaya border border-kaya-warm-dark p-2.5">
+                <input value={catchWho} onChange={(e) => setCatchWho(e.target.value)} placeholder="Who did something good?"
+                  className="w-full h-9 px-2.5 bg-kaya-cream rounded-kaya-sm text-[12.5px] mb-1.5" />
+                <textarea value={catchDeed} onChange={(e) => setCatchDeed(e.target.value)} rows={2} placeholder="What did they do? Your parents will decide the award — and you get kudos for spotting!"
+                  className="w-full px-2.5 py-2 bg-kaya-cream rounded-kaya-sm text-[12.5px] resize-none" />
+                <button type="button" disabled={!catchWho.trim() || !catchDeed.trim()} onClick={() => void sendCatchGood()}
+                  className="mt-1.5 px-4 py-1.5 rounded-full text-[11px] font-black text-white disabled:opacity-40" style={{ background: '#D4A017' }}>
+                  Send to parents
+                </button>
+              </div>
+            )}
+            {catchMsg && <p className="text-[11px] font-bold text-kaya-sand mt-1.5">{catchMsg}</p>}
           </div>
         </div>
       )}

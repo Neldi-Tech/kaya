@@ -188,6 +188,8 @@ export interface Family {
   /** Little Stars — family-default participation ages (partial, merged
    *  over DEFAULT_PARTICIPATION_AGES by lib/participation.ts). */
   participationAges?: Partial<import('./participation').ParticipationAges>;
+  /** Kid Stats (My Stats) feature switches — default ON when absent. */
+  statsConfig?: { reflections?: boolean; compare?: boolean; helpNudges?: boolean; catchGood?: boolean };
   /** 🎊 Arrival celebration length in days (default 14) — how long a new
    *  member's welcome card stays on everyone's Home. */
   celebrationDays?: number;
