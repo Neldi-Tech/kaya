@@ -103,7 +103,7 @@ export default function LanguageCard({ bare = false }: { bare?: boolean } = {}) 
   if (profile?.role === 'kid') {
     const effective = myPref ?? familyEffective;
     return (
-      <div id="language" className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4">
+      <div id={bare ? undefined : 'language'} className={bare ? '' : 'bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4'}>
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xl">🌍</span>
           <h2 className="font-display text-lg font-extrabold">My language</h2>
@@ -149,7 +149,7 @@ export default function LanguageCard({ bare = false }: { bare?: boolean } = {}) 
   }
 
   return (
-    <div id="language" className="bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4">
+    <div id={bare ? undefined : 'language'} className={bare ? '' : 'bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5 mb-4'}>
       <div className="flex items-center gap-2 mb-1">
         <span className="text-xl">🌍</span>
         <h2 className="font-display text-lg font-extrabold">Language</h2>

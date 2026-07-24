@@ -54,7 +54,7 @@ import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
 import LanguageCard from '@/components/settings/LanguageCard';
 import SettingsQuickFind from '@/components/settings/SettingsQuickFind';
-import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
+import { localeLabel, localeForCountry, asLocale } from '@/lib/i18n';
 import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
@@ -1111,8 +1111,18 @@ export default function SettingsPage() {
         {/* ── Left column: account + family + preferences ──────── */}
         <div className="lg:col-span-7 space-y-4">
 
-          {/* Language (i18n) — everyone picks their own; parents set the family default. */}
-          <LanguageCard />
+          {/* Language (i18n) — everyone picks their own; parents set the
+              family default. Folded like the rest of Settings (M8); the
+              #language deep link (kids' 🌍 More shortcut) auto-opens it. */}
+          <CollapsibleSection
+            id="language"
+            remember
+            icon="🌍"
+            title="Language"
+            summary={localeLabel(asLocale(family?.primaryLanguage) ?? localeForCountry(family?.location?.country))}
+          >
+            <LanguageCard bare />
+          </CollapsibleSection>
 
           {/* Profile card · anchored at #profile so deep links from the
               Family Tree land directly on it. */}
