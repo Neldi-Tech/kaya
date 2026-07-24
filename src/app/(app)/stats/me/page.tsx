@@ -28,6 +28,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
+import { auth } from '@/lib/firebase';
 import {
   getRatingsInDateRange, getAwardsInDateRange, getMeetings,
   readPointSystemConfig, inferAwardKind, DEFAULT_ROUTINES,
@@ -84,6 +85,29 @@ function prevRange(from: string, to: string): { from: string; to: string } | nul
 const daysBetween = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T00:00:00`) - Date.parse(`${from}T00:00:00`)) / 86400000) + 1;
 
+/** Compare-mode snapshot: HP + per-behaviour % + perfect days for a set
+ *  of docs (same math as the live cards — one code path, two windows). */
+function snapshot(ratings: DailyRating[], awards: Award[], ppHP: number) {
+  const routinePts = ratings.reduce((s, r) => s + (r.totalPoints || 0), 0);
+  const awardPts = awards.reduce((s, a) => s + (a.points || 0), 0);
+  const per = new Map<string, { rated: number; excellent: number }>();
+  const byDay = new Map<string, { rated: number; excellent: number }>();
+  ratings.forEach((r) => {
+    const day = byDay.get(r.date) || { rated: 0, excellent: 0 };
+    Object.entries(r.ratings || {}).forEach(([rid, v]) => {
+      if (v === 'skip') return;
+      const a = per.get(rid) || { rated: 0, excellent: 0 };
+      a.rated += 1; day.rated += 1;
+      if (v === 'excellent') { a.excellent += 1; day.excellent += 1; }
+      per.set(rid, a);
+    });
+    byDay.set(r.date, day);
+  });
+  let perfect = 0;
+  byDay.forEach((d) => { if (d.rated > 0 && d.excellent === d.rated) perfect += 1; });
+  return { hp: Math.floor(routinePts / ppHP) + awardPts, per, perfect };
+}
+
 export default function MyStatsPage() {
   const { profile } = useAuth();
   const { family, children } = useFamily();
@@ -118,6 +142,17 @@ export default function MyStatsPage() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // PR2 — behaviour detail + reflections + ⚖️ Compare
+  const [openBehaviour, setOpenBehaviour] = useState<string | null>(null);
+  const [openDay, setOpenDay] = useState<string | null>(null); // ratingId key
+  const [reflectDraft, setReflectDraft] = useState('');
+  const [reflectBusy, setReflectBusy] = useState(false);
+  const [reflectMsg, setReflectMsg] = useState('');
+  const [compare, setCompare] = useState<null | 'week' | 'month' | 'months'>(null);
+  const [cmpA, setCmpA] = useState(() => iso(new Date()).slice(0, 7));
+  const [cmpB, setCmpB] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return iso(d).slice(0, 7); });
+  const [cmpData, setCmpData] = useState<null | { a: ReturnType<typeof snapshot>; b: ReturnType<typeof snapshot>; aLabel: string; bLabel: string }>(null);
+
   const ppHP = Math.max(1, readPointSystemConfig(family).routines.pointsPerHousePoint || 100);
 
   useEffect(() => {
@@ -151,6 +186,65 @@ export default function MyStatsPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId, myChildId, range.from, range.to]);
+
+  // ⚖️ Compare — fetch both windows with the SAME snapshot math.
+  useEffect(() => {
+    if (!familyId || !myChildId || !compare) { setCmpData(null); return; }
+    let cancelled = false;
+    (async () => {
+      let a: { from: string; to: string; label: string };
+      let b: { from: string; to: string; label: string };
+      if (compare === 'week') {
+        a = rangeFor('thisWeek', '', '', '');
+        const p = prevRange(a.from, a.to)!;
+        b = { ...p, label: 'Last week' };
+      } else if (compare === 'month') {
+        a = rangeFor('thisMonth', '', '', '');
+        const d = new Date(); d.setMonth(d.getMonth() - 1);
+        b = rangeFor('month', iso(d).slice(0, 7), '', '');
+      } else {
+        a = rangeFor('month', cmpA, '', '');
+        b = rangeFor('month', cmpB, '', '');
+      }
+      const [ra, aa, rb, ab] = await Promise.all([
+        getRatingsInDateRange(familyId, a.from, a.to).catch(() => [] as DailyRating[]),
+        getAwardsInDateRange(familyId, a.from, a.to).catch(() => [] as Award[]),
+        getRatingsInDateRange(familyId, b.from, b.to).catch(() => [] as DailyRating[]),
+        getAwardsInDateRange(familyId, b.from, b.to).catch(() => [] as Award[]),
+      ]);
+      if (cancelled) return;
+      setCmpData({
+        a: snapshot(ra.filter((r) => r.childId === myChildId), aa.filter((x) => x.childId === myChildId), ppHP),
+        b: snapshot(rb.filter((r) => r.childId === myChildId), ab.filter((x) => x.childId === myChildId), ppHP),
+        aLabel: a.label, bLabel: b.label,
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [familyId, myChildId, compare, cmpA, cmpB, ppHP]);
+
+  async function saveReflection(ratingId: string, routineId: string) {
+    setReflectBusy(true); setReflectMsg('');
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/stats/reflection', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ ratingId, routineId, text: reflectDraft }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 409) setReflectMsg('🔒 This week already met — the record is frozen now.');
+      else if (!res.ok) setReflectMsg('Could not save — try again.');
+      else {
+        setReflectMsg('✅ Saved — your family will see it at the meeting.');
+        // Optimistic local update.
+        setRatings((prev) => prev.map((r) => r.id === ratingId
+          ? { ...r, reflections: { ...(r.reflections || {}), [routineId]: reflectDraft ? { text: reflectDraft, byUid: profile?.uid || '', byName: (profile?.displayName || 'Me').split(' ')[0], at: Date.now() } : null } }
+          : r));
+      }
+    } catch { setReflectMsg('Could not save — try again.'); }
+    finally { setReflectBusy(false); }
+  }
 
   // ── Computations (mirror Reports + meeting review) ─────────────────
   const routines: Routine[] = (family?.routines?.length ? family.routines : DEFAULT_ROUTINES) as Routine[];
@@ -277,11 +371,82 @@ export default function MyStatsPage() {
         {!['thisWeek', 'thisMonth'].includes(period) && (
           <span className="px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold bg-kaya-chocolate text-white">{range.label}</span>
         )}
+        <button type="button" onClick={() => { setCompare((c) => (c ? null : 'week')); setMoreOpen(false); }}
+          className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${compare ? 'text-white' : ''}`}
+          style={compare ? { background: '#6B3FE0' } : { background: '#EFE9FF', color: '#6B3FE0' }}>
+          ⚖️ Compare
+        </button>
         <button type="button" onClick={() => setMoreOpen((v) => !v)}
           className="px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold bg-white border-[1.5px] border-dashed border-kaya-warm-dark text-kaya-sand">
           More ▾
         </button>
       </div>
+
+      {/* ⚖️ Compare mode */}
+      {compare && (
+        <div className="bg-white border-[1.5px] rounded-kaya-lg p-4 mb-3" style={{ borderColor: '#D9C6F7' }}>
+          <div className="flex gap-1.5 flex-wrap items-center mb-2.5">
+            {([['week', 'This week vs last'], ['month', 'This month vs last']] as const).map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setCompare(k)}
+                className={`px-3 py-1.5 rounded-full text-[11.5px] font-bold ${compare === k ? 'text-white' : 'text-kaya-sand bg-kaya-warm'}`}
+                style={compare === k ? { background: '#6B3FE0' } : undefined}>
+                {l}
+              </button>
+            ))}
+            <button type="button" onClick={() => setCompare('months')}
+              className={`px-3 py-1.5 rounded-full text-[11.5px] font-bold ${compare === 'months' ? 'text-white' : 'text-kaya-sand bg-kaya-warm'}`}
+              style={compare === 'months' ? { background: '#6B3FE0' } : undefined}>
+              Month vs month
+            </button>
+            {compare === 'months' && (
+              <span className="inline-flex items-center gap-1 text-[11.5px] font-bold text-kaya-sand">
+                <input type="month" value={cmpA} onChange={(e) => setCmpA(e.target.value)} className="border border-kaya-warm-dark rounded-kaya-sm px-1.5 py-1 bg-white text-[11.5px]" />
+                vs
+                <input type="month" value={cmpB} onChange={(e) => setCmpB(e.target.value)} className="border border-kaya-warm-dark rounded-kaya-sm px-1.5 py-1 bg-white text-[11.5px]" />
+              </span>
+            )}
+          </div>
+          {!cmpData ? (
+            <p className="text-[12px] text-kaya-sand animate-pulse">Comparing…</p>
+          ) : (() => {
+            const rows: Array<{ icon: string; label: string; a: string; b: string; delta: number }> = [
+              { icon: '⭐', label: 'House Points', a: `${cmpData.a.hp}`, b: `${cmpData.b.hp}`, delta: cmpData.a.hp - cmpData.b.hp },
+              { icon: '🥋', label: 'Excellent days', a: `${cmpData.a.perfect}`, b: `${cmpData.b.perfect}`, delta: cmpData.a.perfect - cmpData.b.perfect },
+              ...routines
+                .filter((rt) => cmpData.a.per.has(rt.id) || cmpData.b.per.has(rt.id))
+                .map((rt) => {
+                  const A = cmpData.a.per.get(rt.id); const B = cmpData.b.per.get(rt.id);
+                  const pa = A ? Math.round((A.excellent / A.rated) * 100) : 0;
+                  const pb = B ? Math.round((B.excellent / B.rated) * 100) : 0;
+                  return { icon: rt.icon, label: rt.label, a: `${pa}%`, b: `${pb}%`, delta: pa - pb };
+                }),
+            ];
+            const beh = rows.slice(2);
+            const win = beh.length ? beh.reduce((m, r) => (r.delta > m.delta ? r : m)) : null;
+            const watch = beh.length ? beh.reduce((m, r) => (r.delta < m.delta ? r : m)) : null;
+            return (
+              <>
+                <p className="text-[11px] font-black text-kaya-sand mb-1.5">{cmpData.aLabel} <span className="opacity-60">vs</span> {cmpData.bLabel}</p>
+                {rows.map((r) => (
+                  <div key={r.label} className="flex items-center gap-2 py-1 border-b border-dashed border-kaya-warm last:border-b-0">
+                    <span className="text-[13px]">{r.icon}</span>
+                    <span className="flex-1 text-[12.5px] font-bold truncate">{r.label}</span>
+                    <span className="text-[12px] font-black" style={{ color: r.delta > 0 ? '#2E9E5B' : r.delta < 0 ? '#E06A7B' : '#9B8A72' }}>
+                      {r.a} vs {r.b} · {r.delta > 0 ? '▲' : r.delta < 0 ? '▼' : '·'} {Math.abs(r.delta)}{r.label === 'House Points' || r.label === 'Excellent days' ? '' : ''}
+                    </span>
+                  </div>
+                ))}
+                {(win || watch) && (
+                  <p className="text-[12px] mt-2 rounded-kaya px-3 py-2" style={{ background: '#E8F5EC', color: '#1d6b3c' }}>
+                    {win && win.delta > 0 ? <><b>📈 Biggest win:</b> {win.label}. </> : null}
+                    {watch && watch.delta < 0 ? <span style={{ color: '#B4485A' }}><b>📉 Watch:</b> {watch.label} slipped.</span> : null}
+                  </p>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
       {moreOpen && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya p-3 mb-3 flex gap-1.5 flex-wrap items-center">
           {([['last7', 'Last 7 days'], ['thisYear', 'This year'], ['lifetime', 'Lifetime']] as const).map(([k, l]) => (
@@ -339,20 +504,72 @@ export default function MyStatsPage() {
             <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2.5">😇 My behaviours · {range.label.toLowerCase()}</p>
             {behaviours.length === 0 ? (
               <p className="text-[12.5px] text-kaya-sand">No ratings in this period yet.</p>
-            ) : behaviours.map((b) => (
-              <div key={b.id} className="flex items-center gap-2.5 py-1.5 border-b border-dashed border-kaya-warm last:border-b-0">
-                <span className="w-7 h-7 rounded-lg bg-kaya-warm grid place-items-center text-[14px] shrink-0">{b.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12.5px] font-bold truncate">{b.label}</p>
-                  <div className="h-[6px] rounded-full bg-kaya-warm overflow-hidden mt-0.5">
-                    <span className="block h-full rounded-full" style={{ width: `${b.pct}%`, background: pctColor(b.pct) }} />
-                  </div>
+            ) : behaviours.map((b) => {
+              const open = openBehaviour === b.id;
+              const days = ratings
+                .filter((r) => r.ratings?.[b.id] && r.ratings[b.id] !== 'skip')
+                .sort((x, y) => x.date.localeCompare(y.date))
+                .map((r) => ({
+                  ratingId: r.id, date: r.date, value: r.ratings[b.id],
+                  ratedByName: r.ratedByName,
+                  note: r.ratingNotes?.[b.id] || r.comment || '',
+                  reflection: r.reflections?.[b.id] || null,
+                }));
+              const dotColor = (v: string) => (v === 'excellent' ? '#2E9E5B' : v === 'good' ? '#D4A017' : '#E06A7B');
+              const sel = days.find((d) => d.ratingId === openDay);
+              return (
+                <div key={b.id} className="border-b border-dashed border-kaya-warm last:border-b-0">
+                  <button type="button" className="w-full flex items-center gap-2.5 py-1.5 text-left"
+                    onClick={() => { setOpenBehaviour(open ? null : b.id); setOpenDay(null); setReflectMsg(''); }}>
+                    <span className="w-7 h-7 rounded-lg bg-kaya-warm grid place-items-center text-[14px] shrink-0">{b.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-bold truncate">{b.label}</p>
+                      <div className="h-[6px] rounded-full bg-kaya-warm overflow-hidden mt-0.5">
+                        <span className="block h-full rounded-full" style={{ width: `${b.pct}%`, background: pctColor(b.pct) }} />
+                      </div>
+                    </div>
+                    <span className="text-[12px] font-black shrink-0" style={{ color: pctColor(b.pct) }}>
+                      {b.pct}%{b.pct >= 90 ? ' ⭐' : b.pct < 60 ? ' 🌱' : ''}
+                    </span>
+                    <span className="text-[11px] font-black text-kaya-sand shrink-0">{open ? '▾' : '›'}</span>
+                  </button>
+                  {open && (
+                    <div className="pb-2.5 pl-9">
+                      <div className="flex flex-wrap gap-[3px]" aria-label="Rated days — tap one">
+                        {days.map((d) => (
+                          <button key={d.ratingId} type="button" title={toDisplayDate(d.date)}
+                            onClick={() => { setOpenDay(openDay === d.ratingId ? null : d.ratingId); setReflectDraft(d.reflection?.text || ''); setReflectMsg(''); }}
+                            className={`w-4 h-4 rounded-[4px] ${openDay === d.ratingId ? 'ring-2 ring-kaya-chocolate' : ''}`}
+                            style={{ background: dotColor(d.value) }} />
+                        ))}
+                      </div>
+                      {sel && (
+                        <div className="mt-2 rounded-kaya border p-2.5" style={{ borderColor: sel.value === 'bad' ? '#F5D3D9' : '#E8E0D4' }}>
+                          <p className="text-[11px] font-black" style={{ color: dotColor(sel.value) }}>
+                            {sel.value === 'excellent' ? '🟢 Excellent' : sel.value === 'good' ? '🟡 Good' : '🔴 Bad'} · {toDisplayDate(sel.date)} · rated by {sel.ratedByName}
+                          </p>
+                          {sel.note && <p className="text-[12px] mt-1">“{sel.note}”</p>}
+                          <div className="mt-1.5 rounded-kaya-sm p-2" style={{ background: '#EFE9FF' }}>
+                            <p className="text-[9.5px] font-black uppercase tracking-wider" style={{ color: '#6B3FE0' }}>💬 My reflection</p>
+                            <textarea value={reflectDraft} onChange={(e) => setReflectDraft(e.target.value)} rows={2}
+                              placeholder="What happened? What will you try next time?"
+                              className="w-full mt-1 rounded-kaya-sm border border-kaya-warm-dark px-2 py-1.5 text-[12px] resize-none bg-white" />
+                            <div className="flex items-center gap-2 mt-1">
+                              <button type="button" disabled={reflectBusy} onClick={() => void saveReflection(sel.ratingId, b.id)}
+                                className="px-3.5 py-1.5 rounded-full text-[11px] font-black text-white disabled:opacity-50" style={{ background: '#6B3FE0' }}>
+                                {reflectBusy ? 'Saving…' : 'Save reflection'}
+                              </button>
+                              {reflectMsg && <span className="text-[10.5px] font-bold text-kaya-sand">{reflectMsg}</span>}
+                            </div>
+                            <p className="text-[9.5px] text-kaya-sand mt-1">Shows here, at the Sunday meeting and in Reports — freezes once the week has met.</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <span className="text-[12px] font-black shrink-0" style={{ color: pctColor(b.pct) }}>
-                  {b.pct}%{b.pct >= 90 ? ' ⭐' : b.pct < 60 ? ' 🌱' : ''}
-                </span>
-              </div>
-            ))}
+              );
+            })}
             <p className="text-[10px] text-kaya-sand mt-2">🌱 = needs love — same scores your family sees at the Sunday meeting, live.</p>
           </div>
 

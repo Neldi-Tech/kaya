@@ -1108,6 +1108,12 @@ export interface DailyRating {
   // encouraged when rated 'excellent' (so wins get context). Surfaced in
   // the Reports notes panel alongside the overall `comment`.
   ratingNotes?: Record<string, string>;
+  // Kid Stats PR2 (2026-07-29) — the kid's own reflection per routine
+  // ("I stayed up reading; I'll sleep by 9"). Written ONLY via the
+  // Admin route /api/stats/reflection (kids can't write ratings client-
+  // side); frozen once a meeting on/after `date` exists. Surfaced in
+  // My Stats detail, the meeting Behaviour tab and the Reports notes.
+  reflections?: Record<string, { text: string; byUid: string; byName: string; at: number } | null>;
   createdAt: Timestamp;
 }
 
