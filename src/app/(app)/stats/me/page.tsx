@@ -695,13 +695,13 @@ export default function MyStatsPage() {
           <div className="h-40 rounded-kaya-lg bg-kaya-warm" />
         </div>
       ) : (
-        // Layout 2.0 (Elia 2026-07-24): numbers → insights → the drill.
+        // Layout 3.0 (Elia 2026-07-24): numbers → insights → the drill.
         // flex order drives mobile, grid order drives lg — same sequence:
-        // 1 HP hero · 2 Belt+awards · 3 Discovery · 4 Coach ·
-        // 5 Behaviours (wide) · 6 Records (wide).
+        // 1 HP hero (stretches to match belt column) · 2 Belt+awards ·
+        // 3 Coach (wide) · 4 Discovery (wide) · 5 Behaviours (wide) · 6 Records (wide).
         <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
-          {/* ⭐ HP hero */}
-          <div className="order-1 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+          {/* ⭐ HP hero — self-stretch pairs its height with Belt+Awards */}
+          <div className="order-1 lg:self-stretch lg:flex lg:flex-col rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
             <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ My House Points · {range.label.toLowerCase()}</p>
             <p className="font-display font-black text-4xl leading-tight mt-1">{hp.total} HP</p>
             <div className="flex gap-5 mt-2">
@@ -712,7 +712,7 @@ export default function MyStatsPage() {
               )}
             </div>
             {bars && (
-              <div className="flex items-end gap-[3px] h-11 mt-3" aria-label="Daily points">
+              <div className="flex items-end gap-[3px] h-11 lg:h-16 mt-3 lg:mt-auto lg:pt-3" aria-label="Daily points">
                 {bars.map((b) => (
                   <span key={b.d} title={`${toDisplayDate(b.d)} · ${b.v} pts`} className="flex-1 rounded-t-[3px]"
                     style={{ height: `${Math.max(6, b.pct)}%`, background: b.pct === 100 ? '#FFD76A' : 'rgba(255,255,255,.4)' }} />
@@ -856,7 +856,7 @@ export default function MyStatsPage() {
           </div>
 
           {/* 🧭 Points Discovery — Awards & Kudos FIRST (PR 3) */}
-          <div className="order-3 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+          <div className="order-4 lg:col-span-2 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
             <div className="flex items-center gap-2 mb-3">
               <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand flex-1">🧭 Points Discovery · {range.label.toLowerCase()}</p>
               {([['awards', '🏅 Awards & Kudos'], ['routine', '⭐ Routine Points']] as const).map(([k, l]) => (
@@ -883,7 +883,7 @@ export default function MyStatsPage() {
                 : null;
               const feed = [...awards].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)).slice(0, 6);
               return (
-                <div className="lg:grid lg:grid-cols-2 lg:gap-4 space-y-3 lg:space-y-0">
+                <div className="lg:grid lg:grid-cols-2 lg:gap-4 xl:gap-8 space-y-3 lg:space-y-0">
                   <div>
                     <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">🗺️ MY AWARD BOARD — all 8, zeroes included</p>
                     {AWARD_CATEGORIES.map((c) => {
@@ -968,7 +968,7 @@ export default function MyStatsPage() {
               const opportunity = behaviours.length ? [...behaviours].sort((a, b) => a.pct - b.pct)[0] : null;
               const oppMissed = opportunity ? Math.round(((opportunity.rated - opportunity.excellent) * 2) / ppHP * 100) / 100 : 0;
               return (
-                <div className="lg:grid lg:grid-cols-2 lg:gap-4 space-y-3 lg:space-y-0">
+                <div className="lg:grid lg:grid-cols-2 lg:gap-4 xl:gap-8 space-y-3 lg:space-y-0">
                   <div>
                     <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">⭐ WHERE MY ROUTINE POINTS CAME FROM</p>
                     {rows.length === 0 ? <p className="text-[12px] text-kaya-sand">No ratings this period yet.</p> : rows.map(({ rt, pts }) => (
@@ -1008,8 +1008,10 @@ export default function MyStatsPage() {
           </div>
 
           {/* 🤖 Coach Kaya (PR 4) */}
-          <div className="order-4 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#11C5A8,#6B3FE0)' }}>
+          <div className="order-3 lg:col-span-2 rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#11C5A8,#6B3FE0)' }}>
             <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85">🤖 Coach Kaya · today</p>
+            {/* Layout 3.0: wide card — focus left, tips right on lg */}
+            <div className="lg:grid lg:grid-cols-2 lg:gap-x-5 lg:items-start">
             {coach.focus ? (
               <div className="rounded-kaya px-3 py-2.5 mt-2" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
                 <p className="text-[13.5px] font-black">{coach.focus.icon} This week&rsquo;s focus: {coach.focus.label}</p>
@@ -1031,10 +1033,11 @@ export default function MyStatsPage() {
             ) : (
               <p className="text-[13px] font-bold mt-2">Everything is 80%+ — champion mode! Keep the rhythm going. 🏆</p>
             )}
-            <ul className="mt-2.5 space-y-1">
+            <ul className="mt-2.5 lg:mt-2 space-y-1">
               {coach.tips.map((t, i) => <li key={i} className="text-[12px] flex gap-2"><span>💡</span><span>{t}</span></li>)}
               <li className="text-[12px] flex gap-2"><span>💛</span><span>{coach.warm}</span></li>
             </ul>
+            </div>
             <div className="rounded-kaya px-3 py-2 mt-2.5" style={{ background: 'rgba(255,255,255,.12)' }}>
               <p className="text-[12px] italic">&ldquo;{coach.quote.q}&rdquo;</p>
               <p className="text-[10px] font-black opacity-80 mt-0.5">— {coach.quote.by} · new quote every day</p>
