@@ -54,6 +54,8 @@ import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
 import LanguageCard from '@/components/settings/LanguageCard';
 import SettingsQuickFind from '@/components/settings/SettingsQuickFind';
+import SecurityPrivacyCard from '@/components/settings/SecurityPrivacyCard';
+import KidPrivacyCard from '@/components/settings/KidPrivacyCard';
 import { localeLabel, localeForCountry, asLocale } from '@/lib/i18n';
 import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
@@ -1102,7 +1104,10 @@ export default function SettingsPage() {
           ...(isParent ? [
             { id: 'participation', icon: '🌟', label: 'Ages', keywords: 'participation little stars sparks meetings' },
             { id: 'kids', icon: '👀', label: 'Kids', keywords: 'modules visibility what kids see household' },
-          ] : []),
+            { id: 'security', icon: '🔐', label: 'Security', keywords: 'password login reset code privacy sign out' },
+          ] : [
+            { id: 'privacy', icon: '🔐', label: 'My privacy', keywords: 'password login code email' },
+          ]),
           { id: 'profile', icon: '👤', label: 'Profile', keywords: 'name handle photo birthday' },
         ]}
       />
@@ -1123,6 +1128,15 @@ export default function SettingsPage() {
           >
             <LanguageCard bare />
           </CollapsibleSection>
+
+          {/* 🔐 Security & privacy (SET PR4) — parents get the family login
+              manager; kids get their own My-privacy card (self-view only). */}
+          {isParent && !isGuest && (
+            <CollapsibleSection id="security" remember icon="🔐" title="Security & privacy" summary="logins · resets · privacy">
+              <SecurityPrivacyCard />
+            </CollapsibleSection>
+          )}
+          {profile?.role === 'kid' && <KidPrivacyCard />}
 
           {/* Profile card · anchored at #profile so deep links from the
               Family Tree land directly on it. */}
