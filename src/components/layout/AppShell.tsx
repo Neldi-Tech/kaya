@@ -323,6 +323,7 @@ const KID_KAYA_NAV: NavItem[] = [
 // pages render read-only for kids (no edit controls), so this is a
 // view-only window into the family's numbers + tree.
 const KID_STATS_NAV: NavItem[] = [
+  { path: '/stats/me',    icon: '📈', label: 'My Stats',     mobileLabel: 'My Stats' },
   { path: '/reports',     icon: '📊', label: 'Reports',      mobileLabel: 'Reports' },
   { path: '/profiles',    icon: '👧', label: 'Kid profiles', mobileLabel: 'Kids' },
   { path: '/family-tree', icon: '🌳', label: 'Family tree',  mobileLabel: 'Tree' },
