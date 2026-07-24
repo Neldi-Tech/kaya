@@ -282,7 +282,11 @@ const PULSE_NAV: NavItem[] = [
 ];
 
 // Stats · reports & trends. Collapsed by default to keep the menu calm.
+// Kids' Stats = the kid-facing /stats/me page — parents get the same view
+// with a kid switcher, so they see exactly what each kid sees.
 const STATS_NAV: NavItem[] = [
+  { path: '/stats/me',      icon: '📈', label: "Kids' Stats",
+    tooltip: 'The same My Stats page each kid sees — switch between all your kids.' },
   { path: '/reports',       icon: '📊', label: 'Reports' },
   { path: '/profiles',      icon: '👧', label: 'Kid profiles' },
   { path: '/pantry/workplan', icon: '🤝', label: 'Helper performance' },

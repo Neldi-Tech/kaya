@@ -170,6 +170,9 @@ export default function MyStatsPage() {
   const [behSort, setBehSort] = useState<'risk' | 'best' | 'az'>('risk');
   const [showAllBeh, setShowAllBeh] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null); // ratingId key
+  // 📜 HP statement — tap the hero → every transaction in the period,
+  // bank-statement style with a running balance.
+  const [stmtOpen, setStmtOpen] = useState(false);
   const [reflectDraft, setReflectDraft] = useState('');
   const [reflectBusy, setReflectBusy] = useState(false);
   const [reflectMsg, setReflectMsg] = useState('');
@@ -458,6 +461,32 @@ export default function MyStatsPage() {
     return out.map((x) => ({ ...x, pct: Math.round((x.v / max) * 100) }));
   }, [ratings, range.from, range.to]);
 
+  // 📜 HP statement — every rating doc + award in the period as one
+  // dated transaction, oldest→newest with a running HP balance computed
+  // by the EXACT hero math (⌊Σ routine pts / ppHP⌋ + Σ award HP), so the
+  // top row's balance always equals the hero's number. Displayed newest
+  // first, like a bank statement.
+  const statement = useMemo(() => {
+    type Ev = { key: string; date: string; ord: number; rating?: DailyRating; award?: Award };
+    const evs: Ev[] = [
+      ...ratings.map((r) => ({
+        key: `r:${r.id}`, date: r.date, ord: r.period === 'morning' ? 0 : 1, rating: r,
+      })),
+      ...awards.map((a) => {
+        const d = a.createdAt?.toDate?.();
+        return { key: `a:${a.id}`, date: d ? iso(d) : range.from, ord: 2 + (a.createdAt?.toMillis?.() ?? 0) / 1e15, award: a };
+      }),
+    ].sort((x, y) => x.date.localeCompare(y.date) || x.ord - y.ord);
+    let routinePts = 0;
+    let awardHP = 0;
+    const rows = evs.map((e) => {
+      if (e.rating) routinePts += e.rating.totalPoints || 0;
+      if (e.award) awardHP += e.award.points || 0;
+      return { ...e, balance: Math.floor(routinePts / ppHP) + awardHP };
+    });
+    return rows.reverse();
+  }, [ratings, awards, ppHP, range.from]);
+
   // Per-behaviour Excellent % (mirror of the meeting BehaviourTab math).
   const behaviours = useMemo(() => {
     const agg = new Map<string, { rated: number; excellent: number; good: number; bad: number }>();
@@ -700,8 +729,10 @@ export default function MyStatsPage() {
         // 1 HP hero (stretches to match belt column) · 2 Belt+awards ·
         // 3 Coach (wide) · 4 Discovery (wide) · 5 Behaviours (wide) · 6 Records (wide).
         <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
-          {/* ⭐ HP hero — self-stretch pairs its height with Belt+Awards */}
-          <div className="order-1 lg:self-stretch lg:flex lg:flex-col rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+          {/* ⭐ HP hero — self-stretch pairs its height with Belt+Awards.
+              Tapping anywhere on it opens the 📜 HP statement. */}
+          <button type="button" onClick={() => setStmtOpen(true)} aria-label="Open my House Points statement"
+            className="order-1 lg:self-stretch lg:flex lg:flex-col rounded-kaya-lg p-4 text-white text-left w-full cursor-pointer" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
             <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ My House Points · {range.label.toLowerCase()}</p>
             <p className="font-display font-black text-4xl leading-tight mt-1">{hp.total} HP</p>
             <div className="flex gap-5 mt-2">
@@ -719,7 +750,8 @@ export default function MyStatsPage() {
                 ))}
               </div>
             )}
-          </div>
+            <p className={`text-[10.5px] font-bold opacity-80 ${bars ? 'mt-2' : 'mt-3 lg:mt-auto lg:pt-3'}`}>📜 Tap for my statement ›</p>
+          </button>
 
           {/* 😇 Behaviours — Layout 2.0: wide, risk-first, capped at 5 */}
           <div className="order-5 lg:col-span-2 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
@@ -1128,6 +1160,73 @@ export default function MyStatsPage() {
               </div>
             )}
             {catchMsg && <p className="text-[11px] font-bold text-kaya-sand mt-1.5">{catchMsg}</p>}
+          </div>
+        </div>
+      )}
+
+      {/* 📜 HP statement — bank-statement view of the hero's number */}
+      {stmtOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="My House Points statement">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setStmtOpen(false)} />
+          <div className="relative bg-white rounded-kaya-lg w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-xl">
+            <div className="p-4 text-white shrink-0" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">📜 My HP statement · {range.label.toLowerCase()}</p>
+                  <p className="font-display font-black text-2xl leading-tight mt-0.5">{hp.total} HP</p>
+                  <p className="text-[10.5px] font-bold opacity-80">{toDisplayDate(range.from)} – {toDisplayDate(range.to)} · {kid.name.split(' ')[0]}</p>
+                </div>
+                <button type="button" onClick={() => setStmtOpen(false)} aria-label="Close statement"
+                  className="w-8 h-8 rounded-full grid place-items-center text-[15px] font-black shrink-0" style={{ background: 'rgba(255,255,255,.2)' }}>
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="overflow-y-auto px-4 py-2 flex-1">
+              {statement.length === 0 ? (
+                <p className="text-[12.5px] text-kaya-sand py-4 text-center">Nothing earned in this period yet — your statement is waiting! ✨</p>
+              ) : (<>
+                {statement.map((e) => (
+                  <div key={e.key} className="flex items-center gap-2.5 py-2 border-b border-dashed border-kaya-warm">
+                    <span className="w-8 h-8 rounded-lg bg-kaya-warm grid place-items-center text-[15px] shrink-0">
+                      {e.rating ? '📋' : kindEmoji(e.award!)}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-bold truncate">
+                        {e.rating
+                          ? `Routines · ${e.rating.period === 'morning' ? 'morning' : 'evening'}`
+                          : AWARD_CATEGORIES.find((c) => c.id === categoryKeyOf(e.award!))?.label || 'Award'}
+                      </p>
+                      <p className="text-[10.5px] text-kaya-sand font-bold truncate">
+                        {toDisplayDate(e.date)} · {e.rating
+                          ? `rated by ${e.rating.ratedByName}`
+                          : (e.award!.reason ? `“${e.award!.reason}” — ${e.award!.awardedByName}` : `by ${e.award!.awardedByName}`)}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-[12.5px] font-black" style={{
+                        color: e.rating ? '#6B3FE0'
+                          : (e.award!.points || 0) < 0 ? '#E06A7B'
+                          : (e.award!.points || 0) === 0 ? '#9B8A72' : '#B8860B',
+                      }}>
+                        {e.rating
+                          ? `+${e.rating.totalPoints || 0} pts`
+                          : (e.award!.points || 0) === 0 ? 'Kudos'
+                          : `${(e.award!.points || 0) > 0 ? '+' : ''}${e.award!.points} HP`}
+                      </p>
+                      <p className="text-[10px] font-bold text-kaya-sand">= {e.balance} HP</p>
+                    </div>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between py-2">
+                  <p className="text-[11px] font-bold text-kaya-sand">Opening balance · {toDisplayDate(range.from)}</p>
+                  <p className="text-[11px] font-black text-kaya-sand">0 HP</p>
+                </div>
+              </>)}
+            </div>
+            <p className="px-4 py-2.5 text-[10px] text-kaya-sand font-bold border-t border-kaya-warm shrink-0">
+              Every {ppHP} routine pts = 1 HP · awards add HP straight away. Same math as the Sunday meeting.
+            </p>
           </div>
         </div>
       )}
