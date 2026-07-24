@@ -53,6 +53,8 @@ import { KayaCoin } from '@/components/referral/KayaCoin';
 import BackButton from '@/components/ui/BackButton';
 import DateSelect from '@/components/ui/DateSelect';
 import LanguageCard from '@/components/settings/LanguageCard';
+import SettingsQuickFind from '@/components/settings/SettingsQuickFind';
+import { localeLabel, localeForCountry, asLocale } from '@/lib/i18n';
 import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
@@ -859,6 +861,18 @@ export default function SettingsPage() {
   // shows the "N on" count. Mirrors how a helper card tucks its access
   // list away until tapped.
   const [kidVisibilityOpen, setKidVisibilityOpen] = useState(false);
+  // SET PR3 (M9) — #kids deep link unfolds the block and scrolls to it
+  // (quick-find chip + any guide link).
+  useEffect(() => {
+    const check = () => {
+      if (typeof window === 'undefined' || window.location.hash !== '#kids') return;
+      setKidVisibilityOpen(true);
+      setTimeout(() => document.getElementById('kids')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+    };
+    check();
+    window.addEventListener('hashchange', check);
+    return () => window.removeEventListener('hashchange', check);
+  }, []);
   const toggleKidModule = async (id: string) => {
     if (!profile?.familyId || !family || isGuest || savingKidModule) return;
     const isOn = selectedKidModules.includes(id);
@@ -1080,12 +1094,35 @@ export default function SettingsPage() {
         <p className="hidden lg:block text-sm text-kaya-sand mt-1">Manage your family, profile and preferences.</p>
       </div>
 
+      {/* 🔎 Quick-find (M10) — jump to any section in two taps. */}
+      <SettingsQuickFind
+        targets={[
+          { id: 'language', icon: '🌍', label: 'Language', keywords: 'lugha swahili english kiswahili' },
+          { id: 'alerts', icon: '🔔', label: 'Alerts', keywords: 'notifications push devices digest' },
+          ...(isParent ? [
+            { id: 'participation', icon: '🌟', label: 'Ages', keywords: 'participation little stars sparks meetings' },
+            { id: 'kids', icon: '👀', label: 'Kids', keywords: 'modules visibility what kids see household' },
+          ] : []),
+          { id: 'profile', icon: '👤', label: 'Profile', keywords: 'name handle photo birthday' },
+        ]}
+      />
+
       <div className="lg:grid lg:grid-cols-12 lg:gap-6 lg:items-start">
         {/* ── Left column: account + family + preferences ──────── */}
         <div className="lg:col-span-7 space-y-4">
 
-          {/* Language (i18n) — everyone picks their own; parents set the family default. */}
-          <LanguageCard />
+          {/* Language (i18n) — everyone picks their own; parents set the
+              family default. Folded like the rest of Settings (M8); the
+              #language deep link (kids' 🌍 More shortcut) auto-opens it. */}
+          <CollapsibleSection
+            id="language"
+            remember
+            icon="🌍"
+            title="Language"
+            summary={localeLabel(asLocale(family?.primaryLanguage) ?? localeForCountry(family?.location?.country))}
+          >
+            <LanguageCard bare />
+          </CollapsibleSection>
 
           {/* Profile card · anchored at #profile so deep links from the
               Family Tree land directly on it. */}
@@ -2285,7 +2322,7 @@ export default function SettingsPage() {
               kid sidebar, mobile bottom bar, and the More sheet.
               Home is always granted and not shown as a toggle. */}
           {isParent && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+            <div id="kids" className="scroll-mt-24 bg-white border border-kaya-warm-dark rounded-kaya p-4">
               <button
                 type="button"
                 onClick={() => setKidVisibilityOpen((o) => !o)}
@@ -3127,8 +3164,13 @@ export default function SettingsPage() {
           {/* 🌟 Little Stars — participation ages + celebration length
               (2026-07-26, Elia-approved design §2 + §3). */}
           {isParent && (
-            <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
-              <p className="text-xs text-kaya-sand font-semibold uppercase tracking-wider mb-1">Participation ages</p>
+            <CollapsibleSection
+              id="participation"
+              remember
+              icon="🌟"
+              title="Participation ages"
+              summary={`Sparks ${partAges.sparksFromAge} · meetings ${partAges.meetingsFromAge}`}
+            >
               <p className="text-[11px] text-kaya-sand mb-3">Little Stars join the family everywhere it warms — tasks &amp; meetings start at the ages you set. Each kid&rsquo;s profile can override.</p>
               {([
                 ['sparksFromAge', '✨ Kaya Sparks from', 'tasks, routines & ratings begin'],
@@ -3157,7 +3199,7 @@ export default function SettingsPage() {
                   <button type="button" onClick={() => void bumpCelebration(7)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">＋</button>
                 </div>
               </div>
-            </div>
+            </CollapsibleSection>
           )}
 
           {/* Welcome Wizard sheet */}
