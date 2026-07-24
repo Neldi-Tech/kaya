@@ -429,13 +429,17 @@ export default function SettingsPage() {
     setSavingMyBirthday(false);
   };
 
+  // Saved gender folds behind a "Change" link (no stray-tap switches).
+  const genderSet = !!profile?.gender && profile.gender !== 'unspecified';
+  const [genderEditOpen, setGenderEditOpen] = useState(false);
   const setMyGender = async (gender: Gender) => {
     if (!user || isGuest || savingGender) return;
-    if ((profile?.gender || 'unspecified') === gender) return;
+    if ((profile?.gender || 'unspecified') === gender) { setGenderEditOpen(false); return; }
     setSavingGender(true);
     try {
       await updateUserProfile(user.uid, { gender } as any);
       await refreshProfile();
+      setGenderEditOpen(false);
     } catch {}
     setSavingGender(false);
   };
@@ -469,19 +473,27 @@ export default function SettingsPage() {
     }
   };
 
-  // What the parent's birthday should display as, given their privacy choice.
+  // A KID's birthday lives on their Child doc (parents set it in Kid
+  // Profiles); the users doc only carries a parent's own birthday. Resolve
+  // kid-first so kids actually see theirs (Elia fix, 24-Jul-2026).
+  const myChildDoc = profile?.role === 'kid' && profile.childId
+    ? children.find((c) => c.id === profile.childId)
+    : undefined;
+  const effectiveMyBirthday = myChildDoc?.birthday || profile?.birthday;
+
+  // What the birthday should display as, given the privacy choice.
   // Used both inline (the read-only profile card) and to decide whether the
   // Wikipedia panels show year-specific copy.
   const myBirthdayDisplay = (() => {
-    if (!profile?.birthday) return null;
-    const privacy = (profile.birthdayPrivacy || 'partial') as BirthdayPrivacy;
+    if (!effectiveMyBirthday) return null;
+    const privacy = (profile?.birthdayPrivacy || 'partial') as BirthdayPrivacy;
     if (privacy === 'private') return null;
-    const md = monthDayOf(profile.birthday);
+    const md = monthDayOf(effectiveMyBirthday);
     if (privacy === 'partial' && md) {
       const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
       return `${parseInt(md.day, 10)}-${monthNames[parseInt(md.month, 10) - 1]}`;
     }
-    return toDisplayDate(profile.birthday);
+    return toDisplayDate(effectiveMyBirthday);
   })();
 
   useEffect(() => {
@@ -1378,11 +1390,29 @@ export default function SettingsPage() {
               </div>
             )}
 
-            {/* Gender chips — the "Other" option is gated by the
-                family-level allowGenderOther flag (Family options card). */}
+            {/* Gender — the "Other" option is gated by the family-level
+                allowGenderOther flag (Family options card). Once a gender is
+                SAVED the chips fold behind a "Change" link so it can't be
+                switched by a stray tap (Elia fix, 24-Jul-2026). */}
             {!isGuest && (
               <div className="border-t border-kaya-warm-dark pt-3 mt-3">
-                <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider mb-2">Gender</p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Gender</p>
+                  {genderSet && !genderEditOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setGenderEditOpen(true)}
+                      className="text-[11px] text-kaya-gold font-semibold hover:underline"
+                    >
+                      Change
+                    </button>
+                  )}
+                </div>
+                {genderSet && !genderEditOpen ? (
+                  <p className="text-[12px] font-semibold">
+                    {profile?.gender === 'female' ? '👩 Woman' : profile?.gender === 'male' ? '👨 Man' : '🌈 Other'}
+                  </p>
+                ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {(([
                     { value: 'female', label: 'Woman', emoji: '👩' },
@@ -1410,6 +1440,7 @@ export default function SettingsPage() {
                     );
                   })}
                 </div>
+                )}
               </div>
             )}
 
@@ -1420,19 +1451,19 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Birthday</p>
-                      {profile?.birthday ? (
+                      {effectiveMyBirthday ? (
                         <>
                           <p className="text-[12px] truncate">
                             🎂 {myBirthdayDisplay || <span className="text-kaya-sand">Hidden</span>}
                             <span className="text-kaya-sand-light ml-2">·{' '}
-                              {(profile.birthdayPrivacy || 'partial') === 'public' && 'Public'}
-                              {(profile.birthdayPrivacy || 'partial') === 'partial' && 'Day & month only'}
-                              {(profile.birthdayPrivacy || 'partial') === 'private' && 'Private'}
+                              {(profile?.birthdayPrivacy || 'partial') === 'public' && 'Public'}
+                              {(profile?.birthdayPrivacy || 'partial') === 'partial' && 'Day & month only'}
+                              {(profile?.birthdayPrivacy || 'partial') === 'private' && 'Private'}
                             </span>
                           </p>
-                          {(profile.birthdayPrivacy || 'partial') !== 'private' && (() => {
-                            const day = dayOfWeek(profile.birthday!);
-                            const d = daysToNextBirthday(profile.birthday!);
+                          {(profile?.birthdayPrivacy || 'partial') !== 'private' && (() => {
+                            const day = dayOfWeek(effectiveMyBirthday);
+                            const d = daysToNextBirthday(effectiveMyBirthday);
                             const parts: string[] = [];
                             if (day) parts.push(`Born on a ${day}`);
                             if (d === 0) parts.push('🎉 today!');
@@ -1446,12 +1477,18 @@ export default function SettingsPage() {
                         <p className="text-[12px] text-kaya-sand">Not set — add it for on-this-day surprises.</p>
                       )}
                     </div>
-                    <button
-                      onClick={startEditingMyBirthday}
-                      className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
-                    >
-                      {profile?.birthday ? 'Edit' : 'Add'}
-                    </button>
+                    {myChildDoc?.birthday ? (
+                      /* Kid birthdays are parent-managed (Kid Profiles) —
+                         no self-edit, so it can't drift from the family record. */
+                      <span className="text-[10px] text-kaya-sand font-semibold shrink-0">set by your parents</span>
+                    ) : (
+                      <button
+                        onClick={startEditingMyBirthday}
+                        className="text-[11px] text-kaya-gold font-semibold hover:underline shrink-0"
+                      >
+                        {profile?.birthday ? 'Edit' : 'Add'}
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2">
