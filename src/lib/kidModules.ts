@@ -118,7 +118,12 @@ export const KID_MODULES: KidModule[] = [
   // subModules (extraPaths instead) so all three pages gate on the
   // single top-level `stats` id — granting `stats` unlocks the whole
   // section without per-page sub-grants.
-  { id: 'stats',     label: 'Stats',          icon: '📊', path: '/reports', extraPaths: ['/profiles', '/family-tree', '/stats/me'] },
+  // "My Stats" is its OWN grant (Elia 2026-07-29): the kid's self-only
+  // stats page must be grantable WITHOUT opening Reports/Profiles/Tree
+  // (which show the whole family's data). `stats` keeps the family-wide
+  // surfaces; `mystats` is just the kid's own page.
+  { id: 'mystats',   label: 'My Stats',       icon: '📈', path: '/stats/me' },
+  { id: 'stats',     label: 'Stats',          icon: '📊', path: '/reports', extraPaths: ['/profiles', '/family-tree'] },
   // ── Phased-out (OFF by default) ───────────────────────────────────
   { id: 'discover',  label: 'Discover',       icon: '🔎', path: '/',        isLegacy: true },
   { id: 'badges',    label: 'Badges',         icon: '🏆', path: '/badges',  isLegacy: true },
@@ -135,7 +140,7 @@ export const KID_MODULES: KidModule[] = [
 export const DEFAULT_KID_MODULES = [
   'home', 'myday', 'workplan', 'moments', 'messages', 'buzz', 'sparks',
   'kaya', 'kaya:meetings', 'kaya:rewards', 'badges',
-  'hive', 'fun', 'games', 'discover', 'stats',
+  'hive', 'fun', 'games', 'discover', 'stats', 'mystats',
 ];
 
 /** Resolve the granted module-id set for a family. Adds `home`
