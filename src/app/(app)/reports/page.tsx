@@ -528,9 +528,17 @@ export default function ReportsPage() {
 // detail). Cheap helper used to decide if the row belongs in the Notes
 // panel even when the overall `comment` is empty.
 function hasItemNotes(r: DailyRating): boolean {
-  if (!r.ratingNotes) return false;
-  for (const v of Object.values(r.ratingNotes)) {
-    if (v && v.trim().length > 0) return true;
+  if (r.ratingNotes) {
+    for (const v of Object.values(r.ratingNotes)) {
+      if (v && v.trim().length > 0) return true;
+    }
+  }
+  // Kid Stats PR2 — a kid's 💬 reflection also earns the rating a place
+  // in the notes stream.
+  if (r.reflections) {
+    for (const v of Object.values(r.reflections)) {
+      if (v?.text?.trim()) return true;
+    }
   }
   return false;
 }
@@ -646,6 +654,7 @@ function NotesPanel({
           {filtered.slice(0, 25).map((r) => {
             const c = children.find((k) => k.id === r.childId);
             const itemNoteEntries = Object.entries(r.ratingNotes || {}).filter(([, v]) => v && v.trim());
+            const reflectionEntries = Object.entries(r.reflections || {}).filter(([, v]) => v?.text?.trim());
             return (
               <div key={r.id} className="border border-kaya-warm-dark/60 rounded-kaya-sm p-3">
                 <div className="flex items-center justify-between gap-2 mb-1">
@@ -675,6 +684,17 @@ function NotesPanel({
                         </li>
                       );
                     })}
+                  </ul>
+                )}
+                {reflectionEntries.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {reflectionEntries.map(([routineId, ref]) => (
+                      <li key={`ref-${routineId}`} className="text-[11px] leading-snug rounded-kaya-sm px-2 py-1.5" style={{ background: '#EFE9FF' }}>
+                        <span className="mr-1">💬</span>
+                        <span className="font-semibold" style={{ color: '#6B3FE0' }}>{ref!.byName}&rsquo;s reflection · {routineId}</span>
+                        <span className="text-kaya-chocolate"> — “{ref!.text}”</span>
+                      </li>
+                    ))}
                   </ul>
                 )}
               </div>

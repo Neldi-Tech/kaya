@@ -476,7 +476,7 @@ function deriveTone(r: DailyRating): CommentEntry['tone'] {
 }
 
 export function extractComments(ratings: DailyRating[]): CommentEntry[] {
-  return ratings
+  const out: CommentEntry[] = ratings
     .filter((r) => r.comment && r.comment.trim().length > 0)
     .map((r) => ({
       ratingId: r.id,
@@ -486,8 +486,25 @@ export function extractComments(ratings: DailyRating[]): CommentEntry[] {
       ratedByName: r.ratedByName || 'Unknown',
       comment: r.comment!.trim(),
       tone: deriveTone(r),
-    }))
-    .sort((a, b) => (a.date < b.date ? 1 : -1));
+    }));
+  // Kid Stats PR2 — the kid's own 💬 reflections join the meeting
+  // commentary stream, so a low rating arrives already explained and
+  // the meeting doesn't have to ask.
+  for (const r of ratings) {
+    for (const [routineId, ref] of Object.entries(r.reflections || {})) {
+      if (!ref?.text?.trim()) continue;
+      out.push({
+        ratingId: `${r.id}:reflection:${routineId}`,
+        childId: r.childId,
+        date: r.date,
+        period: r.period,
+        ratedByName: `💬 ${ref.byName} (own reflection)`,
+        comment: ref.text.trim(),
+        tone: deriveTone(r),
+      });
+    }
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 // ─────────────────────────────────────────────────────────────────────────
