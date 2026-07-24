@@ -212,6 +212,11 @@ export interface Family {
   // they set their own `languagePref`. Unset = derive from country, else
   // English. See lib/i18n + useLocale.
   primaryLanguage?: import('./i18n').Locale;
+  /** SET PR2 (M4) — per-person language defaults, parent-set on the family
+   *  doc (parent-only update rule; family-readable so every client resolves
+   *  live with zero extra subscriptions). Keys: childId for kids, auth uid
+   *  for helpers. A person's own users/{uid}.languagePref always wins. */
+  memberLanguageDefaults?: Record<string, import('./i18n').Locale>;
   // ── Keepsake subscription plan ────────────────────────────────
   // Drives gating across Albums (album/photo caps, sub-albums,
   // custom access, AI features). Defaults to 'free' when missing —
