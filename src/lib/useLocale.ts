@@ -14,16 +14,43 @@ import { asLocale, localeForCountry, type Locale } from '@/lib/i18n';
 export function useLocale(): Locale {
   const { profile } = useAuth();
   const { family } = useFamily();
-  // Helpers: the LOCAL language is primary (own choice → country), skipping
-  // the family default — a helper in TZ reads Swahili even in an EN family.
+  const defaults = family?.memberLanguageDefaults;
+  // Helpers: own choice → parent-set default → LOCAL country language.
+  // The family default is skipped — a helper in TZ reads Swahili even in an
+  // EN family unless the parent (or the helper) picked otherwise.
   if (profile?.role === 'helper') {
-    return asLocale(profile?.languagePref) ?? localeForCountry(family?.location?.country);
+    return (
+      asLocale(profile?.languagePref)
+      ?? asLocale(defaults?.[profile?.uid ?? ''])
+      ?? localeForCountry(family?.location?.country)
+    );
+  }
+  // Kids: own choice → parent-set per-kid default → family default → country.
+  if (profile?.role === 'kid') {
+    return (
+      asLocale(profile?.languagePref)
+      ?? asLocale(defaults?.[profile?.childId ?? ''])
+      ?? asLocale(family?.primaryLanguage)
+      ?? localeForCountry(family?.location?.country)
+    );
   }
   return (
     asLocale(profile?.languagePref)
     ?? asLocale(family?.primaryLanguage)
     ?? localeForCountry(family?.location?.country)
   );
+}
+
+/** Parent action: set (or clear with null) one person's language default.
+ *  Key = childId for kids, auth uid for helpers. */
+export async function setMemberLanguageDefault(
+  familyId: string,
+  memberKey: string,
+  locale: Locale | null,
+): Promise<void> {
+  await updateDoc(doc(db, 'families', familyId), {
+    [`memberLanguageDefaults.${memberKey}`]: locale ?? deleteField(),
+  });
 }
 
 /** Set THIS person's language. Pass null to clear (follow the family default). */
