@@ -30,13 +30,32 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { auth } from '@/lib/firebase';
 import {
-  getRatingsInDateRange, getAwardsInDateRange, getMeetings,
+  getRatingsInDateRange, getAwardsInDateRange, getMeetings, createNotification,
   readPointSystemConfig, inferAwardKind, DEFAULT_ROUTINES,
   type DailyRating, type Award, type Routine, type Meeting,
 } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
 
 type PeriodKey = 'thisWeek' | 'thisMonth' | 'last7' | 'thisYear' | 'lifetime' | 'month' | 'custom';
+
+/** The 8 award categories — mirrors the parent Award Points page. */
+const AWARD_CATEGORIES = [
+  { id: 'kindness', emoji: '💖', label: 'Kindness' },
+  { id: 'helping', emoji: '🤝', label: 'Helping Others' },
+  { id: 'bravery', emoji: '🦁', label: 'Bravery' },
+  { id: 'learning', emoji: '📚', label: 'Learning' },
+  { id: 'creativity', emoji: '🎨', label: 'Creativity' },
+  { id: 'teamwork', emoji: '⭐', label: 'Teamwork' },
+  { id: 'responsibility', emoji: '🎯', label: 'Responsibility' },
+  { id: 'other', emoji: '✨', label: 'Other' },
+] as const;
+
+const categoryKeyOf = (a: Award): string => {
+  const raw = (a.category || 'other').replace(/^diamond-/, '');
+  return AWARD_CATEGORIES.some((c) => c.id === raw) ? raw : 'other';
+};
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
@@ -148,6 +167,8 @@ export default function MyStatsPage() {
   const [reflectDraft, setReflectDraft] = useState('');
   const [reflectBusy, setReflectBusy] = useState(false);
   const [reflectMsg, setReflectMsg] = useState('');
+  const [discTab, setDiscTab] = useState<'awards' | 'routine'>('awards');
+  const [patternAwards, setPatternAwards] = useState<Award[]>([]);
   const [compare, setCompare] = useState<null | 'week' | 'month' | 'months'>(null);
   const [cmpA, setCmpA] = useState(() => iso(new Date()).slice(0, 7));
   const [cmpB, setCmpB] = useState(() => { const d = new Date(); d.setMonth(d.getMonth() - 1); return iso(d).slice(0, 7); });
@@ -186,6 +207,61 @@ export default function MyStatsPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyId, myChildId, range.from, range.to]);
+
+  // 🔮 Pattern window — awards over the last 60 days regardless of the
+  // selected view range, so weekday rhythms are detectable.
+  useEffect(() => {
+    if (!familyId || !myChildId) return;
+    let cancelled = false;
+    const from = new Date(); from.setDate(from.getDate() - 60);
+    getAwardsInDateRange(familyId, iso(from), iso(new Date()))
+      .then((aws) => { if (!cancelled) setPatternAwards(aws.filter((a) => a.childId === myChildId)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [familyId, myChildId]);
+
+  // 🔮 Recurring award pattern: same category on the same weekday ≥3×.
+  const pattern = useMemo(() => {
+    const counts = new Map<string, { n: number; last: Date }>();
+    patternAwards.forEach((a) => {
+      const d = a.createdAt?.toDate?.();
+      if (!d) return;
+      const key = `${categoryKeyOf(a)}|${d.getDay()}`;
+      const cur = counts.get(key) || { n: 0, last: d };
+      counts.set(key, { n: cur.n + 1, last: d > cur.last ? d : cur.last });
+    });
+    let best: { catId: string; dow: number; n: number } | null = null;
+    counts.forEach((v, k) => {
+      if (v.n >= 3 && (!best || v.n > best.n)) {
+        const [catId, dow] = k.split('|');
+        best = { catId, dow: Number(dow), n: v.n };
+      }
+    });
+    if (!best) return null;
+    const b = best as { catId: string; dow: number; n: number };
+    const cat = AWARD_CATEGORIES.find((c) => c.id === b.catId)!;
+    const todayDow = new Date().getDay();
+    const soon = b.dow === todayDow ? 'today' : b.dow === (todayDow + 1) % 7 ? 'tomorrow' : null;
+    return { ...b, cat, dayName: WEEKDAYS[b.dow], soon };
+  }, [patternAwards]);
+
+  // Pattern nudge → the kid's own bell, once per upcoming occurrence.
+  useEffect(() => {
+    if (!pattern || !pattern.soon || !isKid || !familyId || !profile?.uid) return;
+    const guard = `kayaPatternNudge:${myChildId}:${pattern.cat.id}:${iso(new Date()).slice(0, 10)}`;
+    try {
+      if (localStorage.getItem(guard)) return;
+      localStorage.setItem(guard, '1');
+    } catch { return; }
+    void createNotification(familyId, {
+      type: 'reminder',
+      title: `🔮 Your ${pattern.cat.label} streak!`,
+      message: `${pattern.n} ${pattern.dayName}s in a row you've been awarded for ${pattern.cat.label.toLowerCase()} — ${pattern.soon === 'today' ? "today's the day" : 'tomorrow is the day'}. Keep it going!`,
+      read: false,
+      forUserId: profile.uid,
+      link: '/stats/me',
+    } as Parameters<typeof createNotification>[1]);
+  }, [pattern, isKid, familyId, profile?.uid, myChildId]);
 
   // ⚖️ Compare — fetch both windows with the SAME snapshot math.
   useEffect(() => {
@@ -609,6 +685,158 @@ export default function MyStatsPage() {
                 </div>
               ))}
             </div>
+          </div>
+
+          {/* 🧭 Points Discovery — Awards & Kudos FIRST (PR 3) */}
+          <div className="lg:col-span-3 bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand flex-1">🧭 Points Discovery · {range.label.toLowerCase()}</p>
+              {([['awards', '🏅 Awards & Kudos'], ['routine', '⭐ Routine Points']] as const).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setDiscTab(k)}
+                  className={`px-3 py-1.5 rounded-full text-[11.5px] font-display font-extrabold ${discTab === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+
+            {discTab === 'awards' ? (() => {
+              const byCat = new Map<string, { n: number; hp: number }>();
+              awards.forEach((a) => {
+                const k = categoryKeyOf(a);
+                const cur = byCat.get(k) || { n: 0, hp: 0 };
+                byCat.set(k, { n: cur.n + 1, hp: cur.hp + Math.max(0, a.points || 0) });
+              });
+              const missing = AWARD_CATEGORIES.filter((c) => !(byCat.get(c.id)?.n)).length;
+              const maxHp = Math.max(1, ...Array.from(byCat.values()).map((v) => v.hp));
+              const top = AWARD_CATEGORIES.map((c) => ({ c, ...(byCat.get(c.id) || { n: 0, hp: 0 }) })).sort((a, b) => b.n - a.n)[0];
+              const kudos = awards.filter((a) => (a.kind || inferAwardKind(a)) === 'kudos');
+              const kudosFrom = kudos.length
+                ? Object.entries(kudos.reduce((m, a) => { m[a.awardedByName] = (m[a.awardedByName] || 0) + 1; return m; }, {} as Record<string, number>)).sort((x, y) => y[1] - x[1])[0]
+                : null;
+              const feed = [...awards].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)).slice(0, 6);
+              return (
+                <div className="lg:grid lg:grid-cols-2 lg:gap-4 space-y-3 lg:space-y-0">
+                  <div>
+                    <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">🗺️ MY AWARD BOARD — all 8, zeroes included</p>
+                    {AWARD_CATEGORIES.map((c) => {
+                      const v = byCat.get(c.id) || { n: 0, hp: 0 };
+                      const empty = v.n === 0;
+                      return (
+                        <div key={c.id} className={`flex items-center gap-2 py-1 border-b border-dashed border-kaya-warm last:border-b-0 ${empty ? 'opacity-80' : ''}`}>
+                          <span className="w-6 h-6 rounded-lg bg-kaya-warm grid place-items-center text-[13px] shrink-0">{c.emoji}</span>
+                          <span className="flex-1 text-[12.5px] font-bold truncate">{c.label}</span>
+                          {!empty && (
+                            <span className="w-16 h-[6px] rounded-full bg-kaya-warm overflow-hidden shrink-0">
+                              <span className="block h-full rounded-full" style={{ width: `${Math.round((v.hp / maxHp) * 100)}%`, background: '#D4A017' }} />
+                            </span>
+                          )}
+                          <span className="text-[11.5px] font-black shrink-0" style={{ color: empty ? '#E06A7B' : '#1E120B' }}>
+                            {empty ? (c.id === 'other' ? '0' : '0 · try me!') : `${v.n}× · ${v.hp} HP`}
+                          </span>
+                        </div>
+                      );
+                    })}
+                    {missing > 0 && (
+                      <p className="text-[11.5px] font-bold rounded-kaya px-3 py-2 mt-2" style={{ background: '#EFE9FF', color: '#6B3FE0' }}>
+                        {missing} categor{missing === 1 ? 'y' : 'ies'} to unlock — earn one award in each and complete your board! 🏆
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    {pattern && (
+                      <div className="rounded-kaya px-3 py-2.5 mb-2.5" style={{ background: '#E2F7F3' }}>
+                        <p className="text-[9.5px] font-black uppercase tracking-wider" style={{ color: '#11A08A' }}>🔮 Kaya spotted a pattern</p>
+                        <p className="text-[12px] mt-0.5">
+                          <b>{pattern.n} {pattern.dayName}s</b> you&rsquo;ve been awarded for {pattern.cat.emoji} {pattern.cat.label.toLowerCase()}.
+                          {pattern.soon ? <b> {pattern.soon === 'today' ? " Today's the day — keep the streak!" : ' Tomorrow is the day — keep the streak!'}</b> : ' A rhythm worth keeping!'}
+                        </p>
+                      </div>
+                    )}
+                    <div className="flex gap-2 mb-2.5">
+                      {top && top.n > 0 && (
+                        <div className="flex-1 rounded-kaya px-3 py-2" style={{ background: '#E8F5EC' }}>
+                          <p className="text-[9px] font-black uppercase tracking-wider" style={{ color: '#1d6b3c' }}>🏅 Most awarded</p>
+                          <p className="text-[11.5px] font-bold mt-0.5">{top.c.emoji} {top.c.label} · {top.n}×</p>
+                        </div>
+                      )}
+                      <div className="flex-1 rounded-kaya px-3 py-2" style={{ background: '#EFE9FF' }}>
+                        <p className="text-[9px] font-black uppercase tracking-wider" style={{ color: '#6B3FE0' }}>💛 Kudos</p>
+                        <p className="text-[11.5px] font-bold mt-0.5">{kudos.length} received{kudosFrom ? ` · ${kudosFrom[1]} from ${kudosFrom[0].split(' ')[0]}` : ''}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10.5px] font-black text-kaya-sand mb-1">📜 EVERY AWARD, IN YOUR FAMILY&rsquo;S WORDS</p>
+                    {feed.length === 0 ? (
+                      <p className="text-[12px] text-kaya-sand">No awards this period yet — your board is waiting! ✨</p>
+                    ) : feed.map((a) => (
+                      <div key={a.id} className="py-1.5 border-b border-dashed border-kaya-warm last:border-b-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[12px] font-bold truncate">
+                            {AWARD_CATEGORIES.find((c) => c.id === categoryKeyOf(a))?.emoji} {AWARD_CATEGORIES.find((c) => c.id === categoryKeyOf(a))?.label} · {kindEmoji(a)} {a.points ? `${a.points > 0 ? '+' : ''}${a.points}` : 'Kudos'}
+                          </p>
+                          <span className="text-[10px] text-kaya-sand font-bold shrink-0">{a.createdAt?.toDate ? toDisplayDate(iso(a.createdAt.toDate())) : ''}</span>
+                        </div>
+                        {a.reason && <p className="text-[11.5px] italic text-kaya-sand">&ldquo;{a.reason}&rdquo; — {a.awardedByName}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })() : (() => {
+              const byRoutine = new Map<string, number>();
+              ratings.forEach((r) => {
+                Object.entries(r.ratings || {}).forEach(([rid, v]) => {
+                  if (v === 'skip') return;
+                  const rt = routines.find((x) => x.id === rid);
+                  if (!rt) return;
+                  const pts = v === 'excellent' ? rt.pointsExcellent : v === 'good' ? rt.pointsGood : rt.pointsBad;
+                  byRoutine.set(rid, (byRoutine.get(rid) || 0) + (pts || 0));
+                });
+              });
+              const rows = routines.filter((rt) => byRoutine.has(rt.id))
+                .map((rt) => ({ rt, pts: byRoutine.get(rt.id) || 0 }))
+                .sort((a, b) => b.pts - a.pts);
+              const maxPts = Math.max(1, ...rows.map((r) => r.pts));
+              const consistent = behaviours.length ? [...behaviours].sort((a, b) => (b.excellent / b.rated) - (a.excellent / a.rated))[0] : null;
+              const opportunity = behaviours.length ? [...behaviours].sort((a, b) => a.pct - b.pct)[0] : null;
+              const oppMissed = opportunity ? Math.round(((opportunity.rated - opportunity.excellent) * 2) / ppHP * 100) / 100 : 0;
+              return (
+                <div className="lg:grid lg:grid-cols-2 lg:gap-4 space-y-3 lg:space-y-0">
+                  <div>
+                    <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">⭐ WHERE MY ROUTINE POINTS CAME FROM</p>
+                    {rows.length === 0 ? <p className="text-[12px] text-kaya-sand">No ratings this period yet.</p> : rows.map(({ rt, pts }) => (
+                      <div key={rt.id} className="flex items-center gap-2 py-1 border-b border-dashed border-kaya-warm last:border-b-0">
+                        <span className="w-6 h-6 rounded-lg bg-kaya-warm grid place-items-center text-[13px] shrink-0">{rt.icon}</span>
+                        <span className="flex-1 text-[12.5px] font-bold truncate">{rt.label}</span>
+                        <span className="w-20 h-[6px] rounded-full bg-kaya-warm overflow-hidden shrink-0">
+                          <span className="block h-full rounded-full" style={{ width: `${Math.round((pts / maxPts) * 100)}%`, background: '#6B3FE0' }} />
+                        </span>
+                        <span className="text-[11.5px] font-black shrink-0">{pts} pts</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-2">
+                    {rows[0] && (
+                      <div className="rounded-kaya px-3 py-2" style={{ background: '#E8F5EC' }}>
+                        <p className="text-[9px] font-black uppercase tracking-wider" style={{ color: '#1d6b3c' }}>🏆 Top earner</p>
+                        <p className="text-[12px] font-bold mt-0.5">{rows[0].rt.icon} {rows[0].rt.label} · {rows[0].pts} pts</p>
+                      </div>
+                    )}
+                    {consistent && (
+                      <div className="rounded-kaya px-3 py-2" style={{ background: '#E2F7F3' }}>
+                        <p className="text-[9px] font-black uppercase tracking-wider" style={{ color: '#11A08A' }}>🎯 Most consistent</p>
+                        <p className="text-[12px] font-bold mt-0.5">{consistent.icon} {consistent.label} · {consistent.excellent}/{consistent.rated} days</p>
+                      </div>
+                    )}
+                    {opportunity && opportunity.pct < 80 && (
+                      <div className="rounded-kaya px-3 py-2" style={{ background: '#FDF2F4' }}>
+                        <p className="text-[9px] font-black uppercase tracking-wider" style={{ color: '#B4485A' }}>📉 Biggest opportunity</p>
+                        <p className="text-[12px] mt-0.5">{opportunity.icon} <b>{opportunity.label}</b> left ~<b>{oppMissed} HP</b> unclaimed — the single biggest place your effort pays.</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
