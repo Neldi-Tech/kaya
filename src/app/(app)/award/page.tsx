@@ -5,7 +5,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
-import { giveAward, getFamilyMembers, getFamily, readPointSystemConfig, AwardKind } from '@/lib/firestore';
+import { giveAward, importAward, getFamilyMembers, getFamily, readPointSystemConfig, AwardKind } from '@/lib/firestore';
+import { Timestamp } from 'firebase/firestore';
 import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { notifyAward } from '@/lib/notify';
 import BackButton from '@/components/ui/BackButton';
@@ -22,7 +23,9 @@ const CATEGORIES = [
   { id: 'other',          icon: '✨', label: 'Other' },
 ];
 
-const DIAMOND_POINTS = [4, 5, 6, 7, 8, 9, 10];
+// Kid Stats PR4 (Elia): the picker filters to >= the family's diamondMin,
+// so families with diamondMin=3 were missing the +3 chip entirely.
+const DIAMOND_POINTS = [3, 4, 5, 6, 7, 8, 9, 10];
 
 export default function AwardPage() {
   const { profile } = useAuth();
@@ -54,6 +57,9 @@ export default function AwardPage() {
   const [diamondPts, setDiamondPts] = useState(diamondMin + 1);
   const [reducingPts, setReducingPts] = useState(1);
   const [reason, setReason] = useState('');
+  // Kid Stats PR4 — backfill: when the deed actually happened (defaults
+  // today). An earlier date routes through importAward with the true day.
+  const [happenedOn, setHappenedOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   // Snapshot of who received the award — used by the success screen so it
@@ -155,9 +161,15 @@ export default function AwardPage() {
     // Submit one award per selected kid in parallel — each kid's points,
     // activity feed and badge thresholds are independent so we can't batch
     // a single write.
+    // Kid Stats PR4 — backfill date: when the deed happened on an earlier
+    // day (batch-filling on Sunday), route through importAward with the
+    // TRUE date so patterns + future ML stay honest. importAward credits
+    // totals the same way (weekly only if in the current week).
+    const today = new Date().toISOString().slice(0, 10);
+    const backfilling = happenedOn && happenedOn !== today;
     await Promise.all(
-      selectedChildren.map((childId) =>
-        giveAward(profile.familyId, {
+      selectedChildren.map((childId) => {
+        const base = {
           childId,
           kind,
           points: finalPoints,
@@ -168,8 +180,11 @@ export default function AwardPage() {
           category: isDiamond ? `diamond-${category}` : category,
           awardedBy: profile.uid,
           awardedByName: profile.displayName,
-        }),
-      ),
+        };
+        return backfilling
+          ? importAward(profile.familyId, { ...base, createdAt: Timestamp.fromDate(new Date(`${happenedOn}T12:00:00`)) } as Parameters<typeof importAward>[1])
+          : giveAward(profile.familyId, base);
+      }),
     );
     setAwardedNames(selectedKidObjs.map((c) => c.name));
     setSuccess(true);
@@ -466,6 +481,14 @@ export default function AwardPage() {
         </div>
 
         <div className="mb-6">
+          <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">📅 When did this happen?</label>
+          <input
+            type="date"
+            value={happenedOn}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setHappenedOn(e.target.value)}
+            className="w-full h-11 px-3 mb-4 bg-kaya-cream rounded-kaya-sm text-sm focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
+          />
           <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Tell them why (they&apos;ll see this!)</label>
           <textarea
             value={reason}

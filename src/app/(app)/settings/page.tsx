@@ -3214,7 +3214,47 @@ export default function SettingsPage() {
 
           {/* 🌟 Little Stars — participation ages + celebration length
               (2026-07-26, Elia-approved design §2 + §3). */}
-          {isParent && (
+          {isParent && (<>
+            <CollapsibleSection
+              id="kid-stats"
+              remember
+              icon="📈"
+              title="My Stats options"
+              summary="what kids can do on their stats page"
+            >
+              <p className="text-[11px] text-kaya-sand mb-2">📈 My Stats is granted per kid under &ldquo;What kids see&rdquo; → Stats. These switches shape what the page offers (all default on).</p>
+              {([
+                ['reflections', '💬 Kids can add reflections', 'comments on their own ratings, visible to family'],
+                ['compare', '⚖️ Compare mode', 'period-vs-period comparisons'],
+                ['helpNudges', '🤝 “I need help” nudges', 'kid can ping a parent from a struggling behaviour'],
+                ['catchGood', '🔦 Catch someone doing good', 'kid nominates deeds; parents decide the award'],
+              ] as const).map(([key, label, sub]) => {
+                const on = (family as any)?.statsConfig?.[key] !== false;
+                return (
+                  <div key={key} className="flex items-center justify-between gap-3 py-2.5 border-b border-dashed border-kaya-warm-dark last:border-b-0">
+                    <div>
+                      <p className="text-[13px] font-bold">{label}</p>
+                      <p className="text-[11px] text-kaya-sand">{sub}</p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-pressed={on}
+                      onClick={async () => {
+                        if (!profile?.familyId) return;
+                        await updateFamily(profile.familyId, {
+                          statsConfig: { ...(family as any)?.statsConfig, [key]: !on },
+                        } as any);
+                        await refresh();
+                      }}
+                      className={`w-11 h-6 rounded-full relative transition-colors shrink-0 ${on ? 'bg-emerald-500' : 'bg-kaya-warm-dark'}`}
+                    >
+                      <span className={`absolute top-[3px] w-[18px] h-[18px] rounded-full bg-white transition-all ${on ? 'right-[3px]' : 'left-[3px]'}`} />
+                    </button>
+                  </div>
+                );
+              })}
+            </CollapsibleSection>
+
             <CollapsibleSection
               id="participation"
               remember
@@ -3251,7 +3291,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             </CollapsibleSection>
-          )}
+          </>)}
 
           {/* Welcome Wizard sheet */}
           {wizardChild && profile?.familyId && (
