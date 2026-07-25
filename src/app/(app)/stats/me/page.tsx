@@ -58,6 +58,26 @@ const categoryKeyOf = (a: Award): string => {
   return AWARD_CATEGORIES.some((c) => c.id === raw) ? raw : 'other';
 };
 
+/** ⚙️ Kaya-earned award sources — automatic HP written by the activity
+ *  modules' server routes (workplan/complete + proof, business/stocktake-hp,
+ *  cron/business-hp, games/approve). Stats v3 (Elia 2026-07-25): these must
+ *  NEVER mix with the 8 hand-given parent values — "Other" goes back to
+ *  meaning genuinely-other parent awards, and activity HP gets its own
+ *  list/tags so it's clear which activity earns the most. */
+const KAYA_SOURCES: Record<string, { icon: string; label: string }> = {
+  workplan: { icon: '🗓️', label: 'Workplan' },
+  business: { icon: '💼', label: 'Kaya Business' },
+  game: { icon: '🎮', label: 'Games' },
+};
+const kayaSourceOf = (a: Award): string | null => {
+  const raw = (a.category || '').replace(/^diamond-/, '');
+  return KAYA_SOURCES[raw] ? raw : null;
+};
+const isKayaAward = (a: Award): boolean => kayaSourceOf(a) !== null;
+
+/** Parent kid-switcher sentinel — the 👨‍👩‍👧 All-kids overview. */
+const ALL_KIDS = '__all__';
+
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -136,8 +156,12 @@ export default function MyStatsPage() {
   const familyId = profile?.familyId;
   const isKid = profile?.role === 'kid';
 
-  // Kid: locked to self. Parent/helper: kid switcher.
+  // Kid: locked to self. Parent/helper: chip switcher — v3 (Elia
+  // 2026-07-25): every kid visible as a chip + a 👨‍👩‍👧 All overview;
+  // multi-kid families LAND on All. At 5+ kids the chips collapse to
+  // All + a dropdown so the header never wraps into a mess.
   const [pickedId, setPickedId] = useState<string | null>(null);
+  const parentPick = pickedId ?? (children.length > 1 ? ALL_KIDS : children[0]?.id ?? null);
   const myChildId = useMemo(() => {
     if (isKid) {
       const direct = profile?.childId?.trim();
@@ -145,8 +169,9 @@ export default function MyStatsPage() {
       const myEmail = profile?.email?.toLowerCase() ?? '';
       return children.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === myEmail)?.id ?? null;
     }
-    return pickedId ?? children[0]?.id ?? null;
-  }, [isKid, profile?.childId, profile?.email, children, pickedId]);
+    return parentPick === ALL_KIDS ? null : parentPick;
+  }, [isKid, profile?.childId, profile?.email, children, parentPick]);
+  const allMode = !isKid && parentPick === ALL_KIDS && children.length > 0;
   const kid = children.find((c) => c.id === myChildId) ?? null;
 
   // ── Timeline bar (ONE selection drives every card) ─────────────────
@@ -158,11 +183,18 @@ export default function MyStatsPage() {
   const range = useMemo(() => rangeFor(period, monthKey, customFrom, customTo), [period, monthKey, customFrom, customTo]);
 
   // ── Data ───────────────────────────────────────────────────────────
-  const [ratings, setRatings] = useState<DailyRating[]>([]);
-  const [awards, setAwards] = useState<Award[]>([]);
-  const [prevHP, setPrevHP] = useState<number | null>(null);
+  // v3: fetched FAMILY-WIDE (the queries always were), kept raw so the
+  // 👨‍👩‍👧 All overview can slice per kid without refetching; the
+  // single-kid views filter below.
+  const [rawRatings, setRawRatings] = useState<DailyRating[]>([]);
+  const [rawAwards, setRawAwards] = useState<Award[]>([]);
+  const [prevRawRatings, setPrevRawRatings] = useState<DailyRating[]>([]);
+  const [prevRawAwards, setPrevRawAwards] = useState<Award[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const ratings = useMemo(() => rawRatings.filter((r) => r.childId === myChildId), [rawRatings, myChildId]);
+  const awards = useMemo(() => rawAwards.filter((a) => a.childId === myChildId), [rawAwards, myChildId]);
 
   // PR2 — behaviour detail + reflections + ⚖️ Compare
   const [openBehaviour, setOpenBehaviour] = useState<string | null>(null);
@@ -171,8 +203,9 @@ export default function MyStatsPage() {
   const [showAllBeh, setShowAllBeh] = useState(false);
   const [openDay, setOpenDay] = useState<string | null>(null); // ratingId key
   // 📜 HP statement — tap the hero → every transaction in the period,
-  // bank-statement style with a running balance.
+  // bank-statement style with a running balance. v3: source filter chips.
   const [stmtOpen, setStmtOpen] = useState(false);
+  const [stmtFilter, setStmtFilter] = useState<'all' | 'parents' | 'kaya' | 'routines'>('all');
   const [reflectDraft, setReflectDraft] = useState('');
   const [reflectBusy, setReflectBusy] = useState(false);
   const [reflectMsg, setReflectMsg] = useState('');
@@ -198,8 +231,9 @@ export default function MyStatsPage() {
 
   const ppHP = Math.max(1, readPointSystemConfig(family).routines.pointsPerHousePoint || 100);
 
+  const dataReady = !!myChildId || allMode;
   useEffect(() => {
-    if (!familyId || !myChildId) return;
+    if (!familyId || !dataReady) return;
     let cancelled = false;
     setLoading(true);
     (async () => {
@@ -209,8 +243,8 @@ export default function MyStatsPage() {
         getMeetings(familyId).catch(() => [] as Meeting[]),
       ]);
       if (cancelled) return;
-      setRatings(rs.filter((r) => r.childId === myChildId));
-      setAwards(aws.filter((a) => a.childId === myChildId));
+      setRawRatings(rs);
+      setRawAwards(aws);
       setMeetings(ms);
       // Previous equal period → ▲/▼ (skipped for lifetime).
       const prev = prevRange(range.from, range.to);
@@ -220,15 +254,22 @@ export default function MyStatsPage() {
           getAwardsInDateRange(familyId, prev.from, prev.to).catch(() => [] as Award[]),
         ]);
         if (cancelled) return;
-        const routinePts = prs.filter((r) => r.childId === myChildId).reduce((s, r) => s + (r.totalPoints || 0), 0);
-        const awardPts = paws.filter((a) => a.childId === myChildId).reduce((s, a) => s + (a.points || 0), 0);
-        setPrevHP(Math.floor(routinePts / ppHP) + awardPts);
-      } else setPrevHP(null);
+        setPrevRawRatings(prs);
+        setPrevRawAwards(paws);
+      } else { setPrevRawRatings([]); setPrevRawAwards([]); }
       setLoading(false);
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyId, myChildId, range.from, range.to]);
+  }, [familyId, dataReady, range.from, range.to]);
+
+  // ▲/▼ vs the previous equal period, for the selected kid.
+  const prevHP = useMemo(() => {
+    if (!myChildId || !prevRange(range.from, range.to)) return null;
+    const routinePts = prevRawRatings.filter((r) => r.childId === myChildId).reduce((s, r) => s + (r.totalPoints || 0), 0);
+    const awardPts = prevRawAwards.filter((a) => a.childId === myChildId).reduce((s, a) => s + (a.points || 0), 0);
+    return Math.floor(routinePts / ppHP) + awardPts;
+  }, [myChildId, prevRawRatings, prevRawAwards, ppHP, range.from, range.to]);
 
   // Family feature switches (Settings → My Stats options; default ON).
   const statsCfg = {
@@ -329,7 +370,9 @@ export default function MyStatsPage() {
     let cancelled = false;
     const from = new Date(); from.setDate(from.getDate() - 60);
     getAwardsInDateRange(familyId, iso(from), iso(new Date()))
-      .then((aws) => { if (!cancelled) setPatternAwards(aws.filter((a) => a.childId === myChildId)); })
+      // v3: hand-given awards only — ⚙️ Kaya-earned activity HP would fake
+      // an "Other" weekday pattern (Workplan fires the same days weekly).
+      .then((aws) => { if (!cancelled) setPatternAwards(aws.filter((a) => a.childId === myChildId && !isKayaAward(a))); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [familyId, myChildId]);
@@ -428,7 +471,7 @@ export default function MyStatsPage() {
       else {
         setReflectMsg('✅ Saved — your family will see it at the meeting.');
         // Optimistic local update.
-        setRatings((prev) => prev.map((r) => r.id === ratingId
+        setRawRatings((prev) => prev.map((r) => r.id === ratingId
           ? { ...r, reflections: { ...(r.reflections || {}), [routineId]: reflectDraft ? { text: reflectDraft, byUid: profile?.uid || '', byName: (profile?.displayName || 'Me').split(' ')[0], at: Date.now() } : null } }
           : r));
       }
@@ -482,10 +525,23 @@ export default function MyStatsPage() {
     const rows = evs.map((e) => {
       if (e.rating) routinePts += e.rating.totalPoints || 0;
       if (e.award) awardHP += e.award.points || 0;
-      return { ...e, balance: Math.floor(routinePts / ppHP) + awardHP };
+      return {
+        ...e,
+        balance: Math.floor(routinePts / ppHP) + awardHP,
+        // v3 — the dim commentary: routine-points balance at this row.
+        routineCum: e.rating ? routinePts : 0,
+        // v3 — source split: null = hand-given parent award.
+        src: e.award ? kayaSourceOf(e.award) : null,
+      };
     });
     return rows.reverse();
   }, [ratings, awards, ppHP, range.from]);
+
+  // v3 — the statement header's three-way split (always sums to hp.total).
+  const stmtTotals = useMemo(() => ({
+    parents: awards.filter((a) => !isKayaAward(a)).reduce((s, a) => s + (a.points || 0), 0),
+    kaya: awards.filter(isKayaAward).reduce((s, a) => s + (a.points || 0), 0),
+  }), [awards]);
 
   // Per-behaviour Excellent % (mirror of the meeting BehaviourTab math).
   const behaviours = useMemo(() => {
@@ -543,9 +599,53 @@ export default function MyStatsPage() {
     return { perfect, rung, toNext: rung === 0 && perfect > 0 ? 0 : 5 - rung, stars };
   }, [ratings, meetings, myChildId]);
 
+  // v3: hand-given awards only — the values story; activity HP lives in
+  // the ⚙️ Kaya-earned list + the statement.
   const recentAwards = useMemo(() =>
-    [...awards].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)).slice(0, 3),
+    awards.filter((a) => !isKayaAward(a))
+      .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)).slice(0, 3),
   [awards]);
+
+  // 👨‍👩‍👧 All-kids overview (v3) — per-kid HP + trend + Excellent days +
+  // lowest behaviour, sliced from the same family-wide fetch, same math.
+  const kidsOverview = useMemo(() => {
+    if (!allMode) return [];
+    return children.map((c) => {
+      const rs = rawRatings.filter((r) => r.childId === c.id);
+      const aws = rawAwards.filter((a) => a.childId === c.id);
+      const hpTotal = Math.floor(rs.reduce((s, r) => s + (r.totalPoints || 0), 0) / ppHP)
+        + aws.reduce((s, a) => s + (a.points || 0), 0);
+      const prevTotal = prevRange(range.from, range.to)
+        ? Math.floor(prevRawRatings.filter((r) => r.childId === c.id).reduce((s, r) => s + (r.totalPoints || 0), 0) / ppHP)
+          + prevRawAwards.filter((a) => a.childId === c.id).reduce((s, a) => s + (a.points || 0), 0)
+        : null;
+      const delta = prevTotal !== null && prevTotal > 0 ? Math.round(((hpTotal - prevTotal) / prevTotal) * 100) : null;
+      const byDay = new Map<string, { rated: number; excellent: number }>();
+      const agg = new Map<string, { rated: number; excellent: number }>();
+      rs.forEach((r) => {
+        const day = byDay.get(r.date) || { rated: 0, excellent: 0 };
+        Object.entries(r.ratings || {}).forEach(([rid, v]) => {
+          if (v === 'skip') return;
+          day.rated += 1;
+          const a = agg.get(rid) || { rated: 0, excellent: 0 };
+          a.rated += 1;
+          if (v === 'excellent') { day.excellent += 1; a.excellent += 1; }
+          agg.set(rid, a);
+        });
+        byDay.set(r.date, day);
+      });
+      let perfect = 0;
+      byDay.forEach((d) => { if (d.rated > 0 && d.excellent === d.rated) perfect += 1; });
+      let lowest: { icon: string; label: string; pct: number } | null = null;
+      routines.forEach((rt) => {
+        const a = agg.get(rt.id);
+        if (!a || a.rated === 0) return;
+        const pct = Math.round((a.excellent / a.rated) * 100);
+        if (!lowest || pct < lowest.pct) lowest = { icon: rt.icon, label: rt.label, pct };
+      });
+      return { kid: c, hp: hpTotal, delta, perfect, lowest: lowest as { icon: string; label: string; pct: number } | null };
+    });
+  }, [allMode, children, rawRatings, rawAwards, prevRawRatings, prevRawAwards, ppHP, routines, range.from, range.to]);
 
   const pctColor = (p: number) => (p >= 80 ? '#2E9E5B' : p >= 60 ? '#D4A017' : '#E06A7B');
   const kindEmoji = (a: Award) => {
@@ -560,7 +660,9 @@ export default function MyStatsPage() {
   const fullHouse = useMemo(() => {
     const year = String(new Date().getFullYear());
     const got = new Set<string>();
-    lifeAwards.forEach((a) => {
+    // v3: parent values only — an automatic Workplan award must not tick
+    // the "Other" square of the Full House.
+    lifeAwards.filter((a) => !isKayaAward(a)).forEach((a) => {
       const d = a.createdAt?.toDate?.();
       if (d && String(d.getFullYear()) === year) got.add(categoryKeyOf(a));
     });
@@ -568,12 +670,13 @@ export default function MyStatsPage() {
   }, [lifeAwards]);
   const thermoReward = rewards.find((r) => r.id === thermoRewardId) || rewards[0] || null;
   const whyBook = useMemo(() =>
-    lifeAwards.filter((a) => (a.reason || '').trim())
+    // v3: praise cards are the family's words — hand-given awards only.
+    lifeAwards.filter((a) => (a.reason || '').trim() && !isKayaAward(a))
       .sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)),
   [lifeAwards]);
 
   if (!familyId) return null;
-  if (!kid) {
+  if (!kid && !allMode) {
     return (
       <div className="mx-auto max-w-md px-6 py-16 text-center">
         <div className="text-3xl mb-2">📊</div>
@@ -582,28 +685,49 @@ export default function MyStatsPage() {
     );
   }
 
-  const first = kid.name.split(' ')[0];
+  const first = (kid?.name || '').split(' ')[0];
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-5xl px-4 lg:px-8 pt-4 lg:pt-8 pb-24">
       {/* Header */}
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-12 h-12 rounded-full bg-kaya-warm grid place-items-center text-2xl">{kid.avatarEmoji}</div>
+        <div className="w-12 h-12 rounded-full bg-kaya-warm grid place-items-center text-2xl">{allMode ? '👨‍👩‍👧' : kid?.avatarEmoji}</div>
         <div className="flex-1 min-w-0">
-          <h1 className="font-display text-xl lg:text-2xl font-black leading-tight">My Stats</h1>
-          <p className="text-[12px] text-kaya-sand font-bold">{kid.name} · {kid.houseName}</p>
+          <h1 className="font-display text-xl lg:text-2xl font-black leading-tight">{allMode ? "Kids' Stats" : 'My Stats'}</h1>
+          <p className="text-[12px] text-kaya-sand font-bold">{allMode ? `All kids · ${children.length} side by side` : `${kid?.name} · ${kid?.houseName}`}</p>
         </div>
-        {!isKid && children.length > 1 && (
-          <select
-            value={myChildId ?? ''}
-            onChange={(e) => setPickedId(e.target.value)}
-            className="text-[12.5px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-2.5 py-2 bg-white"
-            aria-label="Choose a kid"
-          >
-            {children.map((c) => <option key={c.id} value={c.id}>{c.avatarEmoji} {c.name}</option>)}
-          </select>
-        )}
       </div>
+
+      {/* 👨‍👩‍👧 Kid chips (v3) — every kid visible; All = the overview.
+          5+ kids → chips collapse to All + a dropdown. */}
+      {!isKid && children.length > 0 && (
+        <div className="flex gap-1.5 flex-wrap items-center mb-3">
+          {children.length > 1 && (
+            <button type="button" onClick={() => setPickedId(ALL_KIDS)}
+              className={`px-3 py-1.5 rounded-full text-[11.5px] font-display font-extrabold border-[1.5px] transition-colors ${allMode ? 'bg-white' : 'bg-kaya-warm text-kaya-sand border-transparent'}`}
+              style={allMode ? { borderColor: '#6B3FE0', color: '#6B3FE0' } : undefined}>
+              👨‍👩‍👧 All
+            </button>
+          )}
+          {children.length <= 4 ? children.map((c) => (
+            <button key={c.id} type="button" onClick={() => setPickedId(c.id)}
+              className={`px-3 py-1.5 rounded-full text-[11.5px] font-display font-extrabold border-[1.5px] transition-colors ${c.id === myChildId ? 'bg-white' : 'bg-kaya-warm text-kaya-sand border-transparent'}`}
+              style={c.id === myChildId ? { borderColor: '#6B3FE0', color: '#6B3FE0' } : undefined}>
+              {c.avatarEmoji} {c.name.split(' ')[0]}
+            </button>
+          )) : (
+            <select
+              value={myChildId ?? ''}
+              onChange={(e) => setPickedId(e.target.value)}
+              className="text-[12px] font-bold border border-kaya-warm-dark rounded-kaya-sm px-2.5 py-1.5 bg-white"
+              aria-label="Choose a kid"
+            >
+              {allMode && <option value="" disabled>Pick a kid…</option>}
+              {children.map((c) => <option key={c.id} value={c.id}>{c.avatarEmoji} {c.name}</option>)}
+            </select>
+          )}
+        </div>
+      )}
 
       {/* Timeline bar — one selection drives EVERY card */}
       <div className="flex gap-1.5 flex-wrap items-center mb-1">
@@ -616,7 +740,7 @@ export default function MyStatsPage() {
         {!['thisWeek', 'thisMonth'].includes(period) && (
           <span className="px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold bg-kaya-chocolate text-white">{range.label}</span>
         )}
-        {statsCfg.compare && (
+        {statsCfg.compare && !allMode && (
           <button type="button" onClick={() => { setCompare((c) => (c ? null : 'week')); setMoreOpen(false); }}
             className={`px-3.5 py-1.5 rounded-full text-[12px] font-display font-extrabold transition-colors ${compare ? 'text-white' : ''}`}
             style={compare ? { background: '#6B3FE0' } : { background: '#EFE9FF', color: '#6B3FE0' }}>
@@ -630,7 +754,7 @@ export default function MyStatsPage() {
       </div>
 
       {/* ⚖️ Compare mode */}
-      {compare && (
+      {compare && !allMode && (
         <div className="bg-white border-[1.5px] rounded-kaya-lg p-4 mb-3" style={{ borderColor: '#D9C6F7' }}>
           <div className="flex gap-1.5 flex-wrap items-center mb-2.5">
             {([['week', 'This week vs last'], ['month', 'This month vs last']] as const).map(([k, l]) => (
@@ -723,6 +847,47 @@ export default function MyStatsPage() {
           <div className="h-28 rounded-kaya-lg bg-kaya-warm" />
           <div className="h-40 rounded-kaya-lg bg-kaya-warm" />
         </div>
+      ) : allMode ? (
+        // 👨‍👩‍👧 All-kids overview (v3) — HP side by side + the cross-kid
+        // needs-love strip. Tap any kid → their full page, as they see it.
+        <div className="space-y-3">
+          <div className="rounded-kaya-lg p-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+            <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ House Points · {range.label.toLowerCase()} · all kids</p>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-2">
+              {kidsOverview.map((k) => (
+                <button key={k.kid.id} type="button" onClick={() => setPickedId(k.kid.id)}
+                  className="rounded-kaya p-2.5 text-left"
+                  style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
+                  <p className="text-[11px] font-black truncate">{k.kid.avatarEmoji} {k.kid.name.split(' ')[0]}</p>
+                  <p className="text-[19px] font-display font-black leading-tight">
+                    {k.hp} HP{' '}
+                    {k.delta !== null && (
+                      <span className="text-[10px] font-black" style={{ color: k.delta >= 0 ? '#B9F6CA' : '#FFCDD2' }}>
+                        {k.delta >= 0 ? '▲' : '▼'} {Math.abs(k.delta)}%
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[9.5px] font-bold opacity-75">{k.kid.houseName} · {k.perfect} Excellent day{k.perfect === 1 ? '' : 's'}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2">🌱 Needs love first · across kids</p>
+            {kidsOverview.filter((k) => k.lowest).length === 0 ? (
+              <p className="text-[12.5px] text-kaya-sand">No ratings in this period yet.</p>
+            ) : kidsOverview.filter((k) => k.lowest).map((k) => (
+              <button key={k.kid.id} type="button" onClick={() => setPickedId(k.kid.id)}
+                className="w-full flex items-center gap-2.5 py-1.5 text-left border-b border-dashed border-kaya-warm last:border-b-0">
+                <span className="w-7 h-7 rounded-lg bg-kaya-warm grid place-items-center text-[14px] shrink-0">{k.lowest!.icon}</span>
+                <span className="flex-1 text-[12.5px] font-bold truncate">{k.lowest!.label} · <span style={{ color: pctColor(k.lowest!.pct) }}>{k.lowest!.pct}%</span></span>
+                <span className="text-[11px] font-black text-kaya-sand shrink-0">{k.kid.avatarEmoji} {k.kid.name.split(' ')[0]} ›</span>
+              </button>
+            ))}
+            <p className="text-[10px] text-kaya-sand mt-2">Each kid&rsquo;s lowest behaviour this period — tap to open their full stats, exactly what they see.</p>
+          </div>
+        </div>
       ) : (
         // Layout 3.0 (Elia 2026-07-24): numbers → insights → the drill.
         // flex order drives mobile, grid order drives lg — same sequence:
@@ -731,7 +896,7 @@ export default function MyStatsPage() {
         <div className="flex flex-col gap-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start">
           {/* ⭐ HP hero — self-stretch pairs its height with Belt+Awards.
               Tapping anywhere on it opens the 📜 HP statement. */}
-          <button type="button" onClick={() => setStmtOpen(true)} aria-label="Open my House Points statement"
+          <button type="button" onClick={() => { setStmtOpen(true); setStmtFilter('all'); }} aria-label="Open my House Points statement"
             className="order-1 lg:self-stretch lg:flex lg:flex-col rounded-kaya-lg p-4 text-white text-left w-full cursor-pointer" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
             <p className="text-[10px] uppercase tracking-[0.14em] font-bold opacity-85">⭐ My House Points · {range.label.toLowerCase()}</p>
             <p className="font-display font-black text-4xl leading-tight mt-1">{hp.total} HP</p>
@@ -900,8 +1065,12 @@ export default function MyStatsPage() {
             </div>
 
             {discTab === 'awards' ? (() => {
+              // v3 — the split: hand-given parent values vs ⚙️ Kaya-earned
+              // activity HP. "Other" is back to genuinely-other parent awards.
+              const parentAwards = awards.filter((a) => !isKayaAward(a));
+              const kayaAwards = awards.filter(isKayaAward);
               const byCat = new Map<string, { n: number; hp: number }>();
-              awards.forEach((a) => {
+              parentAwards.forEach((a) => {
                 const k = categoryKeyOf(a);
                 const cur = byCat.get(k) || { n: 0, hp: 0 };
                 byCat.set(k, { n: cur.n + 1, hp: cur.hp + Math.max(0, a.points || 0) });
@@ -909,15 +1078,26 @@ export default function MyStatsPage() {
               const missing = AWARD_CATEGORIES.filter((c) => !(byCat.get(c.id)?.n)).length;
               const maxHp = Math.max(1, ...Array.from(byCat.values()).map((v) => v.hp));
               const top = AWARD_CATEGORIES.map((c) => ({ c, ...(byCat.get(c.id) || { n: 0, hp: 0 }) })).sort((a, b) => b.n - a.n)[0];
-              const kudos = awards.filter((a) => (a.kind || inferAwardKind(a)) === 'kudos');
+              const kudos = parentAwards.filter((a) => (a.kind || inferAwardKind(a)) === 'kudos');
               const kudosFrom = kudos.length
                 ? Object.entries(kudos.reduce((m, a) => { m[a.awardedByName] = (m[a.awardedByName] || 0) + 1; return m; }, {} as Record<string, number>)).sort((x, y) => y[1] - x[1])[0]
                 : null;
-              const feed = [...awards].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)).slice(0, 6);
+              const feed = [...parentAwards].sort((a, b) => (b.createdAt?.toMillis?.() ?? 0) - (a.createdAt?.toMillis?.() ?? 0)).slice(0, 6);
+              const bySrc = new Map<string, { n: number; hp: number }>();
+              kayaAwards.forEach((a) => {
+                const k = kayaSourceOf(a)!;
+                const cur = bySrc.get(k) || { n: 0, hp: 0 };
+                bySrc.set(k, { n: cur.n + 1, hp: cur.hp + Math.max(0, a.points || 0) });
+              });
+              const srcRows = Object.entries(KAYA_SOURCES)
+                .map(([id, meta]) => ({ id, meta, ...(bySrc.get(id) || { n: 0, hp: 0 }) }))
+                .filter((r) => r.n > 0)
+                .sort((a, b) => b.hp - a.hp);
+              const maxSrcHp = Math.max(1, ...srcRows.map((r) => r.hp));
               return (
                 <div className="lg:grid lg:grid-cols-2 lg:gap-4 xl:gap-8 space-y-3 lg:space-y-0">
                   <div>
-                    <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">🗺️ MY AWARD BOARD — all 8, zeroes included</p>
+                    <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">👨‍👩‍👧 FROM MY PARENTS — the 8 values, zeroes included</p>
                     {AWARD_CATEGORIES.map((c) => {
                       const v = byCat.get(c.id) || { n: 0, hp: 0 };
                       const empty = v.n === 0;
@@ -940,6 +1120,24 @@ export default function MyStatsPage() {
                       <p className="text-[11.5px] font-bold rounded-kaya px-3 py-2 mt-2" style={{ background: '#EFE9FF', color: '#6B3FE0' }}>
                         {missing} categor{missing === 1 ? 'y' : 'ies'} to unlock — earn one award in each and complete your board! 🏆
                       </p>
+                    )}
+                    {srcRows.length > 0 && (
+                      <div className="mt-3 pt-2 border-t border-dashed border-kaya-warm">
+                        <p className="text-[10.5px] font-black text-kaya-sand mb-1.5">⚙️ KAYA-EARNED — from my activities</p>
+                        {srcRows.map((r) => (
+                          <div key={r.id} className="flex items-center gap-2 py-1 border-b border-dashed border-kaya-warm last:border-b-0">
+                            <span className="w-6 h-6 rounded-lg bg-kaya-warm grid place-items-center text-[13px] shrink-0">{r.meta.icon}</span>
+                            <span className="flex-1 text-[12.5px] font-bold truncate">{r.meta.label}</span>
+                            <span className="w-16 h-[6px] rounded-full bg-kaya-warm overflow-hidden shrink-0">
+                              <span className="block h-full rounded-full" style={{ width: `${Math.round((r.hp / maxSrcHp) * 100)}%`, background: '#11C5A8' }} />
+                            </span>
+                            <span className="text-[11.5px] font-black shrink-0">{r.n}× · {r.hp} HP</span>
+                          </div>
+                        ))}
+                        <p className="text-[11.5px] font-bold rounded-kaya px-3 py-2 mt-2" style={{ background: '#E2F7F3', color: '#0d8a76' }}>
+                          🏆 <b>Biggest earner:</b> {srcRows[0].meta.icon} {srcRows[0].meta.label} — {srcRows[0].hp} HP {range.label.toLowerCase()}. Automatic HP, earned by doing!
+                        </p>
+                      </div>
                     )}
                   </div>
                   <div>
@@ -964,7 +1162,7 @@ export default function MyStatsPage() {
                         <p className="text-[11.5px] font-bold mt-0.5">{kudos.length} received{kudosFrom ? ` · ${kudosFrom[1]} from ${kudosFrom[0].split(' ')[0]}` : ''}</p>
                       </div>
                     </div>
-                    <p className="text-[10.5px] font-black text-kaya-sand mb-1">📜 EVERY AWARD, IN YOUR FAMILY&rsquo;S WORDS</p>
+                    <p className="text-[10.5px] font-black text-kaya-sand mb-1">📜 EVERY PARENT AWARD, IN YOUR FAMILY&rsquo;S WORDS</p>
                     {feed.length === 0 ? (
                       <p className="text-[12px] text-kaya-sand">No awards this period yet — your board is waiting! ✨</p>
                     ) : feed.map((a) => (
@@ -1164,8 +1362,9 @@ export default function MyStatsPage() {
         </div>
       )}
 
-      {/* 📜 HP statement — bank-statement view of the hero's number */}
-      {stmtOpen && (
+      {/* 📜 HP statement v3 — bank-statement view: three-way source split,
+          day headers, source tags, dim routine-balance commentary. */}
+      {stmtOpen && kid && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4" role="dialog" aria-modal="true" aria-label="My House Points statement">
           <div className="absolute inset-0 bg-black/40" onClick={() => setStmtOpen(false)} />
           <div className="relative bg-white rounded-kaya-lg w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden shadow-xl">
@@ -1181,51 +1380,102 @@ export default function MyStatsPage() {
                   ✕
                 </button>
               </div>
-            </div>
-            <div className="overflow-y-auto px-4 py-2 flex-1">
-              {statement.length === 0 ? (
-                <p className="text-[12.5px] text-kaya-sand py-4 text-center">Nothing earned in this period yet — your statement is waiting! ✨</p>
-              ) : (<>
-                {statement.map((e) => (
-                  <div key={e.key} className="flex items-center gap-2.5 py-2 border-b border-dashed border-kaya-warm">
-                    <span className="w-8 h-8 rounded-lg bg-kaya-warm grid place-items-center text-[15px] shrink-0">
-                      {e.rating ? '📋' : kindEmoji(e.award!)}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12.5px] font-bold truncate">
-                        {e.rating
-                          ? `Routines · ${e.rating.period === 'morning' ? 'morning' : 'evening'}`
-                          : AWARD_CATEGORIES.find((c) => c.id === categoryKeyOf(e.award!))?.label || 'Award'}
-                      </p>
-                      <p className="text-[10.5px] text-kaya-sand font-bold truncate">
-                        {toDisplayDate(e.date)} · {e.rating
-                          ? `rated by ${e.rating.ratedByName}`
-                          : (e.award!.reason ? `“${e.award!.reason}” — ${e.award!.awardedByName}` : `by ${e.award!.awardedByName}`)}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p className="text-[12.5px] font-black" style={{
-                        color: e.rating ? '#6B3FE0'
-                          : (e.award!.points || 0) < 0 ? '#E06A7B'
-                          : (e.award!.points || 0) === 0 ? '#9B8A72' : '#B8860B',
-                      }}>
-                        {e.rating
-                          ? `+${e.rating.totalPoints || 0} pts`
-                          : (e.award!.points || 0) === 0 ? 'Kudos'
-                          : `${(e.award!.points || 0) > 0 ? '+' : ''}${e.award!.points} HP`}
-                      </p>
-                      <p className="text-[10px] font-bold text-kaya-sand">= {e.balance} HP</p>
-                    </div>
+              <div className="flex gap-1.5 mt-2.5">
+                {([['👨‍👩‍👧 Parents', stmtTotals.parents], ['⚙️ Kaya-earned', stmtTotals.kaya], ['📋 Routines', hp.routineHP]] as const).map(([l, v]) => (
+                  <div key={l} className="flex-1 rounded-kaya px-2 py-1.5" style={{ background: 'rgba(255,255,255,.15)', border: '1px solid rgba(255,255,255,.28)' }}>
+                    <p className="text-[8px] font-black uppercase tracking-wider opacity-80">{l}</p>
+                    <p className="text-[13.5px] font-black leading-tight">{v} HP</p>
                   </div>
                 ))}
-                <div className="flex items-center justify-between py-2">
-                  <p className="text-[11px] font-bold text-kaya-sand">Opening balance · {toDisplayDate(range.from)}</p>
-                  <p className="text-[11px] font-black text-kaya-sand">0 HP</p>
-                </div>
-              </>)}
+              </div>
+            </div>
+            <div className="flex gap-1.5 px-4 pt-2.5 pb-1 shrink-0 flex-wrap">
+              {([['all', 'All'], ['parents', '👨‍👩‍👧 Parents'], ['kaya', '⚙️ Kaya'], ['routines', '📋 Routines']] as const).map(([k, l]) => (
+                <button key={k} type="button" onClick={() => setStmtFilter(k)}
+                  className={`px-2.5 py-1 rounded-full text-[10.5px] font-black ${stmtFilter === k ? 'bg-kaya-chocolate text-white' : 'bg-kaya-warm text-kaya-sand'}`}>
+                  {l}
+                </button>
+              ))}
+            </div>
+            <div className="overflow-y-auto px-4 py-1 flex-1">
+              {(() => {
+                const visible = statement.filter((e) =>
+                  stmtFilter === 'all' ? true
+                    : stmtFilter === 'routines' ? !!e.rating
+                    : stmtFilter === 'kaya' ? !!e.award && !!e.src
+                    : !!e.award && !e.src);
+                if (visible.length === 0) {
+                  return <p className="text-[12.5px] text-kaya-sand py-4 text-center">Nothing here in this period yet — your statement is waiting! ✨</p>;
+                }
+                const tag = (label: string, bg: string, color: string) => (
+                  <span className="text-[8px] font-black rounded-full px-1.5 py-[1.5px] ml-1.5 align-middle whitespace-nowrap" style={{ background: bg, color }}>{label}</span>
+                );
+                return (<>
+                  {visible.map((e, i) => {
+                    const a = e.award;
+                    const src = e.src ? KAYA_SOURCES[e.src] : null;
+                    const parentCat = a && !e.src ? AWARD_CATEGORIES.find((c) => c.id === categoryKeyOf(a)) : null;
+                    const parentKind = a ? (a.kind || inferAwardKind(a)) : null;
+                    const automatic = a ? (a.awardedBy === 'system' || a.awardedByName === 'Auto-award' || /^Kaya /.test(a.awardedByName || '')) : false;
+                    return (
+                      <div key={e.key} className="border-b border-dashed border-kaya-warm last:border-b-0">
+                        {(i === 0 || visible[i - 1].date !== e.date) && (
+                          <p className="text-[9px] font-black uppercase tracking-[0.09em] text-kaya-sand bg-kaya-cream -mx-4 px-4 py-1 border-t border-kaya-warm">
+                            {WEEKDAYS[new Date(`${e.date}T00:00:00`).getDay()]} · {toDisplayDate(e.date)}
+                          </p>
+                        )}
+                        <div className="flex items-start gap-2.5 py-2">
+                          <span className="w-8 h-8 rounded-lg bg-kaya-warm grid place-items-center text-[15px] shrink-0 mt-0.5">
+                            {e.rating ? '📋' : src ? src.icon
+                              : parentKind === 'regular' || parentKind === 'diamond' ? (parentCat?.emoji || '⭐') : kindEmoji(a!)}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[12.5px] font-bold">
+                              {e.rating
+                                ? <>Routines · {e.rating.period === 'morning' ? 'morning' : 'evening'}{tag('📋 ROUTINE', '#EFE9FF', '#6B3FE0')}</>
+                                : src
+                                  ? <>{a!.reason || src.label}{tag('⚙️ KAYA', '#E2F7F3', '#0d8a76')}</>
+                                  : <>{parentCat?.label || 'Award'}{tag('👨‍👩‍👧 PARENT', '#FDEBF0', '#B4485A')}</>}
+                            </p>
+                            <p className="text-[10.5px] text-kaya-sand font-bold truncate">
+                              {e.rating
+                                ? `rated by ${e.rating.ratedByName} · ${Object.values(e.rating.ratings || {}).filter((v) => v !== 'skip').length} routines`
+                                : src
+                                  ? `${src.label} · ${automatic ? 'automatic' : `approved by ${a!.awardedByName}`}`
+                                  : (a!.reason ? `“${a!.reason}” — ${a!.awardedByName}` : `by ${a!.awardedByName}`)}
+                            </p>
+                            {e.rating && (
+                              <p className="text-[9.5px] font-bold italic mt-0.5" style={{ color: '#C4B89A' }}>
+                                routine points balance · {e.routineCum} pts → {Math.floor(e.routineCum / ppHP)} HP banked · {ppHP - (e.routineCum % ppHP)} pts to the next HP
+                              </p>
+                            )}
+                          </div>
+                          <div className="text-right shrink-0 mt-0.5">
+                            <p className="text-[12.5px] font-black" style={{
+                              color: e.rating ? '#6B3FE0'
+                                : (a!.points || 0) < 0 ? '#E06A7B'
+                                : (a!.points || 0) === 0 ? '#9B8A72' : '#B8860B',
+                            }}>
+                              {e.rating
+                                ? `+${e.rating.totalPoints || 0} pts`
+                                : (a!.points || 0) === 0 ? 'Kudos'
+                                : `${(a!.points || 0) > 0 ? '+' : ''}${a!.points} HP`}
+                            </p>
+                            <p className="text-[10px] font-bold text-kaya-sand">= {e.balance} HP</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <div className="flex items-center justify-between py-2">
+                    <p className="text-[11px] font-bold text-kaya-sand">Opening balance · {toDisplayDate(range.from)}</p>
+                    <p className="text-[11px] font-black text-kaya-sand">0 HP</p>
+                  </div>
+                </>);
+              })()}
             </div>
             <p className="px-4 py-2.5 text-[10px] text-kaya-sand font-bold border-t border-kaya-warm shrink-0">
-              Every {ppHP} routine pts = 1 HP · awards add HP straight away. Same math as the Sunday meeting.
+              Every {ppHP} routine pts = 1 HP · ⚙️ Kaya-earned = automatic HP from Workplan, Business &amp; Games · 👨‍👩‍👧 = given by hand. Same math as the Sunday meeting.
             </p>
           </div>
         </div>
