@@ -1,0 +1,62 @@
+# 🚀 Auto-deploy `main` to Vercel production.
+#
+# WHY THIS EXISTS (2026-07-25): the Vercel project is NOT Git-connected —
+# every historical deployment was a manual `vercel deploy` from someone's
+# machine, so merges to main never went live on their own. This workflow
+# closes that gap: every push to main (and manual runs via the Actions tab)
+# deploys production through the same CLI the team already uses.
+#
+# ACTIVATION — add three repository secrets (Settings → Secrets and
+# variables → Actions):
+#   VERCEL_TOKEN       — vercel.com → Account Settings → Tokens → Create
+#   VERCEL_ORG_ID      — Vercel team/account ID (project Settings → General)
+#   VERCEL_PROJECT_ID  — kaya project ID (same page)
+# Until all three exist the job exits green without deploying, so CI never
+# goes red on a missing secret.
+#
+# NOTE: if the Vercel Git integration is ever connected instead (project
+# Settings → Git), DELETE this workflow — otherwise every merge deploys
+# twice.
+
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: vercel-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - name: Gate on secrets
+        id: gate
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Vercel secrets not configured — skipping deploy. Add VERCEL_TOKEN, VERCEL_ORG_ID and VERCEL_PROJECT_ID to activate auto-deploy."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: steps.gate.outputs.skip == 'false'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Deploy to production
+        if: steps.gate.outputs.skip == 'false'
+        run: npx vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN"
