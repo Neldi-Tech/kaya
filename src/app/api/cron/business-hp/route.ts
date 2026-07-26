@@ -82,7 +82,7 @@ async function run(req: NextRequest) {
       let childSnap;
       try { childSnap = await childRef.get(); } catch { continue; }
       if (!childSnap.exists) continue;
-      const child = childSnap.data() as { totalPoints?: number; weeklyPoints?: number; lastBusinessAutoAwardWeek?: string };
+      const child = childSnap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number; lastBusinessAutoAwardWeek?: string };
       if (child.lastBusinessAutoAwardWeek === weekKey) continue; // already auto-awarded this week
 
       try {
@@ -95,6 +95,8 @@ async function run(req: NextRequest) {
         await childRef.update({
           totalPoints: (child.totalPoints || 0) + points,
           weeklyPoints: (child.weeklyPoints || 0) + points,
+          // 🏅 lifetime EARNED points — the badge yardstick spending can't shrink.
+          lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + points,
           lastBusinessAutoAwardWeek: weekKey,
         });
         awarded++;

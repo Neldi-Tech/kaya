@@ -8,21 +8,41 @@
 
 import type { User } from 'firebase/auth';
 import type { Child } from './firestore';
-import { familyBadgeSet, isBadgeReleased, badgeThreshold, type BadgeConfig } from './badgeLib';
+import { familyBadgeSet, isBadgeReleased, badgeProgress, type BadgeConfig, type BadgeDef } from './badgeLib';
 
-/** Signals the client can pre-screen cheaply (PR2). PR3 hooks call the mint
- *  route directly from their own flows (quiz answer, award given, …). */
+/** Every released badge whose measurable progress has reached its threshold.
+ *  Since BDG PR3 that covers points, streaks AND every counter-tracked area
+ *  (quiz, awards, meetings, workplan, conversions, family goals) — all of it
+ *  readable off the child doc, and all of it re-verified at mint. */
 export function dueBadgeIds(cfg: BadgeConfig | undefined, child: Child): string[] {
   const earned = new Set(child.badges || []);
-  const lifetime = Math.max(child.lifetimePoints || 0, child.totalPoints || 0);
   const out: string[] = [];
   for (const def of familyBadgeSet(cfg)) {
     if (earned.has(def.id) || !isBadgeReleased(cfg, def)) continue;
-    const t = badgeThreshold(cfg, def);
-    if (def.signal.kind === 'lifetime_points' && lifetime >= t) out.push(def.id);
-    else if (def.signal.kind === 'streak_days' && (child.streak || 0) >= t) out.push(def.id);
+    const p = badgeProgress(cfg, def, child);
+    if (p && p.have >= p.need) out.push(def.id);
   }
   return out;
+}
+
+/** 🧭 Kaya Badge advisory — the closest unearned badges, nearest first.
+ *  Only badges Kaya can measure and the family has released. */
+export function nextMilestones(
+  cfg: BadgeConfig | undefined,
+  child: Child,
+  count = 3,
+): Array<{ def: BadgeDef; have: number; need: number; pct: number }> {
+  const earned = new Set(child.badges || []);
+  const rows: Array<{ def: BadgeDef; have: number; need: number; pct: number }> = [];
+  for (const def of familyBadgeSet(cfg)) {
+    if (earned.has(def.id) || !isBadgeReleased(cfg, def)) continue;
+    const p = badgeProgress(cfg, def, child);
+    if (!p || p.have >= p.need) continue; // already due — the sweep mints it
+    rows.push({ def, ...p });
+  }
+  // Nearest by remaining distance, then by how far along it already is.
+  rows.sort((a, b) => (a.need - a.have) - (b.need - b.have) || b.pct - a.pct);
+  return rows.slice(0, count);
 }
 
 /** Nominate every due badge for one kid. Safe to call often (idempotent). */

@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,15 @@ async function run(req: NextRequest) {
   const completed = new Set(comp.completedItemIds ?? []);
   const awarded = new Set(comp.awardedItemIds ?? []);
 
+  const wasCompleted = completed.has(itemId);
   if (on) completed.add(itemId); else completed.delete(itemId);
+
+  // 🏅 Badge tally — count each task the FIRST time it's ticked today.
+  // Un-ticking never claws the tally back (same rule as the points above),
+  // and proof-required tasks are counted by /proof/review on approval.
+  if (on && !wasCompleted && !item.requiresProof) {
+    void bumpBadgeCountersAdmin(db, familyId, childId, { workplan_done: 1 });
+  }
 
   // Award points the first time this item is completed for the day —
   // EXCEPT for proof-required tasks, which earn ONLY through the proof

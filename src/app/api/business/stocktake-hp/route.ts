@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
   const childRef = db.collection('families').doc(familyId).collection('children').doc(ownerId);
   const childSnap = await childRef.get();
   if (!childSnap.exists) return NextResponse.json({ error: 'no-child' }, { status: 404 });
-  const child = childSnap.data() as { totalPoints?: number; weeklyPoints?: number };
+  const child = childSnap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number };
 
   try {
     await db.collection('families').doc(familyId).collection('awards').add({
@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
     await childRef.update({
       totalPoints: (child.totalPoints || 0) + points,
       weeklyPoints: (child.weeklyPoints || 0) + points,
+      // 🏅 lifetime EARNED points — the badge yardstick spending can't shrink.
+      lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + points,
     });
     await takeRef.set({ hpGranted: true }, { merge: true });
   } catch (e) {

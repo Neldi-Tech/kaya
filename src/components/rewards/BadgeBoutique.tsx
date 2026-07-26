@@ -151,7 +151,7 @@ export default function BadgeBoutique() {
                   <p className="text-[28px]" style={{ filter: 'drop-shadow(0 3px 8px rgba(240,163,42,.4))' }}>{b.icon}</p>
                   <p className="font-extrabold text-[12px] mt-1">{b.name}</p>
                   <p className="text-[9.5px] font-bold leading-snug mt-0.5" style={{ color: '#d9c89a' }}>{b.how}</p>
-                  <span className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[9.5px] font-black" style={rel ? { background: '#F0A32A', color: '#241a0e' } : { background: 'rgba(255,255,255,.15)', color: '#f3e7c8' }}>{rel ? '✓ released' : '＋ release'}</span>
+                  <span className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[9.5px] font-black" style={b.pending ? { background: 'rgba(255,255,255,.10)', color: '#c9b789' } : rel ? { background: '#F0A32A', color: '#241a0e' } : { background: 'rgba(255,255,255,.15)', color: '#f3e7c8' }}>{b.pending ? '🔜 coming soon' : rel ? '✓ released' : '＋ release'}</span>
                 </>
               ) : (
                 <div className="text-left" onClick={(e) => e.stopPropagation()}>
@@ -170,9 +170,15 @@ export default function BadgeBoutique() {
                   <p className="text-[11px] font-bold mt-2" style={{ color: '#d9c89a' }}>
                     {earnedBy.length > 0 ? <>Earned by: {earnedBy.map((c) => `${c.avatarEmoji || '🧒'} ${c.name.split(' ')[0]}`).join(' · ')}</> : 'Nobody has this one yet — a fresh chase!'}
                   </p>
-                  <button disabled={busy} onClick={() => void toggleRelease(b)} className="mt-2 px-3 py-1.5 rounded-full text-[11px] font-black" style={isBadgeReleased(cfg, b) ? { background: 'rgba(255,255,255,.15)', color: '#f3e7c8' } : { background: '#F0A32A', color: '#241a0e' }}>
-                    {isBadgeReleased(cfg, b) ? 'Retire from family' : '＋ Release to family'}
-                  </button>
+                  {b.pending ? (
+                    <p className="mt-2 text-[11px] font-bold" style={{ color: '#c9b789' }}>
+                      🔜 Kaya isn&apos;t counting this one yet — it opens as soon as its tracking lands, and nothing here is lost in the meantime.
+                    </p>
+                  ) : (
+                    <button disabled={busy} onClick={() => void toggleRelease(b)} className="mt-2 px-3 py-1.5 rounded-full text-[11px] font-black" style={isBadgeReleased(cfg, b) ? { background: 'rgba(255,255,255,.15)', color: '#f3e7c8' } : { background: '#F0A32A', color: '#241a0e' }}>
+                      {isBadgeReleased(cfg, b) ? 'Retire from family' : '＋ Release to family'}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

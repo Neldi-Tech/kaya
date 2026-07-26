@@ -25,6 +25,9 @@ export type BadgeSignal =
   | { kind: 'goal_chipins'; threshold: number }
   | { kind: 'redemption_count'; threshold: number }
   | { kind: 'saver_weeks'; threshold: number }
+  /** BDG PR3 — generic per-kid counter on child.badgeCounters (bumped by
+   *  each area's flow, verified server-side at mint). */
+  | { kind: 'child_counter'; key: string; threshold: number }
   | { kind: 'parent_confirm' };
 
 export interface BadgeDef {
@@ -36,6 +39,9 @@ export interface BadgeDef {
   /** Kid-voice one-liner: how it's earned. */
   how: string;
   signal: BadgeSignal;
+  /** BDG PR3 — its tracking hook ships in a later PR: shown in the Boutique
+   *  as "coming soon", never releasable until the flag is dropped. */
+  pending?: boolean;
 }
 
 export const BADGE_TIERS: Record<BadgeTier, { label: string; emoji: string }> = {
@@ -89,6 +95,30 @@ export const BADGE_CATALOG: BadgeDef[] = [
   { id: 'saver-12', name: 'Silver Saver', icon: '🥈', tier: 'hard', area: 'money', how: '12-week saver streak', signal: { kind: 'saver_weeks', threshold: 12 } },
   { id: 'saver-26', name: 'Gold Saver', icon: '🥇', tier: 'legendary', area: 'money', how: '26-week saver streak', signal: { kind: 'saver_weeks', threshold: 26 } },
   { id: 'smart-spender', name: 'Smart Spender', icon: '🛍️', tier: 'easy', area: 'money', how: 'First reward redeemed (with your 🛡 floor safe)', signal: { kind: 'redemption_count', threshold: 1 } },
+  // ── BDG PR3 — the all-Kaya catalog ────────────────────────────────
+  // 🍯 Money — conversions + business
+  { id: 'honey-maker', name: 'Honey Maker', icon: '🍯', tier: 'easy', area: 'money', how: 'First HP → Coins conversion', signal: { kind: 'child_counter', key: 'conversions', threshold: 1 } },
+  { id: 'honey-pro', name: 'Honey Pro', icon: '🐝', tier: 'medium', area: 'money', how: '10 HP → Coins conversions', signal: { kind: 'child_counter', key: 'conversions', threshold: 10 } },
+  // 👨‍👩‍👧 Family goals
+  { id: 'goal-getter', name: 'Goal Getter', icon: '🎪', tier: 'hard', area: 'family', how: 'Part of a reached family goal', signal: { kind: 'child_counter', key: 'goals_reached', threshold: 1 } },
+  { id: 'family-legend', name: 'Family Legend', icon: '👑', tier: 'legendary', area: 'family', how: '3 family goals reached together', signal: { kind: 'child_counter', key: 'goals_reached', threshold: 3 } },
+  // 🎯 Quiz (server-bumped on correct answers)
+  { id: 'brainiac-plus', name: 'Quiz Master', icon: '🧙', tier: 'hard', area: 'quiz', how: '100 correct daily questions', signal: { kind: 'child_counter', key: 'quiz_correct', threshold: 100 } },
+  // 🧹 Chores / Workplan (server-bumped on approved items)
+  { id: 'chore-champ', name: 'Chore Champ', icon: '🧹', tier: 'easy', area: 'chores', how: '25 workplan items done', signal: { kind: 'child_counter', key: 'workplan_done', threshold: 25 } },
+  { id: 'task-master', name: 'Task Master', icon: '📋', tier: 'medium', area: 'chores', how: '100 workplan items done', signal: { kind: 'child_counter', key: 'workplan_done', threshold: 100 } },
+  { id: 'iron-will', name: 'Iron Will', icon: '🛡️', tier: 'legendary', area: 'chores', how: '500 workplan items done', signal: { kind: 'child_counter', key: 'workplan_done', threshold: 500 } },
+  // ── Hooks land in BDG PR4 (pending: shown as "coming soon") ───────
+  { id: 'spark-starter', name: 'Spark Starter', icon: '✨', tier: 'easy', area: 'sparks', how: 'First Sparks project completed', signal: { kind: 'child_counter', key: 'sparks_done', threshold: 1 }, pending: true },
+  { id: 'spark-maker', name: 'Spark Maker', icon: '🎨', tier: 'medium', area: 'sparks', how: '5 Sparks projects completed', signal: { kind: 'child_counter', key: 'sparks_done', threshold: 5 }, pending: true },
+  { id: 'spark-master', name: 'Spark Master', icon: '🌠', tier: 'hard', area: 'sparks', how: '20 Sparks projects completed', signal: { kind: 'child_counter', key: 'sparks_done', threshold: 20 }, pending: true },
+  { id: 'first-thoughts', name: 'First Thoughts', icon: '📔', tier: 'easy', area: 'reflections', how: 'First daily reflection', signal: { kind: 'child_counter', key: 'reflections_done', threshold: 1 }, pending: true },
+  { id: 'honest-heart', name: 'Honest Heart', icon: '💛', tier: 'medium', area: 'reflections', how: '7 reflections in a row', signal: { kind: 'child_counter', key: 'reflection_streak', threshold: 7 }, pending: true },
+  { id: 'deep-thinker', name: 'Deep Thinker', icon: '🦉', tier: 'hard', area: 'reflections', how: '30 daily reflections', signal: { kind: 'child_counter', key: 'reflections_done', threshold: 30 }, pending: true },
+  { id: 'sport-spark', name: 'Sport Spark', icon: '⚽', tier: 'easy', area: 'sports', how: 'First sports-club session', signal: { kind: 'child_counter', key: 'sports_sessions', threshold: 1 }, pending: true },
+  { id: 'team-athlete', name: 'Team Athlete', icon: '🏃', tier: 'medium', area: 'sports', how: '10 sports-club sessions', signal: { kind: 'child_counter', key: 'sports_sessions', threshold: 10 }, pending: true },
+  { id: 'early-bird', name: 'Early Bird', icon: '🦉', tier: 'easy', area: 'routines', how: '7 excellent morning routines', signal: { kind: 'child_counter', key: 'morning_excellent', threshold: 7 }, pending: true },
+  { id: 'golden-evening', name: 'Golden Evening', icon: '🌙', tier: 'medium', area: 'routines', how: '7 excellent evening routines', signal: { kind: 'child_counter', key: 'evening_excellent', threshold: 7 }, pending: true },
 ];
 
 /** Boutique config on the family doc. Absent released map = the DEFAULT set
@@ -103,6 +133,7 @@ export interface BadgeConfig {
 }
 
 export function isBadgeReleased(cfg: BadgeConfig | undefined, def: BadgeDef): boolean {
+  if (def.pending) return false; // hook not shipped yet — never releasable
   const explicit = cfg?.released?.[def.id];
   if (typeof explicit === 'boolean') return explicit;
   return def.tier === 'easy' || def.tier === 'medium';
@@ -127,4 +158,49 @@ export function familyBadgeSet(cfg: BadgeConfig | undefined): BadgeDef[] {
 
 export function badgeById(cfg: BadgeConfig | undefined, id: string): BadgeDef | undefined {
   return familyBadgeSet(cfg).find((b) => b.id === id);
+}
+
+// ── BDG PR3 · counters ──────────────────────────────────────────────
+// Everything Kaya can't read off the child doc directly (quiz answers,
+// awards by category, meetings attended, HP→Coins conversions, workplan
+// items done…) is tallied into ONE map on the child doc:
+//   families/{f}/children/{c}.badgeCounters = { quiz_correct: 12, … }
+// Each area's own flow bumps its key as it happens; the mint route reads
+// the map back and verifies the threshold server-side. One shape, one
+// verification path, no per-area query gymnastics (and no new composite
+// indexes, which would mean a destructive index deploy).
+
+/** The counter key a signal is measured against — null = not counter-based. */
+export function counterKeyForSignal(signal: BadgeSignal): string | null {
+  switch (signal.kind) {
+    case 'award_category_count': return `award_${signal.category}`;
+    case 'diamond_count': return 'diamonds';
+    case 'quiz_correct': return 'quiz_correct';
+    case 'meeting_count': return 'meetings';
+    case 'child_counter': return signal.key;
+    default: return null;
+  }
+}
+
+/** Kid-facing progress toward one badge, from the family-readable child
+ *  fields. Returns null when Kaya can't measure it (custom / parent-minted).
+ *  Powers 🧭 Kaya Badge advisory + every progress bar. */
+export function badgeProgress(
+  cfg: BadgeConfig | undefined,
+  def: BadgeDef,
+  child: { totalPoints?: number; lifetimePoints?: number; streak?: number; badgeCounters?: Record<string, number> },
+): { have: number; need: number; pct: number } | null {
+  const need = badgeThreshold(cfg, def);
+  if (need <= 0) return null;
+  let have: number | null = null;
+  if (def.signal.kind === 'lifetime_points') {
+    have = Math.max(child.lifetimePoints || 0, child.totalPoints || 0);
+  } else if (def.signal.kind === 'streak_days') {
+    have = child.streak || 0;
+  } else {
+    const key = counterKeyForSignal(def.signal);
+    if (key) have = child.badgeCounters?.[key] || 0;
+  }
+  if (have === null) return null;
+  return { have, need, pct: Math.max(0, Math.min(100, Math.round((have / need) * 100))) };
 }
