@@ -74,6 +74,38 @@ export default function RewardsPage() {
   // RWD PR2 (R11) — Store / 📜 History tabs.
   const [view, setView] = useState<'store' | 'history'>('store');
 
+  // RWD PR3 (R18/R20) — run-rate advisory: how long to a reward at the kid's
+  // real weekly pace, and the "🎯 So close!" strip for the nearest stretch
+  // reward within ~2 weeks of reach.
+  const weekly = Math.max(0, child?.weeklyPoints || 0);
+  const paceLabel = (remaining: number): string | null => {
+    if (weekly <= 0) return null;
+    const weeks = remaining / weekly;
+    if (weeks <= 0.5) return 'a few days at your pace';
+    if (weeks <= 1.2) return 'about a week at your pace';
+    return `about ${Math.ceil(weeks)} week${Math.ceil(weeks) > 1 ? 's' : ''} at your pace`;
+  };
+  const soClose = useMemo(() => {
+    if (weekly <= 0) return null;
+    const stretch = activeRewards
+      .filter((r) => r.pointsCost > spendable && (r.pointsCost - spendable) / weekly <= 2)
+      .sort((a, b) => a.pointsCost - b.pointsCost)[0];
+    if (!stretch) return null;
+    return { reward: stretch, missing: stretch.pointsCost - spendable };
+  }, [activeRewards, spendable, weekly]);
+  const soCloseStrip = soClose && view === 'store' ? (
+    <div className="rounded-kaya border border-kaya-gold/50 bg-gradient-to-r from-kaya-gold-light/70 to-kaya-warm/40 px-3.5 py-2.5 mb-4">
+      <p className="text-[12.5px] font-bold">
+        🎯 So close! {fmt(soClose.missing)} more and {soClose.reward.icon} <b>{soClose.reward.title}</b> is yours
+        {paceLabel(soClose.missing) ? ` — ${paceLabel(soClose.missing)}.` : '.'}
+      </p>
+    </div>
+  ) : null;
+
+  // R19 — what's still affordable after a candidate redemption.
+  const stillAffordableAfter = (cost: number): Reward[] =>
+    activeRewards.filter((r) => r.pointsCost <= spendable - cost).sort((a, b) => a.pointsCost - b.pointsCost).slice(0, 2);
+
   // RWD PR2 (R13/R14) — per-reward counts, tappable → dates.
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
   useEffect(() => {
@@ -247,8 +279,12 @@ export default function RewardsPage() {
         {child && (
           <div className="bg-gradient-to-r from-kaya-chocolate to-kaya-chocolate-light rounded-kaya p-4 mb-5 flex items-center justify-between">
             <div>
-              <p className="text-white/70 text-xs font-medium">Available Balance</p>
-              <p className="text-white text-2xl font-display font-black">{fmt(child.totalPoints || 0)} pts</p>
+              <p className="text-white/70 text-xs font-medium">Available to spend</p>
+              <p className="text-white text-2xl font-display font-black">{fmt(spendable)} pts</p>
+              {/* R17 — spendable hero: total · 🛡 protected · to spend. */}
+              {floor > 0 && (
+                <p className="text-white/60 text-[11px] font-semibold mt-0.5">of {fmt(child.totalPoints || 0)} total · 🛡 {fmt(floor)} protected</p>
+              )}
             </div>
             <div className="text-3xl">{child.avatarEmoji}</div>
           </div>
@@ -271,6 +307,7 @@ export default function RewardsPage() {
         {view === 'history' && <RedemptionHistory myKidId={myKidId} />}
 
         {view === 'store' && <>
+        {soCloseStrip}
         {/* Category filter pills (mobile) */}
         {categories.length > 1 && (
           <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -355,7 +392,9 @@ export default function RewardsPage() {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-kaya-sand font-semibold">
-                          {canAfford ? 'Ready to redeem' : `${fmt(remaining)} pts to go`}
+                          {canAfford
+                            ? 'Ready to redeem'
+                            : `${fmt(remaining)} pts to go${paceLabel(remaining) ? ` · ${paceLabel(remaining)} 💪` : ''}`}
                         </span>
                         {pendingReq ? (
                           <span className="flex items-center gap-1.5 shrink-0">
@@ -428,19 +467,23 @@ export default function RewardsPage() {
               <div className="relative flex items-center gap-5">
                 <KidAvatar child={child} size="xl" shape="square" bgOpacity="40" />
                 <div>
-                  <p className="text-white/60 text-[11px] font-bold uppercase tracking-[0.14em]">Available balance</p>
-                  <p className="font-display font-black text-5xl mt-1">{fmt(child.totalPoints || 0)}</p>
-                  <p className="text-[12px] text-kaya-sand-light mt-1">{child.name} · {child.houseName} House</p>
+                  <p className="text-white/60 text-[11px] font-bold uppercase tracking-[0.14em]">Available to spend</p>
+                  <p className="font-display font-black text-5xl mt-1">{fmt(spendable)}</p>
+                  <p className="text-[12px] text-kaya-sand-light mt-1">
+                    {floor > 0
+                      ? <>of {fmt(child.totalPoints || 0)} total · 🛡 {fmt(floor)} protected · {child.name}</>
+                      : <>{child.name} · {child.houseName} House</>}
+                  </p>
                 </div>
               </div>
             </div>
             <div className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Ready to redeem</p>
               <p className="font-display font-extrabold text-3xl mt-2">
-                {activeRewards.filter((r) => (child.totalPoints || 0) >= r.pointsCost).length}
+                {activeRewards.filter((r) => spendable >= r.pointsCost).length}
                 <span className="text-base text-kaya-sand font-semibold ml-1">/ {activeRewards.length}</span>
               </p>
-              <p className="text-[11px] text-kaya-sand mt-2">Within {child.name}&apos;s budget</p>
+              <p className="text-[11px] text-kaya-sand mt-2">Within {child.name}&apos;s spendable points</p>
             </div>
             <div className="col-span-4 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">This week</p>
@@ -467,6 +510,7 @@ export default function RewardsPage() {
         {view === 'history' && <div className="max-w-3xl"><RedemptionHistory myKidId={myKidId} /></div>}
 
         {view === 'store' && <>
+        {soCloseStrip}
         {/* Category filter pills (desktop) */}
         {categories.length > 1 && (
           <div className="flex flex-wrap gap-2 mb-5">
@@ -545,7 +589,9 @@ export default function RewardsPage() {
                     <div className="flex items-baseline justify-between mb-1.5">
                       <span className="font-display font-extrabold text-xl text-kaya-gold">{fmt(reward.pointsCost)}<span className="text-[11px] text-kaya-sand font-semibold ml-1">pts</span></span>
                       {!canAfford && child && (
-                        <span className="text-[11px] text-kaya-sand font-semibold">Need {fmt(remaining)} more</span>
+                        <span className="text-[11px] text-kaya-sand font-semibold">
+                          Need {fmt(remaining)} more{paceLabel(remaining) ? ` · ${paceLabel(remaining)} 💪` : ''}
+                        </span>
                       )}
                     </div>
                     <div className="h-1.5 bg-kaya-warm rounded-full overflow-hidden">
@@ -601,6 +647,12 @@ export default function RewardsPage() {
               After this you&rsquo;ll have <b>{fmt(spendable - confirmFor.pointsCost)}</b> to spend
               {floor > 0 && <> — and your 🛡 {fmt(floor)} stays safe</>}.
             </p>
+            {/* R19 — keep saving visible at spend time. */}
+            {stillAffordableAfter(confirmFor.pointsCost).length > 0 && (
+              <p className="text-[11.5px] text-kaya-sand font-semibold mb-1">
+                Still enough for {stillAffordableAfter(confirmFor.pointsCost).map((r) => `${r.icon} ${r.title}`).join(' and ')}.
+              </p>
+            )}
             <p className="text-[11.5px] text-kaya-sand mb-4">
               {autoBelow > 0 && confirmFor.pointsCost <= autoBelow
                 ? 'This one is small enough to redeem right away. 🎉'
