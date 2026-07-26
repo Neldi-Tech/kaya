@@ -127,6 +127,13 @@ export interface Family {
   // 🔔 Alert-email recipients — the Global → Category → Item cascade
   // (VIS PR3). Absent field = "all parents". See lib/alertEmails.shared.
   alertEmails?: import('./alertEmails.shared').AlertEmailsConfig;
+  /** 🎁 RWD PR1 — store rules: 🛡 min-points floor (family default + per-kid
+   *  overrides, keyed by childId) + kid auto-approve threshold. */
+  rewardsConfig?: {
+    minPointsFloor?: number;
+    minPointsFloorPerKid?: Record<string, number>;
+    autoApproveBelowPoints?: number;
+  };
   // 📬 Kids' email updates (KID PR1) — per-kid source POINTER + stream
   // toggles, everything default OFF (COPPA). See lib/kidEmails.shared.
   kidEmailUpdates?: import('./kidEmails.shared').KidEmailUpdatesConfig;
@@ -1326,6 +1333,13 @@ export interface Redemption {
   rewardTitle: string;
   pointsSpent: number;
   createdAt: Timestamp;
+  // ── RWD PR1 — approval accounting. Legacy rows (pre-26-Jul-2026) have
+  //    none of these and read as an approved instant redemption.
+  status?: 'approved' | 'rejected';
+  /** Parent uid who approved, or 'auto' (under the family threshold). */
+  approvedBy?: string;
+  /** Parent's note to the kid, mirrored from the approval. */
+  note?: string;
 }
 
 // Seed categories shown in the dropdown the first time a parent opens
@@ -3001,28 +3015,10 @@ export async function getRedemptions(familyId: string, limitCount = 25): Promise
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Redemption));
 }
 
-export async function redeemReward(familyId: string, childId: string, reward: Reward) {
-  if (isGuestActive()) return;
-  const childRef = doc(db, 'families', familyId, 'children', childId);
-  const childSnap = await getDoc(childRef);
-  if (!childSnap.exists()) throw new Error('Child not found');
-
-  const child = childSnap.data() as Child;
-  if (child.totalPoints < reward.pointsCost) throw new Error('Not enough points');
-
-  await updateDoc(childRef, {
-    totalPoints: child.totalPoints - reward.pointsCost,
-  });
-
-  // Log the redemption
-  await addDoc(collection(db, 'families', familyId, 'redemptions'), {
-    childId,
-    rewardId: reward.id,
-    rewardTitle: reward.title,
-    pointsSpent: reward.pointsCost,
-    createdAt: serverTimestamp(),
-  });
-}
+// RWD PR1 — the old redeemReward (non-transactional, desynced the Hive
+// wallet, no history status) is RETIRED. All redemptions now run through
+// parentRedeemReward / requestRewardRedeem + resolveApprovalRequest in
+// lib/hive.ts — one transaction: points + wallet + 📜 statement + history.
 
 // ── Notification Operations ───────────────────────
 export async function createNotification(familyId: string, notification: Omit<Notification, 'id'>) {

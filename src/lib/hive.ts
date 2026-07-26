@@ -52,7 +52,9 @@ export type ApprovalType =
   | 'business_sale'          // a kid's daily auto-sale, sent for parent approval → logSale on approve
   | 'business_reinvest'      // a kid spends their OWN Honey Pot into a business — one parent OK → Pot out + business cost
   // ── Kaya Chat ──────────────────────────────────────────────────
-  | 'create_group_chat';     // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
+  | 'create_group_chat'      // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
+  // ── Rewards store (RWD PR1, approved v2 FINAL 26-Jul-2026) ─────
+  | 'reward_redeem';         // a kid asks to redeem a reward — resolve = transactional points + wallet + statement + history
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -494,7 +496,13 @@ export interface ApprovalRequest {
   /** Discriminates the parent inbox into sections. Absent / 'hive' = a Hive
    *  request. Resolved business requests are retained (never deleted) so the
    *  Business console can show them as approval history for future reference. */
-  module?: 'hive' | 'business';
+  module?: 'hive' | 'business' | 'rewards';
+  // ── Rewards store (reward_redeem; RWD PR1) ────────────────────────
+  rewardId?: string;
+  /** Denormalized so the approval card + history survive reward edits. */
+  rewardTitle?: string;
+  rewardIcon?: string;
+  rewardPointsCost?: number;
   businessId?: string;
   instrumentSymbol?: string;        // investment_buy / investment_sell
   shares?: number;                  // investment_buy / investment_sell
@@ -1231,19 +1239,33 @@ export async function resolveApprovalRequest(
   decision: 'approved' | 'rejected',
   approverUid: string,
   rejectionReason?: string,
+  /** RWD PR1 — parent's note shown to the kid on approve AND reject. */
+  approvalNote?: string,
 ): Promise<void> {
   if (isGuestActive()) return;
+  // RWD PR1 (R7) — reward resolutions ring the kid's bell after the
+  // transaction commits (best-effort; never blocks the resolution).
+  let rewardNotify: { forUserId: string; approved: boolean; title: string; note?: string } | null = null;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(requestCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
     if (!reqSnap.exists()) throw new Error('Request not found.');
     const req = { id: reqSnap.id, ...reqSnap.data() } as ApprovalRequest;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
+    if (req.type === 'reward_redeem' && req.createdBy && req.createdBy !== approverUid) {
+      rewardNotify = {
+        forUserId: req.createdBy,
+        approved: decision === 'approved',
+        title: req.rewardTitle || 'your reward',
+        note: approvalNote?.trim() || (decision === 'rejected' ? rejectionReason?.trim() : undefined),
+      };
+    }
 
     if (decision === 'rejected') {
       tx.update(reqRef, {
         status: 'rejected' as ApprovalStatus,
         rejectionReason: rejectionReason || '',
+        ...(approvalNote?.trim() ? { approvalNote: approvalNote.trim() } : {}),
         resolvedAt: serverTimestamp(),
         resolvedBy: approverUid,
       });
@@ -1419,10 +1441,141 @@ export async function resolveApprovalRequest(
         resolvedAt: now,
         resolvedBy: approverUid,
       });
+    } else if (req.type === 'reward_redeem') {
+      // 🎁 RWD PR1 — the ONE redemption transaction: 🛡 floor check, points +
+      // wallet mirror + 📜 statement line + history row commit together.
+      const cost = req.rewardPointsCost ?? 0;
+      if (!Number.isInteger(cost) || cost <= 0) throw new Error('Bad reward request.');
+      const cRef = childRef(familyId, req.kidId);
+      const cSnap = await tx.get(cRef);
+      if (!cSnap.exists()) throw new Error('Child not found.');
+      const child = cSnap.data() as { totalPoints?: number };
+      const famSnap = await tx.get(doc(db, 'families', familyId));
+      const floor = rewardsFloorFor(famSnap.data() as FamilyRewardsSlice | undefined, req.kidId);
+      const total = child.totalPoints ?? 0;
+      if (total - cost < floor) {
+        throw new Error(floor > 0
+          ? `This would dip under the family's 🛡 ${floor}-point floor (${Math.max(0, total - floor)} spendable).`
+          : 'Not enough points.');
+      }
+      const ledgerRef = doc(txCol(familyId, req.kidId));
+      const redRef = doc(collection(db, 'families', familyId, 'redemptions'));
+      const now = serverTimestamp();
+      tx.update(cRef, { totalPoints: total - cost });
+      tx.set(wRef, {
+        ...wallet,
+        housePoints: Math.max(0, wallet.housePoints - cost),
+        updatedAt: now,
+      });
+      tx.set(ledgerRef, {
+        layer: 'house_points', direction: 'out', amount: cost, category: 'spend',
+        description: `🎁 ${req.rewardTitle || 'Reward'}`,
+        status: 'completed', requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      tx.set(redRef, {
+        childId: req.kidId,
+        rewardId: req.rewardId || '',
+        rewardTitle: req.rewardTitle || 'Reward',
+        pointsSpent: cost,
+        status: 'approved',
+        approvedBy: approverUid,
+        ...(approvalNote?.trim() ? { note: approvalNote.trim() } : {}),
+        createdAt: now,
+      });
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        ...(approvalNote?.trim() ? { approvalNote: approvalNote.trim() } : {}),
+        resolvedAt: now,
+        resolvedBy: approverUid,
+        resultingTxIds: [ledgerRef.id],
+      });
     } else {
       throw new Error(`Unknown approval type: ${(req as any).type}`);
     }
   });
+
+  if (rewardNotify) {
+    const n = rewardNotify as { forUserId: string; approved: boolean; title: string; note?: string };
+    try {
+      await addDoc(collection(db, 'families', familyId, 'notifications'), {
+        type: 'reward',
+        forUserId: n.forUserId,
+        title: n.approved ? `🎉 Approved: ${n.title}` : `About: ${n.title}`,
+        message: n.approved
+          ? `Enjoy it!${n.note ? ` — “${n.note}”` : ''}`
+          : `Not this time.${n.note ? ` — “${n.note}”` : ''}`,
+        read: false,
+        link: '/rewards',
+        createdAt: serverTimestamp(),
+      });
+    } catch { /* bell is best-effort */ }
+  }
+}
+
+// ── 🎁 Rewards store (RWD PR1, approved v2 FINAL 26-Jul-2026) ──────
+
+/** Family-doc slice carrying the store rules (Settings → 🎁 Rewards rules). */
+export interface FamilyRewardsSlice {
+  rewardsConfig?: {
+    /** 🛡 points that must SURVIVE every redemption (family default). */
+    minPointsFloor?: number;
+    /** Per-kid floor overrides (childId → floor). */
+    minPointsFloorPerKid?: Record<string, number>;
+    /** Kid redemptions at/below this auto-approve (0/absent = always ask). */
+    autoApproveBelowPoints?: number;
+  };
+}
+
+/** The 🛡 floor that applies to one kid (per-kid override → family default → 0). */
+export function rewardsFloorFor(fam: FamilyRewardsSlice | undefined, kidId: string): number {
+  const cfg = fam?.rewardsConfig;
+  const v = cfg?.minPointsFloorPerKid?.[kidId] ?? cfg?.minPointsFloor ?? 0;
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+}
+
+/** Kid asks to redeem a reward — a pending doc in the family approval queue
+ *  (the same one Hive money rides; rules already allow a kid to create their
+ *  own pending request). Affordability incl. the 🛡 floor is checked here for
+ *  a friendly early error AND again inside the resolve transaction. */
+export async function requestRewardRedeem(
+  familyId: string,
+  kidId: string,
+  reward: { id: string; title: string; icon?: string; pointsCost: number },
+  createdBy: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  if (!Number.isInteger(reward.pointsCost) || reward.pointsCost <= 0) throw new Error('Bad reward.');
+  const ref = await addDoc(requestCol(familyId), {
+    kidId,
+    type: 'reward_redeem' as ApprovalType,
+    module: 'rewards',
+    rewardId: reward.id,
+    rewardTitle: reward.title,
+    ...(reward.icon ? { rewardIcon: reward.icon } : {}),
+    rewardPointsCost: reward.pointsCost,
+    description: `🎁 ${reward.title} · ${reward.pointsCost} pts`,
+    status: 'pending' as ApprovalStatus,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+  return ref.id;
+}
+
+/** Parent redeems for a kid — the parent IS the approver, so this runs the
+ *  same transactional engine instantly: create the request pre-approved via
+ *  a synthetic pending doc, then resolve it in one go. */
+export async function parentRedeemReward(
+  familyId: string,
+  kidId: string,
+  reward: { id: string; title: string; icon?: string; pointsCost: number },
+  parentUid: string,
+  note?: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const requestId = await requestRewardRedeem(familyId, kidId, reward, parentUid);
+  await resolveApprovalRequest(familyId, requestId, 'approved', parentUid, undefined, note);
 }
 
 // ── Direct cash deposit (parent-only) ─────────────────────────────

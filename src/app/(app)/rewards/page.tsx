@@ -1,13 +1,18 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  redeemReward, Reward,
+  Reward,
   DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
 } from '@/lib/firestore';
+import {
+  requestRewardRedeem, parentRedeemReward, cancelOwnRequest,
+  subscribeToKidRequests, rewardsFloorFor,
+  type ApprovalRequest, type FamilyRewardsSlice,
+} from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
@@ -17,16 +22,52 @@ const iconForCategory = (name: string) =>
   DEFAULT_REWARD_CATEGORIES.find((c) => c.name === name)?.icon || '🏷️';
 
 export default function RewardsPage() {
-  const { profile } = useAuth();
-  const { children, rewards, refresh } = useFamily();
+  const { profile, user } = useAuth();
+  const { family, children: allChildren, rewards, refresh } = useFamily();
   const [selectedChild, setSelectedChild] = useState(0);
   const [redeeming, setRedeeming] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
-  const child = children[selectedChild];
   const isParent = profile?.role === 'parent';
+  const isKid = profile?.role === 'kid';
+
+  // RWD PR1 (R1) — a kid's store is THEIR OWN: resolve their child record
+  // (childId, with an email-match fallback like /stats/me) and hide sibling
+  // tabs entirely. Parents/helpers keep the full picker.
+  const myKidId = useMemo(() => {
+    if (!isKid) return null;
+    if (profile?.childId && profile.childId.trim()) return profile.childId;
+    const email = (profile?.email || '').trim().toLowerCase();
+    const match = email ? allChildren.find((c) => (c.emailLower || c.email?.toLowerCase() || '') === email) : undefined;
+    return match?.id ?? null;
+  }, [isKid, profile?.childId, profile?.email, allChildren]);
+  const children = useMemo(
+    () => (isKid ? allChildren.filter((c) => c.id === myKidId) : allChildren),
+    [isKid, allChildren, myKidId],
+  );
+
+  const child = children[selectedChild] ?? children[0];
   const activeRewards = rewards.filter((r) => r.active);
+
+  // RWD PR1 (R3) — the kid's own pending reward requests (⏳ + cancel).
+  const [myRequests, setMyRequests] = useState<ApprovalRequest[]>([]);
+  useEffect(() => {
+    if (!isKid || !profile?.familyId || !myKidId) return;
+    return subscribeToKidRequests(profile.familyId, myKidId, setMyRequests);
+  }, [isKid, profile?.familyId, myKidId]);
+  const pendingByReward = useMemo(() => {
+    const map = new Map<string, ApprovalRequest>();
+    for (const r of myRequests) {
+      if (r.type === 'reward_redeem' && r.status === 'pending' && r.rewardId) map.set(r.rewardId, r);
+    }
+    return map;
+  }, [myRequests]);
+
+  // RWD PR1 (R9/R10) — 🛡 spendable = balance − floor; every affordability
+  // check below runs on spendable, and the transaction re-enforces it.
+  const floor = rewardsFloorFor(family as FamilyRewardsSlice | undefined, child?.id || '');
+  const spendable = Math.max(0, (child?.totalPoints || 0) - floor);
 
   // Distinct categories present in the active reward set, in alpha order.
   const categories = useMemo(() => {
@@ -53,16 +94,27 @@ export default function RewardsPage() {
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [visibleRewards]);
 
+  // RWD PR1 (R2/R5/R6/R8) — parent taps = instant TRANSACTIONAL redeem (they
+  // are the approver); kid taps = confirm sheet → request in the family
+  // approval queue (or instant via the server when under the family's
+  // auto-approve threshold). Both paths respect the 🛡 floor.
+  const [confirmFor, setConfirmFor] = useState<Reward | null>(null);
+  const autoBelow = (family as FamilyRewardsSlice | undefined)?.rewardsConfig?.autoApproveBelowPoints ?? 0;
+
   const handleRedeem = async (reward: Reward) => {
     if (!profile?.familyId || !child) return;
-    if ((child.totalPoints || 0) < reward.pointsCost) {
-      setMessage(`${child.name} needs ${fmt(reward.pointsCost - (child.totalPoints || 0))} more points!`);
-      setTimeout(() => setMessage(''), 3000);
+    if (spendable < reward.pointsCost) {
+      const missing = reward.pointsCost - spendable;
+      setMessage(floor > 0
+        ? `${fmt(missing)} more spendable points needed (🛡 ${fmt(floor)} stays protected).`
+        : `${child.name} needs ${fmt(missing)} more points!`);
+      setTimeout(() => setMessage(''), 3500);
       return;
     }
+    if (isKid) { setConfirmFor(reward); return; }
     setRedeeming(reward.id);
     try {
-      await redeemReward(profile.familyId, child.id, reward);
+      await parentRedeemReward(profile.familyId, child.id, reward, profile.uid);
       setMessage(`🎉 ${child.name} redeemed "${reward.title}"!`);
       await refresh();
     } catch (e: any) {
@@ -70,6 +122,43 @@ export default function RewardsPage() {
     }
     setRedeeming(null);
     setTimeout(() => setMessage(''), 4000);
+  };
+
+  const kidConfirmRedeem = async () => {
+    const reward = confirmFor;
+    if (!reward || !profile?.familyId || !myKidId) return;
+    setConfirmFor(null);
+    setRedeeming(reward.id);
+    try {
+      if (autoBelow > 0 && reward.pointsCost <= autoBelow && user) {
+        // Under the family threshold → instant via the server (kids can't
+        // write points themselves; the route re-checks floor + threshold).
+        const token = await user.getIdToken();
+        const res = await fetch('/api/rewards/redeem', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ rewardId: reward.id }),
+        });
+        const data = (await res.json()) as { ok?: boolean; error?: string };
+        if (!data.ok) throw new Error(data.error || 'Could not redeem.');
+        setMessage(`🎉 "${reward.title}" is yours — enjoy!`);
+        await refresh();
+      } else {
+        await requestRewardRedeem(profile.familyId, myKidId, reward, profile.uid);
+        setMessage(`⏳ Asked! A parent will look at "${reward.title}" soon.`);
+      }
+    } catch (e: any) {
+      setMessage(e.message || 'Could not send the request.');
+    }
+    setRedeeming(null);
+    setTimeout(() => setMessage(''), 4000);
+  };
+
+  const kidCancelRequest = async (req: ApprovalRequest) => {
+    if (!profile?.familyId || !profile.uid) return;
+    try { await cancelOwnRequest(profile.familyId, req.id, profile.uid); setMessage('Request cancelled.'); }
+    catch { setMessage('Could not cancel.'); }
+    setTimeout(() => setMessage(''), 3000);
   };
 
   return (
@@ -170,9 +259,10 @@ export default function RewardsPage() {
             </div>
             <div className="space-y-3">
               {items.map((reward) => {
-                const canAfford = (child?.totalPoints || 0) >= reward.pointsCost;
-                const remaining = reward.pointsCost - (child?.totalPoints || 0);
-                const progress = Math.min(100, ((child?.totalPoints || 0) / reward.pointsCost) * 100);
+                const canAfford = spendable >= reward.pointsCost;
+                const remaining = reward.pointsCost - spendable;
+                const progress = Math.min(100, (spendable / reward.pointsCost) * 100);
+                const pendingReq = isKid ? pendingByReward.get(reward.id) : undefined;
                 return (
                   <div key={reward.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
                     <div className="flex items-start gap-3">
@@ -199,7 +289,12 @@ export default function RewardsPage() {
                         <span className="text-[11px] text-kaya-sand font-semibold">
                           {canAfford ? 'Ready to redeem' : `${fmt(remaining)} pts to go`}
                         </span>
-                        {isParent && (
+                        {pendingReq ? (
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] font-bold text-kaya-gold-dark bg-kaya-gold-light rounded-full px-2 py-1">⏳ waiting for a parent</span>
+                            <button onClick={() => kidCancelRequest(pendingReq)} className="text-[10px] font-bold text-kaya-sand hover:underline">cancel</button>
+                          </span>
+                        ) : (isParent || isKid) && (
                           <button
                             onClick={() => handleRedeem(reward)}
                             disabled={!canAfford || redeeming === reward.id}
@@ -207,7 +302,7 @@ export default function RewardsPage() {
                               canAfford ? 'bg-kaya-gold text-white hover:bg-kaya-gold-dark' : 'bg-kaya-warm text-kaya-sand'
                             } disabled:opacity-50`}
                           >
-                            {redeeming === reward.id ? '…' : canAfford ? 'Redeem' : 'Not yet'}
+                            {redeeming === reward.id ? '…' : !canAfford ? 'Not yet' : isKid ? 'Ask to redeem 🎁' : 'Redeem'}
                           </button>
                         )}
                       </div>
@@ -343,9 +438,10 @@ export default function RewardsPage() {
         ) : (
           <div className="grid grid-cols-3 gap-4">
             {visibleRewards.map((reward) => {
-              const canAfford = (child?.totalPoints || 0) >= reward.pointsCost;
-              const remaining = reward.pointsCost - (child?.totalPoints || 0);
-              const progress = Math.min(100, ((child?.totalPoints || 0) / reward.pointsCost) * 100);
+              const canAfford = spendable >= reward.pointsCost;
+              const remaining = reward.pointsCost - spendable;
+              const progress = Math.min(100, (spendable / reward.pointsCost) * 100);
+              const pendingReq = isKid ? pendingByReward.get(reward.id) : undefined;
               return (
                 <div
                   key={reward.id}
@@ -379,7 +475,12 @@ export default function RewardsPage() {
                     </div>
                   </div>
 
-                  {isParent && (
+                  {pendingReq ? (
+                    <div className="w-full flex items-center justify-between gap-2 h-10 px-3 rounded-kaya-sm bg-kaya-gold-light">
+                      <span className="text-[11px] font-bold text-kaya-gold-dark">⏳ waiting for a parent</span>
+                      <button onClick={() => kidCancelRequest(pendingReq)} className="text-[11px] font-bold text-kaya-sand hover:underline">cancel</button>
+                    </div>
+                  ) : (isParent || isKid) && (
                     <button
                       onClick={() => handleRedeem(reward)}
                       disabled={!canAfford || redeeming === reward.id}
@@ -389,7 +490,7 @@ export default function RewardsPage() {
                           : 'bg-kaya-warm text-kaya-sand cursor-not-allowed'
                       } disabled:opacity-50`}
                     >
-                      {redeeming === reward.id ? 'Redeeming…' : canAfford ? 'Redeem' : 'Not enough yet'}
+                      {redeeming === reward.id ? 'Redeeming…' : !canAfford ? 'Not enough yet' : isKid ? 'Ask to redeem 🎁' : 'Redeem'}
                     </button>
                   )}
                 </div>
@@ -398,6 +499,45 @@ export default function RewardsPage() {
           </div>
         )}
       </div>
+
+      {/* RWD PR1 (R2) — kid confirm sheet: what it costs, what's left to
+          spend, the 🛡 floor staying safe, then ask (or instant when the
+          family's auto-approve threshold covers it). */}
+      {confirmFor && child && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-40" onClick={() => setConfirmFor(null)} />
+          <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-md bg-white rounded-t-3xl shadow-2xl z-50 p-5 pb-8">
+            <div className="w-12 h-1 rounded-full bg-kaya-warm-dark/60 mx-auto mb-4" />
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-12 h-12 rounded-[14px] bg-kaya-warm/60 flex items-center justify-center text-2xl">{confirmFor.icon}</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-display font-extrabold text-base">{confirmFor.title}</p>
+                <p className="text-[12px] text-kaya-sand">{fmt(confirmFor.pointsCost)} pts</p>
+              </div>
+            </div>
+            <p className="text-[12.5px] font-semibold mb-1">
+              After this you&rsquo;ll have <b>{fmt(spendable - confirmFor.pointsCost)}</b> to spend
+              {floor > 0 && <> — and your 🛡 {fmt(floor)} stays safe</>}.
+            </p>
+            <p className="text-[11.5px] text-kaya-sand mb-4">
+              {autoBelow > 0 && confirmFor.pointsCost <= autoBelow
+                ? 'This one is small enough to redeem right away. 🎉'
+                : 'A parent will get your request and reply with a note.'}
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={kidConfirmRedeem}
+                className="flex-1 h-11 rounded-kaya-sm bg-kaya-gold text-white text-[13px] font-bold hover:bg-kaya-gold-dark"
+              >
+                {autoBelow > 0 && confirmFor.pointsCost <= autoBelow ? 'Redeem now 🎁' : 'Ask to redeem 🎁'}
+              </button>
+              <button onClick={() => setConfirmFor(null)} className="h-11 px-4 rounded-kaya-sm border border-kaya-warm-dark text-[13px] font-bold">
+                Not now
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }

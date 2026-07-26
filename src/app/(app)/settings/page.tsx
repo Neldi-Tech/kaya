@@ -56,6 +56,7 @@ import LanguageCard from '@/components/settings/LanguageCard';
 import SettingsQuickFind from '@/components/settings/SettingsQuickFind';
 import SecurityPrivacyCard from '@/components/settings/SecurityPrivacyCard';
 import KidPrivacyCard from '@/components/settings/KidPrivacyCard';
+import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
 import { localeLabel, localeForCountry, asLocale } from '@/lib/i18n';
 import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
@@ -1146,6 +1147,19 @@ export default function SettingsPage() {
           {isParent && !isGuest && (
             <CollapsibleSection id="security" remember icon="🔐" title="Security & privacy" summary="logins · resets · privacy">
               <SecurityPrivacyCard />
+            </CollapsibleSection>
+          )}
+
+          {/* 🎁 Rewards rules (RWD PR1) — 🛡 min-points floor + auto-approve. */}
+          {isParent && !isGuest && (
+            <CollapsibleSection
+              id="rewards-rules"
+              remember
+              icon="🎁"
+              title="Rewards rules"
+              summary={family?.rewardsConfig?.minPointsFloor ? `🛡 ${family.rewardsConfig.minPointsFloor} pts protected` : 'no floor set'}
+            >
+              <RewardsRulesCard />
             </CollapsibleSection>
           )}
           {profile?.role === 'kid' && <KidPrivacyCard />}
