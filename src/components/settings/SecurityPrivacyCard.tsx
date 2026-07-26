@@ -68,15 +68,28 @@ export default function SecurityPrivacyCard() {
   const [resetOpenFor, setResetOpenFor] = useState<string | null>(null);
   const [freshCode, setFreshCode] = useState<{ childId: string; code: string } | null>(null);
 
-  const kidEmailReset = async (childId: string, mode: 'default-password' | 'reset-link') => {
+  // Editable default password (Elia, 26-Jul): choosing the default-password
+  // option first opens an input pre-filled with a suggestion — the parent can
+  // keep or rewrite it before sending.
+  const [pwDraftFor, setPwDraftFor] = useState<string | null>(null);
+  const [pwDraft, setPwDraft] = useState('');
+  const SAFE = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const suggestPw = () => Array.from({ length: 8 }, () => SAFE[Math.floor(Math.random() * SAFE.length)]).join('');
+  const openPwDraft = (childId: string) => { setPwDraft(suggestPw()); setPwDraftFor(childId); };
+
+  const kidEmailReset = async (childId: string, mode: 'default-password' | 'reset-link', password?: string) => {
     if (!user || busy) return;
+    if (mode === 'default-password' && password !== undefined && (password.trim().length < 6 || password.trim().length > 32)) {
+      setMsg({ tone: 'err', text: 'The password needs 6–32 characters.' });
+      return;
+    }
     setBusy(childId);
     try {
       const token = await user.getIdToken();
       const res = await fetch('/api/security/kid-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ childId, mode }),
+        body: JSON.stringify({ childId, mode, ...(password ? { password: password.trim() } : {}) }),
       });
       const data = (await res.json()) as { ok?: boolean; sentTo?: string; error?: string };
       setMsg(data.ok
@@ -223,7 +236,29 @@ export default function SecurityPrivacyCard() {
               {resetOpenFor === k.id && (
                 <div className="mt-2 rounded-kaya-sm border border-dashed border-kaya-gold/60 bg-kaya-gold-light/40 p-3 space-y-1.5">
                   <p className="text-[11px] font-extrabold text-kaya-gold-dark uppercase tracking-wide">Reset {first}&rsquo;s login</p>
-                  <button type="button" className={`${btn} w-full text-left`} onClick={() => kidEmailReset(k.id, 'default-password')}>📮 Send a <b>default password</b> to their email — they change it at next sign-in</button>
+                  {pwDraftFor === k.id ? (
+                    <div className="rounded-kaya-sm border border-kaya-warm-dark bg-white p-2.5 space-y-1.5">
+                      <p className="text-[10.5px] font-extrabold text-kaya-sand uppercase tracking-wide">The password that will be emailed — keep or edit it</p>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          value={pwDraft}
+                          onChange={(e) => setPwDraft(e.target.value)}
+                          className="flex-1 rounded-kaya-sm border border-kaya-warm-dark/70 px-3 py-2 text-[14px] font-black tracking-[2px]"
+                          maxLength={32}
+                          aria-label="Default password to send"
+                        />
+                        <button type="button" className={btn} onClick={() => setPwDraft(suggestPw())} title="Suggest another">🎲</button>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button type="button" className={`${btn} bg-kaya-gold text-white border-kaya-gold-dark`} onClick={() => { kidEmailReset(k.id, 'default-password', pwDraft); setPwDraftFor(null); }}>📮 Send it</button>
+                        <button type="button" className={btn} onClick={() => setPwDraftFor(null)}>Cancel</button>
+                      </div>
+                      <p className="text-[10px] text-kaya-sand font-semibold">They&rsquo;ll be asked to change it at next sign-in.</p>
+                    </div>
+                  ) : (
+                    <button type="button" className={`${btn} w-full text-left`} onClick={() => openPwDraft(k.id)}>📮 Send a <b>default password</b> to their email — they change it at next sign-in</button>
+                  )}
                   <button type="button" className={`${btn} w-full text-left`} onClick={() => kidEmailReset(k.id, 'reset-link')}>🔗 Send a link so they <b>set their own</b></button>
                   <button type="button" className={`${btn} w-full text-left`} onClick={() => newKidCode(k.id)}>🔑 <b>New Kaya Code</b> — the old one stops working</button>
                 </div>
