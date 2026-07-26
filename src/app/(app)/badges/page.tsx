@@ -10,6 +10,9 @@ import {
 } from '@/lib/badgeLib';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import BadgeHistory from '@/components/rewards/BadgeHistory';
+import BadgeBoard from '@/components/rewards/BadgeBoard';
+import TopBadge from '@/components/rewards/TopBadge';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -22,6 +25,9 @@ export default function BadgesPage() {
   const child = children[selectedChild];
   const cfg = family?.badgeConfig;
   const earnedBadges = child?.badges || [];
+  // A kid viewer is pinned to their own history by the route anyway; parents
+  // read the history of whichever kid is selected above.
+  const isKidViewer = profile?.role === 'kid';
 
   // 🏅 BDG PR3 (B12) — the kid sees the family's OWN badge set: the released
   // slice of the all-Kaya catalog, in Boutique order (area → tier → name).
@@ -87,13 +93,28 @@ export default function BadgesPage() {
         })}
       </div>
 
+      {/* Worn badge — mobile gets its own line (the desktop banner shows it
+          beside the name). Tap it for what it means. */}
+      {child && (
+        <div className="lg:hidden flex items-center gap-2 mb-3">
+          <span className="text-[12.5px] font-bold text-kaya-sand">{child.name.split(' ')[0]} is wearing</span>
+          <TopBadge cfg={cfg} earned={child.badges} kidName={child.name.split(' ')[0]} />
+          {(child.badges || []).length === 0 && (
+            <span className="text-[12px] text-kaya-sand">nothing yet — first badge coming 🧭</span>
+          )}
+        </div>
+      )}
+
       {/* Stats banner */}
       {child && (
         <div className="bg-white border border-kaya-warm-dark rounded-kaya p-4 lg:p-5 mb-5 lg:mb-6 grid grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4 items-center">
           <div className="hidden lg:flex items-center gap-3 col-span-1">
             <KidAvatar child={child} size="lg" shape="square" />
             <div>
-              <p className="font-display font-bold text-base">{child.name}</p>
+              <p className="font-display font-bold text-base flex items-center gap-1.5">
+                {child.name}
+                <TopBadge cfg={cfg} earned={child.badges} kidName={child.name.split(' ')[0]} />
+              </p>
               <p className="text-[11px] text-kaya-sand">{child.houseName} House</p>
             </div>
           </div>
@@ -215,6 +236,25 @@ export default function BadgesPage() {
         <p className="text-center text-sm text-kaya-sand py-10">
           No badges released in this area yet — a parent can open them in Manage Rewards → 🏬 Badge Boutique.
         </p>
+      )}
+
+      {/* 📜 Badge history — every badge ever earned, with its date. A kid sees
+          their own; a parent sees the family with per-kid filters. */}
+      <div className="mt-6 lg:mt-8 bg-white border border-kaya-warm-dark rounded-kaya lg:rounded-kaya-lg p-4 lg:p-5">
+        <p className="font-display text-[15px] lg:text-base font-black mb-1">📜 Badge history</p>
+        <p className="text-[11.5px] text-kaya-sand mb-2">
+          {isKidViewer
+            ? 'Every badge you have ever earned, with the day it landed.'
+            : 'Every badge the family has ever earned, with the day it landed.'}
+        </p>
+        <BadgeHistory childId={isKidViewer ? null : child?.id ?? null} />
+      </div>
+
+      {/* 🏆 Badge Board — family standings */}
+      {children.length > 1 && (
+        <div className="mt-4 lg:mt-5 mb-6">
+          <BadgeBoard highlightChildId={child?.id ?? null} />
+        </div>
       )}
     </div>
   );

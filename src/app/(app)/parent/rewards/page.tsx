@@ -14,6 +14,8 @@ import NextUp from '@/components/ui/NextUp';
 import RewardsWizard from '@/components/rewards/RewardsWizard';
 import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
 import BadgeBoutique from '@/components/rewards/BadgeBoutique';
+import BadgeHistory from '@/components/rewards/BadgeHistory';
+import BadgeBoard from '@/components/rewards/BadgeBoard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
@@ -454,6 +456,24 @@ export default function ParentRewardsPage() {
           summary="the badge store"
         >
           <BadgeBoutique />
+        </CollapsibleSection>
+      </div>
+
+      {/* 📜 Badge history (BDG PR4 · B17) — parents' full record of every
+          badge every kid ever earned, with dates, filterable by kid. Sits
+          with the badge settings, same as 📜 Recent redemptions does below. */}
+      <div className="mb-4">
+        <CollapsibleSection
+          id="badge-history"
+          remember
+          icon="📜"
+          title="Badge history — who earned what, and when"
+          summary="every badge ever earned"
+        >
+          <BadgeHistory />
+          <div className="mt-4">
+            <BadgeBoard />
+          </div>
         </CollapsibleSection>
       </div>
 
