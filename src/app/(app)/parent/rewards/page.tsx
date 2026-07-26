@@ -873,7 +873,7 @@ export default function ParentRewardsPage() {
                               placeholder="all"
                               className="h-8 w-20 px-2 rounded-kaya-sm border border-kaya-warm-dark/70 text-xs font-semibold text-right"
                             />
-                            <span className="text-[10.5px] text-kaya-sand">empty = all ages · younger kids see 🔒 &ldquo;from age N&rdquo;</span>
+                            <span className="text-[10.5px] text-kaya-sand">empty = all ages · younger kids see it greyed 🔒 &ldquo;opens from age N&rdquo;, keep saving, and it opens by itself on their birthday · no birthday on file = no age limit</span>
                           </div>
                           {r.locked && (
                             <div className="flex items-center gap-2 mt-2">
