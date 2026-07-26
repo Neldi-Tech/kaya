@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Reward, Redemption, getRedemptions,
+  Reward, Redemption, getRedemptions, isRewardLocked,
   DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
 } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
@@ -88,7 +88,7 @@ export default function RewardsPage() {
   const soClose = useMemo(() => {
     if (weekly <= 0) return null;
     const stretch = activeRewards
-      .filter((r) => r.pointsCost > spendable && (r.pointsCost - spendable) / weekly <= 2)
+      .filter((r) => !isRewardLocked(r) && r.pointsCost > spendable && (r.pointsCost - spendable) / weekly <= 2)
       .sort((a, b) => a.pointsCost - b.pointsCost)[0];
     if (!stretch) return null;
     return { reward: stretch, missing: stretch.pointsCost - spendable };
@@ -104,7 +104,23 @@ export default function RewardsPage() {
 
   // R19 — what's still affordable after a candidate redemption.
   const stillAffordableAfter = (cost: number): Reward[] =>
-    activeRewards.filter((r) => r.pointsCost <= spendable - cost).sort((a, b) => a.pointsCost - b.pointsCost).slice(0, 2);
+    activeRewards.filter((r) => !isRewardLocked(r) && r.pointsCost <= spendable - cost).sort((a, b) => a.pointsCost - b.pointsCost).slice(0, 2);
+
+  // 🔒 RWD PR4 (R22) — locked cards stay visible but greyed with a countdown;
+  // redeem stays off until they open (date locks auto-open on the day).
+  const daysUntil = (key: string): number => {
+    const target = new Date(`${key}T00:00:00`);
+    return Math.max(0, Math.ceil((target.getTime() - Date.now()) / 86400000));
+  };
+  const lockChip = (r: Reward) => {
+    if (!isRewardLocked(r)) return null;
+    const days = r.lockedUntil ? daysUntil(r.lockedUntil) : null;
+    return (
+      <span className="text-[10px] font-bold text-kaya-sand bg-kaya-warm rounded-full px-2 py-0.5 shrink-0">
+        🔒 Coming soon{days !== null ? ` · ${days}d` : ''}
+      </span>
+    );
+  };
 
   // RWD PR2 (R13/R14) — per-reward counts, tappable → dates.
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
@@ -191,6 +207,11 @@ export default function RewardsPage() {
 
   const handleRedeem = async (reward: Reward) => {
     if (!profile?.familyId || !child) return;
+    if (isRewardLocked(reward)) {
+      setMessage(reward.lockedUntil ? `🔒 Opens in ${daysUntil(reward.lockedUntil)} days — keep saving!` : '🔒 This one opens soon — keep saving!');
+      setTimeout(() => setMessage(''), 3000);
+      return;
+    }
     if (spendable < reward.pointsCost) {
       const missing = reward.pointsCost - spendable;
       setMessage(floor > 0
@@ -367,8 +388,9 @@ export default function RewardsPage() {
                 const remaining = reward.pointsCost - spendable;
                 const progress = Math.min(100, (spendable / reward.pointsCost) * 100);
                 const pendingReq = isKid ? pendingByReward.get(reward.id) : undefined;
+                const lockedNow = isRewardLocked(reward);
                 return (
-                  <div key={reward.id} className="bg-white border border-kaya-warm-dark rounded-kaya p-4">
+                  <div key={reward.id} className={`bg-white border border-kaya-warm-dark rounded-kaya p-4 ${lockedNow ? 'opacity-70 grayscale-[35%]' : ''}`}>
                     <div className="flex items-start gap-3">
                       <div className="w-12 h-12 rounded-[14px] bg-kaya-warm/60 flex items-center justify-center text-2xl shrink-0">
                         {reward.icon}
@@ -392,11 +414,13 @@ export default function RewardsPage() {
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-kaya-sand font-semibold">
-                          {canAfford
-                            ? 'Ready to redeem'
-                            : `${fmt(remaining)} pts to go${paceLabel(remaining) ? ` · ${paceLabel(remaining)} 💪` : ''}`}
+                          {lockedNow
+                            ? (reward.lockedUntil ? `🔒 unlocks in ${daysUntil(reward.lockedUntil)} days — keep saving!` : '🔒 coming soon — keep saving!')
+                            : canAfford
+                              ? 'Ready to redeem'
+                              : `${fmt(remaining)} pts to go${paceLabel(remaining) ? ` · ${paceLabel(remaining)} 💪` : ''}`}
                         </span>
-                        {pendingReq ? (
+                        {lockedNow ? lockChip(reward) : pendingReq ? (
                           <span className="flex items-center gap-1.5 shrink-0">
                             <span className="text-[10px] font-bold text-kaya-gold-dark bg-kaya-gold-light rounded-full px-2 py-1">⏳ waiting for a parent</span>
                             <button onClick={() => kidCancelRequest(pendingReq)} className="text-[10px] font-bold text-kaya-sand hover:underline">cancel</button>
@@ -480,7 +504,7 @@ export default function RewardsPage() {
             <div className="col-span-3 bg-white border border-kaya-warm-dark/70 rounded-kaya-lg p-5">
               <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-sand">Ready to redeem</p>
               <p className="font-display font-extrabold text-3xl mt-2">
-                {activeRewards.filter((r) => spendable >= r.pointsCost).length}
+                {activeRewards.filter((r) => !isRewardLocked(r) && spendable >= r.pointsCost).length}
                 <span className="text-base text-kaya-sand font-semibold ml-1">/ {activeRewards.length}</span>
               </p>
               <p className="text-[11px] text-kaya-sand mt-2">Within {child.name}&apos;s spendable points</p>
@@ -566,18 +590,19 @@ export default function RewardsPage() {
               const remaining = reward.pointsCost - spendable;
               const progress = Math.min(100, (spendable / reward.pointsCost) * 100);
               const pendingReq = isKid ? pendingByReward.get(reward.id) : undefined;
+              const lockedNow = isRewardLocked(reward);
               return (
                 <div
                   key={reward.id}
                   className={`bg-white border rounded-kaya-lg p-5 transition-colors ${
-                    canAfford ? 'border-kaya-gold/60' : 'border-kaya-warm-dark/70'
+                    lockedNow ? 'border-kaya-warm-dark/50 opacity-70 grayscale-[35%]' : canAfford ? 'border-kaya-gold/60' : 'border-kaya-warm-dark/70'
                   }`}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-14 h-14 rounded-[16px] bg-kaya-warm/60 flex items-center justify-center text-3xl shrink-0">
                       {reward.icon}
                     </div>
-                    {canAfford && (
+                    {lockedNow ? lockChip(reward) : canAfford && (
                       <span className="text-[10px] font-bold uppercase tracking-wider text-kaya-gold">Ready</span>
                     )}
                   </div>
@@ -602,7 +627,11 @@ export default function RewardsPage() {
                     </div>
                   </div>
 
-                  {pendingReq ? (
+                  {lockedNow ? (
+                    <div className="w-full h-10 flex items-center justify-center rounded-kaya-sm bg-kaya-warm text-[12px] font-bold text-kaya-sand">
+                      {reward.lockedUntil ? `🔒 Unlocks in ${daysUntil(reward.lockedUntil)} days — keep saving!` : '🔒 Coming soon — keep saving!'}
+                    </div>
+                  ) : pendingReq ? (
                     <div className="w-full flex items-center justify-between gap-2 h-10 px-3 rounded-kaya-sm bg-kaya-gold-light">
                       <span className="text-[11px] font-bold text-kaya-gold-dark">⏳ waiting for a parent</span>
                       <button onClick={() => kidCancelRequest(pendingReq)} className="text-[11px] font-bold text-kaya-sand hover:underline">cancel</button>

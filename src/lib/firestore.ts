@@ -1321,6 +1321,27 @@ export interface Reward {
   // compat with rewards seeded before categories existed — those fall
   // back to DEFAULT_REWARD_CATEGORY on display.
   category?: string;
+  // ── 🔒 RWD PR4 — locked / coming-soon (distinct from retiring via
+  //    `active:false`, which hides completely). Locked rewards stay VISIBLE
+  //    to kids, greyed with a countdown, so the excitement builds.
+  locked?: boolean;
+  /** YYYY-MM-DD — auto-unlocks on this local day (hourly cron flips the flag
+   *  + rings the kids' bells). Absent = locked until a parent unlocks. */
+  lockedUntil?: string;
+  /** Set by the cron so the unlock bell only rings once. */
+  unlockNotified?: boolean;
+}
+
+/** 🔒 Is this reward locked right now? Date-based locks auto-open the moment
+ *  the local day arrives — the cron then also flips the flag + notifies. */
+export function isRewardLocked(r: Reward, todayKey?: string): boolean {
+  if (!r.locked) return false;
+  if (!r.lockedUntil) return true;
+  const today = todayKey ?? (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  return today < r.lockedUntil;
 }
 
 // Logged once per `redeemReward()` call. `rewardTitle` is denormalised
