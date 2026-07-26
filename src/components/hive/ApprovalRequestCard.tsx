@@ -28,6 +28,7 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
   business_reinvest: { emoji: '🌳', label: 'Reinvest · Honey Pot → business', tone: 'green' },
   create_group_chat: { emoji: '💬', label: 'New group chat',      tone: 'honey' },
   reward_redeem:     { emoji: '🎁', label: 'Reward request',      tone: 'honey' },
+  reward_contribute: { emoji: '👨‍👩‍👧', label: 'Family-goal chip-in', tone: 'honey' },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
@@ -98,6 +99,9 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
     if (req.type === 'reward_redeem') {
       return `${req.rewardIcon || '🎁'} ${req.rewardTitle || 'Reward'} · ${formatHp(req.rewardPointsCost || 0)} pts`;
     }
+    if (req.type === 'reward_contribute') {
+      return `${req.rewardIcon || '🎪'} ${req.rewardTitle || 'Family goal'} · chips in ${formatHp(req.contributePoints || 0)} pts`;
+    }
     return formatCash(req.amountCents || 0);
   })();
 
@@ -135,7 +139,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           const d = await res.json().catch(() => ({}));
           throw new Error(d?.error ? `Couldn’t resolve (${d.error}).` : 'Failed to resolve.');
         }
-      } else if (req.type === 'reward_redeem') {
+      } else if (req.type === 'reward_redeem' || req.type === 'reward_contribute') {
         // RWD PR1 — the note travels on approve AND reject (standing rule:
         // parent feedback always reaches the kid).
         await resolveApprovalRequest(profile.familyId, req.id, decision, profile.uid, note, reason.trim() || undefined);
@@ -301,7 +305,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
       ) : !showReject ? (
         <div className="mt-3">
           {/* RWD PR1 — reward requests carry a note BOTH ways (approve too). */}
-          {req.type === 'reward_redeem' && (
+          {(req.type === 'reward_redeem' || req.type === 'reward_contribute') && (
             <input
               value={reason}
               onChange={(e) => setReason(e.target.value)}

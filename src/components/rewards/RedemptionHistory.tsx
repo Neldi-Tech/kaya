@@ -73,8 +73,8 @@ export default function RedemptionHistory({ myKidId }: { myKidId: string | null 
     return Array.from(seen.entries());
   }, [rows]);
 
-  const kidName = (id: string) => children.find((c) => c.id === id)?.name?.split(' ')[0] || 'Kid';
-  const kidEmoji = (id: string) => children.find((c) => c.id === id)?.avatarEmoji || '🧒';
+  const kidName = (id: string) => id === 'family' ? 'The family' : children.find((c) => c.id === id)?.name?.split(' ')[0] || 'Kid';
+  const kidEmoji = (id: string) => id === 'family' ? '👨‍👩‍👧' : children.find((c) => c.id === id)?.avatarEmoji || '🧒';
 
   const sendFeedback = async (redemptionId: string, reaction: 'loved' | 'ok' | 'meh') => {
     if (!user || busy) return;
