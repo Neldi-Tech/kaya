@@ -46,11 +46,16 @@ export async function POST(req: NextRequest) {
   try { callerUid = (await auth.verifyIdToken(token)).uid; }
   catch { return NextResponse.json({ ok: false, error: 'invalid-token' }, { status: 401 }); }
 
-  let body: { childId?: string; mode?: string };
+  let body: { childId?: string; mode?: string; password?: string };
   try { body = (await req.json()) as typeof body; } catch { body = {}; }
   const childId = (body.childId || '').trim();
   const mode = body.mode === 'reset-link' ? 'reset-link' : 'default-password';
   if (!childId) return NextResponse.json({ ok: false, error: 'missing-childId' }, { status: 400 });
+  // Optional parent-chosen password (Elia, 26-Jul): editable before sending.
+  const customPw = typeof body.password === 'string' ? body.password.trim() : '';
+  if (customPw && (customPw.length < 6 || customPw.length > 32)) {
+    return NextResponse.json({ ok: false, error: 'password-must-be-6-to-32-chars' }, { status: 400 });
+  }
 
   // Caller must be a parent; the kid must be in their family.
   const callerSnap = await db.collection('users').doc(callerUid).get();
@@ -82,7 +87,7 @@ export async function POST(req: NextRequest) {
       // users-doc childId self-heal has run.
       const authUser = await auth.getUserByEmail(loginEmail).catch(() => null);
       if (!authUser) return NextResponse.json({ ok: false, error: 'kid-has-not-signed-in-yet' }, { status: 400 });
-      const pw = tempPassword();
+      const pw = customPw || tempPassword();
       await auth.updateUser(authUser.uid, { password: pw });
       await db.collection('users').doc(authUser.uid).set({ mustChangePassword: true }, { merge: true });
       if (!resend) { await log('default-password issued, email NOT sent', 'resend-not-configured'); }
