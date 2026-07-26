@@ -28,6 +28,7 @@ import { notifyInvite } from '@/lib/notify';
 import { useRef } from 'react';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
+import TopBadge from '@/components/rewards/TopBadge';
 import KidWorkplanAccomplishment from '@/components/workplan/KidWorkplanAccomplishment';
 
 export default function ProfilesPage() {
@@ -553,7 +554,12 @@ export default function ProfilesPage() {
             )}
           </div>
         )}
-        <h2 className="font-display text-xl font-black">{child.name}</h2>
+        {/* 🏅 BDG PR4 (B19) — the badge they wear: highest tier earned, right
+            next to the name. Tap/hover tells you what it means. */}
+        <h2 className="font-display text-xl font-black flex items-center justify-center gap-2">
+          {child.name}
+          <TopBadge cfg={family?.badgeConfig} earned={child.badges} kidName={child.name.split(' ')[0]} />
+        </h2>
         <p className="text-sm font-semibold" style={{ color: child.houseColor }}>{child.houseName}</p>
 
         {isParent && !isGuest && (
