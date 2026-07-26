@@ -426,6 +426,22 @@ export default function ParentRewardsPage() {
         </p>
       </div>
 
+      {/* ⚙️ Store rules — FIRST thing on the page (Elia couldn't find it
+          below the list, 26-Jul): 🛡 floor + per-kid, ⚡ auto-approve,
+          👨‍👩‍👧 family-goals age gate + per-reward 🎂 min ages live on the
+          reward rows below. */}
+      <div className="mb-4">
+        <CollapsibleSection
+          id="store-rules"
+          remember
+          icon="⚙️"
+          title="Store rules — floor · auto-approve · ages"
+          summary={family?.rewardsConfig?.minPointsFloor ? `🛡 ${family.rewardsConfig.minPointsFloor} pts protected` : 'tap to set up'}
+        >
+          <RewardsRulesCard />
+        </CollapsibleSection>
+      </div>
+
       {message && (
         <div className="bg-kaya-gold/10 border border-kaya-gold/30 rounded-kaya-sm p-3 mb-4 text-center text-sm font-semibold animate-slide-up">
           {message}
@@ -883,23 +899,8 @@ export default function ParentRewardsPage() {
         </div>
       )}
 
-      {/* ⚙️ Store rules (RWD PR6) — moved here from Settings (Elia, 26-Jul):
-          the store's settings live with the store. 🛡 floor + per-kid,
-          ⚡ auto-approve, 👨‍👩‍👧 family-goals age gate + overrides. */}
-      <div className="mt-8 mb-4">
-        <CollapsibleSection
-          id="store-rules"
-          remember
-          icon="⚙️"
-          title="Store rules"
-          summary={family?.rewardsConfig?.minPointsFloor ? `🛡 ${family.rewardsConfig.minPointsFloor} pts protected` : 'floor · auto-approve · ages'}
-        >
-          <RewardsRulesCard />
-        </CollapsibleSection>
-      </div>
-
       {/* 👨‍👩‍👧 New family goal (RWD PR5 · R24) — everyone chips in; the age
-          gate (⚙️ Store rules above) decides who's included. */}
+          gate (⚙️ Store rules at the top) decides who's included. */}
       <div className="mt-8 mb-4 bg-white border-2 border-kaya-gold/40 rounded-kaya p-4">
         <h2 className="font-display font-extrabold text-lg mb-1">👨‍👩‍👧 New family goal</h2>
         <p className="text-[11.5px] text-kaya-sand mb-3">A big reward the kids earn TOGETHER — equal shares, or an open pool where volunteers carry more. Who&apos;s included follows the age gate in Settings → 🎁 Rewards rules.</p>
