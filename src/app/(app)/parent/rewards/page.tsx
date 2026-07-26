@@ -1024,6 +1024,13 @@ function RewardForm({
   const [categoryInput, setCategoryInput] = useState(draft.category || '');
   useEffect(() => { setCategoryInput(draft.category || ''); }, [draft.category]);
 
+  // Points as a free string so a parent can clear the field completely and
+  // type fresh (a forced Math.max(1,…) used to snap '' back to 1 and the next
+  // digit appended to it). Draft only updates on a valid number; blur restores
+  // the last good value if left empty.
+  const [pointsInput, setPointsInput] = useState(String(draft.pointsCost));
+  useEffect(() => { setPointsInput(String(draft.pointsCost)); }, [draft.pointsCost]);
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-[80px_1fr] gap-3">
@@ -1066,8 +1073,14 @@ function RewardForm({
           <span className="block text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1">Points cost</span>
           <input
             type="number"
-            value={draft.pointsCost}
-            onChange={(e) => setDraft({ ...draft, pointsCost: Math.max(1, parseInt(e.target.value || '0', 10) || 0) })}
+            value={pointsInput}
+            onChange={(e) => {
+              const raw = e.target.value;
+              setPointsInput(raw);
+              const n = parseInt(raw, 10);
+              if (Number.isFinite(n) && n >= 1) setDraft({ ...draft, pointsCost: n });
+            }}
+            onBlur={() => { if (!pointsInput.trim()) setPointsInput(String(draft.pointsCost)); }}
             min={1}
             step={5}
             className="w-full h-12 px-3 bg-white border border-kaya-warm-dark rounded-kaya-sm text-center font-display font-black text-xl focus:outline-none focus:ring-2 focus:ring-kaya-gold/40"
