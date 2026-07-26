@@ -13,6 +13,7 @@ import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import RewardsWizard from '@/components/rewards/RewardsWizard';
 import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
+import BadgeBoutique from '@/components/rewards/BadgeBoutique';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
@@ -439,6 +440,20 @@ export default function ParentRewardsPage() {
           summary={family?.rewardsConfig?.minPointsFloor ? `🛡 ${family.rewardsConfig.minPointsFloor} pts protected` : 'tap to set up'}
         >
           <RewardsRulesCard />
+        </CollapsibleSection>
+      </div>
+
+      {/* 🏬 Badge Boutique (BDG PR2 · B9–B11) — badge settings live HERE with
+          the store: search, tiers, release/retire, thresholds, customs. */}
+      <div className="mb-4">
+        <CollapsibleSection
+          id="badge-boutique"
+          remember
+          icon="🏬"
+          title="Badge Boutique — release · edit · create badges"
+          summary="the badge store"
+        >
+          <BadgeBoutique />
         </CollapsibleSection>
       </div>
 

@@ -1,20 +1,34 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { BADGES } from '@/lib/firestore';
+import { sweepBadges } from '@/lib/badgeEngine';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 export default function BadgesPage() {
-  const { children } = useFamily();
+  const { user, profile } = useAuth();
+  const { family, children } = useFamily();
   const [selectedChild, setSelectedChild] = useState(0);
 
   const child = children[selectedChild];
   const earnedBadges = child?.badges || [];
   const earnedCount = earnedBadges.length;
+
+  // 🏅 BDG PR2 (B6/B7) — the sweep: nominate every badge that looks due for
+  // the kid on screen; the server verifies + mints (idempotent). This is what
+  // finally unlocks First Star & co. for kids who earned them long ago.
+  useEffect(() => {
+    if (!user || !child) return;
+    const isKid = profile?.role === 'kid';
+    if (isKid && profile?.childId !== child.id) return;
+    void sweepBadges(user, family?.badgeConfig, child, isKid ? undefined : child.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, child?.id, child?.totalPoints, child?.streak, (child?.badges || []).join(',')]);
 
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-5xl px-4 lg:px-8 pt-4 lg:pt-8">
