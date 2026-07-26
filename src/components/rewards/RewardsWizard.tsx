@@ -46,6 +46,9 @@ export default function RewardsWizard({ open, familyId, onClose, onSaved }: Prop
   const [step, setStep] = useState(1);
   const [name, setName] = useState('');
   const [cost, setCost] = useState(25);
+  // Free-string mirror of `cost` so the field can be fully cleared and
+  // retyped (forcing Math.max(1,…) snapped '' to 1 and digits appended).
+  const [costInput, setCostInput] = useState('25');
   const [icon, setIcon] = useState('🎁');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -56,6 +59,7 @@ export default function RewardsWizard({ open, familyId, onClose, onSaved }: Prop
     setStep(1);
     setName('');
     setCost(25);
+    setCostInput('25');
     setIcon('🎁');
     setSaving(false);
     setError('');
@@ -209,7 +213,7 @@ export default function RewardsWizard({ open, familyId, onClose, onSaved }: Prop
                     <button
                       key={c}
                       type="button"
-                      onClick={() => setCost(c)}
+                      onClick={() => { setCost(c); setCostInput(String(c)); }}
                       className={`py-3 rounded-xl border-[1.5px] font-extrabold text-base transition-colors ${
                         picked
                           ? 'border-brand-honey-dk bg-brand-honey/15 text-brand-navy'
@@ -228,8 +232,14 @@ export default function RewardsWizard({ open, familyId, onClose, onSaved }: Prop
                 type="number"
                 min={1}
                 max={9999}
-                value={cost}
-                onChange={(e) => setCost(Math.max(1, Math.min(9999, Number(e.target.value) || 0)))}
+                value={costInput}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  setCostInput(raw);
+                  const n = parseInt(raw, 10);
+                  if (Number.isFinite(n) && n >= 1) setCost(Math.min(9999, n));
+                }}
+                onBlur={() => { if (!costInput.trim()) setCostInput(String(cost)); }}
                 className="w-full bg-brand-cream border-[1.5px] border-kaya-warm-dark rounded-xl px-4 py-2.5 text-[15px] focus:outline-none focus:border-brand-honey focus:ring-2 focus:ring-brand-honey/30"
               />
             </>
