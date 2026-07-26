@@ -17,7 +17,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { badgeById, badgeThreshold, counterKeyForSignal, isBadgeReleased, type BadgeConfig } from '@/lib/badgeLib';
+import {
+  badgeById, badgeThreshold, counterKeyForSignal, isBadgeReleased, isBadgeInSeason,
+  areaChaseSet, packForBadge, type BadgeConfig,
+} from '@/lib/badgeLib';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,10 +38,16 @@ export async function POST(req: NextRequest) {
   try { uid = (await auth.verifyIdToken(token)).uid; }
   catch { return NextResponse.json({ ok: false, error: 'invalid-token' }, { status: 401 }); }
 
-  let body: { badgeId?: string; childId?: string };
+  let body: { badgeId?: string; childId?: string; todayKey?: string };
   try { body = (await req.json()) as typeof body; } catch { body = {}; }
   const badgeId = (body.badgeId || '').trim();
   if (!badgeId) return NextResponse.json({ ok: false, error: 'missing-badgeId' }, { status: 400 });
+  // The caller's LOCAL day (Kaya never reads day boundaries as UTC). Used only
+  // for the 🎁 limited-time window; a missing/garbled value falls back to the
+  // server's day rather than skipping the season check.
+  const todayKey = /^\d{4}-\d{2}-\d{2}$/.test(body.todayKey || '')
+    ? (body.todayKey as string)
+    : new Date().toISOString().slice(0, 10);
 
   const profSnap = await db.collection('users').doc(uid).get();
   const prof = profSnap.data() as { role?: string; familyId?: string; childId?: string } | undefined;
@@ -57,6 +66,13 @@ export async function POST(req: NextRequest) {
     const def = badgeById(cfg, badgeId);
     if (!def) return NextResponse.json({ ok: false, error: 'unknown-badge' }, { status: 404 });
     if (!isBadgeReleased(cfg, def)) return NextResponse.json({ ok: false, error: 'not-released' }, { status: 400 });
+    // 🎁 BDG PR5 — a limited-time pack badge is only mintable inside its
+    // window. Enforced HERE, not just hidden in the UI, so the deadline is
+    // real: miss the season, miss the badge.
+    if (!isBadgeInSeason(badgeId, todayKey)) {
+      const pack = packForBadge(badgeId);
+      return NextResponse.json({ ok: false, error: 'out-of-season', pack: pack?.name }, { status: 400 });
+    }
     const threshold = badgeThreshold(cfg, def);
 
     const minted = await db.runTransaction(async (tx) => {
@@ -110,6 +126,15 @@ export async function POST(req: NextRequest) {
             if (c && c > 0) n++;
           }
           met = n >= threshold;
+          break;
+        }
+        case 'area_complete': {
+          // 💎 Collector — hold EVERY other released badge in the area. Read
+          // off the same child.badges we're about to add to, so it can never
+          // mint early.
+          const chase = areaChaseSet(cfg, def.signal.area);
+          const held = new Set(child.badges || []);
+          met = chase.length > 0 && chase.every((b) => held.has(b.id));
           break;
         }
         case 'parent_confirm':
