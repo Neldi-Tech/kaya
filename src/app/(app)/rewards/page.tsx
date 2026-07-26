@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Reward, Redemption, getRedemptions, isRewardLocked,
+  Reward, Redemption, getRedemptions, isRewardLocked, ageFromBirthday,
   DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
 } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
@@ -114,7 +114,19 @@ export default function RewardsPage() {
     const target = new Date(`${key}T00:00:00`);
     return Math.max(0, Math.ceil((target.getTime() - Date.now()) / 86400000));
   };
+  // 🎂 RWD PR6 — per-reward min age gates against the SELECTED kid's age
+  // (no birthday = no gating; it opens by itself as they grow).
+  const childAgeNow = ageFromBirthday(child?.birthday);
+  const isAgeGated = (r: Reward): boolean =>
+    !!r.minAge && r.minAge > 0 && childAgeNow !== null && childAgeNow < r.minAge;
   const lockChip = (r: Reward) => {
+    if (isAgeGated(r)) {
+      return (
+        <span className="text-[10px] font-bold text-kaya-sand bg-kaya-warm rounded-full px-2 py-0.5 shrink-0">
+          🔒 from age {r.minAge}
+        </span>
+      );
+    }
     if (!isRewardLocked(r)) return null;
     const days = r.lockedUntil ? daysUntil(r.lockedUntil) : null;
     return (
@@ -123,6 +135,10 @@ export default function RewardsPage() {
       </span>
     );
   };
+  const lockLine = (r: Reward): string =>
+    isAgeGated(r)
+      ? `🔒 opens from age ${r.minAge} — something to grow into!`
+      : r.lockedUntil ? `🔒 unlocks in ${daysUntil(r.lockedUntil)} days — keep saving!` : '🔒 coming soon — keep saving!';
 
   // RWD PR2 (R13/R14) — per-reward counts, tappable → dates.
   const [redemptions, setRedemptions] = useState<Redemption[]>([]);
@@ -209,8 +225,8 @@ export default function RewardsPage() {
 
   const handleRedeem = async (reward: Reward) => {
     if (!profile?.familyId || !child) return;
-    if (isRewardLocked(reward)) {
-      setMessage(reward.lockedUntil ? `🔒 Opens in ${daysUntil(reward.lockedUntil)} days — keep saving!` : '🔒 This one opens soon — keep saving!');
+    if (isRewardLocked(reward) || isAgeGated(reward)) {
+      setMessage(lockLine(reward));
       setTimeout(() => setMessage(''), 3000);
       return;
     }
@@ -391,7 +407,7 @@ export default function RewardsPage() {
                 const remaining = reward.pointsCost - spendable;
                 const progress = Math.min(100, (spendable / reward.pointsCost) * 100);
                 const pendingReq = isKid ? pendingByReward.get(reward.id) : undefined;
-                const lockedNow = isRewardLocked(reward);
+                const lockedNow = isRewardLocked(reward) || isAgeGated(reward);
                 return (
                   <div key={reward.id} className={`bg-white border border-kaya-warm-dark rounded-kaya p-4 ${lockedNow ? 'opacity-70 grayscale-[35%]' : ''}`}>
                     <div className="flex items-start gap-3">
@@ -418,7 +434,7 @@ export default function RewardsPage() {
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-[11px] text-kaya-sand font-semibold">
                           {lockedNow
-                            ? (reward.lockedUntil ? `🔒 unlocks in ${daysUntil(reward.lockedUntil)} days — keep saving!` : '🔒 coming soon — keep saving!')
+                            ? lockLine(reward)
                             : canAfford
                               ? 'Ready to redeem'
                               : `${fmt(remaining)} pts to go${paceLabel(remaining) ? ` · ${paceLabel(remaining)} 💪` : ''}`}
@@ -594,7 +610,7 @@ export default function RewardsPage() {
               const remaining = reward.pointsCost - spendable;
               const progress = Math.min(100, (spendable / reward.pointsCost) * 100);
               const pendingReq = isKid ? pendingByReward.get(reward.id) : undefined;
-              const lockedNow = isRewardLocked(reward);
+              const lockedNow = isRewardLocked(reward) || isAgeGated(reward);
               return (
                 <div
                   key={reward.id}
@@ -633,7 +649,7 @@ export default function RewardsPage() {
 
                   {lockedNow ? (
                     <div className="w-full h-10 flex items-center justify-center rounded-kaya-sm bg-kaya-warm text-[12px] font-bold text-kaya-sand">
-                      {reward.lockedUntil ? `🔒 Unlocks in ${daysUntil(reward.lockedUntil)} days — keep saving!` : '🔒 Coming soon — keep saving!'}
+                      {lockLine(reward)}
                     </div>
                   ) : pendingReq ? (
                     <div className="w-full flex items-center justify-between gap-2 h-10 px-3 rounded-kaya-sm bg-kaya-gold-light">
