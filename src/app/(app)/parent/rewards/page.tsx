@@ -570,6 +570,15 @@ export default function ParentRewardsPage() {
                             <div className="min-w-0">
                               <p className="font-bold text-sm leading-snug break-words">{r.title}</p>
                               <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{r.description || <em className="opacity-70">No description</em>}</p>
+                              {/* 💬 RWD PR2 (R16) — aggregated kid reactions for this reward. */}
+                              {(() => {
+                                const fb = redemptions.filter((d) => d.rewardId === r.id && d.feedback);
+                                if (fb.length === 0) return null;
+                                const c = (k: string) => fb.filter((d) => d.feedback!.reaction === k).length;
+                                const parts = [c('loved') && `😍×${c('loved')}`, c('ok') && `🙂×${c('ok')}`, c('meh') && `😕×${c('meh')}`].filter(Boolean);
+                                const verdict = c('loved') >= fb.length / 2 ? 'kids love this one' : c('meh') > c('loved') ? 'might need a rethink' : 'mixed reviews';
+                                return <p className="text-[11px] font-semibold mt-1">{parts.join(' · ')} <span className="text-kaya-sand">— {verdict}</span></p>;
+                              })()}
                             </div>
                             <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
                               {fmt(r.pointsCost)} pts
@@ -656,7 +665,18 @@ export default function ParentRewardsPage() {
                       <span className="text-kaya-sand"> redeemed </span>
                       <span className="font-semibold">{r.rewardTitle}</span>
                     </p>
-                    <p className="text-[11px] text-kaya-sand mt-0.5">{when}</p>
+                    <p className="text-[11px] text-kaya-sand mt-0.5">
+                      {when}
+                      {r.status === 'rejected' && ' · ✕ declined'}
+                      {r.approvedBy === 'auto' && ' · ⚡ auto'}
+                    </p>
+                    {/* 💬 RWD PR2 (R16) — the kid's reaction, right in the feed. */}
+                    {r.feedback && (
+                      <p className="text-[11px] font-semibold mt-0.5">
+                        {r.feedback.reaction === 'loved' ? '😍 Loved it' : r.feedback.reaction === 'ok' ? '🙂 It was OK' : '😕 Could be better'}
+                        {r.feedback.text && <span className="text-kaya-sand italic"> — &ldquo;{r.feedback.text}&rdquo;</span>}
+                      </p>
+                    )}
                   </div>
                   <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
                     −{fmt(r.pointsSpent)} pts

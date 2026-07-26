@@ -5,9 +5,11 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import {
-  Reward,
+  Reward, Redemption, getRedemptions,
   DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
 } from '@/lib/firestore';
+import { toDisplayDate } from '@/lib/dates';
+import RedemptionHistory from '@/components/rewards/RedemptionHistory';
 import {
   requestRewardRedeem, parentRedeemReward, cancelOwnRequest,
   subscribeToKidRequests, rewardsFloorFor,
@@ -68,6 +70,60 @@ export default function RewardsPage() {
   // check below runs on spendable, and the transaction re-enforces it.
   const floor = rewardsFloorFor(family as FamilyRewardsSlice | undefined, child?.id || '');
   const spendable = Math.max(0, (child?.totalPoints || 0) - floor);
+
+  // RWD PR2 (R11) — Store / 📜 History tabs.
+  const [view, setView] = useState<'store' | 'history'>('store');
+
+  // RWD PR2 (R13/R14) — per-reward counts, tappable → dates.
+  const [redemptions, setRedemptions] = useState<Redemption[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    getRedemptions(profile.familyId, 200).then(setRedemptions).catch(() => setRedemptions([]));
+  }, [profile?.familyId, view]);
+  const redeemedByReward = useMemo(() => {
+    const map = new Map<string, Redemption[]>();
+    for (const r of redemptions) {
+      if (r.status === 'rejected') continue;
+      const list = map.get(r.rewardId) || [];
+      list.push(r);
+      map.set(r.rewardId, list);
+    }
+    return map;
+  }, [redemptions]);
+  const [datesFor, setDatesFor] = useState<string | null>(null);
+  const kidNameOf = (id: string) => allChildren.find((c) => c.id === id)?.name?.split(' ')[0] || 'Kid';
+  const redemptionDate = (r: Redemption) => {
+    const ms = (r.createdAt as { toMillis?: () => number })?.toMillis?.();
+    if (typeof ms !== 'number') return '—';
+    const d = new Date(ms);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return toDisplayDate(key) || key;
+  };
+  const countLine = (rewardId: string) => {
+    const list = redeemedByReward.get(rewardId) || [];
+    if (list.length === 0) return null;
+    const mine = isKid && myKidId ? list.filter((r) => r.childId === myKidId).length : 0;
+    return (
+      <div className="mt-1">
+        <button
+          onClick={(e) => { e.stopPropagation(); setDatesFor(datesFor === rewardId ? null : rewardId); }}
+          className="text-[10.5px] font-bold text-kaya-gold-dark hover:underline"
+        >
+          redeemed {list.length}×{mine > 0 ? ` · you've had this ${mine}×` : ''} {datesFor === rewardId ? '▴' : '▾'}
+        </button>
+        {datesFor === rewardId && (
+          <div className="mt-1 rounded-kaya-sm border border-dashed border-kaya-warm-dark/60 bg-kaya-cream/60 px-2.5 py-1.5 space-y-0.5">
+            {list.slice(0, 6).map((r) => (
+              <p key={r.id} className="text-[10.5px] font-semibold text-kaya-sand">
+                {redemptionDate(r)} · {kidNameOf(r.childId)} ✓
+              </p>
+            ))}
+            {list.length > 6 && <p className="text-[10px] text-kaya-sand">…and {list.length - 6} more in 📜 History</p>}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Distinct categories present in the active reward set, in alpha order.
   const categories = useMemo(() => {
@@ -204,6 +260,17 @@ export default function RewardsPage() {
           </div>
         )}
 
+        {/* RWD PR2 (R11) — Store / 📜 History tabs */}
+        <div className="flex gap-1.5 mb-4">
+          {(['store', 'history'] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} className={`flex-1 h-9 rounded-kaya-sm text-[12.5px] font-bold border transition-colors ${view === v ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+              {v === 'store' ? '🎁 Store' : '📜 History'}
+            </button>
+          ))}
+        </div>
+        {view === 'history' && <RedemptionHistory myKidId={myKidId} />}
+
+        {view === 'store' && <>
         {/* Category filter pills (mobile) */}
         {categories.length > 1 && (
           <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -272,6 +339,7 @@ export default function RewardsPage() {
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-sm leading-snug break-words">{reward.title}</p>
                         <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{reward.description}</p>
+                        {countLine(reward.id)}
                       </div>
                       <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
                         {fmt(reward.pointsCost)} pts
@@ -313,6 +381,7 @@ export default function RewardsPage() {
             </div>
           </div>
         ))}
+        </>}
       </div>
 
       {/* ─────────────────────────────────────────────────────────── */}
@@ -387,6 +456,17 @@ export default function RewardsPage() {
           </div>
         )}
 
+        {/* RWD PR2 (R11) — Store / 📜 History tabs (desktop) */}
+        <div className="flex gap-2 mb-5">
+          {(['store', 'history'] as const).map((v) => (
+            <button key={v} onClick={() => setView(v)} className={`h-10 px-6 rounded-kaya-sm text-[13px] font-bold border transition-colors ${view === v ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+              {v === 'store' ? '🎁 Store' : '📜 History'}
+            </button>
+          ))}
+        </div>
+        {view === 'history' && <div className="max-w-3xl"><RedemptionHistory myKidId={myKidId} /></div>}
+
+        {view === 'store' && <>
         {/* Category filter pills (desktop) */}
         {categories.length > 1 && (
           <div className="flex flex-wrap gap-2 mb-5">
@@ -458,7 +538,8 @@ export default function RewardsPage() {
                     )}
                   </div>
                   <p className="font-display font-bold text-base mb-1">{reward.title}</p>
-                  <p className="text-[12px] text-kaya-sand leading-snug mb-4 min-h-[32px]">{reward.description}</p>
+                  <p className="text-[12px] text-kaya-sand leading-snug mb-2 min-h-[32px]">{reward.description}</p>
+                  <div className="mb-2">{countLine(reward.id)}</div>
 
                   <div className="mb-3">
                     <div className="flex items-baseline justify-between mb-1.5">
@@ -498,6 +579,7 @@ export default function RewardsPage() {
             })}
           </div>
         )}
+        </>}
       </div>
 
       {/* RWD PR1 (R2) — kid confirm sheet: what it costs, what's left to

@@ -1340,6 +1340,10 @@ export interface Redemption {
   approvedBy?: string;
   /** Parent's note to the kid, mirrored from the approval. */
   note?: string;
+  /** 💬 RWD PR2 — the kid's post-enjoyment reaction, written via the
+   *  kid-authed /api/rewards/feedback route (client rules keep redemption
+   *  docs parent/server-only). Aggregated per reward for parents. */
+  feedback?: { reaction: 'loved' | 'ok' | 'meh'; text?: string };
 }
 
 // Seed categories shown in the dropdown the first time a parent opens
