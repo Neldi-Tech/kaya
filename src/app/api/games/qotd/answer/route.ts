@@ -30,6 +30,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
 import { resolveGamesConfig, localDateKey, localWeekStartKey } from '@/lib/games';
 import { nextFun, QOTD_DAILY_FUN, QOTD_CORRECT_FUN, QOTD_MILESTONE_FUN } from '@/lib/gamesFun';
+import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
   // Identity — name + role for the board; gameStats is keyed by auth uid, so
   // PARENTS and kids both accrue a streak.
   const user = (await db.collection('users').doc(uid).get()).data() as
-    { familyId?: string; role?: string; displayName?: string; name?: string } | undefined;
+    { familyId?: string; role?: string; displayName?: string; name?: string; childId?: string } | undefined;
   const familyId = user?.familyId;
   if (!familyId) return NextResponse.json({ error: 'no-family' }, { status: 403 });
   const name = user?.displayName || user?.name || 'Player';
@@ -162,6 +163,12 @@ export async function POST(req: NextRequest) {
   // Family progress line — best-effort, outside the transaction.
   if (!out.already) {
     try { await qRef.set({ answeredUids: FieldValue.arrayUnion(uid) }, { merge: true }); } catch { /* non-blocking */ }
+  }
+
+  // 🏅 Badge tally — one per CORRECT first answer of the day, for kids only
+  // (badges belong to a child doc; parents keep their streak on gameStats).
+  if (!out.already && correct && user?.childId) {
+    await bumpBadgeCountersAdmin(db, familyId, user.childId, { quiz_correct: 1 });
   }
 
   return NextResponse.json({

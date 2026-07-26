@@ -22,7 +22,7 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, writeBatch,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot, runTransaction,
+  onSnapshot, runTransaction, increment,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import { isGuestActive } from './mockFamily';
@@ -1257,7 +1257,7 @@ export async function resolveApprovalRequest(
   // RWD PR1 (R7) — reward resolutions ring the kid's bell after the
   // transaction commits (best-effort; never blocks the resolution).
   let rewardNotify: { forUserId: string; approved: boolean; title: string; note?: string; isIdea?: boolean } | null = null;
-  let goalCelebration: { title: string; icon: string; approverUid: string } | null = null;
+  let goalCelebration: { title: string; icon: string; approverUid: string; contributors: string[] } | null = null;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(requestCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
@@ -1320,7 +1320,14 @@ export async function resolveApprovalRequest(
       const inRef = doc(txCol(familyId, req.kidId), `${link}-in`);
       const now = serverTimestamp();
 
-      tx.update(cRef, { totalPoints: (child.totalPoints ?? 0) - hp });
+      // 🏅 Badge tally — every completed HP → 🍯 conversion counts toward the
+      // Honey badges. Inside the same transaction, so it can't drift from the
+      // ledger it describes (and never touches lifetimePoints: spending is
+      // not earning).
+      tx.update(cRef, {
+        totalPoints: (child.totalPoints ?? 0) - hp,
+        'badgeCounters.conversions': increment(1),
+      });
       tx.set(wRef, {
         ...wallet,
         housePoints: Math.max(0, wallet.housePoints - hp),
@@ -1565,7 +1572,13 @@ export async function resolveApprovalRequest(
         resultingTxIds: [ledgerRef.id],
       });
       if (reached) {
-        goalCelebration = { title: goal.title || 'Family goal', icon: goal.icon || '🎪', approverUid };
+        // Everyone who ever chipped in shares the win — this kid included,
+        // whose chip-in is the one that got the goal over the line.
+        const crew = new Set([...Object.keys(goal.contributions ?? {}), req.kidId]);
+        goalCelebration = {
+          title: goal.title || 'Family goal', icon: goal.icon || '🎪', approverUid,
+          contributors: Array.from(crew),
+        };
       }
     } else {
       throw new Error(`Unknown approval type: ${(req as any).type}`);
@@ -1575,7 +1588,14 @@ export async function resolveApprovalRequest(
   // 🎊 RWD PR5 (R28) — goal reached: ring EVERY family member's bell + drop a
   // Moments post. Best-effort after the commit.
   if (goalCelebration) {
-    const g = goalCelebration as { title: string; icon: string; approverUid: string };
+    const g = goalCelebration as { title: string; icon: string; approverUid: string; contributors: string[] };
+    // 🏅 Badge tally — every kid who chipped in earns credit for the reached
+    // goal (Goal Getter → Family Legend).
+    try {
+      const { bumpBadgeCounters } = await import('./firestore');
+      await Promise.all(g.contributors.map((kid) =>
+        bumpBadgeCounters(familyId, kid, { goals_reached: 1 })));
+    } catch { /* tallies are best-effort */ }
     try {
       const { getFamilyMembers } = await import('./firestore');
       const { createPost } = await import('./moments');

@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore, getAdminAuth } from '@/lib/firebaseAdmin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getGame } from '@/lib/gamesCatalog';
 import { resolveGamesConfig } from '@/lib/games';
 
@@ -101,7 +102,7 @@ export async function POST(req: NextRequest) {
   const childRef = db.collection('families').doc(familyId).collection('children').doc(kidId);
   const childSnap = await childRef.get();
   if (!childSnap.exists) return NextResponse.json({ error: 'no-child' }, { status: 404 });
-  const child = childSnap.data() as { totalPoints?: number; weeklyPoints?: number };
+  const child = childSnap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number };
 
   let credit = Math.max(0, Math.round(Number(play.pointsPending) || 0));
   let capped = false;
@@ -155,6 +156,9 @@ export async function POST(req: NextRequest) {
     batch.update(childRef, {
       totalPoints: (child.totalPoints || 0) + credit,
       weeklyPoints: (child.weeklyPoints || 0) + credit,
+      // 🏅 lifetime EARNED points — the badge yardstick spending can't shrink.
+      lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + credit,
+      'badgeCounters.award_game': FieldValue.increment(1),
     });
   }
   try { await batch.commit(); }

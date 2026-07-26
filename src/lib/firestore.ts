@@ -1,7 +1,7 @@
 import {
   collection, collectionGroup, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
-  onSnapshot, writeBatch, runTransaction,
+  onSnapshot, writeBatch, runTransaction, increment,
 } from 'firebase/firestore';
 import { db } from './firebase';
 import {
@@ -998,6 +998,11 @@ export interface Child {
    *  grows (positive award deltas); redemptions/conversions never shrink it.
    *  Absent on old docs → treat as max(totalPoints, 0) (lazy backfill). */
   lifetimePoints?: number;
+  /** BDG PR3 — one tally map for every badge signal Kaya can't read straight
+   *  off this doc: `quiz_correct`, `meetings`, `workplan_done`, `conversions`,
+   *  `goals_reached`, `diamonds`, `award_<category>`… Each area's flow bumps
+   *  its own key; /api/badges/mint verifies the threshold server-side. */
+  badgeCounters?: Record<string, number>;
   // Per-kid Celebrations preference (Kaya Business · celebrate engine). Shape
   // mirrors CelebrationSettings in lib/celebrate.ts (inlined to avoid a
   // circular import). Absent → age-based default.
@@ -2695,6 +2700,39 @@ function pingKidRewardEmail(childId: string, awardId: string) {
   }).catch(() => {});
 }
 
+// 🏅 BDG PR3 — bump one or more badge counters on a kid. Fire-and-forget:
+// a failed tally must never break the flow that earned it (an award still
+// lands, a task still ticks). Parents/helpers can write child docs; kid-side
+// flows bump through their own Admin route instead.
+export async function bumpBadgeCounters(
+  familyId: string,
+  childId: string,
+  deltas: Record<string, number>,
+): Promise<void> {
+  if (isGuestActive()) return;
+  const patch: Record<string, unknown> = {};
+  for (const [key, n] of Object.entries(deltas)) {
+    if (!key || !Number.isFinite(n) || n === 0) continue;
+    patch[`badgeCounters.${key}`] = increment(n);
+  }
+  if (Object.keys(patch).length === 0) return;
+  try {
+    await updateDoc(doc(db, 'families', familyId, 'children', childId), patch);
+  } catch { /* tallies are best-effort */ }
+}
+
+/** The counter keys one award should bump — kept next to `inferAwardKind`
+ *  so the award vocabulary and the badge vocabulary can't drift. */
+function awardCounterDeltas(award: { kind?: AwardKind; category?: string; points?: number }): Record<string, number> {
+  const out: Record<string, number> = {};
+  const cat = (award.category || '').trim();
+  if (cat) out[`award_${cat}`] = 1;
+  const isDiamond = award.kind === 'diamond' || cat.startsWith('diamond-');
+  if (isDiamond) out.diamonds = 1;
+  if (cat === 'workplan') out.workplan_done = 1;
+  return out;
+}
+
 export async function giveAward(
   familyId: string,
   award: Omit<Award, 'id' | 'createdAt'>,
@@ -2711,6 +2749,12 @@ export async function giveAward(
   const childSnap = await getDoc(childRef);
   if (!childSnap.exists()) return { id: ref.id };
   const child = childSnap.data() as Child;
+
+  // 🏅 Badge tallies — positive award kinds only. Nothing a kid did wrong
+  // ever counts toward a badge, so `reducing` / `improvement_note` skip it.
+  if (award.kind !== 'reducing' && award.kind !== 'improvement_note') {
+    void bumpBadgeCounters(familyId, award.childId, awardCounterDeltas(award));
+  }
 
   // Point-bearing kinds update running totals directly. Negative `points`
   // for `reducing` just flows through the same math.

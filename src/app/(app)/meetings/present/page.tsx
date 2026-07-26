@@ -31,6 +31,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { participatesInMeetings } from '@/lib/participation';
 import {
   createMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
+  bumpBadgeCounters,
   updateFamily,
   getRatingsInDateRange, getAwardsInDateRange, getRedemptions,
   Meeting, ReflectionMode, todayString,
@@ -784,6 +785,12 @@ export default function MeetingPresenterPage() {
       createdBy: profile.uid,
     };
     await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+
+    // 🏅 BDG PR3 — one meeting counted for every kid marked present tonight
+    // (Team Player → Meeting Champion). Best-effort: the meeting record is
+    // already saved and must never fail on a badge tally.
+    void Promise.all(Array.from(attendees).map((kidId) =>
+      bumpBadgeCounters(profile.familyId!, kidId, { meetings: 1 })));
 
     // Commitments are folded into tonight's goals now — clear the handoff.
     try { localStorage.removeItem(`kaya:meeting:commitments:${profile.familyId}`); } catch { /* ignore */ }

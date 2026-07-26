@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { bumpBadgeCountersAdmin } from '@/lib/badgeCountersAdmin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,13 +80,18 @@ async function run(req: NextRequest) {
         createdAt: now,
       });
       const cSnap = await childRef.get();
-      const c = cSnap.exists ? (cSnap.data() as { totalPoints?: number; weeklyPoints?: number }) : {};
+      const c = cSnap.exists ? (cSnap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number }) : {};
       await childRef.update({
         totalPoints: (c.totalPoints ?? 0) + points,
         weeklyPoints: (c.weeklyPoints ?? 0) + points,
+        // 🏅 lifetime EARNED points — the badge yardstick spending can't shrink.
+        lifetimePoints: Math.max(c.lifetimePoints ?? 0, c.totalPoints ?? 0) + points,
       });
       awarded.add(itemId);
       pointsAwarded = points;
+      // 🏅 instant-mode proof tasks are tallied at grant time (review/route.ts
+      // handles the approval-mode ones, so a task is counted exactly once).
+      void bumpBadgeCountersAdmin(db, familyId, childId, { workplan_done: 1, award_workplan: 1 });
     } catch {
       /* best-effort: the proof + completion still land even if the award write fails */
     }

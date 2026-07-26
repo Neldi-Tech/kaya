@@ -8,15 +8,16 @@
 // bell notification follows post-commit. Idempotent: already-earned
 // badges no-op cleanly.
 //
-// PR2 verifies: lifetime_points · streak_days · redemption_count ·
-// goal_chipins · parent_confirm (parent callers only). PR3 wires the
-// remaining area signals (quiz, award categories, meetings, sparks…)
-// through the same route.
+// Verified here: lifetime_points · streak_days · redemption_count ·
+// goal_chipins · parent_confirm (parent callers only) and — since BDG PR3 —
+// every counter-measured signal (quiz · award categories · diamonds ·
+// meetings · conversions · workplan · family goals) read back off
+// child.badgeCounters, which each area's own flow bumps as it happens.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminAuth, getAdminFirestore } from '@/lib/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
-import { badgeById, badgeThreshold, isBadgeReleased, type BadgeConfig } from '@/lib/badgeLib';
+import { badgeById, badgeThreshold, counterKeyForSignal, isBadgeReleased, type BadgeConfig } from '@/lib/badgeLib';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -61,8 +62,26 @@ export async function POST(req: NextRequest) {
     const minted = await db.runTransaction(async (tx) => {
       const cSnap = await tx.get(childRef);
       if (!cSnap.exists) throw new Error('child-not-found');
-      const child = cSnap.data() as { badges?: string[]; totalPoints?: number; lifetimePoints?: number; streak?: number; name?: string };
+      const child = cSnap.data() as {
+        badges?: string[]; totalPoints?: number; lifetimePoints?: number;
+        streak?: number; name?: string; badgeCounters?: Record<string, number>;
+      };
       if ((child.badges || []).includes(badgeId)) return false; // idempotent
+
+      // BDG PR3 — every counter-measured signal (quiz · awards by category ·
+      // diamonds · meetings · conversions · workplan · goals) verifies the
+      // same way: read the tally the area's own flow wrote, compare to the
+      // family's threshold. No client number is ever trusted.
+      const counterKey = counterKeyForSignal(def.signal);
+      if (counterKey) {
+        if ((child.badgeCounters?.[counterKey] || 0) < threshold) return false;
+        tx.update(childRef, { badges: FieldValue.arrayUnion(badgeId) });
+        tx.set(famRef.collection('badgeLog').doc(), {
+          childId, badgeId, name: def.name, icon: def.icon, tier: def.tier,
+          area: def.area, how: def.how, earnedAt: FieldValue.serverTimestamp(),
+        });
+        return true;
+      }
 
       // ── Server-side verification per signal ─────────────────────
       let met = false;
@@ -97,7 +116,8 @@ export async function POST(req: NextRequest) {
           met = isParent; // a parent's nomination IS the confirmation
           break;
         default:
-          // Signals wired in PR3 — refuse honestly rather than trust the client.
+          // saver_weeks is minted by the Hive saver card itself; anything
+          // else unmeasurable is refused rather than trusted.
           return false;
       }
       if (!met) return false;
