@@ -12,10 +12,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { updateFamily } from '@/lib/firestore';
 import {
-  BADGE_AREAS, BADGE_TIERS, TIER_RANK,
-  familyBadgeSet, isBadgeReleased, badgeThreshold,
+  BADGE_AREAS, BADGE_TIERS, TIER_RANK, ROMAN, SET_META, SET_RING,
+  familyBadgeSet, isBadgeReleased, badgeThreshold, packForBadge,
   type BadgeDef, type BadgeTier, type BadgeArea, type BadgeConfig,
 } from '@/lib/badgeLib';
+import BadgePacks from './BadgePacks';
+import BadgeStudio from './BadgeStudio';
 
 const TIER_STYLE: Record<BadgeTier, string> = {
   easy: 'bg-[#E7F5EC] text-pantry-leaf-dk border-[#bfe0cc]',
@@ -117,6 +119,9 @@ export default function BadgeBoutique() {
         />
       </div>
 
+      {/* 🎁 BDG PR5 — seasonal packs, released with one tap. */}
+      <BadgePacks />
+
       <div className="flex flex-wrap gap-1 mb-1">
         <button onClick={() => setArea(null)} className="px-2.5 py-1 rounded-full text-[10.5px] font-extrabold border" style={area === null ? { background: '#F0A32A', borderColor: '#F0A32A', color: '#241a0e' } : { borderColor: 'rgba(255,255,255,.3)', color: '#f3e7c8' }}>All areas</button>
         {BADGE_AREAS.map((a) => (
@@ -149,8 +154,26 @@ export default function BadgeBoutique() {
               {!open ? (
                 <>
                   <p className="text-[28px]" style={{ filter: 'drop-shadow(0 3px 8px rgba(240,163,42,.4))' }}>{b.icon}</p>
-                  <p className="font-extrabold text-[12px] mt-1">{b.name}</p>
+                  <p className="font-extrabold text-[12px] mt-1">
+                    {b.name}
+                    {/* ✨ evolving set: same chase, richer shell (bronze → gold) */}
+                    {b.set && (
+                      <span
+                        className="ml-1 inline-block px-1.5 rounded-full text-[9px] font-black align-middle"
+                        style={{ border: `1.5px solid ${SET_RING[b.set.level]}`, color: SET_RING[b.set.level] }}
+                        title={`${SET_META[b.set.id]?.label ?? 'Set'} ${ROMAN[b.set.level]}`}
+                      >
+                        {ROMAN[b.set.level]}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-[9.5px] font-bold leading-snug mt-0.5" style={{ color: '#d9c89a' }}>{b.how}</p>
+                  {packForBadge(b.id) && (
+                    <p className="text-[9px] font-black mt-0.5" style={{ color: '#F0A32A' }}>
+                      {packForBadge(b.id)!.emoji} {packForBadge(b.id)!.name}
+                      {packForBadge(b.id)!.window ? ' · ⏳ limited' : ''}
+                    </p>
+                  )}
                   <span className="inline-block mt-2 px-2.5 py-0.5 rounded-full text-[9.5px] font-black" style={b.pending ? { background: 'rgba(255,255,255,.10)', color: '#c9b789' } : rel ? { background: '#F0A32A', color: '#241a0e' } : { background: 'rgba(255,255,255,.15)', color: '#f3e7c8' }}>{b.pending ? '🔜 coming soon' : rel ? '✓ released' : '＋ release'}</span>
                 </>
               ) : (
@@ -217,6 +240,9 @@ export default function BadgeBoutique() {
         </div>
       </div>
       <p className="text-[10.5px] font-bold italic mt-3" style={{ color: '#d9c89a' }}>Tap a card for the full story, threshold, who&rsquo;s earned it, and release/retire. Search matches names, areas and how-it&rsquo;s-earned words.</p>
+
+      {/* 🪄 BDG PR5 — describe-it-and-Kaya-builds-it, plus 💭 kid wishes. */}
+      <BadgeStudio />
     </div>
   );
 }

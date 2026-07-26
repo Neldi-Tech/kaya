@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { sweepBadges, nextMilestones } from '@/lib/badgeEngine';
+import { sweepBadges, nextMilestones, localTodayKey } from '@/lib/badgeEngine';
 import {
   familyBadgeSet, isBadgeReleased, badgeProgress, BADGE_AREAS, BADGE_TIERS, TIER_RANK,
+  ROMAN, SET_META, SET_RING, packForBadge, isBadgeInSeason,
   type BadgeArea, type BadgeDef,
 } from '@/lib/badgeLib';
 import BackButton from '@/components/ui/BackButton';
@@ -13,6 +14,8 @@ import KidAvatar from '@/components/ui/KidAvatar';
 import BadgeHistory from '@/components/rewards/BadgeHistory';
 import BadgeBoard from '@/components/rewards/BadgeBoard';
 import TopBadge from '@/components/rewards/TopBadge';
+import BadgeCollections from '@/components/rewards/BadgeCollections';
+import BadgeWishButton from '@/components/rewards/BadgeWishButton';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
@@ -28,6 +31,9 @@ export default function BadgesPage() {
   // A kid viewer is pinned to their own history by the route anyway; parents
   // read the history of whichever kid is selected above.
   const isKidViewer = profile?.role === 'kid';
+  // ✨ the most recent mint — arrayUnion appends, so it's the last id.
+  const newestBadgeId = earnedBadges.length > 0 ? earnedBadges[earnedBadges.length - 1] : null;
+  const today = localTodayKey();
 
   // 🏅 BDG PR3 (B12) — the kid sees the family's OWN badge set: the released
   // slice of the all-Kaya catalog, in Boutique order (area → tier → name).
@@ -200,6 +206,11 @@ export default function BadgesPage() {
         {shown.map((badge: BadgeDef) => {
           const earned = earnedBadges.includes(badge.id);
           const p = child ? badgeProgress(cfg, badge, child) : null;
+          // ✨ BDG PR5 — the newest unlock wears the shine (arrayUnion appends,
+          // so the last id in child.badges IS the most recent mint).
+          const isNewest = earned && badge.id === newestBadgeId;
+          const pack = packForBadge(badge.id);
+          const inSeason = isBadgeInSeason(badge.id, today);
           return (
             <div
               key={badge.id}
@@ -208,13 +219,33 @@ export default function BadgesPage() {
                   ? 'bg-white border-kaya-gold/40 shadow-sm'
                   : 'bg-kaya-warm/40 border-kaya-warm-dark/60'
               }`}
+              style={isNewest ? { boxShadow: '0 0 0 2px #F0A32A, 0 6px 18px rgba(240,163,42,.35)' } : undefined}
             >
               <div className={`text-3xl lg:text-4xl mb-2 lg:mb-3 ${earned ? '' : 'grayscale opacity-70'}`}>{badge.icon}</div>
-              <p className="text-sm lg:text-[15px] font-bold mb-0.5">{badge.name}</p>
+              <p className="text-sm lg:text-[15px] font-bold mb-0.5">
+                {badge.name}
+                {badge.set && (
+                  <span
+                    className="ml-1 inline-block px-1.5 rounded-full text-[9px] font-black align-middle"
+                    style={{ border: `1.5px solid ${SET_RING[badge.set.level]}`, color: SET_RING[badge.set.level] }}
+                    title={`${SET_META[badge.set.id]?.label ?? 'Set'} ${ROMAN[badge.set.level]}`}
+                  >
+                    {ROMAN[badge.set.level]}
+                  </span>
+                )}
+              </p>
               <p className="text-[11px] lg:text-xs text-kaya-sand leading-tight">{badge.how}</p>
               <p className="mt-1.5 text-[9.5px] font-bold text-kaya-sand uppercase tracking-wider">
                 {BADGE_TIERS[badge.tier].emoji} {BADGE_TIERS[badge.tier].label}
               </p>
+              {pack && (
+                <p className="mt-1 text-[9.5px] font-black" style={{ color: inSeason ? '#D4A017' : '#9c9384' }}>
+                  {pack.emoji} {pack.window ? (inSeason ? '⏳ limited — earnable now' : '⏳ out of season') : pack.name}
+                </p>
+              )}
+              {isNewest && (
+                <p className="mt-1 text-[9.5px] font-black gold-shimmer">✨ Newest unlock!</p>
+              )}
               {earned ? (
                 <div className="mt-3 text-[10px] font-bold text-kaya-gold uppercase tracking-wider">✓ Earned</div>
               ) : p ? (
@@ -236,6 +267,18 @@ export default function BadgesPage() {
         <p className="text-center text-sm text-kaya-sand py-10">
           No badges released in this area yet — a parent can open them in Manage Rewards → 🏬 Badge Boutique.
         </p>
+      )}
+
+      {/* ✨ Collections — area meters + evolving I→II→III ladders */}
+      {child && (
+        <div className="mt-6 lg:mt-8">
+          <BadgeCollections cfg={cfg} child={child} />
+        </div>
+      )}
+
+      {/* 💭 kids can ask for the badge they want */}
+      {child && (isKidViewer ? profile?.childId === child.id : true) && (
+        <BadgeWishButton childId={isKidViewer ? null : child.id} />
       )}
 
       {/* 📜 Badge history — every badge ever earned, with its date. A kid sees
