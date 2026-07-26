@@ -27,6 +27,7 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
   business_hp:       { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
   business_reinvest: { emoji: '🌳', label: 'Reinvest · Honey Pot → business', tone: 'green' },
   create_group_chat: { emoji: '💬', label: 'New group chat',      tone: 'honey' },
+  reward_redeem:     { emoji: '🎁', label: 'Reward request',      tone: 'honey' },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
@@ -94,6 +95,9 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
       const n = req.proposedMemberUids?.length ?? 0;
       return `"${req.proposedTitle || 'New group'}" · ${n} ${n === 1 ? 'member' : 'members'}`;
     }
+    if (req.type === 'reward_redeem') {
+      return `${req.rewardIcon || '🎁'} ${req.rewardTitle || 'Reward'} · ${formatHp(req.rewardPointsCost || 0)} pts`;
+    }
     return formatCash(req.amountCents || 0);
   })();
 
@@ -131,6 +135,10 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           const d = await res.json().catch(() => ({}));
           throw new Error(d?.error ? `Couldn’t resolve (${d.error}).` : 'Failed to resolve.');
         }
+      } else if (req.type === 'reward_redeem') {
+        // RWD PR1 — the note travels on approve AND reject (standing rule:
+        // parent feedback always reaches the kid).
+        await resolveApprovalRequest(profile.familyId, req.id, decision, profile.uid, note, reason.trim() || undefined);
       } else {
         await resolveApprovalRequest(profile.familyId, req.id, decision, profile.uid, note);
       }
@@ -291,7 +299,18 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           )}
         </div>
       ) : !showReject ? (
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-3">
+          {/* RWD PR1 — reward requests carry a note BOTH ways (approve too). */}
+          {req.type === 'reward_redeem' && (
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={`Add a note for ${kid?.name?.split(' ')[0] || 'the kid'}… (optional, goes both ways)`}
+              maxLength={120}
+              className="w-full h-10 px-3 mb-2 bg-hive-cream rounded-hive-pill text-[13px] border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+            />
+          )}
+          <div className="flex items-center gap-2">
           <button
             onClick={() => act('approved')}
             disabled={!!resolving}
@@ -306,6 +325,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           >
             Reject
           </button>
+          </div>
         </div>
       ) : (
         <div className="mt-3 space-y-2">
