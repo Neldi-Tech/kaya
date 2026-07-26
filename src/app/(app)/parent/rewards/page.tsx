@@ -12,6 +12,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import RewardsWizard from '@/components/rewards/RewardsWizard';
+import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
 import {
@@ -38,7 +40,7 @@ const blankDraft = (): Draft => ({
 
 export default function ParentRewardsPage() {
   const { profile, isGuest } = useAuth();
-  const { rewards, children, refresh } = useFamily();
+  const { family, rewards, children, refresh } = useFamily();
   const confirmAction = useConfirm();
 
   // Recent redemptions — fetched once when the page mounts and after
@@ -295,6 +297,20 @@ export default function ParentRewardsPage() {
     } catch (e: any) { flash(e?.message || 'Update failed.'); }
     setBusyId(null);
   };
+  // 🎂 RWD PR6 — per-reward minimum age (empty clears).
+  const setMinAge = async (r: Reward, raw: string) => {
+    if (isGuest || !profile?.familyId) return;
+    const n = parseInt(raw, 10);
+    const next = Number.isFinite(n) && n > 0 ? n : 0;
+    if ((r.minAge ?? 0) === next) return;
+    setBusyId(r.id);
+    try {
+      await updateReward(profile.familyId, r.id, { minAge: next } as Partial<Reward>);
+      await refresh();
+    } catch (e: any) { flash(e?.message || 'Update failed.'); }
+    setBusyId(null);
+  };
+
   const setLockDate = async (r: Reward, date: string) => {
     if (isGuest || !profile?.familyId) return;
     setBusyId(r.id);
@@ -680,6 +696,18 @@ export default function ParentRewardsPage() {
                               Delete
                             </button>
                           </div>
+                          {/* 🎂 RWD PR6 — age to unlock: younger kids see it 🔒 "from age N". */}
+                          <div className="flex items-center gap-2 mt-2">
+                            <label className="text-[11px] text-kaya-sand font-bold">🎂 Min age</label>
+                            <input
+                              type="number" min={0} max={25}
+                              defaultValue={r.minAge ?? ''}
+                              onBlur={(e) => setMinAge(r, e.target.value)}
+                              placeholder="all"
+                              className="h-8 w-20 px-2 rounded-kaya-sm border border-kaya-warm-dark/70 text-xs font-semibold text-right"
+                            />
+                            <span className="text-[10.5px] text-kaya-sand">empty = all ages · younger kids see 🔒 &ldquo;from age N&rdquo;</span>
+                          </div>
                           {r.locked && (
                             <div className="flex items-center gap-2 mt-2">
                               <label className="text-[11px] text-kaya-sand font-bold">Auto-unlock on</label>
@@ -704,8 +732,23 @@ export default function ParentRewardsPage() {
         </div>
       )}
 
+      {/* ⚙️ Store rules (RWD PR6) — moved here from Settings (Elia, 26-Jul):
+          the store's settings live with the store. 🛡 floor + per-kid,
+          ⚡ auto-approve, 👨‍👩‍👧 family-goals age gate + overrides. */}
+      <div className="mt-8 mb-4">
+        <CollapsibleSection
+          id="store-rules"
+          remember
+          icon="⚙️"
+          title="Store rules"
+          summary={family?.rewardsConfig?.minPointsFloor ? `🛡 ${family.rewardsConfig.minPointsFloor} pts protected` : 'floor · auto-approve · ages'}
+        >
+          <RewardsRulesCard />
+        </CollapsibleSection>
+      </div>
+
       {/* 👨‍👩‍👧 New family goal (RWD PR5 · R24) — everyone chips in; the age
-          gate (Settings → 🎁 Rewards rules) decides who's included. */}
+          gate (⚙️ Store rules above) decides who's included. */}
       <div className="mt-8 mb-4 bg-white border-2 border-kaya-gold/40 rounded-kaya p-4">
         <h2 className="font-display font-extrabold text-lg mb-1">👨‍👩‍👧 New family goal</h2>
         <p className="text-[11.5px] text-kaya-sand mb-3">A big reward the kids earn TOGETHER — equal shares, or an open pool where volunteers carry more. Who&apos;s included follows the age gate in Settings → 🎁 Rewards rules.</p>

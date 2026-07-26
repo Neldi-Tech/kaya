@@ -1334,6 +1334,9 @@ export interface Reward {
   lockedUntil?: string;
   /** Set by the cron so the unlock bell only rings once. */
   unlockNotified?: boolean;
+  /** 🎂 RWD PR6 — minimum age to redeem this reward. Younger kids see it
+   *  🔒 "from age N" (it auto-opens as they grow). No birthday = no gating. */
+  minAge?: number;
   // ── 👨‍👩‍👧 RWD PR5 — family goal (everyone chips in). For family goals
   //    `pointsCost` is ignored; `targetPoints` is the team total.
   kind?: 'personal' | 'family';
@@ -1350,6 +1353,18 @@ export interface Reward {
   goalReachedAt?: Timestamp;
   /** Parent marked the goal fulfilled IRL (writes the family history row). */
   fulfilled?: boolean;
+}
+
+/** Current age from a YYYY-MM-DD birthday, or null when unknown. */
+export function ageFromBirthday(birthday?: string): number | null {
+  if (!birthday) return null;
+  const birth = new Date(`${birthday}T00:00:00`);
+  if (Number.isNaN(birth.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return age;
 }
 
 /** 👨‍👩‍👧 Is this kid INCLUDED in family goals? Age-gated the Little-Stars way:
