@@ -22,6 +22,8 @@ export default function RewardsRulesCard() {
   const [floor, setFloor] = useState<string>('');
   const [auto, setAuto] = useState<string>('');
   const [perKid, setPerKid] = useState<Record<string, string>>({});
+  const [goalsAge, setGoalsAge] = useState<string>('');
+  const [goalsOverrides, setGoalsOverrides] = useState<Record<string, boolean>>({});
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -31,7 +33,9 @@ export default function RewardsRulesCard() {
     const pk: Record<string, string> = {};
     for (const [k, v] of Object.entries(cfg?.minPointsFloorPerKid ?? {})) pk[k] = String(v);
     setPerKid(pk);
-  }, [cfg?.minPointsFloor, cfg?.autoApproveBelowPoints, cfg?.minPointsFloorPerKid]);
+    setGoalsAge(cfg?.familyGoalsFromAge ? String(cfg.familyGoalsFromAge) : '');
+    setGoalsOverrides({ ...(cfg?.familyGoalsOverrides ?? {}) });
+  }, [cfg?.minPointsFloor, cfg?.autoApproveBelowPoints, cfg?.minPointsFloorPerKid, cfg?.familyGoalsFromAge, cfg?.familyGoalsOverrides]);
 
   const save = async () => {
     if (!profile?.familyId || busy) return;
@@ -44,11 +48,14 @@ export default function RewardsRulesCard() {
       }
       const floorN = parseInt(floor, 10);
       const autoN = parseInt(auto, 10);
+      const ageN = parseInt(goalsAge, 10);
       await updateFamily(profile.familyId, {
         rewardsConfig: {
           ...(Number.isFinite(floorN) && floorN > 0 ? { minPointsFloor: floorN } : {}),
           ...(Object.keys(perKidClean).length ? { minPointsFloorPerKid: perKidClean } : {}),
           ...(Number.isFinite(autoN) && autoN > 0 ? { autoApproveBelowPoints: autoN } : {}),
+          ...(Number.isFinite(ageN) && ageN > 0 ? { familyGoalsFromAge: ageN } : {}),
+          ...(Object.keys(goalsOverrides).length ? { familyGoalsOverrides: goalsOverrides } : {}),
         },
       } as any);
       await refresh?.();
@@ -92,6 +99,47 @@ export default function RewardsRulesCard() {
         </div>
         <input type="number" min={0} value={auto} onChange={(e) => setAuto(e.target.value)} placeholder="off" className={input} />
       </div>
+      {/* 👨‍👩‍👧 RWD PR5 (R27) — family-goals age gate, Little-Stars style. */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold">👨‍👩‍👧 Family goals from age</p>
+          <p className="text-[11px] text-kaya-sand leading-relaxed">Kids at/above this age owe a share; younger kids cheer 📣. Empty = everyone joins. No birthday = included.</p>
+        </div>
+        <input type="number" min={0} value={goalsAge} onChange={(e) => setGoalsAge(e.target.value)} placeholder="all" className={input} />
+      </div>
+      {children.length > 0 && (
+        <div className="rounded-kaya-sm border border-dashed border-kaya-warm-dark/60 p-3 space-y-1.5">
+          <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Per-kid include/exclude (overrides the age)</p>
+          {children.map((k) => {
+            const v = goalsOverrides[k.id];
+            return (
+              <div key={k.id} className="flex items-center justify-between gap-3">
+                <p className="text-[12.5px] font-semibold truncate">{k.avatarEmoji || '🧒'} {k.name}</p>
+                <div className="flex gap-1">
+                  {([['auto', undefined], ['in', true], ['out', false]] as const).map(([label, val]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() => setGoalsOverrides((p) => {
+                        const next = { ...p };
+                        if (val === undefined) delete next[k.id]; else next[k.id] = val;
+                        return next;
+                      })}
+                      className={`px-2 py-1 rounded-full text-[10.5px] font-extrabold border ${
+                        (val === undefined ? v === undefined : v === val)
+                          ? 'bg-kaya-gold text-white border-kaya-gold-dark'
+                          : 'bg-white border-kaya-warm-dark/60 text-kaya-sand'
+                      }`}
+                    >
+                      {label === 'auto' ? '✨ age' : label === 'in' ? '✓ in' : '📣 cheer'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <button
           type="button"

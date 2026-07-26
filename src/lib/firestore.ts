@@ -133,6 +133,10 @@ export interface Family {
     minPointsFloor?: number;
     minPointsFloorPerKid?: Record<string, number>;
     autoApproveBelowPoints?: number;
+    /** 👨‍👩‍👧 RWD PR5 — kids join family goals from this age (Little-Stars
+     *  style); per-kid include/exclude overrides win. Absent = everyone. */
+    familyGoalsFromAge?: number;
+    familyGoalsOverrides?: Record<string, boolean>;
   };
   // 📬 Kids' email updates (KID PR1) — per-kid source POINTER + stream
   // toggles, everything default OFF (COPPA). See lib/kidEmails.shared.
@@ -1330,6 +1334,42 @@ export interface Reward {
   lockedUntil?: string;
   /** Set by the cron so the unlock bell only rings once. */
   unlockNotified?: boolean;
+  // ── 👨‍👩‍👧 RWD PR5 — family goal (everyone chips in). For family goals
+  //    `pointsCost` is ignored; `targetPoints` is the team total.
+  kind?: 'personal' | 'family';
+  targetPoints?: number;
+  /** 'equal' = target splits evenly across included kids; 'open' = anyone
+   *  chips in any amount, volunteers can carry more. */
+  poolMode?: 'equal' | 'open';
+  /** Parent's advice line shown on the goal card. */
+  parentNote?: string;
+  /** Running total + per-kid contributions (childId → points), updated
+   *  transactionally on each approved chip-in. */
+  contributedTotal?: number;
+  contributions?: Record<string, number>;
+  goalReachedAt?: Timestamp;
+  /** Parent marked the goal fulfilled IRL (writes the family history row). */
+  fulfilled?: boolean;
+}
+
+/** 👨‍👩‍👧 Is this kid INCLUDED in family goals? Age-gated the Little-Stars way:
+ *  per-kid override wins → else age >= the family threshold → no birthday or
+ *  no threshold = included (no-birthday-no-gating rule). */
+export function isKidInFamilyGoals(
+  cfg: { familyGoalsFromAge?: number; familyGoalsOverrides?: Record<string, boolean> } | undefined,
+  child: { id: string; birthday?: string },
+): boolean {
+  const override = cfg?.familyGoalsOverrides?.[child.id];
+  if (typeof override === 'boolean') return override;
+  const fromAge = cfg?.familyGoalsFromAge;
+  if (!fromAge || fromAge <= 0 || !child.birthday) return true;
+  const birth = new Date(`${child.birthday}T00:00:00`);
+  if (Number.isNaN(birth.getTime())) return true;
+  const now = new Date();
+  let age = now.getFullYear() - birth.getFullYear();
+  const m = now.getMonth() - birth.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < birth.getDate())) age--;
+  return age >= fromAge;
 }
 
 /** 🔒 Is this reward locked right now? Date-based locks auto-open the moment

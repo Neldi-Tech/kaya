@@ -249,6 +249,40 @@ export default function ParentRewardsPage() {
     setBusyId(null);
   };
 
+  // 👨‍👩‍👧 RWD PR5 (R24) — family-goal creation.
+  const [fgTitle, setFgTitle] = useState('');
+  const [fgIcon, setFgIcon] = useState('🎪');
+  const [fgTarget, setFgTarget] = useState('');
+  const [fgMode, setFgMode] = useState<'equal' | 'open'>('equal');
+  const [fgNote, setFgNote] = useState('');
+  const [fgBusy, setFgBusy] = useState(false);
+  const createFamilyGoal = async () => {
+    if (isGuest || !profile?.familyId || fgBusy) return;
+    const target = parseInt(fgTarget, 10);
+    if (!fgTitle.trim() || !(target > 0)) return;
+    setFgBusy(true);
+    try {
+      await addReward(profile.familyId, {
+        title: fgTitle.trim(),
+        description: 'A family goal — everyone chips in!',
+        pointsCost: target,
+        icon: fgIcon.trim() || '🎪',
+        active: true,
+        category: 'Family goals',
+        kind: 'family',
+        targetPoints: target,
+        poolMode: fgMode,
+        ...(fgNote.trim() ? { parentNote: fgNote.trim() } : {}),
+        contributedTotal: 0,
+        contributions: {},
+      } as Omit<Reward, 'id'>);
+      setFgTitle(''); setFgTarget(''); setFgNote('');
+      flash('🎊 Family goal created — it’s live on the store!');
+      await refresh();
+    } catch (e: any) { flash(e?.message || 'Could not create the goal.'); }
+    setFgBusy(false);
+  };
+
   // 🔒 RWD PR4 (R21) — lock/unlock + optional auto-unlock date.
   const toggleLock = async (r: Reward) => {
     if (isGuest || !profile?.familyId) return;
@@ -669,6 +703,31 @@ export default function ParentRewardsPage() {
           ))}
         </div>
       )}
+
+      {/* 👨‍👩‍👧 New family goal (RWD PR5 · R24) — everyone chips in; the age
+          gate (Settings → 🎁 Rewards rules) decides who's included. */}
+      <div className="mt-8 mb-4 bg-white border-2 border-kaya-gold/40 rounded-kaya p-4">
+        <h2 className="font-display font-extrabold text-lg mb-1">👨‍👩‍👧 New family goal</h2>
+        <p className="text-[11.5px] text-kaya-sand mb-3">A big reward the kids earn TOGETHER — equal shares, or an open pool where volunteers carry more. Who&apos;s included follows the age gate in Settings → 🎁 Rewards rules.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
+          <input value={fgTitle} onChange={(e) => setFgTitle(e.target.value)} placeholder="Goal name (e.g. Funfair day)" className="h-10 px-3 rounded-kaya-sm border border-kaya-warm-dark/70 text-sm font-semibold" />
+          <div className="flex gap-2">
+            <input value={fgIcon} onChange={(e) => setFgIcon(e.target.value)} placeholder="🎪" maxLength={4} className="h-10 w-16 px-2 rounded-kaya-sm border border-kaya-warm-dark/70 text-center text-lg" aria-label="Goal icon" />
+            <input type="number" min={1} value={fgTarget} onChange={(e) => setFgTarget(e.target.value)} placeholder="Team target (pts)" className="h-10 flex-1 px-3 rounded-kaya-sm border border-kaya-warm-dark/70 text-sm font-semibold" />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          {(['equal', 'open'] as const).map((m) => (
+            <button key={m} onClick={() => setFgMode(m)} className={`h-9 px-4 rounded-full text-[12px] font-bold border ${fgMode === m ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+              {m === 'equal' ? '⚖️ Equal shares' : '🚀 Open pool (volunteers can carry more)'}
+            </button>
+          ))}
+        </div>
+        <input value={fgNote} onChange={(e) => setFgNote(e.target.value)} placeholder="Your advice to the team (optional) — e.g. 'Steady beats big!'" maxLength={140} className="w-full h-10 px-3 rounded-kaya-sm border border-kaya-warm-dark/70 text-sm mb-2" />
+        <button onClick={createFamilyGoal} disabled={fgBusy || !fgTitle.trim() || !(parseInt(fgTarget, 10) > 0)} className="h-10 px-5 rounded-kaya-sm bg-kaya-gold text-white text-[13px] font-bold hover:bg-kaya-gold-dark disabled:opacity-50">
+          {fgBusy ? 'Creating…' : 'Create family goal 🎊'}
+        </button>
+      </div>
 
       {/* Recent redemptions — denormalised title so this still reads
           correctly after a parent renames or deletes the underlying

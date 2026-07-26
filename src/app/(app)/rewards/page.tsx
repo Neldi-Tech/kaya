@@ -10,6 +10,7 @@ import {
 } from '@/lib/firestore';
 import { toDisplayDate } from '@/lib/dates';
 import RedemptionHistory from '@/components/rewards/RedemptionHistory';
+import FamilyGoalsSection from '@/components/rewards/FamilyGoalsSection';
 import {
   requestRewardRedeem, parentRedeemReward, cancelOwnRequest,
   subscribeToKidRequests, rewardsFloorFor,
@@ -50,7 +51,8 @@ export default function RewardsPage() {
   );
 
   const child = children[selectedChild] ?? children[0];
-  const activeRewards = rewards.filter((r) => r.active);
+  // Family goals render in their own 👨‍👩‍👧 section — keep them out of the grid.
+  const activeRewards = rewards.filter((r) => r.active && r.kind !== 'family');
 
   // RWD PR1 (R3) — the kid's own pending reward requests (⏳ + cancel).
   const [myRequests, setMyRequests] = useState<ApprovalRequest[]>([]);
@@ -329,6 +331,7 @@ export default function RewardsPage() {
 
         {view === 'store' && <>
         {soCloseStrip}
+        <FamilyGoalsSection myKidId={myKidId} />
         {/* Category filter pills (mobile) */}
         {categories.length > 1 && (
           <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -535,6 +538,7 @@ export default function RewardsPage() {
 
         {view === 'store' && <>
         {soCloseStrip}
+        <FamilyGoalsSection myKidId={myKidId} />
         {/* Category filter pills (desktop) */}
         {categories.length > 1 && (
           <div className="flex flex-wrap gap-2 mb-5">

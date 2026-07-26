@@ -54,7 +54,8 @@ export type ApprovalType =
   // ── Kaya Chat ──────────────────────────────────────────────────
   | 'create_group_chat'      // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
   // ── Rewards store (RWD PR1, approved v2 FINAL 26-Jul-2026) ─────
-  | 'reward_redeem';         // a kid asks to redeem a reward — resolve = transactional points + wallet + statement + history
+  | 'reward_redeem'          // a kid asks to redeem a reward — resolve = transactional points + wallet + statement + history
+  | 'reward_contribute';     // 👨‍👩‍👧 RWD PR5 — a kid chips points into a FAMILY goal
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -503,6 +504,8 @@ export interface ApprovalRequest {
   rewardTitle?: string;
   rewardIcon?: string;
   rewardPointsCost?: number;
+  /** reward_contribute — points the kid is chipping into the family goal. */
+  contributePoints?: number;
   businessId?: string;
   instrumentSymbol?: string;        // investment_buy / investment_sell
   shares?: number;                  // investment_buy / investment_sell
@@ -1246,6 +1249,7 @@ export async function resolveApprovalRequest(
   // RWD PR1 (R7) — reward resolutions ring the kid's bell after the
   // transaction commits (best-effort; never blocks the resolution).
   let rewardNotify: { forUserId: string; approved: boolean; title: string; note?: string } | null = null;
+  let goalCelebration: { title: string; icon: string; approverUid: string } | null = null;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(requestCol(familyId), requestId);
     const reqSnap = await tx.get(reqRef);
@@ -1491,10 +1495,90 @@ export async function resolveApprovalRequest(
         resolvedBy: approverUid,
         resultingTxIds: [ledgerRef.id],
       });
+    } else if (req.type === 'reward_contribute') {
+      // 👨‍👩‍👧 RWD PR5 — chip-in transaction: 🛡 floor-checked deduction +
+      // wallet mirror + 📜 statement line + the goal's contribution map, all
+      // together. Goal-reached is detected inside the transaction.
+      const amount = req.contributePoints ?? 0;
+      if (!Number.isInteger(amount) || amount <= 0) throw new Error('Bad chip-in.');
+      if (!req.rewardId) throw new Error('Goal missing on this request.');
+      const cRef = childRef(familyId, req.kidId);
+      const goalRef = doc(db, 'families', familyId, 'rewards', req.rewardId);
+      const [cSnap, goalSnap, famSnap] = await Promise.all([
+        tx.get(cRef), tx.get(goalRef), tx.get(doc(db, 'families', familyId)),
+      ]);
+      if (!cSnap.exists()) throw new Error('Child not found.');
+      if (!goalSnap.exists()) throw new Error('Family goal not found.');
+      const goal = goalSnap.data() as { title?: string; icon?: string; targetPoints?: number; contributedTotal?: number; contributions?: Record<string, number>; goalReachedAt?: unknown };
+      const floor = rewardsFloorFor(famSnap.data() as FamilyRewardsSlice | undefined, req.kidId);
+      const total = (cSnap.data() as { totalPoints?: number }).totalPoints ?? 0;
+      if (total - amount < floor) {
+        throw new Error(floor > 0
+          ? `This would dip under the family's 🛡 ${floor}-point floor (${Math.max(0, total - floor)} spendable).`
+          : 'Not enough points.');
+      }
+      const ledgerRef = doc(txCol(familyId, req.kidId));
+      const now = serverTimestamp();
+      const newTotal = (goal.contributedTotal ?? 0) + amount;
+      const reached = !goal.goalReachedAt && (goal.targetPoints ?? Infinity) <= newTotal;
+      tx.update(cRef, { totalPoints: total - amount });
+      tx.set(wRef, { ...wallet, housePoints: Math.max(0, wallet.housePoints - amount), updatedAt: now });
+      tx.set(ledgerRef, {
+        layer: 'house_points', direction: 'out', amount, category: 'spend',
+        description: `👨‍👩‍👧 Chip-in: ${goal.title || 'Family goal'}`,
+        status: 'completed', requestId,
+        createdBy: req.createdBy, approvedBy: approverUid,
+        createdAt: now, completedAt: now,
+      });
+      tx.update(goalRef, {
+        contributedTotal: newTotal,
+        [`contributions.${req.kidId}`]: (goal.contributions?.[req.kidId] ?? 0) + amount,
+        ...(reached ? { goalReachedAt: now } : {}),
+      });
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
+        ...(approvalNote?.trim() ? { approvalNote: approvalNote.trim() } : {}),
+        resolvedAt: now,
+        resolvedBy: approverUid,
+        resultingTxIds: [ledgerRef.id],
+      });
+      if (reached) {
+        goalCelebration = { title: goal.title || 'Family goal', icon: goal.icon || '🎪', approverUid };
+      }
     } else {
       throw new Error(`Unknown approval type: ${(req as any).type}`);
     }
   });
+
+  // 🎊 RWD PR5 (R28) — goal reached: ring EVERY family member's bell + drop a
+  // Moments post. Best-effort after the commit.
+  if (goalCelebration) {
+    const g = goalCelebration as { title: string; icon: string; approverUid: string };
+    try {
+      const { getFamilyMembers } = await import('./firestore');
+      const { createPost } = await import('./moments');
+      const members = await getFamilyMembers(familyId);
+      await Promise.all(members.map((m) =>
+        addDoc(collection(db, 'families', familyId, 'notifications'), {
+          type: 'reward',
+          forUserId: m.uid,
+          title: `🎊 Goal reached: ${g.icon} ${g.title}!`,
+          message: 'The whole team made it happen — time to celebrate!',
+          read: false,
+          link: '/rewards',
+          createdAt: serverTimestamp(),
+        }).catch(() => {}),
+      ));
+      await createPost(familyId, {
+        authorUid: g.approverUid,
+        authorName: 'Kaya',
+        caption: `🎊 The family did it — ${g.icon} ${g.title} is fully funded! Everyone chipped in their points. 👏`,
+        photos: [],
+        kidTags: [],
+        visibility: 'family',
+      } as Parameters<typeof createPost>[1]);
+    } catch { /* the goal itself is safely recorded */ }
+  }
 
   if (rewardNotify) {
     const n = rewardNotify as { forUserId: string; approved: boolean; title: string; note?: string };
@@ -1556,6 +1640,34 @@ export async function requestRewardRedeem(
     ...(reward.icon ? { rewardIcon: reward.icon } : {}),
     rewardPointsCost: reward.pointsCost,
     description: `🎁 ${reward.title} · ${reward.pointsCost} pts`,
+    status: 'pending' as ApprovalStatus,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+  return ref.id;
+}
+
+/** 👨‍👩‍👧 Kid chips points into a FAMILY goal — a pending doc in the same
+ *  approval queue (kid-writable per existing rules). Floor + amount are
+ *  re-verified inside the resolve transaction. */
+export async function requestRewardContribution(
+  familyId: string,
+  kidId: string,
+  goal: { id: string; title: string; icon?: string },
+  points: number,
+  createdBy: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  if (!Number.isInteger(points) || points <= 0) throw new Error('Pick a positive amount.');
+  const ref = await addDoc(requestCol(familyId), {
+    kidId,
+    type: 'reward_contribute' as ApprovalType,
+    module: 'rewards',
+    rewardId: goal.id,
+    rewardTitle: goal.title,
+    ...(goal.icon ? { rewardIcon: goal.icon } : {}),
+    contributePoints: points,
+    description: `👨‍👩‍👧 Chip-in: ${goal.title} · ${points} pts`,
     status: 'pending' as ApprovalStatus,
     createdAt: serverTimestamp(),
     createdBy,
