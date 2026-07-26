@@ -24,6 +24,9 @@ export default function RewardsRulesCard() {
   const [perKid, setPerKid] = useState<Record<string, string>>({});
   const [goalsAge, setGoalsAge] = useState<string>('');
   const [goalsOverrides, setGoalsOverrides] = useState<Record<string, boolean>>({});
+  // 💡 RWI PR-A — reward-idea quota (0 = off, empty = default 3).
+  const [ideas, setIdeas] = useState<string>('');
+  const [ideasPerKid, setIdeasPerKid] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -35,7 +38,12 @@ export default function RewardsRulesCard() {
     setPerKid(pk);
     setGoalsAge(cfg?.familyGoalsFromAge ? String(cfg.familyGoalsFromAge) : '');
     setGoalsOverrides({ ...(cfg?.familyGoalsOverrides ?? {}) });
-  }, [cfg?.minPointsFloor, cfg?.autoApproveBelowPoints, cfg?.minPointsFloorPerKid, cfg?.familyGoalsFromAge, cfg?.familyGoalsOverrides]);
+    // 0 is meaningful here (feature off), so only empty-string when absent.
+    setIdeas(typeof cfg?.proposalsPerMonth === 'number' ? String(cfg.proposalsPerMonth) : '');
+    const ipk: Record<string, string> = {};
+    for (const [k, v] of Object.entries(cfg?.proposalsPerMonthPerKid ?? {})) ipk[k] = String(v);
+    setIdeasPerKid(ipk);
+  }, [cfg?.minPointsFloor, cfg?.autoApproveBelowPoints, cfg?.minPointsFloorPerKid, cfg?.familyGoalsFromAge, cfg?.familyGoalsOverrides, cfg?.proposalsPerMonth, cfg?.proposalsPerMonthPerKid]);
 
   const save = async () => {
     if (!profile?.familyId || busy) return;
@@ -49,6 +57,13 @@ export default function RewardsRulesCard() {
       const floorN = parseInt(floor, 10);
       const autoN = parseInt(auto, 10);
       const ageN = parseInt(goalsAge, 10);
+      // 💡 ideas quota: 0 = off (kept), empty = absent (default 3 applies).
+      const ideasN = parseInt(ideas, 10);
+      const ideasPerKidClean: Record<string, number> = {};
+      for (const [k, v] of Object.entries(ideasPerKid)) {
+        const n = parseInt(v, 10);
+        if (Number.isFinite(n) && n >= 0) ideasPerKidClean[k] = n;
+      }
       await updateFamily(profile.familyId, {
         rewardsConfig: {
           ...(Number.isFinite(floorN) && floorN > 0 ? { minPointsFloor: floorN } : {}),
@@ -56,6 +71,8 @@ export default function RewardsRulesCard() {
           ...(Number.isFinite(autoN) && autoN > 0 ? { autoApproveBelowPoints: autoN } : {}),
           ...(Number.isFinite(ageN) && ageN > 0 ? { familyGoalsFromAge: ageN } : {}),
           ...(Object.keys(goalsOverrides).length ? { familyGoalsOverrides: goalsOverrides } : {}),
+          ...(Number.isFinite(ideasN) && ideasN >= 0 ? { proposalsPerMonth: ideasN } : {}),
+          ...(Object.keys(ideasPerKidClean).length ? { proposalsPerMonthPerKid: ideasPerKidClean } : {}),
         },
       } as any);
       await refresh?.();
@@ -138,6 +155,31 @@ export default function RewardsRulesCard() {
               </div>
             );
           })}
+        </div>
+      )}
+      {/* 💡 RWI PR-A — reward ideas from kids: monthly quota + per-kid. */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold">💡 Reward ideas from kids</p>
+          <p className="text-[11px] text-kaya-sand leading-relaxed">Ideas each kid can send per month (declined ones count). Empty = 3. Set 0 to turn the feature off.</p>
+        </div>
+        <input type="number" min={0} value={ideas} onChange={(e) => setIdeas(e.target.value)} placeholder="3" className={input} />
+      </div>
+      {children.length > 0 && (
+        <div className="rounded-kaya-sm border border-dashed border-kaya-warm-dark/60 p-3 space-y-2">
+          <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Per-kid idea quota (optional)</p>
+          {children.map((k) => (
+            <div key={k.id} className="flex items-center justify-between gap-3">
+              <p className="text-[12.5px] font-semibold truncate">{k.avatarEmoji || '🧒'} {k.name}</p>
+              <input
+                type="number" min={0}
+                value={ideasPerKid[k.id] ?? ''}
+                onChange={(e) => setIdeasPerKid((p) => ({ ...p, [k.id]: e.target.value }))}
+                placeholder={ideas || '3'}
+                className={input}
+              />
+            </div>
+          ))}
         </div>
       )}
       <div className="flex items-center gap-2">

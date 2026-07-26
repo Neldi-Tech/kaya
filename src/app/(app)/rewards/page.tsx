@@ -14,6 +14,7 @@ import FamilyGoalsSection from '@/components/rewards/FamilyGoalsSection';
 import {
   requestRewardRedeem, parentRedeemReward, cancelOwnRequest,
   subscribeToKidRequests, rewardsFloorFor,
+  proposeReward, proposalQuotaFor,
   type ApprovalRequest, type FamilyRewardsSlice,
 } from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
@@ -58,7 +59,8 @@ export default function RewardsPage() {
   const [myRequests, setMyRequests] = useState<ApprovalRequest[]>([]);
   useEffect(() => {
     if (!isKid || !profile?.familyId || !myKidId) return;
-    return subscribeToKidRequests(profile.familyId, myKidId, setMyRequests);
+    // 60: the idea quota counts a whole month of requests, not just the last 20.
+    return subscribeToKidRequests(profile.familyId, myKidId, setMyRequests, 60);
   }, [isKid, profile?.familyId, myKidId]);
   const pendingByReward = useMemo(() => {
     const map = new Map<string, ApprovalRequest>();
@@ -75,6 +77,53 @@ export default function RewardsPage() {
 
   // RWD PR2 (R11) — Store / 📜 History tabs.
   const [view, setView] = useState<'store' | 'history'>('store');
+
+  // 💡 RWI PR-A — reward ideas: monthly quota + suggest sheet + ghost cards.
+  const ideaQuota = proposalQuotaFor(family as FamilyRewardsSlice | undefined, myKidId || '');
+  const myIdeas = useMemo(() => myRequests.filter((r) => r.type === 'reward_proposal'), [myRequests]);
+  const ideasThisMonth = useMemo(() => {
+    const now = new Date();
+    return myIdeas.filter((r) => {
+      const ms = (r.createdAt as { toMillis?: () => number })?.toMillis?.();
+      if (typeof ms !== 'number') return true; // serverTimestamp still pending = just sent
+      const d = new Date(ms);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }).length;
+  }, [myIdeas]);
+  const ideasLeft = Math.max(0, ideaQuota - ideasThisMonth);
+  const pendingIdeas = useMemo(() => myIdeas.filter((r) => r.status === 'pending'), [myIdeas]);
+  const quotaResetLabel = useMemo(() => {
+    const n = new Date();
+    const first = new Date(n.getFullYear(), n.getMonth() + 1, 1);
+    return toDisplayDate(`${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}-01`);
+  }, []);
+  const [ideaOpen, setIdeaOpen] = useState(false);
+  const [ideaTitle, setIdeaTitle] = useState('');
+  const [ideaWhy, setIdeaWhy] = useState('');
+  const [ideaCategory, setIdeaCategory] = useState<string>(DEFAULT_REWARD_CATEGORY);
+  const [ideaPoints, setIdeaPoints] = useState('');
+  const [ideaParentsDecide, setIdeaParentsDecide] = useState(true);
+  const [ideaSending, setIdeaSending] = useState(false);
+  const sendIdea = async () => {
+    if (!profile?.familyId || !myKidId || !user || ideaSending) return;
+    if (!ideaTitle.trim()) { setMessage('Give your idea a name first! ✏️'); return; }
+    if (ideasLeft <= 0) return;
+    setIdeaSending(true);
+    try {
+      const guess = ideaParentsDecide ? undefined : Math.max(0, Math.floor(Number(ideaPoints) || 0)) || undefined;
+      await proposeReward(profile.familyId, myKidId, {
+        title: ideaTitle, why: ideaWhy, category: ideaCategory, pointsGuess: guess,
+      }, user.uid);
+      setIdeaOpen(false);
+      setIdeaTitle(''); setIdeaWhy(''); setIdeaPoints(''); setIdeaParentsDecide(true);
+      setMessage('💡 Idea sent to your parents! 📮');
+      setTimeout(() => setMessage(''), 4000);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : 'Could not send your idea — try again.');
+    } finally {
+      setIdeaSending(false);
+    }
+  };
 
   // RWD PR3 (R18/R20) — run-rate advisory: how long to a reward at the kid's
   // real weekly pace, and the "🎯 So close!" strip for the nearest stretch
@@ -196,6 +245,133 @@ export default function RewardsPage() {
     const set = new Set(activeRewards.map((r) => r.category || DEFAULT_REWARD_CATEGORY));
     return Array.from(set).sort();
   }, [activeRewards]);
+
+  // 💡 RWI PR-A — categories a kid can pick for an idea: the family's own
+  // store categories plus the standard set.
+  const ideaCategoryOptions = useMemo(() => {
+    const set = new Set([...categories, ...DEFAULT_REWARD_CATEGORIES.map((c) => c.name)]);
+    return Array.from(set).sort();
+  }, [categories]);
+
+  // 💡 The suggest strip (kid only; quota 0 = feature off for this kid).
+  const suggestStrip = isKid && myKidId && ideaQuota > 0 && view === 'store' ? (
+    <div className="flex items-center gap-2 flex-wrap mb-4">
+      {ideasLeft > 0 ? (
+        <>
+          <button
+            onClick={() => setIdeaOpen(true)}
+            className="h-9 px-4 rounded-full text-[12px] font-black bg-kaya-gold text-white shadow-sm hover:brightness-105 transition-all"
+          >
+            💡 Suggest a reward
+          </button>
+          <span className="text-[11px] font-bold text-kaya-teal-dark" style={{ color: '#0E9C86' }}>
+            💡 {ideasLeft} of {ideaQuota} idea{ideaQuota === 1 ? '' : 's'} left this month
+          </span>
+        </>
+      ) : (
+        <span className="h-9 px-4 rounded-full text-[11.5px] font-bold bg-kaya-warm text-kaya-sand inline-flex items-center">
+          💡 All {ideaQuota} idea{ideaQuota === 1 ? '' : 's'} used — more on {quotaResetLabel}!
+        </span>
+      )}
+    </div>
+  ) : null;
+
+  // 💡 Ghost cards — the kid's pending ideas, waiting for parents.
+  const ghostIdeaCards = isKid && pendingIdeas.length > 0 && view === 'store' ? (
+    <div className="space-y-2 mb-4">
+      {pendingIdeas.map((p) => (
+        <div key={p.id} className="border-[1.5px] border-dashed border-kaya-gold/60 bg-kaya-gold/5 rounded-kaya p-3 flex items-center gap-3">
+          <span className="w-9 h-9 rounded-[12px] bg-kaya-warm/70 flex items-center justify-center text-lg shrink-0">💡</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-[13px] leading-snug break-words">{p.rewardTitle}</p>
+            <p className="text-[11px] text-kaya-sand mt-0.5">
+              {p.proposedCategory || DEFAULT_REWARD_CATEGORY}
+              {p.rewardPointsCost ? ` · your guess: ${fmt(p.rewardPointsCost)} pts` : ' · parents will set the points'}
+            </p>
+          </div>
+          <span className="text-[10.5px] font-black text-kaya-gold-dark whitespace-nowrap shrink-0" style={{ color: '#A87D0F' }}>
+            ⏳ Waiting for parents
+          </span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  // 💡 The idea sheet.
+  const ideaSheet = ideaOpen ? (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => !ideaSending && setIdeaOpen(false)}>
+      <div
+        className="bg-white w-full sm:max-w-md rounded-t-kaya-lg sm:rounded-kaya-lg p-5 animate-slide-up max-h-[88vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="font-display font-black text-lg">💡 My reward idea</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mt-3 mb-1">What is it?</p>
+        <input
+          value={ideaTitle}
+          onChange={(e) => setIdeaTitle(e.target.value)}
+          maxLength={60}
+          placeholder="Trip to the trampoline park 🤸"
+          className="w-full h-11 px-3 rounded-kaya-sm border border-kaya-warm-dark text-sm font-semibold focus:outline-none focus:border-kaya-gold"
+        />
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mt-3 mb-1">Why do you want it?</p>
+        <textarea
+          value={ideaWhy}
+          onChange={(e) => setIdeaWhy(e.target.value)}
+          maxLength={240}
+          rows={2}
+          placeholder="Tell your parents why this would be a great reward…"
+          className="w-full px-3 py-2 rounded-kaya-sm border border-kaya-warm-dark text-sm focus:outline-none focus:border-kaya-gold resize-none"
+        />
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mt-3 mb-1.5">Category</p>
+        <div className="flex gap-1.5 flex-wrap">
+          {ideaCategoryOptions.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setIdeaCategory(cat)}
+              className={`h-8 px-3 rounded-full text-[11px] font-bold border transition-colors ${
+                ideaCategory === cat ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'
+              }`}
+            >
+              {iconForCategory(cat)} {cat}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mt-3 mb-1.5">How many points should it cost?</p>
+        <div className="flex gap-2 items-center">
+          <input
+            type="number"
+            inputMode="numeric"
+            min={1}
+            value={ideaPoints}
+            disabled={ideaParentsDecide}
+            onChange={(e) => setIdeaPoints(e.target.value)}
+            placeholder="200"
+            className={`h-10 w-28 px-3 rounded-kaya-sm border border-kaya-warm-dark text-sm font-bold focus:outline-none focus:border-kaya-gold ${ideaParentsDecide ? 'opacity-40 bg-kaya-warm/40' : ''}`}
+          />
+          <button
+            onClick={() => setIdeaParentsDecide((v) => !v)}
+            className={`h-10 px-3.5 rounded-full text-[11.5px] font-bold border transition-colors ${
+              ideaParentsDecide ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'
+            }`}
+          >
+            🤷 Let parents decide
+          </button>
+        </div>
+        <div className="flex items-center gap-3 mt-5">
+          <button
+            onClick={() => void sendIdea()}
+            disabled={ideaSending || !ideaTitle.trim()}
+            className="h-11 px-5 rounded-full text-[13px] font-black bg-kaya-gold text-white disabled:opacity-50 shadow-sm"
+          >
+            {ideaSending ? 'Sending…' : 'Send to parents 📮'}
+          </button>
+          <span className="text-[11px] font-bold" style={{ color: '#0E9C86' }}>
+            💡 {ideasLeft} of {ideaQuota} left this month
+          </span>
+        </div>
+      </div>
+    </div>
+  ) : null;
 
   // Rewards filtered by the active category pill (null = show all).
   const visibleRewards = useMemo(() => {
@@ -347,6 +523,8 @@ export default function RewardsPage() {
 
         {view === 'store' && <>
         {soCloseStrip}
+        {suggestStrip}
+        {ghostIdeaCards}
         <FamilyGoalsSection myKidId={myKidId} />
         {/* Category filter pills (mobile) */}
         {categories.length > 1 && (
@@ -554,6 +732,8 @@ export default function RewardsPage() {
 
         {view === 'store' && <>
         {soCloseStrip}
+        {suggestStrip}
+        {ghostIdeaCards}
         <FamilyGoalsSection myKidId={myKidId} />
         {/* Category filter pills (desktop) */}
         {categories.length > 1 && (
@@ -721,6 +901,7 @@ export default function RewardsPage() {
           </div>
         </>
       )}
+      {ideaSheet}
     </>
   );
 }

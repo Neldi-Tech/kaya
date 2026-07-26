@@ -18,10 +18,16 @@ import { subscribeToPendingGameApprovals } from '@/lib/gamesApprovals';
 import type { GamePlay } from '@/lib/games';
 
 export default function ParentApprovalsPage() {
-  const { pendingApprovals } = useHive();
+  const { pendingApprovals: allPending } = useHive();
   const { profile } = useAuth();
   const familyId = profile?.familyId;
   const isParent = profile?.role === 'parent';
+
+  // 💡 RWI PR-A — reward IDEAS resolve in Manage Rewards (approve = create
+  // the reward there, pre-filled). Keep them out of this money inbox and
+  // point across instead.
+  const pendingApprovals = allPending.filter((r) => r.type !== 'reward_proposal');
+  const ideaCount = allPending.length - pendingApprovals.length;
 
   const [tab, setTab] = useState<'waiting' | 'history'>('waiting');
   const [gamePlays, setGamePlays] = useState<GamePlay[]>([]);
@@ -69,6 +75,12 @@ export default function ParentApprovalsPage() {
         </button>
       </div>
 
+      {ideaCount > 0 && tab === 'waiting' && (
+        <Link href="/parent/rewards" className="flex items-center justify-between gap-2 bg-hive-paper border border-hive-line rounded-hive-lg px-4 py-3 mb-4 hover:shadow-sm transition-shadow">
+          <p className="font-nunito font-extrabold text-[13px]">💡 {ideaCount} reward idea{ideaCount === 1 ? '' : 's'} from the kids</p>
+          <span className="text-[12px] font-nunito font-extrabold text-hive-honey-dk">Review in Manage Rewards →</span>
+        </Link>
+      )}
       {tab === 'history' ? (
         <RequestsHistory />
       ) : nothing ? (

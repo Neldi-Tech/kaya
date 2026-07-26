@@ -29,6 +29,7 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
   create_group_chat: { emoji: '💬', label: 'New group chat',      tone: 'honey' },
   reward_redeem:     { emoji: '🎁', label: 'Reward request',      tone: 'honey' },
   reward_contribute: { emoji: '👨‍👩‍👧', label: 'Family-goal chip-in', tone: 'honey' },
+  reward_proposal:   { emoji: '💡', label: 'Reward idea',         tone: 'honey' },
 };
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
