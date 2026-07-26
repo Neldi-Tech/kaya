@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminFirestore } from '@/lib/firebaseAdmin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { notifyPulseOwner, notifyFamilyParents } from '@/lib/pulseGenerate';
 import { runAutoTopupSweep } from '@/lib/autoTopup.server';
 import { sendKidMorningDigest, sendKidStatementMail } from '@/lib/kidEmails.server';
@@ -51,6 +52,7 @@ async function run(req: NextRequest) {
   let lowPruned = 0;
   let digests = 0;
   let statements = 0;
+  let unlocked = 0;
   // 🌞 Kid morning digests (KID PR3): fire when the family-local clock has
   // passed the kid's set time and today's stamp isn't there yet.
   const nowDate = new Date();
@@ -185,9 +187,42 @@ async function run(req: NextRequest) {
         }
       }
     } catch { /* best-effort per family */ }
+
+    // 🔓 RWD PR4 (R23) — reward unlock sweep: a date-locked reward whose day
+    // has arrived flips open + rings every kid's bell (once, via
+    // unlockNotified). Clients already treat the date as open (isRewardLocked)
+    // — this makes it official and celebrated.
+    try {
+      const lockedSnap = await fam.ref.collection('rewards')
+        .where('locked', '==', true).get();
+      const due = lockedSnap.docs.filter((d) => {
+        const r = d.data() as { lockedUntil?: string; unlockNotified?: boolean };
+        return r.lockedUntil && r.lockedUntil <= todayKey && !r.unlockNotified;
+      });
+      if (due.length > 0) {
+        const kidUsers = await db.collection('users')
+          .where('familyId', '==', fam.id).where('role', '==', 'kid').get();
+        for (const d of due) {
+          const r = d.data() as { title?: string; icon?: string };
+          await d.ref.update({ locked: false, unlockNotified: true }).catch(() => {});
+          for (const ku of kidUsers.docs) {
+            await fam.ref.collection('notifications').add({
+              type: 'reward',
+              forUserId: ku.id,
+              title: `🔓 ${r.icon || '🎁'} ${r.title || 'A reward'} is now open!`,
+              message: 'It was coming soon — now it’s yours to earn. Check the store!',
+              read: false,
+              link: '/rewards',
+              createdAt: FieldValue.serverTimestamp(),
+            }).catch(() => {});
+          }
+          unlocked++;
+        }
+      }
+    } catch { /* best-effort per family */ }
   }
 
-  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned, digests, statements });
+  return NextResponse.json({ ok: true, missed, lowFired, lowRequests, lowPruned, digests, statements, unlocked });
 }
 
 export async function GET(req: NextRequest) {

@@ -249,6 +249,28 @@ export default function ParentRewardsPage() {
     setBusyId(null);
   };
 
+  // 🔒 RWD PR4 (R21) — lock/unlock + optional auto-unlock date.
+  const toggleLock = async (r: Reward) => {
+    if (isGuest || !profile?.familyId) return;
+    setBusyId(r.id);
+    try {
+      await updateReward(profile.familyId, r.id, r.locked
+        ? ({ locked: false, unlockNotified: true } as Partial<Reward>)
+        : ({ locked: true, unlockNotified: false } as Partial<Reward>));
+      await refresh();
+    } catch (e: any) { flash(e?.message || 'Update failed.'); }
+    setBusyId(null);
+  };
+  const setLockDate = async (r: Reward, date: string) => {
+    if (isGuest || !profile?.familyId) return;
+    setBusyId(r.id);
+    try {
+      await updateReward(profile.familyId, r.id, { lockedUntil: date || '' } as Partial<Reward>);
+      await refresh();
+    } catch (e: any) { flash(e?.message || 'Update failed.'); }
+    setBusyId(null);
+  };
+
   const remove = async (r: Reward) => {
     if (isGuest || !profile?.familyId) return;
     const ok = await confirmAction({
@@ -603,6 +625,19 @@ export default function ParentRewardsPage() {
                             >
                               {r.active ? 'Hide from kids' : 'Show to kids'}
                             </button>
+                            {/* 🔒 RWD PR4 (R21) — lock: still VISIBLE to kids (greyed,
+                                'Coming soon' + countdown), unlike Hide. */}
+                            <button
+                              onClick={() => toggleLock(r)}
+                              disabled={busyId === r.id}
+                              className={`h-8 px-3 rounded-kaya-sm text-xs font-bold border transition-colors disabled:opacity-50 ${
+                                r.locked
+                                  ? 'bg-kaya-warm border-kaya-warm-dark text-kaya-chocolate'
+                                  : 'bg-white border-kaya-warm-dark text-kaya-sand hover:border-kaya-sand'
+                              }`}
+                            >
+                              {r.locked ? '🔓 Unlock now' : '🔒 Lock (coming soon)'}
+                            </button>
                             <button
                               onClick={() => remove(r)}
                               disabled={busyId === r.id}
@@ -611,6 +646,19 @@ export default function ParentRewardsPage() {
                               Delete
                             </button>
                           </div>
+                          {r.locked && (
+                            <div className="flex items-center gap-2 mt-2">
+                              <label className="text-[11px] text-kaya-sand font-bold">Auto-unlock on</label>
+                              <input
+                                type="date"
+                                value={r.lockedUntil || ''}
+                                min={new Date().toISOString().slice(0, 10)}
+                                onChange={(e) => setLockDate(r, e.target.value)}
+                                className="h-8 px-2 rounded-kaya-sm border border-kaya-warm-dark/70 text-xs font-semibold"
+                              />
+                              <span className="text-[10.5px] text-kaya-sand">empty = until you unlock · kids see it greyed with a countdown</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
