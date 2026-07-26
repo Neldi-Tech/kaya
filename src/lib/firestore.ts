@@ -1341,6 +1341,9 @@ export interface Reward {
   /** 🎂 RWD PR6 — minimum age to redeem this reward. Younger kids see it
    *  🔒 "from age N" (it auto-opens as they grow). No birthday = no gating. */
   minAge?: number;
+  /** 💡 RWI PR-B — set when this reward began as a kid's idea; the
+   *  "idea by {name}" credit stays on the card forever. */
+  ideaBy?: { childId: string; name: string };
   // ── 👨‍👩‍👧 RWD PR5 — family goal (everyone chips in). For family goals
   //    `pointsCost` is ignored; `targetPoints` is the team total.
   kind?: 'personal' | 'family';

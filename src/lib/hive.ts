@@ -20,7 +20,7 @@
 // to restore the design's "auto-approved" HP→Honey behaviour.
 
 import {
-  collection, doc, getDoc, setDoc, addDoc, updateDoc, writeBatch,
+  collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, writeBatch,
   query, where, orderBy, limit, Timestamp, serverTimestamp,
   onSnapshot, runTransaction,
 } from 'firebase/firestore';
@@ -1744,6 +1744,14 @@ export async function proposeReward(
     createdBy,
   });
   return ref.id;
+}
+
+/** 💡 RWI PR-B — every idea the kids ever sent (inbox scoreboard). Equality
+ *  filter only, so Firestore's automatic single-field index covers it. */
+export async function getRewardProposals(familyId: string): Promise<ApprovalRequest[]> {
+  if (isGuestActive()) return [];
+  const s = await getDocs(query(requestCol(familyId), where('type', '==', 'reward_proposal')));
+  return s.docs.map((d) => ({ id: d.id, ...d.data() } as ApprovalRequest));
 }
 
 /** Parent redeems for a kid — the parent IS the approver, so this runs the
