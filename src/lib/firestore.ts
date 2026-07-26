@@ -129,6 +129,9 @@ export interface Family {
   alertEmails?: import('./alertEmails.shared').AlertEmailsConfig;
   /** 🎁 RWD PR1 — store rules: 🛡 min-points floor (family default + per-kid
    *  overrides, keyed by childId) + kid auto-approve threshold. */
+  /** 🏅 BDG PR2 — Boutique config: released set + threshold overrides +
+   *  parent-created custom badges (shape in lib/badgeLib.ts). */
+  badgeConfig?: import('./badgeLib').BadgeConfig;
   rewardsConfig?: {
     minPointsFloor?: number;
     minPointsFloorPerKid?: Record<string, number>;
@@ -991,6 +994,10 @@ export interface Child {
   gameWinStreak?: number;   // current consecutive-win streak
   gameWinBest?: number;     // best streak ever reached
   badges: string[];
+  /** BDG PR2 (B5) — lifetime EARNED points, the badge yardstick. Only ever
+   *  grows (positive award deltas); redemptions/conversions never shrink it.
+   *  Absent on old docs → treat as max(totalPoints, 0) (lazy backfill). */
+  lifetimePoints?: number;
   // Per-kid Celebrations preference (Kaya Business · celebrate engine). Shape
   // mirrors CelebrationSettings in lib/celebrate.ts (inlined to avoid a
   // circular import). Absent → age-based default.
@@ -2711,6 +2718,10 @@ export async function giveAward(
     await updateDoc(childRef, {
       totalPoints: (child.totalPoints || 0) + award.points,
       weeklyPoints: (child.weeklyPoints || 0) + award.points,
+      // BDG PR2 (B5) — lifetime EARNED points (positive deltas only): the
+      // badge yardstick that spending can never shrink. Backfilled lazily
+      // from the larger of the stored value / current balance.
+      ...(award.points > 0 ? { lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + award.points } : {}),
     });
     if (award.points > 0) pingKidRewardEmail(award.childId, ref.id);
     return { id: ref.id };
@@ -2775,6 +2786,7 @@ export async function giveAward(
       [counterField]: newCount - setting.threshold,
       totalPoints: (child.totalPoints || 0) + derivedPoints,
       weeklyPoints: (child.weeklyPoints || 0) + derivedPoints,
+      ...(derivedPoints > 0 ? { lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + derivedPoints } : {}),
     });
     if (derivedPoints > 0) pingKidRewardEmail(award.childId, derivedRef.id);
 
@@ -2894,6 +2906,7 @@ export async function importAward(
     await updateDoc(childRef, {
       totalPoints: (child.totalPoints || 0) + award.points,
       ...(creditWeekly ? { weeklyPoints: (child.weeklyPoints || 0) + award.points } : {}),
+      ...(award.points > 0 ? { lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + award.points } : {}),
     });
     return { id: ref.id };
   }
@@ -2944,6 +2957,7 @@ export async function importAward(
       [counterField]: newCount - setting.threshold,
       totalPoints: (child.totalPoints || 0) + derivedPoints,
       ...(creditWeekly ? { weeklyPoints: (child.weeklyPoints || 0) + derivedPoints } : {}),
+      ...(derivedPoints > 0 ? { lifetimePoints: Math.max(child.lifetimePoints || 0, child.totalPoints || 0) + derivedPoints } : {}),
     });
 
     return { id: ref.id, derivedAwardId: derivedRef.id, derivedKind, derivedPoints };
