@@ -55,7 +55,8 @@ export type ApprovalType =
   | 'create_group_chat'      // a kid asks a parent to open a new group chat (rename/groups, 2026-05-27)
   // ── Rewards store (RWD PR1, approved v2 FINAL 26-Jul-2026) ─────
   | 'reward_redeem'          // a kid asks to redeem a reward — resolve = transactional points + wallet + statement + history
-  | 'reward_contribute';     // 👨‍👩‍👧 RWD PR5 — a kid chips points into a FAMILY goal
+  | 'reward_contribute'      // 👨‍👩‍👧 RWD PR5 — a kid chips points into a FAMILY goal
+  | 'reward_proposal';       // 💡 RWI PR-A — a kid proposes a NEW reward idea (no money effect; parent inbox in Manage Rewards)
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 // Categories used both as the `category` on a HiveTransaction AND as the
@@ -506,6 +507,13 @@ export interface ApprovalRequest {
   rewardPointsCost?: number;
   /** reward_contribute — points the kid is chipping into the family goal. */
   contributePoints?: number;
+  // ── 💡 Reward ideas (reward_proposal; RWI PR-A) ──────────────────
+  /** reward_proposal — the category the kid picked for their idea. */
+  proposedCategory?: string;
+  /** reward_proposal — the kid's "why do you want it" pitch, shown verbatim
+   *  on the parent card. `rewardTitle` carries the idea name and
+   *  `rewardPointsCost` the kid's points guess (absent = let parents decide). */
+  proposedWhy?: string;
   businessId?: string;
   instrumentSymbol?: string;        // investment_buy / investment_sell
   shares?: number;                  // investment_buy / investment_sell
@@ -1248,7 +1256,7 @@ export async function resolveApprovalRequest(
   if (isGuestActive()) return;
   // RWD PR1 (R7) — reward resolutions ring the kid's bell after the
   // transaction commits (best-effort; never blocks the resolution).
-  let rewardNotify: { forUserId: string; approved: boolean; title: string; note?: string } | null = null;
+  let rewardNotify: { forUserId: string; approved: boolean; title: string; note?: string; isIdea?: boolean } | null = null;
   let goalCelebration: { title: string; icon: string; approverUid: string } | null = null;
   await runTransaction(db, async (tx) => {
     const reqRef = doc(requestCol(familyId), requestId);
@@ -1256,12 +1264,13 @@ export async function resolveApprovalRequest(
     if (!reqSnap.exists()) throw new Error('Request not found.');
     const req = { id: reqSnap.id, ...reqSnap.data() } as ApprovalRequest;
     if (req.status !== 'pending') throw new Error('Request already resolved.');
-    if (req.type === 'reward_redeem' && req.createdBy && req.createdBy !== approverUid) {
+    if ((req.type === 'reward_redeem' || req.type === 'reward_proposal') && req.createdBy && req.createdBy !== approverUid) {
       rewardNotify = {
         forUserId: req.createdBy,
         approved: decision === 'approved',
-        title: req.rewardTitle || 'your reward',
+        title: req.rewardTitle || (req.type === 'reward_proposal' ? 'your idea' : 'your reward'),
         note: approvalNote?.trim() || (decision === 'rejected' ? rejectionReason?.trim() : undefined),
+        isIdea: req.type === 'reward_proposal',
       };
     }
 
@@ -1269,6 +1278,19 @@ export async function resolveApprovalRequest(
       tx.update(reqRef, {
         status: 'rejected' as ApprovalStatus,
         rejectionReason: rejectionReason || '',
+        ...(approvalNote?.trim() ? { approvalNote: approvalNote.trim() } : {}),
+        resolvedAt: serverTimestamp(),
+        resolvedBy: approverUid,
+      });
+      return;
+    }
+
+    // 💡 RWI PR-A — a reward IDEA has no money effect, so it resolves before
+    // any wallet read: approve = mark approved (the reward doc itself is
+    // created by the parent inbox in Manage Rewards right before this call).
+    if (req.type === 'reward_proposal') {
+      tx.update(reqRef, {
+        status: 'approved' as ApprovalStatus,
         ...(approvalNote?.trim() ? { approvalNote: approvalNote.trim() } : {}),
         resolvedAt: serverTimestamp(),
         resolvedBy: approverUid,
@@ -1581,14 +1603,16 @@ export async function resolveApprovalRequest(
   }
 
   if (rewardNotify) {
-    const n = rewardNotify as { forUserId: string; approved: boolean; title: string; note?: string };
+    const n = rewardNotify as { forUserId: string; approved: boolean; title: string; note?: string; isIdea?: boolean };
     try {
       await addDoc(collection(db, 'families', familyId, 'notifications'), {
         type: 'reward',
         forUserId: n.forUserId,
-        title: n.approved ? `🎉 Approved: ${n.title}` : `About: ${n.title}`,
+        title: n.isIdea
+          ? (n.approved ? `🎉 Your idea is now a real reward: ${n.title}!` : `About your idea: ${n.title}`)
+          : (n.approved ? `🎉 Approved: ${n.title}` : `About: ${n.title}`),
         message: n.approved
-          ? `Enjoy it!${n.note ? ` — “${n.note}”` : ''}`
+          ? `${n.isIdea ? 'Great thinking — go find it in the store!' : 'Enjoy it!'}${n.note ? ` — “${n.note}”` : ''}`
           : `Not this time.${n.note ? ` — “${n.note}”` : ''}`,
         read: false,
         link: '/rewards',
@@ -1609,7 +1633,24 @@ export interface FamilyRewardsSlice {
     minPointsFloorPerKid?: Record<string, number>;
     /** Kid redemptions at/below this auto-approve (0/absent = always ask). */
     autoApproveBelowPoints?: number;
+    /** 💡 RWI PR-A — reward IDEAS a kid may send per calendar month
+     *  (0 = feature off, absent = default 3). Declined ideas still count. */
+    proposalsPerMonth?: number;
+    /** Per-kid quota overrides (childId → ideas/month). */
+    proposalsPerMonthPerKid?: Record<string, number>;
   };
+}
+
+/** 💡 Default monthly reward-idea quota when the family hasn't set one. */
+export const DEFAULT_PROPOSALS_PER_MONTH = 3;
+
+/** The idea quota that applies to one kid (per-kid override → family default → 3). */
+export function proposalQuotaFor(fam: FamilyRewardsSlice | undefined, kidId: string): number {
+  const cfg = fam?.rewardsConfig;
+  const perKid = cfg?.proposalsPerMonthPerKid?.[kidId];
+  if (typeof perKid === 'number' && perKid >= 0) return perKid;
+  if (typeof cfg?.proposalsPerMonth === 'number' && cfg.proposalsPerMonth >= 0) return cfg.proposalsPerMonth;
+  return DEFAULT_PROPOSALS_PER_MONTH;
 }
 
 /** The 🛡 floor that applies to one kid (per-kid override → family default → 0). */
@@ -1668,6 +1709,36 @@ export async function requestRewardContribution(
     ...(goal.icon ? { rewardIcon: goal.icon } : {}),
     contributePoints: points,
     description: `👨‍👩‍👧 Chip-in: ${goal.title} · ${points} pts`,
+    status: 'pending' as ApprovalStatus,
+    createdAt: serverTimestamp(),
+    createdBy,
+  });
+  return ref.id;
+}
+
+/** 💡 RWI PR-A — a kid proposes a NEW reward idea. Rides the same kid-writable
+ *  approval queue (zero rules changes); the monthly quota is enforced in the
+ *  UI from the kid's own request stream and re-checked here best-effort. */
+export async function proposeReward(
+  familyId: string,
+  kidId: string,
+  idea: { title: string; why?: string; category: string; pointsGuess?: number },
+  createdBy: string,
+): Promise<string> {
+  if (isGuestActive()) return 'guest-request';
+  const title = idea.title.trim();
+  if (!title) throw new Error('Give your idea a name.');
+  const why = (idea.why || '').trim();
+  const guess = idea.pointsGuess;
+  const ref = await addDoc(requestCol(familyId), {
+    kidId,
+    type: 'reward_proposal' as ApprovalType,
+    module: 'rewards',
+    rewardTitle: title,
+    proposedCategory: idea.category,
+    ...(why ? { proposedWhy: why } : {}),
+    ...(Number.isInteger(guess) && (guess as number) > 0 ? { rewardPointsCost: guess } : {}),
+    description: `💡 Reward idea: ${title}`,
     status: 'pending' as ApprovalStatus,
     createdAt: serverTimestamp(),
     createdBy,

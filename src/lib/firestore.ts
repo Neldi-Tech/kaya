@@ -137,6 +137,10 @@ export interface Family {
      *  style); per-kid include/exclude overrides win. Absent = everyone. */
     familyGoalsFromAge?: number;
     familyGoalsOverrides?: Record<string, boolean>;
+    /** 💡 RWI PR-A — reward IDEAS a kid may send per calendar month
+     *  (0 = off, absent = default 3); per-kid overrides win. */
+    proposalsPerMonth?: number;
+    proposalsPerMonthPerKid?: Record<string, number>;
   };
   // 📬 Kids' email updates (KID PR1) — per-kid source POINTER + stream
   // toggles, everything default OFF (COPPA). See lib/kidEmails.shared.
