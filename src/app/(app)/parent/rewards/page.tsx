@@ -16,6 +16,7 @@ import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
+import { useHive } from '@/contexts/HiveContext';
 import {
   addReward, updateReward, deleteReward, addRewardsBatch,
   getRedemptions,
@@ -23,6 +24,7 @@ import {
   REWARD_LIBRARY, REWARD_LIBRARY_CATEGORIES,
   Reward, LibraryReward, Redemption,
 } from '@/lib/firestore';
+import { resolveApprovalRequest, getRewardProposals, type ApprovalRequest } from '@/lib/hive';
 import BackButton from '@/components/ui/BackButton';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -39,9 +41,35 @@ const blankDraft = (): Draft => ({
 });
 
 export default function ParentRewardsPage() {
-  const { profile, isGuest } = useAuth();
+  const { profile, user, isGuest } = useAuth();
   const { family, rewards, children, refresh } = useFamily();
   const confirmAction = useConfirm();
+  const { pendingApprovals } = useHive();
+
+  // 💡 RWI PR-B — the kids' idea inbox. Pending ideas arrive real-time via
+  // HiveContext; the all-time list feeds the scoreboard.
+  const pendingIdeas = useMemo(
+    () => pendingApprovals.filter((r) => r.type === 'reward_proposal'),
+    [pendingApprovals],
+  );
+  const [allProposals, setAllProposals] = useState<ApprovalRequest[]>([]);
+  const loadProposals = useCallback(async () => {
+    if (!profile?.familyId) return;
+    setAllProposals(await getRewardProposals(profile.familyId).catch(() => []));
+  }, [profile?.familyId]);
+  useEffect(() => { loadProposals(); }, [loadProposals, pendingIdeas.length]);
+  const kidNameOf = useCallback(
+    (id: string) => children.find((c) => c.id === id)?.name?.split(' ')[0] || 'Kid',
+    [children],
+  );
+  // Approve flow: "Make it a reward" opens the normal add form PRE-FILLED;
+  // saving creates the reward (with the 💡 credit) AND resolves the request.
+  const [proposalFor, setProposalFor] = useState<ApprovalRequest | null>(null);
+  const [proposalNote, setProposalNote] = useState('');
+  // Decline flow: inline note (house rule — the kid always gets a note).
+  const [decliningId, setDecliningId] = useState<string | null>(null);
+  const [declineNote, setDeclineNote] = useState('');
+  const [ideaBusy, setIdeaBusy] = useState(false);
 
   // Recent redemptions — fetched once when the page mounts and after
   // any operation that might have logged a new one. Limited to 25 so
@@ -228,15 +256,51 @@ export default function ParentRewardsPage() {
         description: addDraft.description.trim(),
         category: addDraft.category?.trim() || DEFAULT_REWARD_CATEGORY,
         icon: addDraft.icon.trim() || '🎁',
+        // 💡 RWI PR-B — the idea-by credit stays on the card forever.
+        ...(proposalFor ? { ideaBy: { childId: proposalFor.kidId, name: kidNameOf(proposalFor.kidId) } } : {}),
       });
+      // Approving an idea also resolves the kid's request (+ their 🔔 bell).
+      if (proposalFor && user) {
+        await resolveApprovalRequest(profile.familyId, proposalFor.id, 'approved', user.uid, undefined, proposalNote.trim() || undefined);
+        await loadProposals();
+      }
       await refresh();
       setAddDraft(blankDraft());
       setAdding(false);
-      flash('Reward added.');
+      flash(proposalFor ? `🎉 ${kidNameOf(proposalFor.kidId)}’s idea is now a real reward!` : 'Reward added.');
+      setProposalFor(null); setProposalNote('');
     } catch (e: any) {
       flash(e?.message || 'Add failed.');
     }
     setBusyId(null);
+  };
+
+  // 💡 RWI PR-B — inbox actions.
+  const startFromIdea = (p: ApprovalRequest) => {
+    setProposalFor(p);
+    setProposalNote('');
+    setAddDraft({
+      ...blankDraft(),
+      title: p.rewardTitle || '',
+      pointsCost: p.rewardPointsCost || 25,
+      category: p.proposedCategory?.trim() || DEFAULT_REWARD_CATEGORY,
+    });
+    setAdding(true);
+    setEditingId(null);
+  };
+  const declineIdea = async (p: ApprovalRequest) => {
+    if (isGuest || !profile?.familyId || !user || ideaBusy) return;
+    setIdeaBusy(true);
+    try {
+      const note = declineNote.trim();
+      await resolveApprovalRequest(profile.familyId, p.id, 'rejected', user.uid, note, note || undefined);
+      await loadProposals();
+      setDecliningId(null); setDeclineNote('');
+      flash(`Sent back to ${kidNameOf(p.kidId)} with your note.`);
+    } catch (e: any) {
+      flash(e?.message || 'Could not send the reply.');
+    }
+    setIdeaBusy(false);
   };
 
   const toggleActive = async (r: Reward) => {
@@ -573,10 +637,85 @@ export default function ParentRewardsPage() {
         </div>
       )}
 
+      {/* 💡 RWI PR-B — ideas from the kids: inbox + scoreboard */}
+      {(pendingIdeas.length > 0 || allProposals.length > 0) && (
+        <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 lg:p-5 mb-5">
+          <div className="flex items-center gap-2 mb-2">
+            <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-gold">💡 Ideas from the kids</p>
+            {pendingIdeas.length > 0 && (
+              <span className="text-[10px] font-black text-white bg-kaya-rose rounded-full px-2 py-0.5" style={{ backgroundColor: '#E06A7B' }}>
+                {pendingIdeas.length} new
+              </span>
+            )}
+          </div>
+          {pendingIdeas.length === 0 ? (
+            <p className="text-[12.5px] text-kaya-sand">Inbox clear — new ideas from the kids land here.</p>
+          ) : pendingIdeas.map((p) => (
+            <div key={p.id} className="py-2.5 border-b border-dashed border-kaya-warm last:border-b-0">
+              <p className="text-[13px] font-bold">
+                💡 {p.rewardTitle} — {kidNameOf(p.kidId)}
+                <span className="text-kaya-sand font-semibold">
+                  {' '}· {p.rewardPointsCost ? `guessed ${fmt(p.rewardPointsCost)} pts` : 'let parents decide the points'}
+                  {p.proposedCategory ? ` · ${p.proposedCategory}` : ''}
+                </span>
+              </p>
+              {p.proposedWhy && <p className="text-[12px] italic text-kaya-sand mt-0.5">&ldquo;{p.proposedWhy}&rdquo;</p>}
+              {decliningId === p.id ? (
+                <div className="flex gap-2 mt-2 items-center flex-wrap">
+                  <input
+                    value={declineNote}
+                    onChange={(e) => setDeclineNote(e.target.value)}
+                    maxLength={140}
+                    placeholder={`A kind note for ${kidNameOf(p.kidId)} (why not this time)…`}
+                    className="flex-1 min-w-[200px] h-9 px-3 rounded-kaya-sm border border-kaya-warm-dark text-[12px] focus:outline-none focus:border-kaya-gold"
+                  />
+                  <button onClick={() => void declineIdea(p)} disabled={ideaBusy}
+                    className="h-9 px-3 rounded-kaya-sm bg-kaya-chocolate text-white text-[11.5px] font-bold disabled:opacity-50">
+                    Send reply
+                  </button>
+                  <button onClick={() => { setDecliningId(null); setDeclineNote(''); }}
+                    className="h-9 px-3 rounded-kaya-sm bg-kaya-warm text-kaya-sand text-[11.5px] font-bold">
+                    Back
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2 mt-2 flex-wrap">
+                  <button onClick={() => startFromIdea(p)}
+                    className="h-9 px-3.5 rounded-kaya-sm bg-kaya-gold text-white text-[11.5px] font-bold hover:bg-kaya-gold-dark">
+                    ✅ Make it a reward
+                  </button>
+                  <button onClick={() => { setDecliningId(p.id); setDeclineNote(''); }}
+                    className="h-9 px-3.5 rounded-kaya-sm bg-white border border-kaya-warm-dark text-kaya-sand text-[11.5px] font-bold hover:border-kaya-sand">
+                    💬 Not this time
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {allProposals.length > 0 && (
+            <p className="text-[10.5px] text-kaya-sand font-semibold mt-2.5 pt-2 border-t border-dashed border-kaya-warm">
+              📊 {Object.entries(allProposals.reduce((m, p) => {
+                const k = kidNameOf(p.kidId);
+                const cur = m[k] || { sent: 0, ok: 0 };
+                m[k] = { sent: cur.sent + 1, ok: cur.ok + (p.status === 'approved' ? 1 : 0) };
+                return m;
+              }, {} as Record<string, { sent: number; ok: number }>))
+                .map(([name, s]) => `${name} ${s.sent} sent · ${s.ok} became rewards ✅`)
+                .join('  ·  ')}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Add-new inline form (shown when "Add a new reward" is clicked) */}
       {adding && (
         <div className="bg-white border-2 border-kaya-gold rounded-kaya-lg p-4 lg:p-5 mb-5">
-          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-gold mb-3">New reward</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-kaya-gold mb-3">
+            {proposalFor ? `New reward — from ${kidNameOf(proposalFor.kidId)}’s idea 💡` : 'New reward'}
+          </p>
+          {proposalFor?.proposedWhy && (
+            <p className="text-[12px] italic text-kaya-sand mb-3 -mt-1">&ldquo;{proposalFor.proposedWhy}&rdquo; — {kidNameOf(proposalFor.kidId)}</p>
+          )}
           <RewardForm
             draft={addDraft}
             setDraft={setAddDraft}
@@ -589,15 +728,24 @@ export default function ParentRewardsPage() {
               disabled={busyId === '__add__'}
               className="flex-1 h-10 rounded-kaya-sm bg-kaya-gold text-white text-sm font-bold hover:bg-kaya-gold-dark disabled:opacity-50"
             >
-              {busyId === '__add__' ? 'Adding…' : 'Add reward'}
+              {busyId === '__add__' ? 'Adding…' : proposalFor ? '✅ Approve idea & add reward' : 'Add reward'}
             </button>
             <button
-              onClick={() => { setAdding(false); setAddDraft(blankDraft()); }}
+              onClick={() => { setAdding(false); setAddDraft(blankDraft()); setProposalFor(null); setProposalNote(''); }}
               className="h-10 px-4 rounded-kaya-sm bg-kaya-warm text-kaya-sand text-sm font-bold hover:bg-kaya-warm-dark"
             >
               Cancel
             </button>
           </div>
+          {proposalFor && (
+            <input
+              value={proposalNote}
+              onChange={(e) => setProposalNote(e.target.value)}
+              maxLength={140}
+              placeholder={`Note for ${kidNameOf(proposalFor.kidId)} (optional — goes with the 🔔 good news)…`}
+              className="w-full h-9 px-3 mt-3 rounded-kaya-sm border border-kaya-warm-dark text-[12px] focus:outline-none focus:border-kaya-gold"
+            />
+          )}
         </div>
       )}
 
@@ -658,6 +806,9 @@ export default function ParentRewardsPage() {
                             <div className="min-w-0">
                               <p className="font-bold text-sm leading-snug break-words">{r.title}</p>
                               <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{r.description || <em className="opacity-70">No description</em>}</p>
+                              {r.ideaBy && (
+                                <p className="text-[10.5px] font-bold mt-0.5" style={{ color: '#6B3FE0' }}>💡 idea by {r.ideaBy.name}</p>
+                              )}
                               {/* 💬 RWD PR2 (R16) — aggregated kid reactions for this reward. */}
                               {(() => {
                                 const fb = redemptions.filter((d) => d.rewardId === r.id && d.feedback);

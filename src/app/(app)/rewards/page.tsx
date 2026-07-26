@@ -595,6 +595,9 @@ export default function RewardsPage() {
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-sm leading-snug break-words">{reward.title}</p>
                         <p className="text-xs text-kaya-sand leading-snug mt-0.5 break-words">{reward.description}</p>
+                        {reward.ideaBy && (
+                          <p className="text-[10.5px] font-bold mt-0.5" style={{ color: '#6B3FE0' }}>💡 idea by {reward.ideaBy.name}</p>
+                        )}
                         {countLine(reward.id)}
                       </div>
                       <span className="text-xs font-bold text-kaya-gold whitespace-nowrap shrink-0">
@@ -808,6 +811,9 @@ export default function RewardsPage() {
                   </div>
                   <p className="font-display font-bold text-base mb-1">{reward.title}</p>
                   <p className="text-[12px] text-kaya-sand leading-snug mb-2 min-h-[32px]">{reward.description}</p>
+                  {reward.ideaBy && (
+                    <p className="text-[10.5px] font-bold mb-1.5" style={{ color: '#6B3FE0' }}>💡 idea by {reward.ideaBy.name}</p>
+                  )}
                   <div className="mb-2">{countLine(reward.id)}</div>
 
                   <div className="mb-3">
