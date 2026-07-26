@@ -11,13 +11,16 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { updateFamily } from '@/lib/firestore';
+import { updateFamily, isKidInFamilyGoals } from '@/lib/firestore';
 
 const fmt = (n: number) => n.toLocaleString('en-US');
 
 export default function RewardsRulesCard() {
   const { profile } = useAuth();
-  const { family, children, refresh } = useFamily();
+  const { family, children, rewards, refresh } = useFamily();
+  // BDG PR1 — ℹ️ meaning sheet + the live share-recalc echo (B1–B4).
+  const [whoInfoOpen, setWhoInfoOpen] = useState(false);
+  const [echo, setEcho] = useState('');
   const cfg = family?.rewardsConfig;
   const [floor, setFloor] = useState<string>('');
   const [auto, setAuto] = useState<string>('');
@@ -126,7 +129,44 @@ export default function RewardsRulesCard() {
       </div>
       {children.length > 0 && (
         <div className="rounded-kaya-sm border border-dashed border-kaya-warm-dark/60 p-3 space-y-1.5">
-          <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Per-kid include/exclude (overrides the age)</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[10px] text-kaya-sand font-bold uppercase tracking-wider">Per-kid include/exclude (overrides the age)</p>
+            <button
+              type="button"
+              onClick={() => setWhoInfoOpen((o) => !o)}
+              className="text-[11px] font-extrabold text-kaya-gold-dark hover:underline shrink-0"
+              aria-expanded={whoInfoOpen}
+            >
+              ℹ️ what do these mean?
+            </button>
+          </div>
+          {/* BDG PR1 (B1/B2/B4) — the meaning sheet: plain language + the
+              retroactivity rule + the 🎂 reward-age system, all in one place. */}
+          {whoInfoOpen && (
+            <div className="rounded-kaya-sm border border-[#CCD6EA] bg-[#EEF2FA] p-3 space-y-2">
+              <p className="text-[12px] font-extrabold">👨‍👩‍👧 Who joins family goals?</p>
+              <p className="text-[11.5px] leading-relaxed">
+                <b>✨ age</b> — follows your family rule above: this kid joins family goals automatically
+                from age {goalsAge || '—'} and cheers before that.<br />
+                <b>✓ in</b> — always a contributor, whatever their age. In equal-shares goals they owe a share.<br />
+                <b>📣 cheer</b> — supporter, not contributor: never owes a share and can&apos;t chip in —
+                they watch the bar grow, cheer, and celebrate at the 🎊.
+              </p>
+              <p className="text-[11.5px] leading-relaxed border-t border-dashed border-[#CCD6EA] pt-2">
+                <b>What changes when you switch?</b> Shares on every <b>open</b> family goal recalculate
+                immediately (equal shares always divide by today&apos;s contributors). Points a kid already
+                chipped in are <b>never taken back</b> — they stay in the pool and on the kid&apos;s 📜
+                statement. Finished goals stay exactly as they were.
+              </p>
+              <p className="text-[11.5px] leading-relaxed border-t border-dashed border-[#CCD6EA] pt-2">
+                <b>🎂 And reward age limits?</b> That&apos;s a separate rule set per reward (the Min-age
+                field on each reward below): a younger kid sees the reward greyed &ldquo;🔒 opens from age
+                N&rdquo;, can keep saving toward it, and it opens by itself on their birthday. No birthday
+                on file = no age limits apply.
+              </p>
+            </div>
+          )}
+          {echo && <p className="text-[11px] font-bold text-pantry-leaf-dk">{echo}</p>}
           {children.map((k) => {
             const v = goalsOverrides[k.id];
             return (
@@ -137,11 +177,28 @@ export default function RewardsRulesCard() {
                     <button
                       key={label}
                       type="button"
-                      onClick={() => setGoalsOverrides((p) => {
-                        const next = { ...p };
-                        if (val === undefined) delete next[k.id]; else next[k.id] = val;
-                        return next;
-                      })}
+                      onClick={() => {
+                        // BDG PR1 (B3) — live echo: show the share effect of
+                        // this switch on open family goals, before saving.
+                        const nextOverrides = { ...goalsOverrides };
+                        if (val === undefined) delete nextOverrides[k.id]; else nextOverrides[k.id] = val;
+                        const ageN = parseInt(goalsAge, 10);
+                        const cfgNow = { familyGoalsFromAge: Number.isFinite(ageN) && ageN > 0 ? ageN : undefined, familyGoalsOverrides: goalsOverrides };
+                        const cfgNext = { ...cfgNow, familyGoalsOverrides: nextOverrides };
+                        const countNow = children.filter((c) => isKidInFamilyGoals(cfgNow, c)).length;
+                        const countNext = children.filter((c) => isKidInFamilyGoals(cfgNext, c)).length;
+                        const openGoals = rewards.filter((r) => r.kind === 'family' && r.active && !r.fulfilled);
+                        const first = openGoals[0];
+                        if (countNow !== countNext && openGoals.length > 0 && first?.targetPoints && countNow > 0 && countNext > 0) {
+                          const before = Math.ceil(first.targetPoints / countNow);
+                          const after = Math.ceil(first.targetPoints / countNext);
+                          const role = val === false ? 'cheers 📣' : val === true ? 'is in ✓' : 'follows the age rule ✨';
+                          setEcho(`${k.name.split(' ')[0]} now ${role} — shares on ${openGoals.length} open goal${openGoals.length > 1 ? 's' : ''} recalculate when you save (${before.toLocaleString('en-US')} → ${after.toLocaleString('en-US')} each). Past chip-ins stay counted.`);
+                        } else {
+                          setEcho('');
+                        }
+                        setGoalsOverrides(() => nextOverrides);
+                      }}
                       className={`px-2 py-1 rounded-full text-[10.5px] font-extrabold border ${
                         (val === undefined ? v === undefined : v === val)
                           ? 'bg-kaya-gold text-white border-kaya-gold-dark'
