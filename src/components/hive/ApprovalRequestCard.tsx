@@ -10,7 +10,7 @@ import Link from 'next/link';
 import { getDoc } from 'firebase/firestore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
-import { resolveApprovalRequest, confirmCashHandover, walletPath, ApprovalRequest, type Wallet } from '@/lib/hive';
+import { resolveApprovalRequest, confirmCashHandover, walletPath, readHiveConfig, ApprovalRequest, type Wallet } from '@/lib/hive';
 import { getStockTake, resolveBusinessRequest, type StockTake } from '@/lib/business';
 import { downloadImage, suggestedPhotoFilename } from '@/lib/downloadImage';
 import { formatCash, formatHoney, formatHp } from './format';
@@ -21,7 +21,7 @@ import { formatCash, formatHoney, formatHp } from './format';
 // being mislabelled by this Hive card.
 const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label: string; tone: 'honey' | 'green' | 'rose' }>> = {
   hp_to_honey:       { emoji: '⇆', label: 'Save HP → 🪙',         tone: 'honey' },
-  cash_out:          { emoji: '🪙', label: 'Cash out 🪙 → $',      tone: 'green' },
+  cash_out:          { emoji: '🪙', label: 'Cash out 🪙 → 💵',     tone: 'green' },
   treasury_to_cash:  { emoji: '🏧', label: 'Withdraw to real Cash', tone: 'green' },
   spend:             { emoji: '🛒', label: 'Cash spend',          tone: 'rose'  },
   business_hp:       { emoji: '🌳', label: 'House Points · stock-take', tone: 'honey' },
@@ -34,7 +34,11 @@ const TYPE_META: Partial<Record<ApprovalRequest['type'], { emoji: string; label:
 
 export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
   const { profile } = useAuth();
-  const { children } = useFamily();
+  const { family, children } = useFamily();
+  // 💱 Fix (2026-08-02): amounts on this card were rendering in hardcoded
+  // USD ("$1,000") for TZS families — every cash figure now uses the
+  // family's configured Hive currency, same as the home banner.
+  const currency = readHiveConfig(family).currency;
   const kid = children.find((c) => c.id === req.kidId);
   const meta = TYPE_META[req.type] ?? { emoji: '•', label: 'Request', tone: 'honey' as const };
   const [resolving, setResolving] = useState<'approve' | 'reject' | null>(null);
@@ -85,10 +89,10 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
       return `${formatHp(req.hpAmount || 0)} HP → ${formatHoney(req.honeyAmount || 0)} 🍯`;
     }
     if (req.type === 'cash_out') {
-      return `${formatHoney(req.honeyAmount || 0)} 🪙 → ${formatCash(req.amountCents || 0)}`;
+      return `${formatHoney(req.honeyAmount || 0)} 🪙 → ${formatCash(req.amountCents || 0, currency)}`;
     }
     if (req.type === 'treasury_to_cash') {
-      return `${formatCash(req.amountCents || 0)} → 💵 in hand`;
+      return `${formatCash(req.amountCents || 0, currency)} → 💵 in hand`;
     }
     if (req.type === 'business_hp') {
       return `+${formatHp(req.points || 0)} HP`;
@@ -103,7 +107,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
     if (req.type === 'reward_contribute') {
       return `${req.rewardIcon || '🎪'} ${req.rewardTitle || 'Family goal'} · chips in ${formatHp(req.contributePoints || 0)} pts`;
     }
-    return formatCash(req.amountCents || 0);
+    return formatCash(req.amountCents || 0, currency);
   })();
 
   // Dual-parent gate (Honey Pot → Cash can require both parents).
@@ -256,7 +260,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
           {isWithdrawal && (
             <div className="mt-2 rounded-hive border border-hive-green/40 bg-[#EAF7F0] px-3 py-2 text-[12px] font-nunito font-bold text-hive-ink">
               {potCents !== null && (
-                <>🍯 Pot after: {formatCash(Math.max(0, potCents - (req.amountCents || 0)))}{' · '}</>
+                <>🍯 Pot after: {formatCash(Math.max(0, potCents - (req.amountCents || 0)), currency)}{' · '}</>
               )}
               Kid&apos;s code: <span className="font-black tracking-[3px]">{req.code || '—'}</span>
             </div>
@@ -274,7 +278,7 @@ export default function ApprovalRequestCard({ req }: { req: ApprovalRequest }) {
             disabled={handingOver}
             className="w-full h-11 rounded-hive-pill bg-hive-green text-white font-nunito font-black text-[13px] disabled:opacity-40 hover:brightness-110 transition"
           >
-            {handingOver ? 'Confirming…' : `🤝 I've handed over ${formatCash(req.amountCents || 0)}`}
+            {handingOver ? 'Confirming…' : `🤝 I've handed over ${formatCash(req.amountCents || 0, currency)}`}
           </button>
           <button
             onClick={() => setShowReject(true)}

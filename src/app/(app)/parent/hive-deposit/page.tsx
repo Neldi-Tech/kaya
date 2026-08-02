@@ -16,6 +16,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useHive } from '@/contexts/HiveContext';
 import { depositCash, depositToTreasury, setHiveConfig, CURRENCIES } from '@/lib/hive';
+import { getFamilyMembers } from '@/lib/firestore';
 import {
   depositCategories, suggestDepositCategory, customCategoryId,
   learnDepositChoicePatch, type DepositCategory,
@@ -47,6 +48,29 @@ export default function HiveDepositPage() {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
   const [dateKey, setDateKey] = useState(todayKey);
+  // 🤲 Who's giving? — family member names + free-text Other. Defaults to
+  // the signed-in parent so the common case is zero extra taps.
+  const [giver, setGiver] = useState('');
+  const [giverOther, setGiverOther] = useState(false);
+  const [memberNames, setMemberNames] = useState<string[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId || isGuest) return;
+    getFamilyMembers(profile.familyId)
+      .then((ms) => setMemberNames(ms
+        .filter((m) => m.role === 'parent' || m.role === 'helper')
+        .map((m) => (m.displayName || '').trim())
+        .filter(Boolean)))
+      .catch(() => {});
+  }, [profile?.familyId, isGuest]);
+  const giverOptions = useMemo(() => {
+    const me = (profile?.displayName || '').trim();
+    return Array.from(new Set([...(me ? [me] : []), ...memberNames, 'Family']));
+  }, [profile?.displayName, memberNames]);
+  // Default pick = the signed-in parent, once known.
+  useEffect(() => {
+    if (!giver && !giverOther && profile?.displayName) setGiver(profile.displayName.trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.displayName]);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<{ kidNames: string[]; cents: number; perKid: boolean; dest: 'cash' | 'treasury' } | null>(null);
   const [error, setError] = useState('');
@@ -147,9 +171,15 @@ export default function HiveDepositPage() {
     // later and reconstruct what actually happened. Custom categories keep
     // their label in the row text (the ledger's TxCategory for them is 'other').
     const baseDesc = description.trim() || selectedCat.label;
+    // 🤲 The giver leads the row ("From Bibi Asha · July pocket money") —
+    // skipped when it's the signed-in parent, whose uid is already on the
+    // ledger row as createdBy.
+    const giverName = giver.trim();
+    const giverPrefix = giverName && giverName !== (profile?.displayName || '').trim()
+      ? `From ${giverName} · ` : '';
     const recordDesc = useFx && sourceCurrency !== defaultCurrency
-      ? `${baseDesc} · ${sourceSym}${sourceAmount.toFixed(2)} ${sourceCurrency} @ ${fxNum} → ${defaultCurrency}`
-      : baseDesc;
+      ? `${giverPrefix}${baseDesc} · ${sourceSym}${sourceAmount.toFixed(2)} ${sourceCurrency} @ ${fxNum} → ${defaultCurrency}`
+      : `${giverPrefix}${baseDesc}`;
 
     // Backdated deposits post at local noon of the picked day (a today-dated
     // deposit keeps the exact "now" timestamp so ordering stays natural).
@@ -398,6 +428,50 @@ export default function HiveDepositPage() {
                 )
               )}
             </div>
+          )}
+        </div>
+
+        {/* 🤲 Who's giving? — family chips + Other (2026-08-02, Elia's ask).
+            The giver rides the ledger description ("From Mama · …") so the
+            statement + kid's history read like a story with zero schema
+            changes. Defaults to the signed-in parent. */}
+        <div className="bg-hive-paper border border-hive-line rounded-hive-lg p-4">
+          <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[1.5px] text-hive-muted mb-2">🤲 Who&rsquo;s giving?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {giverOptions.map((g) => (
+              <button
+                key={g}
+                type="button"
+                onClick={() => { setGiver(g); setGiverOther(false); }}
+                aria-pressed={!giverOther && giver === g}
+                className={`px-3 py-1.5 rounded-full text-[12px] font-nunito font-extrabold border transition-colors ${
+                  !giverOther && giver === g
+                    ? 'bg-hive-honey text-hive-navy border-hive-honey'
+                    : 'bg-hive-cream text-hive-muted border-hive-line hover:border-hive-honey/60'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => { setGiverOther(true); setGiver(''); }}
+              aria-pressed={giverOther}
+              className={`px-3 py-1.5 rounded-full text-[12px] font-nunito font-extrabold border transition-colors ${
+                giverOther ? 'bg-hive-honey text-hive-navy border-hive-honey' : 'bg-hive-cream text-hive-muted border-hive-line hover:border-hive-honey/60'
+              }`}
+            >
+              ✍️ Other…
+            </button>
+          </div>
+          {giverOther && (
+            <input
+              value={giver}
+              onChange={(e) => setGiver(e.target.value)}
+              placeholder="Who gave it? e.g. Bibi Asha, Uncle Joe"
+              maxLength={40}
+              className="mt-2 w-full h-11 px-3 bg-hive-cream rounded-[12px] text-sm border border-hive-line focus:outline-none focus:ring-2 focus:ring-hive-honey/40"
+            />
           )}
         </div>
 
