@@ -22,7 +22,7 @@
 // fields (appreciations, lastWeekGoalsDone, reflection) are optional
 // on the schema, so older meetings continue to load unchanged.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toDisplayDate } from '@/lib/dates';
@@ -30,7 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { participatesInMeetings } from '@/lib/participation';
 import {
-  createMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
+  upsertWeeklyMeeting, updateMeeting, getMeetings, getFamilyMembers, createNotification,
   bumpBadgeCounters,
   updateFamily,
   getRatingsInDateRange, getAwardsInDateRange, getRedemptions,
@@ -204,10 +204,43 @@ export default function MeetingPresenterPage() {
   // Attendance — initialized to "everyone present" when the household
   // list loads (parents + kids default in; tap to toggle). Guests are
   // captured separately as free-form rows with a relationship label.
-  const [attendees, setAttendees] = useState<Set<string>>(new Set());
-  const [parentAttendees, setParentAttendees] = useState<Set<string>>(new Set());
-  const [guestAttendees, setGuestAttendees] = useState<Array<{ id: string; name: string; relationship?: string }>>([]);
-  const [attendanceInit, setAttendanceInit] = useState(false);
+  // Roster — persisted in sessionStorage like stepIdx. Root cause fixed
+  // 2026-08-02 (Elia): the "Open Points Review" round-trip REMOUNTS this
+  // page, and only stepIdx survived — attendance and (crucially) the guest
+  // list were silently wiped, so every saved meeting had guestAttendees: []
+  // and the past-guest suggestions never had anything to suggest. Cleared
+  // on finish, same lifecycle as stepIdx.
+  const ROSTER_KEY = 'kaya:meeting-presenter:roster';
+  const [restoredRoster] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.sessionStorage.getItem(ROSTER_KEY);
+      if (!raw) return null;
+      const v = JSON.parse(raw) as {
+        kids?: string[]; parents?: string[];
+        guests?: Array<{ id: string; name: string; relationship?: string }>;
+      };
+      return v && typeof v === 'object' ? v : null;
+    } catch { return null; }
+  });
+  const [attendees, setAttendees] = useState<Set<string>>(() => new Set(restoredRoster?.kids || []));
+  const [parentAttendees, setParentAttendees] = useState<Set<string>>(() => new Set(restoredRoster?.parents || []));
+  const [guestAttendees, setGuestAttendees] = useState<Array<{ id: string; name: string; relationship?: string }>>(
+    () => Array.isArray(restoredRoster?.guests) ? restoredRoster!.guests! : [],
+  );
+  // A restored roster IS the initialised state — the "default everyone
+  // present" pass must not clobber deliberate un-ticks after a remount.
+  const [attendanceInit, setAttendanceInit] = useState(!!restoredRoster);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !attendanceInit) return;
+    try {
+      window.sessionStorage.setItem(ROSTER_KEY, JSON.stringify({
+        kids: Array.from(attendees),
+        parents: Array.from(parentAttendees),
+        guests: guestAttendees,
+      }));
+    } catch { /* private mode — the night still works, just without remount safety */ }
+  }, [attendees, parentAttendees, guestAttendees, attendanceInit]);
   const [householdParents, setHouseholdParents] = useState<Array<{ uid: string; name: string; avatarEmoji?: string }>>([]);
   const [presentBy, setPresentBy] = useState('');
   const [presentTopic, setPresentTopic] = useState('');
@@ -638,8 +671,13 @@ export default function MeetingPresenterPage() {
   //      reviewed weeks later).
   //   2. The new meeting record — captures tonight's attendance,
   //      gratitude, appreciations, new goals, and chosen reflection.
+  // Double-tap guard — `saving` disables the button, but two taps in the
+  // same tick both pass the disabled check. The ref is synchronous.
+  const finishingRef = useRef(false);
   const handleFinish = async () => {
     if (!profile?.familyId) return;
+    if (finishingRef.current) return;
+    finishingRef.current = true;
     setSaving(true);
     setFinishError(null);
     try {
@@ -784,7 +822,10 @@ export default function MeetingPresenterPage() {
       })() : {}),
       createdBy: profile.uid,
     };
-    await createMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
+    // Idempotent: one weekly doc per day (`weekly-<date>`), so a "tap
+    // Finish again" retry — or a rerun of the presenter tonight — updates
+    // THE SAME record instead of stacking duplicates in the history.
+    await upsertWeeklyMeeting(profile.familyId, payload as Omit<Meeting, 'id'>);
 
     // 🏅 BDG PR3 — one meeting counted for every kid marked present tonight
     // (Team Player → Meeting Champion). Best-effort: the meeting record is
@@ -923,6 +964,13 @@ export default function MeetingPresenterPage() {
     });
 
     setDone(true);
+    // Clear the persisted step + roster so next week's meeting starts fresh.
+    // Inside the success path on purpose: a FAILED finish keeps both, so a
+    // reload before the retry doesn't lose the roster.
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.removeItem('kaya:meeting-presenter:stepIdx');
+      window.sessionStorage.removeItem(ROSTER_KEY);
+    }
     } catch (e) {
       // eslint-disable-next-line no-console
       console.warn('[meeting-finish] save failed — retryable:', e);
@@ -931,10 +979,7 @@ export default function MeetingPresenterPage() {
         : 'Could not save the meeting — please tap Finish again.');
     } finally {
       setSaving(false);
-    }
-    // Clear the persisted step so next week's meeting starts at step 1.
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.removeItem('kaya:meeting-presenter:stepIdx');
+      finishingRef.current = false;
     }
   };
 
