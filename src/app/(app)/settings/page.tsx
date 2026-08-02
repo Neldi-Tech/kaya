@@ -737,20 +737,28 @@ export default function SettingsPage() {
 
   // Little Stars — family-default participation ages (design §2).
   const partAges = readParticipationAges(family);
-  const bumpAge = async (key: 'sparksFromAge' | 'meetingsFromAge', delta: number) => {
-    if (!profile?.familyId) return;
-    const next = Math.max(0, Math.min(18, partAges[key] + delta));
+  const setAge = async (key: 'sparksFromAge' | 'meetingsFromAge', value: number) => {
+    if (!profile?.familyId || !Number.isFinite(value)) return;
+    const next = Math.max(0, Math.min(18, Math.round(value)));
+    if (next === partAges[key]) return;
     await updateFamily(profile.familyId, {
       participationAges: { ...family?.participationAges, [key]: next },
     } as any);
     await refresh();
   };
+  const bumpAge = (key: 'sparksFromAge' | 'meetingsFromAge', delta: number) =>
+    setAge(key, partAges[key] + delta);
   const celebrationDays = Math.max(0, Math.min(60, Number((family as any)?.celebrationDays ?? 14)));
-  const bumpCelebration = async (delta: number) => {
-    if (!profile?.familyId) return;
-    await updateFamily(profile.familyId, { celebrationDays: Math.max(0, Math.min(60, celebrationDays + delta)) } as any);
+  // 2026-08-02 (Elia): the number itself is now editable — tap it and type an
+  // exact value instead of stepping ±. Same clamps as the steppers.
+  const setCelebration = async (value: number) => {
+    if (!profile?.familyId || !Number.isFinite(value)) return;
+    const next = Math.max(0, Math.min(60, Math.round(value)));
+    if (next === celebrationDays) return;
+    await updateFamily(profile.familyId, { celebrationDays: next } as any);
     await refresh();
   };
+  const bumpCelebration = (delta: number) => setCelebration(celebrationDays + delta);
 
   const handlePointsMode = async (mode: PointsMode) => {
     if (!profile?.familyId) return;
@@ -3277,7 +3285,22 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => void bumpAge(key, -1)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">−</button>
-                    <span className="min-w-[52px] text-center font-black text-sm">age {partAges[key]}</span>
+                    {/* Tap the number to type an exact age (saves on leave/Enter). */}
+                    <span className="flex items-baseline gap-1 font-black text-sm">
+                      age
+                      <input
+                        key={partAges[key]}
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        max={18}
+                        defaultValue={partAges[key]}
+                        aria-label={`${label} — type the exact age`}
+                        onBlur={(e) => void setAge(key, Number(e.target.value))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                        className="w-12 h-8 text-center font-black text-sm rounded-kaya-sm border border-kaya-warm-dark bg-white focus:outline-none focus:ring-2 focus:ring-kaya-gold/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </span>
                     <button type="button" onClick={() => void bumpAge(key, 1)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">＋</button>
                   </div>
                 </div>
@@ -3289,7 +3312,22 @@ export default function SettingsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => void bumpCelebration(-7)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">−</button>
-                  <span className="min-w-[62px] text-center font-black text-sm">{celebrationDays} days</span>
+                  {/* Tap the number to type exact days (saves on leave/Enter). */}
+                  <span className="flex items-baseline gap-1 font-black text-sm">
+                    <input
+                      key={celebrationDays}
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      max={60}
+                      defaultValue={celebrationDays}
+                      aria-label="Arrival celebration — type the exact number of days"
+                      onBlur={(e) => void setCelebration(Number(e.target.value))}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                      className="w-14 h-8 text-center font-black text-sm rounded-kaya-sm border border-kaya-warm-dark bg-white focus:outline-none focus:ring-2 focus:ring-kaya-gold/50 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    days
+                  </span>
                   <button type="button" onClick={() => void bumpCelebration(7)} className="w-8 h-8 rounded-kaya-sm border border-kaya-warm-dark font-black">＋</button>
                 </div>
               </div>
