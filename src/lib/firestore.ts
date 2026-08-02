@@ -3064,6 +3064,21 @@ export async function createMeeting(familyId: string, meeting: Omit<Meeting, 'id
   });
 }
 
+/** Save tonight's WEEKLY meeting idempotently — one doc per family per day,
+ *  id `weekly-<date>`. Root cause fixed 2026-08-02 (Elia): "tap Finish
+ *  again" after a partial failure — and re-running the presenter the same
+ *  evening — used to `addDoc` a brand-new record each time, leaving two
+ *  (sometimes four) meetings in the submissions list for one night. Now the
+ *  last finish of the day WINS by overwriting the same doc. Historic
+ *  random-id docs are untouched (all reads are id-agnostic). */
+export async function upsertWeeklyMeeting(familyId: string, meeting: Omit<Meeting, 'id'>) {
+  if (isGuestActive()) return { id: 'guest-meeting' } as any;
+  const id = `weekly-${meeting.date}`;
+  const ref = doc(db, 'families', familyId, 'meetings', id);
+  await setDoc(ref, { ...meeting, createdAt: serverTimestamp() });
+  return ref;
+}
+
 /** Patch fields on an existing meeting. Used by the presenter's Goals
  *  Review step to retroactively mark older meetings' goals as done
  *  (writing back to each meeting's `goalsDone` map). Guest is a no-op. */
