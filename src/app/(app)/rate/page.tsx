@@ -316,11 +316,14 @@ export default function RatePage() {
         // 🧒 The kid it's about — instant kid-voiced email via the COPPA
         // pointer. The route gates + composes server-side; numbers only.
         if (aud.kidItsAbout && totalPoints > 0) {
-          fbAuth.currentUser?.getIdToken().then((token) => token && fetch('/api/kids/rating-email', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify({ childId: child.id, period, points: totalPoints }),
-          })).catch(() => { /* delight only — never blocks */ });
+          fbAuth.currentUser?.getIdToken().then((token) => {
+            if (!token) return;
+            return fetch('/api/kids/rating-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ childId: child.id, period, points: totalPoints }),
+            });
+          }).catch(() => { /* delight only — never blocks */ });
         }
       }
     })();
