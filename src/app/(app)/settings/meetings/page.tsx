@@ -25,7 +25,7 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { useConfirm } from '@/contexts/ConfirmContext';
-import { updateFamily, ReflectionMode } from '@/lib/firestore';
+import { updateFamily, getFamilyMembers, ReflectionMode, UserProfile } from '@/lib/firestore';
 import { SURPRISE_REGISTRY } from '@/lib/meetingSurprises';
 import BackButton from '@/components/ui/BackButton';
 
@@ -56,7 +56,15 @@ function makeId() {
 
 export default function MeetingSetupPage() {
   const { profile } = useAuth();
-  const { family } = useFamily();
+  const { family, children } = useFamily();
+
+  // OF-4 — parents list for the Custom recipient chips.
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    getFamilyMembers(profile.familyId)
+      .then((ms) => setMemberParents(ms.filter((m) => m.role === 'parent')))
+      .catch(() => {});
+  }, [profile?.familyId]);
   const confirmAction = useConfirm();
 
   // ── Local state, seeded from family doc once family loads ────────
@@ -82,7 +90,11 @@ export default function MeetingSetupPage() {
   const [openFloorLeader, setOpenFloorLeader] = useState<'parents' | 'leader' | 'anykid'>('leader');
   // Meeting Notes (2026-06-21): WHO gets the auto-sent notes. Replaces the
   // old on/off toggle (saved boolean kept in sync for older readers).
-  const [recapBookRecipients, setRecapBookRecipients] = useState<'off' | 'parents' | 'all'>('parents');
+  const [recapBookRecipients, setRecapBookRecipients] = useState<'off' | 'parents' | 'parents-kids' | 'all' | 'custom'>('parents');
+  // OF-4 — the saved Custom selection: member chips ('p:<uid>' / 'k:<childId>') + extra emails.
+  const [recapCustomIds, setRecapCustomIds] = useState<Set<string>>(new Set());
+  const [recapCustomEmails, setRecapCustomEmails] = useState('');
+  const [memberParents, setMemberParents] = useState<UserProfile[]>([]);
   // Sunday-Meeting v2 (b7): how long a Time Capsule stays sealed.
   const [timeCapsuleLockYears, setTimeCapsuleLockYears] = useState<0.5 | 1 | 3>(1);
   // SM3.1 (#2): 🙏 Opening Word — step on/off (default ON), required-to-
@@ -125,6 +137,10 @@ export default function MeetingSetupPage() {
     if (typeof s?.kidSongLinkRequiresApproval === 'boolean') setKidSongLinkRequiresApproval(s.kidSongLinkRequiresApproval);
     if (typeof s?.recapBookIncludeSong === 'boolean') setRecapBookIncludeSong(s.recapBookIncludeSong);
     setRecapBookRecipients(s?.recapBookRecipients ?? ((s?.recapBookEmailEnabled ?? true) ? 'parents' : 'off'));
+    if (s?.recapCustomRecipients) {
+      setRecapCustomIds(new Set(s.recapCustomRecipients.memberIds || []));
+      setRecapCustomEmails((s.recapCustomRecipients.emails || []).join(', '));
+    }
     setOpenFloorEnabled(s?.openFloorEnabled === true);
     if (s?.agendaOrder && s.agendaOrder.length > 0) {
       // Merge-migrate: keep saved order, append any ids added since.
@@ -258,6 +274,10 @@ export default function MeetingSetupPage() {
         kidSongLinkRequiresApproval,
         recapBookEmailEnabled: recapBookRecipients !== 'off',
         recapBookRecipients,
+        recapCustomRecipients: {
+          memberIds: Array.from(recapCustomIds),
+          emails: recapCustomEmails.split(/[,\s]+/).map((e) => e.trim()).filter((e) => /\S+@\S+\.\S+/.test(e)),
+        },
         openFloorEnabled,
         agendaOrder,
         customStep: { emoji: customStepEmoji || '⭐', name: customStepName.trim(), enabled: customStepEnabled && !!customStepName.trim() },
@@ -680,7 +700,11 @@ export default function MeetingSetupPage() {
         <div className="flex items-baseline justify-between mb-1">
           <h2 className="font-display text-lg lg:text-xl font-black">📨 Meeting Recap Book</h2>
           <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
-            {recapBookRecipients === 'off' ? 'Off' : recapBookRecipients === 'all' ? 'All participants' : 'Parents'}
+            {recapBookRecipients === 'off' ? 'Off'
+              : recapBookRecipients === 'parents' ? 'Parents'
+              : recapBookRecipients === 'parents-kids' ? 'Parents + Kids'
+              : recapBookRecipients === 'all' ? 'All participants'
+              : 'Custom'}
           </span>
         </div>
         <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
@@ -693,11 +717,13 @@ export default function MeetingSetupPage() {
             <p className="font-display font-extrabold text-sm text-kaya-chocolate">
               📨 Auto-send the meeting notes to…
             </p>
-            <div className="flex gap-2 mt-2">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 mt-2">
               {([
                 ['off', 'Off'],
                 ['parents', 'Parents only'],
+                ['parents-kids', 'Parents + Kids'],
                 ['all', 'All participants'],
+                ['custom', 'Custom'],
               ] as const).map(([key, label]) => (
                 <button
                   key={key}
@@ -718,8 +744,53 @@ export default function MeetingSetupPage() {
                 ? 'No automatic email — share manually from any meeting\u2019s notes.'
                 : recapBookRecipients === 'parents'
                   ? '\ud83d\udce8 Parents get the notes after each meeting.'
-                  : '\ud83d\udce8 Everyone who attended (with an email on file) gets the notes \u2014 kids included.'}
+                  : recapBookRecipients === 'parents-kids'
+                    ? '\ud83d\udce8 Parents + every kid with an email on file get the notes.'
+                    : recapBookRecipients === 'all'
+                      ? '\ud83d\udce8 Everyone who attended (with an email on file) gets the notes \u2014 kids included.'
+                      : '\ud83d\udce8 Exactly the people you pick below \u2014 saved for every meeting.'}
             </p>
+            {recapBookRecipients === 'custom' && (
+              <div className="mt-3 rounded-kaya border border-kaya-warm-dark bg-white p-3.5 space-y-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">Family members</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      ...memberParents.map((m) => ({ key: `p:${m.uid}`, label: `${m.avatarEmoji || '👤'} ${m.name}`, email: (m.email || '').trim() })),
+                      ...children.map((c) => ({ key: `k:${c.id}`, label: `${c.avatarEmoji || '🧒'} ${c.name.split(' ')[0]}`, email: ((c as { email?: string; emailLower?: string }).email || (c as { emailLower?: string }).emailLower || '').trim() })),
+                    ].map((m) => (
+                      <button
+                        key={m.key}
+                        type="button"
+                        disabled={!m.email}
+                        onClick={() => setRecapCustomIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(m.key)) next.delete(m.key); else next.add(m.key);
+                          return next;
+                        })}
+                        title={m.email || 'No email on file'}
+                        className={`rounded-full px-3 py-1.5 text-[11.5px] font-extrabold border-2 transition-colors disabled:opacity-40 ${
+                          recapCustomIds.has(m.key) && m.email
+                            ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                            : 'bg-white text-kaya-chocolate border-kaya-warm-dark'
+                        }`}
+                      >
+                        {m.label}{!m.email && ' · no email'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">✉️ Extra emails — grandma, a mentor, anyone</p>
+                  <input
+                    value={recapCustomEmails}
+                    onChange={(e) => setRecapCustomEmails(e.target.value)}
+                    placeholder="grandma@example.com, uncle@example.com"
+                    className="w-full h-10 bg-kaya-cream/60 border border-kaya-warm-dark rounded-kaya-sm px-3 text-[12.5px] text-kaya-chocolate placeholder-kaya-sand focus:outline-none focus:ring-2 focus:ring-kaya-gold/50"
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <label className={`flex items-start gap-3 cursor-pointer ${recapBookRecipients === 'off' ? 'opacity-50' : ''}`}>
             <input

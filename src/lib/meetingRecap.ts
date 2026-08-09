@@ -150,7 +150,7 @@ export function guestOfHonour(meeting: Pick<Meeting, 'guestAttendees'>): string 
 
 /** WHO gets the auto-sent notes (Meeting Notes, 2026-06-21). Back-compat:
  *  no recapBookRecipients → derive from the old on/off toggle. */
-export function recapRecipientsMode(family: Family | null | undefined): 'off' | 'parents' | 'all' {
+export function recapRecipientsMode(family: Family | null | undefined): 'off' | 'parents' | 'parents-kids' | 'all' | 'custom' {
   const s = family?.meetingSetup;
   if (s?.recapBookRecipients) return s.recapBookRecipients;
   return (s?.recapBookEmailEnabled ?? true) ? 'parents' : 'off';
@@ -172,14 +172,38 @@ export async function sendMeetingRecapEmail({
     .map((m) => m.email)
     .filter((e): e is string => !!e);
 
-  const kidEmails = mode === 'all'
-    ? children
-        .filter((c) => (payload.attendees || []).includes(c.id))
-        .map((c) => ((c as { email?: string; emailLower?: string }).email || (c as { emailLower?: string }).emailLower || '').trim())
-        .filter(Boolean)
-    : [];
+  // OF-4 (2026-07-20): recipients per mode —
+  //   'parents'       parents only (default)
+  //   'parents-kids'  parents + every kid with an email on file
+  //   'all'           parents + every ATTENDEE kid with an email
+  //   'custom'        the family's saved member/email selection
+  const kidEmailOf = (c: Child) =>
+    ((c as { email?: string; emailLower?: string }).email || (c as { emailLower?: string }).emailLower || '').trim();
 
-  const to = Array.from(new Set([...parentEmails, ...kidEmails]));
+  let to: string[];
+  if (mode === 'custom') {
+    const sel = family.meetingSetup?.recapCustomRecipients;
+    const ids = new Set(sel?.memberIds || []);
+    const out: string[] = [];
+    for (const m of members) {
+      if (m.role === 'parent' && ids.has(`p:${m.uid}`) && m.email) out.push(m.email);
+    }
+    for (const c of children) {
+      if (ids.has(`k:${c.id}`)) {
+        const e = kidEmailOf(c);
+        if (e) out.push(e);
+      }
+    }
+    out.push(...(sel?.emails || []));
+    to = Array.from(new Set(out.map((e) => e.trim()).filter(Boolean)));
+  } else {
+    const kidEmails = mode === 'parents-kids'
+      ? children.map(kidEmailOf).filter(Boolean)
+      : mode === 'all'
+      ? children.filter((c) => (payload.attendees || []).includes(c.id)).map(kidEmailOf).filter(Boolean)
+      : [];
+    to = Array.from(new Set([...parentEmails, ...kidEmails]));
+  }
   if (to.length === 0) return;
 
   // Compose RecapEntry arrays — submissions first (read in advance),

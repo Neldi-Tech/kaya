@@ -543,7 +543,12 @@ export interface Family {
      *  meeting — 'off' (nobody) · 'parents' (today's behaviour) · 'all'
      *  (every attendee with an email on file, kids included). Absent =
      *  derive from recapBookEmailEnabled (true→'parents', false→'off'). */
-    recapBookRecipients?: 'off' | 'parents' | 'all';
+    recapBookRecipients?: 'off' | 'parents' | 'parents-kids' | 'all' | 'custom';
+    /** OF-4 (approved 2026-07-20): the saved 'custom' selection —
+     *  memberIds are 'p:<uid>' (parents) / 'k:<childId>' (kids), plus
+     *  free-typed extra emails (grandma, mentors…). Only read when
+     *  recapBookRecipients === 'custom'. */
+    recapCustomRecipients?: { memberIds: string[]; emails: string[] };
     /** 🗣️ Open Floor (approved 2026-07-20) — optional 7th agenda step:
      *  topics anyone raised, open discussion, the leader keeps notes.
      *  Default OFF (absent = off). Raisers: who may raise topics in prep;
