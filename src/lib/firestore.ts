@@ -3153,12 +3153,12 @@ export async function getMeeting(familyId: string, meetingId: string): Promise<M
   return snap.exists() ? ({ id: snap.id, ...snap.data() } as Meeting) : null;
 }
 
-export async function getMeetings(familyId: string): Promise<Meeting[]> {
+export async function getMeetings(familyId: string, max = 20): Promise<Meeting[]> {
   if (isGuestActive()) return [];
   const q = query(
     collection(db, 'families', familyId, 'meetings'),
     orderBy('createdAt', 'desc'),
-    limit(20)
+    limit(max)
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Meeting));
