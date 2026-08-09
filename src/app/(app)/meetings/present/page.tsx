@@ -586,16 +586,23 @@ export default function MeetingPresenterPage() {
     [capsules, todayIsoLocal],
   );
 
-  // Default attendance to "everyone in the household present" once
-  // the kid + parent lists arrive. Only runs once so a manual
-  // deselection isn't overwritten if a list refreshes.
+  // Default attendance to "everyone in the household present". Each list
+  // defaults INDEPENDENTLY, once, when it first arrives — the parents
+  // fetch lands later than the kids list, and the old single-shot default
+  // fired on kids alone, leaving parents unticked (Elia's catch,
+  // 2026-07-20). Manual unticks are never overridden: each default runs
+  // exactly once per list.
+  const [parentsInit, setParentsInit] = useState(false);
   useEffect(() => {
-    if (attendanceInit) return;
-    if (children.length === 0 && householdParents.length === 0) return;
+    if (attendanceInit || children.length === 0) return;
     setAttendees(new Set(children.map((c) => c.id)));
-    setParentAttendees(new Set(householdParents.map((p) => p.uid)));
     setAttendanceInit(true);
-  }, [children, householdParents, attendanceInit]);
+  }, [children, attendanceInit]);
+  useEffect(() => {
+    if (parentsInit || householdParents.length === 0) return;
+    setParentAttendees(new Set(householdParents.map((p) => p.uid)));
+    setParentsInit(true);
+  }, [householdParents, parentsInit]);
 
   // Seed Closing Reflection from setup the first time the family doc
   // arrives — execute mode means the meeting record auto-tracks the
@@ -2634,7 +2641,7 @@ function AttendanceStep({
             className={`px-4 py-2 rounded-full border-2 border-dashed font-display font-extrabold text-[12.5px] transition-colors ${
               showGuests ? 'border-kaya-gold text-kaya-gold-light bg-kaya-gold/10' : 'border-white/25 text-white/70 hover:border-kaya-gold/60 hover:text-kaya-gold-light'
             }`}
-          >🫂 Add a guest</button>
+          >🫂 Add a guest{pastGuests.length > 0 ? ` · ${pastGuests.length} past` : ''}</button>
         </div>
 
         {/* 🤝 Helper invite panel — tonight only; untap the ✕ on their grid
