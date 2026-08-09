@@ -69,6 +69,10 @@ export default function MeetingSetupPage() {
   // Sunday-Meeting v2 (b6): email a one-page "Meeting Recap Book" to
   // parents + Family contacts after the meeting submits. Defaults ON.
   const [recapBookIncludeSong, setRecapBookIncludeSong] = useState<boolean>(true);
+  // 🗣️ Open Floor (2026-07-20) — optional discussion step, off by default.
+  const [openFloorEnabled, setOpenFloorEnabled] = useState<boolean>(false);
+  const [openFloorRaisers, setOpenFloorRaisers] = useState<'parents' | 'all'>('all');
+  const [openFloorLeader, setOpenFloorLeader] = useState<'parents' | 'leader' | 'anykid'>('leader');
   // Meeting Notes (2026-06-21): WHO gets the auto-sent notes. Replaces the
   // old on/off toggle (saved boolean kept in sync for older readers).
   const [recapBookRecipients, setRecapBookRecipients] = useState<'off' | 'parents' | 'all'>('parents');
@@ -114,6 +118,9 @@ export default function MeetingSetupPage() {
     if (typeof s?.kidSongLinkRequiresApproval === 'boolean') setKidSongLinkRequiresApproval(s.kidSongLinkRequiresApproval);
     if (typeof s?.recapBookIncludeSong === 'boolean') setRecapBookIncludeSong(s.recapBookIncludeSong);
     setRecapBookRecipients(s?.recapBookRecipients ?? ((s?.recapBookEmailEnabled ?? true) ? 'parents' : 'off'));
+    setOpenFloorEnabled(s?.openFloorEnabled === true);
+    if (s?.openFloorRaisers) setOpenFloorRaisers(s.openFloorRaisers);
+    if (s?.openFloorLeader) setOpenFloorLeader(s.openFloorLeader);
     if (s?.timeCapsuleLockYears === 0.5 || s?.timeCapsuleLockYears === 1 || s?.timeCapsuleLockYears === 3) {
       setTimeCapsuleLockYears(s.timeCapsuleLockYears);
     }
@@ -221,6 +228,9 @@ export default function MeetingSetupPage() {
         kidSongLinkRequiresApproval,
         recapBookEmailEnabled: recapBookRecipients !== 'off',
         recapBookRecipients,
+        openFloorEnabled,
+        openFloorRaisers,
+        openFloorLeader,
         recapBookIncludeSong,
         timeCapsuleLockYears,
         openingWordEnabled,
@@ -498,6 +508,75 @@ export default function MeetingSetupPage() {
               className="h-10 px-4 rounded-kaya-sm bg-kaya-chocolate text-white text-[13px] font-display font-extrabold">
               Add
             </button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── 🗣️ Open Floor (approved 2026-07-20) ─────────────────── */}
+      <section className="mb-8 bg-white border border-kaya-warm-dark rounded-kaya-lg p-5 lg:p-7">
+        <div className="flex items-baseline justify-between mb-1">
+          <h2 className="font-display text-lg lg:text-xl font-black">🗣️ Open Floor</h2>
+          <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
+            {openFloorEnabled ? 'On' : 'Off'}
+          </span>
+        </div>
+        <p className="text-[12.5px] lg:text-sm text-kaya-sand leading-snug mb-4">
+          An open-discussion step: topics anyone raised (in prep or on the night),
+          the family talks, and the segment leader keeps the notes. Topics close as
+          💬 discussed, ✔ decided, or → parked for next week.
+        </p>
+        <div className="rounded-kaya border border-kaya-warm-dark/70 bg-kaya-cream/50 p-4 space-y-4">
+          <div>
+            <p className="font-display font-extrabold text-sm text-kaya-chocolate">Add Open Floor to the meeting</p>
+            <div className="flex gap-2 mt-2">
+              {([[true, 'On'], [false, 'Off']] as const).map(([val, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setOpenFloorEnabled(val)}
+                  className={`flex-1 h-10 rounded-kaya-sm font-display font-extrabold text-[12px] border-2 transition-colors ${
+                    openFloorEnabled === val
+                      ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                      : 'bg-white text-kaya-chocolate border-kaya-warm-dark hover:bg-kaya-warm'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+          <div className={openFloorEnabled ? '' : 'opacity-50 pointer-events-none'}>
+            <p className="font-display font-extrabold text-sm text-kaya-chocolate">Who can raise topics?</p>
+            <div className="flex gap-2 mt-2">
+              {([['parents', 'Parents only'], ['all', 'Parents + Kids']] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setOpenFloorRaisers(val)}
+                  className={`flex-1 h-10 rounded-kaya-sm font-display font-extrabold text-[12px] border-2 transition-colors ${
+                    openFloorRaisers === val
+                      ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                      : 'bg-white text-kaya-chocolate border-kaya-warm-dark hover:bg-kaya-warm'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+          <div className={openFloorEnabled ? '' : 'opacity-50 pointer-events-none'}>
+            <p className="font-display font-extrabold text-sm text-kaya-chocolate">Who leads this segment?</p>
+            <div className="flex gap-2 mt-2 flex-wrap">
+              {([['parents', 'Parents only'], ['leader', "Week's leader — even a kid"], ['anykid', 'Any kid']] as const).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setOpenFloorLeader(val)}
+                  className={`flex-1 min-w-[130px] h-10 rounded-kaya-sm font-display font-extrabold text-[11.5px] border-2 transition-colors ${
+                    openFloorLeader === val
+                      ? 'bg-kaya-chocolate text-kaya-gold-light border-kaya-chocolate'
+                      : 'bg-white text-kaya-chocolate border-kaya-warm-dark hover:bg-kaya-warm'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+            <p className="text-[11px] text-kaya-sand mt-2">Limits whether kids may run the discussion — independent of who leads the rest of the meeting.</p>
           </div>
         </div>
       </section>

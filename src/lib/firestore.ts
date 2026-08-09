@@ -544,6 +544,13 @@ export interface Family {
      *  (every attendee with an email on file, kids included). Absent =
      *  derive from recapBookEmailEnabled (true→'parents', false→'off'). */
     recapBookRecipients?: 'off' | 'parents' | 'all';
+    /** 🗣️ Open Floor (approved 2026-07-20) — optional 7th agenda step:
+     *  topics anyone raised, open discussion, the leader keeps notes.
+     *  Default OFF (absent = off). Raisers: who may raise topics in prep;
+     *  leader: who may run the segment. */
+    openFloorEnabled?: boolean;
+    openFloorRaisers?: 'parents' | 'all';
+    openFloorLeader?: 'parents' | 'leader' | 'anykid';
     /** Whether the recap email includes the closing song link.
      *  Default = true; flips off independently of recapBookEmailEnabled
      *  so parents can keep the recap but drop the song. */
@@ -1243,6 +1250,10 @@ export interface Meeting {
    *  meeting. Next meeting's Goals Review surfaces a "you pinky-promised
    *  this" ribbon on those goals (and a "promise kept!" beat when done). */
   pinkyPromised?: string[];
+  /** 🗣️ Open Floor (2026-07-20) — the night's topics with their outcome:
+   *  💬 discussed · ✔ decided (note = the decision) · → parked (auto-
+   *  carries to next week's queue). Firestore-safe array-of-maps. */
+  openFloor?: Array<{ text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note?: string }>;
   /** Meeting Notes (2026-06-21) — leadership captured on the record so the
    *  structured notes + recap email can tell the story: who led tonight,
    *  who led the prayer, and who leads next week (post-wheel snapshot). */

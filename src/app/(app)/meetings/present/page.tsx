@@ -75,6 +75,7 @@ const STEPS = [
   { id: 'celebrate',     title: 'Celebrate the Wins', emoji: '🎉', sub: 'Look back at the week — points, badges, moments worth a cheer.' },
   { id: 'appreciations', title: 'Appreciations',      emoji: '💛', sub: 'Something kind, helpful, or brave you noticed this week.' },
   { id: 'goals',         title: 'Goals Review',       emoji: '🎯', sub: 'Mark last week\'s goals done, revisit older outstanding ones, then commit for next week.' },
+  { id: 'openfloor',     title: 'Open Floor',         emoji: '🗣️', sub: 'Topics anyone raised — discuss together; the leader keeps the notes.' },
   { id: 'reflection',    title: 'Closing Reflection', emoji: '✨', sub: 'Pick one — or all — of story, song, or family prayer.' },
   { id: 'surprise',      title: 'Sunday Surprise',    emoji: '🎁', sub: 'One shared moment to end the night — tonight\'s pick is a surprise.' },
 ] as const;
@@ -130,6 +131,7 @@ export default function MeetingPresenterPage() {
     const enabledSet = new Set(enabled || []);
     const filteredRest = rest.filter((s) => {
       if (s.id === 'openingword') return openingWordOn;
+      if (s.id === 'openfloor') return family?.meetingSetup?.openFloorEnabled === true;
       if (s.id === 'surprise') return surpriseOn;
       if (!enabled || enabled.length === 0) return true;
       return enabledSet.has(s.id);
@@ -141,7 +143,7 @@ export default function MeetingPresenterPage() {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -542,6 +544,34 @@ export default function MeetingPresenterPage() {
     [submissionsRaw, meetingScheduleDow],
   );
 
+  // 🗣️ Open Floor (2026-07-20) — tonight's topic rows. Seeded once from
+  // prep submissions + last week's PARKED topics; the leader can add live.
+  // Untouched topics park automatically at finish so nothing is lost.
+  type OpenFloorRow = { text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note: string };
+  const [openFloorRows, setOpenFloorRows] = useState<OpenFloorRow[]>([]);
+  const [openFloorSeeded, setOpenFloorSeeded] = useState(false);
+  useEffect(() => {
+    if (openFloorSeeded || family?.meetingSetup?.openFloorEnabled !== true) return;
+    if (submissions.length === 0 && recentMeetings.length === 0) return;
+    const rows: OpenFloorRow[] = [];
+    const seen = new Set<string>();
+    // Last week's parked topics carry first.
+    for (const t of (recentMeetings[0]?.openFloor || [])) {
+      if (t.outcome === 'parked' && t.text && !seen.has(t.text)) {
+        seen.add(t.text);
+        rows.push({ text: t.text, by: t.by, outcome: 'parked', note: t.note || '' });
+      }
+    }
+    for (const sub of submissions) {
+      for (const t of (sub.openFloorTopics || [])) {
+        const txt = (t || '').trim();
+        if (txt && !seen.has(txt)) { seen.add(txt); rows.push({ text: txt, by: sub.name.split(' ')[0], outcome: 'parked', note: '' }); }
+      }
+    }
+    if (rows.length > 0) { setOpenFloorRows(rows); setOpenFloorSeeded(true); }
+  }, [submissions, recentMeetings, family?.meetingSetup?.openFloorEnabled, openFloorSeeded]);
+
+
   // Roster of everyone expected to prep — kids + present parents. Used by
   // StepSubmissions to compute "who's still to add" for each section.
   // id = childId for kids, uid for parents (matches submission keying).
@@ -805,6 +835,16 @@ export default function MeetingPresenterPage() {
       ...(prayerLedBy ? { prayerLedBy } : {}),
       ...(family?.nextMeetingLeader?.name ? { nextLeaderName: family.nextMeetingLeader.name } : {}),
       ...(pointsSummary ? { pointsSummary } : {}),
+      ...(openFloorRows.length > 0 ? {
+        openFloor: openFloorRows
+          .filter((r) => r.text.trim())
+          .map((r) => ({
+            text: r.text.trim(),
+            ...(r.by ? { by: r.by } : {}),
+            outcome: r.outcome,
+            ...(r.note.trim() ? { note: r.note.trim() } : {}),
+          })),
+      } : {}),
       ...(pinkyPromised.size > 0 ? { pinkyPromised: Array.from(pinkyPromised) } : {}),
       ...(openingWordDone ? {
         openingWord: {
@@ -1289,7 +1329,20 @@ export default function MeetingPresenterPage() {
                 />
               )}
 
-              {step.id === 'reflection' && (
+              {step.id === 'openfloor' && (
+                <OpenFloorStep
+                  rows={openFloorRows}
+                  onChange={setOpenFloorRows}
+                  leaderName={
+                    family?.meetingSetup?.openFloorLeader === 'parents'
+                      ? (householdParents[0]?.name?.split(' ')[0] || 'a parent')
+                      : (family?.nextMeetingLeader?.name || ledByName || 'the leader')
+                  }
+                  leaderRule={family?.meetingSetup?.openFloorLeader || 'leader'}
+                />
+              )}
+
+                            {step.id === 'reflection' && (
                 <>
                   {profile?.familyId && <AnthemCard familyId={profile.familyId} />}
 
@@ -3617,6 +3670,126 @@ function AnthemCard({ familyId }: { familyId: string }) {
       >
         🎵 Play our anthem
       </a>
+    </div>
+  );
+}
+
+// ── 🗣️ Open Floor (approved 2026-07-20) ────────────────────────────────
+// Topics anyone raised (prep + last week's parked + added live). The
+// segment leader opens each, the family discusses, the leader types the
+// note, and the topic closes as 💬 discussed / ✔ decided / → parked
+// (parked auto-carries next week). Outcomes land on the meeting record.
+function OpenFloorStep({ rows, onChange, leaderName, leaderRule }: {
+  rows: Array<{ text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note: string }>;
+  onChange: (rows: Array<{ text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note: string }>) => void;
+  leaderName: string;
+  leaderRule: 'parents' | 'leader' | 'anykid';
+}) {
+  const [newTopic, setNewTopic] = useState('');
+  const [openIdx, setOpenIdx] = useState<number | null>(rows.length > 0 ? 0 : null);
+
+  const patch = (i: number, upd: Partial<{ outcome: 'discussed' | 'decided' | 'parked'; note: string }>) => {
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...upd } : r)));
+  };
+  const addTopic = () => {
+    const t = newTopic.trim();
+    if (!t) return;
+    onChange([...rows, { text: t, outcome: 'parked', note: '' }]);
+    setOpenIdx(rows.length);
+    setNewTopic('');
+  };
+
+  const OUTCOMES = [
+    { id: 'discussed' as const, label: '💬 Discussed', cls: 'bg-white/15 text-white' },
+    { id: 'decided' as const,   label: '✔ Decided',   cls: 'bg-emerald-500 text-emerald-950' },
+    { id: 'parked' as const,    label: '→ Park for next week', cls: 'bg-amber-400/80 text-kaya-chocolate' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.2em] font-bold text-kaya-gold-light/80">
+          🗣️ The floor is open · led by {leaderName}
+          {leaderRule === 'parents' ? ' (parents lead this part)' : ''}
+        </p>
+      </div>
+
+      {rows.length === 0 && (
+        <div className="bg-white/5 border border-white/10 rounded-kaya-lg p-6 text-center text-white/60 text-sm">
+          No topics yet — add one below, or raise them ahead in meeting prep next week.
+        </div>
+      )}
+
+      {rows.map((r, i) => (
+        <div
+          key={i}
+          className={`rounded-kaya-lg border p-4 transition-colors ${
+            r.outcome === 'decided' ? 'border-emerald-400/50 bg-emerald-500/10'
+            : openIdx === i ? 'border-kaya-gold bg-kaya-gold/10'
+            : 'border-white/10 bg-white/5'
+          }`}
+        >
+          <button type="button" className="w-full text-left" onClick={() => setOpenIdx(openIdx === i ? null : i)}>
+            <div className="flex items-start gap-2.5">
+              <span className="text-lg shrink-0">{r.outcome === 'decided' ? '✔' : r.outcome === 'discussed' ? '💬' : '🕑'}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-display font-extrabold text-[14px] lg:text-base text-white leading-snug">{r.text}</span>
+                <span className="block text-[10.5px] text-white/45 mt-0.5">
+                  {r.by ? `raised by ${r.by}` : 'added tonight'}
+                  {r.outcome === 'parked' && openIdx !== i ? ' · parked → carries to next week' : ''}
+                </span>
+              </span>
+            </div>
+          </button>
+
+          {openIdx === i && (
+            <div className="mt-3 space-y-2.5">
+              <textarea
+                value={r.note}
+                onChange={(e) => patch(i, { note: e.target.value })}
+                placeholder="📝 Leader's note — what was said, what was agreed…"
+                rows={2}
+                className="w-full bg-white/10 border border-white/10 rounded-kaya-sm px-3.5 py-2.5 text-[13px] lg:text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none"
+              />
+              <div className="flex gap-1.5 flex-wrap">
+                {OUTCOMES.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => patch(i, { outcome: o.id })}
+                    aria-pressed={r.outcome === o.id}
+                    className={`px-3 py-2 rounded-kaya-sm font-display font-extrabold text-[11.5px] transition-colors ${
+                      r.outcome === o.id ? o.cls : 'bg-white/5 text-white/55 hover:bg-white/15'
+                    }`}
+                  >{o.label}</button>
+                ))}
+              </div>
+              {r.outcome === 'decided' && (
+                <p className="text-[10.5px] text-emerald-300/90 font-bold">✔ This lands in the family&apos;s decisions — the note above is the decision.</p>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="flex gap-2">
+        <input
+          value={newTopic}
+          onChange={(e) => setNewTopic(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTopic(); } }}
+          placeholder="＋ Add a topic now…"
+          className="flex-1 h-11 bg-white/10 border border-white/10 rounded-kaya-sm px-4 text-[13.5px] text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60"
+        />
+        <button
+          type="button"
+          onClick={addTopic}
+          disabled={!newTopic.trim()}
+          className="h-11 px-4 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[12.5px] disabled:opacity-40"
+        >Add</button>
+      </div>
+      <p className="text-[11px] text-white/40 px-1">
+        Untouched topics park automatically — they reappear next week, nothing gets lost.
+      </p>
     </div>
   );
 }

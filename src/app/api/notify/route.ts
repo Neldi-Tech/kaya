@@ -88,6 +88,8 @@ interface MeetingRecapData {
    *  🎁 the night's Moments chips (Family Combo / pinky promises …). */
   openingWordLabel?: string;
   momentsSummary?: string[];
+  /** 🗣️ Open Floor (2026-07-20) — topics + outcomes for the notes email. */
+  openFloor?: Array<{ text: string; by?: string; outcome: string; note?: string }>;
   closing?: RecapClosing;
   /** Where "Open in Kaya" should land. */
   openUrl: string;
@@ -681,6 +683,11 @@ function meetingRecapBody(r: MeetingRecapData): string {
     ${appreciations}
     ${points}
     ${goals}
+    ${r.openFloor && r.openFloor.length > 0 ? recapSection('openfloor', '🗣️ Open Floor',
+      r.openFloor.map((t) => {
+        const badge = t.outcome === 'decided' ? '✔ decided' : t.outcome === 'discussed' ? '💬 discussed' : '→ parked for next week';
+        return `<div style="margin-bottom:6px;"><b>${esc(t.text)}</b>${t.by ? ` <span style="color:#9B8A72;">— raised by ${esc(t.by)}</span>` : ''} <span style="font-weight:700;color:${t.outcome === 'decided' ? '#2f6b54' : '#9B8A72'};">· ${badge}</span>${t.note ? `<br><span style="font-style:italic;color:#5C6975;">&ldquo;${esc(t.note)}&rdquo;</span>` : ''}</div>`;
+      }).join(''), { tint: 'lilac' }) : ''}
     ${closing}
     ${r.momentsSummary && r.momentsSummary.length > 0 ? `
     <!-- 🎁 Moments -->

@@ -80,6 +80,9 @@ export interface MeetingSubmission {
     text: string; done: boolean; note?: string;
     originDate?: string; originIndex?: number; released?: boolean;
   }>;
+  /** 🗣️ Open Floor (2026-07-20) — topics this member raised for the
+   *  discussion segment. Shown in the presenter's Open Floor queue. */
+  openFloorTopics?: string[];
   updatedAt: number;         // epoch ms (Date.now())
 }
 
@@ -293,6 +296,8 @@ export async function setMeetingSubmission(
     // meeting's key) so it ages out after that meeting. Keep the prior
     // key when none is passed.
     cycleKey: payload.cycleKey ?? prev?.cycleKey,
+    // 🗣️ Open Floor topics — keep prior when the save doesn't carry them.
+    openFloorTopics: payload.openFloorTopics ?? prev?.openFloorTopics,
     // Self-reflection: keep whatever the card saved (or preserve prior).
     goalsReflection: payload.goalsReflection ?? prev?.goalsReflection,
     updatedAt: Date.now(),
