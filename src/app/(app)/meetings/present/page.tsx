@@ -455,9 +455,12 @@ export default function MeetingPresenterPage() {
   }, [householdHelpers, guestAttendees]);
   useEffect(() => {
     if (!profile?.familyId) return;
-    getMeetings(profile.familyId).then((ms) => {
+    // 60 docs, not the default 20 — the guest memory really does look ~a
+    // year back (every Finish creates a NEW doc, so 20 could cut off
+    // older guest-bearing meetings).
+    getMeetings(profile.familyId, 60).then((ms) => {
       setRecentMeetings(ms.slice(0, GOALS_REVIEW_WEEKS_BACK));
-      setMeetingHistory(ms.slice(0, 60));   // ~a year of Sundays for guest suggestions
+      setMeetingHistory(ms);
     });
   }, [profile?.familyId]);
 
