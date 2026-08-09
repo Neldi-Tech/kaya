@@ -756,7 +756,7 @@ export default function MeetingSetupPage() {
                   <p className="text-[11px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">Family members</p>
                   <div className="flex flex-wrap gap-1.5">
                     {[
-                      ...memberParents.map((m) => ({ key: `p:${m.uid}`, label: `${m.avatarEmoji || '👤'} ${m.name}`, email: (m.email || '').trim() })),
+                      ...memberParents.map((m) => ({ key: `p:${m.uid}`, label: `👤 ${m.displayName || m.email}`, email: (m.email || '').trim() })),
                       ...children.map((c) => ({ key: `k:${c.id}`, label: `${c.avatarEmoji || '🧒'} ${c.name.split(' ')[0]}`, email: ((c as { email?: string; emailLower?: string }).email || (c as { emailLower?: string }).emailLower || '').trim() })),
                     ].map((m) => (
                       <button
