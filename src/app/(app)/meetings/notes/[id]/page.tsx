@@ -462,7 +462,7 @@ function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhyt
   entries?: { gratitudes: Array<{ name: string; emoji: string; lines: string[] }>; appreciations: Array<{ name: string; emoji: string; lines: string[] }> };
   onClose: () => void;
 }) {
-  type Mode = 'me' | 'all' | 'pick' | 'email';
+  type Mode = 'me' | 'all' | 'parents-kids' | 'pick' | 'email';
   const [mode, setMode] = useState<Mode>('all');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [emailInput, setEmailInput] = useState('');
@@ -497,9 +497,17 @@ function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhyt
 
   const typedEmails = emailInput.split(/[,\s]+/).map((e) => e.trim()).filter((e) => /\S+@\S+\.\S+/.test(e));
 
+  // OF-4: Parents + Kids — every family member with an email on file,
+  // attendance-independent (vs 'all', which is attendees only).
+  const parentsKidsEmails = useMemo(
+    () => Array.from(new Set(members.map((m) => m.email).filter(Boolean))),
+    [members],
+  );
+
   const recipients =
     mode === 'me' ? (myEmail ? [myEmail] : [])
     : mode === 'all' ? participantEmails
+    : mode === 'parents-kids' ? parentsKidsEmails
     : mode === 'pick' ? members.filter((m) => picked.has(m.key) && m.email).map((m) => m.email)
     : typedEmails;
 
@@ -559,6 +567,7 @@ function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhyt
           <>
             <Opt id="me" title="🙋 Just me" sub={myEmail || 'No email on your profile'} />
             <Opt id="all" title="👨‍👩‍👧‍👦 All participants" sub={`Everyone who attended, with an email on file · ${participantEmails.length}`} />
+            <Opt id="parents-kids" title="👨‍👩‍👧 Parents + Kids" sub={`Every family member with an email on file · ${parentsKidsEmails.length}`} />
             <Opt id="pick" title="☑️ Choose members" sub="Pick exactly who receives it" />
             {mode === 'pick' && (
               <div className="flex flex-wrap gap-1.5 mt-2 pl-8">
