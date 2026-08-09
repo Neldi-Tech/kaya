@@ -2861,7 +2861,11 @@ function AttendanceStep({
                 disabled={!guestName.trim()}
                 className="w-full h-11 lg:h-12 rounded-kaya bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[13px] lg:text-sm transition-colors hover:bg-kaya-gold-dark disabled:opacity-40"
               >＋ Add to tonight's meeting</button>
-              <p className="text-[10.5px] text-white/40">New guests are remembered — next week they&apos;re a one-tap pick with their visit count.</p>
+              <p className="text-[10.5px] text-white/40">
+                {pastGuests.length > 0
+                  ? `${pastGuests.length} past guest${pastGuests.length === 1 ? '' : 's'} above — tap to re-add. Every saved visit adds to their count.`
+                  : 'Kaya remembers every guest from every meeting — once tonight is saved, they become one-tap picks here with their visit count.'}
+              </p>
             </div>
           </div>
         )}
