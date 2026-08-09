@@ -71,6 +71,13 @@ export default function MeetingSetupPage() {
   const [recapBookIncludeSong, setRecapBookIncludeSong] = useState<boolean>(true);
   // 🗣️ Open Floor (2026-07-20) — optional discussion step, off by default.
   const [openFloorEnabled, setOpenFloorEnabled] = useState<boolean>(false);
+  // 🧩 Agenda Builder (OF-3) — order of the reorderable steps + the
+  // family's own 8th step. Pinned head (attendance/gratitude/celebrate)
+  // never enters this array.
+  const [agendaOrder, setAgendaOrder] = useState<string[]>(['appreciations', 'goals', 'openfloor', 'reflection', 'custom']);
+  const [customStepEmoji, setCustomStepEmoji] = useState('⭐');
+  const [customStepName, setCustomStepName] = useState('');
+  const [customStepEnabled, setCustomStepEnabled] = useState(false);
   const [openFloorRaisers, setOpenFloorRaisers] = useState<'parents' | 'all'>('all');
   const [openFloorLeader, setOpenFloorLeader] = useState<'parents' | 'leader' | 'anykid'>('leader');
   // Meeting Notes (2026-06-21): WHO gets the auto-sent notes. Replaces the
@@ -119,6 +126,17 @@ export default function MeetingSetupPage() {
     if (typeof s?.recapBookIncludeSong === 'boolean') setRecapBookIncludeSong(s.recapBookIncludeSong);
     setRecapBookRecipients(s?.recapBookRecipients ?? ((s?.recapBookEmailEnabled ?? true) ? 'parents' : 'off'));
     setOpenFloorEnabled(s?.openFloorEnabled === true);
+    if (s?.agendaOrder && s.agendaOrder.length > 0) {
+      // Merge-migrate: keep saved order, append any ids added since.
+      const saved = s.agendaOrder.filter((id) => ['appreciations', 'goals', 'openfloor', 'reflection', 'custom'].includes(id));
+      const missing = ['appreciations', 'goals', 'openfloor', 'reflection', 'custom'].filter((id) => !saved.includes(id));
+      setAgendaOrder([...saved, ...missing]);
+    }
+    if (s?.customStep) {
+      setCustomStepEmoji(s.customStep.emoji || '⭐');
+      setCustomStepName(s.customStep.name || '');
+      setCustomStepEnabled(s.customStep.enabled === true && !!(s.customStep.name || '').trim());
+    }
     if (s?.openFloorRaisers) setOpenFloorRaisers(s.openFloorRaisers);
     if (s?.openFloorLeader) setOpenFloorLeader(s.openFloorLeader);
     if (s?.timeCapsuleLockYears === 0.5 || s?.timeCapsuleLockYears === 1 || s?.timeCapsuleLockYears === 3) {
@@ -150,6 +168,18 @@ export default function MeetingSetupPage() {
       // Preserve canonical order when re-adding.
       const next = [...prev, id];
       return AGENDA_STEPS.map((s) => s.id).filter((s) => next.includes(s));
+    });
+  };
+
+  // 🧩 OF-3 — nudge a reorderable step up/down within agendaOrder.
+  const moveStep = (id: string, dir: -1 | 1) => {
+    setAgendaOrder((prev) => {
+      const i = prev.indexOf(id);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
     });
   };
 
@@ -229,6 +259,8 @@ export default function MeetingSetupPage() {
         recapBookEmailEnabled: recapBookRecipients !== 'off',
         recapBookRecipients,
         openFloorEnabled,
+        agendaOrder,
+        customStep: { emoji: customStepEmoji || '⭐', name: customStepName.trim(), enabled: customStepEnabled && !!customStepName.trim() },
         openFloorRaisers,
         openFloorLeader,
         recapBookIncludeSong,
@@ -267,47 +299,107 @@ export default function MeetingSetupPage() {
         <div className="flex items-baseline justify-between mb-1">
           <h2 className="font-display text-lg lg:text-xl font-black">Agenda flow</h2>
           <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand">
-            {agendaSteps.length} of {AGENDA_STEPS.length} on
+            {agendaSteps.length + (openFloorEnabled ? 1 : 0) + (customStepEnabled && customStepName.trim() ? 1 : 0)} of 8 on
           </span>
         </div>
         <p className="text-[12px] lg:text-[13px] text-kaya-sand mb-4">
           Pick which steps run during the meeting. {allAgendaStepsOn ? 'All steps on — the standard rhythm.' : 'A trimmed-down meeting.'}
         </p>
+        {(() => {
+          // 🧩 Agenda Builder (OF-3): pinned head + reorderable tail. Every
+          // row RETAINS its ON/OFF toggle — order and enablement are
+          // independent knobs.
+          const PINNED_IDS = ['attendance', 'gratitude', 'celebrate'];
+          const defOf = (id: string) => AGENDA_STEPS.find((d) => d.id === id);
+          const rowIds = [...PINNED_IDS, ...agendaOrder];
+          return (
         <div className="space-y-2">
-          {AGENDA_STEPS.map((s) => {
-            const on = agendaSteps.includes(s.id);
-            const customLabel = stepLabels[s.id] || '';
+          {rowIds.map((id) => {
+            const pinned = PINNED_IDS.includes(id);
+            const orderIdx = agendaOrder.indexOf(id);
+            const isCustom = id === 'custom';
+            const isOpenFloor = id === 'openfloor';
+            const def = isCustom
+              ? { id, emoji: customStepEmoji || '⭐', title: customStepName || 'Your own step', desc: 'A step your family invented — the leader keeps notes on the night.' }
+              : isOpenFloor
+              ? { id, emoji: '🗣️', title: 'Open Floor', desc: 'Topics anyone raised — settings in the card below' }
+              : defOf(id);
+            if (!def) return null;
+            const on = isCustom ? (customStepEnabled && !!customStepName.trim())
+              : isOpenFloor ? openFloorEnabled
+              : agendaSteps.includes(id);
+            const customLabel = isCustom || isOpenFloor ? '' : (stepLabels[id] || '');
             return (
               <div
-                key={s.id}
+                key={id}
                 className={`flex items-center gap-3 px-3.5 py-3 rounded-kaya border transition-colors ${
                   on
                     ? 'bg-kaya-gold/10 border-kaya-gold/50'
                     : 'bg-kaya-warm/40 border-kaya-warm-dark'
                 }`}
               >
-                <span className="text-xl shrink-0">{s.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  {/* Inline editable label — placeholder shows the canonical
-                      default so parents see what they'd revert to by clearing. */}
+                {/* Position control — 📌 for the pinned head, ▲▼ for the rest */}
+                <div className="w-6 shrink-0 flex flex-col items-center gap-0.5">
+                  {pinned ? (
+                    <span className="text-[13px]" title="This step keeps its place">📌</span>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => moveStep(id, -1)} disabled={orderIdx <= 0}
+                        aria-label={`Move ${def.title} up`}
+                        className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-black text-kaya-sand hover:bg-kaya-warm disabled:opacity-25">▲</button>
+                      <button type="button" onClick={() => moveStep(id, 1)} disabled={orderIdx >= agendaOrder.length - 1}
+                        aria-label={`Move ${def.title} down`}
+                        className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-black text-kaya-sand hover:bg-kaya-warm disabled:opacity-25">▼</button>
+                    </>
+                  )}
+                </div>
+                {isCustom ? (
                   <input
-                    value={customLabel}
-                    onChange={(e) => setStepLabels({ ...stepLabels, [s.id]: e.target.value })}
-                    placeholder={s.title}
-                    aria-label={`Custom label for ${s.title}`}
-                    className={`w-full bg-transparent border-0 outline-none px-0 py-0 font-display font-extrabold text-[14px] lg:text-base focus:ring-0 ${
-                      on ? 'text-kaya-chocolate placeholder-kaya-chocolate/60' : 'text-kaya-sand placeholder-kaya-sand/60'
-                    }`}
+                    value={customStepEmoji}
+                    onChange={(e) => setCustomStepEmoji(e.target.value.slice(0, 4))}
+                    aria-label="Custom step emoji"
+                    className="w-9 h-9 shrink-0 text-center text-xl bg-kaya-warm/60 border border-kaya-warm-dark rounded-kaya focus:outline-none focus:ring-2 focus:ring-kaya-gold/50"
                   />
+                ) : (
+                  <span className="text-xl shrink-0">{def.emoji}</span>
+                )}
+                <div className="flex-1 min-w-0">
+                  {isCustom ? (
+                    <input
+                      value={customStepName}
+                      onChange={(e) => setCustomStepName(e.target.value)}
+                      placeholder="Name your own step — e.g. Joke of the Week"
+                      aria-label="Custom step name"
+                      className={`w-full bg-transparent border-0 outline-none px-0 py-0 font-display font-extrabold text-[14px] lg:text-base focus:ring-0 ${
+                        on ? 'text-kaya-chocolate placeholder-kaya-chocolate/50' : 'text-kaya-sand placeholder-kaya-sand/60'
+                      }`}
+                    />
+                  ) : isOpenFloor ? (
+                    <span className={`block font-display font-extrabold text-[14px] lg:text-base ${on ? 'text-kaya-chocolate' : 'text-kaya-sand'}`}>{def.title}</span>
+                  ) : (
+                    <input
+                      value={customLabel}
+                      onChange={(e) => setStepLabels({ ...stepLabels, [id]: e.target.value })}
+                      placeholder={def.title}
+                      aria-label={`Custom label for ${def.title}`}
+                      className={`w-full bg-transparent border-0 outline-none px-0 py-0 font-display font-extrabold text-[14px] lg:text-base focus:ring-0 ${
+                        on ? 'text-kaya-chocolate placeholder-kaya-chocolate/60' : 'text-kaya-sand placeholder-kaya-sand/60'
+                      }`}
+                    />
+                  )}
                   <span className={`block text-[12px] mt-0.5 ${on ? 'text-kaya-chocolate/70' : 'text-kaya-sand'}`}>
-                    {s.desc}
+                    {def.desc}
                   </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => toggleAgendaStep(s.id)}
+                  onClick={() => {
+                    if (isCustom) setCustomStepEnabled((v) => !v);
+                    else if (isOpenFloor) setOpenFloorEnabled((v) => !v);
+                    else toggleAgendaStep(id);
+                  }}
                   aria-pressed={on}
-                  aria-label={on ? `Turn ${s.title} off` : `Turn ${s.title} on`}
+                  aria-label={on ? `Turn ${def.title} off` : `Turn ${def.title} on`}
                   className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-sm font-black transition-colors ${
                     on ? 'bg-kaya-gold text-kaya-chocolate hover:bg-kaya-gold-dark' : 'bg-kaya-warm-dark text-kaya-sand hover:bg-kaya-sand/30'
                   }`}
@@ -318,8 +410,10 @@ export default function MeetingSetupPage() {
             );
           })}
         </div>
+          );
+        })()}
         <p className="text-[11px] lg:text-[12px] text-kaya-sand mt-3 px-1">
-          Tap the step name to rename it (e.g. "Sunday Circle" instead of "Gratitude Circle"). Leave blank to use the default.
+          Tap the step name to rename it. 📌 keeps the opening rhythm in place; use ▲▼ to arrange the rest — up to 8 steps including your own. Turning a step off never loses its spot.
         </p>
       </section>
 

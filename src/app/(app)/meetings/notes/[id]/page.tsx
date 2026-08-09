@@ -391,6 +391,17 @@ export default function MeetingNotesPage() {
         </Section>
       )}
 
+      {/* 🧩 Custom 8th step (OF-3) */}
+      {meeting.customStep && (
+        <Section icon={meeting.customStep.emoji || '⭐'} title={meeting.customStep.name}>
+          {meeting.customStep.notes ? (
+            <p className="text-[13px] text-kaya-chocolate leading-relaxed italic border-l-2 border-kaya-gold/50 pl-2 mt-1">“{meeting.customStep.notes}”</p>
+          ) : (
+            <p className="text-[12.5px] text-kaya-sand mt-1">This step ran tonight — no notes recorded.</p>
+          )}
+        </Section>
+      )}
+
       {/* 🎁 Moments */}
       {moments.length > 0 && (
         <Section icon="🎁" title="Moments">
