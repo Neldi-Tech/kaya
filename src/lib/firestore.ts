@@ -551,6 +551,16 @@ export interface Family {
     openFloorEnabled?: boolean;
     openFloorRaisers?: 'parents' | 'all';
     openFloorLeader?: 'parents' | 'leader' | 'anykid';
+    /** 🧩 Agenda Builder (approved 2026-07-20, OF-3) — presentation order
+     *  of the REORDERABLE steps (first 3 — Attendance → Gratitude →
+     *  Celebrate — stay pinned). Ids: 'appreciations' | 'goals' |
+     *  'openfloor' | 'reflection' | 'custom'. Absent = canonical order.
+     *  Per-step ON/OFF stays in `agendaSteps` — order and enablement are
+     *  independent, so turning a step off never loses its position. */
+    agendaOrder?: string[];
+    /** OF-3: the family's own 8th step — shown in the presenter with a
+     *  notes box the leader fills. Off when absent/disabled/unnamed. */
+    customStep?: { emoji: string; name: string; enabled: boolean };
     /** Whether the recap email includes the closing song link.
      *  Default = true; flips off independently of recapBookEmailEnabled
      *  so parents can keep the recap but drop the song. */
@@ -1254,6 +1264,8 @@ export interface Meeting {
    *  💬 discussed · ✔ decided (note = the decision) · → parked (auto-
    *  carries to next week's queue). Firestore-safe array-of-maps. */
   openFloor?: Array<{ text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note?: string }>;
+  /** 🧩 Custom 8th step (OF-3) — what the family's own step recorded. */
+  customStep?: { name: string; emoji?: string; notes?: string };
   /** Meeting Notes (2026-06-21) — leadership captured on the record so the
    *  structured notes + recap email can tell the story: who led tonight,
    *  who led the prayer, and who leads next week (post-wheel snapshot). */

@@ -136,14 +136,32 @@ export default function MeetingPresenterPage() {
       if (!enabled || enabled.length === 0) return true;
       return enabledSet.has(s.id);
     });
-    const base = [openStep, ...filteredRest];
+    // 🧩 Agenda Builder (OF-3): the family's saved order for the
+    // reorderable steps. Pinned head (attendance → openingword →
+    // gratitude → celebrate) and the always-last Surprise keep their
+    // places; appreciations / goals / openfloor / reflection / custom
+    // follow `agendaOrder`. Absent = canonical order.
+    const cs = family?.meetingSetup?.customStep;
+    const customOn = cs?.enabled === true && !!(cs?.name || '').trim();
+    const withCustom: StepDef[] = customOn
+      ? [...filteredRest, { id: 'custom', title: (cs!.name || '').trim(), emoji: cs!.emoji || '⭐', sub: 'Your family\u2019s own moment — the leader keeps the notes.' }]
+      : [...filteredRest];
+    const REORDERABLE = ['appreciations', 'goals', 'openfloor', 'reflection', 'custom'];
+    const savedOrder = family?.meetingSetup?.agendaOrder;
+    const tailOrder = (savedOrder && savedOrder.length > 0)
+      ? [...savedOrder.filter((id) => REORDERABLE.includes(id)), ...REORDERABLE.filter((id) => !savedOrder.includes(id))]
+      : REORDERABLE;
+    const head = withCustom.filter((st) => !REORDERABLE.includes(st.id) && st.id !== 'surprise');
+    const tail = tailOrder.map((id) => withCustom.find((st) => st.id === id)).filter((st): st is StepDef => !!st);
+    const last = withCustom.filter((st) => st.id === 'surprise');
+    const base = [openStep, ...head, ...tail, ...last];
     // Apply per-step display-name overrides. `title` falls back to the
     // canonical default when the parent hasn't customised it.
     return base.map((s) => {
       const custom = (labels[s.id] || '').trim();
       return custom ? { ...s, title: custom } : s;
     });
-  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled]);
+  }, [family?.meetingSetup?.agendaSteps, family?.meetingSetup?.stepLabels, family?.meetingSetup?.openingWordEnabled, family?.meetingSetup?.sundaySurpriseEnabled, family?.meetingSetup?.openFloorEnabled, family?.meetingSetup?.agendaOrder, family?.meetingSetup?.customStep]);
 
   // Step index — persisted in sessionStorage so navigating away (e.g.
   // "Open Points Review" → /meetings/review → browser Back) returns
@@ -550,6 +568,9 @@ export default function MeetingPresenterPage() {
   type OpenFloorRow = { text: string; by?: string; outcome: 'discussed' | 'decided' | 'parked'; note: string };
   const [openFloorRows, setOpenFloorRows] = useState<OpenFloorRow[]>([]);
   const [openFloorSeeded, setOpenFloorSeeded] = useState(false);
+
+  // 🧩 Custom 8th step (OF-3) — the leader's notes on the family's own step.
+  const [customStepNotes, setCustomStepNotes] = useState('');
   useEffect(() => {
     if (openFloorSeeded || family?.meetingSetup?.openFloorEnabled !== true) return;
     if (submissions.length === 0 && recentMeetings.length === 0) return;
@@ -844,6 +865,13 @@ export default function MeetingPresenterPage() {
             outcome: r.outcome,
             ...(r.note.trim() ? { note: r.note.trim() } : {}),
           })),
+      } : {}),
+      ...((family?.meetingSetup?.customStep?.enabled && (family?.meetingSetup?.customStep?.name || '').trim()) ? {
+        customStep: {
+          name: (family!.meetingSetup!.customStep!.name || '').trim(),
+          ...(family?.meetingSetup?.customStep?.emoji ? { emoji: family.meetingSetup.customStep.emoji } : {}),
+          ...(customStepNotes.trim() ? { notes: customStepNotes.trim() } : {}),
+        },
       } : {}),
       ...(pinkyPromised.size > 0 ? { pinkyPromised: Array.from(pinkyPromised) } : {}),
       ...(openingWordDone ? {
@@ -1327,6 +1355,26 @@ export default function MeetingPresenterPage() {
                   missionMeeting={meetingHistory.find((m) => m.surprise?.missions && Object.keys(m.surprise.missions).length > 0 && !m.surprise.checkedMissions) || null}
                   meetingsForQuiz={meetingHistory}
                 />
+              )}
+
+              {step.id === 'custom' && (
+                <div className="space-y-4">
+                  <div className="text-center">
+                    <p className="text-[10px] lg:text-[11px] uppercase tracking-[0.2em] font-bold text-kaya-gold-light/80">
+                      {step.emoji} {step.title} · your family&apos;s own step
+                    </p>
+                  </div>
+                  <textarea
+                    value={customStepNotes}
+                    onChange={(e) => setCustomStepNotes(e.target.value)}
+                    placeholder="📝 Leader's notes — what happened in this step tonight…"
+                    rows={5}
+                    className="w-full bg-white/10 border border-white/10 rounded-kaya-lg px-4 py-3.5 text-[13.5px] lg:text-sm text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-kaya-gold/60 resize-none"
+                  />
+                  <p className="text-[11px] text-white/40 px-1">
+                    These notes land on the meeting record and in the notes page.
+                  </p>
+                </div>
               )}
 
               {step.id === 'openfloor' && (
