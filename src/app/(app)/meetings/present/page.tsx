@@ -592,6 +592,12 @@ export default function MeetingPresenterPage() {
     if (rows.length > 0) { setOpenFloorRows(rows); setOpenFloorSeeded(true); }
   }, [submissions, recentMeetings, family?.meetingSetup?.openFloorEnabled, openFloorSeeded]);
 
+  // 🎙️ Talking Stick roster — everyone marked present tonight.
+  const stickNames = useMemo(() => ([
+    ...children.filter((c) => attendees.has(c.id)).map((c) => c.name.split(' ')[0]),
+    ...householdParents.filter((pp) => parentAttendees.has(pp.uid)).map((pp) => pp.name.split(' ')[0]),
+  ]), [children, householdParents, attendees, parentAttendees]);
+
 
   // Roster of everyone expected to prep — kids + present parents. Used by
   // StepSubmissions to compute "who's still to add" for each section.
@@ -1291,6 +1297,8 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'gratitude' && (
+                <>
+                <TalkingStick names={stickNames} />
                 <StepSubmissions
                   section="gratitudes"
                   submissions={submissions}
@@ -1299,6 +1307,7 @@ export default function MeetingPresenterPage() {
                   onChangeLive={(id, v) => setGratitude({ ...gratitude, [id]: v })}
                   placeholder="I'm thankful for…"
                 />
+                </>
               )}
 
               {step.id === 'celebrate' && (
@@ -1378,6 +1387,8 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'openfloor' && (
+                <>
+                <TalkingStick names={stickNames} />
                 <OpenFloorStep
                   rows={openFloorRows}
                   onChange={setOpenFloorRows}
@@ -1388,6 +1399,7 @@ export default function MeetingPresenterPage() {
                   }
                   leaderRule={family?.meetingSetup?.openFloorLeader || 'leader'}
                 />
+                </>
               )}
 
                             {step.id === 'reflection' && (
@@ -3718,6 +3730,32 @@ function AnthemCard({ familyId }: { familyId: string }) {
       >
         🎵 Play our anthem
       </a>
+    </div>
+  );
+}
+
+// ── 🎙️ Talking Stick (approved 2026-07-20 · OF-5) ──────────────────────
+// Pass-the-floor spotlight for the sharing steps (Gratitude + Open Floor):
+// one name holds the imaginary stick at a time; the leader taps to pass it
+// on. Pure in-room theatre — nothing persists.
+function TalkingStick({ names }: { names: string[] }) {
+  const [idx, setIdx] = useState(0);
+  if (names.length < 2) return null;
+  const holder = names[idx % names.length];
+  const next = names[(idx + 1) % names.length];
+  return (
+    <div className="flex items-center justify-between gap-3 bg-kaya-gold/15 border border-kaya-gold/40 rounded-kaya-lg px-4 py-2.5 mb-4">
+      <p className="text-[13px] lg:text-sm text-white min-w-0 truncate">
+        🎙️ <b className="font-display font-extrabold">{holder}</b>
+        <span className="text-white/60"> has the floor</span>
+      </p>
+      <button
+        type="button"
+        onClick={() => setIdx((i) => i + 1)}
+        className="shrink-0 h-9 px-3.5 rounded-kaya-sm bg-kaya-gold text-kaya-chocolate font-display font-extrabold text-[11.5px] hover:bg-kaya-gold-dark transition-colors"
+      >
+        Pass to {next.split(' ')[0]} →
+      </button>
     </div>
   );
 }

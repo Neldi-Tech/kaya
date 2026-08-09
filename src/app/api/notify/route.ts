@@ -90,6 +90,10 @@ interface MeetingRecapData {
   momentsSummary?: string[];
   /** 🗣️ Open Floor (2026-07-20) — topics + outcomes for the notes email. */
   openFloor?: Array<{ text: string; by?: string; outcome: string; note?: string }>;
+  /** 📊 Meeting Meter (OF-5) — compact family-rating label, e.g.
+   *  "😄 3.2 / 4 · 5 votes". Present only on manual shares (auto-recap
+   *  fires before anyone has voted). */
+  meterSummary?: string;
   closing?: RecapClosing;
   /** Where "Open in Kaya" should land. */
   openUrl: string;
@@ -688,6 +692,7 @@ function meetingRecapBody(r: MeetingRecapData): string {
         const badge = t.outcome === 'decided' ? '✔ decided' : t.outcome === 'discussed' ? '💬 discussed' : '→ parked for next week';
         return `<div style="margin-bottom:6px;"><b>${esc(t.text)}</b>${t.by ? ` <span style="color:#9B8A72;">— raised by ${esc(t.by)}</span>` : ''} <span style="font-weight:700;color:${t.outcome === 'decided' ? '#2f6b54' : '#9B8A72'};">· ${badge}</span>${t.note ? `<br><span style="font-style:italic;color:#5C6975;">&ldquo;${esc(t.note)}&rdquo;</span>` : ''}</div>`;
       }).join(''), { tint: 'lilac' }) : ''}
+    ${r.meterSummary ? recapSection('meter', '📊 Meeting Meter', `<div style="font-weight:800;font-size:15px;">${esc(r.meterSummary)}</div><div style="color:#9B8A72;font-size:12px;">How the family rated the night.</div>`, { tint: 'amber' }) : ''}
     ${closing}
     ${r.momentsSummary && r.momentsSummary.length > 0 ? `
     <!-- 🎁 Moments -->
