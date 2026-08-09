@@ -58,6 +58,7 @@ import SecurityPrivacyCard from '@/components/settings/SecurityPrivacyCard';
 import KidPrivacyCard from '@/components/settings/KidPrivacyCard';
 import { localeLabel, localeForCountry, asLocale } from '@/lib/i18n';
 import EmailGroupsCard from '@/components/settings/EmailGroupsCard';
+import PointsAudienceRow from '@/components/settings/PointsAudienceRow';
 import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import RoutinesEditor from '@/components/settings/RoutinesEditor';
 import NotificationSettings from '@/components/settings/NotificationSettings';
@@ -3034,8 +3035,8 @@ export default function SettingsPage() {
                   { key: 'rating' as const, on: notifyOnRating, label: 'When a routine is rated', desc: 'Email me when someone in the family rates a kid’s morning or evening routine.' },
                   { key: 'award' as const,  on: notifyOnAward,  label: 'When bonus points are awarded', desc: 'Email me when someone awards a kid bonus points (kindness, helping, diamond points).' },
                 ].map((p) => (
+                  <div key={p.key}>
                   <button
-                    key={p.key}
                     onClick={() => togglePref(p.key)}
                     disabled={savingPref === p.key}
                     className="w-full flex items-start gap-3 p-3 rounded-kaya-sm border border-kaya-warm-dark hover:border-kaya-sand-light text-left transition-colors disabled:opacity-60"
@@ -3051,6 +3052,10 @@ export default function SettingsPage() {
                       <p className="text-[11px] text-kaya-sand leading-relaxed">{p.desc}</p>
                     </div>
                   </button>
+                  {/* 📮 Points Audience (2026-08-09) — family-level extra
+                      recipients per type; parents edit, everyone benefits. */}
+                  {isParent && <PointsAudienceRow type={p.key} />}
+                  </div>
                 ))}
               </div>
               <p className="text-[11px] text-kaya-sand-light mt-3 leading-relaxed">
