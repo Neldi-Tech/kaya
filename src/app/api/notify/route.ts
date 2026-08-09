@@ -126,6 +126,8 @@ interface NotifyData {
   context?: 'caption' | 'comment';
   photoCount?: number;
   postUrl?: string;
+  // 📮 Points Audience (2026-08-09) — privacy-trimmed outside emails
+  trimmed?: boolean;
   // Utility bill-due fields
   billName?: string;
   amountFormatted?: string;
@@ -187,15 +189,19 @@ export async function POST(req: NextRequest) {
     const period = data.period === 'evening' ? 'evening' : 'morning';
     subject = `${data.childName} earned ${data.points} pts this ${period} ⭐`;
     html = renderEmail({
-      preheader: `${data.actorName} rated ${data.childName}'s ${period} routine`,
-      body: ratingBody({ ...data, period } as RatingRender),
+      preheader: `${data.childName} earned points on the ${period} routine`,
+      body: data.trimmed
+        ? trimmedPointsBody(`⭐ ${data.childName} earned +${data.points} points on the ${period} routine ${period === 'morning' ? 'this morning' : 'tonight'}.`, data.familyName)
+        : ratingBody({ ...data, period } as RatingRender),
     });
   } else if (type === 'award') {
     const diamond = data.isDiamond ? '💎' : '🎖️';
     subject = `${esc(data.actorName)} awarded ${esc(data.childName)} +${data.points} pts ${diamond}`;
     html = renderEmail({
-      preheader: `${data.actorName} awarded bonus points to ${data.childName}`,
-      body: awardBody(data as AwardRender),
+      preheader: `${data.childName} was awarded bonus points`,
+      body: data.trimmed
+        ? trimmedPointsBody(`${diamond} ${data.childName} was awarded +${data.points} bonus points today.`, data.familyName)
+        : awardBody(data as AwardRender),
     });
   } else if (type === 'invite') {
     const familyDisplay = data.familyName || 'Their family';
@@ -372,6 +378,16 @@ function renderEmail({ preheader, body }: { preheader: string; body: string }): 
 type RatingRender = NotifyData & { period: 'morning' | 'evening' };
 type AwardRender = NotifyData;
 type InviteRender = NotifyData & { familyName: string };
+
+// 📮 Points Audience (2026-08-09) — the outside-address variant: the
+// moment only. First name + points, no app links, no balances, no
+// breakdowns — grandma gets the delight, not the data.
+function trimmedPointsBody(line: string, familyName?: string): string {
+  return `
+    <p style="margin:0 0 14px;font-family:'Outfit',Helvetica,Arial,sans-serif;font-size:17px;font-weight:800;color:#1A1412;line-height:1.5;">${esc(line)}</p>
+    <p style="margin:0;font-size:12px;color:#9B8A72;line-height:1.55;">— Kaya${familyName ? `, for ${esc(familyName)}` : ''} 💛</p>
+  `;
+}
 
 function ratingBody(d: RatingRender): string {
   const periodLabel = d.period === 'morning' ? 'morning ☀️' : 'evening 🌙';

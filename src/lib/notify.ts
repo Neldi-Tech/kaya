@@ -16,6 +16,10 @@ interface RatingNotify {
   actorName: string;
   points: number;
   period: 'morning' | 'evening';
+  /** 📮 Points Audience (2026-08-09): privacy-trimmed template for
+   *  outside addresses — first name + points, no app links. */
+  trimmed?: boolean;
+  familyName?: string;
 }
 
 interface AwardNotify {
@@ -25,6 +29,8 @@ interface AwardNotify {
   points: number;
   reason: string;
   isDiamond?: boolean;
+  trimmed?: boolean;
+  familyName?: string;
 }
 
 interface InviteNotify {
@@ -58,6 +64,8 @@ export function notifyRating(args: RatingNotify): Promise<void> {
       actorName: args.actorName,
       points: args.points,
       period: args.period,
+      ...(args.trimmed ? { trimmed: true } : {}),
+      ...(args.familyName ? { familyName: args.familyName } : {}),
     },
   });
 }
@@ -73,6 +81,8 @@ export function notifyAward(args: AwardNotify): Promise<void> {
       points: args.points,
       reason: args.reason,
       isDiamond: !!args.isDiamond,
+      ...(args.trimmed ? { trimmed: true } : {}),
+      ...(args.familyName ? { familyName: args.familyName } : {}),
     },
   });
 }

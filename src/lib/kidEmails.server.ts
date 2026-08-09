@@ -12,6 +12,11 @@ type AdminDb = FirebaseFirestore.Firestore;
 interface FamilyDataSlice {
   kidEmailUpdates?: Record<string, KidEmailPrefs>;
   externalContacts?: { id: string; name: string; email: string }[];
+  /** 📮 Points Email Audience (2026-08-09) — family-level kid switches. */
+  pointsEmailAudience?: {
+    rating?: { kidItsAbout?: boolean };
+    award?: { kidItsAbout?: boolean };
+  };
 }
 
 export interface ResolvedKidEmail {
@@ -128,7 +133,11 @@ export async function sendKidRewardEmail(
     const famData = (await db.collection('families').doc(familyId).get()).data() as
       (FamilyDataSlice & Record<string, unknown>) | undefined;
     const prefs = famData?.kidEmailUpdates?.[childId];
-    if (!prefs?.rewards) return;
+    // Per-kid 🏅 stream OR the family-level 'kid it's about' audience
+    // switch (2026-08-09). Either way the COPPA source pointer below still
+    // gates — no pointer, no send.
+    const audienceOn = famData?.pointsEmailAudience?.award?.kidItsAbout === true;
+    if (!prefs?.rewards && !audienceOn) return;
     const resolved = await resolveKidEmailAddress(db, familyId, childId, famData);
     if (!resolved) return;
 
@@ -175,6 +184,74 @@ export async function sendKidRewardEmail(
       },
     });
   } catch { /* never throws into a reward flow */ }
+}
+
+// ═══ ⭐ Instant rating email (Points Audience, 2026-08-09) ═════════════════
+//
+// Fired (fire-and-forget) from the /api/kids/rating-email route when a
+// routine is rated AND the family turned on '🧒 the kid it's about' for
+// rating emails. Kid-voiced, numbers only (no free text crosses the
+// route), resolved through the same COPPA pointer, traced in alertLog as
+// kind:'kid_reward' (trigger:'rating') so the 📜 alerts page renders it
+// with the existing reward tab — no new template surface.
+
+export async function sendKidRatingEmail(
+  db: AdminDb,
+  familyId: string,
+  childId: string,
+  rating: { period: 'morning' | 'evening'; points: number },
+): Promise<void> {
+  try {
+    const famData = (await db.collection('families').doc(familyId).get()).data() as
+      (FamilyDataSlice & Record<string, unknown>) | undefined;
+    if (famData?.pointsEmailAudience?.rating?.kidItsAbout !== true) return;
+    const resolved = await resolveKidEmailAddress(db, familyId, childId, famData);
+    if (!resolved) return;
+
+    const kid = (await db.collection('families').doc(familyId)
+      .collection('children').doc(childId).get()).data() as
+      { name?: string; totalPoints?: number; streak?: number } | undefined;
+    const morning = rating.period === 'morning';
+    const facts: KidRewardFacts = {
+      kidName: kid?.name || 'you',
+      emoji: morning ? '🌞' : '🌙',
+      headline: `+${rating.points} points`,
+      detail: `your ${morning ? 'morning' : 'evening'} routine was rated — keep shining!`,
+      ...(kid?.totalPoints != null ? { balance: kid.totalPoints } : {}),
+      ...(kid?.streak ? { streak: kid.streak } : {}),
+    };
+    const subject = `${facts.emoji} You earned +${rating.points} points ${morning ? 'this morning' : 'tonight'}!`.slice(0, 140);
+
+    let sent = false; let error: string | undefined;
+    if (!resend) { error = 'resend-not-configured'; }
+    else {
+      try {
+        await resend.emails.send({
+          from: RESEND_FROM, to: [resolved.email], subject,
+          html: renderKidRewardEmail(facts),
+        });
+        sent = true;
+      } catch (e) { error = e instanceof Error ? e.message : 'send-failed'; }
+    }
+
+    await writeKidAlertLog(db, familyId, {
+      kind: 'kid_reward',
+      childId, childName: kid?.name || 'Kid',
+      firedAt: Date.now(),
+      trigger: 'rating',
+      sourceLabel: resolved.sourceLabel,
+      channels: {
+        email: {
+          on: true, sent,
+          ...(error ? { error } : {}),
+          to: [{ name: kid?.name || 'Kid', email: resolved.email }],
+          subject,
+          templateVersion: KID_REWARD_TEMPLATE_VERSION,
+          kidFacts: facts,
+        },
+      },
+    });
+  } catch { /* never throws into a rating flow */ }
 }
 
 // ═══ 🌞 Morning routine digest (KID PR3) ═══════════════════════════════════

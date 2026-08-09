@@ -7,6 +7,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import { participatesInSparks } from '@/lib/participation';
 import { submitRating, getTodayRatings, getRatingsByDate, getFamilyMembers, getFamily, todayString, RatingValue } from '@/lib/firestore';
 import { notifyRating } from '@/lib/notify';
+import { auth as fbAuth } from '@/lib/firebase';
 import { fmt } from '@/lib/format';
 import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
@@ -289,6 +290,42 @@ export default function RatePage() {
         points: totalPoints,
         period,
       });
+
+      // 📮 Points Audience (2026-08-09) — the family's EXTRA recipients.
+      const aud = fam?.pointsEmailAudience?.rating;
+      if (aud) {
+        // 👥 groups: member uids resolve to live emails (full template),
+        // group externals + ✉️ custom emails get the privacy-trimmed one.
+        const groups = (fam?.emailGroups || []).filter((g) => (aud.groupIds || []).includes(g.id));
+        const groupMemberEmails = groups.flatMap((g) =>
+          members.filter((m) => g.memberUids.includes(m.uid) && m.email).map((m) => m.email));
+        const fullExtra = Array.from(new Set(groupMemberEmails)).filter((e) => !recipients.includes(e));
+        if (fullExtra.length > 0) {
+          notifyRating({ to: fullExtra, childName: child.name, actorName: profile.displayName, points: totalPoints, period });
+        }
+        const trimmedTo = Array.from(new Set([
+          ...groups.flatMap((g) => g.externalEmails || []),
+          ...(aud.emails || []),
+        ])).filter((e) => !recipients.includes(e) && !fullExtra.includes(e));
+        if (trimmedTo.length > 0) {
+          notifyRating({
+            to: trimmedTo, childName: child.name.split(' ')[0], actorName: profile.displayName,
+            points: totalPoints, period, trimmed: true, familyName: fam?.name,
+          });
+        }
+        // 🧒 The kid it's about — instant kid-voiced email via the COPPA
+        // pointer. The route gates + composes server-side; numbers only.
+        if (aud.kidItsAbout && totalPoints > 0) {
+          fbAuth.currentUser?.getIdToken().then((token) => {
+            if (!token) return;
+            return fetch('/api/kids/rating-email', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ childId: child.id, period, points: totalPoints }),
+            });
+          }).catch(() => { /* delight only — never blocks */ });
+        }
+      }
     })();
   };
 
