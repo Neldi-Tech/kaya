@@ -259,6 +259,7 @@ export async function sendMeetingRecapEmail({
           ...pointsFieldsFrom(payload, children),
           ...(payload.prayerLedBy ? { prayerLedBy: payload.prayerLedBy } : {}),
           ...(payload.nextLeaderName ? { nextLeaderName: payload.nextLeaderName } : {}),
+          ...((payload.openFloor?.length ?? 0) > 0 ? { openFloor: payload.openFloor } : {}),
           // Surprises: 💬 quote · 📿 rhythm · 🏅 guest of honour · ✨ opening
           // word · 🎁 moments (combo is unknowable at finish — goals were
           // just set — so only promise/opening chips appear here).
@@ -384,6 +385,7 @@ export async function sendMeetingNotesEmailTo(args: {
           ...pointsFieldsFrom(meeting, children),
           ...(meeting.prayerLedBy ? { prayerLedBy: meeting.prayerLedBy } : {}),
           ...(meeting.nextLeaderName ? { nextLeaderName: meeting.nextLeaderName } : {}),
+          ...((meeting.openFloor?.length ?? 0) > 0 ? { openFloor: meeting.openFloor } : {}),
           // Surprises + moments (review fix, 2026-06-21).
           ...(() => {
             const q = quoteOfTheNight(

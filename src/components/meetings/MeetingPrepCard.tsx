@@ -69,6 +69,8 @@ export default function MeetingPrepCard({
   const [gratitudes, setGratitudes] = useState<string[]>(['']);
   const [appreciations, setAppreciations] = useState<string[]>(['']);
   const [goals, setGoals] = useState<string[]>(['']);
+  // 🗣️ Open Floor topic (2026-07-20) — one line for the discussion queue.
+  const [openFloorTopic, setOpenFloorTopic] = useState('');
   // Per-line multi-tag: each appreciation can tag several people, or All.
   const [apprTags, setApprTags] = useState<AppreciationTag[]>([{ ids: [], names: [] }]);
 
@@ -123,6 +125,7 @@ export default function MeetingPrepCard({
         setGoals(go);
         // Rebuild per-line multi-tags (handles old single-tag shape too).
         setApprTags(a.map((_, i) => appreciationTagsForLine(sub, i)));
+        if (sub.openFloorTopics?.length) setOpenFloorTopic(sub.openFloorTopics[0] || '');
         if (sub.gratitudes?.length || sub.appreciations?.length || sub.goals?.length) {
           setSavedAt(sub.updatedAt || Date.now());
         }
@@ -236,6 +239,8 @@ export default function MeetingPrepCard({
         appreciationTags: apprTags,
         // Stamp the cycle this prep is for so it ages out next meeting.
         cycleKey: meetingCycleKey(scheduleDow) ?? undefined,
+        // 🗣️ Open Floor topic — saved when the family has the step on.
+        openFloorTopics: openFloorTopic.trim() ? [openFloorTopic.trim()] : undefined,
         // Goals self-reflection now lives in the 🎯 Goals Review tab; the
         // prep card no longer writes it (setMeetingSubmission preserves any
         // reflection already saved there).
@@ -396,6 +401,25 @@ export default function MeetingPrepCard({
               </div>
               <AddAnother count={appreciations.length} onAdd={addApprLine} unlimited />
             </div>
+
+            {/* 🗣️ Open Floor (2026-07-20) — only when the family has the
+                step ON, and for kids only when raisers = Parents + Kids. */}
+            {family?.meetingSetup?.openFloorEnabled === true
+              && (role !== 'kid' || family?.meetingSetup?.openFloorRaisers === 'all') && (
+              <div className="rounded-xl bg-white border border-[#F0E8FF] p-2.5">
+                <p className="text-[10px] font-black uppercase tracking-[1.2px]" style={{ color: PURPLE }}>
+                  <span aria-hidden>🗣️</span> Open floor
+                  <span className="ml-1 font-bold text-[#5C6975] normal-case">· anything to discuss?</span>
+                </p>
+                <input
+                  value={openFloorTopic}
+                  onChange={(e) => { setOpenFloorTopic(e.target.value); dirty(); }}
+                  placeholder="e.g. Can we plan the December holiday?"
+                  className="mt-1.5 w-full h-10 px-3 rounded-lg border text-[13px]"
+                  style={{ borderColor: '#E8E0D4', background: '#FCFAF5', color: '#3D241A' }}
+                />
+              </div>
+            )}
 
             {/* 🎯 Goal */}
             <SectionLines

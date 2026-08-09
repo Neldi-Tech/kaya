@@ -366,6 +366,31 @@ export default function MeetingNotesPage() {
         </Section>
       )}
 
+      {/* 🗣️ Open Floor — topics + outcomes (2026-07-20) */}
+      {(meeting.openFloor?.length ?? 0) > 0 && (
+        <Section icon="🗣️" title="Open Floor">
+          {(meeting.openFloor || []).map((t, i) => (
+            <div key={i} className="flex gap-2 items-start mt-1.5">
+              <span className="shrink-0 text-base leading-6">
+                {t.outcome === 'decided' ? '✔' : t.outcome === 'discussed' ? '💬' : '🕑'}
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] text-kaya-chocolate leading-relaxed">
+                  <b>{t.text}</b>
+                  {t.by && <span className="text-kaya-sand"> — raised by {t.by}</span>}
+                  <span className={`ml-1.5 text-[10.5px] font-extrabold px-2 py-0.5 rounded-full align-middle ${
+                    t.outcome === 'decided' ? 'bg-emerald-100 text-emerald-700'
+                    : t.outcome === 'discussed' ? 'bg-kaya-warm text-kaya-sand'
+                    : 'bg-amber-100 text-amber-700'
+                  }`}>{t.outcome === 'decided' ? '✔ decided' : t.outcome === 'discussed' ? '💬 discussed' : '→ parked'}</span>
+                </p>
+                {t.note && <p className="text-[12px] italic text-kaya-chocolate-light mt-0.5 border-l-2 border-kaya-gold/50 pl-2">“{t.note}”</p>}
+              </div>
+            </div>
+          ))}
+        </Section>
+      )}
+
       {/* 🎁 Moments */}
       {moments.length > 0 && (
         <Section icon="🎁" title="Moments">
