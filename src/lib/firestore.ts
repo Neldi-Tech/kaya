@@ -3,7 +3,7 @@ import {
   query, where, orderBy, limit, Timestamp, serverTimestamp,
   onSnapshot, writeBatch, runTransaction, increment,
 } from 'firebase/firestore';
-import { db } from './firebase';
+import { db, auth as fbAuth } from './firebase';
 import {
   isGuestActive,
   MOCK_FAMILY, MOCK_CHILDREN, MOCK_REWARDS, MOCK_RATINGS, MOCK_AWARDS,
@@ -3099,11 +3099,36 @@ export async function createMeeting(familyId: string, meeting: Omit<Meeting, 'id
  *  (sometimes four) meetings in the submissions list for one night. Now the
  *  last finish of the day WINS by overwriting the same doc. Historic
  *  random-id docs are untouched (all reads are id-agnostic). */
+// Meeting-finish gateway (2026-08-09): rules allow family members to
+// CREATE meetings but not UPDATE them — and the idempotent weekly-<date>
+// id makes every retry an update. Both writers below go through the
+// token-verified /api/meetings/finish Admin route; if the route is
+// unavailable (local dev without admin creds) they fall back to the
+// direct client write, which still covers the first-create case.
+async function meetingFinishApi(body: Record<string, unknown>): Promise<boolean> {
+  try {
+    const token = await fbAuth.currentUser?.getIdToken();
+    if (!token) return false;
+    const res = await fetch('/api/meetings/finish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function upsertWeeklyMeeting(familyId: string, meeting: Omit<Meeting, 'id'>) {
   if (isGuestActive()) return { id: 'guest-meeting' } as any;
   const id = `weekly-${meeting.date}`;
   const ref = doc(db, 'families', familyId, 'meetings', id);
-  await setDoc(ref, { ...meeting, createdAt: serverTimestamp() });
+  // Strip undefined the way the API's JSON round-trip would — the direct
+  // fallback write shares the exact same payload semantics.
+  const payload = JSON.parse(JSON.stringify(meeting)) as Record<string, unknown>;
+  if (await meetingFinishApi({ action: 'upsert', familyId, meeting: payload })) return ref;
+  await setDoc(ref, { ...payload, createdAt: serverTimestamp() });
   return ref;
 }
 
@@ -3116,6 +3141,8 @@ export async function updateMeeting(
   updates: Partial<Omit<Meeting, 'id' | 'createdAt'>>,
 ) {
   if (isGuestActive()) return;
+  const payload = JSON.parse(JSON.stringify(updates)) as Record<string, unknown>;
+  if (await meetingFinishApi({ action: 'patch', familyId, meetingId, updates: payload })) return;
   await updateDoc(doc(db, 'families', familyId, 'meetings', meetingId), updates as any);
 }
 
