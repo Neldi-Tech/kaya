@@ -440,6 +440,7 @@ export default function MeetingsPage() {
           <GoalsReviewView />
         ) : tab === 'past' ? (
           <div className="space-y-3">
+            <DecisionsBook meetings={meetings} />
             {/* SM3.1 (#5b) — status filter */}
             <div className="flex gap-2 mb-1">
               {([['all', 'All'], ['green', '🟢 Held'], ['amber', '🟡 Unfinished']] as const).map(([k, label]) => (
@@ -671,6 +672,7 @@ export default function MeetingsPage() {
         ) : tab === 'past' ? (
           // Past meetings (desktop) — chips + 🟡 unfinished weeks + 🟢 report cards (SM3.1 · #5)
           <div>
+            <div className="max-w-xl"><DecisionsBook meetings={meetings} /></div>
             <div className="flex gap-2 mb-4">
               {([['all', 'All'], ['green', '🟢 Held'], ['amber', '🟡 Unfinished']] as const).map(([k, label]) => (
                 <button key={k} type="button" onClick={() => setStatusFilter(k)}
@@ -1346,6 +1348,59 @@ function HighlightsPane({ meetings, childrenList, scheduleDow, familyId, onOpenM
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+// ── 📜 Family Decisions Book (approved 2026-07-20 · OF-5) ───────────────
+// Register of every topic the family closed as ✔ decided on the Open
+// Floor — the living "what we agreed" book, newest first, each entry
+// linking back to its meeting's notes.
+function DecisionsBook({ meetings }: { meetings: Meeting[] }) {
+  const [showAll, setShowAll] = useState(false);
+  const decisions = useMemo(() => (
+    meetings
+      .flatMap((m) => (m.openFloor || [])
+        .filter((t) => t.outcome === 'decided')
+        .map((t) => ({ text: t.text, note: t.note, by: t.by, date: m.date, meetingId: m.id })))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  ), [meetings]);
+  if (decisions.length === 0) return null;
+  const visible = showAll ? decisions : decisions.slice(0, 3);
+  return (
+    <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4 lg:p-5 mb-3">
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <p className="font-display font-black text-[14px] lg:text-[15px]">📜 Family Decisions</p>
+        <span className="text-[10px] uppercase tracking-wider font-bold text-kaya-sand shrink-0">
+          {decisions.length} {decisions.length === 1 ? 'decision' : 'decisions'}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {visible.map((d, i) => (
+          <Link
+            key={`${d.meetingId}-${i}`}
+            href={`/meetings/notes/${d.meetingId}`}
+            className="block rounded-kaya border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 hover:border-emerald-400 transition-colors"
+          >
+            <p className="text-[13px] text-kaya-chocolate leading-snug">
+              <span className="text-emerald-600 font-black mr-1">✔</span>
+              <b>{d.text}</b>
+            </p>
+            {d.note && <p className="text-[11.5px] italic text-kaya-chocolate/70 mt-0.5 pl-4">“{d.note}”</p>}
+            <p className="text-[10px] text-kaya-sand mt-1 pl-4">{fmtMeetingDay(d.date)}{d.by ? ` · raised by ${d.by}` : ''}</p>
+          </Link>
+        ))}
+      </div>
+      {decisions.length > 3 && (
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="mt-2 text-[11.5px] font-black text-kaya-chocolate underline underline-offset-2"
+        >
+          {showAll ? 'Show fewer' : `Show all ${decisions.length} →`}
+        </button>
+      )}
     </div>
   );
 }

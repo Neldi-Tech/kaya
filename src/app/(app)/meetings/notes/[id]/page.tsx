@@ -18,6 +18,7 @@ import { getMeeting, getMeetings, getFamilyMembers, type Meeting } from '@/lib/f
 import { sendMeetingNotesEmailTo, quoteOfTheNight, familyRhythmLabel, guestOfHonour } from '@/lib/meetingRecap';
 import { getAllMeetingSubmissionHistory, type SubmissionHistoryEntry } from '@/lib/meetingSubmissionHistory';
 import { toDisplayDate } from '@/lib/dates';
+import { subscribeMeter, meterSummaryLabel, type MeterDoc } from '@/lib/meetingMeter';
 import { getSongLibrary, songIdFromUrl, type SongLibraryEntry } from '@/lib/meetingSongLibrary';
 import { songThumbnailUrl } from '@/lib/songEmbed';
 
@@ -32,11 +33,19 @@ export default function MeetingNotesPage() {
   const [parents, setParents] = useState<Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>>([]);
   const [song, setSong] = useState<SongLibraryEntry | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  // 📊 Meeting Meter (OF-5) — live family rating for this meeting.
+  const [meter, setMeter] = useState<MeterDoc | null>(null);
   const [rhythm, setRhythm] = useState<string | null>(null);
   // What each member SUBMITTED for this meeting (from the per-member
   // archive) — the saved meeting doc only holds live-typed lines, so this
   // is what makes past meetings show the full approved structure.
   const [histRows, setHistRows] = useState<Array<{ name: string; emoji?: string; entry: SubmissionHistoryEntry }>>([]);
+
+  useEffect(() => {
+    if (!family?.id || !meeting?.id) return;
+    const unsub = subscribeMeter(family.id, meeting.id, setMeter);
+    return () => unsub();
+  }, [family?.id, meeting?.id]);
 
   useEffect(() => {
     if (!profile?.familyId || !meetingId) return;
@@ -421,6 +430,15 @@ export default function MeetingNotesPage() {
       )}
 
       {/* 💛 Kaya Founding sign-off */}
+      {/* 📊 Meeting Meter (OF-5) — the family's rating of the night */}
+      {meterSummaryLabel(meter) && (
+        <div className="mt-5 bg-kaya-gold/10 border border-kaya-gold/40 rounded-kaya-lg p-4 text-center">
+          <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-kaya-sand">📊 Meeting Meter</p>
+          <p className="font-display font-black text-[17px] text-kaya-chocolate mt-1">{meterSummaryLabel(meter)}</p>
+          <p className="text-[11px] text-kaya-sand mt-0.5">How the family rated this night — everyone votes from their own device.</p>
+        </div>
+      )}
+
       <div className="mt-6 pt-5 text-center border-t-2 border-kaya-warm-dark">
         <div className="text-lg">💛</div>
         <p className="font-display font-extrabold text-[14px] text-kaya-chocolate mt-1">Responsible kids. Responsible parents.</p>
@@ -437,6 +455,7 @@ export default function MeetingNotesPage() {
           parents={parents}
           myEmail={profile?.email || ''}
           rhythmLabel={rhythm}
+          meterSummary={meterSummaryLabel(meter)}
           entries={{
             gratitudes: mergedEntries.gratitudes.map((r) => ({ name: r.name, emoji: r.emoji || '🧒', lines: [r.line] })),
             appreciations: mergedEntries.appreciations.map((r) => ({ name: r.name, emoji: r.emoji || '🧒', lines: [r.tag ? `${r.line} (for ${r.tag})` : r.line] })),
@@ -452,13 +471,14 @@ export default function MeetingNotesPage() {
 // Recipients per the approved design: 🙋 Just me · 👨‍👩‍👧‍👦 All participants
 // (attendees with an email on file) · ☑️ Choose members · ✉️ Other emails.
 // Sends via the existing meeting-recap email route.
-function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhythmLabel, entries, onClose }: {
+function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhythmLabel, meterSummary, entries, onClose }: {
   family: NonNullable<ReturnType<typeof useFamily>['family']>;
   meeting: Meeting;
   childrenList: ReturnType<typeof useFamily>['children'];
   parents: Array<{ uid: string; name: string; email?: string; avatarEmoji?: string }>;
   myEmail: string;
   rhythmLabel?: string | null;
+  meterSummary?: string | null;
   entries?: { gratitudes: Array<{ name: string; emoji: string; lines: string[] }>; appreciations: Array<{ name: string; emoji: string; lines: string[] }> };
   onClose: () => void;
 }) {
@@ -516,7 +536,7 @@ function ShareNotesSheet({ family, meeting, childrenList, parents, myEmail, rhyt
     if (recipients.length === 0) { setError(mode === 'email' ? 'Type at least one valid email.' : 'Nobody in that group has an email on file.'); return; }
     setSending(true);
     try {
-      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients, rhythmLabel, entries });
+      await sendMeetingNotesEmailTo({ family, meeting, children: childrenList, parents, to: recipients, rhythmLabel, meterSummary, entries });
       setSentTo(recipients.length);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not send — please try again.');

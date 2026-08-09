@@ -28,6 +28,7 @@ import SubmissionHistoryView from '@/components/meetings/SubmissionHistoryView';
 import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
+import MeetingMeterCard from '@/components/meetings/MeetingMeterCard';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -155,6 +156,7 @@ export default function MyDayPage() {
     <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 space-y-4">
       <TodaysSongCard />
       <RateClosingSongCard />
+      <MeetingMeterCard className="mt-3" />
     </div>
   );
 

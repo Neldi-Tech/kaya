@@ -361,8 +361,10 @@ export async function sendMeetingNotesEmailTo(args: {
    *  the meeting doc's thin live-typed per-kid maps, so shared past
    *  meetings carry the complete structure. */
   entries?: { gratitudes: RecapEntry[]; appreciations: RecapEntry[] };
+  /** 📊 Meeting Meter (OF-5) — compact label the notes page computes. */
+  meterSummary?: string | null;
 }): Promise<void> {
-  const { family, meeting, children, parents, to, rhythmLabel, entries } = args;
+  const { family, meeting, children, parents, to, rhythmLabel, entries, meterSummary } = args;
   const recipients = Array.from(new Set(to.map((e) => e.trim()).filter(Boolean)));
   if (recipients.length === 0) throw new Error('No recipients');
 
@@ -410,6 +412,7 @@ export async function sendMeetingNotesEmailTo(args: {
           ...(meeting.prayerLedBy ? { prayerLedBy: meeting.prayerLedBy } : {}),
           ...(meeting.nextLeaderName ? { nextLeaderName: meeting.nextLeaderName } : {}),
           ...((meeting.openFloor?.length ?? 0) > 0 ? { openFloor: meeting.openFloor } : {}),
+          ...(meterSummary ? { meterSummary } : {}),
           // Surprises + moments (review fix, 2026-06-21).
           ...(() => {
             const q = quoteOfTheNight(
