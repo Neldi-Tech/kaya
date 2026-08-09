@@ -209,6 +209,18 @@ export default function AwardPage() {
           .filter((c) => c.notifyOnAward !== false)
           .map((c) => c.email);
         const recipients = Array.from(new Set([...familyEmails, ...externalEmails]));
+        // 📮 Points Audience (2026-08-09) — the family's EXTRA recipients.
+        // (🧒 kid emails ride the existing giveAward → reward-email path,
+        // whose gate now also honours the family-level audience switch.)
+        const aud = fam?.pointsEmailAudience?.award;
+        const audGroups = (fam?.emailGroups || []).filter((g) => (aud?.groupIds || []).includes(g.id));
+        const groupMemberEmails = audGroups.flatMap((g) =>
+          members.filter((m) => g.memberUids.includes(m.uid) && m.email).map((m) => m.email));
+        const fullExtra = Array.from(new Set(groupMemberEmails)).filter((e) => !recipients.includes(e));
+        const trimmedTo = Array.from(new Set([
+          ...audGroups.flatMap((g) => g.externalEmails || []),
+          ...(aud?.emails || []),
+        ])).filter((e) => !recipients.includes(e) && !fullExtra.includes(e));
         for (const c of selectedKidObjs) {
           notifyAward({
             to: recipients,
@@ -218,6 +230,17 @@ export default function AwardPage() {
             reason: reason.trim(),
             isDiamond,
           });
+          if (fullExtra.length > 0) {
+            notifyAward({ to: fullExtra, childName: c.name, actorName: profile.displayName, points: finalPoints, reason: reason.trim(), isDiamond });
+          }
+          if (trimmedTo.length > 0) {
+            // Privacy-trimmed: first name + points only — the reason can be
+            // personal, it stays inside the family.
+            notifyAward({
+              to: trimmedTo, childName: c.name.split(' ')[0], actorName: profile.displayName,
+              points: finalPoints, reason: '', isDiamond, trimmed: true, familyName: fam?.name,
+            });
+          }
         }
       })();
     }

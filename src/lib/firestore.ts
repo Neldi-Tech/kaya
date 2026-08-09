@@ -215,6 +215,17 @@ export interface Family {
   //   Settings, surfaced as one-tap chips in the reminder "EMAIL TO" panel.
   //   Rides the family doc like gamesConfig — no extra rule.
   emailGroups?: import('./reminders').EmailGroup[];
+  /** 📮 Points Email Audience (approved 2026-08-09): EXTRA recipients for
+   *  the rating / award emails, saved once for the family (parent-edited).
+   *  Personal member toggles + Family contacts stay exactly as they are —
+   *  this only ADDS. kidItsAbout rides the COPPA kid-email pointers
+   *  (kidEmailUpdates source; no pointer → nothing sends). groupIds
+   *  reference emailGroups; emails are extra outside addresses that get
+   *  the privacy-trimmed template (first name + points, no app links). */
+  pointsEmailAudience?: {
+    rating?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
+    award?: { kidItsAbout?: boolean; groupIds?: string[]; emails?: string[] };
+  };
   // ── Location ──
   // Where this family lives. Optional — when set, the country code
   // drives currency auto-detection (`countryToCurrency()` in
