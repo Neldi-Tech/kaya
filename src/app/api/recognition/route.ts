@@ -121,6 +121,37 @@ export async function POST(req: NextRequest) {
             ? { type: 'reward', title: '🎊 Double Shine!', message: 'Mum AND Dad noticed — a golden Shine Card is on your wall!', link: '/profiles' }
             : { type: 'reward', title: `🌟 Shine Card №${n} for you!`, message: card.quote.slice(0, 90), link: '/profiles' });
         }
+
+        // 🏆 RR PR-4 — Shine milestones: the family's 25th/50th/100th/…
+        // card is worth celebrating itself. Golden moment: everyone's
+        // bells + an automatic Moments post from Kaya.
+        const MILESTONES = new Set([10, 25, 50, 100, 150, 200, 300, 400, 500]);
+        if (MILESTONES.has(n)) {
+          try {
+            const membersSnap = await db.collection('users').where('familyId', '==', familyId).get();
+            await Promise.all(membersSnap.docs.map((m) => bell(m.id, {
+              type: 'reward',
+              title: `🏆 Shine milestone — card №${n}!`,
+              message: `${n} times this family stopped to say “we see you.” Keep shining! 🎊`,
+              link: '/parent/rewards#recognition-hitmap',
+            })));
+            // Same seed set the birthdays keepsake post uses.
+            const REACTIONS = ['❤️', '👏', '😂', '🎉'];
+            await famRef.collection('posts').add({
+              authorUid: 'kaya',
+              authorName: 'Kaya 🌟',
+              caption: `🏆 Shine milestone! This family has now given ${n} Shine Cards — ${n} moments someone stopped to say “we see you.” Card №${n} went to ${card.kidName}: “${card.quote.slice(0, 140)}” 🎊👏`,
+              photos: [],
+              kidTags: [kidId],
+              visibility: 'family',
+              pending: false,
+              reactionCount: 0,
+              reactionsByType: Object.fromEntries(REACTIONS.map((e) => [e, 0])),
+              commentCount: 0,
+              createdAt: FieldValue.serverTimestamp(),
+            });
+          } catch { /* the milestone never blocks the card */ }
+        }
         return NextResponse.json({ ok: true, id: ref.id, n, doubleShine });
       }
 
