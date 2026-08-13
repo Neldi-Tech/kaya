@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/qotd-rotate",
       "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/recognition-rounds",
+      "schedule": "15 * * * *"
     }
   ]
 }

@@ -145,6 +145,11 @@ export interface Family {
     proposalsPerMonth?: number;
     proposalsPerMonthPerKid?: Record<string, number>;
   };
+  /** 🌟 RR PR-1 (approved v3, 13-Aug-2026) — Recognition Rounds: cadenced
+   *  nudges reminding parents to celebrate kids. Coverage-first; every
+   *  celebration rides the existing award rail. Partial, merged with
+   *  DEFAULT_RECOGNITION_CONFIG via readRecognitionConfig(). */
+  recognitionConfig?: Partial<RecognitionConfig>;
   // 📬 Kids' email updates (KID PR1) — per-kid source POINTER + stream
   // toggles, everything default OFF (COPPA). See lib/kidEmails.shared.
   kidEmailUpdates?: import('./kidEmails.shared').KidEmailUpdatesConfig;
@@ -1780,6 +1785,42 @@ export function readPointSystemConfig(family: Family | null | undefined): PointS
     improvementNote: { ...DEFAULT_POINT_SYSTEM.improvementNote, ...(stored.improvementNote || {}) },
     diamondMinPoints: stored.diamondMinPoints ?? DEFAULT_POINT_SYSTEM.diamondMinPoints,
     routines: { ...DEFAULT_POINT_SYSTEM.routines, ...(stored.routines || {}) },
+  };
+}
+
+// ── 🌟 Recognition Rounds (RR PR-1, approved v3 13-Aug-2026) ─────────
+// The module is the REMINDER + pattern-keeper only: every celebration it
+// triggers rides the existing award rail (giveAward side-effects — badge
+// counters, points, kid 🏅 email — all fire untouched).
+
+export interface RecognitionConfig {
+  /** Master switch. Default ON — the nudge is the product. */
+  active: boolean;
+  /** Local weekdays the round fires (0=Sun…6=Sat). Default Tue+Fri. */
+  days: number[];
+  /** Local hour (0-23) the round fires at/after. Default 18. */
+  hourLocal: number;
+  /** Reviewer uids who receive the nudge. Empty/absent = all parents. */
+  audienceUids: string[];
+  /** Delivery channels. WhatsApp lands later via Neldi — seam only. */
+  channels: { bell: boolean; email: boolean };
+}
+
+export const DEFAULT_RECOGNITION_CONFIG: RecognitionConfig = {
+  active: true,
+  days: [2, 5],
+  hourLocal: 18,
+  audienceUids: [],
+  channels: { bell: true, email: true },
+};
+
+export function readRecognitionConfig(family: Family | null | undefined): RecognitionConfig {
+  const stored = family?.recognitionConfig;
+  if (!stored) return DEFAULT_RECOGNITION_CONFIG;
+  return {
+    ...DEFAULT_RECOGNITION_CONFIG,
+    ...stored,
+    channels: { ...DEFAULT_RECOGNITION_CONFIG.channels, ...(stored.channels || {}) },
   };
 }
 
