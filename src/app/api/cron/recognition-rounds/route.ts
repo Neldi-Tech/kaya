@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const TZ = 'Africa/Dar_es_Salaam';
-export const ROUND_TEMPLATE_VERSION = 1;
+const ROUND_TEMPLATE_VERSION = 1;
 
 type Rating = {
   childId: string;
