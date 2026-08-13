@@ -56,6 +56,7 @@ import {
   computeOpenOn,
   type FamilyCapsule,
 } from '@/lib/familyCapsules';
+import { listShineCards, type ShineCard } from '@/lib/shineCards';
 
 // ── Agenda definition ──────────────────────────────────────────────
 // Canonical step catalog — the presenter renders the subset that the
@@ -392,6 +393,16 @@ export default function MeetingPresenterPage() {
     }
     return null;
   }, [recentMeetings, children]);
+
+  // 📣 RR PR-4 — this week's Shine Cards for the Celebrate recap ribbon.
+  const [weekShine, setWeekShine] = useState<ShineCard[]>([]);
+  useEffect(() => {
+    if (!profile?.familyId) return;
+    listShineCards(profile.familyId)
+      .then((cs) => setWeekShine(
+        cs.filter((c) => c.at >= Date.now() - 7 * 86400_000).sort((a, b) => a.n - b.n).slice(0, 10)))
+      .catch(() => setWeekShine([]));
+  }, [profile?.familyId]);
 
   // Guest suggestions — unique (name, relationship) pairs pulled from the
   // meeting HISTORY (up to ~a year back, SM3.1 · #1), plus the family's
@@ -1314,7 +1325,23 @@ export default function MeetingPresenterPage() {
               )}
 
               {step.id === 'celebrate' && (
-                <CelebrateStep />
+                <>
+                  {/* 📣 RR PR-4 — the week's Shine Cards, said out loud. */}
+                  {weekShine.length > 0 && (
+                    <div className="rounded-kaya p-4 mb-4" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+                      <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-white/85 mb-2">🌟 This week we celebrated…</p>
+                      <div className="space-y-1.5">
+                        {weekShine.map((c) => (
+                          <p key={c.id} className="text-[13px] text-white rounded-kaya-sm px-3 py-2" style={{ background: 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.22)' }}>
+                            {c.kidEmoji} <b>{c.kidName}</b> — &ldquo;{c.quote}&rdquo; <span className="opacity-75">— {c.byName} · №{c.n}{c.doubleShine ? ' 🤝' : ''}{c.echo ? ` · ${c.echo.reaction}` : ''}</span>
+                          </p>
+                        ))}
+                      </div>
+                      <p className="text-[10.5px] text-white/70 mt-2">Read each one out — the card is on their Shine Wall forever.</p>
+                    </div>
+                  )}
+                  <CelebrateStep />
+                </>
               )}
 
               {step.id === 'appreciations' && (

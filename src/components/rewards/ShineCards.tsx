@@ -155,6 +155,30 @@ export function ShineWall({ familyId, childId, childName }: {
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
+  // 📖 RR PR-4 — yearly Shine Book state.
+  const [albumOpen, setAlbumOpen] = useState(false);
+  const [albumYear, setAlbumYear] = useState(() => new Date().getFullYear());
+  const albumYears = useMemo(() => {
+    const ys = new Set(cards.map((c) => new Date(c.at).getFullYear()));
+    ys.add(new Date().getFullYear());
+    return [...ys].sort((a, b) => b - a);
+  }, [cards]);
+  const albumCards = useMemo(
+    () => cards.filter((c) => new Date(c.at).getFullYear() === albumYear).sort((a, b) => a.n - b.n),
+    [cards, albumYear],
+  );
+  const printAlbum = () => {
+    const w = window.open('', '_blank');
+    if (!w) return;
+    const imgs = albumCards.map((c) => `<img src="${svgDataUrl(c)}" style="width:330px;margin:10px;page-break-inside:avoid" alt="Shine Card ${c.n}"/>`).join('');
+    w.document.write(`<html><head><title>Shine Book ${albumYear} — ${childName}</title></head>
+      <body style="font-family:Georgia,serif;text-align:center;background:#FDFBF7">
+      <h1 style="font-size:26px;color:#1E120B;margin:24px 0 2px">📖 ${childName.split(' ')[0]}'s Shine Book ${albumYear}</h1>
+      <p style="color:#9B8A72;font-size:13px;margin:0 0 14px">${albumCards.length} moments this family stopped to say "we see you"</p>
+      ${imgs}<script>window.onload=function(){window.print()}</script></body></html>`);
+    w.document.close();
+  };
+
   const isAdult = profile?.role === 'parent' || profile?.role === 'helper';
   const isKidOwner = profile?.role === 'kid' && profile?.childId === childId;
 
@@ -180,7 +204,41 @@ export function ShineWall({ familyId, childId, childName }: {
           </button>
         ))}
       </div>
-      {cards.length > 12 && <p className="text-[10.5px] text-kaya-sand mt-2">…and {cards.length - 12} more in the 📖 Shine Album.</p>}
+      {/* 📖 RR PR-4 — the yearly Shine Book. */}
+      <div className="flex items-center gap-2 mt-3">
+        <button type="button" onClick={() => setAlbumOpen(true)}
+          className="h-9 px-3.5 rounded-kaya-sm bg-kaya-warm text-kaya-chocolate text-[11.5px] font-black hover:bg-kaya-warm-dark">
+          📖 Open the Shine Book
+        </button>
+        {cards.length > 12 && <span className="text-[10.5px] text-kaya-sand">…{cards.length - 12} more card{cards.length - 12 === 1 ? '' : 's'} live in the book.</span>}
+      </div>
+
+      {albumOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 sm:p-6" onClick={() => setAlbumOpen(false)}>
+          <div className="bg-white w-full max-w-3xl rounded-kaya-lg p-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 flex-wrap mb-3">
+              <p className="font-display font-black text-[15px] flex-1">📖 {childName.split(' ')[0]}&apos;s Shine Book</p>
+              {albumYears.map((y) => (
+                <button key={y} type="button" onClick={() => setAlbumYear(y)}
+                  className={`px-2.5 py-1 rounded-full text-[10.5px] font-extrabold border ${albumYear === y ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>{y}</button>
+              ))}
+              <button type="button" onClick={() => printAlbum()}
+                className="h-8 px-3 rounded-kaya-sm bg-kaya-gold text-white text-[11px] font-black">🖨️ Print keepsake</button>
+              <button type="button" onClick={() => setAlbumOpen(false)} className="text-kaya-sand font-black text-lg leading-none px-1">×</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {albumCards.map((c) => (
+                <div key={c.id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={svgDataUrl(c)} alt={`Shine Card ${c.n}`} className="w-full rounded-kaya-sm border border-kaya-warm-dark/40" />
+                  <p className="text-[10px] font-bold text-kaya-sand mt-1">№{c.n} · {new Date(c.at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}{c.doubleShine ? ' · 🤝' : ''}{c.echo ? ` · ${c.echo.reaction}` : ''}</p>
+                </div>
+              ))}
+              {albumCards.length === 0 && <p className="text-[12px] text-kaya-sand col-span-full">No cards in {albumYear} yet — the book fills as the year shines.</p>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {openCard && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => setOpenCard(null)}>

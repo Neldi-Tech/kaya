@@ -235,6 +235,27 @@ async function handle(req: NextRequest) {
         const extra = bestPick();
         if (extra) { items.push(extra); used.add(extra.kidId); }
       }
+
+      // ⏳ RR PR-4 — carry-over: items from the PREVIOUS round whose kid
+      // was never celebrated in its 72h window ride into this round with a
+      // "still waiting" flag, so coverage never silently drops.
+      const prevSnap = await famRef.collection('recognitionRounds')
+        .orderBy('date', 'desc').limit(1).get();
+      if (!prevSnap.empty) {
+        const prev = prevSnap.docs[0].data() as { date: string; items?: RoundItem[] };
+        const prevStart = new Date(`${prev.date}T00:00:00`).getTime();
+        const cardsSnap = await famRef.collection('shineCards')
+          .where('at', '>=', prevStart).get();
+        const celebratedKids = new Set(cardsSnap.docs.map((d) => (d.data() as { kidId?: string }).kidId));
+        for (const it of prev.items || []) {
+          if (celebratedKids.has(it.kidId) || used.has(it.kidId)) continue;
+          items.push({
+            ...it,
+            line: `${it.line} · ⏳ still waiting since ${prev.date.slice(8)}/${prev.date.slice(5, 7)}`,
+          });
+          used.add(it.kidId);
+        }
+      }
       if (items.length === 0) continue; // nothing worth nudging about
 
       // ── Audience ────────────────────────────────────────────────
