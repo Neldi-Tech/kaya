@@ -14,6 +14,7 @@ import NextUp from '@/components/ui/NextUp';
 import RewardsWizard from '@/components/rewards/RewardsWizard';
 import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
 import RecognitionRoundsCard from '@/components/rewards/RecognitionRoundsCard';
+import RecognitionHitMap from '@/components/rewards/RecognitionHitMap';
 import BadgeBoutique from '@/components/rewards/BadgeBoutique';
 import BadgeHistory from '@/components/rewards/BadgeHistory';
 import BadgeBoard from '@/components/rewards/BadgeBoard';
@@ -459,6 +460,19 @@ export default function ParentRewardsPage() {
             : 'off'}
         >
           <RecognitionRoundsCard />
+        </CollapsibleSection>
+      </div>
+
+      {/* 🗓️ Recognition Hit-Map (RR PR-3) — the parent rhythm, loud. */}
+      <div className="mb-4">
+        <CollapsibleSection
+          id="recognition-hitmap"
+          remember
+          icon="🗓️"
+          title="Recognition Hit-Map — your rhythm"
+          summary="cards · streak · pattern"
+        >
+          <RecognitionHitMap />
         </CollapsibleSection>
       </div>
 
