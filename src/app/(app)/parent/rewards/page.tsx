@@ -13,6 +13,7 @@ import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import RewardsWizard from '@/components/rewards/RewardsWizard';
 import RewardsRulesCard from '@/components/settings/RewardsRulesCard';
+import RecognitionRoundsCard from '@/components/rewards/RecognitionRoundsCard';
 import BadgeBoutique from '@/components/rewards/BadgeBoutique';
 import BadgeHistory from '@/components/rewards/BadgeHistory';
 import BadgeBoard from '@/components/rewards/BadgeBoard';
@@ -22,7 +23,7 @@ import { useConfirm } from '@/contexts/ConfirmContext';
 import { useHive } from '@/contexts/HiveContext';
 import {
   addReward, updateReward, deleteReward, addRewardsBatch,
-  getRedemptions,
+  getRedemptions, readRecognitionConfig,
   DEFAULT_REWARD_CATEGORIES, DEFAULT_REWARD_CATEGORY,
   REWARD_LIBRARY, REWARD_LIBRARY_CATEGORIES,
   Reward, LibraryReward, Redemption,
@@ -442,6 +443,22 @@ export default function ParentRewardsPage() {
           summary={family?.rewardsConfig?.minPointsFloor ? `🛡 ${family.rewardsConfig.minPointsFloor} pts protected` : 'tap to set up'}
         >
           <RewardsRulesCard />
+        </CollapsibleSection>
+      </div>
+
+      {/* 🌟 Recognition Rounds (RR PR-1) — the nudge cadence lives with the
+          store rules; the Hit-Map + rhythm card joins in RR PR-3. */}
+      <div className="mb-4">
+        <CollapsibleSection
+          id="recognition-rounds"
+          remember
+          icon="🌟"
+          title="Recognition rounds — celebrate reminders"
+          summary={readRecognitionConfig(family).active
+            ? `on · ${readRecognitionConfig(family).days.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(' + ')} ${String(readRecognitionConfig(family).hourLocal).padStart(2, '0')}:00`
+            : 'off'}
+        >
+          <RecognitionRoundsCard />
         </CollapsibleSection>
       </div>
 
