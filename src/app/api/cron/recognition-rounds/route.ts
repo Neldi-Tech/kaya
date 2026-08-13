@@ -265,7 +265,7 @@ async function handle(req: NextRequest) {
             title: '🌟 Recognition round',
             message: items[0].line,
             read: false,
-            link: '/award',
+            link: `/award?round=${dayKey}`,
             createdAt: new Date(),
           }).catch(() => { /* bell is best-effort */ });
         }
@@ -283,7 +283,7 @@ async function handle(req: NextRequest) {
               <p style="font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#9B8A72;font-weight:800;margin:0">🌟 Kaya · Recognition round</p>
               <p style="font-size:15px;color:#1E120B;margin:10px 0 16px">A minute to make someone's week — here's who's shining (and who's waiting):</p>
               <table style="width:100%;border-collapse:collapse">${rows}</table>
-              <p style="margin:18px 0 0"><a href="https://www.ourkaya.com/award" style="background:#D4A017;color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:10px 22px;border-radius:999px;display:inline-block">🎉 Celebrate now</a></p>
+              <p style="margin:18px 0 0"><a href="https://www.ourkaya.com/award?round=${dayKey}" style="background:#D4A017;color:#fff;text-decoration:none;font-weight:800;font-size:14px;padding:10px 22px;border-radius:999px;display:inline-block">🎉 Celebrate now</a></p>
               <p style="font-size:11px;color:#9B8A72;margin:14px 0 0">Two taps: the award sheet comes pre-filled. Unanswered items carry to the next round.</p>
             </div>`;
           let sent = false, error: string | undefined;

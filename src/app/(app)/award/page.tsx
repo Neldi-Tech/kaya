@@ -1,11 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import CoachMark from '@/components/ui/CoachMark';
 import NextUp from '@/components/ui/NextUp';
 import { giveAward, importAward, getFamilyMembers, getFamily, readPointSystemConfig, AwardKind } from '@/lib/firestore';
+import { rewardsFloorFor, type FamilyRewardsSlice } from '@/lib/hive';
+import { getRound, createShineCard, rememberedTheme, type ShineCard, type RecognitionRound } from '@/lib/shineCards';
+import { ShineCardSheet } from '@/components/rewards/ShineCards';
 import { Timestamp } from 'firebase/firestore';
 import { DEFAULT_EARNING_METHODS } from '@/lib/earningMethods';
 import { notifyAward } from '@/lib/notify';
@@ -29,7 +33,7 @@ const DIAMOND_POINTS = [3, 4, 5, 6, 7, 8, 9, 10];
 
 export default function AwardPage() {
   const { profile } = useAuth();
-  const { family, children } = useFamily();
+  const { family, children, rewards: familyRewards } = useFamily();
 
   // Families can disable Diamond points from Settings → "How kids earn points".
   // Honour that preference here; otherwise fall back to the Phase-1 default.
@@ -62,6 +66,37 @@ export default function AwardPage() {
   const [happenedOn, setHappenedOn] = useState(() => new Date().toISOString().slice(0, 10));
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // 🌟 RR PR-2 — round context (?round=YYYY-MM-DD from the nudge) +
+  // ?kid= preselect, and the Shine Cards minted after a celebration.
+  const searchParams = useSearchParams();
+  const [round, setRound] = useState<RecognitionRound | null>(null);
+  const [shineCards, setShineCards] = useState<ShineCard[]>([]);
+  useEffect(() => {
+    const kid = searchParams?.get('kid');
+    if (kid) setSelectedChildren((prev) => (prev.includes(kid) ? prev : [...prev, kid]));
+    const r = searchParams?.get('reason');
+    if (r) setReason((prev) => prev || r);
+  }, [searchParams]);
+  useEffect(() => {
+    const date = searchParams?.get('round');
+    if (!date || !profile?.familyId || profile.role === 'kid') return;
+    getRound(profile.familyId, date).then(setRound).catch(() => setRound(null));
+  }, [searchParams, profile?.familyId, profile?.role]);
+  // 🎁 Reward bridge — when ONE kid is selected and a store reward is
+  // within a small top-up, offer to award exactly the gap.
+  const bridge = useMemo(() => {
+    if (selectedChildren.length !== 1) return null;
+    const kid = children.find((c) => c.id === selectedChildren[0]);
+    if (!kid) return null;
+    const floor = rewardsFloorFor(family as FamilyRewardsSlice | undefined, kid.id);
+    const spend = Math.max(0, (kid.totalPoints || 0) - floor);
+    const candidates = (familyRewards || [])
+      .filter((r) => r.active && r.kind !== 'family' && r.pointsCost > spend && r.pointsCost - spend <= 10)
+      .sort((a, b) => a.pointsCost - b.pointsCost);
+    if (candidates.length === 0) return null;
+    return { reward: candidates[0], gap: candidates[0].pointsCost - spend, kidName: kid.name.split(' ')[0] };
+  }, [selectedChildren, children, family, familyRewards]);
   // Snapshot of who received the award — used by the success screen so it
   // stays accurate even after the form resets.
   const [awardedNames, setAwardedNames] = useState<string[]>([]);
@@ -167,7 +202,7 @@ export default function AwardPage() {
     // totals the same way (weekly only if in the current week).
     const today = new Date().toISOString().slice(0, 10);
     const backfilling = happenedOn && happenedOn !== today;
-    await Promise.all(
+    const results = await Promise.all(
       selectedChildren.map((childId) => {
         const base = {
           childId,
@@ -189,6 +224,48 @@ export default function AwardPage() {
     setAwardedNames(selectedKidObjs.map((c) => c.name));
     setSuccess(true);
     setSaving(false);
+
+    // 🌟 RR PR-2 — every celebration becomes a numbered Shine Card
+    // (corrections don't). Card minting is best-effort: the award itself
+    // is already safely on the rail.
+    if (kind !== 'reducing' && kind !== 'improvement_note') {
+      (async () => {
+        try {
+          const theme = rememberedTheme(profile.uid);
+          const catLabel = CATEGORIES.find((c) => c.id === category)?.label;
+          const pointsLabel = finalPoints > 0
+            ? `${isDiamond ? '💎' : '⭐'} +${finalPoints} PTS`
+            : kind === 'kudos' ? '💛 KUDOS' : '🌟 RECOGNITION';
+          const minted: ShineCard[] = [];
+          for (const [i, childId] of selectedChildren.entries()) {
+            const kid = children.find((c) => c.id === childId);
+            if (!kid) continue;
+            const res = await createShineCard({
+              familyId: profile.familyId,
+              kidId: childId,
+              kidName: kid.name.split(' ')[0],
+              kidEmoji: kid.avatarEmoji || '🧒',
+              awardId: results[i]?.id,
+              theme,
+              quote: reason.trim(),
+              kindLabel: kind,
+              pointsLabel,
+              ...(catLabel ? { category: catLabel } : {}),
+              ...(round ? { roundDate: round.date } : {}),
+            });
+            minted.push({
+              id: res.id, n: res.n, kidId: childId, kidName: kid.name.split(' ')[0],
+              kidEmoji: kid.avatarEmoji || '🧒', awardId: results[i]?.id, theme,
+              quote: reason.trim(), by: profile.uid, byName: profile.displayName.split(' ')[0],
+              at: Date.now(), kindLabel: kind, pointsLabel,
+              ...(catLabel ? { category: catLabel } : {}),
+              doubleShine: res.doubleShine, notes: [],
+            });
+          }
+          setShineCards(minted);
+        } catch { /* card minting never blocks the award */ }
+      })();
+    }
 
     // Fire-and-forget email notification per kid (so each kid's parents/helpers
     // see the awardee name in the email subject). Includes external contacts
@@ -286,6 +363,16 @@ export default function AwardPage() {
         );
     return (
       <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 pt-16 lg:pt-24 text-center animate-slide-up">
+        {/* 🌟 RR PR-2 — the freshly minted Shine Card(s), ready to share. */}
+        {shineCards.length > 0 && profile?.familyId && (
+          <ShineCardSheet
+            familyId={profile.familyId}
+            cards={shineCards}
+            onClose={() => setShineCards([])}
+            onThemeChange={(cardId, theme) =>
+              setShineCards((prev) => prev.map((c) => (c.id === cardId ? { ...c, theme } : c)))}
+          />
+        )}
         <div className="text-6xl lg:text-7xl mb-4">{successEmoji}</div>
         <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">{successHeading}</h2>
         <p className="text-kaya-sand text-sm lg:text-base">
@@ -469,6 +556,45 @@ export default function AwardPage() {
     );
   };
 
+  // 🌟 RR PR-2 — tonight's round strip (from the nudge link) + the
+  // 🎁 reward-bridge suggestion. Shared by both layouts.
+  const roundStrip = round && round.items.length > 0 ? (
+    <div className="rounded-kaya p-3.5 mb-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
+      <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85 mb-1.5">🌟 Tonight&apos;s recognition round · tap a kid to pre-fill</p>
+      <div className="space-y-1.5">
+        {round.items.map((it) => (
+          <button
+            key={`${it.kidId}-${it.kind}`}
+            type="button"
+            onClick={() => {
+              setSelectedChildren([it.kidId]);
+              const detail = it.line.includes('— ') ? it.line.slice(it.line.indexOf('— ') + 2) : it.line;
+              setReason((prev) => prev || detail);
+            }}
+            className="w-full text-left rounded-kaya-sm px-3 py-2 text-[12px] font-bold transition-colors"
+            style={{ background: selectedChildren.includes(it.kidId) ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.25)' }}
+          >
+            {it.emoji} {it.line}
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
+  const bridgeChip = bridge ? (
+    <button
+      type="button"
+      onClick={() => {
+        if (bridge.gap < diamondMin) { setKind('regular'); setRegularPts(bridge.gap); }
+        else if (diamondEnabled) { setKind('diamond'); setDiamondPts(bridge.gap); }
+      }}
+      className="w-full text-left rounded-kaya border border-kaya-gold/50 bg-gradient-to-r from-kaya-gold-light/60 to-kaya-warm/40 px-3.5 py-2.5 mb-4"
+    >
+      <p className="text-[12px] font-bold">
+        🎁 {bridge.kidName} is {bridge.gap} pts from {bridge.reward.icon} <b>{bridge.reward.title}</b> — tap to award exactly +{bridge.gap} and unlock it.
+      </p>
+    </button>
+  ) : null;
+
   return (
     <>
       {/* ─────────────────────────────────────────────────────────── */}
@@ -480,6 +606,8 @@ export default function AwardPage() {
           <h1 className="font-display text-2xl font-black">Award Points</h1>
           <p className="text-kaya-sand text-sm">Recognize great behavior with bonus points</p>
         </div>
+        {roundStrip}
+        {bridgeChip}
 
         <div className="mb-5">
           <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Who deserves points?</label>
@@ -541,6 +669,8 @@ export default function AwardPage() {
           </div>
         </div>
 
+        {roundStrip}
+        {bridgeChip}
         <div className="grid grid-cols-12 gap-6">
           {/* Form column */}
           <section className="col-span-8 space-y-6">

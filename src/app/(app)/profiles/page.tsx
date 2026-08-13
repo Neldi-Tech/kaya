@@ -30,6 +30,7 @@ import BackButton from '@/components/ui/BackButton';
 import KidAvatar from '@/components/ui/KidAvatar';
 import TopBadge from '@/components/rewards/TopBadge';
 import KidWorkplanAccomplishment from '@/components/workplan/KidWorkplanAccomplishment';
+import { ShineWall } from '@/components/rewards/ShineCards';
 
 export default function ProfilesPage() {
   const { profile, isGuest } = useAuth();
@@ -1148,7 +1149,12 @@ export default function ProfilesPage() {
 
       {/* Workplan accomplishment — gamified streak + points + view-previous-days */}
       {profile?.familyId && (
-        <KidWorkplanAccomplishment familyId={profile.familyId} childId={child.id} childName={child.name} />
+        <>
+          {/* 🌟 RR PR-2 — the kid's collected Shine Cards (flip side carries
+              📝 notes + 💌 their thank-you echo). */}
+          <ShineWall familyId={profile.familyId} childId={child.id} childName={child.name} />
+          <KidWorkplanAccomplishment familyId={profile.familyId} childId={child.id} childName={child.name} />
+        </>
       )}
 
       {/* Badges */}
