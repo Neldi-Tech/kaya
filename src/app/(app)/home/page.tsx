@@ -37,6 +37,7 @@ const QUICK_ACTIONS = [
   // 🌟 RR PR-5 — front-door entry for Recognition Rounds (Elia: "how can
   // it be found easily?").
   { icon: '🌟', short: 'Recognition',      long: 'Recognition',     hint: 'Rounds, Shine Cards & Hit-Map',   path: '/recognition', color: '#FFF9E0' },
+  { icon: '📅', short: 'My Day',           long: 'My Day',          hint: 'Everything that needs you today', path: '/my-day', color: '#EAF7F1' },
 ];
 
 // The other top-level modules — everything beyond the daily Kaya
@@ -130,8 +131,9 @@ export default function DashboardPage() {
         {/* v4-final §02 Step 9 — aggregator banner across all 5
             household purchase modules + Hive. Renders nothing if
             nothing is pending; parent-only via role check. */}
-        {profile?.role === 'parent' && <PendingApprovalsBanner />}
+        {/* HD PR-A — recognition FIRST, approvals collapsed below. */}
         <WaitingRoundCard className="mb-5" />
+        {profile?.role === 'parent' && <PendingApprovalsBanner />}
 
         <div className="bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light rounded-kaya-lg p-5 mb-5 shadow-lg">
           <div className="flex items-center justify-between mb-4">
@@ -289,8 +291,9 @@ export default function DashboardPage() {
         <RemindersChip className="mb-5" />
 
         {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
-        {profile?.role === 'parent' && <PendingApprovalsBanner />}
+        {/* HD PR-A — recognition FIRST, approvals collapsed below. */}
         <WaitingRoundCard className="mb-5" />
+        {profile?.role === 'parent' && <PendingApprovalsBanner />}
 
         {/* Hero strip: family score + kid cards */}
         <div className="grid grid-cols-12 gap-4 mb-8">
