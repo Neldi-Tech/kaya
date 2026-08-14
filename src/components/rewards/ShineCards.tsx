@@ -25,19 +25,17 @@ import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 const svgDataUrl = (card: ShineCard) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(shineCardSvg(card))}`;
 
-// ── Post-award sheet ──────────────────────────────────────────────
-
-export function ShineCardSheet({ familyId, cards, onClose, onThemeChange }: {
+// ── Shared share row (HD PR-B) — the SAME four actions everywhere a
+// card renders: 📣 Moments · 💬 kid's chat · 📤 device share · 🖼️ save.
+export function CardShareRow({ familyId, card, compact = false }: {
   familyId: string;
-  cards: ShineCard[];
-  onClose: () => void;
-  onThemeChange: (cardId: string, theme: ShineTheme) => void;
+  card: ShineCard;
+  compact?: boolean;
 }) {
   const { profile } = useAuth();
-  const [idx, setIdx] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
-  const card = cards[idx];
+  const isAdult = profile?.role === 'parent' || profile?.role === 'helper';
 
   const act = async (key: string, fn: () => Promise<void>, done: string) => {
     if (busy) return;
@@ -87,7 +85,57 @@ export function ShineCardSheet({ familyId, cards, onClose, onThemeChange }: {
     }, me);
   }, `💬 Dropped into ${card.kidName.split(' ')[0]}'s chat!`);
 
+  const deviceShare = () => act('share', async () => {
+    const blob = await shineCardPngBlob(card);
+    const file = new File([blob], `Kaya-ShineCard-${card.n}.png`, { type: 'image/png' });
+    const nav = navigator as Navigator & { canShare?: (d: { files: File[] }) => boolean };
+    if (nav.share && (!nav.canShare || nav.canShare({ files: [file] }))) {
+      await nav.share({ files: [file], title: `🌟 Shine Card №${card.n} — ${card.kidName}` }).catch((e) => {
+        if ((e as Error)?.name === 'AbortError') return; // user closed the sheet
+        throw e;
+      });
+    } else {
+      await downloadShineCard(card); // no share sheet on this device — save instead
+    }
+  }, '📤 Shared!');
+
   const savePicture = () => act('save', () => downloadShineCard(card), '🖼️ Saved!');
+
+  if (!isAdult) return null;
+  const btn = (extra: string) =>
+    `${compact ? 'h-9 text-[10.5px]' : 'h-10 text-[11.5px]'} rounded-kaya-sm font-black disabled:opacity-50 ${extra}`;
+  return (
+    <div>
+      <div className="grid grid-cols-4 gap-1.5 mt-3">
+        <button onClick={postToMoments} disabled={!!busy} className={btn('bg-kaya-gold text-white')}>
+          {busy === 'moments' ? '…' : '📣 Moments'}
+        </button>
+        <button onClick={dropIntoChat} disabled={!!busy} className={btn('text-white')} style={{ background: '#6B3FE0' }}>
+          {busy === 'chat' ? '…' : '💬 Their chat'}
+        </button>
+        <button onClick={deviceShare} disabled={!!busy} className={btn('text-white')} style={{ background: '#11A08A' }}>
+          {busy === 'share' ? '…' : '📤 Share'}
+        </button>
+        <button onClick={savePicture} disabled={!!busy} className={btn('border border-kaya-warm-dark text-kaya-sand')}>
+          {busy === 'save' ? '…' : '🖼️ Save'}
+        </button>
+      </div>
+      {msg && <p className="text-[12px] font-bold text-center mt-2">{msg}</p>}
+    </div>
+  );
+}
+
+// ── Post-award sheet ──────────────────────────────────────────────
+
+export function ShineCardSheet({ familyId, cards, onClose, onThemeChange }: {
+  familyId: string;
+  cards: ShineCard[];
+  onClose: () => void;
+  onThemeChange: (cardId: string, theme: ShineTheme) => void;
+}) {
+  const { profile } = useAuth();
+  const [idx, setIdx] = useState(0);
+  const card = cards[idx];
 
   if (!card) return null;
   return (
@@ -119,18 +167,7 @@ export function ShineCardSheet({ familyId, cards, onClose, onThemeChange }: {
             >{t.emoji} {t.label}</button>
           ))}
         </div>
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          <button onClick={postToMoments} disabled={!!busy} className="h-10 rounded-kaya-sm bg-kaya-gold text-white text-[11.5px] font-black disabled:opacity-50">
-            {busy === 'moments' ? '…' : '📣 To Moments'}
-          </button>
-          <button onClick={dropIntoChat} disabled={!!busy} className="h-10 rounded-kaya-sm text-white text-[11.5px] font-black disabled:opacity-50" style={{ background: '#6B3FE0' }}>
-            {busy === 'chat' ? '…' : '💬 To their chat'}
-          </button>
-          <button onClick={savePicture} disabled={!!busy} className="h-10 rounded-kaya-sm border border-kaya-warm-dark text-kaya-sand text-[11.5px] font-black disabled:opacity-50">
-            {busy === 'save' ? '…' : '🖼️ Save picture'}
-          </button>
-        </div>
-        {msg && <p className="text-[12px] font-bold text-center mt-2.5">{msg}</p>}
+        <CardShareRow familyId={familyId} card={card} />
         <p className="text-[10.5px] text-kaya-sand text-center mt-2">The card is already on {card.kidName.split(' ')[0]}&apos;s Shine Wall — these are extra places to share it.</p>
       </div>
     </div>
@@ -254,11 +291,8 @@ export function ShineWall({ familyId, childId, childName }: {
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={svgDataUrl(openCard)} alt={`Shine Card ${openCard.n}`} className="w-full rounded-kaya border border-kaya-warm-dark/50" />
-                {isAdult && (
-                  <button onClick={() => void downloadShineCard(openCard)} className="mt-2.5 h-9 px-3.5 rounded-kaya-sm border border-kaya-warm-dark text-kaya-sand text-[11.5px] font-black">
-                    🖼️ Save picture
-                  </button>
-                )}
+                {/* HD PR-B — full share row on the Wall too (adults). */}
+                <CardShareRow familyId={familyId} card={openCard} compact />
               </>
             ) : (
               <div className="rounded-kaya border-[1.5px] border-dashed border-kaya-warm-dark bg-kaya-cream/60 p-4 min-h-[240px]">

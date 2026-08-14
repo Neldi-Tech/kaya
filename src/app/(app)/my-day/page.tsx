@@ -11,6 +11,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import BackButton from '@/components/ui/BackButton';
+import WaitingRoundCard from '@/components/rewards/WaitingRoundCard';
 import TodaysWorkplanCard from '@/components/helpers/TodaysWorkplanCard';
 import BirthdayWishCard from '@/components/birthdays/BirthdayWishCard';
 import WeekThemeCard from '@/components/meetings/WeekThemeCard';
@@ -86,7 +87,7 @@ export default function MyDayPage() {
   const tabBar = (
     // One width for ALL My Day sections (tabs, song, reminders, content) —
     // md on mobile, 2xl on desktop — so nothing sits narrower than the rest.
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4">
+    <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4">
       <div className="flex gap-1.5 rounded-full p-1" style={{ background: '#F0EBE3' }}>
         {([['today', '🌟 Today'], ['submissions', '📒 Submissions'], ['goals', '🎯 Goals']] as const).map(([key, label]) => (
           <button
@@ -110,7 +111,7 @@ export default function MyDayPage() {
     return (
       <>
         {tabBar}
-        <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-3 pb-32">
+        <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-3 pb-32">
           <SubmissionHistoryView familyId={family.id} uid={profile.uid} />
         </div>
       </>
@@ -122,7 +123,7 @@ export default function MyDayPage() {
     return (
       <>
         {tabBar}
-        <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-3 pb-32">
+        <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-3 pb-32">
           <GoalsReviewView />
         </div>
       </>
@@ -133,12 +134,12 @@ export default function MyDayPage() {
   // nothing (no spacing) when nobody's celebrating.
   const wishCard = (
     <>
-    <WeekThemeCard className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 mb-0" />
+    <WeekThemeCard className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 mb-0" />
     <BirthdayWishCard
       familyId={family.id}
       viewerUid={profile.uid}
       viewerChildId={profile.childId}
-      wrapClassName="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 -mb-6"
+      wrapClassName="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 -mb-6"
     />
     </>
   );
@@ -146,14 +147,14 @@ export default function MyDayPage() {
   // 🔔 Reminders surface on My Day for every role: today's reminders inline +
   // a "Coming up" block (Kaya Reminders R1). Renders nothing when empty.
   const remindersStrip = (
-    <RemindersInline wrapClassName="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4" />
+    <RemindersInline wrapClassName="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4" />
   );
 
   // 🎵 Today's closing song — self-gates to a parent or the leader of the
   // day, so it surfaces here too (not only on the Meetings hub). v4.3.
   // Plus the post-meeting "rate the song" prompt for EVERY member (v4.6).
   const songStrip = (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 space-y-4">
+    <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 space-y-4">
       <TodaysSongCard />
       <RateClosingSongCard />
       <MeetingMeterCard className="mt-3" />
@@ -166,13 +167,21 @@ export default function MyDayPage() {
     const name = (me?.name ?? profile.displayName ?? 'friend').split(' ')[0];
     return <>{tabBar}{wishCard}{remindersStrip}{songStrip}
       {/* Slice 8k · 🚪 pending diary knocks land on My Day too. */}
-      <KnockTodoCard familyId={family.id} kidId={profile.childId} className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4" />
+      <KnockTodoCard familyId={family.id} kidId={profile.childId} className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4" />
       <MyDayKid familyId={family.id} childId={profile.childId} userUid={profile.uid} name={name} avatarEmoji={me?.avatarEmoji} /></>;
   }
 
+  // ⏳ HD PR-B — the waiting recognition round is a My Day duty too
+  // (self-gates to parents + audience-helpers; null on quiet days).
+  const roundStrip = (
+    <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4">
+      <WaitingRoundCard />
+    </div>
+  );
+
   if (role === 'helper') {
     const first = (profile.displayName ?? 'there').split(' ')[0];
-    return <>{tabBar}{wishCard}{remindersStrip}{songStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
+    return <>{tabBar}{roundStrip}{wishCard}{remindersStrip}{songStrip}<MyDayHelper familyId={family.id} uid={profile.uid} name={first} /></>;
   }
 
   // Parent
@@ -180,6 +189,7 @@ export default function MyDayPage() {
   return (
     <>
       {tabBar}
+      {roundStrip}
       {wishCard}
       {remindersStrip}
       {songStrip}
@@ -269,7 +279,7 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
   const doByPeriod: MyDayPeriod[] = ['morning', 'anytime', 'evening'];
 
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 pb-32">
+    <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1).
@@ -559,7 +569,7 @@ function MyDayHelper({ familyId, uid, name }: { familyId: string; uid: string; n
   const router = useRouter();
   const reminders = useReminders(familyId, uid);
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 pb-32">
+    <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* Forward-compatible: helpers aren't in the default wheel pool,
@@ -655,7 +665,7 @@ function MyDayParent({ familyId, parentUid, name, kids, currency }: {
   };
 
   return (
-    <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
+    <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 lg:pt-8 pb-32">
       <div className="lg:hidden"><BackButton /></div>
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1). */}
