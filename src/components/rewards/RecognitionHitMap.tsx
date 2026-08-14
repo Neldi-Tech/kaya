@@ -23,7 +23,7 @@ import {
 } from '@/lib/shineCards';
 import { toDisplayDate } from '@/lib/dates';
 
-type View = 'week' | 'month' | '3mo' | 'custom';
+type View = 'week' | 'month' | '3mo' | 'custom' | 'rounds';
 
 const dayKeyLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -34,7 +34,17 @@ export default function RecognitionHitMap() {
 
   const [cards, setCards] = useState<ShineCard[]>([]);
   const [rounds, setRounds] = useState<RecognitionRound[]>([]);
-  const [view, setView] = useState<View>('month');
+  // View choice is remembered (RR PR-5) — whichever you prefer greets you.
+  const [view, setViewState] = useState<View>(() => {
+    try {
+      const v = localStorage.getItem('kayaHitMapView') as View | null;
+      return v && ['week', 'month', '3mo', 'custom', 'rounds'].includes(v) ? v : 'month';
+    } catch { return 'month'; }
+  });
+  const setView = (v: View) => {
+    setViewState(v);
+    try { localStorage.setItem('kayaHitMapView', v); } catch { /* ignore */ }
+  };
   const [anchor, setAnchor] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [customFrom, setCustomFrom] = useState(() => dayKeyLocal(new Date(Date.now() - 29 * 86400_000)));
   const [customTo, setCustomTo] = useState(() => dayKeyLocal(new Date()));
@@ -138,6 +148,12 @@ export default function RecognitionHitMap() {
     return list;
   }, [view, anchor, customFrom, customTo]);
 
+  // 🌟 Rounds-only list — every round date + every day a card was given.
+  const eventDays = useMemo(() => {
+    const s = new Set<string>([...roundDays, ...cardsByDay.keys()]);
+    return [...s].sort((a, b) => b.localeCompare(a)).slice(0, 60);
+  }, [roundDays, cardsByDay]);
+
   // Leading blanks so the grid starts on Monday.
   const leadingBlanks = useMemo(() => {
     if (days.length === 0) return 0;
@@ -179,10 +195,10 @@ export default function RecognitionHitMap() {
 
       {/* View toggles + month nav */}
       <div className="flex items-center gap-1.5 flex-wrap">
-        {(['week', 'month', '3mo', 'custom'] as const).map((v) => (
+        {(['week', 'month', '3mo', 'custom', 'rounds'] as const).map((v) => (
           <button key={v} type="button" onClick={() => setView(v)}
-            className={`px-2.5 py-1.5 rounded-full text-[10.5px] font-extrabold border ${view === v ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
-            {v === 'week' ? 'Week' : v === 'month' ? 'Month' : v === '3mo' ? '3 mo' : 'Custom'}
+            className={`px-2.5 py-1.5 rounded-full text-[10.5px] font-extrabold border ${view === v ? 'bg-kaya-chocolate text-white border-transparent' : v === 'rounds' ? 'bg-white text-kaya-gold border-kaya-gold/60' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+            {v === 'week' ? 'Week' : v === 'month' ? 'Month' : v === '3mo' ? '3 mo' : v === 'custom' ? 'Custom' : '🌟 Rounds only'}
           </button>
         ))}
         {(view === 'month' || view === '3mo') && (
@@ -201,7 +217,41 @@ export default function RecognitionHitMap() {
         )}
       </div>
 
+      {/* 🌟 Rounds only (RR PR-5) — just the days that matter, newest first. */}
+      {view === 'rounds' && (
+        <div className="space-y-1.5">
+          {eventDays.length === 0 && <p className="text-[12px] text-kaya-sand">No rounds or celebrations yet — the story starts with the first one.</p>}
+          {eventDays.map((date) => {
+            const { cls } = classify(date);
+            const dayCards = cardsByDay.get(date) || [];
+            const isRound = roundDays.has(date);
+            const label = cls === 'gold'
+              ? `🤝 Double Shine — ${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')} (${dayCards.map((c) => `№${c.n}`).join(', ')})`
+              : cls === 'green'
+                ? `${isRound ? '⭐ answered' : '✨ spontaneous'} — ${dayCards.length} card${dayCards.length === 1 ? '' : 's'} (${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
+                : cls === 'red' ? 'missed — carried to the next round' : '⏳ round open — still waiting';
+            const swatch = cls === 'gold'
+              ? 'bg-gradient-to-br from-[#F3D06A] to-[#D4A017]'
+              : cls === 'green' ? 'bg-[#A9D9B4]' : cls === 'red' ? 'bg-[#F9D9D4]' : 'bg-[#F4F0E8]';
+            return (
+              <button
+                key={date}
+                type="button"
+                disabled={dayCards.length === 0}
+                onClick={() => { setOpenDay(date); setNoteFor(null); setNoteText(''); }}
+                className="w-full flex items-center gap-2.5 bg-white border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 text-left disabled:opacity-70"
+              >
+                <span className={`w-3 h-3 rounded-[4px] shrink-0 ${swatch}`} />
+                <span className="text-[12px] font-bold shrink-0">{toDisplayDate(date) || date}</span>
+                <span className="text-[11.5px] text-kaya-sand font-semibold truncate">{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* The map */}
+      {view !== 'rounds' && (
       <div>
         <div className="grid grid-cols-7 gap-[5px] max-w-[300px]">
           {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((l, i) => (
@@ -233,6 +283,7 @@ export default function RecognitionHitMap() {
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#F4F0E8] align-[-1px]" /> quiet day</span>
         </div>
       </div>
+      )}
 
       {/* Day sheet */}
       {openDay && (
