@@ -49,6 +49,9 @@ export interface UserProfile {
   uid: string;
   email: string;
   displayName: string;
+  /** 🏠 HD PR-A — approval categories THIS parent treats as 🔴 urgent on
+   *  the Home deck (per-parent focus; absent = kid-centric default). */
+  approvalUrgentCategories?: string[];
   photoURL?: string;
   avatarPhoto?: string;     // user-uploaded or library avatar (data URL)
   role: Role;
