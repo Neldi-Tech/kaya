@@ -8,6 +8,7 @@ import { getRecentRatings, getRecentAwards } from '@/lib/firestore';
 import { daysToNextBirthday } from '@/lib/dates';
 import KidAvatar from '@/components/ui/KidAvatar';
 import PendingApprovalsBanner from '@/components/home/PendingApprovalsBanner';
+import WaitingRoundCard from '@/components/rewards/WaitingRoundCard';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import BirthdayHero from '@/components/birthdays/BirthdayHero';
 import ArrivalHero from '@/components/family/ArrivalHero';
@@ -33,6 +34,9 @@ const QUICK_ACTIONS = [
   { icon: '👨‍👩‍👧‍👦', short: 'Family\nMeeting', long: 'Family meeting', hint: '6-step weekly flow',              path: '/meetings',            color: '#E7FFF0' },
   { icon: '🎁', short: 'Rewards',          long: 'Rewards',         hint: 'Spend points on family treats',   path: '/rewards',             color: '#FBE7FF' },
   { icon: '👧', short: 'Kid\nProfiles',    long: 'Kid profiles',    hint: 'Per-child progress',              path: '/profiles',            color: '#E7F3FF' },
+  // 🌟 RR PR-5 — front-door entry for Recognition Rounds (Elia: "how can
+  // it be found easily?").
+  { icon: '🌟', short: 'Recognition',      long: 'Recognition',     hint: 'Rounds, Shine Cards & Hit-Map',   path: '/recognition', color: '#FFF9E0' },
 ];
 
 // The other top-level modules — everything beyond the daily Kaya
@@ -127,6 +131,7 @@ export default function DashboardPage() {
             household purchase modules + Hive. Renders nothing if
             nothing is pending; parent-only via role check. */}
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
+        <WaitingRoundCard className="mb-5" />
 
         <div className="bg-gradient-to-br from-kaya-chocolate to-kaya-chocolate-light rounded-kaya-lg p-5 mb-5 shadow-lg">
           <div className="flex items-center justify-between mb-4">
@@ -285,6 +290,7 @@ export default function DashboardPage() {
 
         {/* v4-final §02 Step 9 — aggregator banner (parent-only). */}
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
+        <WaitingRoundCard className="mb-5" />
 
         {/* Hero strip: family score + kid cards */}
         <div className="grid grid-cols-12 gap-4 mb-8">

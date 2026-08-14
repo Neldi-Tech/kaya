@@ -91,6 +91,36 @@ export interface RecognitionRound {
   sentTo: string[];
 }
 
+// ── Waiting round (RR PR-5) ───────────────────────────────────────
+
+export interface WaitingRound {
+  round: RecognitionRound;
+  /** Kids from the round already celebrated since it fired. */
+  celebratedKidIds: string[];
+}
+
+/** The latest round still inside its 72h window with at least one kid
+ *  not yet celebrated — for the viewing adult (parents always; helpers
+ *  only when they're in the round's audience). Null = nothing waiting. */
+export async function getWaitingRound(
+  familyId: string,
+  uid: string,
+  role: string,
+): Promise<WaitingRound | null> {
+  if (role !== 'parent' && role !== 'helper') return null;
+  const rounds = await listRounds(familyId).catch(() => [] as RecognitionRound[]);
+  const latest = rounds[0];
+  if (!latest) return null;
+  const start = new Date(`${latest.date}T00:00:00`).getTime();
+  if (Date.now() >= start + 72 * 3600_000) return null;
+  if (role === 'helper' && !(latest.sentTo || []).includes(uid)) return null;
+  const cards = await listShineCards(familyId).catch(() => [] as ShineCard[]);
+  const celebrated = new Set(cards.filter((c) => c.at >= start).map((c) => c.kidId));
+  const waitingKids = latest.items.filter((i) => !celebrated.has(i.kidId));
+  if (waitingKids.length === 0) return null;
+  return { round: latest, celebratedKidIds: [...celebrated] };
+}
+
 // ── Certificate rendering (self-contained SVG → PNG) ──────────────
 
 const PALETTES: Record<ShineTheme, {

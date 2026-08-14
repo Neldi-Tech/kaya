@@ -50,6 +50,9 @@ export const HELPER_MODULES: HelperModule[] = [
       { id: 'award',    label: 'Award points',  icon: '🎖️', paths: ['/award'] },
       { id: 'meetings', label: 'Meetings',      icon: '👨‍👩‍👧‍👦', paths: ['/meetings'] },
       { id: 'rewards',  label: 'Rewards',       icon: '🎁', paths: ['/rewards'] },
+      // 🌟 RR PR-5 — helpers are reviewers too: rounds + Hit-Map (settings
+      // stay parent-only on Manage Rewards).
+      { id: 'recognition', label: 'Recognition', icon: '🌟', paths: ['/recognition'] },
     ],
   },
   {
