@@ -7,12 +7,13 @@
 // PNG pipeline is self-contained SVG → canvas (lib/shineCards).
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   type ShineCard, type ShineTheme, SHINE_THEMES,
   shineCardSvg, shineCardPngBlob, downloadShineCard,
   setShineCardTheme, addShineCardNote, sendShineCardEcho, listShineCards,
-  rememberTheme,
+  setShineCardPost, rememberTheme,
 } from '@/lib/shineCards';
 import { getFamilyMembers, type UserProfile } from '@/lib/firestore';
 import { reservePost, finalizePost, uploadProcessedPhoto, type Post } from '@/lib/moments';
@@ -35,6 +36,7 @@ export function CardShareRow({ familyId, card, compact = false }: {
   const { profile } = useAuth();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState('');
+  const [postedId, setPostedId] = useState<string | null>(card.momentsPostId || null);
   const isAdult = profile?.role === 'parent' || profile?.role === 'helper';
 
   const act = async (key: string, fn: () => Promise<void>, done: string) => {
@@ -64,6 +66,9 @@ export function CardShareRow({ familyId, card, compact = false }: {
       visibility: 'family',
     };
     await finalizePost(familyId, postId, postData);
+    // 📣 FX PR-3 — remember the post so the card links back to Moments.
+    await setShineCardPost(familyId, card.id, postId).catch(() => {});
+    setPostedId(postId);
   }, '📣 Posted to Moments!');
 
   const dropIntoChat = () => act('chat', async () => {
@@ -121,6 +126,11 @@ export function CardShareRow({ familyId, card, compact = false }: {
         </button>
       </div>
       {msg && <p className="text-[12px] font-bold text-center mt-2">{msg}</p>}
+      {postedId && (
+        <p className="text-center mt-1.5">
+          <Link href="/moments" className="text-[11.5px] font-black text-kaya-gold hover:underline">📣 This card is in Moments →</Link>
+        </p>
+      )}
     </div>
   );
 }
@@ -178,10 +188,12 @@ export function ShineCardSheet({ familyId, cards, onClose, onThemeChange }: {
 
 const ECHO_OPTIONS = ['🥹', '💪', '❤️'];
 
-export function ShineWall({ familyId, childId, childName }: {
+export function ShineWall({ familyId, childId, childName, title }: {
   familyId: string;
-  childId: string;
-  childName: string;
+  /** Absent = family-wide 🌟 Recognition history (FX PR-3). */
+  childId?: string;
+  childName?: string;
+  title?: string;
 }) {
   const { profile } = useAuth();
   const [cards, setCards] = useState<ShineCard[]>([]);
@@ -208,16 +220,18 @@ export function ShineWall({ familyId, childId, childName }: {
     const w = window.open('', '_blank');
     if (!w) return;
     const imgs = albumCards.map((c) => `<img src="${svgDataUrl(c)}" style="width:330px;margin:10px;page-break-inside:avoid" alt="Shine Card ${c.n}"/>`).join('');
-    w.document.write(`<html><head><title>Shine Book ${albumYear} — ${childName}</title></head>
+    w.document.write(`<html><head><title>Shine Book ${albumYear} — ${wallName}</title></head>
       <body style="font-family:Georgia,serif;text-align:center;background:#FDFBF7">
-      <h1 style="font-size:26px;color:#1E120B;margin:24px 0 2px">📖 ${childName.split(' ')[0]}'s Shine Book ${albumYear}</h1>
+      <h1 style="font-size:26px;color:#1E120B;margin:24px 0 2px">📖 ${wallName}'s Shine Book ${albumYear}</h1>
       <p style="color:#9B8A72;font-size:13px;margin:0 0 14px">${albumCards.length} moments this family stopped to say "we see you"</p>
       ${imgs}<script>window.onload=function(){window.print()}</script></body></html>`);
     w.document.close();
   };
 
   const isAdult = profile?.role === 'parent' || profile?.role === 'helper';
-  const isKidOwner = profile?.role === 'kid' && profile?.childId === childId;
+  // Family-wide history: the kid-owner check runs per CARD, not per wall.
+  const isKidOwner = !!openCard && profile?.role === 'kid' && profile?.childId === openCard.kidId;
+  const wallName = (childName || 'Family').split(' ')[0];
 
   const load = useMemo(() => async () => {
     try { setCards(await listShineCards(familyId, childId)); } catch { setCards([]); }
@@ -230,7 +244,7 @@ export function ShineWall({ familyId, childId, childName }: {
   return (
     <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
       <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-2.5">
-        🌟 {childName.split(' ')[0]}&apos;s Shine Wall · {cards.length} card{cards.length === 1 ? '' : 's'}
+        {title || `🌟 ${wallName}'s Shine Wall`} · {cards.length} card{cards.length === 1 ? '' : 's'}
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
         {cards.slice(0, 12).map((c) => (
@@ -254,7 +268,7 @@ export function ShineWall({ familyId, childId, childName }: {
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 sm:p-6" onClick={() => setAlbumOpen(false)}>
           <div className="bg-white w-full max-w-3xl rounded-kaya-lg p-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 flex-wrap mb-3">
-              <p className="font-display font-black text-[15px] flex-1">📖 {childName.split(' ')[0]}&apos;s Shine Book</p>
+              <p className="font-display font-black text-[15px] flex-1">📖 {wallName}&apos;s Shine Book</p>
               {albumYears.map((y) => (
                 <button key={y} type="button" onClick={() => setAlbumYear(y)}
                   className={`px-2.5 py-1 rounded-full text-[10.5px] font-extrabold border ${albumYear === y ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>{y}</button>
