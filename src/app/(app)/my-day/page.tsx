@@ -30,6 +30,7 @@ import GoalsReviewView from '@/components/meetings/GoalsReviewView';
 import TodaysSongCard from '@/components/meetings/TodaysSongCard';
 import RateClosingSongCard from '@/components/meetings/RateClosingSongCard';
 import MeetingMeterCard from '@/components/meetings/MeetingMeterCard';
+import SparksTodayCard from '@/components/sparks/SparksTodayCard';
 import type { WorkplanPeriod } from '@/lib/firestore';
 import { ChevronRight, Plus, Check, X } from 'lucide-react';
 
@@ -281,6 +282,14 @@ function MyDayKid({ familyId, childId, userUid, name, avatarEmoji }: {
   return (
     <div className="mx-auto max-w-md w-full lg:max-w-4xl px-4 lg:px-8 pt-4 pb-32">
       <div className="lg:hidden"><BackButton /></div>
+
+      {/* ✨ Sparks today — B4 (2026-08-15). Before this the kid's whole
+          learning world was invisible from the deck: Sparks was a word
+          in a menu you had to remember to visit. One card, today's dots,
+          each one tapping straight into the action. */}
+      <div className="mb-3">
+        <SparksTodayCard familyId={familyId} kidId={childId} kidName={name} />
+      </div>
 
       {/* "You're leading next meeting" card — Sunday-Meeting v2 (b1).
           Renders only when this kid is queued. */}

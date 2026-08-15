@@ -14,6 +14,7 @@ import BirthdayHero from '@/components/birthdays/BirthdayHero';
 import ArrivalHero from '@/components/family/ArrivalHero';
 import WeekThemeCard from '@/components/meetings/WeekThemeCard';
 import RemindersChip from '@/components/reminders/RemindersChip';
+import SparksParentPulse from '@/components/sparks/SparksParentPulse';
 
 type ActivityItem = {
   type: 'rating' | 'award';
@@ -294,6 +295,18 @@ export default function DashboardPage() {
         {/* HD PR-A — recognition FIRST, approvals collapsed below. */}
         <WaitingRoundCard className="mb-5" />
         {profile?.role === 'parent' && <PendingApprovalsBanner />}
+
+        {/* ✨ B6 — the Sparks pulse. Parents had no Sparks signal on
+            their own home, so they never prompted the kid and the loop
+            never closed. One line per child, straight into their queue. */}
+        {profile?.role === 'parent' && family?.id && sortedKids.length > 0 && (
+          <div className="mb-5">
+            <SparksParentPulse
+              familyId={family.id}
+              kids={sortedKids.map((c) => ({ id: c.id, name: c.name, avatarEmoji: c.avatarEmoji }))}
+            />
+          </div>
+        )}
 
         {/* Hero strip: family score + kid cards */}
         <div className="grid grid-cols-12 gap-4 mb-8">

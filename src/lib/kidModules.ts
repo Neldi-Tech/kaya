@@ -49,6 +49,18 @@ export const KID_MODULES: KidModule[] = [
   // My Day — the kid's one-stop aggregator: today's workplan + Pulse
   // readings + reminders + request statuses, in one prioritised list.
   { id: 'myday',     label: 'My Day',         icon: '🌟', path: '/my-day' },
+  // Kaya Sparks — kids education. Top-level toggle only; per-area
+  // visibility (school projects / home projects / achievements /
+  // academic / sports) is governed by `sparks_profiles.sibling_visibility`
+  // (open / independent / per_area), enforced in firestore.rules — that's
+  // a SIBLING-read concern, not a kid's own nav. Kids always see their
+  // own /sparks subtree when the parent has the module on.
+  // Dashboard + setup live under /sparks/setup + /sparks/[kidId]/dashboard
+  // and are parent-only by route guard (not by kidModules).
+  //
+  // B1 (2026-08-15) — moved from 10th to slot 3. The settings list order
+  // mirrors the nav order, so parents see the same shape in both places.
+  { id: 'sparks',    label: 'Kaya Sparks',    icon: '✨', path: '/sparks' },
   // My Workplan — the kid's repeatable daily plan (school times, homework,
   // chores, play) that they tick off + earn points. Parent assigns from
   // the parent /workplan view. Also feeds the kid "My Day" aggregator.
@@ -91,15 +103,6 @@ export const KID_MODULES: KidModule[] = [
       { id: 'budget',    label: 'Budget',        icon: '💰', path: '/pantry/budget' },
     ],
   },
-  // Kaya Sparks — kids education. Top-level toggle only; per-area
-  // visibility (school projects / home projects / achievements /
-  // academic / sports) is governed by `sparks_profiles.sibling_visibility`
-  // (open / independent / per_area), enforced in firestore.rules — that's
-  // a SIBLING-read concern, not a kid's own nav. Kids always see their
-  // own /sparks subtree when the parent has the module on.
-  // Dashboard + setup live under /sparks/setup + /sparks/[kidId]/dashboard
-  // and are parent-only by route guard (not by kidModules).
-  { id: 'sparks',    label: 'Kaya Sparks',    icon: '✨', path: '/sparks' },
   { id: 'hive',      label: 'The Hive',       icon: '🍯', path: '/hive' },
   { id: 'business',  label: 'Kaya Business',  icon: '💼', path: '/business' },
   // Kaya Pulse — kid surface is Today + Quick Entry + the points Ledger.
