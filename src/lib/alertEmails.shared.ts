@@ -11,6 +11,7 @@
 //     utilities?:     string[]   // ABSENT = inherit global; present = custom (detached)
 //     vehicles?:      string[]
 //     subscriptions?: string[]
+//     sparks?:        string[]   // 🚀 Quests + Sparks alerts (2026-08-15)
 //   }
 // Item-level overrides live on the item itself (meter.alertRecipientUids,
 // VIS PR4) and win over everything.
@@ -18,13 +19,17 @@
 // Scope: EMAIL only. In-app reaches all parents + the helper of record (D2);
 // family chat is the family thread. Neither is filtered by this cascade.
 
-export type AlertCategory = 'utilities' | 'vehicles' | 'subscriptions';
+export type AlertCategory = 'utilities' | 'vehicles' | 'subscriptions' | 'sparks';
 
 export interface AlertEmailsConfig {
   global?: string[];
   utilities?: string[];
   vehicles?: string[];
   subscriptions?: string[];
+  /** 🚀 Quests + Sparks (2026-08-15). The item level for this category is
+   *  a quest's own `alertRecipientUids`, giving D11's cascade:
+   *  Quest > Sparks > Family Global. */
+  sparks?: string[];
 }
 
 export type AlertResolveLevel = 'item' | 'category' | 'global';
