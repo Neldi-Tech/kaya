@@ -19,6 +19,8 @@ import TodayStepCard from '@/components/sparks/TodayStepCard';
 import QuestPackQueue from '@/components/sparks/QuestPackQueue';
 import MarkerPanel from '@/components/sparks/MarkerPanel';
 import QuestRemindersPanel from '@/components/sparks/QuestRemindersPanel';
+import CoachEarCard from '@/components/sparks/CoachEarCard';
+import QuestFinishPanel from '@/components/sparks/QuestFinishPanel';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
@@ -237,6 +239,16 @@ export default function QuestDetailPage() {
           </Panel>
         </div>
 
+        {/* ── 🎤 Coach Ear — AI that listens, not just reads ───────── */}
+        {canAct && familyId && quest.status === 'active' && (
+          <CoachEarCard
+            familyId={familyId}
+            kidId={kidId}
+            kidName={isParent ? kid.name : 'you'}
+            quest={quest}
+          />
+        )}
+
         {/* ── D9 · the GROWTH track, kept separate from consistency ── */}
         <MarkerPanel
           familyId={familyId ?? ''}
@@ -341,6 +353,16 @@ export default function QuestDetailPage() {
           )}
         </div>
 
+        {/* ── 👥 Buddy · 🧭 weekly adapt · 🎓 graduation ───────────── */}
+        {isParent && familyId && (
+          <QuestFinishPanel
+            familyId={familyId}
+            kidId={kidId}
+            kidName={kid.name}
+            quest={quest}
+          />
+        )}
+
         {/* ── D11 · reminders, cut-off, extra recipients ───────────── */}
         {isParent && familyId && (
           <QuestRemindersPanel
@@ -363,9 +385,9 @@ export default function QuestDetailPage() {
             {quest.status === 'paused' && (
               <Ctrl onClick={onResume} disabled={busy}>▶️ Resume</Ctrl>
             )}
-            <Ctrl onClick={onGraduateToggle} disabled={busy}>
-              {quest.status === 'graduated' ? '↩︎ Re-open' : '🎓 Mark graduated'}
-            </Ctrl>
+            {quest.status === 'graduated' && (
+              <Ctrl onClick={onGraduateToggle} disabled={busy}>↩︎ Re-open</Ctrl>
+            )}
             <Ctrl onClick={onDelete} disabled={busy} danger>🗑 Delete</Ctrl>
             {quest.updatedByName && (
               <span className="text-[10.5px] text-[#8A8471] self-center ml-auto">
