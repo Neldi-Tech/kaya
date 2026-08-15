@@ -112,12 +112,16 @@ export default function PendingApprovalsBanner() {
     if (profile) void updateUserProfile(profile.uid, { approvalUrgentCategories: next }).catch(() => {});
   };
   const [open, setOpen] = useState(false);
-  const [focusUrgent, setFocusUrgent] = useState(() => {
-    try { return localStorage.getItem('kayaApprovalsFocus') === 'urgent'; } catch { return false; }
+  // FX PR-1 — three filters: all | urgent (chosen cats) | aging (>7d rest).
+  const [focus, setFocusState] = useState<'all' | 'urgent' | 'aging'>(() => {
+    try {
+      const v = localStorage.getItem('kayaApprovalsFocus');
+      return v === 'urgent' || v === 'aging' ? v : 'all';
+    } catch { return 'all'; }
   });
-  const setFocus = (v: boolean) => {
-    setFocusUrgent(v);
-    try { localStorage.setItem('kayaApprovalsFocus', v ? 'urgent' : 'all'); } catch { /* ignore */ }
+  const setFocus = (v: 'all' | 'urgent' | 'aging') => {
+    setFocusState(v);
+    try { localStorage.setItem('kayaApprovalsFocus', v); } catch { /* ignore */ }
   };
   const [showNormal, setShowNormal] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
@@ -200,12 +204,16 @@ export default function PendingApprovalsBanner() {
 
   if (rows.length === 0) return null;
 
-  // ⏫ urgent = chosen category OR aged past the escalation threshold.
-  const isUrgent = (r: UnifiedRow) =>
-    urgentCats.includes(r.category)
-    || (r.createdAtMs > 0 && Date.now() - r.createdAtMs > AGING_URGENT_DAYS * 86_400_000);
-  const urgent = rows.filter(isUrgent);
-  const normal = rows.filter((r) => !isUrgent(r));
+  // Three buckets (FX PR-1 — aging no longer floods urgent):
+  //   🔴 urgent = the categories THIS parent chose. Nothing else.
+  //   ⏫ aging  = everything else older than the escalation threshold —
+  //              its own section, clearly separate.
+  //   normal   = the rest.
+  const isAged = (r: UnifiedRow) =>
+    r.createdAtMs > 0 && Date.now() - r.createdAtMs > AGING_URGENT_DAYS * 86_400_000;
+  const urgent = rows.filter((r) => urgentCats.includes(r.category));
+  const aging = rows.filter((r) => !urgentCats.includes(r.category) && isAged(r));
+  const normal = rows.filter((r) => !urgentCats.includes(r.category) && !isAged(r));
 
   const Row = ({ r, aged }: { r: UnifiedRow; aged?: boolean }) => (
     <li>
@@ -240,6 +248,7 @@ export default function PendingApprovalsBanner() {
         <p className="text-[11px] font-nunito font-extrabold uppercase tracking-[2px] text-hive-honey-dk">
           ✅ Approvals · {rows.length}
           {urgent.length > 0 && <span className="text-[#c23b52]"> · 🔴 {urgent.length} urgent</span>}
+          {aging.length > 0 && <span className="text-[#b06a1f]"> · ⏫ {aging.length} aging</span>}
         </p>
         <span className="text-[11px] font-nunito font-extrabold text-hive-honey-dk">{open ? 'close ▴' : 'open ▾'}</span>
       </button>
@@ -247,14 +256,15 @@ export default function PendingApprovalsBanner() {
       {open && (
         <div className="mt-2.5">
           <div className="flex items-center gap-1.5 mb-2">
-            <button type="button" onClick={() => setFocus(false)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-nunito font-extrabold border ${!focusUrgent ? 'bg-hive-ink text-white border-transparent' : 'bg-white text-hive-muted border-hive-line'}`}>
-              All
-            </button>
-            <button type="button" onClick={() => setFocus(true)}
-              className={`px-2.5 py-1 rounded-full text-[10px] font-nunito font-extrabold border ${focusUrgent ? 'bg-[#c23b52] text-white border-transparent' : 'bg-white text-[#c23b52] border-[#f2b9c2]'}`}>
-              🔴 Urgent only
-            </button>
+            {([['all', 'All', ''], ['urgent', `🔴 Urgent${urgent.length ? ` · ${urgent.length}` : ''}`, '#c23b52'], ['aging', `⏫ Aging${aging.length ? ` · ${aging.length}` : ''}`, '#b06a1f']] as const).map(([id, label, color]) => (
+              <button key={id} type="button" onClick={() => setFocus(id)}
+                className={`px-2.5 py-1 rounded-full text-[10px] font-nunito font-extrabold border ${focus === id
+                  ? (color ? 'text-white border-transparent' : 'bg-hive-ink text-white border-transparent')
+                  : 'bg-white text-hive-muted border-hive-line'}`}
+                style={focus === id && color ? { background: color } : {}}>
+                {label}
+              </button>
+            ))}
             <button type="button" onClick={() => setShowConfig((v) => !v)}
               className="ml-auto text-[10.5px] font-nunito font-extrabold text-hive-honey-dk hover:underline">
               ⚙️ what&apos;s urgent?
@@ -277,18 +287,33 @@ export default function PendingApprovalsBanner() {
             </div>
           )}
 
-          {urgent.length > 0 && (
+          {/* 🔴 Urgent — ONLY the parent's chosen categories. */}
+          {focus !== 'aging' && urgent.length > 0 && (
             <ul className="space-y-1.5">
-              {urgent.map((r) => (
-                <Row key={r.key} r={r} aged={!urgentCats.includes(r.category)} />
-              ))}
+              {urgent.map((r) => <Row key={r.key} r={r} />)}
             </ul>
           )}
-          {urgent.length === 0 && focusUrgent && (
-            <p className="text-[11px] text-hive-muted font-bold text-center py-1.5">Nothing urgent — nice. 🎈</p>
+          {focus === 'urgent' && urgent.length === 0 && (
+            <p className="text-[11px] text-hive-muted font-bold text-center py-1.5">Nothing urgent in your chosen categories — nice. 🎈</p>
           )}
 
-          {!focusUrgent && normal.length > 0 && (
+          {/* ⏫ Aging — its own clearly-labelled section, never mixed in. */}
+          {focus !== 'urgent' && aging.length > 0 && (
+            <div className="mt-1.5">
+              <p className="text-[10px] font-nunito font-extrabold uppercase tracking-wider text-[#b06a1f] mb-1">
+                ⏫ Aging — sitting longer than {AGING_URGENT_DAYS} days
+              </p>
+              <ul className="space-y-1.5">
+                {aging.map((r) => <Row key={r.key} r={r} aged />)}
+              </ul>
+            </div>
+          )}
+          {focus === 'aging' && aging.length === 0 && (
+            <p className="text-[11px] text-hive-muted font-bold text-center py-1.5">Nothing aging — the deck is fresh. 🌿</p>
+          )}
+
+          {/* Normal — behind a per-module count. */}
+          {focus === 'all' && normal.length > 0 && (
             showNormal ? (
               <ul className="space-y-1.5 mt-1.5">
                 {normal.map((r) => <Row key={r.key} r={r} />)}
