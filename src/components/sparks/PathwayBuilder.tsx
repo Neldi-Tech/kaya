@@ -15,7 +15,7 @@
 
 import { useMemo, useState } from 'react';
 import {
-  buildManualPathway, setPathway, todayKey, addDays, DIFFICULTY_META,
+  buildManualPathway, setPathway, draftPathwayAI, todayKey, addDays, DIFFICULTY_META,
   type Quest, type StepDraft,
 } from '@/lib/sparks/quests';
 import { toDisplayDate } from '@/lib/dates';
@@ -33,17 +33,40 @@ export default function PathwayBuilder({ familyId, kidId, kidName, quest, onClos
   const [weeks, setWeeks] = useState(DIFFICULTY_META[quest.difficulty].weeks);
   const [startDate, setStartDate] = useState(todayKey());
   const [saving, setSaving] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [error, setError] = useState('');
+  /** When Kaya drafts the plan, its steps replace the hand-built ones
+   *  until the parent edits the moves again. */
+  const [aiDrafts, setAiDrafts] = useState<StepDraft[] | null>(null);
 
   const moves = useMemo(
     () => movesText.split('\n').map((m) => m.trim()).filter(Boolean),
     [movesText],
   );
 
-  const drafts: StepDraft[] = useMemo(
+  const manualDrafts: StepDraft[] = useMemo(
     () => buildManualPathway(quest, moves, weeks, startDate),
     [quest, moves, weeks, startDate],
   );
+  const drafts = aiDrafts ?? manualDrafts;
+
+  async function draftWithKaya() {
+    setDrafting(true);
+    setError('');
+    try {
+      const d = await draftPathwayAI(quest.id, weeks, startDate);
+      setAiDrafts(d);
+    } catch (e) {
+      const err = e as Error & { hint?: string };
+      setError(
+        err.hint
+        || (err.message === 'ai-unavailable'
+          ? 'Kaya’s drafting isn’t available right now — you can still write the moves yourself below.'
+          : 'Kaya couldn’t draft this one. Write the moves below and Kaya will lay them out.'),
+      );
+    }
+    setDrafting(false);
+  }
 
   const preview = drafts.slice(0, 8);
 
@@ -93,13 +116,37 @@ export default function PathwayBuilder({ familyId, kidId, kidName, quest, onClos
             all drill.
           </p>
 
+          {/* ✨ Let Kaya draft the whole plan — one call, then it's yours */}
+          <button
+            type="button"
+            onClick={draftWithKaya}
+            disabled={drafting}
+            className="w-full py-3 rounded-xl font-extrabold text-[13.5px] text-white disabled:opacity-50"
+            style={{ background: 'linear-gradient(135deg, #A66CFF 0%, #4ECDC4 100%)' }}
+          >
+            {drafting ? 'Kaya is planning…' : '✨ Let Kaya draft the whole pathway'}
+          </button>
+          {aiDrafts && (
+            <div className="rounded-xl bg-[#F3E9FF] border border-[#DCC7FA] px-3.5 py-2.5 text-[12px] text-[#5A3CB8] leading-snug">
+              ✨ Kaya drafted {aiDrafts.length} steps below. Read them, then approve — or
+              {' '}
+              <button
+                type="button"
+                onClick={() => setAiDrafts(null)}
+                className="underline font-extrabold"
+              >
+                go back to your own moves
+              </button>.
+            </div>
+          )}
+
           <div>
             <div className="font-display font-extrabold text-[12.5px] text-[#0F1F44] mb-1">
               Practice moves
             </div>
             <textarea
               value={movesText}
-              onChange={(e) => setMovesText(e.target.value)}
+              onChange={(e) => { setMovesText(e.target.value); setAiDrafts(null); }}
               rows={6}
               placeholder={'Say a tongue twister 3× without tripping\nRead a paragraph out loud, slowly\nRecord the best thing that happened today\nTell a 60-second story to your sister\nArgue for pizza in one minute'}
               className="w-full rounded-xl border border-[#ECE4D3] px-3 py-2.5 text-[13.5px] leading-relaxed resize-none"

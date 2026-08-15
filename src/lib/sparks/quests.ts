@@ -553,6 +553,84 @@ export async function uploadQuestMedia(
   return res.json() as Promise<{ url: string; kind: ProofKind; seconds: number }>;
 }
 
+// ── AI (D4 · D5 · D6 · D7 · D17) ────────────────────────────────────
+
+async function aiApi<T>(action: string, payload: Record<string, unknown>): Promise<T> {
+  const token = await idToken();
+  if (!token) throw new Error('not-signed-in');
+  const res = await fetch('/api/sparks/quests/ai', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ action, ...payload }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error((json as { error?: string }).error || `quests-ai-${res.status}`);
+    Object.assign(err, json);
+    throw err;
+  }
+  return json as T;
+}
+
+/** D4 · draft the WHOLE pathway in one call. Returns drafts for review —
+ *  nothing is saved until the parent approves the batch. */
+export async function draftPathwayAI(
+  questId: string, weeks: number, startDate: string,
+): Promise<StepDraft[]> {
+  const { drafts } = await aiApi<{ drafts: StepDraft[] }>('pathway', { questId, weeks, startDate });
+  return drafts;
+}
+
+/** One generated practice activity, waiting for a parent's eyes. It
+ *  lives in a gateway-only collection until approved — a kid cannot
+ *  read it, not even by querying directly (D5). */
+export interface PendingItem {
+  id: string;
+  questId: string;
+  kidId: string;
+  title: string;
+  /** The one-line "why this was suggested" a parent reads while deciding. */
+  why: string;
+  how: string;
+  link?: string;
+  forDate: string;
+  source: 'ai';
+  generatedBy: string;
+  generatedByName: string;
+  at: number;
+}
+
+export interface QuotaBlocked {
+  error: 'quota-used';
+  by: string;
+  at: number;
+  queuedForDate: string | null;
+}
+
+/** D7 · generate a pack. One per quest per day, family-wide. When the
+ *  other parent already generated today, this throws with `quota-used`
+ *  plus who and when, so the UI can offer "queue for tomorrow". */
+export async function generatePack(
+  questId: string, opts: { queue?: boolean; force?: boolean } = {},
+): Promise<{ items: PendingItem[]; forDate: string }> {
+  return aiApi<{ items: PendingItem[]; forDate: string }>('pack', { questId, ...opts });
+}
+
+export async function listPending(questId: string): Promise<PendingItem[]> {
+  const { items } = await aiApi<{ items: PendingItem[] }>('pending', { questId });
+  return items;
+}
+
+/** D5/D6 · approval is what COPIES an item into the kid-visible
+ *  materials library. There is no auto-publish path. */
+export async function approvePending(questId: string, itemId: string): Promise<void> {
+  await aiApi('approve', { questId, itemId });
+}
+
+export async function rejectPending(questId: string, itemId: string): Promise<void> {
+  await aiApi('reject', { questId, itemId });
+}
+
 // ── Derivations (pure — shared by pages, cards and the dashboard) ────
 
 const DOW_KEYS: DayOfWeek[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
