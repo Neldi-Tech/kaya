@@ -17,6 +17,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useFamily } from '@/contexts/FamilyContext';
+import { readRecognitionConfig } from '@/lib/firestore';
 import {
   listShineCards, listRounds, addShineCardNote,
   type ShineCard, type RecognitionRound,
@@ -30,7 +32,17 @@ const dayKeyLocal = (d: Date) =>
 
 export default function RecognitionHitMap() {
   const { profile } = useAuth();
+  const { family } = useFamily();
   const familyId = profile?.familyId;
+  // 🎯 FX PR-4 — focus on the family's DESIGNATED round weekdays only.
+  const roundDows = useMemo(() => new Set(readRecognitionConfig(family).days), [family]);
+  const [focusDays, setFocusDaysState] = useState(() => {
+    try { return localStorage.getItem('kayaHitMapFocusDays') === '1'; } catch { return false; }
+  });
+  const setFocusDays = (v: boolean) => {
+    setFocusDaysState(v);
+    try { localStorage.setItem('kayaHitMapFocusDays', v ? '1' : '0'); } catch { /* ignore */ }
+  };
 
   const [cards, setCards] = useState<ShineCard[]>([]);
   const [rounds, setRounds] = useState<RecognitionRound[]>([]);
@@ -150,9 +162,11 @@ export default function RecognitionHitMap() {
 
   // 🌟 Rounds-only list — every round date + every day a card was given.
   const eventDays = useMemo(() => {
-    const s = new Set<string>([...roundDays, ...cardsByDay.keys()]);
-    return [...s].sort((a, b) => b.localeCompare(a)).slice(0, 60);
-  }, [roundDays, cardsByDay]);
+    const set = new Set<string>([...roundDays, ...cardsByDay.keys()]);
+    let list = [...set].sort((a, b) => b.localeCompare(a));
+    if (focusDays) list = list.filter((d) => roundDows.has(new Date(`${d}T00:00:00`).getDay()) || roundDays.has(d));
+    return list.slice(0, 60);
+  }, [roundDays, cardsByDay, focusDays, roundDows]);
 
   // Leading blanks so the grid starts on Monday.
   const leadingBlanks = useMemo(() => {
@@ -201,6 +215,11 @@ export default function RecognitionHitMap() {
             {v === 'week' ? 'Week' : v === 'month' ? 'Month' : v === '3mo' ? '3 mo' : v === 'custom' ? 'Custom' : '🌟 Rounds only'}
           </button>
         ))}
+        <button type="button" onClick={() => setFocusDays(!focusDays)}
+          className={`px-2.5 py-1.5 rounded-full text-[10.5px] font-extrabold border ${focusDays ? 'bg-kaya-gold text-white border-kaya-gold-dark' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}
+          title="Dim everything except the designated round days">
+          🎯 Round days
+        </button>
         {(view === 'month' || view === '3mo') && (
           <span className="ml-auto flex items-center gap-2 text-[12px] font-black">
             <button type="button" onClick={() => setAnchor((a) => new Date(a.getFullYear(), a.getMonth() - 1, 1))} className="px-1.5 text-kaya-sand">‹</button>
@@ -261,13 +280,14 @@ export default function RecognitionHitMap() {
           {days.map((date) => {
             const { cls, mark } = classify(date);
             const tappable = (cardsByDay.get(date) || []).length > 0;
+            const dimmed = focusDays && !roundDows.has(new Date(`${date}T00:00:00`).getDay()) && cls !== 'green' && cls !== 'gold';
             return (
               <button
                 key={date}
                 type="button"
                 disabled={!tappable}
                 onClick={() => { setOpenDay(date); setNoteFor(null); setNoteText(''); }}
-                className={`relative h-[30px] rounded-[7px] text-[10px] font-extrabold flex items-center justify-center ${CLS[cls]} ${date === todayKey ? 'outline outline-2 outline-[#6B3FE0] outline-offset-1' : ''}`}
+                className={`relative h-[30px] rounded-[7px] text-[10px] font-extrabold flex items-center justify-center ${CLS[cls]} ${date === todayKey ? 'outline outline-2 outline-[#6B3FE0] outline-offset-1' : ''} ${dimmed ? 'opacity-25' : ''}`}
                 title={date}
               >
                 {parseInt(date.slice(8), 10)}

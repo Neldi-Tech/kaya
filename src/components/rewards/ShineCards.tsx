@@ -26,6 +26,33 @@ import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 const svgDataUrl = (card: ShineCard) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(shineCardSvg(card))}`;
 
+// 📣 Post a card to Moments (shared by the share row + the wizard's
+// auto-post on approve). Returns the postId; also stamps the card.
+export async function postShineCardToMoments(
+  familyId: string,
+  profile: { uid: string; displayName: string; avatarPhoto?: string },
+  card: ShineCard,
+): Promise<string> {
+  const blob = await shineCardPngBlob(card);
+  const file = new File([blob], `shine-${card.n}.png`, { type: 'image/png' });
+  const processed = await processPhotoForUpload(file);
+  const postId = await reservePost(familyId, profile.uid);
+  const photo = await uploadProcessedPhoto(familyId, postId, processed);
+  const postData: Omit<Post, 'id' | 'reactionCount' | 'reactionsByType' | 'commentCount' | 'createdAt' | 'updatedAt'> = {
+    authorUid: profile.uid,
+    authorName: profile.displayName,
+    authorAvatar: profile.avatarPhoto,
+    caption: `🌟 Shine Card №${card.n} — ${card.kidName}. ${card.quote}`,
+    photos: [photo],
+    kidTags: [card.kidId],
+    mentionedUids: [],
+    visibility: 'family',
+  };
+  await finalizePost(familyId, postId, postData);
+  await setShineCardPost(familyId, card.id, postId).catch(() => {});
+  return postId;
+}
+
 // ── Shared share row (HD PR-B) — the SAME four actions everywhere a
 // card renders: 📣 Moments · 💬 kid's chat · 📤 device share · 🖼️ save.
 export function CardShareRow({ familyId, card, compact = false }: {
@@ -50,24 +77,7 @@ export function CardShareRow({ familyId, card, compact = false }: {
 
   const postToMoments = () => act('moments', async () => {
     if (!profile) throw new Error('Not signed in.');
-    const blob = await shineCardPngBlob(card);
-    const file = new File([blob], `shine-${card.n}.png`, { type: 'image/png' });
-    const processed = await processPhotoForUpload(file);
-    const postId = await reservePost(familyId, profile.uid);
-    const photo = await uploadProcessedPhoto(familyId, postId, processed);
-    const postData: Omit<Post, 'id' | 'reactionCount' | 'reactionsByType' | 'commentCount' | 'createdAt' | 'updatedAt'> = {
-      authorUid: profile.uid,
-      authorName: profile.displayName,
-      authorAvatar: profile.avatarPhoto,
-      caption: `🌟 Shine Card №${card.n} — ${card.kidName}. ${card.quote}`,
-      photos: [photo],
-      kidTags: [card.kidId],
-      mentionedUids: [],
-      visibility: 'family',
-    };
-    await finalizePost(familyId, postId, postData);
-    // 📣 FX PR-3 — remember the post so the card links back to Moments.
-    await setShineCardPost(familyId, card.id, postId).catch(() => {});
+    const postId = await postShineCardToMoments(familyId, profile, card);
     setPostedId(postId);
   }, '📣 Posted to Moments!');
 

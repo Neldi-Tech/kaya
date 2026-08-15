@@ -30,7 +30,7 @@ export default function WaitingRoundCard({ className = '' }: { className?: strin
 
   return (
     <Link
-      href={`/award?round=${waiting.round.date}`}
+      href="/recognition"
       className={`block rounded-kaya p-3.5 text-white hover:brightness-105 transition-all ${className}`}
       style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}
     >
