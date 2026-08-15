@@ -24,6 +24,7 @@ const CATEGORIES = [
   { id: 'creativity',     icon: '🎨', label: 'Creativity' },
   { id: 'teamwork',       icon: '⭐', label: 'Teamwork' },
   { id: 'responsibility', icon: '🎯', label: 'Responsibility' },
+  { id: 'recognition',    icon: '🌟', label: 'Recognition' },
   { id: 'other',          icon: '✨', label: 'Other' },
 ];
 
