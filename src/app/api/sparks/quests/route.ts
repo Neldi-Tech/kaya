@@ -43,7 +43,9 @@ type Action =
   | 'pathway-set' | 'private-set' | 'pause' | 'resume'
   | 'step-done' | 'step-undo' | 'streak-repair'
   | 'marker-add' | 'marker-delete' | 'today'
-  | 'buddy-set' | 'graduate';
+  | 'buddy-set' | 'graduate'
+  | 'library-add' | 'library-edit' | 'library-approve' | 'library-remove'
+  | 'library-schedule' | 'library-unschedule';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'create', 'update', 'delete',
@@ -51,6 +53,8 @@ const ALL_ACTIONS: Action[] = [
   'step-done', 'step-undo', 'streak-repair',
   'marker-add', 'marker-delete', 'today',
   'buddy-set', 'graduate',
+  'library-add', 'library-edit', 'library-approve', 'library-remove',
+  'library-schedule', 'library-unschedule',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -705,6 +709,154 @@ export async function POST(req: NextRequest) {
     if (Number.isFinite(weeks) && weeks > 0) patch.pathwayWeeks = Math.min(52, Math.round(weeks));
     await questRef.update(patch);
     return NextResponse.json({ ok: true, planted: drafts.length });
+  }
+
+  // ── 📚 The Quest Library ──────────────────────────────────────────
+  //
+  // Activities live in `sparks_quest_steps` whatever state they're in.
+  // The INVARIANT that keeps everything else honest: only an APPROVED
+  // activity ever carries a `date`. So the reminder cron, the Today
+  // call and the consistency maths — all of which filter by date —
+  // remain correct with no changes, and a child can never be shown or
+  // chased for something a parent hasn't ticked.
+  if (action.startsWith('library-')) {
+    const stepsCol = famRef.collection('sparks_quest_steps');
+
+    if (action === 'library-add') {
+      const title = str(body.title, 120);
+      if (!title) return NextResponse.json({ error: 'bad-title' }, { status: 400 });
+      const doc: Record<string, unknown> = {
+        questId, kidId,
+        title,
+        how: str(body.how, 600),
+        minutes: num(body.minutes, 1, 120, Number(quest.minutesPerDay) || 10),
+        tone: body.tone === 'fun' ? 'fun' : 'serious',
+        phase: str(body.phase, 40) || 'Shape',
+        // A parent writing their own activity has, by definition,
+        // already approved it.
+        status: body.approved === false ? 'pending' : 'approved',
+        source: 'parent',
+        done: false,
+        createdAt: now,
+      };
+      const tag = str(body.kindTag, 40);
+      if (tag) doc.kindTag = tag;
+      const pk = proofKind(body.proofKindWanted);
+      if (pk) doc.proofKindWanted = pk;
+      const ref = await stepsCol.add(doc);
+      return NextResponse.json({ ok: true, id: ref.id });
+    }
+
+    const ids = Array.isArray(body.stepIds)
+      ? (body.stepIds as unknown[]).map((v) => String(v)).filter(Boolean).slice(0, 200)
+      : [];
+
+    if (action === 'library-approve' || action === 'library-remove') {
+      if (!ids.length) return NextResponse.json({ error: 'no-ids' }, { status: 400 });
+      let batch = db.batch();
+      let ops = 0;
+      let touched = 0;
+      for (const id of ids) {
+        const ref = stepsCol.doc(id);
+        const snap = await ref.get();
+        if (!snap.exists) continue;
+        const s = snap.data() as { questId?: string; done?: boolean; date?: string };
+        if (s.questId !== questId) continue;
+        if (action === 'library-remove') {
+          // Anything a child already did is history, not inventory.
+          if (s.done) continue;
+          batch.delete(ref);
+        } else {
+          batch.update(ref, { status: 'approved' });
+        }
+        ops++; touched++;
+        if (ops >= 400) { await batch.commit(); batch = db.batch(); ops = 0; }
+      }
+      if (ops) await batch.commit();
+      return NextResponse.json({ ok: true, touched });
+    }
+
+    if (action === 'library-edit') {
+      const stepId = str(body.stepId, 80);
+      const ref = stepsCol.doc(stepId);
+      const snap = await ref.get();
+      if (!snap.exists || (snap.data() as { questId?: string }).questId !== questId) {
+        return NextResponse.json({ error: 'not-found' }, { status: 404 });
+      }
+      const p = (body.patch ?? {}) as Record<string, unknown>;
+      const patch: Record<string, unknown> = {};
+      if ('title' in p) patch.title = str(p.title, 120) || 'Practice';
+      if ('how' in p) patch.how = str(p.how, 600);
+      if ('minutes' in p) patch.minutes = num(p.minutes, 1, 120, 10);
+      if ('tone' in p) patch.tone = p.tone === 'fun' ? 'fun' : 'serious';
+      if (!Object.keys(patch).length) return NextResponse.json({ ok: true });
+      await ref.update(patch);
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'library-unschedule') {
+      const stepId = str(body.stepId, 80);
+      const ref = stepsCol.doc(stepId);
+      const snap = await ref.get();
+      if (!snap.exists || (snap.data() as { questId?: string }).questId !== questId) {
+        return NextResponse.json({ error: 'not-found' }, { status: 404 });
+      }
+      if ((snap.data() as { done?: boolean }).done) {
+        return NextResponse.json({ error: 'already-done' }, { status: 409 });
+      }
+      await ref.update({ date: FieldValue.delete(), seq: FieldValue.delete() });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'library-schedule') {
+      const activeDays = days(quest.activeDays);
+      const all = await stepsCol.where('questId', '==', questId).get();
+
+      // Days that already carry an activity are full. One activity a
+      // day is the whole point — a kid opening the app to three of them
+      // closes the app.
+      const taken = new Set<string>();
+      const queue: Array<{ id: string; createdAt: number }> = [];
+      for (const d of all.docs) {
+        const s = d.data() as { date?: string; status?: string; createdAt?: number };
+        if (s.date) { taken.add(s.date); continue; }
+        if ((s.status ?? 'approved') !== 'approved') continue;
+        if (ids.length && !ids.includes(d.id)) continue;
+        queue.push({ id: d.id, createdAt: Number(s.createdAt) || 0 });
+      }
+      if (!queue.length) return NextResponse.json({ ok: true, scheduled: 0, from: null, to: null });
+      queue.sort((a, b) => a.createdAt - b.createdAt);
+
+      // Start today when today is an active day and still free; that way
+      // a parent approving at breakfast gives the child something to do
+      // this morning rather than tomorrow.
+      let cursor = todayInTZ();
+      const dates: string[] = [];
+      for (let guard = 0; guard < 400 && dates.length < queue.length; guard++) {
+        if (activeDays.includes(dowOf(cursor)) && !taken.has(cursor)
+          && !(typeof quest.pausedUntil === 'string' && cursor <= quest.pausedUntil)) {
+          dates.push(cursor);
+        }
+        cursor = shiftDay(cursor, 1);
+      }
+
+      let batch = db.batch();
+      let ops = 0;
+      dates.forEach((date, i) => {
+        batch.update(stepsCol.doc(queue[i].id), { date, seq: 0, status: 'approved' });
+        ops++;
+      });
+      if (ops) await batch.commit();
+
+      return NextResponse.json({
+        ok: true,
+        scheduled: dates.length,
+        from: dates[0] ?? null,
+        to: dates[dates.length - 1] ?? null,
+      });
+    }
+
+    return NextResponse.json({ error: 'unknown-action' }, { status: 400 });
   }
 
   // ── 👥 Quest Buddy (innovation 3) ─────────────────────────────────

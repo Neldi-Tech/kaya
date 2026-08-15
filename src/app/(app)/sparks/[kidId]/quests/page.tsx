@@ -17,6 +17,7 @@ import {
   subscribeToQuests, activeCount, rhythmLine, MAX_ACTIVE_QUESTS,
   type Quest,
 } from '@/lib/sparks/quests';
+import { openModuleGuide } from '@/lib/moduleGuides';
 
 export default function QuestsAreaPage() {
   const params = useParams<{ kidId: string }>();
@@ -73,6 +74,17 @@ export default function QuestsAreaPage() {
           />
         ) : undefined}
       >
+        {/* ▶ The instruction manual. The pieces on screen never explain
+            the ORDER they go in, which is the part that actually
+            confuses a new parent. */}
+        <button
+          type="button"
+          onClick={() => openModuleGuide('quests')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#DFE3FB] bg-[#F7F9FF] text-[#3B2E86] text-[11.5px] font-extrabold mb-3"
+        >
+          ▶ How Quests works
+        </button>
+
         {quests === null && (
           <div className="text-[13px] text-[#5A6488] py-6 text-center">Loading quests…</div>
         )}

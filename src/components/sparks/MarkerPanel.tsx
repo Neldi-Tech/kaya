@@ -24,6 +24,7 @@ import {
   type Quest, type MarkerReading, type QuestMarker, type ProofKind,
 } from '@/lib/sparks/quests';
 import { uploadSparksPhoto } from '@/lib/sparks/uploadPhoto';
+import { BaselineHint } from './BaselineCallout';
 import { toDisplayDate } from '@/lib/dates';
 
 interface Props {
@@ -271,12 +272,7 @@ function MarkerCard({
             )}
           </div>
 
-          {series.length === 0 && (
-            <p className="text-[11px] text-[#8A6800] mt-2 mb-0 leading-snug">
-              🎬 This first one is the <strong>baseline</strong> — attach a recording if you can.
-              In a few weeks it becomes the thing {kidName} plays back and laughs at.
-            </p>
-          )}
+          {series.length === 0 && <BaselineHint kidName={kidName} />}
 
           {error && <div className="text-[11.5px] text-[#8B2130] mt-2">{error}</div>}
 

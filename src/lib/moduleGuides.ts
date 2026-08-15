@@ -186,11 +186,127 @@ const PURCHASES_FLOW: ModuleGuide = {
   ],
 };
 
+// ── Kaya Quests ────────────────────────────────────────────────────────────
+// The instruction manual for the Quests area. Elia asked for this on
+// 2026-08-15 — the pieces were on screen but nothing explained the ORDER
+// they go in, which is the part that actually confuses a new parent:
+// goal → library → approve → schedule → one a day → measure → graduate.
+const QUESTS_GUIDE: ModuleGuide = {
+  id: 'quests',
+  title: { en: 'Kaya Quests', sw: 'Kaya Quests' },
+  emoji: '🚀',
+  blurb: {
+    en: 'Pick a goal, and Kaya turns it into one small activity a day — with proof you can hear months later.',
+    sw: 'Chagua lengo, na Kaya hulibadilisha kuwa zoezi dogo moja kwa siku — na ushahidi utakaosikika miezi baadaye.',
+  },
+  paths: ['/sparks'],
+  ctaLabel: { en: 'Open Sparks', sw: 'Fungua Sparks' },
+  ctaHref: '/sparks',
+  available: true,
+  scenes: [
+    {
+      visual: { kind: 'hero', emoji: '🚀' },
+      title: { en: 'What a Quest is', sw: 'Quest ni nini' },
+      body: {
+        en: 'A Quest is one thing you want your child to get better at — speaking clearly, reading aloud, times tables, a sport. You set the goal. Kaya turns it into one small activity a day, and keeps the proof so you can both hear the difference later.',
+        sw: 'Quest ni jambo moja unalotaka mtoto wako aboreshe — kuzungumza kwa uwazi, kusoma kwa sauti, hesabu, au mchezo. Wewe unaweka lengo. Kaya hulibadilisha kuwa zoezi dogo moja kwa siku, na huhifadhi ushahidi ili nyote muweze kusikia tofauti baadaye.',
+      },
+    },
+    {
+      visual: {
+        kind: 'flow',
+        steps: [
+          { emoji: '🎯', label: 'Goal' },
+          { emoji: '📚', label: 'Library' },
+          { emoji: '✅', label: 'Allow' },
+          { emoji: '📅', label: 'Schedule' },
+          { emoji: '🚀', label: 'One a day' },
+        ],
+      },
+      title: { en: 'The order it goes in', sw: 'Mpangilio wake' },
+      body: {
+        en: 'This is the whole thing. Set the goal, let Kaya fill the Library with activities, tick the ones you allow, schedule them onto the days — then your child simply opens the app and finds today’s.',
+        sw: 'Huu ndio mzunguko mzima. Weka lengo, acha Kaya ijaze Maktaba na mazoezi, chagua unayoyaruhusu, yapange kwenye siku — kisha mtoto wako hufungua app na kukuta la leo.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🎯' },
+      title: { en: '1 · Start with the goal, not the problem', sw: '1 · Anza na lengo, si tatizo' },
+      body: {
+        en: 'Kaya asks where you want your child to GET TO — “tell a 2-minute story without freezing”. Your child reads that, so write it the way you’d say it to them. The honest starting point is asked separately and stays parents-only: your child never sees it, and Kaya never repeats it back to them.',
+        sw: 'Kaya huuliza unataka mtoto wako AFIKE wapi — “kusimulia hadithi ya dakika 2 bila kuganda”. Mtoto wako husoma hilo, hivyo liandike jinsi ungemwambia. Hali halisi ya mwanzo huulizwa peke yake na hubaki kwa wazazi tu: mtoto wako haioni kamwe, na Kaya hairudii kwake.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🎬' },
+      title: { en: '2 · Capture the starting line', sw: '2 · Nasa mstari wa kuanzia' },
+      body: {
+        en: 'Before any practice, record each marker once. That first reading is the BASELINE — the line everything later is measured against. Attach audio or video if you can: in a few weeks your child plays it back, and that is the moment the whole thing pays off. It can only be captured at the start.',
+        sw: 'Kabla ya mazoezi yoyote, rekodi kila kipimo mara moja. Usomaji huo wa kwanza ndio MSINGI — mstari ambao kila kitu kinachofuata hupimwa dhidi yake. Ambatisha sauti au video ikiwezekana: baada ya wiki chache mtoto wako huisikiliza, na huo ndio wakati kila kitu hulipa. Unaweza kunaswa mwanzoni tu.',
+      },
+    },
+    {
+      visual: {
+        kind: 'grid',
+        items: [
+          { emoji: '👀', label: 'To review' },
+          { emoji: '✅', label: 'Ready' },
+          { emoji: '📅', label: 'Scheduled' },
+        ],
+      },
+      title: { en: '3 · The Library — three piles', sw: '3 · Maktaba — marundo matatu' },
+      body: {
+        en: 'Tap Generate and Kaya writes a week (or two) of daily activities — deliberately different kinds, not the same drill reworded. They land in To review, where your child cannot see them. Tick what you allow, discard or edit the rest, add your own. Then Schedule: approved activities go onto the days, one a day.',
+        sw: 'Bonyeza Generate na Kaya huandika mazoezi ya wiki moja (au mbili) — ya aina tofauti kwa makusudi, si zoezi lilelile likiandikwa upya. Huingia kwenye To review, ambapo mtoto wako hawezi kuyaona. Chagua unayoruhusu, tupa au hariri mengine, ongeza yako. Kisha Schedule: mazoezi yaliyoidhinishwa huenda kwenye siku, moja kwa siku.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🔒' },
+      title: { en: '4 · Your child gets today only', sw: '4 · Mtoto wako hupata la leo tu' },
+      body: {
+        en: 'They open the app and find one activity: today’s. They can see what is coming next, but they cannot do it early — the rhythm is the point. Nothing you have not ticked ever reaches them.',
+        sw: 'Hufungua app na kukuta zoezi moja: la leo. Wanaweza kuona linalofuata, lakini hawawezi kulifanya mapema — mdundo ndio lengo. Chochote ambacho hujakidhinisha hakiwafikii kamwe.',
+      },
+    },
+    {
+      visual: {
+        kind: 'pair',
+        items: [
+          { emoji: '🔥', label: 'Consistency', sub: 'Did they show up' },
+          { emoji: '📈', label: 'Growth', sub: 'Did they get better' },
+        ],
+      },
+      title: { en: '5 · Two different questions', sw: '5 · Maswali mawili tofauti' },
+      body: {
+        en: 'The streak answers whether they showed up. The markers answer whether they got better. Kaya keeps them apart on purpose, because a single blended score can be pushed up by obedience alone. Streaks are kind too — rest days never count, a shield absorbs a missed day, and there is a one-time repair.',
+        sw: 'Mfululizo hujibu kama walijitokeza. Vipimo hujibu kama waliboreka. Kaya huvitenganisha kwa makusudi, kwa sababu alama moja iliyochanganywa inaweza kupandishwa kwa utii pekee. Mifululizo pia ni ya huruma — siku za mapumziko hazihesabiwi, ngao huchukua siku iliyokoswa, na kuna urekebishaji wa mara moja.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🔔' },
+      title: { en: '6 · Nobody has to remember', sw: '6 · Hakuna anayepaswa kukumbuka' },
+      body: {
+        en: 'Each quest has a cut-off time. An hour before it, your child gets a gentle nudge — never an email. If the activity is still open at the cut-off, you get the email, along with anyone extra you added: a tutor, a grandparent. If they do it later that evening, you get a quiet tick and no second email.',
+        sw: 'Kila quest ina muda wa mwisho. Saa moja kabla yake, mtoto wako hupata kumbusho la upole — kamwe si barua pepe. Kama zoezi bado liko wazi wakati wa mwisho, wewe hupata barua pepe, pamoja na yeyote uliyemwongeza: mwalimu, babu au bibi. Wakilifanya jioni hiyo, hupata alama ya kimya bila barua pepe ya pili.',
+      },
+    },
+    {
+      visual: { kind: 'hero', emoji: '🎓' },
+      title: { en: '7 · Graduation', sw: '7 · Kuhitimu' },
+      body: {
+        en: 'When the goal is reached, graduate the quest. Your child gets the points and a certificate, and the quest becomes a permanent Achievement in Sparks — carrying the recording from day one next to the one from today. That side-by-side is the thing you will still be showing people years from now.',
+        sw: 'Lengo likifikiwa, hitimisha quest. Mtoto wako hupata pointi na cheti, na quest huwa Mafanikio ya kudumu ndani ya Sparks — ikiwa na rekodi ya siku ya kwanza kando ya ya leo. Mlinganisho huo ndio utakaowaonyesha watu miaka mingi ijayo.',
+      },
+    },
+  ],
+};
+
 // ── Registry ────────────────────────────────────────────────────────────────
 // `available: false` entries appear in the library as "Coming soon".
 export const MODULE_GUIDES: ModuleGuide[] = [
   HOUSEHOLD_GUIDE,
   PURCHASES_FLOW,
+  QUESTS_GUIDE,
   { id: 'hive', title: { en: 'The Hive' }, emoji: '🐝', blurb: { en: 'Points → Honey → real cash.' }, paths: ['/hive'], scenes: [], available: false },
   { id: 'games', title: { en: 'Kaya Games' }, emoji: '🎮', blurb: { en: 'Play, earn House Points, stay safe.' }, paths: ['/games'], scenes: [], available: false },
   { id: 'wealth', title: { en: 'Kaya Wealth' }, emoji: '💎', blurb: { en: 'The family vault & investments.' }, paths: ['/wealth'], scenes: [], available: false },

@@ -22,6 +22,7 @@ import {
   QUEST_COLOURS, QUEST_EMOJIS, dayLabel,
   type QuestDifficulty, type QuestMarker, type QuestVisibility, type MarkerKind,
 } from '@/lib/sparks/quests';
+import { BaselineWizardNote } from './BaselineCallout';
 
 const ALL_DAYS: DayOfWeek[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
@@ -379,6 +380,8 @@ export default function NewQuestWizard({ familyId, kidId, kidName, onClose, onCr
                   )}
                 </div>
               ))}
+
+              <BaselineWizardNote kidName={kidName} />
 
               {markers.length < 3 && (
                 <button

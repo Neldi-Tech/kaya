@@ -79,7 +79,7 @@ export default function QuestPackQueue({ quest, kidName }: Props) {
     <div className="mt-5">
       <div className="flex items-center justify-between gap-2 mb-2.5">
         <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">
-          ✨ Practice packs
+          📎 Reference materials
           {pending.length > 0 && (
             <span className="ml-2 text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-[#FFF1C9] text-[#8A6800]">
               {pending.length} to review
@@ -135,8 +135,9 @@ export default function QuestPackQueue({ quest, kidName }: Props) {
       {items !== null && pending.length === 0 && !quota && (
         <div className="bg-[#FBF7EE] rounded-2xl px-5 py-5 text-center">
           <p className="text-[12px] text-[#5A6488] m-0 leading-snug max-w-md mx-auto">
-            Kaya can suggest extra activities for {kidName}&apos;s quest. Nothing it suggests reaches
-            {' '}{kidName} until you&apos;ve read it and approved it — there is no auto-publish, ever.
+            Things for {kidName} to <strong>read or watch</strong> alongside the quest — the Library
+            above is what they <strong>do</strong>. Nothing Kaya suggests here reaches {kidName}
+            {' '}until you&apos;ve read it and approved it. There is no auto-publish, ever.
           </p>
         </div>
       )}
