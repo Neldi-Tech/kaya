@@ -553,6 +553,100 @@ export async function uploadQuestMedia(
   return res.json() as Promise<{ url: string; kind: ProofKind; seconds: number }>;
 }
 
+// ── Marker readings (D9 · F8) ───────────────────────────────────────
+
+export interface AddReadingInput {
+  questId: string;
+  markerId: string;
+  value: number;
+  note?: string;
+  proofUrl?: string;
+  proofKind?: ProofKind;
+}
+
+/** Record a reading. The FIRST reading for a marker becomes the
+ *  baseline automatically — captured once, never re-declared, so the
+ *  "then vs now" comparison can't be quietly reset later. */
+export async function addMarkerReading(
+  familyId: string, kidId: string, input: AddReadingInput,
+): Promise<{ isBaseline: boolean }> {
+  if (isGuestActive()) return { isBaseline: false };
+  const res = await questsApi<{ isBaseline: boolean }>('marker-add', { ...input });
+  pingQuests(familyId, kidId);
+  return res;
+}
+
+export async function deleteMarkerReading(
+  familyId: string, kidId: string, questId: string, readingId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('marker-delete', { questId, readingId });
+  pingQuests(familyId, kidId);
+}
+
+/** R3 · narrate a marker's movement HONESTLY and kindly.
+ *
+ *  Never renders a naked delta. A dip is named, not hidden — but it is
+ *  framed against the child's best day, because a bare "-7" reads as
+ *  failure to a nine-year-old and makes them stop recording. Parents get
+ *  the raw numbers alongside; this is the sentence the kid reads. */
+export function narrateMarker(
+  marker: QuestMarker,
+  series: MarkerReading[],
+): { headline: string; sub: string; direction: 'up' | 'down' | 'flat' | 'new' } {
+  if (series.length === 0) {
+    return { headline: 'Not measured yet', sub: 'The first time you record this, it becomes your starting line.', direction: 'new' };
+  }
+  if (series.length === 1) {
+    return {
+      headline: `Starting line: ${formatMarkerValue(marker, series[0].value)}`,
+      sub: 'This is where you began. Everything from here is the interesting part.',
+      direction: 'new',
+    };
+  }
+  const first = series[0].value;
+  const latest = series[series.length - 1].value;
+  const best = marker.kind === 'count' && marker.higherIsBetter === false
+    ? Math.min(...series.map((r) => r.value))
+    : Math.max(...series.map((r) => r.value));
+  const better = marker.kind === 'count' && marker.higherIsBetter === false
+    ? latest < first
+    : latest > first;
+  const same = latest === first;
+
+  if (same) {
+    return {
+      headline: `Holding at ${formatMarkerValue(marker, latest)}`,
+      sub: `Same as when you started. Plateaus are where the next jump gets built.`,
+      direction: 'flat',
+    };
+  }
+  if (better) {
+    return {
+      headline: `${formatMarkerValue(marker, first)} → ${formatMarkerValue(marker, latest)}`,
+      sub: `That's real movement since your starting line. Best so far: ${formatMarkerValue(marker, best)}.`,
+      direction: 'up',
+    };
+  }
+  return {
+    headline: `${formatMarkerValue(marker, first)} → ${formatMarkerValue(marker, latest)}`,
+    sub: `A quieter reading this time — your best day is still ${formatMarkerValue(marker, best)}, and that day still counts.`,
+    direction: 'down',
+  };
+}
+
+/** Days since the last reading of a marker — drives the "time for a
+ *  re-take" nudge. `null` when it has never been measured. */
+export function daysSinceReading(series: MarkerReading[], now = Date.now()): number | null {
+  if (!series.length) return null;
+  const last = series[series.length - 1].at;
+  return Math.floor((now - last) / 86400000);
+}
+
+/** Default cadence for re-taking markers — fortnightly. Often enough to
+ *  show movement, rare enough that it stays a small event. */
+export const MARKER_RETAKE_DAYS = 14;
+
 // ── AI (D4 · D5 · D6 · D7 · D17) ────────────────────────────────────
 
 async function aiApi<T>(action: string, payload: Record<string, unknown>): Promise<T> {
