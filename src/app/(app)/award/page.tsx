@@ -97,6 +97,23 @@ export default function AwardPage() {
     if (candidates.length === 0) return null;
     return { reward: candidates[0], gap: candidates[0].pointsCost - spend, kidName: kid.name.split(' ')[0] };
   }, [selectedChildren, children, family, familyRewards]);
+
+  // 🎁 FX PR-2 — treat/gift to remember on the Shine Card: suggestions
+  // from the store (2 within reach + 1 to dream toward) or the parent's
+  // own words ("ice cream cone"). Optional; stamped on the card forever.
+  const [giftLabel, setGiftLabel] = useState('');
+  const [giftCustom, setGiftCustom] = useState(false);
+  const giftIdeas = useMemo(() => {
+    if (selectedChildren.length !== 1) return [];
+    const kid = children.find((c) => c.id === selectedChildren[0]);
+    if (!kid) return [];
+    const floor = rewardsFloorFor(family as FamilyRewardsSlice | undefined, kid.id);
+    const spend = Math.max(0, (kid.totalPoints || 0) - floor);
+    const act = (familyRewards || []).filter((r) => r.active && r.kind !== 'family');
+    const within = act.filter((r) => r.pointsCost <= spend).sort((a, b) => b.pointsCost - a.pointsCost).slice(0, 2);
+    const stretch = act.filter((r) => r.pointsCost > spend).sort((a, b) => a.pointsCost - b.pointsCost).slice(0, 1);
+    return [...within, ...stretch].slice(0, 3);
+  }, [selectedChildren, children, family, familyRewards]);
   // Snapshot of who received the award — used by the success screen so it
   // stays accurate even after the form resets.
   const [awardedNames, setAwardedNames] = useState<string[]>([]);
@@ -252,6 +269,7 @@ export default function AwardPage() {
               pointsLabel,
               ...(catLabel ? { category: catLabel } : {}),
               ...(round ? { roundDate: round.date } : {}),
+              ...(giftLabel.trim() ? { gift: giftLabel.trim() } : {}),
             });
             minted.push({
               id: res.id, n: res.n, kidId: childId, kidName: kid.name.split(' ')[0],
@@ -259,10 +277,12 @@ export default function AwardPage() {
               quote: reason.trim(), by: profile.uid, byName: profile.displayName.split(' ')[0],
               at: Date.now(), kindLabel: kind, pointsLabel,
               ...(catLabel ? { category: catLabel } : {}),
+              ...(giftLabel.trim() ? { gift: giftLabel.trim() } : {}),
               doubleShine: res.doubleShine, notes: [],
             });
           }
           setShineCards(minted);
+          setGiftLabel(''); setGiftCustom(false);
         } catch { /* card minting never blocks the award */ }
       })();
     }
@@ -562,21 +582,36 @@ export default function AwardPage() {
     <div className="rounded-kaya p-3.5 mb-4 text-white" style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}>
       <p className="text-[9.5px] uppercase tracking-[0.14em] font-bold opacity-85 mb-1.5">🌟 Tonight&apos;s recognition round · tap a kid to pre-fill</p>
       <div className="space-y-1.5">
-        {round.items.map((it) => (
-          <button
-            key={`${it.kidId}-${it.kind}`}
-            type="button"
-            onClick={() => {
-              setSelectedChildren([it.kidId]);
-              const detail = it.line.includes('— ') ? it.line.slice(it.line.indexOf('— ') + 2) : it.line;
-              setReason((prev) => prev || detail);
-            }}
-            className="w-full text-left rounded-kaya-sm px-3 py-2 text-[12px] font-bold transition-colors"
-            style={{ background: selectedChildren.includes(it.kidId) ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.25)' }}
-          >
-            {it.emoji} {it.line}
-          </button>
-        ))}
+        {round.items.map((it) => {
+          // FX PR-2 — a round item never FORCES points: the parent picks
+          // ⭐ points or 💛 kudos right on the row.
+          const prefill = (k: AwardKind) => {
+            setSelectedChildren([it.kidId]);
+            setKind(k);
+            const detail = it.line.includes('— ') ? it.line.slice(it.line.indexOf('— ') + 2) : it.line;
+            setReason((prev) => prev || detail);
+          };
+          const sel = selectedChildren.includes(it.kidId);
+          return (
+            <div
+              key={`${it.kidId}-${it.kind}`}
+              className="rounded-kaya-sm px-3 py-2 text-[12px] font-bold"
+              style={{ background: sel ? 'rgba(255,255,255,.3)' : 'rgba(255,255,255,.13)', border: '1px solid rgba(255,255,255,.25)' }}
+            >
+              <p className="mb-1.5">{it.emoji} {it.line}</p>
+              <div className="flex gap-1.5">
+                <button type="button" onClick={() => prefill('regular')}
+                  className="px-2.5 py-1 rounded-full text-[10.5px] font-black" style={{ background: '#fff', color: '#6B3FE0' }}>
+                  ⭐ Points
+                </button>
+                <button type="button" onClick={() => prefill('kudos')}
+                  className="px-2.5 py-1 rounded-full text-[10.5px] font-black" style={{ background: 'rgba(255,255,255,.2)', border: '1px solid rgba(255,255,255,.4)', color: '#fff' }}>
+                  💛 Kudos
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   ) : null;
@@ -595,6 +630,30 @@ export default function AwardPage() {
     </button>
   ) : null;
 
+  const giftRow = selectedChildren.length === 1 && (kind === 'regular' || kind === 'diamond' || kind === 'kudos') ? (
+    <div className="rounded-kaya border border-kaya-warm-dark bg-white px-3.5 py-2.5 mb-4">
+      <p className="text-[10.5px] font-bold uppercase tracking-wider text-kaya-sand mb-1.5">🎁 Treat to go with it? <span className="normal-case tracking-normal font-semibold">(optional — remembered on the Shine Card)</span></p>
+      <div className="flex gap-1.5 flex-wrap items-center">
+        {giftIdeas.map((g) => (
+          <button key={g.id} type="button"
+            onClick={() => { setGiftLabel((cur) => cur === g.title ? '' : g.title); setGiftCustom(false); }}
+            className={`px-2.5 py-1.5 rounded-full text-[11px] font-extrabold border ${giftLabel === g.title ? 'bg-kaya-gold text-white border-kaya-gold-dark' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+            {g.icon} {g.title}
+          </button>
+        ))}
+        <button type="button" onClick={() => { setGiftCustom((v) => !v); if (!giftCustom) setGiftLabel(''); }}
+          className={`px-2.5 py-1.5 rounded-full text-[11px] font-extrabold border ${giftCustom ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+          ✏️ Own treat
+        </button>
+        {giftCustom && (
+          <input value={giftLabel} onChange={(e) => setGiftLabel(e.target.value)} maxLength={60}
+            placeholder="e.g. Ice cream cone after school"
+            className="flex-1 min-w-[170px] h-9 px-3 rounded-kaya-sm border border-kaya-warm-dark text-[12px] focus:outline-none focus:border-kaya-gold" />
+        )}
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       {/* ─────────────────────────────────────────────────────────── */}
@@ -608,6 +667,7 @@ export default function AwardPage() {
         </div>
         {roundStrip}
         {bridgeChip}
+        {giftRow}
 
         <div className="mb-5">
           <label className="block text-xs font-semibold text-kaya-sand mb-2 uppercase tracking-wider">Who deserves points?</label>
@@ -671,6 +731,7 @@ export default function AwardPage() {
 
         {roundStrip}
         {bridgeChip}
+        {giftRow}
         <div className="grid grid-cols-12 gap-6">
           {/* Form column */}
           <section className="col-span-8 space-y-6">

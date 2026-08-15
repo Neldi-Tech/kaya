@@ -298,7 +298,7 @@ export default function RecognitionHitMap() {
                 {c.kidEmoji} {c.kidName} · {c.pointsLabel}
                 {c.category && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-white border border-[#bfe3cb] text-[9.5px] font-extrabold text-kaya-sand">{c.category}</span>}
               </p>
-              <p className="text-[11.5px] italic text-[#4a6b55] mt-0.5">&ldquo;{c.quote}&rdquo; — {c.byName} · 🌟 Card №{c.n}{c.doubleShine ? ' · 🤝' : ''}</p>
+              <p className="text-[11.5px] italic text-[#4a6b55] mt-0.5">&ldquo;{c.quote}&rdquo; — {c.byName} · 🌟 Card №{c.n}{c.doubleShine ? ' · 🤝' : ''}{c.gift ? ` · 🎁 ${c.gift}` : ''}</p>
               {(c.notes || []).map((nte, i) => (
                 <p key={i} className="text-[11px] mt-1 bg-white border border-dashed border-[#bfe3cb] rounded-lg px-2.5 py-1.5">
                   📝 <b>Note:</b> {nte.text} <span className="text-[#7fa78c]">— {nte.byName}</span>
