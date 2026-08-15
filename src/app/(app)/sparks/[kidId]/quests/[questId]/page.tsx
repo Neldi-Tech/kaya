@@ -18,6 +18,7 @@ import PathwayBuilder from '@/components/sparks/PathwayBuilder';
 import TodayStepCard from '@/components/sparks/TodayStepCard';
 import QuestPackQueue from '@/components/sparks/QuestPackQueue';
 import MarkerPanel from '@/components/sparks/MarkerPanel';
+import QuestRemindersPanel from '@/components/sparks/QuestRemindersPanel';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
@@ -339,6 +340,16 @@ export default function QuestDetailPage() {
             </>
           )}
         </div>
+
+        {/* ── D11 · reminders, cut-off, extra recipients ───────────── */}
+        {isParent && familyId && (
+          <QuestRemindersPanel
+            familyId={familyId}
+            kidId={kidId}
+            kidName={kid.name}
+            quest={quest}
+          />
+        )}
 
         {/* ── D5 · nothing generated reaches a kid unapproved ──────── */}
         {isParent && <QuestPackQueue quest={quest} kidName={kid.name} />}
