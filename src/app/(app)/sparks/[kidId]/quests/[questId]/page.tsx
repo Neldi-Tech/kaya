@@ -17,6 +17,8 @@ import AreaScreen from '@/components/sparks/AreaScreen';
 import PathwayBuilder from '@/components/sparks/PathwayBuilder';
 import TodayStepCard from '@/components/sparks/TodayStepCard';
 import QuestPackQueue from '@/components/sparks/QuestPackQueue';
+import QuestLibrary from '@/components/sparks/QuestLibrary';
+import BaselineCallout from '@/components/sparks/BaselineCallout';
 import MarkerPanel from '@/components/sparks/MarkerPanel';
 import QuestRemindersPanel from '@/components/sparks/QuestRemindersPanel';
 import CoachEarCard from '@/components/sparks/CoachEarCard';
@@ -24,7 +26,8 @@ import QuestFinishPanel from '@/components/sparks/QuestFinishPanel';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
-  dayLabel, todayKey, addDays, isDueOn, stepForDate, DIFFICULTY_META,
+  dayLabel, todayKey, addDays, isDueOn, stepForDate, nextScheduledAfter,
+  DIFFICULTY_META,
   type QuestDetail,
 } from '@/lib/sparks/quests';
 import { toDisplayDate } from '@/lib/dates';
@@ -87,11 +90,11 @@ export default function QuestDetailPage() {
   const weeks = groupStepsByWeek(steps);
   const rest = restDays(quest);
   const dueToday = isDueOn(quest, today);
-  // The step to work on: today's if the day is active, otherwise the
-  // next open step ahead so a kid can always get going early.
-  const nextStep = dueToday
-    ? stepForDate(steps, today)
-    : steps.find((s) => !s.done && s.date > today) ?? null;
+  // TODAY IS THE ONLY DAY YOU CAN DO. A kid gets exactly today's
+  // activity to act on; what's coming next is readable but locked, so
+  // the plan stays a rhythm instead of something to binge and abandon.
+  const todayStep = dueToday ? stepForDate(steps, today) : null;
+  const upNext = nextScheduledAfter(steps, today);
   // Server is the authority (D13); this only decides what to render.
   const canAct = isParent
     || profile?.childId === kidId
@@ -147,26 +150,38 @@ export default function QuestDetailPage() {
           </div>
         </div>
 
+        {/* ── 🎬 Step zero · the baseline, before anything else ────── */}
+        {quest.status === 'active' && (
+          <BaselineCallout
+            quest={quest}
+            readings={detail.readings}
+            kidName={kid.name}
+            isParent={isParent}
+          />
+        )}
+
         {/* ── Today's step — the daily loop, first thing on the page ── */}
         {quest.status === 'active' && (
           <div className="mt-3">
-            {nextStep ? (
+            {todayStep ? (
               <TodayStepCard
                 familyId={familyId ?? ''}
                 kidId={kidId}
                 kidName={kid.name}
                 quest={quest}
-                step={nextStep}
+                step={todayStep}
                 canAct={canAct}
-                isToday={nextStep.date === today}
+                isToday
               />
             ) : dueToday ? (
               <div className="rounded-[18px] border border-[#ECE4D3] bg-[#FBF7EE] px-4 py-5 text-center">
                 <div className="text-[13px] font-extrabold text-[#0F1F44]">
-                  Nothing planned for today yet
+                  Nothing scheduled for today yet
                 </div>
-                <p className="text-[12px] text-[#5A6488] mt-1 mb-0">
-                  {isParent ? 'Build or extend the pathway below.' : 'A parent is still planning this one.'}
+                <p className="text-[12px] text-[#5A6488] mt-1 mb-0 max-w-sm mx-auto leading-snug">
+                  {isParent
+                    ? 'Generate activities in the Library below, tick the ones you’ll allow, then schedule them onto the days.'
+                    : 'A parent is still choosing today’s activity.'}
                 </p>
               </div>
             ) : (
@@ -174,6 +189,24 @@ export default function QuestDetailPage() {
                 <div className="text-[13px] font-extrabold text-[#2E7D34]">
                   😴 Rest day — nothing due, nothing lost
                 </div>
+              </div>
+            )}
+
+            {/* 🔒 What's next — readable, not doable. */}
+            {upNext && (!todayStep || todayStep.done) && (
+              <div className="mt-2 rounded-[16px] border border-dashed border-[#DFE3FB] bg-[#F7F9FF] px-4 py-3 flex items-center gap-2.5">
+                <span className="text-[15px]" aria-hidden>🔒</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-extrabold tracking-[1px] text-[#5A6488] uppercase">
+                    Up next · {toDisplayDate(upNext.date ?? '')}
+                  </div>
+                  <div className="text-[12.5px] font-bold text-[#0F1F44] leading-snug truncate">
+                    {upNext.tone === 'fun' ? '🎈 ' : ''}{upNext.title}
+                  </div>
+                </div>
+                <span className="text-[10.5px] text-[#8A8471] italic shrink-0 hidden sm:block">
+                  not yet — that&apos;s for its day
+                </span>
               </div>
             )}
           </div>
@@ -276,34 +309,40 @@ export default function QuestDetailPage() {
           </div>
         )}
 
-        {/* ── The pathway ──────────────────────────────────────────── */}
+        {/* ── 📚 The Library — where a parent runs the activities ──── */}
+        {isParent && familyId && (
+          <QuestLibrary
+            familyId={familyId}
+            kidId={kidId}
+            kidName={kid.name}
+            quest={quest}
+            steps={steps}
+          />
+        )}
+
+        {/* ── The plan so far ──────────────────────────────────────── */}
         <div className="mt-5">
           <div className="flex items-center justify-between gap-2 mb-2.5">
             <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">
-              🧭 The pathway
+              🗓 The plan so far
             </div>
             {isParent && (
               <button
                 type="button"
                 onClick={() => setBuilderOpen(true)}
-                className="px-3 py-1.5 rounded-full text-[11.5px] font-extrabold text-white"
-                style={{ background: '#3B2E86' }}
+                className="px-3 py-1.5 rounded-full text-[11.5px] font-extrabold border border-[#ECE4D3] bg-white text-[#5A6488]"
               >
-                {steps.length ? 'Re-plan' : 'Build the pathway'}
+                Bulk-plan by hand
               </button>
             )}
           </div>
 
-          {steps.length === 0 ? (
-            <div className="bg-[#FBF7EE] rounded-2xl px-5 py-7 text-center">
-              <div className="text-3xl mb-2" aria-hidden>🧭</div>
-              <div className="font-display font-extrabold text-[13.5px] text-[#0F1F44]">
-                No pathway yet
-              </div>
-              <p className="text-[12px] text-[#5A6488] mt-1 mb-0 leading-snug max-w-sm mx-auto">
+          {weeks.length === 0 ? (
+            <div className="bg-[#FBF7EE] rounded-2xl px-5 py-6 text-center">
+              <p className="text-[12px] text-[#5A6488] m-0 leading-snug max-w-sm mx-auto">
                 {isParent
-                  ? 'Write the handful of things you’d actually ask them to do. Kaya spreads them across the weeks so the whole plan exists up front — you approve it once, and then there’s simply a step each day.'
-                  : 'A parent is still planning this one.'}
+                  ? 'Nothing is on the calendar yet. Approve activities in the Library above and schedule them — they’ll appear here, one a day.'
+                  : 'A parent is still choosing the activities for this quest.'}
               </p>
             </div>
           ) : (
@@ -332,7 +371,7 @@ export default function QuestDetailPage() {
                           }`}
                         >
                           <span className="text-[13px] leading-5 shrink-0" aria-hidden>
-                            {s.done ? '✅' : s.date < today ? '⚪️' : '⬜️'}
+                            {s.done ? '✅' : (s.date ?? '') < today ? '⚪️' : '⬜️'}
                           </span>
                           <div className="min-w-0 flex-1">
                             <div className="text-[12.5px] font-bold text-[#0F1F44] leading-snug">

@@ -120,12 +120,34 @@ export interface QuestStepProof {
   seconds?: number;
 }
 
+/** Where an activity sits in the Quest Library (2026-08-15).
+ *
+ *  `pending`  — generated or drafted, waiting on a parent's tick. A kid
+ *               never sees it; it has no date.
+ *  `approved` — the parent allowed it. It's in the library and can be
+ *               scheduled onto a day.
+ *
+ *  INVARIANT: only an `approved` activity ever carries a `date`. That's
+ *  what keeps every existing date-based query (the reminder cron, the
+ *  Today call, consistency) correct without a single change — an undated
+ *  or pending activity is invisible to all of them by construction.
+ *
+ *  Absent on steps written before the Library shipped: those were batch-
+ *  approved as a pathway, so absent reads as `approved`. */
+export type StepStatus = 'pending' | 'approved';
+
 export interface QuestStep {
   id: string;
   questId: string;
   kidId: string;
-  /** Planned LOCAL day (YYYY-MM-DD). Steps are dated up front (D4). */
-  date: string;
+  /** Planned LOCAL day (YYYY-MM-DD). ABSENT while the activity is
+   *  sitting in the library, unscheduled. */
+  date?: string;
+  status?: StepStatus;
+  /** A short variety label — "Say it out loud", "Teach someone", "Game".
+   *  Generation is told to spread these, so a library never becomes ten
+   *  flavours of the same drill. */
+  kindTag?: string;
   phase: QuestPhase;
   title: string;
   /** What to actually do — one or two plain sentences, kid voice. */
@@ -553,6 +575,112 @@ export async function uploadQuestMedia(
   return res.json() as Promise<{ url: string; kind: ProofKind; seconds: number }>;
 }
 
+// ── 📚 The Quest Library (2026-08-15) ───────────────────────────────
+//
+// Every quest owns a library of activities. Kaya generates one or two
+// weeks of DAILY activities at a time; the parent reads the whole batch
+// in advance and ticks the ones they'll allow; approved activities get
+// scheduled onto the quest's days, one per day. The child then opens the
+// app and gets exactly today's — they can read what's next, but they
+// can't run ahead of the plan.
+
+export interface NewActivityInput {
+  questId: string;
+  title: string;
+  how: string;
+  minutes?: number;
+  tone?: 'fun' | 'serious';
+  phase?: QuestPhase;
+  kindTag?: string;
+  proofKindWanted?: ProofKind;
+  /** A parent writing their own activity has, by definition, approved
+   *  it. Generated ones arrive `pending`. */
+  approved?: boolean;
+}
+
+/** Add one activity to the library by hand. */
+export async function addActivity(
+  familyId: string, kidId: string, input: NewActivityInput,
+): Promise<string> {
+  if (isGuestActive()) return 'guest';
+  const { id } = await questsApi<{ id: string }>('library-add', { ...input });
+  pingQuests(familyId, kidId);
+  return id;
+}
+
+/** Tick one or more activities through to approved. */
+export async function approveActivities(
+  familyId: string, kidId: string, questId: string, stepIds: string[],
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('library-approve', { questId, stepIds });
+  pingQuests(familyId, kidId);
+}
+
+/** Discard library activities outright. */
+export async function removeActivities(
+  familyId: string, kidId: string, questId: string, stepIds: string[],
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('library-remove', { questId, stepIds });
+  pingQuests(familyId, kidId);
+}
+
+export async function editActivity(
+  familyId: string, kidId: string, questId: string, stepId: string,
+  patch: { title?: string; how?: string; minutes?: number; tone?: 'fun' | 'serious' },
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('library-edit', { questId, stepId, patch });
+  pingQuests(familyId, kidId);
+}
+
+/** Lay approved-but-undated activities onto the quest's next free active
+ *  days, one per day, in library order. Returns how many landed and the
+ *  last date used, so the UI can say something true. */
+export async function scheduleLibrary(
+  familyId: string, kidId: string, questId: string, stepIds?: string[],
+): Promise<{ scheduled: number; from: string | null; to: string | null }> {
+  if (isGuestActive()) return { scheduled: 0, from: null, to: null };
+  const res = await questsApi<{ scheduled: number; from: string | null; to: string | null }>(
+    'library-schedule', { questId, ...(stepIds ? { stepIds } : {}) },
+  );
+  pingQuests(familyId, kidId);
+  return res;
+}
+
+/** Pull a scheduled activity back off the calendar and into the library.
+ *  Completed activities are history and are refused server-side. */
+export async function unscheduleActivity(
+  familyId: string, kidId: string, questId: string, stepId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('library-unschedule', { questId, stepId });
+  pingQuests(familyId, kidId);
+}
+
+/** Generate a batch of daily activities into the library as `pending`.
+ *  `days` is how many days of practice to cover — 7 or 14. */
+export async function generateLibrary(
+  questId: string, days: number,
+): Promise<{ items: QuestStep[]; created: number }> {
+  return aiApi<{ items: QuestStep[]; created: number }>('library', { questId, days });
+}
+
+/** Split a quest's steps into the three piles the Library UI shows. */
+export function libraryBuckets(steps: QuestStep[]): {
+  pending: QuestStep[];
+  approved: QuestStep[];
+  scheduled: Array<QuestStep & { date: string }>;
+} {
+  const inLib = steps.filter(isInLibrary);
+  return {
+    pending: inLib.filter((s) => !isApproved(s)),
+    approved: inLib.filter(isApproved),
+    scheduled: scheduledSteps(steps),
+  };
+}
+
 // ── "What's open today?" (B3 · B4 · B5) ─────────────────────────────
 
 export interface SparksTodayQuest {
@@ -904,13 +1032,48 @@ export function isDueOn(quest: Quest, date: string): boolean {
   return quest.activeDays.includes(dowForDate(date));
 }
 
+// ── Library predicates ──────────────────────────────────────────────
+//
+// Steps written before the Library shipped carry no `status`; they were
+// batch-approved as a pathway, so absent reads as approved.
+
+export function isApproved(s: QuestStep): boolean {
+  return (s.status ?? 'approved') === 'approved';
+}
+
+/** On the calendar: approved AND dated. Everything the cron, the Today
+ *  call and consistency care about. */
+export function isScheduled(s: QuestStep): s is QuestStep & { date: string } {
+  return !!s.date && isApproved(s);
+}
+
+/** In the library, waiting to be scheduled — or waiting on a tick. */
+export function isInLibrary(s: QuestStep): boolean {
+  return !s.date;
+}
+
+/** The scheduled activities, in calendar order. */
+export function scheduledSteps(steps: QuestStep[]): Array<QuestStep & { date: string }> {
+  return steps.filter(isScheduled).sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return (a.seq ?? 0) - (b.seq ?? 0);
+  });
+}
+
 /** The step a kid should see on `date` — the first not-done step dated
  *  that day, else the day's completed step so they can see the tick. */
 export function stepForDate(steps: QuestStep[], date: string): QuestStep | null {
-  const sameDay = steps
+  const sameDay = scheduledSteps(steps)
     .filter((s) => s.date === date)
     .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
   return sameDay.find((s) => !s.done) ?? sameDay[0] ?? null;
+}
+
+/** The next SCHEDULED activity after `date`. A kid may read it — seeing
+ *  what's coming is motivating — but never act on it: today is the only
+ *  day you can do. */
+export function nextScheduledAfter(steps: QuestStep[], date: string): QuestStep | null {
+  return scheduledSteps(steps).find((s) => s.date > date && !s.done) ?? null;
 }
 
 /** D9 · CONSISTENCY track. Steps done ÷ steps that were actually due
@@ -918,7 +1081,11 @@ export function stepForDate(steps: QuestStep[], date: string): QuestStep | null 
 export function consistency(quest: Quest, steps: QuestStep[], upTo = todayKey()): {
   done: number; due: number; percent: number;
 } {
-  const due = steps.filter((s) => s.date <= upTo && quest.activeDays.includes(dowForDate(s.date)));
+  // Only scheduled activities can be "due" — anything still sitting in
+  // the library was never asked of the child, so it can't count against
+  // them.
+  const due = scheduledSteps(steps)
+    .filter((s) => s.date <= upTo && quest.activeDays.includes(dowForDate(s.date)));
   const done = due.filter((s) => s.done).length;
   return {
     done,
@@ -929,8 +1096,9 @@ export function consistency(quest: Quest, steps: QuestStep[], upTo = todayKey())
 
 /** Overall pathway progress — every step, not just the due ones. */
 export function pathwayProgress(steps: QuestStep[]): { done: number; total: number; percent: number } {
-  const done = steps.filter((s) => s.done).length;
-  return { done, total: steps.length, percent: steps.length ? Math.round((done / steps.length) * 100) : 0 };
+  const sched = scheduledSteps(steps);
+  const done = sched.filter((s) => s.done).length;
+  return { done, total: sched.length, percent: sched.length ? Math.round((done / sched.length) * 100) : 0 };
 }
 
 /** D9 · GROWTH track for one marker: the baseline, the latest reading,
@@ -1025,8 +1193,8 @@ export function buildManualPathway(
 /** Group steps into ISO-ish weeks for the pathway review list. Returns
  *  `[{ label, steps }]` in date order. */
 export function groupStepsByWeek(steps: QuestStep[]): Array<{ label: string; steps: QuestStep[] }> {
-  if (!steps.length) return [];
-  const sorted = [...steps].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const sorted = scheduledSteps(steps);
+  if (!sorted.length) return [];
   const first = sorted[0].date;
   const buckets = new Map<number, QuestStep[]>();
   for (const s of sorted) {

@@ -173,6 +173,63 @@ const ADAPT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
+// 📚 The Quest Library — a batch of DAILY activities, generated ahead so
+// a parent can read the whole run in advance and tick what they'll allow.
+//
+// Variety is the point Elia pressed on, so it's enforced rather than
+// hoped for: the model is given a modality taxonomy, told to spread
+// across it, and shown everything already in the library so it doesn't
+// re-serve the same drill in new words.
+const VARIETY_TAGS = [
+  'Say it out loud', 'Record yourself', 'Read aloud', 'Teach someone',
+  'Perform it', 'Play a game', 'Copy a pro', 'Make something',
+  'Beat the clock', 'Explain it simply', 'Ask and answer', 'Try it harder',
+];
+
+const LIBRARY_SYSTEM = `You fill the activity library for one Kaya Quest — a family app where a parent sets a growth goal for their child and the child does ONE small activity a day.
+
+You will be given: the child's first name and age, the GOAL, an optional PRIVATE starting point, the difficulty, minutes per day, how many activities to produce, and the titles of activities ALREADY in this quest's library.
+
+Return JSON: { "items": [ { "title": string, "how": string, "minutes": number, "tone": "fun" | "serious", "kindTag": string, "phase": string, "proofKindWanted": "note"|"photo"|"scan"|"audio"|"video" } ] }
+
+Hard rules:
+- Produce EXACTLY the requested number of activities. Each one is a single day's work.
+- VARIETY IS THE POINT. Each "kindTag" must come from this list, and you must use at least SIX DIFFERENT ones across the batch, never the same tag twice in a row: ${VARIETY_TAGS.join(', ')}.
+- Do NOT repeat, rephrase, or lightly reskin anything already in the library. If an existing activity covers a move, find a genuinely different way in.
+- At least a third must be "fun" — a game, a joke, an audience, a silly constraint, a race against a timer. A library that is all drill gets abandoned in week two.
+- "title" is short (under 60 characters) and reads like an instruction to the child.
+- "how" is one or two plain sentences telling the child exactly what to do, in words a child their age reads easily. Include anything they need to set up, using ordinary household things only.
+- "minutes" stays at or under the requested minutes per day.
+- "phase" is one of: "Warm up", "Shape", "Stretch", "Perform" — and the batch should progress roughly in that order, getting harder towards the end.
+- Choose "proofKindWanted" that genuinely fits: audio for anything spoken or musical, video for movement or performance, scan or photo for written or made things, note otherwise. Prefer audio over video where both would work — it is far lighter on a mobile data bundle.
+- THE PRIVATE STARTING POINT IS CONFIDENTIAL. Use it to aim the activities. NEVER repeat, quote, paraphrase or hint at it — the child reads every word of "title" and "how".
+- No emojis.`;
+
+const LIBRARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' },
+          how: { type: 'string' },
+          minutes: { type: 'number' },
+          tone: { type: 'string', enum: ['fun', 'serious'] },
+          kindTag: { type: 'string' },
+          phase: { type: 'string' },
+          proofKindWanted: { type: 'string', enum: ['note', 'photo', 'scan', 'audio', 'video'] },
+        },
+        required: ['title', 'how', 'minutes', 'tone', 'kindTag', 'phase', 'proofKindWanted'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['items'],
+  additionalProperties: false,
+} as const;
+
 const PATHWAY_SCHEMA = {
   type: 'object',
   properties: {
@@ -262,7 +319,8 @@ export async function POST(req: NextRequest) {
   const kidId = String(quest.kidId || '');
 
   // ── D17 · tier gate (operators bypass, as everywhere else) ────────
-  if (action === 'pathway' || action === 'pack' || action === 'coach' || action === 'adapt') {
+  if (action === 'pathway' || action === 'pack' || action === 'coach'
+    || action === 'adapt' || action === 'library') {
     const fam = (await famRef.get()).data() as { tierId?: string } | undefined;
     const tierId = fam?.tierId || 'nest';
     let allowed = tierId === 'home' || tierId === 'castle';
@@ -494,6 +552,84 @@ export async function POST(req: NextRequest) {
     await questRef.update(patch);
 
     return NextResponse.json({ items: written, forDate: targetDate });
+  }
+
+  // ── 📚 Fill the Quest Library ─────────────────────────────────────
+  if (action === 'library') {
+    const wanted = clamp(Number(body.days), 1, 21, 7);
+    const stepsCol = famRef.collection('sparks_quest_steps');
+
+    // Show the model what's already there so it can't re-serve the same
+    // drill in new words — the difference between a library and a list.
+    const existingSnap = await stepsCol.where('questId', '==', questId).get();
+    const existingTitles = existingSnap.docs
+      .map((d) => String((d.data() as { title?: string }).title || ''))
+      .filter(Boolean)
+      .slice(-60);
+
+    const minutes = clamp(Number(quest.minutesPerDay), 1, 120, 10);
+    const userMsg = [
+      `Child: ${kidName}${age ? `, age ${age}` : ''}`,
+      `GOAL: ${String(quest.goal || '')}`,
+      startingPoint ? `PRIVATE starting point (confidential — never repeat or hint at this): ${startingPoint}` : '',
+      `Difficulty: ${String(quest.difficulty || 'medium')}`,
+      `Minutes per day: ${minutes}`,
+      `Number of activities to produce: ${wanted}`,
+      existingTitles.length
+        ? `ALREADY IN THE LIBRARY (do not repeat or reskin any of these):\n- ${existingTitles.join('\n- ')}`
+        : 'The library is empty — this is the first batch.',
+    ].filter(Boolean).join('\n');
+
+    let items: Array<Record<string, unknown>> = [];
+    try {
+      const r = await client!.messages.create({
+        model: MODEL,
+        max_tokens: 6000,
+        system: [{ type: 'text', text: LIBRARY_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: LIBRARY_SCHEMA } },
+        messages: [{ role: 'user', content: [{ type: 'text', text: userMsg }] }],
+      });
+      const t = r.content.find((b) => b.type === 'text');
+      if (t && t.type === 'text') {
+        items = (JSON.parse(t.text) as { items?: Array<Record<string, unknown>> }).items ?? [];
+      }
+    } catch {
+      return NextResponse.json({ error: 'ai-failed' }, { status: 502 });
+    }
+    if (!items.length) return NextResponse.json({ error: 'ai-empty' }, { status: 502 });
+
+    const now = Date.now();
+    const batch = db.batch();
+    const written: Array<Record<string, unknown>> = [];
+    items.slice(0, wanted).forEach((raw, i) => {
+      const doc: Record<string, unknown> = {
+        questId,
+        kidId,
+        title: String(raw.title || 'Practice').slice(0, 120),
+        how: String(raw.how || '').slice(0, 600),
+        minutes: clamp(Number(raw.minutes), 1, 120, minutes),
+        tone: raw.tone === 'fun' ? 'fun' : 'serious',
+        phase: String(raw.phase || 'Shape').slice(0, 40),
+        kindTag: String(raw.kindTag || '').slice(0, 40),
+        proofKindWanted: ['note', 'photo', 'scan', 'audio', 'video'].includes(String(raw.proofKindWanted))
+          ? String(raw.proofKindWanted) : 'note',
+        source: 'ai',
+        // D5 · generated, therefore PENDING. It carries no date, so the
+        // reminder cron and the child's Today view cannot see it. The
+        // parent's tick is the only way it reaches a child.
+        status: 'pending',
+        done: false,
+        // Ordered so the parent reviews (and schedules) them in the
+        // sequence the model intended them to be done.
+        createdAt: now + i,
+      };
+      const ref = stepsCol.doc();
+      batch.set(ref, doc);
+      written.push({ id: ref.id, ...doc });
+    });
+    await batch.commit();
+
+    return NextResponse.json({ items: written, created: written.length });
   }
 
   // ── 🎤 Coach Ear (innovation 2) ───────────────────────────────────
