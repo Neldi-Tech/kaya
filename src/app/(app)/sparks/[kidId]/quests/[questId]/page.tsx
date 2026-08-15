@@ -16,6 +16,7 @@ import { useFamily } from '@/contexts/FamilyContext';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import PathwayBuilder from '@/components/sparks/PathwayBuilder';
 import TodayStepCard from '@/components/sparks/TodayStepCard';
+import QuestPackQueue from '@/components/sparks/QuestPackQueue';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
@@ -342,6 +343,9 @@ export default function QuestDetailPage() {
             </>
           )}
         </div>
+
+        {/* ── D5 · nothing generated reaches a kid unapproved ──────── */}
+        {isParent && <QuestPackQueue quest={quest} kidName={kid.name} />}
 
         {/* ── Parent controls ──────────────────────────────────────── */}
         {isParent && (
