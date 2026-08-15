@@ -40,7 +40,7 @@ import SparksIcon from '@/components/brand/SparksIcon';
 // shape the mockup designs around. Keep edits in lockstep with the
 // mockup so the parent landing stays faithful.
 
-type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit' | '08 · Personal Book';
+type Badge = '01 · Capture' | '02 · Capture + Action' | '03 · Capture' | '04 · Action' | '05 · Action' | '06 · Practice Loop' | '07 · Daily Habit' | '08 · Personal Book' | '09 · Growth Engine';
 
 const AREA_PITCH: Record<SparksArea, {
   badge: Badge;
@@ -52,6 +52,21 @@ const AREA_PITCH: Record<SparksArea, {
   aiTag: string;
   workplanTag?: string;
 }> = {
+  quest: {
+    badge: '09 · Growth Engine',
+    badgeBg: '#DFE3FB', badgeFg: '#3B2E86', cornerBg: '#3B2E86',
+    purpose: 'The family sets a goal — "tell a 2-minute story without freezing" — and Kaya turns it into a pathway of small daily steps, with proof you can hear and see months later. Every learning app generates exercises; this one shows the child they got better.',
+    features: [
+      'Goal-first setup — the honest starting point stays parent-only',
+      'A whole pathway drafted up front, approved once',
+      'One small step a day · photo, scan, audio or video proof',
+      'Markers vs a day-1 baseline — growth, not just obedience',
+      'Kind streaks · 🛡️ shield, 🩹 repair, rest days, pause',
+      'Graduation writes a permanent Achievement',
+    ],
+    aiTag: '✨ AI drafts the pathway + the practice packs',
+    workplanTag: '🎉 Earns Kaya Points',
+  },
   school_project: {
     badge: '01 · Capture',
     badgeBg: '#FFE7E0', badgeFg: '#E85C5C', cornerBg: '#FF6B6B',

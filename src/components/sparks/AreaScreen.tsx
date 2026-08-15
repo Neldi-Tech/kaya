@@ -11,12 +11,18 @@
 
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { SPARKS_AREA_META, type SparksItemArea } from '@/lib/sparks/schema';
+import { SPARKS_AREA_META, type SparksItemArea, type SparksNonItemArea } from '@/lib/sparks/schema';
+
+/** Every area that can host an AreaScreen — item areas plus the four
+ *  that own their own collection. */
+type AnyArea = SparksItemArea | SparksNonItemArea;
 
 // Gradient + text colour per area — pulled directly from the mockup
 // (`.head-coral`, `.head-yellow`, `.head-green`, `.head-purple`, `.head-mint`).
 // Revision = navy → purple (its own "study + brain" identity).
-export const AREA_HEAD_BG: Record<SparksItemArea | 'academic' | 'reflection' | 'diary', string> = {
+export const AREA_HEAD_BG: Record<AnyArea, string> = {
+  // Quests — indigo → sky "launch" identity (2026-08-15).
+  quest:               'linear-gradient(135deg, #3B2E86 0%, #5AB7D6 100%)',
   school_project:      'linear-gradient(135deg, #FF6B6B 0%, #FF8E72 100%)',
   home_project:        'linear-gradient(135deg, #FFB627 0%, #FFD93D 100%)',
   achievement:         'linear-gradient(135deg, #6BCB77 0%, #9DE0A6 100%)',
@@ -29,7 +35,8 @@ export const AREA_HEAD_BG: Record<SparksItemArea | 'academic' | 'reflection' | '
   diary:               'linear-gradient(135deg, #7A2E5C 0%, #C05299 100%)',
 };
 
-export const AREA_HEAD_FG: Record<SparksItemArea | 'academic' | 'reflection' | 'diary', string> = {
+export const AREA_HEAD_FG: Record<AnyArea, string> = {
+  quest:          '#fff',
   school_project: '#fff',
   home_project:   '#0F1F44',
   achievement:    '#fff',
@@ -43,7 +50,7 @@ export const AREA_HEAD_FG: Record<SparksItemArea | 'academic' | 'reflection' | '
 interface Props {
   kidId: string;
   kidName: string;
-  area: SparksItemArea | 'academic' | 'reflection' | 'diary';
+  area: AnyArea;
   /** Right-side detail under the title (e.g. "12 captured · 3 upcoming"). */
   subtitle?: string;
   /** Right-aligned CTA, typically the "+ Add" button. */
