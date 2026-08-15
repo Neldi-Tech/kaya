@@ -33,6 +33,9 @@ export interface ShineCard {
   pointsLabel: string;  // e.g. "⭐ +5 HP" | "💛 KUDOS"
   category?: string;
   roundDate?: string;
+  /** 🎁 FX PR-2 — the treat/gift the parent gave with this recognition,
+   *  in their words or a store reward's name. Stamped on the card. */
+  gift?: string;
   doubleShine?: boolean;
   notes?: ShineCardNote[];
   echo?: { reaction: string; text?: string; at: number };
@@ -219,6 +222,7 @@ export function shineCardSvg(card: ShineCard): string {
     `<text x="${W / 2}" y="${quoteY + i * lineH}" text-anchor="middle" font-family="Georgia, serif" font-size="27" fill="${p.quote}">${esc(l)}</text>`).join('\n  ')}
   <text x="${W / 2}" y="${quoteY + lines.length * lineH + 34}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="23" fill="${p.sig}">— with love, ${esc(card.byName)}</text>
   ${card.doubleShine ? `<text x="${W / 2}" y="${quoteY + lines.length * lineH + 72}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.brand}">🤝 Double Shine — both of us celebrated this</text>` : ''}
+  ${card.gift ? `<text x="${W / 2}" y="${quoteY + lines.length * lineH + (card.doubleShine ? 104 : 72)}" text-anchor="middle" font-family="Arial" font-size="17" font-weight="bold" fill="${p.brand}">🎁 ${esc(card.gift)}</text>` : ''}
   <rect x="18" y="${H - 76}" width="${W - 36}" height="58" rx="14" fill="url(#band)"/>
   <text x="46" y="${H - 40}" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">${dateStr}</text>
   <text x="${W / 2}" y="${H - 40}" text-anchor="middle" font-family="Arial" font-size="16" font-weight="bold" fill="${p.bandText}">${esc(card.pointsLabel)}</text>

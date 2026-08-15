@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     switch (action) {
       case 'card-create': {
         if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-        const { kidId, kidName, kidEmoji, awardId, theme, quote, kindLabel, pointsLabel, category, roundDate } = body;
+        const { kidId, kidName, kidEmoji, awardId, theme, quote, kindLabel, pointsLabel, category, roundDate, gift } = body;
         if (!kidId || !quote) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
 
         // № via transactional counter on the family doc.
@@ -107,6 +107,7 @@ export async function POST(req: NextRequest) {
           pointsLabel: String(pointsLabel || ''),
           ...(category ? { category: String(category) } : {}),
           ...(roundDate ? { roundDate: String(roundDate) } : {}),
+          ...(gift ? { gift: String(gift).slice(0, 80) } : {}),
           doubleShine,
           notes: [] as unknown[],
         };
