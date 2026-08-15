@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import RecognitionHitMap from '@/components/rewards/RecognitionHitMap';
+import { ShineWall } from '@/components/rewards/ShineCards';
 import BackButton from '@/components/ui/BackButton';
 import { getWaitingRound, type WaitingRound } from '@/lib/shineCards';
 
@@ -78,6 +79,11 @@ export default function RecognitionPage() {
       <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
         <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">🗓️ Recognition Hit-Map</p>
         <RecognitionHitMap />
+      </div>
+
+      {/* 🌟 FX PR-3 — the recognition history: every card, easy to go back. */}
+      <div className="mt-5">
+        <ShineWall familyId={profile.familyId} title="🌟 Recognition history" />
       </div>
     </div>
   );

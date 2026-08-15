@@ -72,6 +72,7 @@ export default function AwardPage() {
   const searchParams = useSearchParams();
   const [round, setRound] = useState<RecognitionRound | null>(null);
   const [shineCards, setShineCards] = useState<ShineCard[]>([]);
+  const [sheetOpen, setSheetOpen] = useState(true);
   useEffect(() => {
     const kid = searchParams?.get('kid');
     if (kid) setSelectedChildren((prev) => (prev.includes(kid) ? prev : [...prev, kid]));
@@ -282,6 +283,7 @@ export default function AwardPage() {
             });
           }
           setShineCards(minted);
+          setSheetOpen(true);
           setGiftLabel(''); setGiftCustom(false);
         } catch { /* card minting never blocks the award */ }
       })();
@@ -384,14 +386,24 @@ export default function AwardPage() {
     return (
       <div className="mx-auto max-w-md w-full lg:max-w-2xl px-4 pt-16 lg:pt-24 text-center animate-slide-up">
         {/* 🌟 RR PR-2 — the freshly minted Shine Card(s), ready to share. */}
-        {shineCards.length > 0 && profile?.familyId && (
+        {sheetOpen && shineCards.length > 0 && profile?.familyId && (
           <ShineCardSheet
             familyId={profile.familyId}
             cards={shineCards}
-            onClose={() => setShineCards([])}
+            onClose={() => setSheetOpen(false)}
             onThemeChange={(cardId, theme) =>
               setShineCards((prev) => prev.map((c) => (c.id === cardId ? { ...c, theme } : c)))}
           />
+        )}
+        {!sheetOpen && shineCards.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setSheetOpen(true)}
+            className="mb-4 px-4 py-2 rounded-full text-[12.5px] font-black text-white"
+            style={{ background: 'linear-gradient(130deg,#6B3FE0,#9b6bff)' }}
+          >
+            🌟 View Shine Card{shineCards.length > 1 ? 's' : ''} №{shineCards.map((c) => c.n).join(', №')}
+          </button>
         )}
         <div className="text-6xl lg:text-7xl mb-4">{successEmoji}</div>
         <h2 className="font-display text-2xl lg:text-3xl font-black mb-2">{successHeading}</h2>

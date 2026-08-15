@@ -36,6 +36,9 @@ export interface ShineCard {
   /** 🎁 FX PR-2 — the treat/gift the parent gave with this recognition,
    *  in their words or a store reward's name. Stamped on the card. */
   gift?: string;
+  /** 📣 FX PR-3 — set once the card is posted to Moments; powers the
+   *  "In Moments →" link so recognition connects to the family feed. */
+  momentsPostId?: string;
   doubleShine?: boolean;
   notes?: ShineCardNote[];
   echo?: { reaction: string; text?: string; at: number };
@@ -79,6 +82,8 @@ export const addShineCardNote = (familyId: string, cardId: string, text: string)
   recognitionApi('card-note', { familyId, cardId, text });
 export const sendShineCardEcho = (familyId: string, cardId: string, reaction: string, text?: string) =>
   recognitionApi('card-echo', { familyId, cardId, reaction, ...(text ? { text } : {}) });
+export const setShineCardPost = (familyId: string, cardId: string, postId: string) =>
+  recognitionApi('card-set-post', { familyId, cardId, postId });
 export const getRound = (familyId: string, date: string) =>
   recognitionApi<{ ok: true; round: RecognitionRound | null }>('round-get', { familyId, date })
     .then((r) => r.round);

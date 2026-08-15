@@ -19,7 +19,7 @@ export const maxDuration = 30;
 
 type Action =
   | 'card-create' | 'card-list' | 'card-theme' | 'card-note' | 'card-echo'
-  | 'round-get' | 'round-list';
+  | 'card-set-post' | 'round-get' | 'round-list';
 
 const CARD_LIMIT = 120;
 
@@ -174,6 +174,15 @@ export async function POST(req: NextRequest) {
         const { cardId, theme } = body;
         if (!cardId || !theme) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
         await cardsCol.doc(String(cardId)).update({ theme: String(theme) });
+        return NextResponse.json({ ok: true });
+      }
+
+      case 'card-set-post': {
+        // 📣 FX PR-3 — remember which Moments post carries this card.
+        if (!isAdult) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+        const { cardId, postId } = body;
+        if (!cardId || !postId) return NextResponse.json({ error: 'bad-request' }, { status: 400 });
+        await cardsCol.doc(String(cardId)).update({ momentsPostId: String(postId) });
         return NextResponse.json({ ok: true });
       }
 
