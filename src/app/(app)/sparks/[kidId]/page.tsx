@@ -43,6 +43,12 @@ import {
 import { subscribeToReflections, computeReflectionStreak } from '@/lib/sparks/reflection';
 import { subscribeToDiary, computeDiaryStats } from '@/lib/sparks/diary';
 import { subscribeToQuests, activeCount } from '@/lib/sparks/quests';
+import SparksTodayCard from '@/components/sparks/SparksTodayCard';
+
+// B5 · the areas were eight equal-weight tiles, so a daily habit and a
+// once-a-term record card looked identical and nothing pulled the kid
+// forward. Same tiles, honest hierarchy: what you DO, then what you KEEP.
+const PRACTICE_AREAS: SparksArea[] = ['quest', 'revision', 'reflection', 'diary'];
 
 // Kid palette accents per area — direct from the mockup
 // (Step 2 · Module landing). Coral · Yellow · Green · Purple · Mint
@@ -289,8 +295,26 @@ export default function KidSparksHomePage() {
             surface stops looking like a centered phone on a 1080p+
             monitor. AI strip + parent action strip stay full width. */}
         <div className="px-4 py-4 lg:px-8 lg:py-7">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 lg:gap-4">
-          {SPARKS_AREA_ORDER.map((areaKey) => {
+          {/* B5 · what's actually due, before the tiles */}
+          {familyId && (isParent || isSelf) && (
+            <SparksTodayCard
+              familyId={familyId}
+              kidId={kid.id}
+              kidName={kid.name}
+              variant="strip"
+            />
+          )}
+
+          {(['practice', 'record'] as const).map((group) => {
+            const keys = SPARKS_AREA_ORDER.filter((a) =>
+              group === 'practice' ? PRACTICE_AREAS.includes(a) : !PRACTICE_AREAS.includes(a));
+            return (
+              <div key={group} className="mb-4 lg:mb-6 last:mb-0">
+                <div className="font-display font-extrabold text-[11px] tracking-[1.2px] text-[#5A6488] uppercase mb-2">
+                  {group === 'practice' ? '🎯 Practice — things you do' : '📚 Record — things you keep'}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 lg:gap-4">
+          {keys.map((areaKey) => {
             // A diary is fully personal — sibling kids don't even see the tile.
             if (areaKey === 'diary' && isKid && !!profile?.childId && profile.childId !== kidId) return null;
             const meta = SPARKS_AREA_META[areaKey];
@@ -335,7 +359,10 @@ export default function KidSparksHomePage() {
               </Link>
             );
           })}
-          </div>
+                </div>
+              </div>
+            );
+          })}
 
           {/* AI strip — purple → mint gradient per mockup. Full-width
               under the area grid so it reads as the persistent companion. */}

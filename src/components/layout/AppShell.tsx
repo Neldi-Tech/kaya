@@ -15,6 +15,7 @@ import { useBranding } from '@/lib/brandingClient';
 import { helperModuleKeyForPath } from '@/lib/helperModules';
 import { PulseMark } from '@/components/pulse/ui';
 import SparksIcon from '@/components/brand/SparksIcon';
+import SparksNavBadge from '@/components/sparks/SparksNavBadge';
 import KayaFunIcon from '@/components/brand/KayaFunIcon';
 import HoneyPotIcon from '@/components/hive/HoneyPotIcon';
 import GuestBanner from './GuestBanner';
@@ -344,15 +345,15 @@ const PARENT_SIDEBAR: SidebarRow[] = [
   // the desktop + mobile headers below), not as a regular sidebar row.
   // Removed from the sidebar 2026-05-29 — the pill is the entry point.
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
+  // Kaya Sparks — B1 (2026-08-15). Promoted from 10th (below Household)
+  // to slot 3. Rank has to follow BEHAVIOUR: Sparks is the module with
+  // a daily action in it, and buried below Household it was living in
+  // the More sheet, which is where features go to die.
+  { kind: 'link',    id: 'sparks',    path: '/sparks', iconNode: <SparksIcon className="w-4 h-4" />, label: 'Kaya Sparks' },
   { kind: 'link',    id: 'moments',   path: '/moments',   icon: '📸', label: 'Moments' },
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages', activePrefixes: ['/messages'] },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KAYA_NAV },
   { kind: 'section', id: 'household', icon: '🏡', label: 'Household', href: '/pantry', items: HOUSEHOLD_NAV },
-  // Kaya Sparks — kids education. Sits between Household and Hive per
-  // the locked nav placement in `Kaya-Sparks_Design-Spec_2026-05-27.md`
-  // (decision #5). Top-level link; sub-routes (5 areas + dashboard +
-  // setup) render inside the /sparks subtree.
-  { kind: 'link',    id: 'sparks',    path: '/sparks', iconNode: <SparksIcon className="w-4 h-4" />, label: 'Kaya Sparks' },
   { kind: 'section', id: 'hive',      icon: '🍯', label: 'The Hive', href: '/hive', items: HIVE_NAV, activePrefixes: ['/parent/approvals', '/parent/rates', '/parent/hive-deposit'] },
   { kind: 'section', id: 'business',  icon: '💼', label: 'Kaya Business', items: BUSINESS_NAV, activePrefixes: ['/parent/business'] },
   { kind: 'section', id: 'pulse',     iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse', href: '/pulse', items: PULSE_NAV, activePrefixes: ['/pulse'] },
@@ -411,6 +412,9 @@ const KID_SIDEBAR: SidebarRow[] = [
   // Kaya Universe lives in the top-bar pill (parent + kid headers),
   // not as a sidebar row.
   { kind: 'link',    id: 'myday',     path: '/my-day',    icon: '🌟', label: 'My Day' },
+  // B1 · same promotion on the kid side, for the same reason — this is
+  // the module a kid has a reason to open every single day.
+  { kind: 'link',    id: 'sparks',    path: '/sparks',    iconNode: <SparksIcon className="w-4 h-4" />, label: 'Kaya Sparks' },
   { kind: 'link',    id: 'workplan',  path: '/workplan',  icon: '🗓️', label: 'My Workplan' },
   // Reminders — always-on for every kid (granted unconditionally in
   // resolveKidModules, like Home), so the "every user" promise holds even
@@ -420,8 +424,6 @@ const KID_SIDEBAR: SidebarRow[] = [
   { kind: 'link',    id: 'messages',  path: '/messages',  icon: '💬', label: 'Messages' },
   { kind: 'section', id: 'kaya',      iconNode: <KayaIcon className="w-4 h-4" />, label: 'Kaya', items: KID_KAYA_NAV },
   { kind: 'link',    id: 'household', path: '/pantry',    icon: '🏡', label: 'Household' },
-  // Sparks placement mirrors the parent sidebar — between Household and Hive.
-  { kind: 'link',    id: 'sparks',    path: '/sparks',    iconNode: <SparksIcon className="w-4 h-4" />, label: 'Kaya Sparks' },
   { kind: 'link',    id: 'hive',      path: '/hive',      icon: '🍯', label: 'The Hive' },
   { kind: 'link',    id: 'business',  path: '/business',  icon: '💼', label: 'Kaya Business' },
   { kind: 'link',    id: 'pulse',     path: '/pulse/today', iconNode: <PulseMark className="w-4 h-4" />, label: 'Kaya Pulse' },
@@ -817,6 +819,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         >
           {renderIcon(row.icon, row.iconNode, row.soon ? 'text-base opacity-70' : 'text-base', row.soon ? 'w-4 h-4 opacity-70' : 'w-4 h-4')}
           <span className="text-left flex-1 truncate">{row.label}</span>
+          {/* B3 · a live state badge. "Kaya Sparks" on its own is a dead
+              label — it tells you nothing about whether anything is
+              waiting inside, and a number that changes is what earns a
+              tap. Kids only: it's their daily-return surface, and the
+              parent equivalent is the Sparks pulse on /home (B6). */}
+          {row.id === 'sparks' && profile?.role === 'kid' && profile.childId && family?.id && (
+            <SparksNavBadge familyId={family.id} kidId={profile.childId} active={active} />
+          )}
           {row.soon && (
             <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${
               active ? 'bg-white/20 text-kaya-gold-light' : 'bg-kaya-warm-dark text-kaya-sand'

@@ -42,13 +42,13 @@ type Action =
   | 'list' | 'get' | 'create' | 'update' | 'delete'
   | 'pathway-set' | 'private-set' | 'pause' | 'resume'
   | 'step-done' | 'step-undo' | 'streak-repair'
-  | 'marker-add' | 'marker-delete';
+  | 'marker-add' | 'marker-delete' | 'today';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'create', 'update', 'delete',
   'pathway-set', 'private-set', 'pause', 'resume',
   'step-done', 'step-undo', 'streak-repair',
-  'marker-add', 'marker-delete',
+  'marker-add', 'marker-delete', 'today',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -188,6 +188,76 @@ export async function POST(req: NextRequest) {
       .sort((a, b) => Number((b as { createdAt?: number }).createdAt || 0)
         - Number((a as { createdAt?: number }).createdAt || 0));
     return NextResponse.json({ quests });
+  }
+
+  // ── B3/B4/B5 · one call that answers "what is open today?" ────────
+  //
+  // The nav badge, the My Day card and the Sparks Today strip all need
+  // the same answer, and none of them should cost N round-trips. This
+  // returns the whole picture for one kid in a single request.
+  if (action === 'today') {
+    const kidId = str(body.kidId, 80);
+    if (!kidId) return NextResponse.json({ error: 'bad-kid' }, { status: 400 });
+    if (!(await canSeeKid(db, famRef, { isParent, isHelper, uid, viewerChildId }, kidId))) {
+      return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+    }
+    const today = todayInTZ();
+    const isOwnKid = viewerChildId === kidId;
+
+    const qSnap = await questsCol.where('kidId', '==', kidId).where('status', '==', 'active').get();
+    const visible = qSnap.docs.filter((d) => {
+      if (isParent || isHelper || isOwnKid) return true;
+      const v = String((d.data() as { visibility?: string }).visibility || 'private');
+      return v === 'siblings' || v === 'family';
+    });
+
+    const items: Array<Record<string, unknown>> = [];
+    for (const d of visible) {
+      const q = d.data() as Record<string, unknown>;
+      const activeDays = days(q.activeDays);
+      const paused = typeof q.pausedUntil === 'string' && today <= q.pausedUntil;
+      const due = !paused && activeDays.includes(dowOf(today));
+      let stepTitle = '';
+      let stepDone = false;
+      let hasStep = false;
+      if (due) {
+        const sSnap = await famRef.collection('sparks_quest_steps')
+          .where('questId', '==', d.id).where('date', '==', today).get();
+        hasStep = !sSnap.empty;
+        const open = sSnap.docs.map((s) => s.data() as { done?: boolean; title?: string })
+          .find((s) => !s.done);
+        stepDone = hasStep && !open;
+        stepTitle = String(open?.title || '');
+      }
+      items.push({
+        id: d.id,
+        title: String(q.title || 'Quest'),
+        emoji: String(q.emoji || '🚀'),
+        colour: String(q.colour || '#5A3CB8'),
+        cutoffHHmm: String(q.cutoffHHmm || '17:00'),
+        streak: Number((q.streak as { current?: number } | undefined)?.current) || 0,
+        due, hasStep, stepDone, stepTitle,
+      });
+    }
+
+    // Reflection is read here too, so the caller gets the honest combined
+    // count in ONE round-trip rather than three (R2 — an inflated count
+    // is exactly what makes a kid shut the app).
+    const reflSnap = await famRef.collection('sparks_reflections').doc(`${kidId}_${today}`).get();
+    const reflData = reflSnap.exists
+      ? (reflSnap.data() as { text?: string; scanUrl?: string } | undefined)
+      : undefined;
+    const reflectionDone = !!((reflData?.text && reflData.text.trim()) || reflData?.scanUrl);
+
+    const openQuests = items.filter((i) => i.due && i.hasStep && !i.stepDone).length;
+    return NextResponse.json({
+      date: today,
+      quests: items,
+      openQuests,
+      reflectionDone,
+      openCount: openQuests + (reflectionDone ? 0 : 1),
+      bestStreak: items.reduce((m, i) => Math.max(m, Number(i.streak) || 0), 0),
+    });
   }
 
   // Everything below operates on a single quest.

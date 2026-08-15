@@ -553,6 +553,61 @@ export async function uploadQuestMedia(
   return res.json() as Promise<{ url: string; kind: ProofKind; seconds: number }>;
 }
 
+// ── "What's open today?" (B3 · B4 · B5) ─────────────────────────────
+
+export interface SparksTodayQuest {
+  id: string;
+  title: string;
+  emoji: string;
+  colour: string;
+  cutoffHHmm: string;
+  streak: number;
+  /** The quest expects work today (active day, not paused). */
+  due: boolean;
+  /** A step is actually planned for today. */
+  hasStep: boolean;
+  stepDone: boolean;
+  stepTitle: string;
+}
+
+export interface SparksToday {
+  date: string;
+  quests: SparksTodayQuest[];
+  openQuests: number;
+  reflectionDone: boolean;
+  /** The ONE honest number the nav badge and the deck card both show.
+   *  R2 · a kid with a quest, a reflection, a revision and a workplan
+   *  will close the app if we cry wolf, so this counts only what is
+   *  genuinely still open. */
+  openCount: number;
+  bestStreak: number;
+}
+
+const EMPTY_TODAY: SparksToday = {
+  date: '', quests: [], openQuests: 0, reflectionDone: false, openCount: 0, bestStreak: 0,
+};
+
+/** One round-trip for the whole "today" picture. Re-fetches on any quest
+ *  write via the same ping bus the rest of the module uses. */
+export function subscribeSparksToday(
+  familyId: string, kidId: string,
+  cb: (t: SparksToday) => void,
+): () => void {
+  if (isGuestActive()) { cb(EMPTY_TODAY); return () => {}; }
+  let dead = false;
+  const load = () => {
+    questsApi<SparksToday>('today', { kidId })
+      .then((t) => { if (!dead) cb(t); })
+      .catch(() => { if (!dead) cb(EMPTY_TODAY); });
+  };
+  load();
+  const key = `${familyId}:${kidId}`;
+  const set = questListeners.get(key) ?? new Set();
+  set.add(load);
+  questListeners.set(key, set);
+  return () => { dead = true; set.delete(load); };
+}
+
 // ── Marker readings (D9 · F8) ───────────────────────────────────────
 
 export interface AddReadingInput {
