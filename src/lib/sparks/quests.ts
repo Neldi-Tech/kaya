@@ -464,6 +464,95 @@ export async function resumeQuest(
   pingQuests(familyId, kidId);
 }
 
+// ── Step completion (D8 · D13) ──────────────────────────────────────
+
+export interface CompleteStepInput {
+  questId: string;
+  stepId: string;
+  note?: string;
+  proofs?: Array<{ kind: ProofKind; url: string; seconds?: number }>;
+  /** D8 · append this step as a linked block on today's reflection.
+   *  Never overwrites the kid's own words. */
+  attachReflection?: boolean;
+  /** D8/R5 · "this IS my reflection today" — the separate, explicit tap.
+   *  The server only honours it when the note has real substance AND the
+   *  day has no reflection words of its own yet. */
+  claimReflection?: boolean;
+}
+
+export interface CompleteStepResult {
+  ok: boolean;
+  pointsAwarded: number;
+  streak: QuestStreak;
+  doneLate: boolean;
+  reflectionAttached: boolean;
+  reflectionClaimed: boolean;
+}
+
+/** How long a note must be before it can stand in for the day's
+ *  reflection. Mirrors CLAIM_MIN_CHARS on the server — the server is the
+ *  authority; this is only so the UI can explain itself honestly. */
+export const REFLECTION_CLAIM_MIN_CHARS = 60;
+
+export async function completeStep(
+  familyId: string, kidId: string, input: CompleteStepInput,
+): Promise<CompleteStepResult> {
+  if (isGuestActive()) {
+    return {
+      ok: true, pointsAwarded: 0, streak: DEFAULT_QUEST_STREAK,
+      doneLate: false, reflectionAttached: false, reflectionClaimed: false,
+    };
+  }
+  const res = await questsApi<CompleteStepResult>('step-done', { ...input });
+  pingQuests(familyId, kidId);
+  return res;
+}
+
+export async function undoStep(
+  familyId: string, kidId: string, questId: string, stepId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('step-undo', { questId, stepId });
+  pingQuests(familyId, kidId);
+}
+
+/** D10 · 🩹 the one-time streak repair. Parents only, once per quest. */
+export async function repairStreak(
+  familyId: string, kidId: string, questId: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('streak-repair', { questId });
+  pingQuests(familyId, kidId);
+}
+
+/** Upload an audio or video clip as proof. Goes through the server
+ *  (Admin SDK) so no storage.rules deploy is needed and the size ceiling
+ *  comes back as a readable message (D15). */
+export async function uploadQuestMedia(
+  questId: string, kind: 'audio' | 'video', blob: Blob, seconds: number,
+): Promise<{ url: string; kind: ProofKind; seconds: number }> {
+  const token = await idToken();
+  if (!token) throw new Error('not-signed-in');
+  if (blob.size > PROOF_LIMITS.mediaBytes) {
+    throw new Error(kind === 'video' ? 'video-too-large' : 'audio-too-large');
+  }
+  const res = await fetch(
+    `/api/sparks/quests/proof?questId=${encodeURIComponent(questId)}&kind=${kind}&seconds=${Math.round(seconds)}`,
+    {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': blob.type || `${kind}/webm` },
+      body: blob,
+    },
+  );
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error((e as { hint?: string; error?: string }).hint
+      || (e as { error?: string }).error
+      || 'upload-failed');
+  }
+  return res.json() as Promise<{ url: string; kind: ProofKind; seconds: number }>;
+}
+
 // ── Derivations (pure — shared by pages, cards and the dashboard) ────
 
 const DOW_KEYS: DayOfWeek[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];

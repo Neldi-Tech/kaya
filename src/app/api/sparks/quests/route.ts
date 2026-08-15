@@ -40,11 +40,13 @@ const MAX_ACTIVE_QUESTS = 2;
 
 type Action =
   | 'list' | 'get' | 'create' | 'update' | 'delete'
-  | 'pathway-set' | 'private-set' | 'pause' | 'resume';
+  | 'pathway-set' | 'private-set' | 'pause' | 'resume'
+  | 'step-done' | 'step-undo' | 'streak-repair';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'create', 'update', 'delete',
   'pathway-set', 'private-set', 'pause', 'resume',
+  'step-done', 'step-undo', 'streak-repair',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -288,9 +290,144 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(out);
   }
 
+  // ── Step actions — the ONE place a kid or a helper may write ───────
+  //
+  // D13 · one action, one SERVER-minted award. Nothing about points is
+  // decided on the client, so a kid can't mint their own.
+  if (action === 'step-done' || action === 'step-undo') {
+    const mayAct = isParent || isOwner || helperMayAct;
+    if (!mayAct) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+    const stepId = str(body.stepId, 80);
+    if (!stepId) return NextResponse.json({ error: 'bad-step' }, { status: 400 });
+    const stepRef = famRef.collection('sparks_quest_steps').doc(stepId);
+    const stepSnap = await stepRef.get();
+    if (!stepSnap.exists) return NextResponse.json({ error: 'no-such-step' }, { status: 404 });
+    const step = stepSnap.data() as Record<string, unknown>;
+    if (String(step.questId) !== questId) {
+      return NextResponse.json({ error: 'step-mismatch' }, { status: 400 });
+    }
+
+    const nowMs = Date.now();
+    const streak = readStreak(quest.streak);
+
+    if (action === 'step-undo') {
+      // Un-ticking never claws back points already awarded — same rule
+      // the workplan uses. It just re-opens the step.
+      await stepRef.update({
+        done: false,
+        doneAt: FieldValue.delete(),
+        doneLate: FieldValue.delete(),
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (step.done) return NextResponse.json({ ok: true, already: true });
+
+    const stepDate = String(step.date || '');
+    const note = str(body.note, 4000);
+    const proofs = proofList(body.proofs);
+    const attachReflection = body.attachReflection === true;
+    const claimReflection = body.claimReflection === true;
+
+    // R1 · did this land after the quest's cut-off? Drives the quiet
+    // "done late" append on the alert-log entry — never a second alarm.
+    const cutoff = String(quest.cutoffHHmm || '17:00');
+    const doneLate = stepDate < todayInTZ() || (stepDate === todayInTZ() && nowInTZ() > cutoff);
+
+    // ── streak (D10) ──
+    const advanced = advanceStreak(
+      streak,
+      stepDate,
+      days(quest.activeDays),
+      typeof quest.pausedUntil === 'string' ? quest.pausedUntil : '',
+    );
+
+    // ── D8 · reflection linkage. ATTACH, never overwrite. ──
+    let reflectionAttachedDate = '';
+    let reflectionClaimed = false;
+    if (attachReflection || claimReflection) {
+      const res = await attachToReflection(famRef, kidId, stepDate, {
+        questId, stepId,
+        title: String(step.title || 'Practice'),
+        note,
+        proofUrl: proofs.length ? String(proofs[0].url) : undefined,
+        claim: claimReflection,
+      });
+      reflectionAttachedDate = res.attached ? stepDate : '';
+      reflectionClaimed = res.claimed;
+    }
+
+    // ── D13 · the award, minted here and only here ──
+    let pointsAwarded = 0;
+    const points = num(quest.pointsPerStep, 0, 20, 2);
+    if (points > 0 && !Number(step.awardedPoints)) {
+      try {
+        await famRef.collection('awards').add({
+          childId: kidId,
+          kind: 'regular',
+          points,
+          reason: `Quest — ${String(quest.title || 'Quest')}: ${String(step.title || 'step')}`,
+          category: 'sparks',
+          awardedBy: 'system',
+          awardedByName: 'Kaya Quests',
+          senderRole: 'parent',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        const childRef = famRef.collection('children').doc(kidId);
+        const cSnap = await childRef.get();
+        const c = cSnap.exists
+          ? (cSnap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number })
+          : {};
+        await childRef.update({
+          totalPoints: (c.totalPoints ?? 0) + points,
+          weeklyPoints: (c.weeklyPoints ?? 0) + points,
+          lifetimePoints: Math.max(c.lifetimePoints ?? 0, c.totalPoints ?? 0) + points,
+        });
+        pointsAwarded = points;
+      } catch {
+        /* best-effort: the step still ticks even if the award write fails */
+      }
+      // 🏅 Badges 2.0 picks Quests up for free through the shared tally.
+      void bumpCounters(db, familyId, kidId, { quest_step: 1 });
+    }
+
+    const patch: Record<string, unknown> = {
+      done: true,
+      doneAt: nowMs,
+      doneBy: uid,
+      doneByName: actorName,
+    };
+    if (note) patch.note = note;
+    if (proofs.length) patch.proofs = proofs;
+    if (pointsAwarded) patch.awardedPoints = pointsAwarded;
+    if (doneLate) patch.doneLate = true;
+    if (reflectionAttachedDate) patch.reflectionAttachedDate = reflectionAttachedDate;
+    if (reflectionClaimed) patch.reflectionClaimed = true;
+    await stepRef.update(patch);
+    await questRef.update({ streak: advanced });
+
+    return NextResponse.json({
+      ok: true, pointsAwarded, streak: advanced, doneLate,
+      reflectionAttached: !!reflectionAttachedDate, reflectionClaimed,
+    });
+  }
+
   // ── Writes below this line are parent-only (D12/F15). Helpers act on
-  // steps, which live in the Q2 action set, not here.
+  // steps only, which is handled above.
   if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+
+  if (action === 'streak-repair') {
+    // D10 · 🩹 the one-time repair. Once spent it never comes back, so a
+    // family gets exactly one "that week was rough" pass per quest.
+    const streak = readStreak(quest.streak);
+    if (streak.repairUsed) return NextResponse.json({ error: 'repair-spent' }, { status: 409 });
+    const restored = Math.max(streak.current, streak.best);
+    await questRef.update({
+      streak: { ...streak, current: restored, repairUsed: true, lastDoneDate: todayInTZ() },
+    });
+    return NextResponse.json({ ok: true, current: restored });
+  }
 
   const now = Date.now();
   const stamp = { updatedAt: now, updatedBy: uid, updatedByName: actorName };
@@ -498,6 +635,202 @@ async function helperCanAct(
   if (!Array.isArray(link.kidIds) || !link.kidIds.includes(kidId)) return false;
   if (link.moduleAccess && 'sparks' in link.moduleAccess) return !!link.moduleAccess.sparks?.act;
   return Array.isArray(link.modules) && link.modules.includes('sparks');
+}
+
+// ── Local-day helpers (day boundaries are LOCAL, never UTC) ─────────
+
+const TZ = process.env.SPARKS_REFLECTION_TZ || 'Africa/Dar_es_Salaam';
+
+function todayInTZ(d = new Date()): string {
+  const p = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
+  return p; // en-CA formats as YYYY-MM-DD
+}
+
+function nowInTZ(d = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TZ, hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const h = parts.find((x) => x.type === 'hour')?.value ?? '00';
+  const m = parts.find((x) => x.type === 'minute')?.value ?? '00';
+  return `${h === '24' ? '00' : h}:${m}`;
+}
+
+function shiftDay(date: string, n: number): string {
+  const [y, m, d] = date.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, (d || 1) + n));
+  return dt.toISOString().slice(0, 10);
+}
+
+function dowOf(date: string): DayOfWeek {
+  const [y, m, d] = date.split('-').map(Number);
+  return DOW_KEYS[new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay()];
+}
+
+// ── Streak (D10) ────────────────────────────────────────────────────
+
+interface Streak {
+  current: number; best: number; lastDoneDate?: string;
+  shields: number; repairUsed?: boolean; shieldedDates?: string[];
+}
+
+function readStreak(v: unknown): Streak {
+  const s = (v ?? {}) as Partial<Streak>;
+  return {
+    current: Number(s.current) || 0,
+    best: Number(s.best) || 0,
+    lastDoneDate: typeof s.lastDoneDate === 'string' ? s.lastDoneDate : undefined,
+    shields: Number.isFinite(Number(s.shields)) ? Number(s.shields) : 1,
+    repairUsed: s.repairUsed === true,
+    shieldedDates: Array.isArray(s.shieldedDates) ? s.shieldedDates.slice(-30) : [],
+  };
+}
+
+/** Advance the streak for a step completed on `date`.
+ *
+ *  Rest days (any day not in `activeDays`) and paused days are SKIPPED
+ *  entirely — they can neither extend nor break a streak. A gap of real
+ *  missed active days is absorbed by 🛡️ shields while any remain; only
+ *  once the shields are gone does the streak restart at 1. That is the
+ *  whole point of D10: a streak that snaps on one sick day turns a
+ *  growth tool into an anxiety tool. */
+function advanceStreak(
+  s: Streak, date: string, activeDays: DayOfWeek[], pausedUntil: string,
+): Streak {
+  const out: Streak = { ...s, shieldedDates: [...(s.shieldedDates ?? [])] };
+  if (!s.lastDoneDate) {
+    out.current = 1;
+  } else if (s.lastDoneDate === date) {
+    return out; // same day, nothing to do
+  } else if (s.lastDoneDate > date) {
+    return out; // backfilling an older day never rewrites the run
+  } else {
+    // Count the ACTIVE days strictly between lastDoneDate and date.
+    let missed = 0;
+    const missedDates: string[] = [];
+    for (let cur = shiftDay(s.lastDoneDate, 1); cur < date; cur = shiftDay(cur, 1)) {
+      if (pausedUntil && cur <= pausedUntil) continue;
+      if (!activeDays.includes(dowOf(cur))) continue;
+      missed++;
+      missedDates.push(cur);
+      if (missed > 30) break;
+    }
+    if (missed === 0) {
+      out.current = s.current + 1;
+    } else if (missed <= out.shields) {
+      out.shields -= missed;
+      out.shieldedDates = [...(out.shieldedDates ?? []), ...missedDates].slice(-30);
+      out.current = s.current + 1;
+    } else {
+      out.current = 1;
+    }
+  }
+  out.best = Math.max(out.best, out.current);
+  out.lastDoneDate = date;
+  // Earn a shield back every 10 days of real consistency (cap 2) so the
+  // safety net refills for the families who are actually showing up.
+  if (out.current > 0 && out.current % 10 === 0) out.shields = Math.min(2, out.shields + 1);
+  return out;
+}
+
+// ── Proof ───────────────────────────────────────────────────────────
+
+interface ProofIn { kind?: unknown; url?: unknown; seconds?: unknown }
+
+function proofList(v: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(v)) return [];
+  const now = Date.now();
+  return v.slice(0, 6).map((raw) => {
+    const p = (raw ?? {}) as ProofIn;
+    const out: Record<string, unknown> = {
+      kind: proofKind(p.kind) ?? 'photo',
+      url: String(p.url ?? '').slice(0, 2048),
+      at: now,
+    };
+    if (Number.isFinite(Number(p.seconds))) out.seconds = Math.round(Number(p.seconds));
+    return out;
+  }).filter((p) => String(p.url).startsWith('https://'));
+}
+
+// ── D8 · reflection linkage ─────────────────────────────────────────
+
+/** Attach a completed step to the kid's reflection for that day.
+ *
+ *  ATTACH NEVER OVERWRITES. This function touches exactly one field —
+ *  `quest_notes` — plus, when the kid explicitly claimed the day AND the
+ *  reflection has no words of its own yet, `text`. The reflection's own
+ *  text, scan and retake trail are never written here, which is what
+ *  makes the "attach, never overwrite" rule structural rather than a
+ *  promise (F2).
+ *
+ *  R5 · a claim needs a note of real substance. A four-word practice
+ *  note attaches happily but does not get to stand in for the day's
+ *  reflection — otherwise the reflection habit is quietly hollowed out. */
+const CLAIM_MIN_CHARS = 60;
+
+async function attachToReflection(
+  famRef: FirebaseFirestore.DocumentReference,
+  kidId: string,
+  date: string,
+  args: { questId: string; stepId: string; title: string; note: string; proofUrl?: string; claim: boolean },
+): Promise<{ attached: boolean; claimed: boolean }> {
+  if (!date) return { attached: false, claimed: false };
+  const ref = famRef.collection('sparks_reflections').doc(`${kidId}_${date}`);
+  const snap = await ref.get();
+  const existing = snap.exists
+    ? (snap.data() as { text?: string; scanUrl?: string } | undefined)
+    : undefined;
+
+  const entry: Record<string, unknown> = {
+    questId: args.questId,
+    stepId: args.stepId,
+    title: args.title,
+    at: Date.now(),
+  };
+  if (args.note) entry.note = args.note;
+  if (args.proofUrl) entry.proofUrl = args.proofUrl;
+
+  const claimable = args.claim
+    && args.note.trim().length >= CLAIM_MIN_CHARS
+    && !(existing?.text && existing.text.trim())
+    && !existing?.scanUrl;
+
+  const patch: Record<string, unknown> = {
+    kidId,
+    date,
+    quest_notes: FieldValue.arrayUnion(entry),
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+  if (claimable) {
+    patch.text = args.note.trim();
+    patch.source = 'typed';
+  }
+  if (!snap.exists) {
+    patch.createdAt = FieldValue.serverTimestamp();
+    // A doc created purely by an attach carries no words of its own and
+    // therefore does not count as a reflection day — see
+    // computeReflectionStreak, which requires text or a scan.
+    if (!claimable) patch.text = '';
+  }
+  await ref.set(patch, { merge: true });
+  return { attached: true, claimed: claimable };
+}
+
+// ── 🏅 Badge tallies (shared with every other area) ─────────────────
+
+async function bumpCounters(
+  db: Firestore, familyId: string, childId: string, deltas: Record<string, number>,
+): Promise<void> {
+  const patch: Record<string, unknown> = {};
+  for (const [k, n] of Object.entries(deltas)) {
+    if (!k || !Number.isFinite(n) || n === 0) continue;
+    patch[`badgeCounters.${k}`] = FieldValue.increment(n);
+  }
+  if (!Object.keys(patch).length) return;
+  try {
+    await db.collection('families').doc(familyId).collection('children').doc(childId).update(patch);
+  } catch { /* tallies are best-effort */ }
 }
 
 /** D11 · extra reminder recipients — grandparent, tutor, coach. */

@@ -15,10 +15,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import AreaScreen from '@/components/sparks/AreaScreen';
 import PathwayBuilder from '@/components/sparks/PathwayBuilder';
+import TodayStepCard from '@/components/sparks/TodayStepCard';
 import {
-  subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest,
+  subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
-  dayLabel, todayKey, addDays, DIFFICULTY_META,
+  dayLabel, todayKey, addDays, isDueOn, stepForDate, DIFFICULTY_META,
   type QuestDetail,
 } from '@/lib/sparks/quests';
 import { toDisplayDate } from '@/lib/dates';
@@ -80,6 +81,16 @@ export default function QuestDetailPage() {
   const prog = pathwayProgress(steps);
   const weeks = groupStepsByWeek(steps);
   const rest = restDays(quest);
+  const dueToday = isDueOn(quest, today);
+  // The step to work on: today's if the day is active, otherwise the
+  // next open step ahead so a kid can always get going early.
+  const nextStep = dueToday
+    ? stepForDate(steps, today)
+    : steps.find((s) => !s.done && s.date > today) ?? null;
+  // Server is the authority (D13); this only decides what to render.
+  const canAct = isParent
+    || profile?.childId === kidId
+    || profile?.role === 'helper';
 
   async function onPause() {
     if (!familyId) return;
@@ -129,6 +140,71 @@ export default function QuestDetailPage() {
             {quest.deadline ? `By ${toDisplayDate(quest.deadline)} · ` : ''}
             {DIFFICULTY_META[quest.difficulty].emoji} {DIFFICULTY_META[quest.difficulty].label}
           </div>
+        </div>
+
+        {/* ── Today's step — the daily loop, first thing on the page ── */}
+        {quest.status === 'active' && (
+          <div className="mt-3">
+            {nextStep ? (
+              <TodayStepCard
+                familyId={familyId ?? ''}
+                kidId={kidId}
+                kidName={kid.name}
+                quest={quest}
+                step={nextStep}
+                canAct={canAct}
+                isToday={nextStep.date === today}
+              />
+            ) : dueToday ? (
+              <div className="rounded-[18px] border border-[#ECE4D3] bg-[#FBF7EE] px-4 py-5 text-center">
+                <div className="text-[13px] font-extrabold text-[#0F1F44]">
+                  Nothing planned for today yet
+                </div>
+                <p className="text-[12px] text-[#5A6488] mt-1 mb-0">
+                  {isParent ? 'Build or extend the pathway below.' : 'A parent is still planning this one.'}
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-[18px] border border-[#ECE4D3] bg-[#E7F5EC] px-4 py-4 text-center">
+                <div className="text-[13px] font-extrabold text-[#2E7D34]">
+                  😴 Rest day — nothing due, nothing lost
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Streak (D10) ─────────────────────────────────────────── */}
+        <div className="mt-3 rounded-[16px] border border-[#ECE4D3] bg-white p-3.5 flex items-center gap-3 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="font-display font-extrabold text-[13px] text-[#0F1F44]">
+              🔥 {quest.streak?.current ?? 0} day{(quest.streak?.current ?? 0) === 1 ? '' : 's'} in a row
+              {(quest.streak?.best ?? 0) > (quest.streak?.current ?? 0) && (
+                <span className="text-[11.5px] text-[#5A6488] font-bold"> · best {quest.streak?.best}</span>
+              )}
+            </div>
+            <div className="text-[11.5px] text-[#5A6488] mt-0.5">
+              🛡️ {quest.streak?.shields ?? 0} shield{(quest.streak?.shields ?? 0) === 1 ? '' : 's'} left
+              {(quest.streak?.shieldedDates?.length ?? 0) > 0 &&
+                ` · ${quest.streak?.shieldedDates?.length} day(s) saved`}
+              {quest.streak?.repairUsed ? ' · 🩹 repair spent' : ''}
+            </div>
+          </div>
+          {isParent && !quest.streak?.repairUsed && (quest.streak?.best ?? 0) > (quest.streak?.current ?? 0) && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={async () => {
+                if (!familyId) return;
+                setBusy(true);
+                await repairStreak(familyId, kidId, questId).catch(() => {});
+                setBusy(false);
+              }}
+              className="px-3 py-1.5 rounded-full border border-[#ECE4D3] bg-white text-[11.5px] font-extrabold text-[#5A6488]"
+            >
+              🩹 Repair the streak (once)
+            </button>
+          )}
         </div>
 
         {/* ── Rhythm + progress ────────────────────────────────────── */}

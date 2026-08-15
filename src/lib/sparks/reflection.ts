@@ -102,6 +102,14 @@ export interface ReflectionEntry {
   /** Slice 8h · ✨ AI-polished markdown-lite version; displays instead
    *  of `text` with a ↺ view-original flip. Original text always kept. */
   polished?: string;
+  /** 🚀 Quests (2026-08-15) · practice steps the kid chose to ATTACH to
+   *  this day. Written only by the quests gateway, and only ever into
+   *  this field — the reflection's own text, scan and retake trail are
+   *  never touched by an attach (D8). */
+  quest_notes?: Array<{
+    questId: string; stepId: string; title: string;
+    note?: string; proofUrl?: string; at: number;
+  }>;
   /** Slice 8j · 📷 earlier scans kept when the page is retaken — the
    *  honesty trail (a retake can never hide a page a parent saw). */
   retakes?: Array<{ scanUrl: string; at: number }>;
@@ -358,8 +366,16 @@ export function computeReflectionStreak(
   entries: ReflectionEntry[],
   today: Date = new Date(),
 ): ReflectionStreak {
+  // A day counts only when the kid actually reflected — words of their
+  // own, or a scanned page. Quests (2026-08-15) may ATTACH a practice
+  // note to a day without the kid writing a reflection; that creates the
+  // day's doc but must never inflate the streak. Requiring real content
+  // is what keeps "attach" free and "this IS my reflection today" a
+  // deliberate, earned claim (D8 · R5).
   const byDate: Record<string, boolean> = {};
-  for (const e of entries) byDate[e.date] = true;
+  for (const e of entries) {
+    if ((e.text && e.text.trim().length > 0) || e.scanUrl) byDate[e.date] = true;
+  }
 
   // Walk back from today; skip weekends (don't count, don't break).
   let current = 0;
@@ -386,7 +402,8 @@ export function computeReflectionStreak(
     if (byDate[reflectionDayKey(d)]) loggedThisWeek += 1;
   }
 
-  return { current, loggedThisWeek, total: entries.length, byDate };
+  // `total` counts real reflection days, for the same reason byDate does.
+  return { current, loggedThisWeek, total: Object.keys(byDate).length, byDate };
 }
 
 // ── Slice 7o · weekly review reader ─────────────────────────────────
