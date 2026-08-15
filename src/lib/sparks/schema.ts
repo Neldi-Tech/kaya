@@ -22,7 +22,8 @@ export type SparksArea =
   | 'academic'
   | 'revision'
   | 'reflection'
-  | 'diary';
+  | 'diary'
+  | 'quest';
 
 /** Areas that map to a row in `sparks_items`. Academic records have
  *  their own collection, so they're absent here. Revisions ride the
@@ -30,7 +31,13 @@ export type SparksArea =
  *  Reflection has its own daily collection too (see reflection.ts).
  *  Diary (Slice 8 · 2026-07-21) lives in `sparks_diary`, read/written
  *  ONLY through the Admin-API gateway — never client-direct. */
-export type SparksItemArea = Exclude<SparksArea, 'academic' | 'reflection' | 'diary'>;
+export type SparksItemArea = Exclude<SparksArea, 'academic' | 'reflection' | 'diary' | 'quest'>;
+
+/** Areas whose data lives OUTSIDE `sparks_items` — each owns a
+ *  collection (and, for diary + quest, an Admin-API gateway). Kept as a
+ *  named alias so the presentation maps that must cover *every* area
+ *  (head gradients, tile accents) read honestly. */
+export type SparksNonItemArea = 'academic' | 'reflection' | 'diary' | 'quest';
 
 /** Order + presentation metadata for the 5 area cards on the kid's
  *  Sparks home. The dashboard + setup pages also import this so labels
@@ -42,8 +49,16 @@ export const SPARKS_AREA_META: Record<SparksArea, {
   emoji: string;
   description: string;
   /** Sub-path under `/sparks/[kidId]/` for the area's list page. */
-  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection' | 'diary';
+  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection' | 'diary' | 'quests';
 }> = {
+  quest: {
+    key: 'quest',
+    label: 'Quests',
+    shortLabel: 'Quests',
+    emoji: '🚀',
+    description: 'A goal, a pathway, one small step a day — with proof you can hear and see months later.',
+    path: 'quests',
+  },
   school_project: {
     key: 'school_project',
     label: 'School Projects',
@@ -112,6 +127,7 @@ export const SPARKS_AREA_META: Record<SparksArea, {
 
 /** Canonical area order used everywhere a tile grid renders. */
 export const SPARKS_AREA_ORDER: SparksArea[] = [
+  'quest',
   'school_project',
   'home_project',
   'revision',

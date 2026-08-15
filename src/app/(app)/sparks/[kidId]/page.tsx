@@ -42,11 +42,13 @@ import {
 } from '@/lib/sparks/firestore';
 import { subscribeToReflections, computeReflectionStreak } from '@/lib/sparks/reflection';
 import { subscribeToDiary, computeDiaryStats } from '@/lib/sparks/diary';
+import { subscribeToQuests, activeCount } from '@/lib/sparks/quests';
 
 // Kid palette accents per area — direct from the mockup
 // (Step 2 · Module landing). Coral · Yellow · Green · Purple · Mint
 // in the locked area order (school → home → achievement → academic → sports).
 const AREA_ACCENT: Record<SparksArea, { bg: string; fg: string }> = {
+  quest:               { bg: '#DFE3FB', fg: '#3B2E86' }, // bg-indigo (launch vibe · 2026-08-15)
   school_project:      { bg: '#FFE7E0', fg: '#E85C5C' }, // bg-coral
   home_project:        { bg: '#FFF1C9', fg: '#8A6800' }, // bg-yellow
   achievement:         { bg: '#DDF5DF', fg: '#2E7D34' }, // bg-green
@@ -60,6 +62,7 @@ const AREA_ACCENT: Record<SparksArea, { bg: string; fg: string }> = {
 // Short single-line subtitles for the row cards — punchier than the
 // SPARKS_AREA_META.description (which is the deep-dive paragraph).
 const AREA_SUB: Record<SparksArea, string> = {
+  quest:               'A goal · a step a day · proof',
   school_project:      'Artwork, models, designs',
   home_project:        'Paper planes, builds, games',
   achievement:         'Certificates & awards',
@@ -111,6 +114,8 @@ export default function KidSparksHomePage() {
   // Diary tile chip — days filled this year (Slice 8). Fails to 0 for
   // sibling viewers (the API denies them; the tile is hidden anyway).
   const [diaryPages, setDiaryPages] = useState<number | null>(null);
+  // Quests tile chip — how many quests are running right now (max 2 · D14).
+  const [questsActive, setQuestsActive] = useState<number | null>(null);
   // AI Auto-File (Scanning 3.0): scan a doc → Kaya classifies + files it.
   const [autofileOpen, setAutofileOpen] = useState(false);
   const [autofileFiles, setAutofileFiles] = useState<File[] | null>(null);
@@ -132,6 +137,10 @@ export default function KidSparksHomePage() {
     });
   }, [familyId, kidId]);
   useEffect(() => {
+    if (!familyId || !kidId) { setQuestsActive(null); return; }
+    return subscribeToQuests(familyId, kidId, (qs) => setQuestsActive(activeCount(qs)));
+  }, [familyId, kidId]);
+  useEffect(() => {
     if (!familyId || !kidId) { setAcademicCount(null); return; }
     let cancelled = false;
     setAcademicCount(null);
@@ -145,6 +154,7 @@ export default function KidSparksHomePage() {
     if (area === 'academic') return academicCount;
     if (area === 'reflection') return reflectionStreak;
     if (area === 'diary') return diaryPages;
+    if (area === 'quest') return questsActive;
     return itemCounts[area];
   }
   function chipFor(area: SparksArea): string {

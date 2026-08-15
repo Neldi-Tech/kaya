@@ -228,6 +228,7 @@ export interface CategoryBreakdownRow {
 }
 
 const AREA_ACCENT: Record<SparksArea, string> = {
+  quest:               '#3B2E86',
   school_project:      '#FF6B6B',
   home_project:        '#FFD93D',
   achievement:         '#6BCB77',
@@ -257,6 +258,9 @@ export function categoryBreakdown(
 
   type Acc = { count: number; stars: number; sn: number; pct: number; pn: number };
   const acc: Record<SparksArea, Acc> = {
+    // Quests own their collection (gateway-only) — the breakdown row is
+    // fed by the quests page, not by sparks_items, so it starts at 0.
+    quest:               { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     school_project:      { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     home_project:        { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
     achievement:         { count: 0, stars: 0, sn: 0, pct: 0, pn: 0 },
