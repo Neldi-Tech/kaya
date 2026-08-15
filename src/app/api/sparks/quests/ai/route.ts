@@ -110,6 +110,69 @@ Hard rules:
 - Age-appropriate, safe, and doable at home with ordinary things.
 - No emojis.`;
 
+// 🎤 Coach Ear (innovation 2).
+//
+// Claude's Messages API takes text and images, not audio — so the
+// listening happens where it actually can: the browser transcribes the
+// clip with the Web Speech API and sends the TRANSCRIPT plus the
+// measurable facts we can compute honestly from it (duration, words per
+// minute, filler-word count). Claude then does the part only it can do:
+// three specific, kind, usable notes. Where speech recognition isn't
+// available the client says so rather than pretending to have listened.
+const COACH_SYSTEM = `You are Coach Kaya, listening to a child practise out loud in the Kaya Quests app.
+
+You receive: the child's first name and age, the quest goal, a TRANSCRIPT of what they just said, the clip length, their words-per-minute, and their filler-word count.
+
+Return JSON: { "notes": [ string, string, string ], "clarity": number, "cheer": string }
+
+Hard rules:
+- "notes" is EXACTLY 3 short notes, each one sentence, each SPECIFIC to what you actually heard. Quote or point at a real moment in the transcript — never generic advice that could apply to any recording.
+- The FIRST note must be something that genuinely worked. Not flattery: a real thing they did well.
+- The other two are the smallest useful adjustments. One thing to change each, not a list.
+- "clarity" is 0-100: how clearly and confidently this was delivered, judged from the transcript, pace and fillers together. Be honest but never harsh — this is a child's practice, not an exam. A first attempt landing near 50-60 is normal.
+- "cheer" is one short closing line, warm and specific.
+- Speak TO the child, in the second person. Plain words a nine-year-old reads easily. No jargon, no emojis.
+- Never mention that you are reading a transcript rather than hearing audio.`;
+
+const COACH_SCHEMA = {
+  type: 'object',
+  properties: {
+    notes: { type: 'array', items: { type: 'string' }, minItems: 3, maxItems: 3 },
+    clarity: { type: 'number' },
+    cheer: { type: 'string' },
+  },
+  required: ['notes', 'clarity', 'cheer'],
+  additionalProperties: false,
+} as const;
+
+// 🧭 Coach Kaya · the weekly adapt (innovation 5).
+const ADAPT_SYSTEM = `You review one week of a child's Kaya Quest and propose exactly ONE adjustment.
+
+You receive: the goal, the difficulty, how many steps were due and done this week, the streak, and any marker movement.
+
+Return JSON: { "verdict": string, "change": "harder" | "easier" | "more_fun" | "change_medium" | "extend_deadline" | "keep", "proposal": string, "why": string }
+
+Hard rules:
+- ONE adjustment. Not a list. A parent reading this on a Sunday must be able to approve or dismiss it in five seconds.
+- "verdict" is one short sentence on how the week actually went — honest, not cheerleading.
+- "proposal" is what to change, concretely, in one sentence a parent can act on.
+- "why" is one sentence of reasoning from the numbers you were given.
+- Choose "keep" when the week genuinely doesn't call for a change. Proposing change every week is how a family learns to ignore you.
+- If consistency was poor, prefer "easier", "more_fun" or "change_medium" over pushing harder — a plan nobody does isn't ambitious, it's abandoned.
+- No emojis. Speak to the parent.`;
+
+const ADAPT_SCHEMA = {
+  type: 'object',
+  properties: {
+    verdict: { type: 'string' },
+    change: { type: 'string', enum: ['harder', 'easier', 'more_fun', 'change_medium', 'extend_deadline', 'keep'] },
+    proposal: { type: 'string' },
+    why: { type: 'string' },
+  },
+  required: ['verdict', 'change', 'proposal', 'why'],
+  additionalProperties: false,
+} as const;
+
 const PATHWAY_SCHEMA = {
   type: 'object',
   properties: {
@@ -181,9 +244,14 @@ export async function POST(req: NextRequest) {
     { familyId?: string; role?: string; email?: string; displayName?: string } | undefined;
   const familyId = user?.familyId;
   if (!familyId) return NextResponse.json({ error: 'no-family' }, { status: 403 });
-  // Everything in this route is a PARENT act: drafting a plan, generating
-  // material, approving it. Kids never touch it.
-  if (user?.role !== 'parent') return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+  // Drafting a plan, generating material and approving it are PARENT
+  // acts. 🎤 Coach Ear is the one thing here a child does for
+  // themselves — it's feedback on their own practice, not content
+  // arriving from outside, so it needs no approval gate.
+  const isParentActor = user?.role === 'parent';
+  if (!isParentActor && action !== 'coach') {
+    return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+  }
   const actorName = (user?.displayName || 'Parent').slice(0, 60);
 
   const famRef = db.collection('families').doc(familyId);
@@ -194,7 +262,7 @@ export async function POST(req: NextRequest) {
   const kidId = String(quest.kidId || '');
 
   // ── D17 · tier gate (operators bypass, as everywhere else) ────────
-  if (action === 'pathway' || action === 'pack') {
+  if (action === 'pathway' || action === 'pack' || action === 'coach' || action === 'adapt') {
     const fam = (await famRef.get()).data() as { tierId?: string } | undefined;
     const tierId = fam?.tierId || 'nest';
     let allowed = tierId === 'home' || tierId === 'castle';
@@ -204,7 +272,7 @@ export async function POST(req: NextRequest) {
     if (!allowed) {
       return NextResponse.json({
         error: 'tier-locked',
-        hint: 'AI pathway drafting and practice packs are part of Home and Castle. You can still build the whole pathway by hand on Nest — it works exactly the same once it is approved.',
+        hint: 'Kaya’s AI drafting, practice packs and Coach Ear are part of Home and Castle. You can still build the whole pathway by hand on Nest — it works exactly the same once it is approved.',
       }, { status: 402 });
     }
     if (!client) return NextResponse.json({ error: 'ai-unavailable' }, { status: 503 });
@@ -426,6 +494,121 @@ export async function POST(req: NextRequest) {
     await questRef.update(patch);
 
     return NextResponse.json({ items: written, forDate: targetDate });
+  }
+
+  // ── 🎤 Coach Ear (innovation 2) ───────────────────────────────────
+  if (action === 'coach') {
+    const transcript = String(body.transcript || '').slice(0, 4000).trim();
+    const seconds = clamp(Number(body.seconds), 1, 600, 30);
+    if (transcript.length < 12) {
+      return NextResponse.json({
+        error: 'no-transcript',
+        hint: 'Kaya couldn’t make out enough words to give useful notes. Try again somewhere quieter, a little closer to the microphone.',
+      }, { status: 422 });
+    }
+
+    // Facts we can compute honestly, rather than asking a model to
+    // guess them: pace and filler density come straight from the words.
+    const words = transcript.split(/\s+/).filter(Boolean);
+    const wpm = Math.round((words.length / seconds) * 60);
+    const FILLERS = ['um', 'uh', 'erm', 'like', 'ehm', 'hmm', 'eh'];
+    const fillers = words.filter((w) => FILLERS.includes(w.toLowerCase().replace(/[^a-z]/g, ''))).length;
+
+    const userMsg = [
+      `Child: ${kidName}${age ? `, age ${age}` : ''}`,
+      `GOAL: ${String(quest.goal || '')}`,
+      `Clip length: ${seconds} seconds`,
+      `Words per minute: ${wpm}`,
+      `Filler words: ${fillers}`,
+      `TRANSCRIPT:\n${transcript}`,
+    ].join('\n');
+
+    try {
+      const r = await client!.messages.create({
+        model: MODEL,
+        max_tokens: 800,
+        system: [{ type: 'text', text: COACH_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: COACH_SCHEMA } },
+        messages: [{ role: 'user', content: [{ type: 'text', text: userMsg }] }],
+      });
+      const t = r.content.find((b) => b.type === 'text');
+      if (!t || t.type !== 'text') return NextResponse.json({ error: 'ai-empty' }, { status: 502 });
+      const out = JSON.parse(t.text) as { notes?: string[]; clarity?: number; cheer?: string };
+      return NextResponse.json({
+        notes: (out.notes ?? []).slice(0, 3).map((n) => String(n).slice(0, 300)),
+        clarity: clamp(Number(out.clarity), 0, 100, 55),
+        cheer: String(out.cheer || '').slice(0, 200),
+        wpm, fillers, words: words.length,
+      });
+    } catch {
+      return NextResponse.json({ error: 'ai-failed' }, { status: 502 });
+    }
+  }
+
+  // ── 🧭 the weekly adapt (innovation 5) ────────────────────────────
+  if (action === 'adapt') {
+    const stepsSnap = await famRef.collection('sparks_quest_steps')
+      .where('questId', '==', questId).get();
+    const today = todayInTZ();
+    const weekAgo = shiftDay(today, -7);
+    const activeDays: DayOfWeek[] = Array.isArray(quest.activeDays)
+      ? (quest.activeDays as DayOfWeek[]).filter((d) => DOW_KEYS.includes(d))
+      : [];
+    const week = stepsSnap.docs
+      .map((d) => d.data() as { date?: string; done?: boolean })
+      .filter((s) => s.date && s.date > weekAgo && s.date <= today
+        && activeDays.includes(dowOf(String(s.date))));
+    const due = week.length;
+    const done = week.filter((s) => s.done).length;
+
+    const readings = await famRef.collection('sparks_quest_markers')
+      .where('questId', '==', questId).get();
+    const byMarker = new Map<string, Array<{ at: number; value: number }>>();
+    for (const d of readings.docs) {
+      const r = d.data() as { markerId?: string; at?: number; value?: number };
+      if (!r.markerId) continue;
+      const arr = byMarker.get(r.markerId) ?? [];
+      arr.push({ at: Number(r.at) || 0, value: Number(r.value) || 0 });
+      byMarker.set(r.markerId, arr);
+    }
+    const markerLines = (Array.isArray(quest.markers) ? quest.markers : [])
+      .map((m) => {
+        const mm = m as { id?: string; label?: string };
+        const s = (byMarker.get(String(mm.id)) ?? []).sort((a, b) => a.at - b.at);
+        if (s.length === 0) return `${mm.label}: never measured`;
+        if (s.length === 1) return `${mm.label}: baseline ${s[0].value}, no re-take yet`;
+        return `${mm.label}: ${s[0].value} → ${s[s.length - 1].value} over ${s.length} readings`;
+      });
+
+    const userMsg = [
+      `GOAL: ${String(quest.goal || '')}`,
+      `Difficulty: ${String(quest.difficulty || 'medium')}`,
+      `This week: ${done} of ${due} steps done`,
+      `Streak: ${Number((quest.streak as { current?: number } | undefined)?.current) || 0} days`,
+      markerLines.length ? `Markers:\n${markerLines.join('\n')}` : 'Markers: none defined',
+    ].join('\n');
+
+    try {
+      const r = await client!.messages.create({
+        model: MODEL,
+        max_tokens: 600,
+        system: [{ type: 'text', text: ADAPT_SYSTEM, cache_control: { type: 'ephemeral' } }],
+        output_config: { format: { type: 'json_schema', schema: ADAPT_SCHEMA } },
+        messages: [{ role: 'user', content: [{ type: 'text', text: userMsg }] }],
+      });
+      const t = r.content.find((b) => b.type === 'text');
+      if (!t || t.type !== 'text') return NextResponse.json({ error: 'ai-empty' }, { status: 502 });
+      const out = JSON.parse(t.text) as Record<string, unknown>;
+      return NextResponse.json({
+        verdict: String(out.verdict || '').slice(0, 300),
+        change: String(out.change || 'keep'),
+        proposal: String(out.proposal || '').slice(0, 400),
+        why: String(out.why || '').slice(0, 400),
+        week: { due, done },
+      });
+    } catch {
+      return NextResponse.json({ error: 'ai-failed' }, { status: 502 });
+    }
   }
 
   return NextResponse.json({ error: 'unknown-action' }, { status: 400 });

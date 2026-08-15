@@ -42,13 +42,15 @@ type Action =
   | 'list' | 'get' | 'create' | 'update' | 'delete'
   | 'pathway-set' | 'private-set' | 'pause' | 'resume'
   | 'step-done' | 'step-undo' | 'streak-repair'
-  | 'marker-add' | 'marker-delete' | 'today';
+  | 'marker-add' | 'marker-delete' | 'today'
+  | 'buddy-set' | 'graduate';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'create', 'update', 'delete',
   'pathway-set', 'private-set', 'pause', 'resume',
   'step-done', 'step-undo', 'streak-repair',
   'marker-add', 'marker-delete', 'today',
+  'buddy-set', 'graduate',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -329,8 +331,16 @@ export async function POST(req: NextRequest) {
   const questVisibility = String(quest.visibility || 'private');
   const helperMayAct = isHelper && await helperCanAct(db, famRef, uid, kidId);
 
+  // 👥 Quest Buddy — whoever is doing this quest ALONGSIDE the kid can
+  // always see it, whatever the visibility setting says. That's the
+  // point: a kid who sees a parent doing the hard thing stops
+  // experiencing practice as a punishment.
+  const isBuddy = String(quest.buddyUid || '') === uid
+    || (!!viewerChildId && String(quest.buddyUid || '') === viewerChildId);
+
   const mayRead = isParent
     || isOwner
+    || isBuddy
     || helperMayAct
     || (!!viewerChildId && (questVisibility === 'siblings' || questVisibility === 'family'));
   if (!mayRead) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
@@ -367,7 +377,9 @@ export async function POST(req: NextRequest) {
   // D13 · one action, one SERVER-minted award. Nothing about points is
   // decided on the client, so a kid can't mint their own.
   if (action === 'step-done' || action === 'step-undo') {
-    const mayAct = isParent || isOwner || helperMayAct;
+    // 👥 the buddy shares the streak — either of them keeping the day
+    // alive keeps it alive for both.
+    const mayAct = isParent || isOwner || isBuddy || helperMayAct;
     if (!mayAct) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
 
     const stepId = str(body.stepId, 80);
@@ -693,6 +705,124 @@ export async function POST(req: NextRequest) {
     if (Number.isFinite(weeks) && weeks > 0) patch.pathwayWeeks = Math.min(52, Math.round(weeks));
     await questRef.update(patch);
     return NextResponse.json({ ok: true, planted: drafts.length });
+  }
+
+  // ── 👥 Quest Buddy (innovation 3) ─────────────────────────────────
+  if (action === 'buddy-set') {
+    const buddyUid = str(body.buddyUid, 80);
+    if (!buddyUid) {
+      await questRef.update({
+        buddyUid: FieldValue.delete(), buddyName: FieldValue.delete(), ...stamp,
+      });
+      return NextResponse.json({ ok: true, cleared: true });
+    }
+    // A buddy is either a parent in this family or one of its children.
+    let buddyName = '';
+    const buddyUser = (await db.collection('users').doc(buddyUid).get()).data() as
+      { familyId?: string; displayName?: string; role?: string } | undefined;
+    if (buddyUser?.familyId === familyId) {
+      buddyName = str(buddyUser.displayName, 60) || 'Buddy';
+    } else {
+      const childDoc = await famRef.collection('children').doc(buddyUid).get();
+      if (!childDoc.exists) return NextResponse.json({ error: 'bad-buddy' }, { status: 400 });
+      buddyName = str((childDoc.data() as { name?: string }).name, 60) || 'Buddy';
+    }
+    await questRef.update({ buddyUid, buddyName, ...stamp });
+    return NextResponse.json({ ok: true, buddyName });
+  }
+
+  // ── 🎓 Graduation (D16 · innovation 4) ────────────────────────────
+  //
+  // Finishing a quest doesn't just flip a status: it awards the
+  // graduation points and writes a permanent 🏅 Achievement into Sparks
+  // carrying the baseline and the final proof. Years later, that
+  // side-by-side is the thing a parent actually shows people.
+  if (action === 'graduate') {
+    if (quest.status === 'graduated') {
+      return NextResponse.json({ ok: true, already: true, itemId: quest.achievementItemId ?? null });
+    }
+
+    const readings = await famRef.collection('sparks_quest_markers')
+      .where('questId', '==', questId).get();
+    const sorted = readings.docs
+      .map((d) => d.data() as { at?: number; proofUrl?: string; isBaseline?: boolean; markerId?: string; value?: number })
+      .sort((a, b) => Number(a.at || 0) - Number(b.at || 0));
+    const firstProof = sorted.find((r) => r.isBaseline && r.proofUrl)?.proofUrl
+      ?? sorted.find((r) => r.proofUrl)?.proofUrl;
+    const lastProof = [...sorted].reverse().find((r) => r.proofUrl)?.proofUrl;
+
+    const stepsSnap = await famRef.collection('sparks_quest_steps')
+      .where('questId', '==', questId).get();
+    const doneCount = stepsSnap.docs.filter((d) => (d.data() as { done?: boolean }).done).length;
+
+    // The permanent record. Photo proofs go in `photo_urls` so the
+    // existing Achievements gallery renders them with no special-casing;
+    // audio/video proof is linked from the description instead.
+    const photoUrls = [firstProof, lastProof]
+      .filter((u): u is string => !!u && /\.(jpe?g|png|webp)(\?|$)/i.test(u));
+    const streakBest = Number((quest.streak as { best?: number } | undefined)?.best) || 0;
+    const itemRef = famRef.collection('sparks_items').doc();
+    await itemRef.set({
+      kid_id: kidId,
+      area: 'achievement',
+      title: `🎓 ${String(quest.title || 'Quest')}`,
+      description: [
+        String(quest.goal || ''),
+        `Finished a Kaya Quest: ${doneCount} steps done · best streak ${streakBest} days.`,
+      ].filter(Boolean).join('\n\n'),
+      photo_urls: photoUrls,
+      date: todayInTZ(),
+      tags: ['quest', 'graduation'],
+      quest_id: questId,
+      ...(firstProof ? { quest_baseline_url: firstProof } : {}),
+      ...(lastProof ? { quest_final_url: lastProof } : {}),
+      created_at: FieldValue.serverTimestamp(),
+      created_by: uid,
+    });
+
+    // The graduation award — server-minted like every other (D13).
+    let pointsAwarded = 0;
+    const points = num(quest.graduationPoints, 0, 200, 25);
+    if (points > 0) {
+      try {
+        await famRef.collection('awards').add({
+          childId: kidId,
+          kind: 'diamond',
+          points,
+          reason: `🎓 Graduated the "${String(quest.title || 'Quest')}" quest`,
+          category: 'sparks',
+          awardedBy: 'system',
+          awardedByName: 'Kaya Quests',
+          senderRole: 'parent',
+          createdAt: FieldValue.serverTimestamp(),
+        });
+        const childRef = famRef.collection('children').doc(kidId);
+        const cSnap = await childRef.get();
+        const c = cSnap.exists
+          ? (cSnap.data() as { totalPoints?: number; weeklyPoints?: number; lifetimePoints?: number })
+          : {};
+        await childRef.update({
+          totalPoints: (c.totalPoints ?? 0) + points,
+          weeklyPoints: (c.weeklyPoints ?? 0) + points,
+          lifetimePoints: Math.max(c.lifetimePoints ?? 0, c.totalPoints ?? 0) + points,
+        });
+        pointsAwarded = points;
+      } catch { /* best-effort — the graduation still lands */ }
+      void bumpCounters(db, familyId, kidId, { quest_graduated: 1 });
+    }
+
+    await questRef.update({
+      status: 'graduated',
+      graduatedAt: now,
+      achievementItemId: itemRef.id,
+      ...stamp,
+    });
+
+    return NextResponse.json({
+      ok: true, itemId: itemRef.id, pointsAwarded,
+      doneCount, streakBest,
+      baselineUrl: firstProof ?? null, finalUrl: lastProof ?? null,
+    });
   }
 
   if (action === 'delete') {

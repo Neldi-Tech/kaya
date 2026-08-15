@@ -780,6 +780,103 @@ export async function rejectPending(questId: string, itemId: string): Promise<vo
   await aiApi('reject', { questId, itemId });
 }
 
+// ── 🎤 Coach Ear (innovation 2) ─────────────────────────────────────
+
+export interface CoachResult {
+  notes: string[];
+  clarity: number;
+  cheer: string;
+  wpm: number;
+  fillers: number;
+  words: number;
+}
+
+/** True when this browser can transcribe speech locally. Claude's API
+ *  takes text and images, not audio — so the listening happens where it
+ *  actually can, and where it can't we say so rather than pretending. */
+export function speechRecognitionSupported(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+  return !!(w.SpeechRecognition || w.webkitSpeechRecognition);
+}
+
+export async function coachEar(
+  questId: string, transcript: string, seconds: number,
+): Promise<CoachResult> {
+  return aiApi<CoachResult>('coach', { questId, transcript, seconds });
+}
+
+// ── 🧭 The weekly adapt (innovation 5) ──────────────────────────────
+
+export type AdaptChange = 'harder' | 'easier' | 'more_fun' | 'change_medium' | 'extend_deadline' | 'keep';
+
+export interface AdaptProposal {
+  verdict: string;
+  change: AdaptChange;
+  proposal: string;
+  why: string;
+  week: { due: number; done: number };
+}
+
+export async function weeklyAdapt(questId: string): Promise<AdaptProposal> {
+  return aiApi<AdaptProposal>('adapt', { questId });
+}
+
+/** Applying an adapt is just a quest edit — the parent stays the one who
+ *  decides, and Kaya never changes a plan on its own. */
+export function adaptPatch(change: AdaptChange, quest: Quest): QuestPatch | null {
+  switch (change) {
+    case 'harder':
+      return { difficulty: quest.difficulty === 'easy' ? 'medium' : 'stretch',
+        minutesPerDay: Math.min(45, quest.minutesPerDay + 5) };
+    case 'easier':
+      return { difficulty: quest.difficulty === 'stretch' ? 'medium' : 'easy',
+        minutesPerDay: Math.max(3, quest.minutesPerDay - 5) };
+    case 'extend_deadline':
+      return quest.deadline ? { deadline: addDays(quest.deadline, 14) } : null;
+    // "more fun" and "change the medium" are pathway edits, not settings —
+    // they route the parent to the re-plan flow instead of silently
+    // rewriting steps a child may already be looking at.
+    default:
+      return null;
+  }
+}
+
+// ── 👥 Quest Buddy (innovation 3) ───────────────────────────────────
+
+/** Attach (or clear, with '') the person doing this quest ALONGSIDE the
+ *  kid. They share the streak: either of them keeping the day alive
+ *  keeps it alive for both. */
+export async function setBuddy(
+  familyId: string, kidId: string, questId: string, buddyUid: string,
+): Promise<void> {
+  if (isGuestActive()) return;
+  await questsApi('buddy-set', { questId, buddyUid });
+  pingQuests(familyId, kidId);
+}
+
+// ── 🎓 Graduation (D16 · innovation 4) ──────────────────────────────
+
+export interface GraduationResult {
+  ok: boolean;
+  itemId: string;
+  pointsAwarded: number;
+  doneCount: number;
+  streakBest: number;
+  baselineUrl: string | null;
+  finalUrl: string | null;
+}
+
+/** Finish the quest: awards the graduation points and writes a permanent
+ *  🏅 Achievement carrying the baseline and the final proof. */
+export async function graduateQuest(
+  familyId: string, kidId: string, questId: string,
+): Promise<GraduationResult> {
+  const res = await questsApi<GraduationResult>('graduate', { questId });
+  pingQuests(familyId, kidId);
+  return res;
+}
+
 // ── Derivations (pure — shared by pages, cards and the dashboard) ────
 
 const DOW_KEYS: DayOfWeek[] = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
