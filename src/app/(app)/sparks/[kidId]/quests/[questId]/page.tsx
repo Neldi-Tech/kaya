@@ -17,6 +17,7 @@ import AreaScreen from '@/components/sparks/AreaScreen';
 import PathwayBuilder from '@/components/sparks/PathwayBuilder';
 import TodayStepCard from '@/components/sparks/TodayStepCard';
 import QuestPackQueue from '@/components/sparks/QuestPackQueue';
+import MarkerPanel from '@/components/sparks/MarkerPanel';
 import {
   subscribeToQuest, pauseQuest, resumeQuest, deleteQuest, updateQuest, repairStreak,
   consistency, pathwayProgress, groupStepsByWeek, rhythmLine, restDays,
@@ -235,21 +236,16 @@ export default function QuestDetailPage() {
           </Panel>
         </div>
 
-        {/* ── Markers (defined; readings land in Q4) ───────────────── */}
-        {quest.markers.length > 0 && (
-          <Panel title="📈 Markers" className="mt-3">
-            <ul className="m-0 pl-0 list-none grid gap-1.5">
-              {quest.markers.map((m) => (
-                <li key={m.id} className="flex items-center gap-2 text-[12.5px] text-[#0F1F44]">
-                  <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-[#DFE3FB] text-[#3B2E86] whitespace-nowrap">
-                    {m.kind === 'rubric' ? '0–100' : m.kind === 'stars' ? '⭐' : `#${m.unit ? ` ${m.unit}` : ''}`}
-                  </span>
-                  <span className="font-semibold">{m.label}</span>
-                </li>
-              ))}
-            </ul>
-          </Panel>
-        )}
+        {/* ── D9 · the GROWTH track, kept separate from consistency ── */}
+        <MarkerPanel
+          familyId={familyId ?? ''}
+          kidId={kidId}
+          kidName={kid.name}
+          quest={quest}
+          readings={detail.readings}
+          isParent={isParent}
+          canAct={canAct}
+        />
 
         {/* ── D3 · parent-only starting point ──────────────────────── */}
         {isParent && detail.startingPoint && (

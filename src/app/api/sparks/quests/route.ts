@@ -41,12 +41,14 @@ const MAX_ACTIVE_QUESTS = 2;
 type Action =
   | 'list' | 'get' | 'create' | 'update' | 'delete'
   | 'pathway-set' | 'private-set' | 'pause' | 'resume'
-  | 'step-done' | 'step-undo' | 'streak-repair';
+  | 'step-done' | 'step-undo' | 'streak-repair'
+  | 'marker-add' | 'marker-delete';
 
 const ALL_ACTIONS: Action[] = [
   'list', 'get', 'create', 'update', 'delete',
   'pathway-set', 'private-set', 'pause', 'resume',
   'step-done', 'step-undo', 'streak-repair',
+  'marker-add', 'marker-delete',
 ];
 
 // ── Small validators ────────────────────────────────────────────────
@@ -413,9 +415,74 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Marker readings (D9 · F8) ──────────────────────────────────────
+  //
+  // The GROWTH track. A kid may record their own reading for rubric and
+  // count markers (they're capturing a performance, not grading it);
+  // `stars` markers are a parent's read by definition.
+  if (action === 'marker-add') {
+    const markerId = str(body.markerId, 40);
+    const defined = Array.isArray(quest.markers) ? quest.markers as Array<{ id?: string; kind?: string }> : [];
+    const marker = defined.find((m) => m.id === markerId);
+    if (!marker) return NextResponse.json({ error: 'no-such-marker' }, { status: 404 });
+
+    const kidMayRecord = marker.kind !== 'stars';
+    const mayAct = isParent || (isOwner && kidMayRecord) || (helperMayAct && kidMayRecord);
+    if (!mayAct) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+
+    const value = Number(body.value);
+    if (!Number.isFinite(value)) return NextResponse.json({ error: 'bad-value' }, { status: 400 });
+
+    const col = famRef.collection('sparks_quest_markers');
+    // The BASELINE is whatever landed first for this marker — captured
+    // once, on day one, and never re-declared. Every later reading is
+    // compared against it, which is what makes "then vs now" honest.
+    const existing = await col
+      .where('questId', '==', questId)
+      .where('markerId', '==', markerId)
+      .get();
+    const isBaseline = existing.empty;
+
+    const doc: Record<string, unknown> = {
+      questId, kidId, markerId,
+      value: marker.kind === 'stars'
+        ? Math.min(5, Math.max(1, Math.round(value)))
+        : marker.kind === 'rubric'
+          ? Math.min(100, Math.max(0, Math.round(value)))
+          : value,
+      at: Date.now(),
+      by: uid,
+      byName: actorName,
+    };
+    if (isBaseline) doc.isBaseline = true;
+    const proofUrl = String(body.proofUrl ?? '');
+    if (proofUrl.startsWith('https://')) {
+      doc.proofUrl = proofUrl.slice(0, 2048);
+      const pk = proofKind(body.proofKind);
+      if (pk) doc.proofKind = pk;
+    }
+    const note = str(body.note, 600);
+    if (note) doc.note = note;
+
+    const ref = await col.add(doc);
+    return NextResponse.json({ ok: true, id: ref.id, isBaseline });
+  }
+
   // ── Writes below this line are parent-only (D12/F15). Helpers act on
-  // steps only, which is handled above.
+  // steps and non-star markers only, which is handled above.
   if (!isParent) return NextResponse.json({ error: 'parents-only' }, { status: 403 });
+
+  if (action === 'marker-delete') {
+    const readingId = str(body.readingId, 80);
+    if (!readingId) return NextResponse.json({ error: 'bad-reading' }, { status: 400 });
+    const ref = famRef.collection('sparks_quest_markers').doc(readingId);
+    const snap = await ref.get();
+    if (!snap.exists || String(snap.data()?.questId) !== questId) {
+      return NextResponse.json({ error: 'not-found' }, { status: 404 });
+    }
+    await ref.delete();
+    return NextResponse.json({ ok: true });
+  }
 
   if (action === 'streak-repair') {
     // D10 · 🩹 the one-time repair. Once spent it never comes back, so a
