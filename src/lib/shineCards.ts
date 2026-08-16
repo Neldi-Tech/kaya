@@ -39,8 +39,16 @@ export interface ShineCard {
   /** 📣 FX PR-3 — set once the card is posted to Moments; powers the
    *  "In Moments →" link so recognition connects to the family feed. */
   momentsPostId?: string;
-  /** 🎁 FX PR-5 — structured gift record for future statistics. */
-  giftMeta?: { label: string; source: 'store' | 'custom' | 'surprise'; rewardId?: string };
+  /** 🎁 FX PR-5/8 — structured gift record: label + where it came from +
+   *  its PATHWAY (💎 valuable→Treasures · 💰 money→Hive · 🎈 simple) and
+   *  the money amount when the gift is cash. The sealed record. */
+  giftMeta?: {
+    label: string;
+    source: 'store' | 'custom' | 'surprise';
+    rewardId?: string;
+    pathway?: 'treasure' | 'hive' | 'simple';
+    amountCents?: number;
+  };
   doubleShine?: boolean;
   notes?: ShineCardNote[];
   echo?: { reaction: string; text?: string; at: number };

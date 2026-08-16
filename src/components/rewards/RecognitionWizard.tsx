@@ -20,7 +20,8 @@ import {
   giveAward, getFamilyMembers, readPointSystemConfig,
   type AwardKind,
 } from '@/lib/firestore';
-import { rewardsFloorFor, type FamilyRewardsSlice } from '@/lib/hive';
+import { rewardsFloorFor, depositCash, readHiveConfig, type FamilyRewardsSlice } from '@/lib/hive';
+import { formatCents } from '@/components/pantry/format';
 import {
   getWaitingRound, createShineCard, listShineCards, listRounds,
   rememberedTheme, rememberTheme, shineCardSvg,
@@ -67,6 +68,10 @@ export default function RecognitionWizard() {
   // 🎁 FX PR-5 — structured gift record for future statistics.
   const [giftSource, setGiftSource] = useState<'store' | 'custom' | 'surprise' | ''>('');
   const [giftRewardId, setGiftRewardId] = useState('');
+  // 🎁 FX PR-8 — the gift's PATHWAY: 🎈 simple · 💎 valuable → Treasures ·
+  // 💰 money → Hive (with amount, deposited on approve).
+  const [giftPathway, setGiftPathway] = useState<'simple' | 'treasure' | 'hive'>('simple');
+  const [giftAmount, setGiftAmount] = useState('');
   const [pts, setPts] = useState(0); // 0 = mention only (kudos on the rail)
   const [theme, setTheme] = useState<ShineTheme>('classic');
   const [busy, setBusy] = useState(false);
@@ -123,6 +128,7 @@ export default function RecognitionWizard() {
       setGift(''); setGiftSource(''); setGiftRewardId('');
     }
     setGiftCustom(false);
+    setGiftPathway('simple'); setGiftAmount('');
     setPts(0);
     setTheme(profile ? rememberedTheme(profile.uid) : 'classic');
     setErr('');
@@ -174,10 +180,35 @@ export default function RecognitionWizard() {
             label: previewCard.gift,
             source: giftSource || 'custom',
             ...(giftRewardId ? { rewardId: giftRewardId } : {}),
+            pathway: giftPathway,
+            ...(giftPathway === 'hive' && parseInt(giftAmount, 10) > 0
+              ? { amountCents: Math.round(parseFloat(giftAmount) * 100) }
+              : {}),
           },
         } : {}),
       });
-      const full: ShineCard = { ...previewCard, id: minted.id, n: minted.n, doubleShine: minted.doubleShine, notes: [] };
+      // 💰 FX PR-8 — a money gift is REAL: deposit into the kid's Hive
+      // Cash on the existing rail (parents only — rules block helpers).
+      if (previewCard.gift && giftPathway === 'hive' && profile.role === 'parent') {
+        const cents = Math.round(parseFloat(giftAmount) * 100);
+        if (cents > 0) {
+          await depositCash(familyId, kid.id, cents, 'gift',
+            `🌟 Recognition gift — Shine Card №${minted.n}`, profile.uid).catch(() => {
+              /* deposit is best-effort; the card notes the amount either way */
+            });
+        }
+      }
+      const full: ShineCard = {
+        ...previewCard, id: minted.id, n: minted.n, doubleShine: minted.doubleShine, notes: [],
+        ...(previewCard.gift ? {
+          giftMeta: {
+            label: previewCard.gift, source: (giftSource || 'custom') as 'store' | 'custom' | 'surprise',
+            ...(giftRewardId ? { rewardId: giftRewardId } : {}),
+            pathway: giftPathway,
+            ...(giftPathway === 'hive' && parseInt(giftAmount, 10) > 0 ? { amountCents: Math.round(parseFloat(giftAmount) * 100) } : {}),
+          },
+        } : {}),
+      };
       setCard(full);
       if (profile) rememberTheme(profile.uid, theme);
       // ⑥c — auto-post to Moments (best-effort; card links back).
@@ -353,9 +384,36 @@ export default function RecognitionWizard() {
             placeholder="e.g. Ice cream cone after school"
             className="mt-2 w-full h-10 px-3 rounded-kaya-sm text-[13px] text-kaya-chocolate focus:outline-none" />
         )}
+        {gift.trim() && (
+          <div className="mt-3">
+            <p className="text-[10px] uppercase tracking-wider font-bold opacity-80 mb-1.5">What kind of gift is it?</p>
+            <div className="flex gap-1.5 flex-wrap items-center">
+              {([['simple', '🎈 Simple treat — settles here'], ['treasure', '💎 Valuable → Treasures'], ['hive', '💰 Money → Hive']] as const).map(([pw, label]) => (
+                <button key={pw} type="button" onClick={() => setGiftPathway(pw)}
+                  className="px-3 py-1.5 rounded-full text-[11px] font-black"
+                  style={giftPathway === pw ? { background: '#fff', color: '#6B3FE0' } : { background: 'rgba(255,255,255,.18)', border: '1px solid rgba(255,255,255,.35)' }}>
+                  {label}
+                </button>
+              ))}
+              {giftPathway === 'hive' && (
+                <input type="number" inputMode="numeric" min={1} value={giftAmount} autoFocus
+                  onChange={(e) => setGiftAmount(e.target.value)}
+                  placeholder={`Amount (${readHiveConfig(family).currency})`}
+                  className="h-9 w-40 px-3 rounded-kaya-sm text-[12.5px] text-kaya-chocolate focus:outline-none" />
+              )}
+            </div>
+            {giftPathway === 'hive' && (
+              <p className="text-[10px] opacity-80 mt-1">Deposited straight into {kid.name.split(' ')[0]}&apos;s Hive Cash on approve — 📜 ledger line included.</p>
+            )}
+            {giftPathway === 'treasure' && (
+              <p className="text-[10px] opacity-80 mt-1">After approval you&apos;ll get a shortcut to register it in 💎 Treasures.</p>
+            )}
+          </div>
+        )}
         <div className="flex gap-2 mt-3">
           <button type="button" onClick={() => setStep('points')}
-            className="h-10 px-5 rounded-full text-[12.5px] font-black" style={{ background: '#fff', color: '#6B3FE0' }}>
+            disabled={giftPathway === 'hive' && !(parseInt(giftAmount, 10) > 0)}
+            className="h-10 px-5 rounded-full text-[12.5px] font-black disabled:opacity-50" style={{ background: '#fff', color: '#6B3FE0' }}>
             Continue → ⭐
           </button>
           <button type="button" onClick={() => { setGift(''); setGiftSource(''); setGiftRewardId(''); setStep('points'); }}
@@ -437,6 +495,12 @@ export default function RecognitionWizard() {
             <div className="bg-white rounded-kaya p-3 mt-2.5 text-kaya-chocolate">
               <CardShareRow familyId={familyId} card={card} compact />
               <p className="text-[10px] text-kaya-sand text-center mt-1.5">📤 Share opens your phone&apos;s share sheet — WhatsApp and all.</p>
+              {card.giftMeta?.pathway === 'treasure' && (
+                <p className="text-center mt-1.5"><Link href="/sparks/treasures" className="text-[11.5px] font-black text-kaya-gold hover:underline">💎 Register it in Treasures →</Link></p>
+              )}
+              {card.giftMeta?.pathway === 'hive' && (
+                <p className="text-center mt-1.5"><Link href="/hive" className="text-[11.5px] font-black text-kaya-gold hover:underline">💰 {card.giftMeta.amountCents ? formatCents(card.giftMeta.amountCents, readHiveConfig(family).currency) : 'Deposited'} in the Hive →</Link></p>
+              )}
             </div>
           </div>
           <div className="mt-3 lg:mt-0 lg:w-44 shrink-0 space-y-2">

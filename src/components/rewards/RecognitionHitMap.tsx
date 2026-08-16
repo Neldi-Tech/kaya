@@ -19,6 +19,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useFamily } from '@/contexts/FamilyContext';
 import { readRecognitionConfig } from '@/lib/firestore';
+import { readHiveConfig } from '@/lib/hive';
+import { formatCents } from '@/components/pantry/format';
 import {
   listShineCards, listRounds, addShineCardNote,
   type ShineCard, type RecognitionRound,
@@ -30,10 +32,11 @@ type View = 'week' | 'month' | '3mo' | 'custom' | 'rounds';
 const dayKeyLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export default function RecognitionHitMap() {
+export default function RecognitionHitMap({ showStats = true }: { showStats?: boolean } = {}) {
   const { profile } = useAuth();
   const { family } = useFamily();
   const familyId = profile?.familyId;
+  const currency = readHiveConfig(family).currency;
   // 🎯 FX PR-4 — focus on the family's DESIGNATED round weekdays only.
   const roundDows = useMemo(() => new Set(readRecognitionConfig(family).days), [family]);
   const [focusDays, setFocusDaysState] = useState(() => {
@@ -100,6 +103,10 @@ export default function RecognitionHitMap() {
     const noteMark = hasNotes ? '📝' : '';
     if (dayCards.length > 0) {
       if (dayCards.some((c) => c.doubleShine)) return { cls: 'gold', mark: noteMark || '🤝' };
+      // 🎁 FX PR-8 — DARK green = a valuable gift went out that day
+      // (💰 Hive money or 💎 Treasures item); light green = simple.
+      const valuable = dayCards.some((c) => c.giftMeta?.pathway === 'hive' || c.giftMeta?.pathway === 'treasure');
+      if (valuable) return { cls: 'greendark', mark: noteMark || '💎' };
       return { cls: 'green', mark: noteMark || (roundDays.has(date) ? '⭐' : '✨') };
     }
     if (roundDays.has(date)) {
@@ -181,6 +188,7 @@ export default function RecognitionHitMap() {
 
   const CLS: Record<string, string> = {
     green: 'bg-[#A9D9B4] text-[#1d4a2a] cursor-pointer shadow-[inset_0_0_0_1.5px_#7fc290]',
+    greendark: 'bg-[#4E9464] text-white cursor-pointer shadow-[inset_0_0_0_1.5px_#3a7550]',
     gold: 'bg-gradient-to-br from-[#F3D06A] to-[#D4A017] text-[#5c4102] cursor-pointer',
     red: 'bg-[#F9D9D4] text-[#a34335]',
     off: 'bg-[#F4F0E8] text-[#c9c0ae]',
@@ -192,6 +200,7 @@ export default function RecognitionHitMap() {
   return (
     <div className="space-y-3">
       {/* Counters */}
+      {showStats && (
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-kaya-warm rounded-kaya-sm p-2.5 text-center">
           <p className="font-display font-black text-lg">{stats.weekCount}</p>
@@ -206,6 +215,7 @@ export default function RecognitionHitMap() {
           <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">This week — who gave</p>
         </div>
       </div>
+      )}
 
       {/* View toggles + month nav */}
       <div className="flex items-center gap-1.5 flex-wrap">
@@ -246,11 +256,14 @@ export default function RecognitionHitMap() {
             const isRound = roundDays.has(date);
             const label = cls === 'gold'
               ? `🤝 Double Shine — ${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')} (${dayCards.map((c) => `№${c.n}`).join(', ')})`
+              : cls === 'greendark'
+                ? `💎 valuable gift — ${dayCards.length} card${dayCards.length === 1 ? '' : 's'} (${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
               : cls === 'green'
                 ? `${isRound ? '⭐ answered' : '✨ spontaneous'} — ${dayCards.length} card${dayCards.length === 1 ? '' : 's'} (${dayCards.map((c) => c.kidName).filter((v, i, a) => a.indexOf(v) === i).join(', ')})`
                 : cls === 'red' ? 'missed — carried to the next round' : '⏳ round open — still waiting';
             const swatch = cls === 'gold'
               ? 'bg-gradient-to-br from-[#F3D06A] to-[#D4A017]'
+              : cls === 'greendark' ? 'bg-[#4E9464]'
               : cls === 'green' ? 'bg-[#A9D9B4]' : cls === 'red' ? 'bg-[#F9D9D4]' : 'bg-[#F4F0E8]';
             return (
               <button
@@ -280,7 +293,7 @@ export default function RecognitionHitMap() {
           {days.map((date) => {
             const { cls, mark } = classify(date);
             const tappable = (cardsByDay.get(date) || []).length > 0;
-            const dimmed = focusDays && !roundDows.has(new Date(`${date}T00:00:00`).getDay()) && cls !== 'green' && cls !== 'gold';
+            const dimmed = focusDays && !roundDows.has(new Date(`${date}T00:00:00`).getDay()) && cls !== 'green' && cls !== 'greendark' && cls !== 'gold';
             return (
               <button
                 key={date}
@@ -297,7 +310,8 @@ export default function RecognitionHitMap() {
           })}
         </div>
         <div className="flex gap-3 flex-wrap mt-2.5 text-[10px] font-bold text-kaya-sand">
-          <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#A9D9B4] align-[-1px]" /> celebrated ⭐/✨</span>
+          <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#A9D9B4] align-[-1px]" /> celebrated / simple gift ⭐/✨</span>
+          <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#4E9464] align-[-1px]" /> 💎💰 valuable gift (Hive/Treasure)</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-gradient-to-br from-[#F3D06A] to-[#D4A017] align-[-1px]" /> 🤝 Double Shine</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#F9D9D4] align-[-1px]" /> round missed</span>
           <span><span className="inline-block w-2.5 h-2.5 rounded-[3px] bg-[#F4F0E8] align-[-1px]" /> quiet day</span>
@@ -319,6 +333,13 @@ export default function RecognitionHitMap() {
                 {c.category && <span className="ml-1.5 px-2 py-0.5 rounded-full bg-white border border-[#bfe3cb] text-[9.5px] font-extrabold text-kaya-sand">{c.category}</span>}
               </p>
               <p className="text-[11.5px] italic text-[#4a6b55] mt-0.5">&ldquo;{c.quote}&rdquo; — {c.byName} · 🌟 Card №{c.n}{c.doubleShine ? ' · 🤝' : ''}{c.gift ? ` · 🎁 ${c.gift}` : ''}</p>
+              {c.giftMeta?.pathway && c.giftMeta.pathway !== 'simple' && (
+                <p className="text-[10.5px] font-black mt-0.5" style={{ color: c.giftMeta.pathway === 'hive' ? '#0E9C86' : '#6B3FE0' }}>
+                  {c.giftMeta.pathway === 'hive'
+                    ? `💰 ${c.giftMeta.amountCents ? formatCents(c.giftMeta.amountCents, currency) : 'Money'} → Hive · record sealed`
+                    : '💎 → Treasures · record sealed'}
+                </p>
+              )}
               {(c.notes || []).map((nte, i) => (
                 <p key={i} className="text-[11px] mt-1 bg-white border border-dashed border-[#bfe3cb] rounded-lg px-2.5 py-1.5">
                   📝 <b>Note:</b> {nte.text} <span className="text-[#7fa78c]">— {nte.byName}</span>
@@ -347,6 +368,63 @@ export default function RecognitionHitMap() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ── 📌 Always-on-top stats strip (FX PR-8, Elia: "leave the selected
+// part on top, in good order") — the three counters standalone, so they
+// greet the parent before any section is expanded.
+export function RecognitionStats() {
+  const { profile } = useAuth();
+  const familyId = profile?.familyId;
+  const [stats, setStats] = useState<{ week: number; streak: number; split: string } | null>(null);
+  useEffect(() => {
+    if (!familyId) return;
+    (async () => {
+      try {
+        const [cards, rounds] = await Promise.all([
+          listShineCards(familyId).catch(() => [] as ShineCard[]),
+          listRounds(familyId).catch(() => [] as RecognitionRound[]),
+        ]);
+        const answered = (date: string) => {
+          const start = new Date(`${date}T00:00:00`).getTime();
+          return cards.some((c) => c.at >= start && c.at < start + 72 * 3600_000);
+        };
+        let streak = 0;
+        for (const r of [...rounds].sort((a, b) => b.date.localeCompare(a.date))) {
+          const start = new Date(`${r.date}T00:00:00`).getTime();
+          if (Date.now() < start + 72 * 3600_000 && !answered(r.date)) continue;
+          if (answered(r.date)) streak++; else break;
+        }
+        const monday = new Date(); monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7)); monday.setHours(0, 0, 0, 0);
+        const weekCards = cards.filter((c) => c.at >= monday.getTime());
+        const byGiver = new Map<string, number>();
+        for (const c of weekCards) byGiver.set(c.byName, (byGiver.get(c.byName) || 0) + 1);
+        setStats({
+          week: weekCards.length,
+          streak,
+          split: [...byGiver.entries()].map(([nm, ct]) => `${nm} ${ct}`).join(' · ') || '—',
+        });
+      } catch { setStats(null); }
+    })();
+  }, [familyId]);
+  if (!stats) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2 mb-4">
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
+        <p className="font-display font-black text-lg">{stats.week}</p>
+        <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Cards this week</p>
+      </div>
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
+        <p className="font-display font-black text-lg">🔥 {stats.streak}</p>
+        <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand">Rounds answered in a row</p>
+      </div>
+      <div className="bg-white border border-kaya-warm-dark rounded-kaya-sm p-2.5 text-center">
+        <p className="font-display font-black text-[12px] leading-tight mt-1 truncate">{stats.split}</p>
+        <p className="text-[8.5px] uppercase tracking-wider font-bold text-kaya-sand mt-0.5">This week — who gave</p>
+      </div>
     </div>
   );
 }
