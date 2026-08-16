@@ -22,6 +22,7 @@ import { ensureDirectThread, sendMessage, type ThreadMember } from '@/lib/messag
 import { safeUploadBytes } from '@/lib/storageUpload';
 import { storage } from '@/lib/firebase';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { toDisplayDate } from '@/lib/dates';
 
 const svgDataUrl = (card: ShineCard) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(shineCardSvg(card))}`;
@@ -213,12 +214,16 @@ export function ShineCardSheet({ familyId, cards, onClose, onThemeChange }: {
 
 const ECHO_OPTIONS = ['🥹', '💪', '❤️'];
 
-export function ShineWall({ familyId, childId, childName, title }: {
+export function ShineWall({ familyId, childId, childName, title, bare = false, filterable = false }: {
   familyId: string;
   /** Absent = family-wide 🌟 Recognition history (FX PR-3). */
   childId?: string;
   childName?: string;
   title?: string;
+  /** FX PR-7 — no outer card chrome (hosted inside a CollapsibleSection). */
+  bare?: boolean;
+  /** FX PR-7 — year + month timeline chips so history never overstacks. */
+  filterable?: boolean;
 }) {
   const { profile } = useAuth();
   const [cards, setCards] = useState<ShineCard[]>([]);
@@ -258,6 +263,32 @@ export function ShineWall({ familyId, childId, childName, title }: {
   const isKidOwner = !!openCard && profile?.role === 'kid' && profile?.childId === openCard.kidId;
   const wallName = (childName || 'Family').split(' ')[0];
 
+  // 🗓️ FX PR-7 — timeline filters (year → month) so the shelf stays tidy.
+  const [fYear, setFYear] = useState<number>(() => new Date().getFullYear());
+  const [fMonth, setFMonth] = useState<number | null>(null); // null = all months
+  const filterYears = useMemo(() => {
+    const ys = new Set(cards.map((c) => new Date(c.at).getFullYear()));
+    ys.add(new Date().getFullYear());
+    return [...ys].sort((a, b) => b - a);
+  }, [cards]);
+  const shownCards = useMemo(() => {
+    if (!filterable) return cards;
+    return cards.filter((c) => {
+      const d = new Date(c.at);
+      if (d.getFullYear() !== fYear) return false;
+      if (fMonth !== null && d.getMonth() !== fMonth) return false;
+      return true;
+    });
+  }, [cards, filterable, fYear, fMonth]);
+  const monthsWithCards = useMemo(() => {
+    const set = new Set<number>();
+    for (const c of cards) {
+      const d = new Date(c.at);
+      if (d.getFullYear() === fYear) set.add(d.getMonth());
+    }
+    return set;
+  }, [cards, fYear]);
+
   const load = useMemo(() => async () => {
     try { setCards(await listShineCards(familyId, childId)); } catch { setCards([]); }
     setLoaded(true);
@@ -266,8 +297,9 @@ export function ShineWall({ familyId, childId, childName, title }: {
 
   if (loaded && cards.length === 0) return null;
 
+  const MONTH_LABEL = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return (
-    <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
+    <div className={bare ? '' : 'bg-white border border-kaya-warm-dark rounded-kaya-lg p-4'}>
       <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-1">
         {title || `🌟 ${wallName}'s Shine Wall`} · {cards.length} card{cards.length === 1 ? '' : 's'}
       </p>
@@ -284,8 +316,29 @@ export function ShineWall({ familyId, childId, childName, title }: {
           </p>
         );
       })()}
+      {filterable && (
+        <div className="flex gap-1.5 flex-wrap items-center mb-2.5">
+          {filterYears.map((y) => (
+            <button key={y} type="button" onClick={() => { setFYear(y); setFMonth(null); }}
+              className={`px-2.5 py-1 rounded-full text-[10.5px] font-extrabold border ${fYear === y ? 'bg-kaya-chocolate text-white border-transparent' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+              {y}
+            </button>
+          ))}
+          <span className="w-px h-4 bg-kaya-warm-dark mx-0.5" />
+          <button type="button" onClick={() => setFMonth(null)}
+            className={`px-2 py-1 rounded-full text-[10px] font-extrabold border ${fMonth === null ? 'bg-kaya-gold text-white border-kaya-gold-dark' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+            All
+          </button>
+          {MONTH_LABEL.map((m, i) => monthsWithCards.has(i) && (
+            <button key={m} type="button" onClick={() => setFMonth(i)}
+              className={`px-2 py-1 rounded-full text-[10px] font-extrabold border ${fMonth === i ? 'bg-kaya-gold text-white border-kaya-gold-dark' : 'bg-white text-kaya-sand border-kaya-warm-dark'}`}>
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-        {cards.slice(0, 12).map((c) => (
+        {shownCards.slice(0, 12).map((c) => (
           <button key={c.id} onClick={() => { setOpenCard(c); setFlipped(false); setNoteText(''); setEchoText(''); }} className="text-left group">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={svgDataUrl(c)} alt={`Shine Card ${c.n}`} className="w-full rounded-kaya-sm border border-kaya-warm-dark/40 group-hover:border-kaya-gold transition-colors" />
@@ -299,7 +352,7 @@ export function ShineWall({ familyId, childId, childName, title }: {
           className="h-9 px-3.5 rounded-kaya-sm bg-kaya-warm text-kaya-chocolate text-[11.5px] font-black hover:bg-kaya-warm-dark">
           📖 Open the Shine Book
         </button>
-        {cards.length > 12 && <span className="text-[10.5px] text-kaya-sand">…{cards.length - 12} more card{cards.length - 12 === 1 ? '' : 's'} live in the book.</span>}
+        {shownCards.length > 12 && <span className="text-[10.5px] text-kaya-sand">…{shownCards.length - 12} more card{shownCards.length - 12 === 1 ? '' : 's'} live in the book.</span>}
       </div>
 
       {albumOpen && (
@@ -419,6 +472,67 @@ export function ShineWall({ familyId, childId, childName, title }: {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── 🎁 Gift register (FX PR-7) ────────────────────────────────────
+// Every gift, linked to the recognition (card №) it rode on — the
+// visible face of the giftMeta statistics substrate.
+
+const GIFT_SOURCE_BADGE: Record<string, string> = {
+  store: '🏬 store', custom: '✏️ own', surprise: '🎲 surprise',
+};
+
+export function GiftRegister({ familyId }: { familyId: string }) {
+  const [cards, setCards] = useState<ShineCard[]>([]);
+  const [openCard, setOpenCard] = useState<ShineCard | null>(null);
+  useEffect(() => {
+    listShineCards(familyId).then(setCards).catch(() => setCards([]));
+  }, [familyId]);
+
+  const gifts = useMemo(() => cards.filter((c) => c.gift), [cards]);
+  const byLabel = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const g of gifts) m.set(g.gift!, (m.get(g.gift!) || 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  }, [gifts]);
+
+  if (gifts.length === 0) {
+    return <p className="text-[12px] text-kaya-sand">No gifts recorded yet — they land here the moment a recognition carries one.</p>;
+  }
+  return (
+    <div>
+      <p className="text-[10.5px] font-bold text-kaya-sand mb-2">
+        🎁 {gifts.length} gift{gifts.length === 1 ? '' : 's'} recorded · top: {byLabel[0][0]}{byLabel[0][1] > 1 ? ` ×${byLabel[0][1]}` : ''}
+      </p>
+      <div className="space-y-1">
+        {gifts.slice(0, 30).map((g) => (
+          <button key={g.id} type="button" onClick={() => setOpenCard(g)}
+            className="w-full flex items-center gap-2 text-left bg-white border border-kaya-warm-dark rounded-kaya-sm px-3 py-2 hover:border-kaya-gold transition-colors">
+            <span className="text-[11px] font-bold text-kaya-sand shrink-0 w-24">{toDisplayDate(new Date(g.at).toISOString().slice(0, 10))}</span>
+            <span className="text-[12px] font-bold shrink-0">{g.kidEmoji} {g.kidName}</span>
+            <span className="text-[12px] font-semibold flex-1 truncate">{g.gift}</span>
+            <span className="text-[9.5px] font-extrabold text-kaya-sand shrink-0 px-1.5 py-0.5 rounded-full bg-kaya-warm">{GIFT_SOURCE_BADGE[g.giftMeta?.source || 'custom']}</span>
+            <span className="text-[10.5px] font-black text-kaya-gold shrink-0">🌟 №{g.n}</span>
+          </button>
+        ))}
+        {gifts.length > 30 && <p className="text-[10.5px] text-kaya-sand">…and {gifts.length - 30} older gifts.</p>}
+      </div>
+      {openCard && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-end sm:items-center justify-center p-0 sm:p-6" onClick={() => setOpenCard(null)}>
+          <div className="bg-white w-full sm:max-w-md rounded-t-kaya-lg sm:rounded-kaya-lg p-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-2">
+              <p className="font-display font-black text-[15px] flex-1">🎁 {openCard.gift} · 🌟 №{openCard.n}</p>
+              <button onClick={() => setOpenCard(null)} className="text-kaya-sand font-black text-lg leading-none px-1">×</button>
+            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={svgDataUrl(openCard)} alt={`Shine Card ${openCard.n}`} className="w-full rounded-kaya border border-kaya-warm-dark/50" />
+            <CardShareRow familyId={familyId} card={openCard} compact />
           </div>
         </div>
       )}

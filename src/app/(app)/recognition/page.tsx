@@ -9,7 +9,8 @@ import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import RecognitionHitMap from '@/components/rewards/RecognitionHitMap';
 import RecognitionWizard from '@/components/rewards/RecognitionWizard';
-import { ShineWall } from '@/components/rewards/ShineCards';
+import { ShineWall, GiftRegister } from '@/components/rewards/ShineCards';
+import { CollapsibleSection } from '@/components/ui/CollapsibleSection';
 import BackButton from '@/components/ui/BackButton';
 
 export default function RecognitionPage() {
@@ -45,14 +46,26 @@ export default function RecognitionPage() {
           points? → card → approve (rail+Moments+emails+📤) → streak. */}
       <RecognitionWizard />
 
-      <div className="bg-white border border-kaya-warm-dark rounded-kaya-lg p-4">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-kaya-sand mb-3">🗓️ Recognition Hit-Map</p>
-        <RecognitionHitMap />
+      {/* 🗓️ FX PR-7 — everything below the wizard collapses so the page
+          never overstacks as the record grows. */}
+      <div className="mb-4">
+        <CollapsibleSection id="rec-hitmap" remember icon="🗓️" title="Recognition Hit-Map" summary="rhythm · streak · pattern" defaultOpen>
+          <RecognitionHitMap />
+        </CollapsibleSection>
       </div>
 
-      {/* 🌟 FX PR-3 — the recognition history: every card, easy to go back. */}
-      <div className="mt-5">
-        <ShineWall familyId={profile.familyId} title="🌟 Recognition history" />
+      {/* 🎁 FX PR-7 — the gift register: every gift, linked to its card. */}
+      <div className="mb-4">
+        <CollapsibleSection id="rec-gifts" remember icon="🎁" title="Gift register" summary="what was given, linked to each recognition">
+          <GiftRegister familyId={profile.familyId} />
+        </CollapsibleSection>
+      </div>
+
+      {/* 🌟 FX PR-3+7 — history, filterable by year + month. */}
+      <div className="mb-4">
+        <CollapsibleSection id="rec-history" remember icon="🌟" title="Recognition history" summary="every card · filter by year & month">
+          <ShineWall familyId={profile.familyId} title="🌟 Recognition history" bare filterable />
+        </CollapsibleSection>
       </div>
     </div>
   );
