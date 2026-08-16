@@ -204,6 +204,17 @@ export async function sendMeetingRecapEmail({
       : [];
     to = Array.from(new Set([...parentEmails, ...kidEmails]));
   }
+
+  // 🚪 Close gate (Elia, 2026-08-16): the minutes go INSTANTLY to every
+  // PARTICIPANT of the night — attendee kids with an email join whatever
+  // audience the family configured (union, never replace; 'off' above
+  // still means off). COPPA-safe: kid emails are the parent-registered
+  // profile addresses.
+  const participantKidEmails = children
+    .filter((c) => (payload.attendees || []).includes(c.id))
+    .map(kidEmailOf)
+    .filter(Boolean);
+  to = Array.from(new Set([...to, ...parentEmails, ...participantKidEmails]));
   if (to.length === 0) return;
 
   // Compose RecapEntry arrays — submissions first (read in advance),

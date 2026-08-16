@@ -593,6 +593,11 @@ export interface Family {
      *  Word/Open Floor, default ON (absent = on), sits BEFORE Goals
      *  Review so promises flow straight into goal commitments. */
     catchUpCornerEnabled?: boolean;
+    /** 🚪 Close-the-Meeting gate (2026-08-16): the meeting closes ONLY
+     *  via the big gate button — and if the family forgets, it auto-
+     *  closes after this many minutes on the last step. 0 = never
+     *  auto-close. Absent = 10. */
+    autoCloseMinutes?: 0 | 5 | 10 | 20;
     /** OF-3: the family's own 8th step — shown in the presenter with a
      *  notes box the leader fills. Off when absent/disabled/unnamed. */
     customStep?: { emoji: string; name: string; enabled: boolean };

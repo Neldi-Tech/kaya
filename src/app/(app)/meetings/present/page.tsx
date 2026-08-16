@@ -793,6 +793,12 @@ export default function MeetingPresenterPage() {
   // Double-tap guard — `saving` disables the button, but two taps in the
   // same tick both pass the disabled check. The ref is synchronous.
   const finishingRef = useRef(false);
+  // 🚪 Close gate (2026-08-16): the meeting closes ONLY via the big gate
+  // button. If the family forgets, it auto-closes after
+  // meetingSetup.autoCloseMinutes (default 10, 0 = never) on the last
+  // step. The ref always points at the LATEST handleFinish so a timer
+  // that fires minutes later saves fresh state, not a stale closure.
+  const handleFinishRef = useRef<() => void>(() => {});
   const handleFinish = async () => {
     if (!profile?.familyId) return;
     if (finishingRef.current) return;
@@ -1125,6 +1131,19 @@ export default function MeetingPresenterPage() {
       finishingRef.current = false;
     }
   };
+
+  handleFinishRef.current = handleFinish;
+
+  // ⏳ Auto-close if forgotten — armed only on the last step of a live
+  // (unfinished) meeting; any step change or finish disarms it.
+  const autoCloseMin = family?.meetingSetup?.autoCloseMinutes ?? 10;
+  useEffect(() => {
+    if (!isLastStep || done || autoCloseMin === 0) return;
+    const t = setTimeout(() => {
+      if (!finishingRef.current) handleFinishRef.current();
+    }, autoCloseMin * 60_000);
+    return () => clearTimeout(t);
+  }, [isLastStep, done, autoCloseMin]);
 
   // ── Step gating (prevent advance if required input missing) ──────
   // Intentionally lenient — a parent might want to skip a step on a
@@ -1670,19 +1689,29 @@ export default function MeetingPresenterPage() {
                 Next →
               </button>
             ) : (
-              <div className="flex flex-col items-end gap-1.5">
+              <div className="flex-1 flex flex-col items-center gap-1.5 ml-3">
                 {finishError && (
-                  <p className="text-[11.5px] font-bold text-red-300 max-w-[280px] text-right">⚠️ {finishError}</p>
+                  <p className="text-[11.5px] font-bold text-red-300 max-w-[320px] text-center">⚠️ {finishError}</p>
                 )}
+                {/* 🚪 The Close-the-Meeting GATE (2026-08-16) — the one and
+                    only way the night ends. Big and fun on purpose: the
+                    kids should SEE the moment coming. */}
                 <button
                   type="button"
                   onClick={handleFinish}
                   disabled={!canAdvance || saving || surpriseBusy}
                   title={surpriseBusy ? 'The surprise photo/video is still uploading…' : undefined}
-                  className="h-12 lg:h-14 px-6 lg:px-8 rounded-kaya bg-kaya-gold hover:bg-kaya-gold-dark text-kaya-chocolate font-display font-extrabold text-sm lg:text-base transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full max-w-md h-16 lg:h-20 px-6 rounded-2xl bg-gradient-to-r from-kaya-gold via-amber-300 to-kaya-gold hover:from-kaya-gold-dark hover:to-kaya-gold-dark text-kaya-chocolate font-display font-black text-lg lg:text-2xl tracking-tight shadow-lg shadow-kaya-gold/30 transition-all hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {surpriseBusy ? '📸 Uploading…' : saving ? 'Saving…' : finishError ? '↻ Try Finish again' : '✅ Finish meeting'}
+                  {surpriseBusy ? '📸 Uploading…' : saving ? '✨ Saving our night…' : finishError ? '↻ Try the gate again' : (
+                    <span className="inline-flex items-center gap-2.5">
+                      <span className="animate-bounce">🚪</span> Close our Meeting! <span className="animate-bounce">🎉</span>
+                    </span>
+                  )}
                 </button>
+                <p className="text-[10.5px] text-white/50 text-center">
+                  📨 Minutes fly to everyone the moment we close{autoCloseMin > 0 ? ` · forgot us? Kaya closes it in ~${autoCloseMin} min ⏳` : ''}
+                </p>
               </div>
             )}
           </div>
@@ -1698,11 +1727,12 @@ export default function MeetingPresenterPage() {
           familyName={family?.name || 'our family'}
           onClose={() => setPrayerOnStage(null)}
           onCelebrateAndFinish={() => {
-            // Celebrate (flowers ran on stage), then close the stage
-            // and finish the meeting — flow lands on the Kaya Kaya
-            // celebration screen with fireworks + flowers + sparkles.
+            // 🚪 2026-08-16 fix: celebrating the prayer used to FINISH the
+            // meeting ~3.5s later — cutting the Sunday Surprise short and
+            // auto-closing the night. Now it closes the stage and moves
+            // to the next step; the meeting closes ONLY via the big gate.
             setPrayerOnStage(null);
-            handleFinish();
+            if (!isLastStep) setStepIdx(safeStepIdx + 1);
           }}
         />
       )}
