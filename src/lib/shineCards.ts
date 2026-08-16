@@ -98,6 +98,8 @@ export const emailShineCard = (familyId: string, cardId: string, imageUrl: strin
   recognitionApi<{ ok: true; count: number }>('card-email', { familyId, cardId, imageUrl });
 export const deleteShineCard = (familyId: string, cardId: string) =>
   recognitionApi('card-delete', { familyId, cardId });
+export const setShineCardGift = (familyId: string, cardId: string, gift: string, giftMeta: NonNullable<ShineCard['giftMeta']>) =>
+  recognitionApi('card-gift', { familyId, cardId, gift, giftMeta });
 export const getRound = (familyId: string, date: string) =>
   recognitionApi<{ ok: true; round: RecognitionRound | null }>('round-get', { familyId, date })
     .then((r) => r.round);
