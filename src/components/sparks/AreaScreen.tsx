@@ -33,6 +33,8 @@ export const AREA_HEAD_BG: Record<AnyArea, string> = {
   reflection:          'linear-gradient(135deg, #5AB7D6 0%, #8E7BE0 100%)',
   // Diary — deep plum→rose "personal book" identity (Slice 8).
   diary:               'linear-gradient(135deg, #7A2E5C 0%, #C05299 100%)',
+  // Treasures — jade → mint "things you keep" identity (2026-08-16).
+  treasure:            'linear-gradient(135deg, #0E6B5E 0%, #3FA38F 100%)',
 };
 
 export const AREA_HEAD_FG: Record<AnyArea, string> = {
@@ -45,6 +47,7 @@ export const AREA_HEAD_FG: Record<AnyArea, string> = {
   revision:       '#fff',
   reflection:     '#fff',
   diary:          '#fff',
+  treasure:       '#fff',
 };
 
 interface Props {

@@ -23,7 +23,8 @@ export type SparksArea =
   | 'revision'
   | 'reflection'
   | 'diary'
-  | 'quest';
+  | 'quest'
+  | 'treasure';
 
 /** Areas that map to a row in `sparks_items`. Academic records have
  *  their own collection, so they're absent here. Revisions ride the
@@ -31,13 +32,14 @@ export type SparksArea =
  *  Reflection has its own daily collection too (see reflection.ts).
  *  Diary (Slice 8 · 2026-07-21) lives in `sparks_diary`, read/written
  *  ONLY through the Admin-API gateway — never client-direct. */
-export type SparksItemArea = Exclude<SparksArea, 'academic' | 'reflection' | 'diary' | 'quest'>;
+export type SparksItemArea =
+  Exclude<SparksArea, 'academic' | 'reflection' | 'diary' | 'quest' | 'treasure'>;
 
 /** Areas whose data lives OUTSIDE `sparks_items` — each owns a
  *  collection (and, for diary + quest, an Admin-API gateway). Kept as a
  *  named alias so the presentation maps that must cover *every* area
  *  (head gradients, tile accents) read honestly. */
-export type SparksNonItemArea = 'academic' | 'reflection' | 'diary' | 'quest';
+export type SparksNonItemArea = 'academic' | 'reflection' | 'diary' | 'quest' | 'treasure';
 
 /** Order + presentation metadata for the 5 area cards on the kid's
  *  Sparks home. The dashboard + setup pages also import this so labels
@@ -49,8 +51,16 @@ export const SPARKS_AREA_META: Record<SparksArea, {
   emoji: string;
   description: string;
   /** Sub-path under `/sparks/[kidId]/` for the area's list page. */
-  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection' | 'diary' | 'quests';
+  path: 'school-projects' | 'home-projects' | 'achievements' | 'academic' | 'sports' | 'revisions' | 'reflection' | 'diary' | 'quests' | 'treasures';
 }> = {
+  treasure: {
+    key: 'treasure',
+    label: 'Treasures',
+    shortLabel: 'Treasures',
+    emoji: '💎',
+    description: 'The things you own and look after · who gave them · a 30-second Keeper Check so nothing gets lost.',
+    path: 'treasures',
+  },
   quest: {
     key: 'quest',
     label: 'Quests',
@@ -134,6 +144,7 @@ export const SPARKS_AREA_ORDER: SparksArea[] = [
   'reflection',
   'diary',
   'achievement',
+  'treasure',
   'academic',
   'sports_subscription',
 ];

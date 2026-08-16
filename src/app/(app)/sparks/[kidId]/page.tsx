@@ -43,6 +43,7 @@ import {
 import { subscribeToReflections, computeReflectionStreak } from '@/lib/sparks/reflection';
 import { subscribeToDiary, computeDiaryStats } from '@/lib/sparks/diary';
 import { subscribeToQuests, activeCount } from '@/lib/sparks/quests';
+import { subscribeToTreasures, liveTreasures } from '@/lib/sparks/treasures';
 import SparksTodayCard from '@/components/sparks/SparksTodayCard';
 
 // B5 · the areas were eight equal-weight tiles, so a daily habit and a
@@ -63,6 +64,7 @@ const AREA_ACCENT: Record<SparksArea, { bg: string; fg: string }> = {
   revision:            { bg: '#E0D7FF', fg: '#1B1547' }, // bg-deep-purple (study vibe)
   reflection:          { bg: '#DCEEFB', fg: '#3F6FA0' }, // bg-sky (calm mirror vibe)
   diary:               { bg: '#F9E4F1', fg: '#7A2E5C' }, // bg-rose (personal book · Slice 8)
+  treasure:            { bg: '#E2F3EE', fg: '#0E6B5E' }, // bg-jade (things you keep · 2026-08-16)
 };
 
 // Short single-line subtitles for the row cards — punchier than the
@@ -77,6 +79,7 @@ const AREA_SUB: Record<SparksArea, string> = {
   revision:            'Practice · AI scores + suggests',
   reflection:          'Daily · scan + AI feedback',
   diary:               'Personal · feelings & stories',
+  treasure:            'Your things · who gave them',
 };
 
 export default function KidSparksHomePage() {
@@ -122,6 +125,8 @@ export default function KidSparksHomePage() {
   const [diaryPages, setDiaryPages] = useState<number | null>(null);
   // Quests tile chip — how many quests are running right now (max 2 · D14).
   const [questsActive, setQuestsActive] = useState<number | null>(null);
+  // Treasures tile chip — live things they look after (💎 · 2026-08-16).
+  const [treasuresLive, setTreasuresLive] = useState<number | null>(null);
   // AI Auto-File (Scanning 3.0): scan a doc → Kaya classifies + files it.
   const [autofileOpen, setAutofileOpen] = useState(false);
   const [autofileFiles, setAutofileFiles] = useState<File[] | null>(null);
@@ -146,6 +151,12 @@ export default function KidSparksHomePage() {
     if (!familyId || !kidId) { setQuestsActive(null); return; }
     return subscribeToQuests(familyId, kidId, (qs) => setQuestsActive(activeCount(qs)));
   }, [familyId, kidId]);
+  // Treasures tile chip — how many things they're looking after right
+  // now. Ended treasures live on the Memory Shelf and aren't counted.
+  useEffect(() => {
+    if (!familyId || !kidId) { setTreasuresLive(null); return; }
+    return subscribeToTreasures(familyId, kidId, (ts) => setTreasuresLive(liveTreasures(ts).length));
+  }, [familyId, kidId]);
   useEffect(() => {
     if (!familyId || !kidId) { setAcademicCount(null); return; }
     let cancelled = false;
@@ -161,6 +172,7 @@ export default function KidSparksHomePage() {
     if (area === 'reflection') return reflectionStreak;
     if (area === 'diary') return diaryPages;
     if (area === 'quest') return questsActive;
+    if (area === 'treasure') return treasuresLive;
     return itemCounts[area];
   }
   function chipFor(area: SparksArea): string {
