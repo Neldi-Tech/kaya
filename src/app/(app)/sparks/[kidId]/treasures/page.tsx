@@ -16,6 +16,7 @@ import { toDisplayDate } from '@/lib/dates';
 import { useFamily } from '@/contexts/FamilyContext';
 import AreaScreen, { AddItemButton, AreaEmptyState } from '@/components/sparks/AreaScreen';
 import AddTreasureWizard from '@/components/sparks/AddTreasureWizard';
+import { openModuleGuide } from '@/lib/moduleGuides';
 import {
   subscribeToTreasures, computeCareScore, liveTreasures, memoryShelf,
   missingItems, lentItems, giverLine, daysBetween, todayIso,
@@ -84,6 +85,17 @@ export default function TreasuresAreaPage() {
         subtitle={subtitle}
         action={<AddItemButton onClick={() => setWizardOpen(true)} label="+ Add a treasure" />}
       >
+        {/* ▶ The instruction manual. The pieces on screen never explain
+            the ORDER they go in, which is the part that actually
+            confuses a new family. */}
+        <button
+          type="button"
+          onClick={() => openModuleGuide('treasures')}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#BFE3D8] bg-[#F1FAF7] text-[#0E6B5E] text-[11.5px] font-extrabold mb-3"
+        >
+          ▶ How Treasures works
+        </button>
+
         {list === null && (
           <div className="text-[13px] text-[#5A6488] py-6 text-center">Loading treasures…</div>
         )}
@@ -208,6 +220,33 @@ export default function TreasuresAreaPage() {
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5 mt-3">
               {live.map((t) => <TreasureCard key={t.id} t={t} kidId={kidId} />)}
             </div>
+
+            {/* 🧳 Trip Mode (pathway 6) — the highest-practical-value
+                idea in the whole module, because it prevents loss
+                instead of recording it. Going somewhere? Here is the
+                list, and the question that matters is the one on the
+                way BACK. */}
+            {live.some((t) => t.travels) && (
+              <div className="rounded-[13px] border border-[#DFE3FB] bg-[#F7F9FF] p-3 mt-3">
+                <div className="font-display font-extrabold text-[12px] text-[#3B2E86]">
+                  🧳 Travels with you · {live.filter((t) => t.travels).length}
+                </div>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {live.filter((t) => t.travels).map((t) => (
+                    <span
+                      key={t.id}
+                      className="text-[11px] font-extrabold px-2.5 py-1 rounded-full bg-white border border-[#C9D2F5] text-[#3B2E86]"
+                    >
+                      {t.emoji} {t.name}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-[10.5px] font-bold text-[#5B6B8C] mt-2 m-0 leading-snug">
+                  Pack these when you go away — then run a Keeper Check the day you get back, while
+                  you can still remember where you left things.
+                </p>
+              </div>
+            )}
 
             {/* The two rails that actually prevent loss (D10 · D11). */}
             <div className="flex flex-wrap gap-2 mt-4">
