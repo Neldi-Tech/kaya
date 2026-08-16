@@ -638,18 +638,42 @@ export default function MeetingPresenterPage() {
     ...householdParents.map((p) => ({ id: p.uid, name: p.name, emoji: p.avatarEmoji || '👤', kind: 'parent' as const })),
   ], [children, householdParents]);
 
-  // 🔥 Surprise 1 — "Most Prepared" crown. Whoever filled the most of
-  // their 3 prep sections this cycle wears 👑 in the opener. Pure
-  // celebration of the behaviour we want (filling ahead). Ties → the
-  // earliest in the roster; nobody crowned if no one filled anything.
+  // 👑 "Most Prepared" crown — FAIR edition (approved 2026-08-10 · R2-1).
+  // The old crown counted sections touched (0–3) and broke ties by
+  // roster order — kids first, so the same kid won every week. Now:
+  //   score      = LINES filled, up to 3 per section (0–9)
+  //   tie-break  = who finished (updatedAt) EARLIEST
+  //   still tied = SHARED crown — every tied name wears it
+  // Nobody crowned when nothing was filled. The chip says the why.
   const mostPrepared = useMemo(() => {
-    let best: { name: string; emoji: string; count: number } | null = null;
+    type Cand = { name: string; emoji: string; lines: number; at: number };
+    const cands: Cand[] = [];
     for (const m of prepRoster) {
       const s = submissions.find((x) => (m.kind === 'kid' ? x.childId === m.id : x.uid === m.id));
-      const count = s ? [s.gratitudes, s.appreciations, s.goals].filter((a) => (a || []).some(Boolean)).length : 0;
-      if (count > 0 && (!best || count > best.count)) best = { name: m.name, emoji: m.emoji, count };
+      if (!s) continue;
+      const lines = [s.gratitudes, s.appreciations, s.goals]
+        .reduce((n, a) => n + (a || []).filter((l) => (l || '').trim()).slice(0, 3).length, 0);
+      if (lines > 0) cands.push({ name: m.name, emoji: m.emoji, lines, at: s.updatedAt || Number.MAX_SAFE_INTEGER });
     }
-    return best;
+    if (cands.length === 0) return null;
+    const topLines = Math.max(...cands.map((c) => c.lines));
+    const top = cands.filter((c) => c.lines === topLines);
+    const earliest = Math.min(...top.map((c) => c.at));
+    // 6h grace: finishing the same stretch counts as together — shared crown.
+    const winners = top.filter((c) => c.at <= earliest + 6 * 3600_000);
+    const readyLabel = (() => {
+      if (earliest === Number.MAX_SAFE_INTEGER) return null;
+      const d = new Date(earliest);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const diff = Math.round((today.getTime() - new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()) / 864e5);
+      return diff >= 2 ? `ready ${diff} days early` : diff === 1 ? 'ready yesterday' : 'ready today';
+    })();
+    return {
+      names: winners.map((w) => `${w.emoji} ${w.name.split(' ')[0]}`).join(' + '),
+      shared: winners.length > 1,
+      lines: topLines,
+      readyLabel,
+    };
   }, [prepRoster, submissions]);
 
   // Family Time Capsule — Sunday-Meeting v2 (b7). Sealed notes from
@@ -1713,7 +1737,7 @@ function OpenStep({
                // name (both optional with safe fallbacks).
   leaderName?: string;
   leaderEmoji?: string;
-  mostPrepared?: { name: string; emoji: string; count: number } | null;
+  mostPrepared?: { names: string; shared: boolean; lines: number; readyLabel: string | null } | null;
   onContinue: () => void;
 }) {
   const sch = family?.meetingSetup?.schedule;
@@ -1795,13 +1819,17 @@ function OpenStep({
           </div>
         )}
 
-        {/* 👑 Surprise 1 — Most Prepared crown (whoever filled the most
-            prep this cycle). Pure celebration of filling ahead. */}
+        {/* 👑 Most Prepared crown — fair edition (R2-1): the chip carries
+            the WHY, and the line below tells everyone how to win it. */}
         {mostPrepared && (
           <div className="mt-3">
             <span className="inline-flex items-center gap-1.5 bg-kaya-gold/20 border border-kaya-gold-light/40 rounded-full px-3 py-1 text-kaya-gold-light text-[11px] lg:text-xs font-extrabold">
-              👑 Most Prepared · {mostPrepared.emoji} {mostPrepared.name}
+              👑 Most Prepared · {mostPrepared.names}
+              <span className="opacity-80 font-bold">— {mostPrepared.lines}/9 lines{mostPrepared.readyLabel ? ` · ${mostPrepared.readyLabel}` : ''}{mostPrepared.shared ? ' · shared crown 🤝' : ''}</span>
             </span>
+            <p className="text-[10.5px] text-white/50 mt-1.5 max-w-md mx-auto leading-relaxed">
+              How it&apos;s won: up to 3 lines in each of Gratitude · Appreciations · Goals (9 total) — fullest prep wins, earliest finisher breaks ties. New race every week.
+            </p>
           </div>
         )}
 

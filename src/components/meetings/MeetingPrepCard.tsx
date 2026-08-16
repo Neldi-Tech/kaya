@@ -297,6 +297,11 @@ export default function MeetingPrepCard({
             <p className="text-[12.5px] font-extrabold text-[#2D1B5E] leading-snug">
               Share what&apos;s on your heart — add up to 3 each · {filledCount}/3 sections
             </p>
+            {/* 👑 R2-1 — the crown's rules, visible to every member so the
+                race is transparent (the kids asked why one name kept winning). */}
+            <p className="text-[10.5px] text-kaya-gold-dark font-bold mt-1">
+              👑 Most Prepared crown: up to 3 lines in each section (9 total) — fullest prep wins, earliest finisher breaks ties. New race every week.
+            </p>
           </div>
           <ChevronRight
             size={18}
